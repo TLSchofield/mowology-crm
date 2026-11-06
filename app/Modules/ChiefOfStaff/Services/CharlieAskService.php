@@ -293,16 +293,23 @@ TXT;
         $docs = array_values(array_filter($terms, fn($t) => self::isDocNumber($t)));
         $lim = self::ROWS;
 
-        foreach ($names as $t) {
-            $ctx['contacts'] = array_merge($ctx['contacts'], $this->rows(
-                "SELECT id, first_name, last_name, email, phone FROM contacts WHERE first_name LIKE ? OR last_name LIKE ? ORDER BY id DESC LIMIT {$lim}",
-                [$t . '%', $t . '%']));
-            $ctx['companies'] = array_merge($ctx['companies'], $this->rows(
-                "SELECT id, company_name FROM companies WHERE company_name LIKE ? ORDER BY id DESC LIMIT 4", ['%' . $t . '%']));
-            // A bare number is a house number (start of the address); a word can be anywhere in it.
-            $like = preg_match('/^\d+$/', $t) ? $t . ' %' : '%' . $t . '%';
-            $ctx['properties'] = array_merge($ctx['properties'], $this->rows(
-                "SELECT id, address, city FROM properties WHERE address LIKE ? ORDER BY id DESC LIMIT 4", [$like]));
+        foreach ($names as $term) {
+            // "lindas" is how a phone leaves "Linda's": when the word finds nothing, try it without the s (2026-11-05).
+            foreach (self::nameForms($term) as $t) {
+                $contacts = $this->rows(
+                    "SELECT id, first_name, last_name, email, phone FROM contacts WHERE first_name LIKE ? OR last_name LIKE ? ORDER BY id DESC LIMIT {$lim}",
+                    [$t . '%', $t . '%']);
+                $companies = $this->rows(
+                    "SELECT id, company_name FROM companies WHERE company_name LIKE ? ORDER BY id DESC LIMIT 4", ['%' . $t . '%']);
+                // A bare number is a house number (start of the address); a word can be anywhere in it.
+                $like = preg_match('/^\d+$/', $t) ? $t . ' %' : '%' . $t . '%';
+                $properties = $this->rows(
+                    "SELECT id, address, city FROM properties WHERE address LIKE ? ORDER BY id DESC LIMIT 4", [$like]);
+                $ctx['contacts'] = array_merge($ctx['contacts'], $contacts);
+                $ctx['companies'] = array_merge($ctx['companies'], $companies);
+                $ctx['properties'] = array_merge($ctx['properties'], $properties);
+                if ($contacts || $companies || $properties) break;
+            }
         }
         foreach (['contacts', 'companies', 'properties'] as $k) $ctx[$k] = self::uniqueById($ctx[$k], $k === 'contacts' ? 8 : 6);
 
@@ -400,6 +407,18 @@ TXT;
         }
         $words = array_values($caps ?: $all);
         return array_slice(array_merge(array_values(array_unique($docs)), $words), 0, self::MAX_TERMS);
+    }
+
+    /**
+     * The spellings to look a name up by, in order: as typed, then without a trailing s ("lindas" → "linda") for a
+     * word of 4+ letters. Numbers and short words are looked up as typed only.
+     * @return string[]
+     */
+    public static function nameForms(string $t): array
+    {
+        $forms = [$t];
+        if (mb_strlen($t) >= 4 && preg_match('/^\p{L}+s$/iu', $t) && !preg_match('/ss$/iu', $t)) $forms[] = mb_substr($t, 0, -1);
+        return $forms;
     }
 
     public static function isDocNumber(string $t): bool
