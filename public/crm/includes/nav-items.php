@@ -150,6 +150,7 @@ if (!function_exists('mwIttaiNavBlocks')) {
             ['users', 'Users & Roles', 'user-plus', '/crm/users_appstack.php', $can('users.manage')],
             ['settings', 'Settings', 'settings', '/crm/settings.php', $can('settings.edit')],
             ['system-health', 'System Health', 'activity', '/crm/ada_appstack.php', $admin],
+            ['agents', 'Agent Studio', 'users', '/crm/agents_appstack.php', $admin],
             ['system-log', 'System Log', 'alert-circle', '/crm/system-log_appstack.php', $admin],
         ] as [$k, $l, $i, $h, $ok]) {
             if ($ok) $groups['ada'][] = ['key' => $k, 'label' => $l, 'icon' => $i, 'href' => $h];
