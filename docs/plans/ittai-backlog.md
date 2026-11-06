@@ -8,8 +8,13 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
-## Service word pools + Sam's three steps on requests (Sam, all trades) — Tim 2026-11-05
+## Word pools + recognise → suggest → confirm → learn, for every head (all trades) — Tim 2026-11-05
 Goal (Tim): a system that improves with every tenant, and slowly for Mowology alone if nobody buys it.
+**All heads, one engine on `HeadLessons` (migration 1348)** — each head plugs in its vocabulary: Sam services,
+Yui topics (today `InboundTopicClassifier` + `InboundRouteService` "Move to…"), Penny categories/accounts (today
+`PennyLessons`, `BankRuleLearning`; receipts "read without AI" 0%), Mia photo tags (AI every time, ~25% failing),
+Otto issue kinds. Order: Sam first (the case below), then Yui routing, Penny receipts, Mia tags; each measured on
+Agent Studio › Progress (right first time, AI requests down). Sam's part:
 - **Word pool per service, as data:** each service on a business's books carries its phrases ("fall cleanup",
   "leaf removal"); phrases weigh more than single words; negative words (fell, injury). Replaces the hard-coded,
   landscaping-only `EmailLeadService::SERVICES` list.
