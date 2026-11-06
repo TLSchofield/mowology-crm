@@ -104,7 +104,7 @@ class UniversalSearchService
     /** Words that filter by state ("overdue", "draft quotes"), mapped to a state key. */
     private const STATE_WORDS = [
         'unpaid' => 'unpaid', 'owing' => 'unpaid', 'owes' => 'unpaid', 'overdue' => 'overdue',
-        'draft' => 'draft', 'drafts' => 'draft', 'open' => 'open', 'accepted' => 'accepted', 'won' => 'accepted',
+        'draft' => 'draft', 'drafts' => 'draft', 'open' => 'open', 'accepted' => 'accepted',
     ];
 
     /**
@@ -367,6 +367,8 @@ class UniversalSearchService
             if ($overdue || in_array('unpaid', $state, true) || in_array('open', $state, true)) {
                 $conds[] = "i.balance_due > 0 AND i.status NOT IN ('draft','cancelled')";
                 if ($overdue) { $conds[] = 'i.due_date < ?'; $p[] = $this->today(); }
+            } elseif (in_array('draft', $state, true)) {
+                $conds[] = "i.status = 'draft'";   // "draft invoices"
             }
             $conds[] = $this->where(['i.invoice_number','i.bill_to_name','c.first_name','c.last_name','i.service_address'], $tokens, $p);
             $order = $overdue ? 'i.due_date ASC, i.id ASC' : 'i.created_at DESC';

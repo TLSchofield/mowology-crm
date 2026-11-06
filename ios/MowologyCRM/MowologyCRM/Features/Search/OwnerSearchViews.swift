@@ -269,6 +269,9 @@ final class OwnerSearchModel: ObservableObject {
     private var lastScope: OwnerSearchScope?
     /// A query that found nothing: the next pick is remembered for it too ("what did you mean?").
     @Published private(set) var missedQuery: String?
+    private var missedAt = Date.distantPast
+    /// A miss is only learned from a pick soon after it — an abandoned search must not teach a later, unrelated pick.
+    private static let missWindow: TimeInterval = 120
 
     init(authSession: AuthSession) {
         apiClient = APIClient(authSession: authSession)
@@ -301,7 +304,7 @@ final class OwnerSearchModel: ObservableObject {
             groups = scope == nil ? r.groups.filter { $0.key != "properties" } : r.groups
             answer = r.answer
             failed = nil
-            if scope == nil, q.count >= 2, !hasResults { missedQuery = q }
+            if scope == nil, q.count >= 2, !hasResults { missedQuery = q; missedAt = Date() }
         } catch {
             guard !Task.isCancelled, q == lastQuery, scope == lastScope else { return }
             groups = []; answer = nil
@@ -316,7 +319,8 @@ final class OwnerSearchModel: ObservableObject {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard id > 0 else { return }
         var queries = q.count >= 2 ? [q] : []
-        if let missed = missedQuery, missed.lowercased() != q.lowercased() { queries.append(missed) }
+        if let missed = missedQuery, missed.lowercased() != q.lowercased(),
+           Date().timeIntervalSince(missedAt) <= Self.missWindow { queries.append(missed) }
         missedQuery = nil
         let client = apiClient
         for each in queries {
@@ -665,22 +669,32 @@ final class VoiceSearch: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var stopTimer: Task<Void, Never>?
+    /// True from the tap until listening starts or fails: a second tap meanwhile cancels instead of starting twice.
+    private var isStarting = false
+    /// Each listening session's number; callbacks from an older session are ignored.
+    private var session = 0
 
     func toggle(onText: @escaping (String) -> Void) {
-        if isListening { stop(); return }
+        if isListening || isStarting { stop(); return }
         error = nil
-        Task { await start(onText: onText) }
+        isStarting = true
+        session += 1
+        let mine = session
+        Task { await start(onText: onText, session: mine) }
     }
 
-    private func start(onText: @escaping (String) -> Void) async {
+    private func start(onText: @escaping (String) -> Void, session mine: Int) async {
+        defer { if mine == session { isStarting = false } }
         let speech = await withCheckedContinuation { (c: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
             SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
         }
+        guard mine == session else { return }   // stopped while the permission sheet was up
         guard speech == .authorized else {
             error = "Speech recognition is off for this app (status \(speech.rawValue)). Settings › Ittai › Speech Recognition."
             return
         }
         let mic = await AVAudioApplication.requestRecordPermission()
+        guard mine == session else { return }
         guard mic else {
             error = "The microphone is off for this app. Settings › Ittai › Microphone."
             return
@@ -713,7 +727,7 @@ final class VoiceSearch: ObservableObject {
                 let final = result?.isFinal ?? false
                 let message = err.map { ErrorDetails.describe($0) }
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self, mine == self.session else { return }
                     if let text, !text.isEmpty { onText(text) }
                     if final { self.stop() }
                     else if let message, self.isListening {
@@ -727,8 +741,8 @@ final class VoiceSearch: ObservableObject {
             // A search is a few words: stop after 8 seconds if the speaker hasn't paused into a final result.
             stopTimer = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
-                guard !Task.isCancelled else { return }
-                self?.stop()
+                guard !Task.isCancelled, let self, mine == self.session else { return }
+                self.stop()
             }
         } catch {
             self.error = ErrorDetails.describe(error)
@@ -738,12 +752,16 @@ final class VoiceSearch: ObservableObject {
     }
 
     func stop() {
+        session += 1          // anything still in flight from the old session is ignored
+        isStarting = false
         stopTimer?.cancel(); stopTimer = nil
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio(); request = nil
         task?.finish(); task = nil
         isListening = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let audio = AVAudioSession.sharedInstance()
+        try? audio.setActive(false, options: .notifyOthersOnDeactivation)
+        try? audio.setCategory(.soloAmbient)   // the app's default again, so later sounds play normally
     }
 }
