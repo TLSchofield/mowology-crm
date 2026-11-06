@@ -14,7 +14,14 @@ Goal (Tim): a system that improves with every tenant, and slowly for Mowology al
 Yui topics (today `InboundTopicClassifier` + `InboundRouteService` "Move to…"), Penny categories/accounts (today
 `PennyLessons`, `BankRuleLearning`; receipts "read without AI" 0%), Mia photo tags (AI every time, ~25% failing),
 Otto issue kinds. Order: Sam first (the case below), then Yui routing, Penny receipts, Mia tags; each measured on
-Agent Studio › Progress (right first time, AI requests down). Sam's part:
+Agent Studio › Progress (right first time, AI requests down). **Revised after ChatGPT's review
+(`docs/plans/2026-11-05-head-learning-engine-review-verdict.md`):** the loop is Recognise → Remember → Prepare →
+Approve → Learn; first deliverable is Sam's whole fall-cleanup draft quote (business memory: the property's last
+same-service job, price as a dated precedent), plus only the shared pieces it needs: proposal + per-field outcome
+log (HeadLessons records corrections only), evidence + source on each proposal, negation check, coverage metric.
+Autonomy stays in `AgentPolicy`. Cross-business promotion: design now, build at 3–5 businesses. Mia's failures are a
+bug to fix first. Penny's part builds on `claude/penny-line-items` (three no-AI line-item paths, `LineItemFit`).
+Sam's part (original):
 - **Word pool per service, as data:** each service on a business's books carries its phrases ("fall cleanup",
   "leaf removal"); phrases weigh more than single words; negative words (fell, injury). Replaces the hard-coded,
   landscaping-only `EmailLeadService::SERVICES` list.
