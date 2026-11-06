@@ -390,13 +390,10 @@ struct PennyCardView: View {
         let rows = compared   // every compared fact, auth number included (Tim, 2026-11-06: "auth should be in the table")
         let info = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
         return VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            if vm.dupes.count > 1 {
+                dupePager
+            } else {
                 Text(members.count > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
-                if vm.dupes.count > 1 {
-                    badge("\(vm.dupeIndex + 1) of \(vm.dupes.count)", color: appStyle.meta)
-                        .accessibilityLabel("Group \(vm.dupeIndex + 1) of \(vm.dupes.count). Swipe for the others.")
-                }
-                Spacer()
             }
 
             // 1. Penny's verdict, large, and how sure she is with this vendor.
@@ -458,7 +455,7 @@ struct PennyCardView: View {
 
                 undoOrMessage
             }
-            .padding(10)
+            .padding(8)
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
             .background(alignment: .top) {
@@ -470,6 +467,38 @@ struct PennyCardView: View {
                         .frame(maxWidth: .infinity)
                         .accessibilityHidden(true)
                 }
+            }
+        }
+    }
+
+    /// Which group, as numbered circles on a horizontal line (Tim, 2026-11-06: "this is Kaname at work"): each number in a
+    /// Kaname-style ring with a page-coloured gap, the current one filled indigo. Tap a number to go to that group.
+    private var dupePager: some View {
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(vm.dupes.indices, id: \.self) { i in
+                    let on = i == vm.dupeIndex
+                    Button {
+                        withAnimation(.easeOut(duration: 0.22)) { vm.showDupe(i) }
+                    } label: {
+                        ZStack {
+                            Circle().fill(appStyle.page).frame(width: 30, height: 30)
+                            Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 28, height: 28)
+                            Circle().fill(on ? indigo : appStyle.page).frame(width: 22, height: 22)
+                            Text("\(i + 1)")
+                                .font(appStyle.font(.footnote, weight: .bold))
+                                .foregroundStyle(on ? Color.white : appStyle.meta)
+                        }
+                        .frame(width: 38, height: 44)          // nine fit across a phone; a full-height touch target
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Group \(i + 1) of \(vm.dupes.count)\(on ? ", showing" : "")")
+                }
+            }
+            .background(alignment: .center) {
+                Rectangle().fill(appStyle.line).frame(height: 1).accessibilityHidden(true)
             }
         }
     }
@@ -524,7 +553,7 @@ struct PennyCardView: View {
     /// The facts side by side. A row that matches shows only the values, with a filled indigo check between them
     /// (Tim, 2026-11-06); a row that differs or wasn't read keeps its label, and a difference is highlighted.
     private func factsTable(_ rows: [BKDupeFactRow], members: [BKDupeMember], keep: Int) -> some View {
-        let gap: CGFloat = 40
+        let gap: CGFloat = 46   // the values sit a few points clear of the tick's ring
         let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
         let n = members.count
         return VStack(spacing: 0) {
@@ -548,10 +577,10 @@ struct PennyCardView: View {
                                     // Like the Kaname button: the centre line stops short, a page-coloured gap, then a thin
                                     // ring of the same weight around the filled tick.
                                     ZStack {
-                                        Circle().fill(appStyle.page).frame(width: 30, height: 30)
-                                        Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 28, height: 28)
+                                        Circle().fill(appStyle.page).frame(width: 27, height: 27)
+                                        Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 25, height: 25)
                                         Image(systemName: "checkmark.circle.fill")
-                                            .font(appStyle.font(size: 18, weight: .semibold))
+                                            .font(appStyle.font(size: 16, weight: .semibold))
                                             .foregroundStyle(indigo)
                                     }
                                     .accessibilityHidden(true)
@@ -629,7 +658,7 @@ struct PennyCardView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 112)
+            .frame(height: 96)
             .background(appStyle.sunk)
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(kept ? appStyle.tenant : Color.clear, lineWidth: 2))
@@ -766,7 +795,8 @@ struct PennyDupeDemo: View {
         func loadQueue() async throws -> BookkeeperQueueResponse {
             let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Southlands Nursery","Southlands Nursery"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
             let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
-            let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell : shell + "," + champ
+            let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell
+                : variant == "nine" ? ([shell] + Array(repeating: champ, count: 8)).joined(separator: ",") : shell + "," + champ
             let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"dupes":["# + groups + "]}"
             return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
         }

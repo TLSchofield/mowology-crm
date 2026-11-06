@@ -41,6 +41,7 @@ final class PennyCardViewModel: ObservableObject {
     @Published private(set) var dupeSwipeForward = true
     var currentDupe: BKDupeGroup? { dupes.isEmpty ? nil : dupes[min(dupeIndex, dupes.count - 1)] }
     func nextDupe() { guard dupes.count > 1 else { return }; dupeSwipeForward = true; dupeIndex = (dupeIndex + 1) % dupes.count }
+    func showDupe(_ i: Int) { guard dupes.indices.contains(i), i != dupeIndex else { return }; dupeSwipeForward = i > dupeIndex; dupeIndex = i }
     func previousDupe() { guard dupes.count > 1 else { return }; dupeSwipeForward = false; dupeIndex = (dupeIndex - 1 + dupes.count) % dupes.count }
 
     /// "Keep the other instead": the receipt chosen to stay, per group id (else Penny's pick).
