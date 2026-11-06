@@ -335,6 +335,10 @@ Never on forwarded, split or product-linked receipts; money fields never change.
 re-checks its rule on a locked snapshot (`ExpenseGate` `locked_if`). Replay on 406 receipts:
 43% → 55% adding up. Because auto-applied Penny items carry `penny`, approving the receipt
 still teaches the reader the vendor's layout (`teachReaderFromPenny`).
+Codex review (2026-11-05, deployed): Penny's auto-apply compares the stored lines' name, quantity, unit price and
+total (`BookkeeperDeskService::lineFingerprint`, from `ExpenseGate`'s locked snapshot), so a person's edit to an
+existing line is never overwritten; `LineItemFit::addsUp` fails a set with any non-numeric line amount. Live dry run
+that day: Penny's path would fill 25 receipts (37 skipped as not adding up); the re-read path 34 of 119 (admin-run only).
 
 Both review cards (web mobile + iOS) let the user rename / mark "not an item" / add a
 missed item before saving; the desktop review panel does the same inline. After save,
