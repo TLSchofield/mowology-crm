@@ -12,6 +12,8 @@
 //
 
 import SwiftUI
+import Speech
+import AVFoundation
 
 // MARK: - Models
 
@@ -22,10 +24,13 @@ struct QuickAction: Decodable, Hashable, Identifiable {
     let url: String?
     let phone: String?
     let email: String?
+    /// Nudge / reminder: the message is written for the owner, who sends it from their own Messages or Mail.
+    let subject: String?
+    let body: String?
 
     var id: String { kind + label + (url ?? phone ?? email ?? "") }
 
-    private enum CodingKeys: String, CodingKey { case kind, label, url, phone, email }
+    private enum CodingKeys: String, CodingKey { case kind, label, url, phone, email, subject, body }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -34,10 +39,13 @@ struct QuickAction: Decodable, Hashable, Identifiable {
         url   = c.bkString(.url)
         phone = c.bkString(.phone)
         email = c.bkString(.email)
+        subject = c.bkString(.subject)
+        body = c.bkString(.body)
     }
 
     init(kind: String, label: String, url: String? = nil, phone: String? = nil, email: String? = nil) {
         self.kind = kind; self.label = label; self.url = url; self.phone = phone; self.email = email
+        self.subject = nil; self.body = nil
     }
 
     var icon: String {
@@ -54,15 +62,32 @@ struct QuickAction: Decodable, Hashable, Identifiable {
         case "call", "text":
             let digits = (phone ?? "").filter { $0.isNumber || $0 == "+" }
             guard digits.count >= 7 else { return nil }
+            if kind == "text", let body = Self.encoded(body) { return URL(string: "sms:\(digits)&body=\(body)") }
             return URL(string: (kind == "call" ? "tel:" : "sms:") + digits)
         case "email":
             guard let email, email.contains("@"),
                   let encoded = email.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) else { return nil }
-            return URL(string: "mailto:" + encoded)
+            let query = [Self.encoded(subject).map { "subject=\($0)" }, Self.encoded(body).map { "body=\($0)" }].compactMap { $0 }
+            return URL(string: "mailto:" + encoded + (query.isEmpty ? "" : "?" + query.joined(separator: "&")))
         default:
             return url.flatMap(HeadCardViewModel.webURL)
         }
     }
+
+    /// Strict encoding for a URL query value (spaces, &, =, ? and line breaks all escaped).
+    private static func encoded(_ text: String?) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return text.addingPercentEncoding(withAllowedCharacters: allowed)
+    }
+}
+
+/// The "Linda ×" chip in the search box: everything after it is about that one client.
+struct OwnerSearchScope: Identifiable, Hashable {
+    let kind: String   // contact | company
+    let id: Int
+    let name: String
 }
 
 struct QuickAnswer: Decodable {
@@ -124,6 +149,7 @@ struct OwnerSearchItem: Decodable, Hashable, Identifiable {
         case "vendor":   return "shippingbox"
         case "message":  return "envelope"
         case "team":     return "person.2.fill"
+        case "learned":  return "star.fill"
         default:         return "magnifyingglass"
         }
     }
@@ -240,16 +266,20 @@ final class OwnerSearchModel: ObservableObject {
     let apiClient: APIClient
     private var task: Task<Void, Never>?
     private var lastQuery = ""
+    private var lastScope: OwnerSearchScope?
+    /// A query that found nothing: the next pick is remembered for it too ("what did you mean?").
+    @Published private(set) var missedQuery: String?
 
     init(authSession: AuthSession) {
         apiClient = APIClient(authSession: authSession)
     }
 
     /// Same debounce as the property search, so both requests leave together.
-    func queryChanged(_ q: String) {
+    func queryChanged(_ q: String, scope: OwnerSearchScope? = nil) {
         task?.cancel()
         lastQuery = q
-        guard q.count >= 2 else {
+        lastScope = scope
+        guard q.count >= 2 || scope != nil else {
             groups = []; answer = nil; failed = nil; isSearching = false
             return
         }
@@ -257,20 +287,23 @@ final class OwnerSearchModel: ObservableObject {
         task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            await self?.run(q)
+            await self?.run(q, scope: scope)
         }
     }
 
-    private func run(_ q: String) async {
+    private func run(_ q: String, scope: OwnerSearchScope?) async {
         do {
-            let r: OwnerSearchResponse = try await apiClient.request(.ownerSearch(query: q))
-            guard !Task.isCancelled, q == lastQuery else { return }
-            // Properties come from the field search (today's stops first, nearest, the property page).
-            groups = r.groups.filter { $0.key != "properties" }
+            let r: OwnerSearchResponse = try await apiClient.request(
+                .ownerSearch(query: q, scopeKind: scope?.kind, scopeId: scope?.id))
+            guard !Task.isCancelled, q == lastQuery, scope == lastScope else { return }
+            // Unscoped, properties come from the field search (today's stops first, nearest, the property page);
+            // narrowed to one client, the server's list of their properties is the one to show.
+            groups = scope == nil ? r.groups.filter { $0.key != "properties" } : r.groups
             answer = r.answer
             failed = nil
+            if scope == nil, q.count >= 2, !hasResults { missedQuery = q }
         } catch {
-            guard !Task.isCancelled, q == lastQuery else { return }
+            guard !Task.isCancelled, q == lastQuery, scope == lastScope else { return }
             groups = []; answer = nil
             failed = ErrorDetails.describe(error)
             AppDiagnostics.shared.record(category: "OwnerSearch", message: ErrorDetails.describe(error))
@@ -281,10 +314,15 @@ final class OwnerSearchModel: ObservableObject {
     /// Learn the pick — fire and forget; a failure only costs the ranking.
     func pick(query: String, kind: String, id: Int) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard q.count >= 2, id > 0 else { return }
+        guard id > 0 else { return }
+        var queries = q.count >= 2 ? [q] : []
+        if let missed = missedQuery, missed.lowercased() != q.lowercased() { queries.append(missed) }
+        missedQuery = nil
         let client = apiClient
-        Task {
-            let _: HeadActionResponse? = try? await client.request(.ownerSearchPick, body: ["q": q, "kind": kind, "id": id])
+        for each in queries {
+            Task {
+                let _: HeadActionResponse? = try? await client.request(.ownerSearchPick, body: ["q": each, "kind": kind, "id": id])
+            }
         }
     }
 
@@ -464,6 +502,20 @@ struct OwnerSearchItemLink: View {
     @Environment(\.openURL) private var openURL
     let item: OwnerSearchItem
     var onPick: (OwnerSearchItem) -> Void = { _ in }
+    /// People rows: "Only <name>" puts the chip in the box. Nil hides it (the client page).
+    var onNarrow: ((OwnerSearchScope) -> Void)? = nil
+
+    @ViewBuilder
+    private var narrowButton: some View {
+        if let onNarrow, item.kind == "contact" {
+            Button {
+                onNarrow(OwnerSearchScope(kind: "contact", id: item.entityId, name: item.label))
+            } label: {
+                Label("Only \(item.label)", systemImage: "line.3.horizontal.decrease.circle")
+            }
+            .tint(appStyle.tenant)
+        }
+    }
 
     var body: some View {
         if let cid = item.contactPageId {
@@ -471,6 +523,18 @@ struct OwnerSearchItemLink: View {
                 OwnerSearchRow(item: item)
             }
             .simultaneousGesture(TapGesture().onEnded { onPick(item) })
+            .swipeActions(edge: .leading) { narrowButton }
+            .contextMenu { narrowButton }
+            .listRowBackground(appStyle.surface)
+        } else if item.kind == "company", let onNarrow {
+            // A company has no phone page yet: tapping it narrows the search to that company.
+            Button {
+                onPick(item)
+                onNarrow(OwnerSearchScope(kind: "company", id: item.entityId, name: item.label))
+            } label: {
+                OwnerSearchRow(item: item)
+            }
+            .buttonStyle(.plain)
             .listRowBackground(appStyle.surface)
         } else {
             Button {
@@ -584,5 +648,102 @@ struct OwnerContactView: View {
                        phone: nil, address: p.label, city: p.sublabel.isEmpty ? nil : p.sublabel, latitude: nil, longitude: nil,
                        distanceM: nil, onToday: false, todayVisitId: nil, plans: [], lastDone: nil, notes: nil, lawnSqft: nil,
                        upcoming: nil)
+    }
+}
+
+// MARK: - Voice search (big mic, for the truck)
+
+/// Speech to text into the search box. On-device when the phone supports it; nothing is kept.
+@MainActor
+final class VoiceSearch: ObservableObject {
+
+    @Published private(set) var isListening = false
+    @Published private(set) var error: String?
+
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-CA")) ?? SFSpeechRecognizer()
+    private let engine = AVAudioEngine()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private var stopTimer: Task<Void, Never>?
+
+    func toggle(onText: @escaping (String) -> Void) {
+        if isListening { stop(); return }
+        error = nil
+        Task { await start(onText: onText) }
+    }
+
+    private func start(onText: @escaping (String) -> Void) async {
+        let speech = await withCheckedContinuation { (c: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
+        }
+        guard speech == .authorized else {
+            error = "Speech recognition is off for this app (status \(speech.rawValue)). Settings › Ittai › Speech Recognition."
+            return
+        }
+        let mic = await AVAudioApplication.requestRecordPermission()
+        guard mic else {
+            error = "The microphone is off for this app. Settings › Ittai › Microphone."
+            return
+        }
+        guard let recognizer, recognizer.isAvailable else {
+            error = "Speech recognition isn't available right now (no recognizer for this language, or offline without on-device support)."
+            return
+        }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
+            self.request = request
+
+            let input = engine.inputNode
+            input.removeTap(onBus: 0)
+            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+                request.append(buffer)
+            }
+            engine.prepare()
+            try engine.start()
+            isListening = true
+
+            task = recognizer.recognitionTask(with: request) { [weak self] result, err in
+                let text = result?.bestTranscription.formattedString
+                let final = result?.isFinal ?? false
+                let message = err.map { ErrorDetails.describe($0) }
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let text, !text.isEmpty { onText(text) }
+                    if final { self.stop() }
+                    else if let message, self.isListening {
+                        // Ending a session on purpose also reports an error; only show one while still listening.
+                        self.error = message
+                        AppDiagnostics.shared.record(category: "VoiceSearch", message: message)
+                        self.stop()
+                    }
+                }
+            }
+            // A search is a few words: stop after 8 seconds if the speaker hasn't paused into a final result.
+            stopTimer = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.stop()
+            }
+        } catch {
+            self.error = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "VoiceSearch", message: ErrorDetails.describe(error))
+            stop()
+        }
+    }
+
+    func stop() {
+        stopTimer?.cancel(); stopTimer = nil
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        request?.endAudio(); request = nil
+        task?.finish(); task = nil
+        isListening = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

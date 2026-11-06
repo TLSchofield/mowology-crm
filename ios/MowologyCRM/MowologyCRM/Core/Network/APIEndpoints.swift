@@ -232,7 +232,7 @@ enum APIEndpoint {
     case fieldSearchProperty(id: Int, lat: Double?, lng: Double?)
     /// GET /api/schedule/search?mode=owner&q — the owner's one box: every group they may see + a direct answer
     /// (UniversalSearchService / ClientFactAnswerer; billing.view). Crew stay on fieldSearch.
-    case ownerSearch(query: String)
+    case ownerSearch(query: String, scopeKind: String?, scopeId: Int?)
     /// GET /api/schedule/search?mode=contact&id — a client's page: phone/email, properties, open quotes, unpaid invoices, messages.
     case ownerSearchContact(id: Int)
     /// POST /api/schedule/search?mode=pick {q, kind, id} — what was chosen, so it ranks first next time.
@@ -582,9 +582,14 @@ enum APIEndpoint {
             components?.queryItems = items
             return components?.url
 
-        case .ownerSearch(let query):
+        case .ownerSearch(let query, let scopeKind, let scopeId):
             var components = URLComponents(string: "\(baseURLString)/schedule/search")
-            components?.queryItems = [URLQueryItem(name: "mode", value: "owner"), URLQueryItem(name: "q", value: query)]
+            var items = [URLQueryItem(name: "mode", value: "owner"), URLQueryItem(name: "q", value: query)]
+            if let scopeKind, let scopeId {
+                items.append(URLQueryItem(name: "scope_kind", value: scopeKind))
+                items.append(URLQueryItem(name: "scope_id", value: "\(scopeId)"))
+            }
+            components?.queryItems = items
             return components?.url
 
         case .ownerSearchContact(let id):
