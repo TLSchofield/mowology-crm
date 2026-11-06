@@ -36,6 +36,11 @@ final class PennyCardViewModel: ObservableObject {
     // MARK: - Desk state
     @Published private(set) var queue: [BookkeeperItem] = []
     @Published private(set) var dupes: [BKDupeGroup] = []
+    /// Likely cheques for open invoices, shown before the duplicates (Tim, 2026-11-06). "Not now" hides one until the
+    /// next open of the card; "Or …" picks another invoice for it (index into [best] + others).
+    @Published private(set) var cheques: [BKChequeMatch] = []
+    @Published private(set) var chequeSkipped: Set<Int> = []
+    @Published private(set) var chequePick: [Int: Int] = [:]
     // MARK: Duplicates carousel (Tim, 2026-11-06: "I should be able to swipe back to 1 and view the merged bill and
     // unmerge it if I want"). The carousel walks every group seen since the card opened. An open group is on the
     // server's list; an answered one keeps its last snapshot and what was decided, so it can be viewed and reversed.
@@ -174,6 +179,7 @@ final class PennyCardViewModel: ObservableObject {
         messages = r.messages
         lines = r.lines
         queue = r.queue
+        cheques = r.cheques
         dupes = r.dupes
         trackDupes()
         categories = r.categories
@@ -284,6 +290,33 @@ final class PennyCardViewModel: ObservableObject {
     func chooseKeep(_ id: Int, in group: BKDupeGroup) {
         guard Self.swapOptions(keeping: keepId(for: group), in: group).contains(id) else { return }
         keepChoice[group.id] = id
+    }
+
+    // MARK: - Likely cheques (suggest only — Record is the person's tap)
+
+    var openCheques: [BKChequeMatch] { cheques.filter { !chequeSkipped.contains($0.txId) } }
+    var currentCheque: BKChequeMatch? { openCheques.first }
+
+    /// The invoice the cheque goes on: Penny's pick, or one the person chose from "Or …".
+    struct ChequeTarget: Equatable { let invoiceId: Int; let number: String; let balanceDue: Double; let apply: Double }
+    func chequeTargets(_ c: BKChequeMatch) -> [ChequeTarget] {
+        [ChequeTarget(invoiceId: c.invoice.id, number: c.invoice.number, balanceDue: c.invoice.balanceDue, apply: c.apply)]
+            + c.others.map { ChequeTarget(invoiceId: $0.invoiceId, number: $0.invoiceNumber, balanceDue: $0.balanceDue, apply: $0.apply) }
+    }
+    func chequeTarget(_ c: BKChequeMatch) -> ChequeTarget {
+        let all = chequeTargets(c)
+        return all[min(chequePick[c.txId] ?? 0, all.count - 1)]
+    }
+    func pickCheque(_ c: BKChequeMatch, index: Int) { chequePick[c.txId] = index }
+    func skipCheque(_ c: BKChequeMatch) { chequeSkipped.insert(c.txId) }
+
+    func recordCheque(_ c: BKChequeMatch) async {
+        guard !isBusy else { return }
+        let t = chequeTarget(c)
+        guard let r = await perform(["mode": "cheque_record", "transaction_id": c.txId, "invoice_id": t.invoiceId, "amount": t.apply]) else { return }
+        chequePick[c.txId] = nil
+        await load()
+        show(r.message ?? "Recorded on \(t.number).", error: false)
     }
 
     func merge(_ group: BKDupeGroup) async {
@@ -481,6 +514,7 @@ final class PennyCardViewModel: ObservableObject {
         let saved = message
         let savedIsError = messageIsError
         queue = r.queue
+        cheques = r.cheques
         dupes = r.dupes
         trackDupes()
         if !r.categories.isEmpty { categories = r.categories }

@@ -3458,9 +3458,9 @@ $unconvertedRequests = $db->query("
                                   <?php if (!empty($invMatches)): ?>
                                     <button type="button" class="mw-match-pill mt-1"
                                             onclick="event.stopPropagation(); mwToggleMatch(<?php echo (int)$inv['id']; ?>)"
-                                            title="A bank deposit likely matches this invoice">
+                                            title="<?php echo ($invMatches[0]['kind'] ?? '') === 'cheque' ? 'A cheque deposit likely pays this invoice' : 'A bank deposit likely matches this invoice'; ?>">
                                       <i data-feather="link-2"></i>
-                                      <?php echo count($invMatches); ?> likely match<?php echo count($invMatches) > 1 ? 'es' : ''; ?>
+                                      <?php echo htmlspecialchars(InvoiceReconciliationService::chipText($invMatches)); ?>
                                     </button>
                                   <?php endif; ?>
                                 </td>

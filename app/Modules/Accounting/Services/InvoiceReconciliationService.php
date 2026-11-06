@@ -94,10 +94,149 @@ class InvoiceReconciliationService
             }
             if ($hits) {
                 usort($hits, fn($a, $b) => [(int)$a['mismatch'], $b['confidence']] <=> [(int)$b['mismatch'], $a['confidence']]);
-                $map[(int)$invoice['id']] = array_slice($hits, 0, $per);
+                $map[(int)$invoice['id']] = $hits;
             }
         }
+        return array_map(fn($hits) => array_slice($hits, 0, $per), self::dropShadowHits($map));
+    }
+
+    /**
+     * A deposit that is exactly one invoice's balance is not also a "partial amount" of the same
+     * payer's other invoices: VML's $1,195.36 cheque (= INV-2026-0415 / -0477) was also pinned to
+     * their $1,640.94 invoices (2026-11-06). Exact hits on several invoices all stay (only one can be it).
+     * @param array<int, array> $map invoiceId => candidates
+     */
+    public static function dropShadowHits(array $map): array
+    {
+        $exact = [];
+        foreach ($map as $hits) {
+            foreach ($hits as $h) {
+                // A remittance that names another invoice (mismatch) doesn't make the deposit this one's.
+                if (empty($h['mismatch']) && in_array('Exact amount', $h['reasons'], true)) $exact[(int)$h['tx_id']] = true;
+            }
+        }
+        foreach ($map as $iid => $hits) {
+            $hits = array_values(array_filter($hits, fn($h) => !isset($exact[(int)$h['tx_id']]) || in_array('Exact amount', $h['reasons'], true)));
+            if ($hits) $map[$iid] = $hits; else unset($map[$iid]);
+        }
         return $map;
+    }
+
+    /** What the bank memo says a deposit is: cheque | e_transfer | stripe | eft | other (DepositBackfillService::kindOf). */
+    public static function depositKind(string $memo): string
+    {
+        require_once __DIR__ . '/DepositBackfillService.php';
+        return DepositBackfillService::kindOf($memo);
+    }
+
+    /** Only processor payouts (Stripe and the unnamed rest) arrive net of a fee; cheques, e-Transfers and EFTs arrive whole. */
+    public static function mayCarryFee(string $memo): bool
+    {
+        return in_array(self::depositKind($memo), ['stripe', 'other'], true);
+    }
+
+    /** The words for a deposit's kind, the same on the invoices list and Penny's card. */
+    public static function kindLabel(string $kind): string
+    {
+        return ['cheque' => 'Cheque deposit', 'e_transfer' => 'e-Transfer', 'stripe' => 'Stripe payout', 'eft' => 'EFT'][$kind] ?? 'Bank deposit';
+    }
+
+    /** The invoices list chip: "Likely cheque" when the best match is a cheque, else "2 likely matches". */
+    public static function chipText(array $matches): string
+    {
+        $n = count($matches);
+        if ($n === 0) return '';
+        if (($matches[0]['kind'] ?? '') === 'cheque') return 'Likely cheque' . ($n > 1 ? ' +' . ($n - 1) : '');
+        return $n . ' likely match' . ($n > 1 ? 'es' : '');
+    }
+
+    /**
+     * Penny's "likely cheques": every unlinked cheque deposit that likely pays an open invoice, best invoice
+     * first, from the same scoring as the invoices list (topCandidatesForInvoiceIds), so both say the same.
+     * Suggests only: recording stays a person's tap (BankInvoiceMatchService::record()).
+     */
+    public function likelyCheques(int $limit = 10): array
+    {
+        $ids = $this->db->query("
+            SELECT id FROM invoices
+            WHERE balance_due > 0.005 AND status IN ('sent','viewed','partial','overdue')
+        ")->fetchAll(PDO::FETCH_COLUMN);
+        $map = $this->topCandidatesForInvoiceIds($ids, 4);
+        if (!$map) return [];
+        $info = [];
+        foreach ($this->loadInvoicesForScoring(array_keys($map)) as $inv) $info[(int)$inv['id']] = $inv;
+        return self::chequeCards($map, $info, $limit);
+    }
+
+    /**
+     * Pure: list candidates (invoiceId => [candidate…]) + invoice rows → one card per cheque deposit.
+     * @param array<int, array> $info invoiceId => loadInvoicesForScoring() row
+     */
+    public static function chequeCards(array $map, array $info, int $limit = 10): array
+    {
+        $byTx = [];
+        foreach ($map as $iid => $hits) {
+            if (!isset($info[(int)$iid])) continue;
+            foreach ($hits as $h) {
+                if (($h['kind'] ?? '') !== 'cheque' || !empty($h['mismatch'])) continue;
+                $byTx[(int)$h['tx_id']][] = ['hit' => $h, 'inv' => $info[(int)$iid]];
+            }
+        }
+        $cards = [];
+        foreach ($byTx as $txId => $rows) {
+            // Best first; equal scores → the older invoice (it has waited longest).
+            usort($rows, fn($a, $b) => [$b['hit']['confidence'], (string)$a['inv']['invoice_date'], (int)$a['inv']['id']]
+                                   <=> [$a['hit']['confidence'], (string)$b['inv']['invoice_date'], (int)$b['inv']['id']]);
+            $best = $rows[0]; $h = $best['hit']; $inv = $best['inv'];
+            $payer = $h['payer'] ?? null;
+            $invPayer = self::invoicePayer($inv);
+            $money = '$' . number_format((float)$h['amount'], 2);
+            $balance = round((float)$inv['balance_due'], 2);
+            $others = array_map(fn($r) => [
+                'invoice_id' => (int)$r['inv']['id'], 'invoice_number' => (string)$r['inv']['invoice_number'],
+                'balance_due' => round((float)$r['inv']['balance_due'], 2), 'confidence' => (int)$r['hit']['confidence'],
+                'apply' => (float)$r['hit']['suggested_amount'],
+            ], array_slice($rows, 1, 3));
+            $alsoSame = array_values(array_filter($others, fn($o) => abs($o['balance_due'] - $balance) < 0.005));
+            $named = (bool)array_filter($h['reasons'], fn($r) => str_starts_with((string)$r, 'Memo names'));
+            $cards[] = [
+                'tx_id'          => $txId,
+                'date'           => $h['date'],
+                'amount'         => (float)$h['amount'],
+                'payer'          => $payer,
+                'memo'           => $h['description'],
+                'label'          => $h['label'],
+                'confidence'     => (int)$h['confidence'],
+                'invoice'        => [
+                    'id' => (int)$inv['id'], 'number' => (string)$inv['invoice_number'], 'payer' => $invPayer,
+                    'date' => substr((string)$inv['invoice_date'], 0, 10), 'balance_due' => $balance,
+                ],
+                'apply'          => (float)$h['suggested_amount'],
+                'verdict'        => 'This ' . $money . ' cheque' . ($payer ? ' from ' . $payer : '') . ' likely pays ' . $inv['invoice_number'] . '.',
+                'confidence_line'=> $h['confidence'] . '% · ' . strtolower(implode(' · ', $h['reasons']))
+                                    . ($alsoSame ? ' · ' . implode(', ', array_column($alsoSame, 'invoice_number')) . ' is the same amount — check which' : ''),
+                'facts'          => [
+                    ['label' => 'Amount', 'cheque' => $money, 'invoice' => '$' . number_format($balance, 2) . ' owing',
+                     'state' => abs((float)$h['amount'] - $balance) < 0.005 ? 'same' : 'differs'],
+                    ['label' => 'Name', 'cheque' => $payer ?: 'not on the memo', 'invoice' => $invPayer ?: '—',
+                     'state' => $named ? 'same' : ($payer ? 'differs' : 'missing')],
+                    ['label' => 'Date', 'cheque' => 'Banked ' . date('M j', strtotime((string)$h['date'])),
+                     'invoice' => 'Issued ' . date('M j', strtotime((string)$inv['invoice_date'])), 'state' => 'info'],
+                ],
+                'others'         => $others,
+            ];
+        }
+        usort($cards, fn($a, $b) => [$b['confidence'], $b['date']] <=> [$a['confidence'], $a['date']]);
+        return array_slice($cards, 0, $limit);
+    }
+
+    private static function invoicePayer(array $inv): string
+    {
+        foreach (['bill_to_name', 'company_name', 'contact_name', 'property_name'] as $k) {
+            $v = trim((string)($inv[$k] ?? ''));
+            if ($v !== '') return $v;
+        }
+        return '';
     }
 
     /** Remaining unallocated amount on a deposit. */
@@ -967,7 +1106,9 @@ class InvoiceReconciliationService
             $score = 50; $reasons[] = 'Exact amount';
         } elseif ($total > 0 && abs($depAmt - $total) <= 0.01) {
             $score = 40; $reasons[] = 'Matches the invoice total';
-        } elseif ($balance >= $depAmt && $balance <= $depAmt * 1.065) {
+        } elseif ($balance >= $depAmt && $balance <= $depAmt * 1.065 && self::mayCarryFee((string)($deposit['description'] ?? ''))) {
+            // Only a card processor keeps a fee. A cheque, e-Transfer or EFT a few % short is a different
+            // payment: VML's $1,195.36 cheque was offered for VCHA's $1,235.44 invoices (2026-11-06).
             $score = 42; $reasons[] = 'Amount matches (net of fee)';
         } elseif ($depAmt > $balance) {
             $score = 28; $reasons[] = 'Deposit covers this invoice';
@@ -1181,6 +1322,9 @@ class InvoiceReconciliationService
             'tx_id'            => (int)$dep['id'],
             'date'             => substr((string)$dep['transaction_date'], 0, 10),
             'description'      => (string)$dep['description'],
+            'kind'             => ($kind = self::depositKind((string)$dep['description'])),
+            'label'            => self::kindLabel($kind),
+            'payer'            => self::memoPayer((string)$dep['description']),
             'bank_account'     => (string)($dep['bank_account'] ?? ''),
             'amount'           => $depAmt,           // remaining unallocated on the deposit
             'suggested_amount' => round(min($depAmt, $balance), 2),

@@ -38176,6 +38176,19 @@ span.mw-icon-box--missing {
 .mw-rc-dup-btn.is-diff:hover { background: var(--mw-light); }
 .mw-rc-dup-btn b { font-size: 1.1rem; }
 .mw-rc-dup-btn small { font-size: .78rem; opacity: .85; }
+/* Likely cheque on Penny's card (2026-11-06): the duplicates' look, laid out sideways on desktop — facts left, the two squares right. */
+.mw-rc-chq { display: flex; flex-direction: column; gap: 12px; }
+.mw-rc-chq-main { min-width: 0; }
+.mw-rc-chq-table td.mw-rc-chq-mark { text-align: center; width: 2em; }
+.mw-rc-chq-diff { color: var(--mw-amber); font-weight: 700; }
+.mw-rc-chq-memo { font-size: .75rem; color: var(--mw-ink-500); margin: -4px 0 8px; overflow-wrap: anywhere; }
+.mw-rc-chq-or { font-size: .82rem; color: var(--mw-ink-500); }
+@media (min-width: 768px) {
+    .mw-rc-chq { flex-direction: row; align-items: center; gap: 24px; }
+    .mw-rc-chq-main { flex: 1 1 auto; }
+    .mw-rc-chq-btns { flex: 0 0 auto; margin: 0; }
+    .mw-rc-chq-btns .mw-rc-dup-btn { flex-basis: 140px; width: 140px; }
+}
 .mw-rc-dup-ico { font-size: 2.2rem; line-height: 1; }
 .mw-rc-dup-btn:focus-visible, .mw-rc-dup-swap:focus-visible, .mw-rc-dup-undo:focus-visible { outline: 3px solid var(--mw-orange); outline-offset: 2px; }
 .mw-rc-dup-far { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--mw-ink-100); text-align: center; font-size: .78rem; }

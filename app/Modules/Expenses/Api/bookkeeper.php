@@ -214,7 +214,18 @@ try {
             } elseif ($mode === 'queue') {
                 // Possible duplicates are sorted first and never offered for approval.
                 $dupes = $dupSvc->pairsInLine(60);
-                echo json_encode(['ok' => true, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
+                // Likely cheques come first on the card (Tim, 2026-11-06); "Record" posts bank_invoice_record.
+                ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
+                $cheques = [];
+                if (userHasPermission('billing.view')) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+                        $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);
+                    } catch (Throwable $e) {
+                        error_log('[bookkeeper] cheques: ' . $e->getMessage());
+                    }
+                }
+                echo json_encode(['ok' => true, 'cheques' => $cheques, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
                                   'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');

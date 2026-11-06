@@ -878,3 +878,9 @@ bank lines were searched. A 2025 receipt with no bank line (#535 Home Depot $10.
 Northwest Landscape #537 printed G.S.T. 4.53 and P.S.T. 6.34; the reader saw no GST line and guessed 5% of the total
 (4.83, no PST). `parseReceiptText()` now reads dotted labels as GST/PST/HST (replay: 6 fixed, none worse).
 
+
+## 2026-11-06 — "net of fee" given to cheques and e-Transfers on the invoices list
+`scoreDeposit()` allowed a 0–6.5% shortfall as a card fee on any deposit. Only processors keep a fee: VML's $1,195.36 cheque
+was offered for VCHA's $1,235.44 invoices and a $378.16 e-Transfer for Obsidian's $399. Now only Stripe/unnamed payouts
+(`InvoiceReconciliationService::mayCarryFee()`). Also: production's copy of this service carried Yardi remittance evidence
+(`mismatch`, `evidence`) that was in no branch — pull and `cmp` before editing it.

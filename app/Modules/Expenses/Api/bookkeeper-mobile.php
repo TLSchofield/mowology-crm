@@ -19,6 +19,9 @@
  *        same call for app builds before 1.3.89.
  * POST {mode: 'unmerge', copy_id, kind: undo|split}     Undo straight after a merge (asked again) or Split off later
  *        (two purchases: remembered, Penny learns) — DuplicateReceiptService::unmerge().
+ * POST {mode: 'cheque_record', transaction_id, invoice_id, amount}  "Record" on a likely cheque (billing.edit) →
+ *      BankInvoiceMatchService::record() (refuses money that looks already recorded). The queue's 'cheques'
+ *      come from InvoiceReconciliationService::likelyCheques(), the same matcher as the web invoices list.
  * POST {mode: 'undismiss', pairs: [[a, b], ...]}   Undo "Different" on an answered group (DuplicateReceiptService::undismiss).
  * GET  ?mode=merged&expense_id=N   Copies merged into this receipt ("Also on this purchase"), photos signed for the app.
  * Each dupes group also carries Penny's verdict, keep_id / keep_line / copy_ids / merge_label / can_swap,
@@ -158,7 +161,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done']);
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done', 'cheque_record']);
 
     if ($mode === 'risk') {
         // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
@@ -216,8 +219,20 @@ try {
                     error_log('[bookkeeper-mobile] messages: ' . $e->getMessage());
                 }
             }
+            // Likely cheques come first on the card (Tim, 2026-11-06). Suggest only; never breaks the card.
+            ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
+            $cheques = [];
+            if (jwtUserHasPermission($jwtUser, 'billing.view')) {
+                try {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+                    $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] cheques: ' . $e->getMessage());
+                }
+            }
             echo json_encode([
                 'ok'         => true,
+                'cheques'    => $cheques,
                 'dupes'      => $dupes,
                 'queue'      => $queue,
                 'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
@@ -225,6 +240,22 @@ try {
                 'messages'   => $messages,
                 'lines'      => jwtUserHasPermission($jwtUser, 'expenses.approve') ? bkmPennyLines($db) : null,
             ]);
+            break;
+        }
+
+        case 'cheque_record': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Recording a payment needs billing.edit.']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankInvoiceMatchService.php';
+            echo json_encode((new BankInvoiceMatchService($db))->record(
+                (int)($input['transaction_id'] ?? 0),
+                [['invoice_id' => (int)($input['invoice_id'] ?? 0), 'amount' => round((float)($input['amount'] ?? 0), 2)]],
+                $user
+            ));
             break;
         }
 

@@ -4,7 +4,7 @@
 //
 //  Penny's receipt card for the admin, one receipt at a time: the photo, her read of
 //  every field (with how sure she is and why), and Approve · Save draft · Reject · Skip.
-//  Possible duplicates come first, as on the web card — never offered for approval.
+//  Likely cheques come first (PennyChequeCard), then possible duplicates, as on the web card — never offered for approval.
 //
 
 import SwiftUI
@@ -28,8 +28,13 @@ struct PennyCardView: View {
             if vm.isLoading && !vm.hasLoaded {
                 HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
                     .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty {
+            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty {
                 errorState(err)
+            } else if let cheque = vm.currentCheque {
+                // Likely cheques first (Tim, 2026-11-06), then the duplicates, then receipts.
+                PennyChequeCard(vm: vm, cheque: cheque)
+                    .id(cheque.id)
+                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
             } else if vm.showsDupes, let group = vm.currentDupe {
                 dupeCard(group)
                     .id(group.id)

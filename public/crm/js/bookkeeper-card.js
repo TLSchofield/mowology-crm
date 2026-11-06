@@ -19,6 +19,9 @@
     var GREETING = root.getAttribute('data-name') || '';
     var queue = [];
     var dupes = [];          // possible duplicate pairs — sorted before anything is approved
+    var cheques = [];        // likely cheques for open invoices — first of all (Tim, 2026-11-06)
+    var chqSkipped = {};     // tx id → true: "Not now" on this page view
+    var chqPick = {};        // tx id → index into [best, ...others]: "Or …" picks another invoice
     var idx = 0;
     var busy = false;
     var rounds = 0;          // background preparation rounds this page view (max 3 × 2 receipts)
@@ -65,6 +68,7 @@
             .then(function (d) {
                 queue = (d && d.ok && d.queue) ? d.queue : [];
                 dupes = (d && d.ok && d.dupes) ? d.dupes : [];
+                cheques = (d && d.ok && d.cheques) ? d.cheques : [];
                 idx = 0;
                 topUp();
                 render(msg);
@@ -195,7 +199,63 @@
         }).catch(function () { busy = false; renderDupe('Network error — try again'); });
     }
 
+    // ── Likely cheques: a cheque deposit that probably pays an open invoice. Suggest only — Record is a person's tap
+    //    (bank_invoice_record → BankInvoiceMatchService::record()). Same words as the iPhone card and the invoices list.
+    function openCheques() { return cheques.filter(function (c) { return !chqSkipped[c.tx_id]; }); }
+    function chqTarget(c) {
+        var all = [{ invoice_id: c.invoice.id, invoice_number: c.invoice.number, balance_due: c.invoice.balance_due, apply: c.apply }]
+            .concat(c.others || []);
+        return all[chqPick[c.tx_id] || 0] || all[0];
+    }
+    function renderCheque(msg) {
+        var list = openCheques();
+        var c = list[0];
+        var t = chqTarget(c);
+        var picked = (chqPick[c.tx_id] || 0) > 0;
+        var facts = (c.facts || []).map(function (f) {
+            var mark = f.state === 'same' ? '<span class="mw-rc-dup-tick" aria-label="matches">✓</span>'
+                : f.state === 'differs' ? '<span class="mw-rc-chq-diff" aria-label="differs">≠</span>' : '';
+            return '<tr><th scope="row">' + esc(f.label) + '</th><td>' + esc(f.cheque) + '</td><td class="mw-rc-chq-mark">' + mark + '</td><td>' + esc(f.invoice) + '</td></tr>';
+        }).join('');
+        var others = (c.others || []).length
+            ? '<div class="mw-rc-chq-or">Or: ' + [{ invoice_number: c.invoice.number, balance_due: c.invoice.balance_due }].concat(c.others).map(function (o, i) {
+                  return (chqPick[c.tx_id] || 0) === i ? '<b>' + esc(o.invoice_number) + '</b>'
+                      : '<button type="button" class="mw-rc-dup-swap" data-chq-pick="' + i + '">' + esc(o.invoice_number) + ' (' + money(o.balance_due) + ')</button>';
+              }).join(' · ') + '</div>'
+            : '';
+        root.innerHTML = '<div class="mw-rc-top"><span><b>Likely cheque</b>' + (list.length > 1 ? ' · 1 of ' + list.length : '') + '</span></div>' +
+            '<div class="mw-rc-dup-verdict">' + esc(picked ? 'This ' + money(c.amount) + ' cheque' + (c.payer ? ' from ' + c.payer : '') + ' pays ' + t.invoice_number + '?' : c.verdict) + '</div>' +
+            '<div class="mw-rc-dup-conf">' + esc(c.confidence_line) + '</div>' +
+            '<div class="mw-rc-chq">' +
+              '<div class="mw-rc-chq-main">' +
+                '<div class="mw-rc-dup-tablewrap"><table class="mw-rc-dup-table mw-rc-chq-table"><thead><tr><th scope="col"><span class="mw-rc-dup-sr">Fact</span></th>' +
+                  '<th scope="col">' + esc(c.label) + '</th><th scope="col"><span class="mw-rc-dup-sr">Match</span></th>' +
+                  '<th scope="col"><a href="/crm/invoices/view.php?id=' + esc(c.invoice.id) + '">' + esc(c.invoice.number) + '</a></th></tr></thead><tbody>' + facts + '</tbody></table></div>' +
+                '<div class="mw-rc-chq-memo">Bank memo: ' + esc(c.memo) + '</div>' + others +
+              '</div>' +
+              '<div class="mw-rc-dup-btns mw-rc-chq-btns">' +
+                '<button type="button" class="mw-rc-dup-btn is-merge" data-chq-record="1"><span class="mw-rc-dup-ico" aria-hidden="true">✓</span><b>Record</b><small>' + esc(money(t.apply) + ' on ' + t.invoice_number) + '</small></button>' +
+                '<button type="button" class="mw-rc-dup-btn is-diff" data-chq-skip="1"><span class="mw-rc-dup-ico" aria-hidden="true">→</span><b>Not now</b><small>leave it in the bank</small></button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="mw-rc-msg" role="status">' + (msg ? esc(msg) : '') + '</div>';
+    }
+    function recordCheque() {
+        var c = openCheques()[0];
+        if (busy || !c) return;
+        var t = chqTarget(c);
+        busy = true;
+        post({ mode: 'bank_invoice_record', transaction_id: c.tx_id, allocations: [{ invoice_id: t.invoice_id, amount: t.apply }] })
+            .then(function (d) {
+                busy = false;
+                if (!(d && d.ok)) { renderCheque((d && (d.message || d.error)) || 'Could not record it.'); return; }
+                load(d.message || ('Recorded on ' + t.invoice_number + '.'));
+            })
+            .catch(function () { busy = false; renderCheque('Network error — try again'); });
+    }
+
     function render(msg) {
+        if (openCheques().length) { setZoom(false); renderCheque(msg); return; }
         if (dupes.length) { setZoom(false); renderDupe(msg); return; }
         if (!queue.length) {
             setZoom(false);
@@ -788,6 +848,15 @@
             return;
         }
         if (e.target.hasAttribute && e.target.hasAttribute('data-ipenny')) { usePennyItems(); return; }
+        var chqBtn = e.target.closest && e.target.closest('[data-chq-record],[data-chq-skip],[data-chq-pick]');
+        if (chqBtn) {
+            var oc = openCheques()[0];
+            if (!oc) return;
+            if (chqBtn.hasAttribute('data-chq-record')) recordCheque();
+            else if (chqBtn.hasAttribute('data-chq-skip')) { chqSkipped[oc.tx_id] = true; render(); }
+            else { chqPick[oc.tx_id] = parseInt(chqBtn.getAttribute('data-chq-pick'), 10) || 0; renderCheque(); }
+            return;
+        }
         var dupBtn = e.target.closest && e.target.closest('[data-dup-merge],[data-dup-not],[data-dup-swap],[data-dup-undo]');
         if (dupBtn) {
             if (dupBtn.hasAttribute('data-dup-merge')) settleDupe(false);
@@ -911,8 +980,8 @@
         var t = e.target.tagName;
         if (t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
         if (zoomed && e.key === 'Escape') { e.preventDefault(); setZoom(false); render(); return; }
-        if ((e.key === 'r' || e.key === 'R') && queue.length && !dupes.length && root.offsetParent) { e.preventDefault(); rotate(); return; }
-        if (!root.offsetParent || !queue.length) return;
+        if ((e.key === 'r' || e.key === 'R') && queue.length && !dupes.length && !openCheques().length && root.offsetParent) { e.preventDefault(); rotate(); return; }
+        if (!root.offsetParent || !queue.length || openCheques().length) return;   // a cheque is showing, not a receipt
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
         else if (e.key === 's' || e.key === 'S') { e.preventDefault(); submit(true); }
         else if (e.key === 'ArrowRight') { if (busy) return; idx = (idx + 1) % queue.length; render(); }

@@ -347,8 +347,71 @@ struct BKTagOption: Decodable, Hashable {
     let label: String
 }
 
+/// A cheque deposit in the bank that likely pays an open invoice (InvoiceReconciliationService::likelyCheques(), the
+/// same matcher as the web invoices list). Shown first on Penny's card; "Record" posts cheque_record — never automatic.
+struct BKChequeMatch: Decodable, Identifiable, Equatable {
+    struct Invoice: Decodable, Equatable {
+        let id: Int
+        let number: String
+        let payer: String
+        let balanceDue: Double
+        private enum CodingKeys: String, CodingKey { case id, number, payer, balanceDue = "balance_due" }
+    }
+    struct Other: Decodable, Equatable {
+        let invoiceId: Int
+        let invoiceNumber: String
+        let balanceDue: Double
+        let apply: Double
+        private enum CodingKeys: String, CodingKey { case invoiceId = "invoice_id", invoiceNumber = "invoice_number", balanceDue = "balance_due", apply }
+    }
+    struct Fact: Decodable, Equatable, Hashable {
+        let label: String
+        let cheque: String
+        let invoice: String
+        /// same | differs | missing | info
+        let state: String
+    }
+    let txId: Int
+    let amount: Double
+    let payer: String?
+    let memo: String
+    let label: String
+    let confidence: Int
+    let invoice: Invoice
+    let apply: Double
+    let verdict: String
+    let confidenceLine: String
+    let facts: [Fact]
+    let others: [Other]
+
+    var id: Int { txId }
+
+    private enum CodingKeys: String, CodingKey {
+        case txId = "tx_id", amount, payer, memo, label, confidence, invoice, apply, verdict
+        case confidenceLine = "confidence_line", facts, others
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        txId = try c.decode(Int.self, forKey: .txId)
+        amount = (try? c.decode(Double.self, forKey: .amount)) ?? 0
+        payer = c.bkString(.payer)
+        memo = c.bkString(.memo) ?? ""
+        label = c.bkString(.label) ?? "Cheque deposit"
+        confidence = (try? c.decode(Int.self, forKey: .confidence)) ?? 0
+        invoice = try c.decode(Invoice.self, forKey: .invoice)
+        apply = (try? c.decode(Double.self, forKey: .apply)) ?? 0
+        verdict = c.bkString(.verdict) ?? ""
+        confidenceLine = c.bkString(.confidenceLine) ?? ""
+        facts = (try? c.decodeIfPresent([Fact].self, forKey: .facts)) ?? []
+        others = (try? c.decodeIfPresent([Other].self, forKey: .others)) ?? []
+    }
+}
+
 struct BookkeeperQueueResponse: Decodable {
     let ok: Bool
+    /// Likely cheques for open invoices — first on the card (Tim, 2026-11-06). Older servers send none.
+    let cheques: [BKChequeMatch]
     let dupes: [BKDupeGroup]
     let queue: [BookkeeperItem]
     let categories: [String]
@@ -359,11 +422,12 @@ struct BookkeeperQueueResponse: Decodable {
     let lines: PennyLines?
     let error: String?
 
-    private enum CodingKeys: String, CodingKey { case ok, dupes, queue, categories, assetTags = "asset_tags", messages, lines, error }
+    private enum CodingKeys: String, CodingKey { case ok, cheques, dupes, queue, categories, assetTags = "asset_tags", messages, lines, error }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         ok = c.bkBool(.ok) ?? false
+        cheques = (try? c.decodeIfPresent([BKChequeMatch].self, forKey: .cheques)) ?? []
         dupes = (try? c.decodeIfPresent([BKDupeGroup].self, forKey: .dupes)) ?? []
         queue = (try? c.decodeIfPresent([BookkeeperItem].self, forKey: .queue)) ?? []
         categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? []
