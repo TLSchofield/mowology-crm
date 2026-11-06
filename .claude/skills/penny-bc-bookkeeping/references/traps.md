@@ -32,6 +32,7 @@ happened, the signature, the rule. Start with the one-line rules below; open the
 - **Same-amount monthly payers swap deposits (2026-10-13)** — Before marking a deposit "already recorded", check the invoice it names has no deposit of its own.
 - **A same-amount payer's deposit marked against the wrong month (Alex Shi Ke Wang, 2026-10-13)** — For a same-amount monthly payer, "already recorded" only against the invoice dated for that deposit's month.
 - **The cheque writer isn't the client (Kanco for Beedie Development, 2026-10-13)** — A property manager may write the cheque: link by the payment note and exact sum, never name similarity.
+- **A memo naming several invoices pre-filled the first one with the whole transfer (Alison's $232.84, 2026-11-05)** — `matchInvoice()` picks ONE invoice; when the memo names several, ask `EtransferInboxService::namedInvoices()` and pay exactly those. Year-less numbers ("invoices 0065, 0066") are looked up, never assumed, and never auto-recorded; a memo naming more than one invoice always waits for a person.
 - **Interac money the CRM never sees (2026-10-14)** — An overpayment is credit, not income; pause chasing while a payment is on the way.
 
 ## Income, the Jobber era and the ledger

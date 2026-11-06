@@ -58,6 +58,21 @@ class EtransferAutoRecordTest extends TestCase
         $this->assertEmpty($result['skipped']);
     }
 
+    public function testMemoNamingTwoInvoicesIsNeverAutoRecorded(): void
+    {
+        // Codex 2026-11-06: "Invoices INV-2026-0065 and INV-2026-0066", $58.21, the first one owes $58.21 — it used
+        // to be recorded against the first one by itself.
+        $svc = $this->serviceWith(
+            [['id' => 7, 'amount' => 58.21, 'memo' => 'Invoices INV-2026-0065 and INV-2026-0066', 'matched_invoice_id' => 65, 'invoice_balance' => 58.21]]
+        );
+        $svc->expects($this->never())->method('recordPayment');
+
+        $result = $svc->autoRecordFullyCertain(1);
+
+        $this->assertSame(0, $result['recorded']);
+        $this->assertSame('the memo names more than one invoice', $result['skipped'][0]['reason']);
+    }
+
     public function testAmountMismatchSkipsWithoutCallingRecordPayment(): void
     {
         // Even one cent off the invoice balance is enough ambiguity (GST,

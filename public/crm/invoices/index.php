@@ -291,10 +291,13 @@ $activePage = 'invoices';
                     // would never find anything (or worse, something wrong).
                     $activeAmount = $isPartial ? $remaining : $etAmount;
 
+                    // The memo names several invoices: exactly those, never the first one for the whole amount
+                    // (EtransferInboxService::namedInvoices(), the one place; Penny's desk asks the same). 2026-11-05.
+                    $namedSpread     = ($etransferSvc && $activeAmount > 0) ? $etransferSvc->namedInvoices($et['memo'] ?? null, $activeAmount) : null;
                     $likelyDuplicate = null;
                     $fifoSpread      = [];
                     $valueFallback   = null;
-                    if (!$hasInvoiceMatch && $activeAmount > 0 && $etransferSvc) {
+                    if (!$namedSpread && !$hasInvoiceMatch && $activeAmount > 0 && $etransferSvc) {
                         $likelyDuplicate = $etransferSvc->findLikelyDuplicatePayment($et['sender_name'] ?? null, $activeAmount, $et['email_date'] ?? null);
                         if (!$likelyDuplicate) {
                             $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $activeAmount);
@@ -303,7 +306,7 @@ $activePage = 'invoices';
                             }
                         }
                     }
-                    $spreadLines    = $valueFallback['lines'] ?? $fifoSpread;
+                    $spreadLines    = $namedSpread['lines'] ?? ($valueFallback['lines'] ?? $fifoSpread);
                     $spansMultiple  = count($spreadLines) > 1;
                     $isValueGuess   = $valueFallback !== null;
                     $nothingLeftFor = $isPartial && !$likelyDuplicate && empty($spreadLines);
@@ -316,7 +319,8 @@ $activePage = 'invoices';
                     $clientUrl = !empty($et['matched_company_id']) ? '/crm/companies/view.php?id=' . (int)$et['matched_company_id']
                                : (!empty($et['matched_contact_id']) ? '/crm/clients_appstack.php?action=view_contact&id=' . (int)$et['matched_contact_id'] : '');
 
-                    if ($likelyDuplicate || $nothingLeftFor || $isValueGuess || $spansMultiple || $conf === 'medium') $invState = 'warn';
+                    if ($namedSpread) $invState = $namedSpread['adds_up'] ? 'on' : 'warn';
+                    elseif ($likelyDuplicate || $nothingLeftFor || $isValueGuess || $spansMultiple || $conf === 'medium') $invState = 'warn';
                     elseif ($hasInvoiceMatch) $invState = 'on';
                     elseif (!empty($spreadLines)) $invState = 'warn';
                     else $invState = 'off';
@@ -357,7 +361,25 @@ $activePage = 'invoices';
 
                             <div class="mw-et-card is-<?php echo $invState; ?>">
                                 <div class="mw-et-card-title"><i data-feather="file-text"></i> Invoice<?php if ($invState === 'on'): ?> <i data-feather="check" class="mw-et-tick"></i><?php endif; ?></div>
-                                <?php if ($likelyDuplicate): ?>
+                                <?php if ($namedSpread):
+                                    $namedPayer = (string)($namedSpread['payer_name'] ?? '');
+                                    $namedN = count($namedSpread['lines']); ?>
+                                    <div class="mw-et-card-main"><?php echo $namedSpread['adds_up']
+                                        ? 'Pays the ' . $namedN . ' invoices named in the memo' . ($namedPayer !== '' ? ' (' . htmlspecialchars($namedPayer) . ')' : '')
+                                        : 'The memo names ' . ($namedN ?: 'unclear') . ' invoice' . ($namedN === 1 ? '' : 's'); ?></div>
+                                    <?php foreach (array_slice($namedSpread['lines'], 0, 6) as $sl): ?>
+                                        <div class="mw-et-card-sub"><?php echo htmlspecialchars($sl['invoice_number']); ?> · <?php echo formatCurrency((float)$sl['apply_amount']); ?></div>
+                                    <?php endforeach; ?>
+                                    <?php if (!$namedSpread['adds_up'] && $namedN): ?>
+                                        <div class="mw-et-card-sub">They come to <?php echo formatCurrency($namedSpread['owing']); ?><?php
+                                            echo $namedSpread['left'] > 0.005 ? ', ' . formatCurrency($namedSpread['left']) . ' left over' : ($namedSpread['left'] < -0.005 ? ', ' . formatCurrency(-$namedSpread['left']) . ' short' : ''); ?>. Check it.</div>
+                                    <?php endif; ?>
+                                    <?php if ($namedSpread['paid']): ?><div class="mw-et-card-sub">Already paid: <?php echo htmlspecialchars(implode(', ', $namedSpread['paid'])); ?></div><?php endif; ?>
+                                    <?php foreach ($namedSpread['unclear'] as $u): ?><div class="mw-et-card-sub">Names invoice <?php echo htmlspecialchars($u); ?>: more than one, or none. Pick it.</div><?php endforeach; ?>
+                                    <?php if ($namedPayer !== '' && !EtransferInboxService::samePayer((string)($et['sender_name'] ?? ''), $namedPayer)): ?>
+                                        <div class="mw-et-card-sub">Sent by <?php echo htmlspecialchars($et['sender_name'] ?: 'someone else'); ?>, not <?php echo htmlspecialchars($namedPayer); ?>. Recording this teaches Penny they pay for <?php echo htmlspecialchars($namedPayer); ?>.</div>
+                                    <?php endif; ?>
+                                <?php elseif ($likelyDuplicate): ?>
                                     <div class="mw-et-card-main">Possibly already recorded</div>
                                     <div class="mw-et-card-sub">Same amount recorded <?php echo htmlspecialchars($etD($likelyDuplicate['pay_date'])); ?> on <?php echo htmlspecialchars(implode(', ', $likelyDuplicate['invoice_numbers'])); ?>. Check, then dismiss rather than record again.</div>
                                 <?php elseif ($nothingLeftFor): ?>
