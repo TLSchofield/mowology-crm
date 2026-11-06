@@ -69,6 +69,9 @@ struct ReceiptReviewView: View {
     @State private var showSavedDialog = false
     @State private var savedMessage = ""
     @State private var showImageFull = false
+    @State private var decodedImage: UIImage?
+    /// The keyboard is up: the pinned receipt shrinks so the field being typed stays in view on a small phone.
+    @State private var keyboardUp = false
     @State private var showRetakeConfirm = false
 
     private enum Field: Hashable { case vendor, amount, gst, pst, total, jobSearch, description }
@@ -187,7 +190,12 @@ struct ReceiptReviewView: View {
             }
         }
         .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(viewModel.isSaving)
+        // Never by a swipe: a downward drag on the pinned receipt (at its top when it opens) could close the sheet and
+        // lose the review. Cancel stays.
+        .interactiveDismissDisabled(true)
+        .task(id: imageData) { decodedImage = imageData.flatMap { UIImage(data: $0) } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         .task {
             await viewModel.loadCategories()
             await runDuplicateCheck()
@@ -278,14 +286,17 @@ struct ReceiptReviewView: View {
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
-    /// The captured photo, decoded once per render.
-    private var capturedImage: UIImage? { imageData.flatMap { UIImage(data: $0) } }
+    /// The captured photo, decoded once (`.task(id: imageData)`): a fresh UIImage on every render made the zoom view
+    /// re-fit and lose the user's place on each keystroke (review 2026-11-06).
+    private var capturedImage: UIImage? { decodedImage }
 
     /// The receipt pinned above the form: about 40% of the screen, zoomed to its width; the corner button opens it full screen.
     private func pinnedReceipt(_ ui: UIImage) -> some View {
         ReceiptZoomView(image: ui)
+            .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
             .frame(maxWidth: .infinity)
-            .frame(height: UIScreen.main.bounds.height * 0.4)
+            .frame(height: UIScreen.main.bounds.height * (keyboardUp ? 0.2 : 0.4))
+            .animation(.easeOut(duration: 0.2), value: keyboardUp)
             .background(appStyle.sunk)
             .overlay(alignment: .bottomTrailing) {
                 Button { showImageFull = true } label: {
@@ -299,7 +310,7 @@ struct ReceiptReviewView: View {
                 .accessibilityLabel("Show the receipt full screen")
             }
             .overlay(alignment: .bottom) { Divider() }
-            .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
+            .accessibilityElement(children: .contain)   // keeps the full-screen button its own element
     }
 
     private var readBadgeText: String {

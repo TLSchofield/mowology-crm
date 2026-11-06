@@ -29,7 +29,8 @@ struct ReceiptZoomView: UIViewRepresentable {
     }
 
     func updateUIView(_ scroll: ReceiptScrollView, context: Context) {
-        if scroll.imageView.image !== image {
+        // Only a different photo re-fits; the same one passed again (any re-render) keeps the user's zoom and place.
+        if scroll.imageView.image?.cgImage !== image.cgImage || scroll.imageView.image?.size != image.size {
             scroll.imageView.image = image
             scroll.needsFirstFit = true
             scroll.setNeedsLayout()
@@ -93,8 +94,9 @@ final class ReceiptScrollView: UIScrollView {
         minimumZoomScale = min(fitWhole, widthScale)
         maximumZoomScale = max(maximumZoomScale, widthScale * 2)
         zoomScale = widthScale
-        contentOffset = .zero
         centreContent()
+        // At the top; a receipt shorter than the view sits centred (the inset alone left it offset).
+        contentOffset = CGPoint(x: -contentInset.left, y: -contentInset.top)
     }
 
     /// Keep a photo smaller than the view centred instead of stuck in the top-left corner.
