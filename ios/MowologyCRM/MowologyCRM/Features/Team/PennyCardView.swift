@@ -52,7 +52,7 @@ struct PennyCardView: View {
             Text("It leaves Penny's desk and won't be booked. The person who sent it in sees the reason.")
         }
         .fullScreenCover(item: $pagerTarget) { t in
-            DupePhotoPager(urls: t.urls, labels: t.labels, start: t.start)
+            DupePhotoPager(urls: t.urls, labels: t.labels, reads: t.reads, start: t.start)
         }
     }
 
@@ -375,7 +375,16 @@ struct PennyCardView: View {
         let copies = vm.copyIds(for: group)
         let swaps = vm.swapOptions(for: group)
         let members = group.members.sorted { $0.id < $1.id }
-        return VStack(alignment: .leading, spacing: 14) {
+        // Fits one phone screen (Tim, 2026-11-06): matching facts fold into one ticked line, the table keeps only
+        // what differs or wasn't read, status and sender sit under the photos, the squares are capped.
+        let compared = group.facts.filter { $0.state != "info" }
+        // Never say a fact twice: a row the verdict already names ("auth 433970 is on both", "same total and date")
+        // leaves the table; status and sender sit under the photos.
+        let stated = Self.statedByVerdict(group.evidence)
+        // Only a row that really matches may leave: a differing date stays even when the verdict talks about dates.
+        let rows = compared.filter { !(stated.contains($0.label) && $0.state == "same") }
+        let info = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(members.count > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
                 if vm.dupes.count > 1 { badge("1 of \(vm.dupes.count)", color: appStyle.meta) }
@@ -387,22 +396,26 @@ struct PennyCardView: View {
                 Text(group.verdict ?? "Same total, within 3 days. Nothing printed proves it either way.")
                     .font(appStyle.font(.title3, weight: .semibold))
                     .fixedSize(horizontal: false, vertical: true)
-                if let c = group.confidence {
+                if let c = group.confidence, !c.isEmpty {
                     Text(c).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .accessibilityElement(children: .combine)
 
-            // 2. The facts side by side.
-            if !group.facts.isEmpty { factsTable(group.facts, members: members, keep: keep) }
+            // 2. The facts side by side (Tim: "fast to read"), minus what the verdict already says.
+            if !rows.isEmpty { factsTable(rows, members: members, keep: keep) }
 
-            // 3. Photos — tap for full screen, swipe between them.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(Array(members.enumerated()), id: \.element.id) { i, m in dupeThumb(m, index: i, members: members, keep: keep) }
+            // 3. Photos in the buttons' columns, same width (Tim, 2026-11-06); tap for full screen with Penny's read.
+            HStack(alignment: .top, spacing: members.count > 2 ? 10 : 16) {
+                ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
+                    dupeThumb(m, index: i, members: members, keep: keep,
+                              status: info["Status"]?[safe: i] ?? nil, sender: info["Sent in by"]?[safe: i] ?? nil,
+                              reads: members.indices.map { Self.pennyRead(compared, at: $0) })
                 }
             }
+            .frame(maxWidth: 2 * 150 + 16)
+            .frame(maxWidth: .infinity)
 
             // 4. Which one is kept, in words; the swap well away from the buttons.
             VStack(alignment: .leading, spacing: 6) {
@@ -416,7 +429,7 @@ struct PennyCardView: View {
                 }
             }
 
-            // 5. Two square buttons, side by side, nothing else near them.
+            // 5. Two square buttons, side by side, nothing else near them (capped so the card fits one screen).
             HStack(spacing: 16) {
                 squareButton(icon: "arrow.triangle.merge", title: "Merge",
                              detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
@@ -430,7 +443,9 @@ struct PennyCardView: View {
                 .accessibilityHint("They are separate purchases. Both go on for approval.")
             }
             .disabled(vm.isBusy)
-            .padding(.top, 4)
+            .frame(maxWidth: 2 * 150 + 16)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 2)
 
             undoOrMessage
         }
@@ -497,7 +512,7 @@ struct PennyCardView: View {
                             .frame(width: colW, alignment: .leading)
                     }
                 }
-                .padding(.bottom, 4)
+                .padding(.bottom, 2)
                 ForEach(rows) { row in
                     HStack(alignment: .top, spacing: 0) {
                         HStack(spacing: 3) {
@@ -520,7 +535,7 @@ struct PennyCardView: View {
                                 .frame(width: colW, alignment: .leading)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
                     .accessibilityElement(children: .combine)
                     .accessibilityValue(row.state == "differs" ? "differs" : row.state == "same" ? "matches" : "")
                     Divider().overlay(appStyle.line)
@@ -529,32 +544,67 @@ struct PennyCardView: View {
         }
     }
 
-    private func dupeThumb(_ m: BKDupeMember, index: Int, members: [BKDupeMember], keep: Int) -> some View {
-        let urls = members.compactMap { $0.receiptPath.flatMap(URL.init(string:)) }
-        let labels = members.filter { $0.receiptPath.flatMap(URL.init(string:)) != nil }.map { "#\($0.id)" }
+    private func dupeThumb(_ m: BKDupeMember, index: Int, members: [BKDupeMember], keep: Int, status: String?, sender: String?,
+                           reads: [String]) -> some View {
+        let withPhoto = members.indices.filter { members[$0].receiptPath.flatMap(URL.init(string:)) != nil }
+        let urls = withPhoto.compactMap { members[$0].receiptPath.flatMap(URL.init(string:)) }
+        let labels = withPhoto.map { "#\(members[$0].id)" }
+        let pageReads = withPhoto.map { reads[safe: $0] ?? "" }
         let start = labels.firstIndex(of: "#\(m.id)") ?? 0
-        return VStack(alignment: .leading, spacing: 4) {
+        let kept = m.id == keep
+        return VStack(spacing: 4) {
             Group {
                 if let s = m.receiptPath, let url = URL(string: s) {
-                    Button { pagerTarget = PagerTarget(urls: urls, labels: labels, start: start) } label: {
+                    Button { pagerTarget = PagerTarget(urls: urls, labels: labels, reads: pageReads, start: start) } label: {
                         AsyncImage(url: url) { phase in
                             if let img = phase.image { img.resizable().scaledToFill() }
                             else if phase.error != nil { Image(systemName: "photo").foregroundStyle(appStyle.meta) }
                             else { ProgressView() }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Photo of receipt #\(m.id), opens full screen")
                 } else {
-                    Label("No photo", systemImage: "photo").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    Image(systemName: "photo").foregroundStyle(appStyle.meta).accessibilityLabel("No photo")
                 }
             }
-            .frame(width: 110, height: 130)
+            .frame(maxWidth: .infinity)
+            .frame(height: 112)
             .background(appStyle.sunk)
-            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(m.id == keep ? appStyle.tenant : Color.clear, lineWidth: 2))
-            Text("#\(m.id)").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(m.id == keep ? appStyle.tenant : appStyle.meta)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(kept ? appStyle.tenant : Color.clear, lineWidth: 2))
+            Text(["#\(m.id)", status, sender.map(Self.shortName)].compactMap { $0 }.joined(separator: " · "))
+                .font(appStyle.font(.caption, weight: kept ? .semibold : .regular))
+                .foregroundStyle(kept ? appStyle.tenant : appStyle.meta)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Fact rows the verdict already states, by Penny's evidence kind (server DuplicateReceiptService::verdictFor).
+    static func statedByVerdict(_ evidence: String?) -> Set<String> {
+        switch evidence {
+        case "number": return ["Number"]
+        case "time": return ["Time", "Total", "Date"]
+        case "total_date": return ["Total", "Date"]
+        default: return []
+        }
+    }
+
+    /// Penny's read of one receipt in one line, to check against the paper in the full-screen photo:
+    /// "Shell · Oct 3, 2026 · 12:04 · $20.00 · Auth 433970 · ••7640" (what wasn't read is left out).
+    static func pennyRead(_ rows: [BKDupeFactRow], at i: Int) -> String {
+        rows.compactMap { $0.values[safe: i] ?? nil }.joined(separator: " · ")
+    }
+
+    /// "TIM SCHOFIELD" → "Tim S." — first name and initial, so it fits under a photo.
+    static func shortName(_ name: String) -> String {
+        let parts = name.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+        guard let first = parts.first else { return name }
+        return parts.count > 1 ? "\(first) \(parts.last!.prefix(1))." : first
     }
 }
 
@@ -585,6 +635,7 @@ private struct ConfidenceChip: View {
 private struct PagerTarget: Identifiable {
     let urls: [URL]
     let labels: [String]
+    let reads: [String]
     let start: Int
     var id: String { urls.map(\.absoluteString).joined(separator: "|") + "#\(start)" }
 }
@@ -594,11 +645,13 @@ private struct PagerTarget: Identifiable {
 private struct DupePhotoPager: View {
     let urls: [URL]
     let labels: [String]
+    let reads: [String]
     @State var selection: Int
 
-    init(urls: [URL], labels: [String], start: Int) {
+    init(urls: [URL], labels: [String], reads: [String] = [], start: Int) {
         self.urls = urls
         self.labels = labels
+        self.reads = reads
         _selection = State(initialValue: min(max(0, start), max(0, urls.count - 1)))
     }
 
@@ -613,6 +666,21 @@ private struct DupePhotoPager: View {
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(.black.opacity(0.55), in: Capsule())
                             .padding()
+                    }
+                    // Penny's read of this receipt, to check against the print before tapping Merge.
+                    .overlay(alignment: .bottom) {
+                        if let r = reads[safe: i], !r.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Penny read").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.75))
+                                Text(r).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+                            .padding(.horizontal, 16).padding(.bottom, 44)
+                            .allowsHitTesting(false)
+                        }
                     }
                     .tag(i)
             }
@@ -643,7 +711,7 @@ struct PennyDupeDemo: View {
         let variant: String
         func loadQueue() async throws -> BookkeeperQueueResponse {
             let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Shell","Shell"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
-            let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total and date. Nothing printed proves it either way.","evidence":"total_date","confidence":"First Champion pair I've seen. Check the photos.","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
+            let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
             let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell : shell + "," + champ
             let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"dupes":["# + groups + "]}"
             return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
@@ -664,6 +732,18 @@ struct PennyDupeDemo: View {
     }
 
     var body: some View {
+        // `-mwDupePager <image path>`: the full-screen pager on that image, with Penny's read over it.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-mwDupePager"), i + 1 < args.count {
+            let url = URL(fileURLWithPath: args[i + 1])
+            DupePhotoPager(urls: [url, url], labels: ["#126", "#254"],
+                           reads: ["Shell · Oct 3, 2026 · 12:04 · $20.00 · Auth 433970 · ••7640", "Shell · Oct 3, 2026 · 12:04 · $20.00 · Auth 433970"], start: 0)
+        } else {
+            demoCard
+        }
+    }
+
+    private var demoCard: some View {
         NavigationStack {
             ScrollView { PennyCardView(vm: vm).padding(16) }
                 .navigationTitle("Penny")
