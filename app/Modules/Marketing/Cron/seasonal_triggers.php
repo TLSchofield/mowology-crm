@@ -104,7 +104,8 @@ try {
         SELECT id, name, description, base_price
         FROM products
         WHERE trigger_month = ?
-          AND is_active = 1
+          AND active = 1
+          AND COALESCE(is_archived, 0) = 0
     ");
     $products->execute([$currentMonth]);
     $triggerProducts = $products->fetchAll(PDO::FETCH_ASSOC);

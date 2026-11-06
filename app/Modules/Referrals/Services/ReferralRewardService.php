@@ -461,7 +461,7 @@ class ReferralRewardService
         $pinnedId = (int)trim($pinStmt->fetchColumn() ?? '');
 
         if ($pinnedId > 0) {
-            $p = $db->prepare("SELECT id, name, base_price FROM products WHERE id = ? AND is_active = 1 LIMIT 1");
+            $p = $db->prepare("SELECT id, name, base_price FROM products WHERE id = ? AND active = 1 AND COALESCE(is_archived, 0) = 0 LIMIT 1");
             $p->execute([$pinnedId]);
             $row = $p->fetch(PDO::FETCH_ASSOC);
             if ($row) {
@@ -482,7 +482,7 @@ class ReferralRewardService
         $usedIds = $usedStmt->fetchAll(PDO::FETCH_COLUMN);
 
         // Get all active products, excluding ones they've already received
-        $allStmt = $db->query("SELECT id, name, base_price FROM products WHERE is_active = 1 ORDER BY base_price DESC");
+        $allStmt = $db->query("SELECT id, name, base_price FROM products WHERE active = 1 AND COALESCE(is_archived, 0) = 0 ORDER BY base_price DESC");
         $all = $allStmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Return first untried product (highest value)

@@ -217,7 +217,7 @@ try {
             }
 
             // Also return the products list for the product dropdown
-            $products = $db->query("SELECT id, name, base_price FROM products WHERE is_active = 1 ORDER BY name ASC")
+            $products = $db->query("SELECT id, name, base_price FROM products WHERE active = 1 AND COALESCE(is_archived, 0) = 0 ORDER BY name ASC")
                 ->fetchAll(PDO::FETCH_ASSOC);
 
             echo json_encode(['success' => true, 'settings' => $settings, 'products' => $products]);
