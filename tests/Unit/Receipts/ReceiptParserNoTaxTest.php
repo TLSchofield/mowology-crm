@@ -28,6 +28,15 @@ final class ReceiptParserNoTaxTest extends TestCase
         $this->assertSame('3.00', $p['gst']);
     }
 
+    public function testDottedTaxLabelsAreRead(): void
+    {
+        // Shaped like the Northwest Landscape invoice: labels with dots, amounts on the next line.
+        $p = parseReceiptText("SUPPLY LTD.\nInvoice\nDate\nMay 1, 2025\nNet Amount\n90.53\nG.S.T.\n4.53\nP.S.T.\n6.34\nTotal Due\n101.40");
+        $this->assertSame('101.40', $p['total']);
+        $this->assertSame('4.53', $p['gst']);
+        $this->assertSame('6.34', $p['pst']);
+    }
+
     public function testTaxWords(): void
     {
         $this->assertTrue(receiptPrintsNoTax(["TAXI 89", "Fare 21.75", "TOTAL 21.75"]));

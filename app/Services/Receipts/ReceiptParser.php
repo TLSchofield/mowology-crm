@@ -46,6 +46,9 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         'line_items'     => [],
     ];
 
+    // "G.S.T." / "P.S.T." / "H.S.T." (supplier invoices) read as GST / PST / HST, or the tax rules miss them and the 5% guess
+    // runs instead (Northwest Landscape #537, 2026-11-06: printed GST 4.53 + PST 6.34 read as GST 4.83, no PST).
+    $ocrText = (string)preg_replace('/\b([GPH])\.\s?S\.\s?T\.?(?![A-Za-z])/i', '$1ST', $ocrText);
     $lines = preg_split('/\r?\n/', $ocrText);
     if (empty($lines)) {
         return $result;
