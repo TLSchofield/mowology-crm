@@ -42,3 +42,5 @@ Not in scope: running payroll, filing GST.
 - **Before deploy (done except the signed-in look):** render the four web screens; accept terms on rehearsal2 (terms_versions + acceptance rows); answer "not
   registered" there and check a contract draft, a quote and a receipt carry no GST; Mowology records nothing.
 - **Next:** Android + iPhone screens (send `knows=terms,gst,yearend,payroll`).
+
+- **2026-11-06 order + QuickBooks pre-fill DEPLOYED.** GST/year-end/payroll follow QuickBooks; when QuickBooks was read Penny says what it shows (GST number, fiscal year, QuickBooks Payroll on/off) and asks only what's missing. Checked on rehearsal2 (rolled back): facts read, confirm saves the QuickBooks number, old apps unchanged. rehearsal2 keeps its own saved step order.

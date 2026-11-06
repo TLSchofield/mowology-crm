@@ -335,3 +335,9 @@ get them after phase 2.
 - **Wave:** no payroll or hours in Wave's public API (third-party report, unconfirmed by Wave docs). Realistic path: a weekly hours
   export in whatever file Wave Payroll imports (check Wave's import format first), or Wave's own timesheet entry by hand.
 - Start: the onboarding payroll answer (`onboarding_payroll`, `onboarding_payroll_app`) says which one a business needs.
+
+## Penny warns a non-registered business nearing the $30,000 GST limit (Tim 2026-11-06)
+- For a business that answered "not registered" (`ops_settings.gst_registered = 'no'`), Penny sums taxable sales (invoices) over
+  each rolling four calendar quarters and warns as it nears the small-supplier limit ($30,000 in Canada) — e.g. at 80% and on
+  crossing, saying it must register and charge GST from the supply that takes it over (check the exact CRA timing rule in the
+  `regions` skill / with Sit Lim before wording it). Shows on Penny's card and the brief; never changes the setting itself.
