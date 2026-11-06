@@ -27,7 +27,7 @@ covers:
   - public/crm/downloads/app-version.json
   - scripts/*
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   created: 2026-10-11
   status: built (phase 1, 2026-10-11)
   owner: Tim Schofield (Mowology)

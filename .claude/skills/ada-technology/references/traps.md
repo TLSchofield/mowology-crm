@@ -163,3 +163,9 @@ as "changed on the server" — red, Critical, standing. Signature: a drift list 
 deployed on purpose. Rule: every deploy path records the manifest (both scripts now call
 `scripts/lib/deploy_manifest.py`); when a red stands for weeks, ask first whether the checker, not the system,
 is wrong. The matching check: `AdaRules::withAge()` now says "— for 17 days", so a standing red is visible as one.
+
+## 2026-11-05 — One Google client ID, three features: changing it broke Search Console for 10 days
+- On 2026-10-26 a chat setting up Google Business pointed the shared Google client ID and secret in secrets.php at a new OAuth client in the `mowology` Google project. Search Console's saved refresh token belonged to the old client, so every nightly sync from Oct 26 failed. Google answered `unauthorized_client`, but sync history said only "Failed to refresh token".
+- The new client also lacks Search Console's callback address, so a plain reconnect fails with `redirect_uri_mismatch` until that address is added in Google Cloud.
+- Sync history now records Google's error code and what it means (commit a44d1c39a). The manual sync still answers success:true when every property failed; read `failed` and `errors`, not `success`.
+- Check that would have caught it: when Search Console sync fails, Ada's line should quote the reason from the history row. Before anyone changes the shared Google client in secrets.php, list every feature that uses it: Search Console sync and connect, the website watcher, Google Business, and portfolio connect.
