@@ -7,7 +7,7 @@ class ClientFactAnswerer
 {
     /** Every word intent() reads, so person() never takes one for a name. */
     public const INTENT_WORDS = [
-        'quote', 'sent', 'send', 'went', 'gone', 'out', 'open', 'opened', 'seen', 'answer', 'answered', 'respond', 'responded', 'declined', 'reply', 'replied', 'accepted',
+        'quote', 'quotes', 'viewed', 'view', 'expired', 'sent', 'send', 'went', 'gone', 'out', 'open', 'opened', 'seen', 'answer', 'answered', 'respond', 'responded', 'declined', 'reply', 'replied', 'accepted',
         'approved', 'status', 'paid', 'pay', 'owe', 'owes', 'owing', 'balance', 'outstanding', 'overdue', 'next', 'when',
         'visit', 'coming', 'scheduled', 'booked', 'say', 'said', 'says', 'wrote', 'email', 'emailed', 'message', 'text',
         'texted', 'heard', 'last', 'did', 'has', 'have', 'been', 'yet', 'what', 'from',
@@ -32,7 +32,7 @@ class ClientFactAnswerer
 
     private function intent(string $q): ?string
     {
-        if (self::has($q, ['quote']) && self::has($q, ['sent','send','went','gone','out','open','opened','seen','answer','answered','reply','replied','respond','responded','accepted','approved','declined','status'])) return 'quote_sent';
+        if (self::has($q, ['quote','quotes']) && self::has($q, ['sent','send','went','gone','out','open','opened','seen','viewed','view','expired','answer','answered','reply','replied','respond','responded','accepted','approved','declined','status'])) return 'quote_sent';
         if (self::has($q, ['paid','pay','owe','owes','owing','balance','outstanding','overdue'])) return 'paid';
         if (self::has($q, ['next','when','visit','coming','scheduled','booked'])) return 'next_visit';
         if (self::has($q, ['say','said','says','wrote','email','emailed','message','text','texted','reply','replied','heard'])) return 'last_message';
