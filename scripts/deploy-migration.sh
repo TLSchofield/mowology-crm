@@ -33,6 +33,9 @@ case "$LOCAL" in
 esac
 case "$LOCAL" in *..*) echo "ERROR: '..' is not allowed" >&2; exit 3 ;; esac
 [ -f "$LOCAL" ] || { echo "ERROR: local file does not exist: $LOCAL" >&2; exit 2; }
+# Only what is on feature/language goes live; a file that isn't gets merged there first (2026-11-06).
+. "$REPO_ROOT/scripts/lib/feature-gate.sh"
+if [ "$DRY_RUN" = "1" ]; then fg_gate --check-only "$LOCAL"; else fg_gate "$LOCAL" || exit 3; fi
 
 NAME="$(basename "$LOCAL")"
 case "$NAME" in

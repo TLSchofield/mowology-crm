@@ -12,6 +12,8 @@ case "$LOCAL" in
   app/*)    REMOTE="/$LOCAL" ;;
   *) echo "refused: $LOCAL"; exit 2 ;;
 esac
+. scripts/lib/feature-gate.sh   # only what is on feature/language goes live; merges it there first (2026-11-06)
+fg_gate "$LOCAL" || exit 1
 DIR="$(dirname "$REMOTE")/"; NAME="$(basename "$REMOTE")"; TMP="$NAME.deploying"
 SIZE=$(stat -f %z "$LOCAL")
 run() { mw_lftp "$1; quit" 2>&1; }   # one shared-lib session per operation (TLS verification on, Keychain password)

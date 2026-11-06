@@ -49,6 +49,10 @@ for f in "${FILES[@]}"; do
     remote_dir "$f" >/dev/null || { echo "Refused (unknown destination): $f"; exit 3; }
 done
 
+# Only what is on feature/language goes live; a file that isn't gets merged there first (2026-11-06).
+. "$(cd "$(dirname "$0")" && pwd)/lib/feature-gate.sh"
+if [[ $DRY -eq 1 ]]; then fg_gate --check-only "${FILES[@]}"; else fg_gate "${FILES[@]}" || exit 3; fi
+
 . "$(cd "$(dirname "$0")" && pwd)/lib/ftp.sh"   # host, TLS verification on, Keychain password
 mw_ftp_check || exit 4
 LFTP_SET="set net:max-retries 2;"

@@ -82,6 +82,9 @@ upload_file_absolute() {
 # ── Single-file mode ──────────────────────────────────────────────────────────
 if [[ -n "$SPECIFIC_FILE" ]]; then
   echo "Deploying specific file: $SPECIFIC_FILE"
+  # Only what is on feature/language goes live; a file that isn't gets merged there first (2026-11-06).
+  . "$(cd "$(dirname "$0")" && pwd)/scripts/lib/feature-gate.sh"
+  if [[ "$DRY_RUN" == "true" ]]; then fg_gate --check-only "$SPECIFIC_FILE"; else fg_gate "$SPECIFIC_FILE" || exit 1; fi
   if [[ "$SPECIFIC_FILE" == "$SYNCROOT"* ]]; then
     upload_file "$SPECIFIC_FILE"
   else
@@ -118,6 +121,12 @@ fi
 
 read -rp "Proceed with deploy? [y/N] " confirm
 [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+
+# Only what is on feature/language goes live; a file that isn't gets merged there first (2026-11-06).
+. "$(cd "$(dirname "$0")" && pwd)/scripts/lib/feature-gate.sh"
+GATE_FILES=()
+while IFS= read -r file; do [[ -n "$file" && -f "$file" ]] && GATE_FILES+=("$file"); done <<< "$CHANGED"
+if [[ ${#GATE_FILES[@]} -gt 0 ]]; then fg_gate "${GATE_FILES[@]}" || exit 1; fi
 
 echo ""
 echo "Uploading..."

@@ -118,6 +118,10 @@ if [[ ! -f "$LOCAL" ]]; then
     exit 2
 fi
 
+# Only what is on feature/language goes live; a file that isn't gets merged there first (2026-11-06).
+. "$(dirname "$0")/lib/feature-gate.sh"
+if [[ "$DRY_RUN" -eq 1 ]]; then fg_gate --check-only "$LOCAL"; else fg_gate "$LOCAL" || exit 3; fi
+
 # ── Compute the remote destination ──────────────────────────────────────────
 
 FILENAME="$(basename "$LOCAL")"

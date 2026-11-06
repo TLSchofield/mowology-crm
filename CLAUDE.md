@@ -98,7 +98,7 @@ The worktree is a completely separate checkout on its own branch. The parent rep
 
 **After completing any code changes, ALWAYS follow this workflow:**
 
-1. **Commit and push immediately** — do not wait for the user to ask. Stage only the files you changed, write a clear commit message, and `git push` to `main`.
+1. **Commit immediately** — do not wait for the user to ask. Stage only the files you changed and write a clear commit message. **Deploy only through the scripts** (`scripts/deploy-safe.sh`, `deploy-file.sh`, `deploy-step.sh`, `deploy-checked.sh`, `deploy-migration.sh`, `./deploy.sh`): each one runs the feature gate first, which merges your branch into `feature/language`, runs the tests and pushes, and uploads nothing until that worked (Tim, 2026-11-06 — chats deploying from their own branches had left feature/language days behind production). Never upload with raw lftp. For a change that is pushed but not deployed (docs, iOS), run `scripts/merge-to-feature.sh` yourself.
 2. **Wait for deploy** — cPanel auto-deploys from GitHub. Allow a few seconds after push.
 3. **Verify on production** — open the affected page(s) on `https://mowology.ca` in the browser and confirm:
    - The page loads without errors (no white screen, no PHP fatal)

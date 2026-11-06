@@ -15,6 +15,10 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib/ftp.sh
 source scripts/lib/deploy-fingerprints.sh
+source scripts/lib/feature-gate.sh
+
+# Only what is on feature/language goes live; a file that isn't gets merged there first (2026-11-06).
+fg_gate "$@" || exit 1
 
 CURRENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/deploy-safe.XXXXXX")"
 trap 'fp_lock_release; rm -rf "$CURRENT_DIR"' EXIT
