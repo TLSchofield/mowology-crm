@@ -201,9 +201,8 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
 
     // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
     require_once dirname(__DIR__) . '/Llm/LlmGateway.php';
-    // A separate skill name when the photo went too, so llm_calls compares cost and time of the two.
-    $gw   = LlmGateway::send($reqBody, ['head' => 'penny', 'skill' => $fileBlock === null ? 'receipt_lines' : 'receipt_lines_image',
-                                        'db' => getDB(), 'timeout' => RECEIPT_LLM_TIMEOUT]);
+    // One skill label with or without the photo (SkillRegistry matches cost lines by it); a photo call shows as ~1,500 more input tokens.
+    $gw   = LlmGateway::send($reqBody, ['head' => 'penny', 'skill' => 'receipt_lines', 'db' => getDB(), 'timeout' => RECEIPT_LLM_TIMEOUT]);
     $raw  = $gw['body'];
     $code = $gw['code'];
     $err  = $code === 0 ? (string)($gw['error'] ?? 'no response') : '';
