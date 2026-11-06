@@ -25,6 +25,7 @@
 declare(strict_types=1);
 require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
+require_once dirname(__DIR__, 3) . '/Core/PdfStore.php';
 require_once __DIR__ . '/InvoicePdfGate.php';
 require_once __DIR__ . '/UnbilledWorkFinder.php';
 
@@ -116,9 +117,9 @@ class InvoiceFromVisitService
                 error_log("snowRunProof: no Winter Service Record for visit {$visitId}: " . ($res['error'] ?? 'unknown'));
                 return null;
             }
-            $dir  = defined('STORAGE_ROOT') ? STORAGE_ROOT . '/pdfs/salt-reports' : dirname(PUBLIC_ROOT) . '/storage/pdfs/salt-reports';
-            $file = $dir . '/' . basename((string)$res['path']);
-            if (!is_file($file)) {
+            // Resolve through the stored path so a business only ever reads its own folder (PdfStore)
+            $file = PdfStore::absoluteFromStored((string)$res['path']);
+            if ($file === null || !is_file($file)) {
                 return null;
             }
             $srId = $this->db->prepare("SELECT id FROM salt_run_reports WHERE visit_id = ? LIMIT 1");

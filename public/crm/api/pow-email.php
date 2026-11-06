@@ -94,7 +94,11 @@ session_write_close();
         throw new RuntimeException('No PDF has been generated for this visit yet. Please generate the PDF first.');
     }
 
-    $pdfServerPath = PUBLIC_ROOT . $visit['pdf_path'];
+    require_once APP_ROOT . '/Core/PdfStore.php';
+    $pdfServerPath = PdfStore::absoluteFromStored((string)$visit['pdf_path'], false); // this business's own folder only
+    if ($pdfServerPath === null) {
+        throw new RuntimeException('PDF file not found on server. Please regenerate.');
+    }
     if (!file_exists($pdfServerPath)) {
         // May be an HTML fallback
         $htmlPath = str_replace('.pdf', '.html', $pdfServerPath);

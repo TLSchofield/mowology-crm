@@ -100,8 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'download') {
         renderTripReportError(404, 'PDF Not Yet Generated', 'The PDF for this trip report has not been generated yet. Please try again in a few moments, or contact support if this persists.');
     }
 
-    $fullPath = PROJECT_ROOT . '/' . $report['pdf_path'];
-    if (!file_exists($fullPath)) {
+    require_once APP_ROOT . '/Core/PdfStore.php';
+    $fullPath = PdfStore::absoluteFromStored((string)$report['pdf_path']); // this business's own folder only
+    if ($fullPath === null || !file_exists($fullPath)) {
         // File missing (e.g. wrong stored path or server cleanup) — attempt regeneration
         require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
         require_once APP_ROOT . '/Modules/Driver/TripReportPdf.php';

@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
 
 /**
  * ZoneReportPdfGenerator
@@ -46,19 +47,21 @@ class ZoneReportPdfGenerator
             }
 
             // Check existing file
-            $outDir  = $this->publicRoot . '/storage/pdfs/zone-report/';
+            // Per-business folder under STORAGE_ROOT (PdfStore); never the shared public/storage folder
+            $outDir  = PdfStore::dir('zone-report', false) . '/';
             $outFile = $outDir . 'visit_' . $visitId . '.pdf';
+            $storedPath = '/' . PdfStore::relative('zone-report', 'visit_' . $visitId . '.pdf');
 
             if (!$forceRegen && is_file($outFile)) {
                 return [
                     'success' => true,
-                    'path'    => '/storage/pdfs/zone-report/visit_' . $visitId . '.pdf',
+                    'path'    => $storedPath,
                     'cached'  => true,
                 ];
             }
 
             if (!is_dir($outDir)) {
-                mkdir($outDir, 0755, true);
+                mkdir($outDir, 0750, true);
             }
 
             // Load visit data
@@ -87,7 +90,7 @@ class ZoneReportPdfGenerator
 
             return [
                 'success' => true,
-                'path'    => '/storage/pdfs/zone-report/visit_' . $visitId . '.pdf',
+                'path'    => $storedPath,
             ];
 
         } catch (Throwable $e) {

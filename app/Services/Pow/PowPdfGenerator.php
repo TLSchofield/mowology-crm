@@ -20,6 +20,7 @@ if (!defined('APP_ROOT')) {
 // Load Composer autoloader (mPDF)
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
 require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
 
 if (!class_exists('MapSnapshotService')) {
     require_once __DIR__ . '/MapSnapshotService.php';
@@ -42,15 +43,16 @@ class PowPdfGenerator
         $this->db          = $db;
         $this->publicRoot  = rtrim($publicRoot, '/');
         // Absolute path: sits alongside storage/pdfs/quotes/ and storage/pdfs/invoices/
+        // Per-business folder (PdfStore); the default business keeps storage/pdfs/pow
         $this->storageDir  = defined('STORAGE_ROOT')
-            ? STORAGE_ROOT . '/pdfs/pow'
+            ? PdfStore::dir('pow', false)
             : dirname($this->publicRoot) . '/storage/pdfs/pow';
         $this->siteUrl     = rtrim($siteUrl, '/');
         $this->companyName = _idCompanyInfo()['company_name'];
         $this->logoPath    = $this->publicRoot . '/assets/img/mowology-logo.png';
 
         if (!is_dir($this->storageDir)) {
-            mkdir($this->storageDir, 0755, true);
+            mkdir($this->storageDir, 0750, true);
         }
     }
 
@@ -71,7 +73,8 @@ class PowPdfGenerator
 
         // Version number (existing + 1)
         $version  = 1;
-        if (!empty($data['visit']['pdf_path']) && !$forceRegen) {
+        // A stored path this business can't open (a pre-2026-11-06 flat path on a non-default business) counts as missing.
+        if (!empty($data['visit']['pdf_path']) && !$forceRegen && PdfStore::absoluteFromStored((string)$data['visit']['pdf_path']) !== null) {
             // PDF exists and not forcing — return cached
             return ['success' => true, 'path' => $data['visit']['pdf_path'], 'error' => null];
         }
@@ -97,7 +100,7 @@ class PowPdfGenerator
         // Determine output path
         $filename = 'visit_' . $visitId . '_v' . $version . '.pdf';
         $filepath = rtrim($this->storageDir, '/') . '/' . $filename;
-        $webPath  = self::RELATIVE_DIR . $filename;
+        $webPath  = PdfStore::relative('pow', $filename);
 
         // Render with mPDF
         $this->renderWithMpdf($html, $filepath);
