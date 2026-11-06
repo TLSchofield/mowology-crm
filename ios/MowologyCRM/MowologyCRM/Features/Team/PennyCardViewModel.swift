@@ -36,6 +36,13 @@ final class PennyCardViewModel: ObservableObject {
     // MARK: - Desk state
     @Published private(set) var queue: [BookkeeperItem] = []
     @Published private(set) var dupes: [BKDupeGroup] = []
+    /// The duplicate group on screen (a carousel: swipe sideways; after an answer the next one shows).
+    @Published private(set) var dupeIndex = 0
+    @Published private(set) var dupeSwipeForward = true
+    var currentDupe: BKDupeGroup? { dupes.isEmpty ? nil : dupes[min(dupeIndex, dupes.count - 1)] }
+    func nextDupe() { guard dupes.count > 1 else { return }; dupeSwipeForward = true; dupeIndex = (dupeIndex + 1) % dupes.count }
+    func previousDupe() { guard dupes.count > 1 else { return }; dupeSwipeForward = false; dupeIndex = (dupeIndex - 1 + dupes.count) % dupes.count }
+
     /// "Keep the other instead": the receipt chosen to stay, per group id (else Penny's pick).
     @Published private(set) var keepChoice: [String: Int] = [:]
     /// The merge just made, for "Merged into #N · Undo" (cleared after about 6 seconds).
@@ -124,6 +131,7 @@ final class PennyCardViewModel: ObservableObject {
         lines = r.lines
         queue = r.queue
         dupes = r.dupes
+        if dupeIndex >= dupes.count { dupeIndex = 0 }
         categories = r.categories
         tagOptions = r.assetTags.isEmpty ? BKTagOption.defaults : r.assetTags
         index = 0
@@ -429,6 +437,7 @@ final class PennyCardViewModel: ObservableObject {
         let savedIsError = messageIsError
         queue = r.queue
         dupes = r.dupes
+        if dupeIndex >= dupes.count { dupeIndex = 0 }
         if !r.categories.isEmpty { categories = r.categories }
         index = keepId.flatMap { id in queue.firstIndex { $0.suggestionId == id } } ?? 0
         fillForm()
