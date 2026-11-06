@@ -23,6 +23,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once PUBLIC_ROOT . '/crm/includes/functions.php';   // logActivityExtended(): without it every move went unlogged
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceMoveService.php';
 
 requireLogin();
