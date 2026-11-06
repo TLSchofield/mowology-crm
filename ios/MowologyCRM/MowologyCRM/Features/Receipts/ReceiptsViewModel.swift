@@ -219,6 +219,25 @@ final class ReceiptsViewModel: ObservableObject {
         try? await apiClient.request(.bookkeeperRisk(expenseId: expenseId))
     }
 
+    /// Copies merged into this receipt that are still set aside ("Also on this purchase"). Admins only on the server.
+    func loadMerged(expenseId: Int) async -> [BKMergedCopy] {
+        let r: BKMergedResponse? = try? await apiClient.request(.bookkeeperMerged(expenseId: expenseId))
+        return r?.merged ?? []
+    }
+
+    /// Split off: the copy is its own receipt again (back to waiting, remembered as not a duplicate, Penny learns).
+    func splitOff(copyId: Int) async -> BookkeeperActionResponse? {
+        do {
+            let r: BookkeeperActionResponse = try await apiClient.request(.bookkeeperAction,
+                                                                          body: ["mode": "unmerge", "copy_id": copyId, "kind": "split"])
+            return r
+        } catch {
+            AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
+            actionError = ErrorDetails.describe(error)
+            return nil
+        }
+    }
+
     /// Penny's read on this receipt where it differs from it (nil = nothing of hers to show,
     /// or it couldn't be loaded — the receipt works without it).
     func loadPennyRead(expenseId: Int) async -> PennyRead? {

@@ -238,21 +238,106 @@ struct BKDupeMember: Decodable, Identifiable, Equatable {
     var isWaiting: Bool { status == "draft" || status == "pending_approval" }
 }
 
+/// One row of the facts side by side (server: DuplicateReceiptService::factRows). state:
+/// same (a tick), differs (highlighted), missing (a value not read — "–"), info (not compared).
+struct BKDupeFactRow: Decodable, Equatable, Identifiable {
+    var id: String { label }
+    let label: String
+    let values: [String?]
+    let state: String
+
+    private enum CodingKeys: String, CodingKey { case label, values, state }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label = c.bkString(.label) ?? ""
+        values = ((try? c.decodeIfPresent([BKValue?].self, forKey: .values)) ?? []).map { v in
+            guard let t = v?.text, !t.isEmpty else { return nil }
+            return t
+        }
+        state = c.bkString(.state) ?? "info"
+    }
+
+    init(label: String, values: [String?], state: String) { self.label = label; self.values = values; self.state = state }
+}
+
 struct BKDupeGroup: Decodable, Identifiable, Equatable {
     var id: String { members.map { String($0.id) }.joined(separator: "-") }
     let pairs: [[Int]]
     let members: [BKDupeMember]
+    // Penny's presentation (server 2026-11-06, DuplicateReceiptService::presentGroup); nil from an older server.
+    let verdict: String?
+    let evidence: String?
+    let confidence: String?
+    let keepId: Int?
+    let keepReason: String?
+    let copyIds: [Int]
+    let canSwap: [Int]
+    let facts: [BKDupeFactRow]
 
-    private enum CodingKeys: String, CodingKey { case pairs, members }
+    private enum CodingKeys: String, CodingKey {
+        case pairs, members, verdict, evidence, confidence, facts
+        case keepId = "keep_id", keepReason = "keep_reason", copyIds = "copy_ids", canSwap = "can_swap"
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let raw = (try? c.decodeIfPresent([[BKValue]].self, forKey: .pairs)) ?? []
         pairs = raw.map { $0.compactMap { $0.int } }.filter { $0.count == 2 }
         members = (try? c.decodeIfPresent([BKDupeMember].self, forKey: .members)) ?? []
+        verdict = c.bkString(.verdict)
+        evidence = c.bkString(.evidence)
+        confidence = c.bkString(.confidence)
+        keepId = c.bkInt(.keepId)
+        keepReason = c.bkString(.keepReason)
+        copyIds = ((try? c.decodeIfPresent([BKValue].self, forKey: .copyIds)) ?? []).compactMap { $0.int }
+        canSwap = ((try? c.decodeIfPresent([BKValue].self, forKey: .canSwap)) ?? []).compactMap { $0.int }
+        facts = (try? c.decodeIfPresent([BKDupeFactRow].self, forKey: .facts)) ?? []
     }
 
-    init(pairs: [[Int]], members: [BKDupeMember]) { self.pairs = pairs; self.members = members }
+    init(pairs: [[Int]], members: [BKDupeMember], verdict: String? = nil, evidence: String? = nil, confidence: String? = nil,
+         keepId: Int? = nil, keepReason: String? = nil, copyIds: [Int] = [], canSwap: [Int] = [], facts: [BKDupeFactRow] = []) {
+        self.pairs = pairs; self.members = members; self.verdict = verdict; self.evidence = evidence
+        self.confidence = confidence; self.keepId = keepId; self.keepReason = keepReason
+        self.copyIds = copyIds; self.canSwap = canSwap; self.facts = facts
+    }
+}
+
+/// A copy merged into a receipt ("Also on this purchase") — GET bookkeeper-mobile?mode=merged&expense_id=N.
+struct BKMergedCopy: Decodable, Identifiable, Equatable {
+    var id: Int { copyId }
+    let copyId: Int
+    let expenseDate: String?
+    let total: Double?
+    let receiptPath: String?
+    let mergedAt: String?
+    let mergedBy: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case copyId = "copy_id", expenseDate = "expense_date", total, receiptPath = "receipt_path"
+        case mergedAt = "merged_at", mergedBy = "merged_by"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        copyId = c.bkInt(.copyId) ?? 0
+        expenseDate = c.bkString(.expenseDate)
+        total = c.bkDouble(.total)
+        receiptPath = c.bkString(.receiptPath)
+        mergedAt = c.bkString(.mergedAt)
+        mergedBy = c.bkString(.mergedBy)
+    }
+}
+
+struct BKMergedResponse: Decodable {
+    let ok: Bool
+    let merged: [BKMergedCopy]
+    private enum CodingKeys: String, CodingKey { case ok, merged }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        merged = (try? c.decodeIfPresent([BKMergedCopy].self, forKey: .merged)) ?? []
+    }
 }
 
 // MARK: - Responses
@@ -423,9 +508,11 @@ struct BookkeeperActionResponse: Decodable {
     let savedDraft: Bool?
     let blocked: Bool?
     let error: String?
+    /// merge: the server recorded each copy (expense_merges), so Undo / Split off can bring it back.
+    let undo: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, message, approved, savedDraft = "saved_draft", blocked, error
+        case ok, message, approved, savedDraft = "saved_draft", blocked, error, undo
     }
 
     init(from decoder: Decoder) throws {
@@ -436,6 +523,7 @@ struct BookkeeperActionResponse: Decodable {
         savedDraft = c.bkBool(.savedDraft)
         blocked = c.bkBool(.blocked)
         error = c.bkString(.error)
+        undo = c.bkBool(.undo)
     }
 }
 

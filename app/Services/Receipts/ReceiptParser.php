@@ -37,6 +37,8 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         'pst'            => null,
         'subtotal'       => null,
         'date'           => null,
+        'date_order'     => null,   // 'dmy'|'mdy' when the receipt itself proves it
+        'date_order_source' => null, // 'receipt'|'vendor'|'default' when the date was ambiguous
         'time'           => null,
         'vendor_hint'    => null,
         'card_last4'     => null,
@@ -76,7 +78,13 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
     $result['subtotal'] = extractSubtotal($ocrText);
 
     // Date
-    $result['date'] = extractDate($ocrText);
+    $vendorOrder = $vendorProfile['date_order'] ?? null;
+    $result['date'] = extractDate($ocrText, $vendorOrder);
+    $result['date_order'] = receiptDateOrder($ocrText);
+    if ($result['date'] !== null && receiptAmbiguousDate($ocrText) !== null) {
+        $result['date_order_source'] = $result['date_order'] !== null ? 'receipt'
+            : (in_array($vendorOrder, ['dmy', 'mdy'], true) ? 'vendor' : 'default');
+    }
 
     // Payment method + card last 4
     $paymentInfo = extractPaymentInfo($ocrText);
@@ -2185,20 +2193,70 @@ function extractSubtotal(string $text): ?string
 }
 
 /**
+ * Day/month order proven by the receipt's own numeric dates: a first number 13-31 means
+ * day first, a second number 13-31 means month first (a return-by date often gives it away).
+ *
+ * @return string|null 'dmy' | 'mdy' when every proof agrees, null when none or they conflict
+ */
+function receiptDateOrder(string $text): ?string
+{
+    // Only real dates vote (code review 2026-11-06): a product code like "10-20-10" or "16-24-12" is not one —
+    // never inside a longer number chain, the year plausible for a receipt, and a valid calendar date that way round.
+    $votes = [];
+    $maxYear = (int)date('Y') + 1;
+    if (preg_match_all('/(?<![\d\/\-.])(\d{1,2})([\/\-.])(\d{1,2})\2(\d{4}|\d{2})(?![\d\/\-]|\.\d)/', $text, $all, PREG_SET_ORDER)) {
+        foreach ($all as $m) {
+            $a = (int)$m[1]; $b = (int)$m[3]; $y = (int)$m[4]; if (strlen($m[4]) === 2) $y += 2000;
+            if ($y < 2015 || $y > $maxYear) continue;
+            if ($a >= 13 && $b <= 12 && checkdate($b, $a, $y)) $votes['dmy'] = true;
+            if ($b >= 13 && $a <= 12 && checkdate($a, $b, $y)) $votes['mdy'] = true;
+        }
+    }
+    return count($votes) === 1 ? key($votes) : null;
+}
+
+/**
+ * The numeric a/b/yyyy (or a/b/yy) date extractDate() would pick, when both a and b are
+ * 1-12 and differ — i.e. when its day/month order is a guess. Null when the date is
+ * unambiguous, YYYY-MM-DD, or not numeric.
+ *
+ * @return int[]|null [a, b, year]
+ */
+function receiptAmbiguousDate(string $text): ?array
+{
+    foreach (['/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/', '/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/', '/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})(?!\d)/'] as $i => $re) {
+        if (!preg_match($re, $text, $m)) continue;
+        if ($i === 0) {
+            if (checkdate((int)$m[2], (int)$m[3], (int)$m[1])) return null;
+            continue;
+        }
+        $a = (int)$m[1];
+        $b = (int)$m[2];
+        $y = $i === 2 ? (int)$m[3] + 2000 : (int)$m[3];
+        if ($a >= 1 && $a <= 12 && $b >= 1 && $b <= 12 && $a !== $b) return [$a, $b, $y];
+        if (checkdate($b, $a, $y) || checkdate($a, $b, $y)) return null;
+    }
+    return null;
+}
+
+/**
  * Extract date from receipt text.
  * Supports: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, MMM DD YYYY, etc.
+ * An ambiguous a/b/yy date (both 1-12) is read by the order the receipt itself proves,
+ * else the vendor's learned habit ($order: 'dmy'|'mdy'), else month first.
  *
  * @return string|null Date in YYYY-MM-DD format
  */
-function extractDate(string $text): ?string
+function extractDate(string $text, ?string $order = null): ?string
 {
+    $order = receiptDateOrder($text) ?? (in_array($order, ['dmy', 'mdy'], true) ? $order : null);
     $patterns = [
         // YYYY-MM-DD
         '/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/' => function ($m) {
             return sprintf('%04d-%02d-%02d', $m[1], $m[2], $m[3]);
         },
         // MM/DD/YYYY or DD/MM/YYYY
-        '/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/' => function ($m) {
+        '/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/' => function ($m) use ($order) {
             $a = (int)$m[1];
             $b = (int)$m[2];
             $y = (int)$m[3];
@@ -2206,15 +2264,21 @@ function extractDate(string $text): ?string
             if ($a > 12) {
                 return sprintf('%04d-%02d-%02d', $y, $b, $a);
             }
-            // Default: MM/DD/YYYY (North American convention)
+            // Both 1-12: day first only when proven; default MM/DD/YYYY (North American convention)
+            if ($order === 'dmy' && $b <= 12) {
+                return sprintf('%04d-%02d-%02d', $y, $b, $a);
+            }
             return sprintf('%04d-%02d-%02d', $y, $a, $b);
         },
         // MM/DD/YY or DD/MM/YY
-        '/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})(?!\d)/' => function ($m) {
+        '/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})(?!\d)/' => function ($m) use ($order) {
             $a = (int)$m[1];
             $b = (int)$m[2];
             $y = (int)$m[3] + 2000;
             if ($a > 12) {
+                return sprintf('%04d-%02d-%02d', $y, $b, $a);
+            }
+            if ($order === 'dmy' && $b <= 12) {
                 return sprintf('%04d-%02d-%02d', $y, $b, $a);
             }
             return sprintf('%04d-%02d-%02d', $y, $a, $b);

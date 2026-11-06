@@ -9,8 +9,8 @@ Direction (council, 2026-10-12): keep the data discipline-neutral, and build and
 trades first. The AI back office is the edge.
 
 ## Build queue (Tim, 2026-11-05: "Queue all other items") — in order, one at a time after the payment thank-you
-1. **e-Transfer memos naming invoices without the year** — `docs/plans/2026-11-05-etransfer-memo-invoice-numbers.md` (plan done; money matching, smallest).
-2. **Duplicate receipts on the phone** — `docs/plans/2026-11-05-duplicate-receipts-on-the-phone.md` (plan done; keep the bank-linked one, else the older, until Tim says otherwise).
+1. ~~e-Transfer memos naming invoices without the year~~ — DONE (b13a1aa95, seen 2026-11-06).
+2. ~~Duplicate receipts on the phone~~ — BUILT 2026-11-06: Merge / Different square buttons, Penny's verdict + per-vendor record, facts side by side, Undo, Split off (iOS 1.3.89, web card, `expense_merges` migration 1442 — to run). Left: synchronised zoom across the two photos; web "Also on this purchase"; Penny asking per vendor for level 3 once her record is long.
 3. **Button and icon sizes, styles and positions** — inventory, then rules into v1.2 for Tim's approval, then fix screens (entry below).
 4. **Android Kaname tab** — `docs/plans/kaname-tab-and-screen-heads-spec.md` Android steps (Codex writes, Claude reviews).
 5. **Web: Kaname as a fixed name** — remove the `chief_name` override in `app/Services/HeadIdentity.php` after checking no business set it.

@@ -33,6 +33,8 @@ final class AgentPolicy
         'otto.apply_suggestion'  => 2,
         'penny.approve_receipt'  => 2,
         'penny.bank_rule_apply'  => 3,
+        // Penny proposes a duplicate merge; a person taps Merge (Tim 2026-11-05). Raised per vendor later, from her record.
+        'penny.merge_duplicate'  => 2,
         'mia.approve_campaign'   => 2,
     ];
     public const DEFAULT_LEVEL = 2;

@@ -25,6 +25,7 @@ declare(strict_types=1);
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
+require_once __DIR__ . '/ReceiptParser.php';   // receiptDateOrder() for the date-order lesson
 
 /**
  * Record corrections the user made to OCR-parsed values — header fields, category
@@ -173,6 +174,15 @@ function recordHeaderLessons(PDO $db, ?int $vendorId, ?string $vendorName, array
         addFieldLesson($db, $vendorId, $vendorName, $fieldName, $ocrVal, $userVal, $ocrText);
     }
 
+    // The store's day/month order, from confirmed facts only (see dateOrderLesson()).
+    // An approved date teaches only when the person changed it: keeping the reader's own guess is not a choice
+    // (code review 2026-11-06 — lazy approvals would otherwise outvote the receipts that prove the order).
+    $dateCorrected = !empty($diff['fields']['date']['corrected']);
+    $dateOrder = dateOrderLesson($ocrText, $dateCorrected && isset($final['expense_date']) ? (string)$final['expense_date'] : null);
+    if ($vendorId && $dateOrder !== null) {
+        addFieldLesson($db, $vendorId, $vendorName, 'date_order', null, $dateOrder, $ocrText);
+    }
+
     // ── Accounting category corrections ────────────────────────────────
     // After 2+ identical corrections, the learned category overrides vendor default.
     if ($vendorId && $diff['category']) {
@@ -184,6 +194,28 @@ function recordHeaderLessons(PDO $db, ?int $vendorId, ?string $vendorName, array
     if ($vendorId) {
         updateVendorProfile($db, $vendorId, $fieldMap, $hadCorrections);
     }
+}
+
+/**
+ * The day/month order a store prints dates in, when this confirmed receipt shows it:
+ * the receipt itself proves it (a 13-31 in either slot), or its ambiguous printed date was
+ * approved as exactly one of its two readings. Pure — unit tested.
+ *
+ * @return string|null 'dmy' | 'mdy', or null when nothing was shown
+ */
+function dateOrderLesson(string $ocrText, ?string $approvedDate): ?string
+{
+    $proven = receiptDateOrder($ocrText);
+    if ($proven !== null) return $proven;
+    $printed = receiptAmbiguousDate($ocrText);
+    if ($printed === null || $approvedDate === null) return null;
+    [$a, $b, $y] = $printed;
+    $approved = substr(trim($approvedDate), 0, 10);
+    $mdy = sprintf('%04d-%02d-%02d', $y, $a, $b);
+    $dmy = sprintf('%04d-%02d-%02d', $y, $b, $a);
+    if ($approved === $dmy) return 'dmy';
+    if ($approved === $mdy) return 'mdy';
+    return null;
 }
 
 /** One header correction (parser read -> person kept): seen once more, or recorded the first time. */
@@ -778,7 +810,7 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
         if (empty($parsed[$field]) && !empty($fix['corrected_value']) && $fix['times_seen'] >= 3) {
             // Don't auto-fill amounts — those change per receipt
             // Only auto-fill structural patterns (labels, formats)
-            if (!in_array($field, ['total', 'gst', 'pst', 'subtotal', 'line_item_name', 'accounting_category']) && strpos($field, 'line_item') !== 0) {
+            if (!in_array($field, ['total', 'gst', 'pst', 'subtotal', 'line_item_name', 'accounting_category', 'date_order']) && strpos($field, 'line_item') !== 0) {
                 $parsed[$field] = $fix['corrected_value'];
                 $parsed[$field . '_source'] = 'learned';
             }
@@ -1535,18 +1567,41 @@ function recordSkuLink(PDO $db, int $vendorId, string $skuRaw, ?int $productId, 
 }
 
 
+/** The vendor's date order lesson with the most sightings; null when none, or when the other order ties it. */
+function vendorDateOrderFromLessons(PDO $db, int $vendorId): ?string
+{
+    try {
+        $stmt = $db->prepare("SELECT corrected_value, times_seen FROM receipt_parse_lessons WHERE vendor_id = ? AND field_name = 'date_order' AND times_seen >= 1");
+        $stmt->execute([$vendorId]);
+        $seen = ['dmy' => 0, 'mdy' => 0];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            if (isset($seen[$row['corrected_value']])) $seen[$row['corrected_value']] += (int)$row['times_seen'];
+        }
+        return dateOrderFromCounts($seen['dmy'], $seen['mdy']);
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/** Pure half of the above: the order with more sightings, null when none or tied. */
+function dateOrderFromCounts(int $dmy, int $mdy): ?string
+{
+    if ($dmy === $mdy) return null;
+    return $dmy > $mdy ? 'dmy' : 'mdy';
+}
+
 /**
  * Everything the parser and the LLM tier know about a vendor's line items.
  * Cached per request.
  *
  * @return array{noise: string[], name_map: array<string,string>, skus: array<string,int>,
  *               aliases: array<string,int>, barcode_length: ?int, discount_prefix: ?string,
- *               known_names: string[]}
+ *               known_names: string[], date_order: ?string}
  */
 function getVendorLineItemProfile(?int $vendorId): array
 {
     static $cache = [];
-    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'sku_names' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => [], 'layout' => []];
+    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'sku_names' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => [], 'layout' => [], 'date_order' => null];
     if (!$vendorId) return $empty;
     if (isset($cache[$vendorId])) return $cache[$vendorId];
 
@@ -1610,6 +1665,9 @@ function getVendorLineItemProfile(?int $vendorId): array
                 }
             }
         } catch (Throwable $e) { /* non-fatal */ }
+
+        // The store's day/month order: the most-confirmed one, none on a tie.
+        $out['date_order'] = vendorDateOrderFromLessons($db, $vendorId);
 
         // The vendor's learned layout: items an owner accepted from Penny's read, located on the
         // receipt (recordLineLayoutLessons). One owner acceptance teaches it; newest first.

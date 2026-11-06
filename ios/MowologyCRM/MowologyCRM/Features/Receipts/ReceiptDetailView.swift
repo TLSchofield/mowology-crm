@@ -51,6 +51,10 @@ struct ReceiptDetailView: View {
     @State private var showAddItem = false
     @State private var addItemName = ""
     @State private var addItemAmount = ""
+    @State private var mergedCopies: [BKMergedCopy] = []
+    @State private var splitting: Int?
+    @State private var mergedNote: String?
+    @State private var mergedPhoto: URL?
 
     var body: some View {
         NavigationStack {
@@ -61,6 +65,7 @@ struct ReceiptDetailView: View {
                     pennyReadSection(read)
                 }
                 detailsSection
+                if isAdmin && !mergedCopies.isEmpty { mergedSection }
                 lineItemsSection
 
                 if expense.isArchived {
@@ -129,6 +134,10 @@ struct ReceiptDetailView: View {
         }
         .task { await loadLineItems() }
         .task(id: expense.id) { await loadRisk() }
+        .task(id: expense.id) { if isAdmin { mergedCopies = await viewModel.loadMerged(expenseId: expense.id) } }
+        .fullScreenCover(item: Binding(get: { mergedPhoto.map { IdentURL(url: $0) } }, set: { mergedPhoto = $0?.url })) { t in
+            ZoomableReceiptView(url: t.url)
+        }
         .task(id: expense.id) { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) }
         .alert("Rename item", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
             TextField("Item name", text: $renameText)
@@ -429,6 +438,59 @@ struct ReceiptDetailView: View {
     /// accounting is desktop-only, so approved/forwarded/rejected have no action here.
     private func canActOn(_ expense: Expense) -> Bool {
         ["draft", "pending_approval"].contains(expense.status)
+    }
+
+    // MARK: - Also on this purchase (merged duplicates, expense_merges)
+
+    /// Copies merged into this receipt as duplicates. Split off brings one back as its own receipt
+    /// (a wrong merge can be undone at any time — plan 2026-11-05).
+    private var mergedSection: some View {
+        Section {
+            ForEach(mergedCopies) { c in
+                HStack(spacing: 12) {
+                    if let s = c.receiptPath, let url = URL(string: s) {
+                        Button { mergedPhoto = url } label: {
+                            AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { ProgressView() }
+                                .frame(width: 48, height: 60)
+                                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(6)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Photo of receipt #\(c.copyId)")
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("#\(c.copyId)").font(appStyle.font(.subheadline, weight: .semibold))
+                        Text([c.expenseDate, c.total.map { String(format: "$%.2f", $0) }, c.mergedBy.map { "merged by \($0)" }]
+                                .compactMap { $0 }.joined(separator: " · "))
+                            .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    }
+                    Spacer()
+                    Button {
+                        Task {
+                            splitting = c.copyId
+                            if let r = await viewModel.splitOff(copyId: c.copyId) {
+                                mergedNote = r.message ?? r.error
+                                if r.ok { mergedCopies.removeAll { $0.copyId == c.copyId } }
+                            }
+                            splitting = nil
+                        }
+                    } label: {
+                        if splitting == c.copyId { ProgressView() } else { Text("Split off") }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(appStyle.tenant)
+                    .disabled(splitting != nil)
+                    .accessibilityHint("Makes #\(c.copyId) its own receipt again. It goes back for approval.")
+                }
+            }
+            if let n = mergedNote {
+                Text(n).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            }
+        } header: {
+            Text("Also on this purchase")
+        } footer: {
+            Text("Copies merged into this receipt as duplicates. They're kept on record, not deleted.")
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     // MARK: - Sections
@@ -1001,4 +1063,10 @@ struct ZoomableReceiptView: View {
             RiskRingView(score: 35)   // High  → red
         }
     }
+}
+
+/// A URL that can drive .fullScreenCover(item:).
+private struct IdentURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }

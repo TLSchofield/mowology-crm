@@ -67,14 +67,21 @@ class ExpenseGate
     /** A person changing one of these overrides what Penny / the receipt reader said (head_lessons). */
     public const LESSON_FIELDS = ['accounting_category', 'payment_method', 'job_id', 'vendor_id', 'vendor_name_raw', 'asset_tag'];
     /** Sources that record their own lesson (against Penny's suggestion) or are not a person's override. */
-    public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line'];
+    // 'duplicates': a merge carrying a copy's fields into the kept receipt (and Split off giving them back) is not a person
+    // correcting what the receipt said — it wrote job → 55 / 55 → null lessons (review 2026-11-06).
+    public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line', 'duplicates'];
     public const OPEN = ['draft', 'pending_approval'];
     public const POSTED = ['approved', 'forwarded'];
     /** Receipts dated before this are in a filed, closed year (same date as LedgerService::FY_START — a test keeps them equal). */
     public const CLOSED_BEFORE = '2026-01-01';
     /** The audited transition that may set each closed status. */
     // 'reopen': an approved receipt back to draft by its audited path (ReceiptBankCheck: no statement line for it, 2026-10-15).
-    public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft'];
+    // 'unmerge': a merged duplicate (rejected "Duplicate of receipt #X") back to the waiting status it had — Split off / Undo
+    // on Penny's duplicate card (DuplicateReceiptService::unmerge(), expense_merges, migration 1442). Draft or pending_approval.
+    public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft',
+                                'unmerge' => 'draft'];
+    /** What an 'unmerge' may carry: the status it goes back to and the rejection fields it had before. */
+    public const UNMERGE_FIELDS = ['status', 'approved_by', 'approved_at', 'rejection_reason'];
 
     private const INTS = ['vendor_id', 'job_id', 'property_id', 'contact_id', 'receipt_media_id', 'created_by', 'approved_by',
                           'odometer_start', 'odometer_end'];
@@ -166,6 +173,14 @@ class ExpenseGate
             if ($create || ($before['status'] ?? '') !== 'approved' || array_diff(array_keys($changes), ['status', 'notes'])
                 || ($changes['status'] ?? null) !== 'draft') {
                 throw new InvalidArgumentException('Re-open takes an approved receipt back to draft, with a note, and nothing else');
+            }
+        }
+
+        // Un-merge is as narrow: a rejected receipt back to a waiting status, with its old rejection fields, nothing else.
+        if ($transition === 'unmerge') {
+            if ($create || ($before['status'] ?? '') !== 'rejected' || array_diff(array_keys($changes), self::UNMERGE_FIELDS)
+                || !in_array($changes['status'] ?? null, self::OPEN, true)) {
+                throw new InvalidArgumentException('Split off takes a set-aside copy back to waiting, and nothing else');
             }
         }
 
@@ -693,7 +708,7 @@ class ExpenseGate
         if ($this->gstRateCache === null) {
             try {
                 if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
-                $this->gstRateCache = TaxEngine::gstRate($this->db);
+                $this->gstRateCache = TaxEngine::configuredGstRate($this->db);   // the rate on the paper: a non-registrant still pays it, so a 5% GST line is not 'high' or 'wrong'
             } catch (Throwable $e) {
                 $this->gstRateCache = 0.05;
             }
@@ -750,6 +765,7 @@ class ExpenseGate
     public static function actionFor(string $transition, array $set, bool $lines, bool $split): string
     {
         if ($transition !== '' && isset(self::TRANSITIONS[$transition]) && ($set['status'] ?? null) === self::TRANSITIONS[$transition]) return $transition;
+        if ($transition === 'unmerge' && in_array($set['status'] ?? null, self::OPEN, true)) return 'unmerge';
         if (!$set && $split && !$lines) return 'split';
         if (!$set && $lines) return 'lines';
         return 'update';
