@@ -9,11 +9,11 @@ final class OnboardingStepServiceTest extends TestCase
         $db=new PDO('sqlite::memory:');$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
         $db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, first_name TEXT,last_name TEXT,full_name TEXT,preferred_name TEXT,role TEXT,phone TEXT,contact_channel TEXT,quiet_start TEXT,quiet_end TEXT,quiet_weekends INT DEFAULT 0)');
         $db->exec('CREATE TABLE ops_settings (setting_key TEXT PRIMARY KEY,setting_value TEXT,description TEXT)');
-        $db->exec('CREATE TABLE business_settings (id INTEGER PRIMARY KEY,company_name TEXT,gst_registration TEXT)');
+        $db->exec("CREATE TABLE business_settings (id INTEGER PRIMARY KEY,company_name TEXT,gst_registration TEXT,timezone TEXT DEFAULT 'America/Vancouver')");
         $db->exec('CREATE TABLE business_identity (id INTEGER PRIMARY KEY,legal_name TEXT,operating_name TEXT,registration_number TEXT)');
         $db->exec('CREATE TABLE qbo_connections (site_id INT,status TEXT,refresh_token_enc TEXT)');
         $db->exec('CREATE TABLE qbo_onboarding_parts (site_id INT,part TEXT)');
-        $db->exec("INSERT INTO users (id,role) VALUES (7,'admin')");$db->exec("INSERT INTO business_settings VALUES (1,'Placeholder','')");
+        $db->exec("INSERT INTO users (id,role) VALUES (7,'admin')");$db->exec("INSERT INTO business_settings (id,company_name,gst_registration) VALUES (1,'Placeholder','')");
         return $db;
     }
 
@@ -56,6 +56,37 @@ final class OnboardingStepServiceTest extends TestCase
         $this->assertSame('Preview only.',$s->apply(7,['key'=>'quickbooks','do'=>'accept','part'=>'clients'])['message']);
         $disconnected=new OnboardingStepService($db,'tenant',null,static fn()=>['connected'=>false,'onboarding'=>$qbo]);
         $this->assertSame('Connect QuickBooks first.',$disconnected->apply(7,['key'=>'quickbooks','do'=>'read'])['message']);
+    }
+
+    public function test_quickbooks_send_action_sets_invoices_date_and_receipts_together(): void
+    {
+        $db=$this->db();
+        $onboarding=new class { public function pull():array{return ['ok'=>true];} public function apply(string $part,int $uid):array{return ['ok'=>true];} };
+        $sync=new class { public array $calls=[]; public function setAuto(bool $on,?string $from):bool{$this->calls[]=[$on,$from];return true;} };
+        $expenses=new class { public array $calls=[]; public function setReceipts(bool $on):void{$this->calls[]=$on;} };
+        $recurring=new class { public function pausePrompt():?string{return 'QuickBooks still makes 1 recurring invoice: Care — $100.00.';} };
+        $s=new OnboardingStepService($db,'tenant',null,static fn()=>['connected'=>true,'onboarding'=>$onboarding,'sync'=>$sync,'expenses'=>$expenses,'recurring'=>$recurring]);
+        $on=$s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>true]);
+        $this->assertTrue($on['ok']);
+        $this->assertStringContainsString('QuickBooks still makes 1 recurring invoice', $on['message']);
+        $this->assertSame([[true,OnboardingStepService::businessToday($db)]],$sync->calls); $this->assertSame([true],$expenses->calls);
+        $this->assertTrue($s->apply(7,['key'=>'quickbooks','do'=>'send','on'=>false])['ok']);
+        $this->assertSame([false,null],$sync->calls[1]); $this->assertSame([true,false],$expenses->calls);
+    }
+
+    public function test_business_today_uses_the_business_timezone_setting(): void
+    {
+        $db=$this->db();
+        $db->exec("UPDATE business_settings SET timezone='America/Vancouver'");
+        $instant=new DateTimeImmutable('2026-11-05 01:30:00',new DateTimeZone('UTC'));
+        $this->assertSame('2026-11-04',OnboardingStepService::businessToday($db,$instant));
+
+        $db->exec("UPDATE business_settings SET timezone='' ");
+        $before=date_default_timezone_get();
+        try {
+            date_default_timezone_set('America/Vancouver');
+            $this->assertSame('2026-11-04',OnboardingStepService::businessToday($db,$instant),'an empty setting uses PHP configuration');
+        } finally { date_default_timezone_set($before); }
     }
 
     public function test_skip_and_done_gate(): void

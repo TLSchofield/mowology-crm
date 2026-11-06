@@ -25,6 +25,8 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/QboConnectionService.php';
+require_once __DIR__ . '/QboLinkService.php';
+require_once __DIR__ . '/QboRecurringService.php';
 
 class QboOnboardingService
 {
@@ -38,8 +40,10 @@ class QboOnboardingService
     /** @var callable(): int */
     private $clock;
     private bool $local;
+    /** @var callable|null */
+    private $contractCreator;
 
-    public function __construct(PDO $db, ?QboConnectionService $conn = null, int $siteId = 1, ?callable $clock = null, ?bool $local = null)
+    public function __construct(PDO $db, ?QboConnectionService $conn = null, int $siteId = 1, ?callable $clock = null, ?bool $local = null, ?callable $contractCreator = null)
     {
         $this->db = $db;
         $this->conn = $conn;
@@ -47,7 +51,10 @@ class QboOnboardingService
         $this->clock = $clock ?? 'time';
         $this->local = $local ?? self::writesAllowed(defined('LOCAL_TEST_SITE') && LOCAL_TEST_SITE === true,
             !class_exists('Tenant') || Tenant::isDefault());
+        $this->contractCreator = $contractCreator;
     }
+
+    public function setContractCreator(callable $creator): void { $this->contractCreator = $creator; }
 
     /** Pure rule: the local test site, or any business other than the default (Mowology) one. */
     public static function writesAllowed(bool $localTestSite, bool $defaultBusiness): bool
@@ -72,12 +79,28 @@ class QboOnboardingService
             if (!$r['ok']) return ['ok' => false, 'message' => $r['error']];
             foreach ($r['rows'] as $row) if (isset($row['Id'])) $rows[] = [$kind, (string)$row['Id'], $row];
         }
+        $recurringFailed = false;
+        try {
+            $rr = $c->all('RecurringTransaction');
+            if (empty($rr['ok'])) {
+                $recurringFailed = true;
+            } else {
+                foreach ((array)($rr['rows'] ?? []) as $row) {
+                    $normal = is_array($row) ? QboRecurringService::normalise($row) : null;
+                    if ($normal !== null && $normal['id'] !== '') $rows[] = ['recurring', $normal['id'], $normal];
+                }
+            }
+        } catch (Throwable $e) { $recurringFailed = true; }
         $co = $this->conn->company();
         $ci = $c->companyInfo($co['realm_id']);
         if ($ci['ok'] && !empty($ci['data']['CompanyInfo'])) $rows[] = ['company', '1', $ci['data']['CompanyInfo']];
         $this->replace($rows);
         $n = array_count_values(array_column($rows, 0));
-        return ['ok' => true, 'message' => sprintf('Read %d customers, %d items, %d suppliers.', $n['customer'] ?? 0, $n['item'] ?? 0, $n['vendor'] ?? 0)];
+        $message = sprintf('Read %d customers, %d items, %d suppliers', $n['customer'] ?? 0, $n['item'] ?? 0, $n['vendor'] ?? 0);
+        if (!empty($n['recurring'])) $message .= ', ' . $n['recurring'] . ' recurring invoices';
+        $message .= '.';
+        if ($recurringFailed) $message .= ' Recurring invoices could not be read.';
+        return ['ok' => true, 'message' => $message];
     }
 
     public function export(): string
@@ -130,7 +153,7 @@ class QboOnboardingService
             // A new read is reviewed again: the old "Looks right" belonged to the old data (Codex review 2026-10-20).
             $this->db->prepare('DELETE FROM qbo_onboarding_parts WHERE site_id = ?')->execute([$this->siteId]);
             $ins = $this->db->prepare('INSERT INTO qbo_onboarding_snapshot (site_id, kind, qbo_id, data, pulled_at) VALUES (?, ?, ?, ?, ?)');
-            foreach ($rows as [$kind, $id, $data]) $ins->execute([$this->siteId, $kind, $id, json_encode($data), $now]);
+            foreach ($rows as [$kind, $id, $data]) $ins->execute([$this->siteId, $kind, $id, json_encode($data, JSON_PRESERVE_ZERO_FRACTION), $now]);
             $this->db->commit();
             $this->storePreviews(null);   // worked out again from the new read, once
         } catch (Throwable $e) {
@@ -205,7 +228,26 @@ class QboOnboardingService
         $all = $this->rows('customer');
         $byId = [];
         foreach ($all as $c) $byId[(string)$c['Id']] = $c;
-        $out = ['new' => 0, 'match' => 0, 'properties' => 0, 'rows' => []];
+        $addresses = []; $top = [];
+        foreach ($all as $c) {
+            if (($c['Active'] ?? true) === false || !empty($c['ParentRef']['value'])) continue;
+            $top[] = $c;
+            $shipAddress = self::address($c['ShipAddr'] ?? null);
+            $a = $shipAddress ?? self::address($c['BillAddr'] ?? null);
+            if ($a) $addresses[self::norm($a['address'])][] = (string)$c['Id'];
+        }
+        $shared = [];
+        foreach ($addresses as $key => $ids) if (count(array_unique($ids)) > 1) $shared[$key] = count(array_unique($ids));
+        $groups = $this->customerGroups($top);
+        $groupOf = [];
+        foreach ($groups as $group) foreach ($group['names'] as $groupName) $groupOf[$groupName] = $group['prefix'];
+        $out = ['new' => 0, 'match' => 0, 'properties' => 0, 'rows' => [], 'shared_addresses' => [], 'groups' => [], 'own_billing' => []];
+        foreach ($shared as $key => $count) {
+            $first = $byId[$addresses[$key][0]] ?? [];
+            $a = self::address($first['ShipAddr'] ?? null) ?? self::address($first['BillAddr'] ?? null);
+            $out['shared_addresses'][] = ['address' => $a['address'] ?? '', 'count' => $count];
+        }
+        $out['groups'] = $groups;
         foreach ($all as $c) {
             if (($c['Active'] ?? true) === false) continue;
             $name = (string)($c['DisplayName'] ?? '');
@@ -213,18 +255,43 @@ class QboOnboardingService
             if (!empty($c['ParentRef']['value'])) {
                 $parent = $byId[(string)$c['ParentRef']['value']] ?? [];
                 $out['properties']++;
+                $own = ($c['BillWithParent'] ?? true) === false && $this->customerEmail($c) !== '' && $this->customerEmail($c) !== $this->customerEmail($parent);
+                if ($own) $out['own_billing'][] = ['name' => $name, 'email' => $this->customerEmail($c)];
                 $out['rows'][] = ['name' => $name, 'company' => null, 'email' => null, 'address' => $ship['address'] ?? null, 'status' => 'property',
-                                  'why' => 'A job of ' . ($parent['DisplayName'] ?? 'its parent') . ' — kept with that client.', 'parent' => (string)($parent['DisplayName'] ?? '')];
+                                  'why' => $own ? 'Building billed on its own — check who gets its invoices.' : 'A job of ' . ($parent['DisplayName'] ?? 'its parent') . ' — kept with that client.', 'parent' => (string)($parent['DisplayName'] ?? '')];
                 continue;
             }
             $email = strtolower(trim((string)($c['PrimaryEmailAddr']['Address'] ?? '')));
             [$g, $f] = self::personName($c);
             $hit = $this->findContact($email, $g, $f, $ship['address'] ?? '', (string)$c['Id']);
             $out[$hit ? 'match' : 'new']++;
+            $key = self::norm($ship['address'] ?? '');
             $out['rows'][] = ['name' => $name, 'company' => self::companyOf($c), 'email' => $email ?: null, 'address' => $ship['address'] ?? null,
-                              'status' => $hit ? 'match' : 'new', 'why' => $hit ? $hit : 'New client.', 'parent' => null];
+                              'status' => $hit ? 'match' : 'new', 'why' => $hit ? $hit : 'New client.', 'parent' => null,
+                              'shared' => isset($shared[$key]) ? $shared[$key] . ' clients at ' . $ship['address'] : null,
+                              'group_hint' => $groupOf[$name] ?? null];
         }
         return $out;
+    }
+
+    /** @return list<array{prefix:string,names:list<string>}> */
+    private function customerGroups(array $customers): array
+    {
+        $found = [];
+        foreach ($customers as $c) {
+            $name = trim((string)($c['DisplayName'] ?? ''));
+            if (!preg_match('/^(.+?)\s*(?:-|–|:|\/)\s*.+$/u', $name, $m)) continue;
+            $prefix = trim($m[1]);
+            if (strlen(self::norm($prefix)) < 3) continue;
+            $found[self::norm($prefix)]['prefix'] = $prefix;
+            $found[self::norm($prefix)]['names'][] = $name;
+        }
+        return array_values(array_filter($found, fn($g) => count($g['names']) > 1));
+    }
+
+    private function customerEmail(array $c): string
+    {
+        return strtolower(trim((string)($c['PrimaryEmailAddr']['Address'] ?? '')));
     }
 
     /** The note an imported client carries — how a re-run knows it (8 sandbox customers have no email or address). */
@@ -278,7 +345,7 @@ class QboOnboardingService
             $name = trim((string)array_pop($parts));
             $status = isset($have[self::norm($name)]) ? 'match' : 'new';
             $out[$status]++;
-            $out['rows'][] = ['name' => $name, 'group' => implode(' › ', array_map('trim', $parts)), 'price' => isset($i['UnitPrice']) ? (float)$i['UnitPrice'] : null,
+            $out['rows'][] = ['qbo_id' => (string)$i['Id'], 'name' => $name, 'group' => implode(' › ', array_map('trim', $parts)), 'price' => isset($i['UnitPrice']) ? (float)$i['UnitPrice'] : null,
                               'status' => $status, 'description' => (string)($i['Description'] ?? '')];
         }
         return $out;
@@ -328,7 +395,7 @@ class QboOnboardingService
     // ─────────────────────────────────────────────────────────────────────────
 
     /** @return array{ok:bool, message:string} */
-    public function apply(string $part, int $userId): array
+    public function apply(string $part, int $userId, ?array $only = null): array
     {
         if (!$this->local) return ['ok' => false, 'message' => 'This is a preview: nothing is imported into this business from QuickBooks.'];
         if (!$this->hasSnapshot()) return ['ok' => false, 'message' => 'Read QuickBooks first.'];
@@ -338,10 +405,143 @@ class QboOnboardingService
             case 'services':  $r = $this->applyServices($userId); break;
             case 'suppliers': $r = $this->applySuppliers(); break;
             case 'accounts':  $r = $this->applyAccounts($userId); break;
+            case 'contracts': $r = $this->applyContracts($userId, $only); break;
             default: return ['ok' => false, 'message' => 'No such part.'];
         }
         $this->markPart($part, $r['message'], $userId);
         return $r;
+    }
+
+    /** Recurring invoices that can become contracts. */
+    public function contracts(): array
+    {
+        $out = ['rows' => [], 'new' => 0, 'done' => 0];
+        foreach ($this->rows('recurring') as $row) {
+            $id = (string)($row['id'] ?? '');
+            $item = $row;
+            $item['offered'] = false;
+            $item['why'] = '';
+            $item['contact_id'] = null;
+            $item['property_id'] = null;
+            [$item['billing_cycle'], $item['cycle_note']] = QboRecurringService::cycleOf($row);
+            $item['cycle'] = $item['billing_cycle'] === 'monthly' ? 'Monthly' : ($item['billing_cycle'] === 'annual' ? 'Annual' : $item['cycle_note']);
+            if (!QboRecurringService::bills($row)) {
+                $item['why'] = 'Off in QuickBooks — not offered';
+            } elseif ($this->recurringLinked($id)) {
+                $item['why'] = 'Already a contract'; $out['done']++;
+            } else {
+                $customerId = (string)($row['customer_id'] ?? '');
+                $propertyId = $this->linkedProperty($customerId);
+                $contactId = $this->linkedContact($customerId);
+                if ($propertyId !== null && $contactId === null) $contactId = $this->propertyContact($propertyId);
+                if ($contactId === null) {
+                    $item['why'] = 'Import the client first';
+                } else {
+                    if ($propertyId === null) $propertyId = $this->firstProperty($contactId);
+                    if ($propertyId === null) {
+                        $item['why'] = 'The client has no property — add one first';
+                    } else {
+                        $item['offered'] = true; $item['contact_id'] = $contactId; $item['property_id'] = $propertyId; $out['new']++;
+                    }
+                }
+            }
+            $out['rows'][] = $item;
+        }
+        return $out;
+    }
+
+    /** One import at a time per business: two taps on Accept must not both pass recurringLinked() (Codex review 2026-11-05). */
+    private function applyContracts(int $userId, ?array $only): array
+    {
+        $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        $lock = $this->db->quote('ittai_qbo_contracts_' . $this->siteId);
+        if ($mysql && (int)$this->db->query('SELECT GET_LOCK(' . $lock . ', 20)')->fetchColumn() !== 1) {
+            return ['ok' => false, 'message' => 'Another import of these contracts is running — try again in a minute.'];
+        }
+        try {
+            return $this->applyContractsLocked($userId, $only);
+        } finally {
+            if ($mysql) { try { $this->db->query('SELECT RELEASE_LOCK(' . $lock . ')'); } catch (Throwable $e) { /* released at disconnect */ } }
+        }
+    }
+
+    private function applyContractsLocked(int $userId, ?array $only): array
+    {
+        $wanted = $only === null ? null : array_fill_keys(array_map('strval', $only), true);
+        $made = 0; $skipped = 0; $failed = [];
+        foreach ($this->contracts()['rows'] as $row) {
+            $id = (string)$row['id'];
+            if (empty($row['offered']) || ($wanted !== null && !isset($wanted[$id]))) { $skipped++; continue; }
+            try {
+                if ($this->recurringLinked($id)) { $skipped++; continue; }
+                $this->db->beginTransaction();
+                $note = 'Imported from QuickBooks recurring invoice "' . (string)$row['name'] . '". QuickBooks keeps billing until you pause it there; this contract bills once it has visits and the QuickBooks one is paused.';
+                if (!empty($row['cycle_note'])) $note .= ' ' . $row['cycle_note'] . '.';
+                $data = ['property_id' => (int)$row['property_id'], 'contact_id' => (int)$row['contact_id'],
+                    'title' => (string)$row['name'], 'billing_cycle' => (string)$row['billing_cycle'],
+                    'billing_amount' => (float)$row['subtotal'], 'invoice_timing' => 'upfront',
+                    'start_date' => (string)($row['next_date'] ?: $this->businessToday()),
+                    'end_date' => !empty($row['end_date']) ? (string)$row['end_date'] : null, 'notes' => $note];
+                $creator = $this->contractCreator;
+                if ($creator === null) {
+                    if (!function_exists('createContract')) require_once dirname(__DIR__, 3) . '/Services/CrmFunctions.php';
+                    $creator = static fn(array $d, int $u) => createContract($d, $u);
+                }
+                $created = $creator($data, $userId);
+                $contractId = is_array($created) ? (int)($created['id'] ?? $created['contract_id'] ?? 0) : (int)$created;
+                if ($contractId <= 0) throw new RuntimeException('The contract was not created.');
+                $company = $this->conn ? $this->conn->company() : null;
+                $realm = (string)($company['realm_id'] ?? 'snapshot');
+                $linkResult = QboLinkService::save($this->db, $this->siteId, $realm, 'recurring', 'contract:' . $contractId,
+                    $id, null, 'imported', 'sent', (float)$row['total'], 'recurring invoice imported as a contract',
+                    date('Y-m-d H:i:s', ($this->clock)()), true);
+                if ($linkResult !== 'saved') throw new RuntimeException('The recurring invoice link was not saved.');
+                $this->db->commit();
+                $made++;
+            } catch (Throwable $e) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                $failed[] = (string)$row['name'];
+            }
+        }
+        $message = $made . ' contracts made from QuickBooks recurring invoices';
+        if ($skipped) $message .= ', ' . $skipped . ' skipped';
+        if ($failed) $message .= ', ' . count($failed) . ' failed (' . implode(', ', $failed) . ')';
+        return ['ok' => true, 'message' => $message . '.'];
+    }
+
+    private function businessToday(): string
+    {
+        $timezone = date_default_timezone_get();
+        try {
+            $s = $this->db->query('SELECT timezone FROM business_settings ORDER BY id LIMIT 1');
+            $saved = trim((string)($s->fetchColumn() ?: ''));
+            if ($saved !== '') $timezone = $saved;
+        } catch (Throwable $e) { /* installations without the setting use PHP's configured timezone */ }
+        return (new DateTimeImmutable('@' . ($this->clock)()))->setTimezone(new DateTimeZone($timezone))->format('Y-m-d');
+    }
+
+    private function recurringLinked(string $qboId): bool
+    {
+        try { $s = $this->db->prepare("SELECT 1 FROM qbo_links WHERE site_id = ? AND entity_type = 'recurring' AND qbo_id = ? AND entity_id IS NOT NULL LIMIT 1"); $s->execute([$this->siteId, $qboId]); return (bool)$s->fetchColumn(); }
+        catch (Throwable $e) { return false; }
+    }
+
+    private function linkedContact(string $qboId): ?int
+    {
+        try { $s = $this->db->prepare("SELECT entity_id FROM qbo_links WHERE site_id = ? AND entity_type = 'client' AND qbo_id = ? AND entity_id LIKE 'contact:%' ORDER BY id LIMIT 1"); $s->execute([$this->siteId, $qboId]); $v = (string)$s->fetchColumn(); return $v !== '' ? (int)substr($v, 8) : null; }
+        catch (Throwable $e) { return null; }
+    }
+
+    private function propertyContact(int $propertyId): ?int
+    {
+        try { $s = $this->db->prepare('SELECT site_contact_id FROM properties WHERE id = ?'); $s->execute([$propertyId]); $v = (int)$s->fetchColumn(); return $v > 0 ? $v : null; }
+        catch (Throwable $e) { return null; }
+    }
+
+    private function firstProperty(int $contactId): ?int
+    {
+        try { $s = $this->db->prepare('SELECT id FROM properties WHERE site_contact_id = ? ORDER BY id LIMIT 1'); $s->execute([$contactId]); $v = (int)$s->fetchColumn(); return $v > 0 ? $v : null; }
+        catch (Throwable $e) { return null; }
     }
 
     private function applyBusiness(): array
@@ -363,7 +563,9 @@ class QboOnboardingService
         if (!class_exists('ContactService')) require_once dirname(__DIR__, 2) . '/Contacts/Services/ContactService.php';
         $cs = new ContactService($this->db);
         $all = $this->rows('customer');
-        $made = 0; $props = 0; $skipped = 0; $contactOf = [];
+        $byId = [];
+        foreach ($all as $customer) $byId[(string)$customer['Id']] = $customer;
+        $made = 0; $props = 0; $skipped = 0; $conflicts = 0; $billing = 0; $billingFailures = []; $missing = []; $ownBilling = []; $contactOf = [];
         $terms = [];
         foreach ($this->rows('term') as $t) $terms[(string)$t['Id']] = (string)$t['Name'];
         foreach ($all as $c) {
@@ -375,6 +577,10 @@ class QboOnboardingService
             if ($m = $this->matchContact($email, $g, $f, $ship['address'] ?? '', (string)$c['Id'])) {
                 // Already in Ittai: its jobs (sub-customers) still go onto it (Codex review 2026-10-20).
                 $contactOf[(string)$c['Id']] = $m[0];
+                if (self::companyOf($c) === null && $bill && $this->differentAddresses($bill, $ship)) {
+                    try { if ($this->keepBillingAddress($m[0], $c, $bill, $terms)) $billing++; } catch (Throwable $e) { $billingFailures[] = $e->getMessage(); }
+                }
+                $conflicts += $this->linkImportedCustomer((string)$c['Id'], $m[0]);
                 $skipped++;
                 continue;
             }
@@ -385,7 +591,7 @@ class QboOnboardingService
                 // CASL: imported clients are not subscribers — no marketing, no texts until they say yes.
                 'receive_marketing' => 0, 'receive_sms' => 0, 'consent_quote_followup' => 0,
                 'notes' => self::importNote((string)$c['Id']),
-                'property_address' => $ship['address'] ?? '', 'property_city' => $ship['city'] ?? '', 'property_postal_code' => $ship['postal_code'] ?? '',
+                'property_address' => '', 'property_city' => '', 'property_postal_code' => '',
                 'property_latitude' => null, 'property_longitude' => null,
                 'link_company' => $co !== null, 'company_mode' => 'new', 'company_name' => (string)$co, 'company_type' => 'business',
                 'billing_address' => $bill['address'] ?? '', 'billing_city' => $bill['city'] ?? '', 'billing_province' => $bill['province'] ?? '',
@@ -393,18 +599,155 @@ class QboOnboardingService
                 'payment_terms' => $terms[(string)($c['SalesTermRef']['value'] ?? '')] ?? 'Net 30', 'pref_attach_pdf' => 1,
             ]);
             $contactOf[(string)$c['Id']] = $id;
+            if ($ship) $cs->addOwnPropertyToContact($id, $ship + ['property_name' => (string)($c['DisplayName'] ?? trim($g . ' ' . $f)) . ' Property']);
+            if ($co === null && $bill && $this->differentAddresses($bill, $ship)) {
+                try { if ($this->keepBillingAddress($id, $c, $bill, $terms)) $billing++; } catch (Throwable $e) { $billingFailures[] = $e->getMessage(); }
+            }
+            $conflicts += $this->linkImportedCustomer((string)$c['Id'], $id);
             $made++;
         }
         foreach ($all as $c) {
-            if (empty($c['ParentRef']['value'])) continue;
+            if (($c['Active'] ?? true) === false || empty($c['ParentRef']['value'])) continue;
             $parent = $contactOf[(string)$c['ParentRef']['value']] ?? null;
-            $a = self::address($c['ShipAddr'] ?? null);
-            if (!$parent || !$a) continue;
-            $r = $cs->addPropertyToContact($parent, ['address' => $a['address'], 'city' => $a['city'], 'province' => $a['province'], 'postal_code' => $a['postal_code'],
-                                                     'property_name' => (string)($c['DisplayName'] ?? $a['address'])]);
+            if (!$parent) continue;
+            $shipAddress = self::address($c['ShipAddr'] ?? null);
+            $a = $shipAddress ?? self::address($c['BillAddr'] ?? null);
+            $name = $this->buildingName((string)($c['DisplayName'] ?? ''), (string)(($byId[(string)$c['ParentRef']['value']]['DisplayName'] ?? '')));
+            if (!$a) { $missing[] = $name . ': no address'; continue; }
+            // A re-run finds the building it made last time; never a second property.
+            $linked = $this->linkedProperty((string)$c['Id']);
+            if ($linked) {
+                $r = ['property_id' => $linked, 'created' => false];
+            } else {
+                $r = $cs->addOwnPropertyToContact($parent, $a + ['property_name' => $name]);
+                // Two units at one street (Codex review 2026-11-04): a property already holding another
+                // sub-customer is not this building — make its own.
+                if (empty($r['created']) && $this->propertyLinked((int)$r['property_id'])) {
+                    $r = $cs->addOwnPropertyToContact($parent, $a + ['property_name' => $name, 'force_new' => true]);
+                }
+            }
             if (!empty($r['created'])) $props++;
+            $this->db->prepare("UPDATE properties SET billing_entity_name = ? WHERE id = ? AND (billing_entity_name IS NULL OR billing_entity_name = '')")
+                     ->execute([$name, $r['property_id']]);
+            // Only a property this import made gets the sub-customer link: an existing one may already have
+            // invoices for its client, and those must keep going to that customer (Codex review 2026-11-04).
+            if (!empty($r['created'])) $conflicts += $this->linkImportedProperty((string)$c['Id'], (int)$r['property_id']);
+            $parentRow = $byId[(string)$c['ParentRef']['value']] ?? [];
+            if (($c['BillWithParent'] ?? true) === false && $this->customerEmail($c) !== '' && $this->customerEmail($c) !== $this->customerEmail($parentRow)) {
+                $ownBilling[] = ['name' => $name, 'email' => $this->customerEmail($c)];
+            }
         }
-        return ['ok' => true, 'message' => sprintf('%d clients added for Sam%s%s.', $made, $props ? ", $props extra properties" : '', $skipped ? ", $skipped already in Ittai left as they were" : '')];
+        return ['ok' => true, 'own_billing' => $ownBilling, 'message' => sprintf('%d clients added for Sam%s%s%s%s%s%s.', $made, $props ? ", $props extra properties" : '',
+                $skipped ? ", $skipped already in Ittai left as they were" : '', $billing ? ", $billing billing addresses kept" : '',
+                $billingFailures ? ', ' . count($billingFailures) . ' billing address' . (count($billingFailures) === 1 ? '' : 'es') . ' not kept: ' . $billingFailures[0] : '',
+                $missing ? ', ' . implode('; ', $missing) : '', $ownBilling ? ', ' . count($ownBilling) . ' buildings billed on their own — check who gets their invoices' : '')
+                . ($conflicts ? ' ' . $conflicts . ' QuickBooks link conflicts kept unchanged.' : '')];
+    }
+
+    private function differentAddresses(array $bill, ?array $property): bool
+    {
+        $compact = static function (string $value): string {
+            return (string)preg_replace('/[^a-z0-9]+/', '', strtolower($value));
+        };
+        return $compact($bill['address'] . $bill['postal_code']) !== $compact(($property['address'] ?? '') . ($property['postal_code'] ?? ''));
+    }
+
+    private function keepBillingAddress(int $contactId, array $c, array $bill, array $terms): bool
+    {
+        // legacy_contact_id is the unique key the upsert below uses (clients has no contact_id in migration 1047).
+        $exists = $this->db->prepare('SELECT id FROM clients WHERE site_id = ? AND legacy_contact_id = ? LIMIT 1');
+        $exists->execute([$this->siteId, $contactId]);
+        $had = (bool)$exists->fetchColumn();
+        [$g, $f] = self::personName($c);
+        $values = [$this->siteId, 'individual', trim($g . ' ' . $f) ?: (string)($c['DisplayName'] ?? ''), $bill['address'], $bill['city'], $bill['province'], $bill['postal_code'],
+                   $this->customerEmail($c) ?: null, trim((string)($c['PrimaryPhone']['FreeFormNumber'] ?? '')) ?: null,
+                   $terms[(string)($c['SalesTermRef']['value'] ?? '')] ?? 'Net 30', $contactId];
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $sql = "INSERT INTO clients (site_id, client_type, display_name, billing_address, billing_city, billing_province, billing_postal_code, billing_email, billing_phone, payment_terms, legacy_contact_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(site_id, legacy_contact_id) DO UPDATE SET
+                    billing_address = CASE WHEN billing_address IS NULL OR billing_address = '' THEN excluded.billing_address ELSE billing_address END,
+                    billing_city = CASE WHEN billing_city IS NULL OR billing_city = '' THEN excluded.billing_city ELSE billing_city END,
+                    billing_province = CASE WHEN billing_province IS NULL OR billing_province = '' THEN excluded.billing_province ELSE billing_province END,
+                    billing_postal_code = CASE WHEN billing_postal_code IS NULL OR billing_postal_code = '' THEN excluded.billing_postal_code ELSE billing_postal_code END,
+                    billing_email = CASE WHEN billing_email IS NULL OR billing_email = '' THEN excluded.billing_email ELSE billing_email END,
+                    billing_phone = CASE WHEN billing_phone IS NULL OR billing_phone = '' THEN excluded.billing_phone ELSE billing_phone END";
+        } else {
+            $sql = "INSERT INTO clients (site_id, client_type, display_name, billing_address, billing_city, billing_province, billing_postal_code, billing_email, billing_phone, payment_terms, legacy_contact_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE billing_address = IF(billing_address IS NULL OR billing_address = '', VALUES(billing_address), billing_address),
+                    billing_city = IF(billing_city IS NULL OR billing_city = '', VALUES(billing_city), billing_city), billing_province = IF(billing_province IS NULL OR billing_province = '', VALUES(billing_province), billing_province),
+                    billing_postal_code = IF(billing_postal_code IS NULL OR billing_postal_code = '', VALUES(billing_postal_code), billing_postal_code), billing_email = IF(billing_email IS NULL OR billing_email = '', VALUES(billing_email), billing_email),
+                    billing_phone = IF(billing_phone IS NULL OR billing_phone = '', VALUES(billing_phone), billing_phone)";
+        }
+        $this->db->prepare($sql)->execute($values);
+        return !$had;
+    }
+
+    private function buildingName(string $name, string $parent): string
+    {
+        if ($parent === '') return trim($name);
+        return trim((string)preg_replace('/^' . preg_quote($parent, '/') . '\s*(?::|-|–)\s*/iu', '', $name));
+    }
+
+    /** The property an earlier import linked to this sub-customer, or null. */
+    private function linkedProperty(string $qboId): ?int
+    {
+        try {
+            $s = $this->db->prepare("SELECT entity_id FROM qbo_links WHERE site_id = ? AND entity_type = 'client' AND qbo_id = ? AND entity_id LIKE 'property:%' ORDER BY id LIMIT 1");
+            $s->execute([$this->siteId, $qboId]);
+            $key = (string)$s->fetchColumn();
+        } catch (Throwable $e) { return null; }
+        return $key !== '' ? (int)substr($key, 9) : null;
+    }
+
+    private function propertyLinked(int $propertyId): bool
+    {
+        try {
+            $s = $this->db->prepare("SELECT 1 FROM qbo_links WHERE site_id = ? AND entity_type = 'client' AND entity_id = ? LIMIT 1");
+            $s->execute([$this->siteId, 'property:' . $propertyId]);
+            return (bool)$s->fetchColumn();
+        } catch (Throwable $e) { return false; }
+    }
+
+    private function linkImportedProperty(string $qboId, int $propertyId): int
+    {
+        if (!$this->conn || !($company = $this->conn->company())) return 0;
+        $result = QboLinkService::save($this->db, $this->siteId, (string)$company['realm_id'], 'client', 'property:' . $propertyId,
+                                      $qboId, null, 'imported', 'sent', null, 'sub-customer linked at import', date('Y-m-d H:i:s', ($this->clock)()), true);
+        return $result === 'conflict' ? 1 : 0;
+    }
+
+    /** Link every identity customerOf() can choose. Returns links that already point elsewhere. */
+    private function linkImportedCustomer(string $qboId, int $contactId): int
+    {
+        if (!$this->conn || !($company = $this->conn->company())) return 0;
+        $companyId = null; $clientId = null;
+        foreach ([['SELECT company_id FROM contacts WHERE id = ?', 'company'],
+                  ['SELECT id FROM companies WHERE primary_contact_id = ? LIMIT 1', 'company'],
+                  ['SELECT id FROM clients WHERE legacy_contact_id = ? LIMIT 1', 'client'],
+                  ['SELECT id FROM clients WHERE contact_id = ? LIMIT 1', 'client']] as $lookup) {
+            try {
+                $s = $this->db->prepare($lookup[0]); $s->execute([$contactId]); $id = (int)$s->fetchColumn();
+                if ($id > 0 && $lookup[1] === 'company') $companyId = $id;
+                if ($id > 0 && $lookup[1] === 'client') $clientId = $id;
+            } catch (Throwable $e) { /* schema variant: the next identity source may exist */ }
+        }
+        $conflicts = 0; $now = date('Y-m-d H:i:s', ($this->clock)());
+        foreach (self::customerKeys($contactId, $companyId, $clientId) as $key) {
+            if (QboLinkService::save($this->db, $this->siteId, (string)$company['realm_id'], 'client', $key,
+                                     $qboId, null, 'imported', 'sent', null, 'linked at import', $now, true) === 'conflict') $conflicts++;
+        }
+        return $conflicts;
+    }
+
+    /** Every local identity QboSyncService::customerOf() may select for this imported customer. */
+    public static function customerKeys(int $contactId, ?int $companyId, ?int $clientId): array
+    {
+        $keys = ['contact:' . $contactId];
+        if ($companyId !== null && $companyId > 0) $keys[] = 'company:' . $companyId;
+        if ($clientId !== null && $clientId > 0) $keys[] = 'client:' . $clientId;
+        return $keys;
     }
 
     private function applyServices(int $userId): array
@@ -419,13 +762,27 @@ class QboOnboardingService
         }
         $unit = (int)($this->db->query("SELECT id FROM unit_types ORDER BY (LOWER(name) IN ('each', 'service', 'visit')) DESC, id LIMIT 1")->fetchColumn() ?: 1);
         $ins = $this->db->prepare('INSERT INTO products (category_id, name, description, unit_type_id, base_price, taxable, active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, ?)');
-        $made = 0;
-        foreach ($this->services()['rows'] as $r) {
-            if ($r['status'] !== 'new') continue;
-            $ins->execute([$catId, mb_substr($r['name'], 0, 200), $r['description'] ?: ($r['group'] ? 'From QuickBooks: ' . $r['group'] : null), $unit, $r['price'] ?? 0, $userId ?: null]);
-            $made++;
+        $productsByName = [];
+        foreach ($this->db->query('SELECT id, name FROM products')->fetchAll(PDO::FETCH_ASSOC) ?: [] as $product) {
+            $productsByName[self::norm((string)$product['name'])] = (int)$product['id'];
         }
-        return ['ok' => true, 'message' => $made . ' services added to Otto\'s catalogue under "' . self::CATEGORY . '".'];
+        $made = 0; $mapped = 0;
+        foreach ($this->services()['rows'] as $r) {
+            if ($r['status'] === 'new') {
+                $ins->execute([$catId, mb_substr($r['name'], 0, 200), $r['description'] ?: ($r['group'] ? 'From QuickBooks: ' . $r['group'] : null), $unit, $r['price'] ?? 0, $userId ?: null]);
+                $productId = (int)$this->db->lastInsertId(); $made++;
+                $productsByName[self::norm($r['name'])] = $productId;
+            } else {
+                $productId = (int)($productsByName[self::norm($r['name'])] ?? 0);
+            }
+            if ($productId > 0) {
+                $this->db->prepare('DELETE FROM qbo_mappings WHERE site_id = ? AND kind = ? AND ittai_key = ?')->execute([$this->siteId, 'item', (string)$productId]);
+                $this->db->prepare('INSERT INTO qbo_mappings (site_id, kind, ittai_key, qbo_id, qbo_name, set_by) VALUES (?, ?, ?, ?, ?, ?)')
+                         ->execute([$this->siteId, 'item', (string)$productId, $r['qbo_id'], $r['name'], $userId ?: null]);
+                $mapped++;
+            }
+        }
+        return ['ok' => true, 'message' => $made . ' services added to Otto\'s catalogue under "' . self::CATEGORY . '"; ' . $mapped . ' QuickBooks items linked.'];
     }
 
     private function applySuppliers(): array
@@ -536,11 +893,14 @@ class QboOnboardingService
         });
         $try('clients', function (): string {
             $c = $this->clients();
-            return self::countLine($c['new'], $c['match'], 'client', 'clients') . ($c['properties'] ? ', ' . $c['properties'] . ' extra ' . ($c['properties'] === 1 ? 'property' : 'properties') : '');
+            return self::countLine($c['new'], $c['match'], 'client', 'clients') . ($c['properties'] ? ', ' . $c['properties'] . ' extra ' . ($c['properties'] === 1 ? 'property' : 'properties') : '')
+                 . ($c['shared_addresses'] ? ', ' . count($c['shared_addresses']) . ' shared addresses' : '')
+                 . ($c['groups'] ? ', ' . count($c['groups']) . ' possible building groups' : '');
         });
         $try('services', function (): string { $s = $this->services(); return self::countLine($s['new'], $s['match'], 'service', 'services'); });
         $try('suppliers', function (): string { $s = $this->suppliers(); return self::countLine($s['new'], $s['match'], 'supplier', 'suppliers'); });
         $try('accounts', function (): string { $a = $this->accounts(); return $a['matched'] . ' of ' . $a['total'] . ' accounts matched'; });
+        $try('contracts', function (): string { $c = $this->contracts(); return $c['new'] ? $c['new'] . ' recurring invoices → contracts' : 'No recurring invoices'; });
         return $out;
     }
 

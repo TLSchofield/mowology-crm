@@ -339,3 +339,29 @@ native sign-in, the tenant's own schedule. The APP still says Mowology. In the o
 - 2026-11-05 iOS top bar to complement the meniscus tab bar: quiet flat bar, avatar · day title (tap = date picker) · one navy +; map becomes a List/Map toggle by Mine/All crews, refresh = pull-down; "Today" chip only off-today. Needs a design-studio round.
 - 2026-11-05 Visit length from GPS on site (phones + truck), timer only when it agrees; one writer (Otto). Plan in chat 2026-11-05.
 - 2026-11-05 Add a client, job and quote from inside the iPhone app (Tim: "We should be able to add a client/job/quote within the app"). Today the bar's Add dial has Job and Client, both through FieldJobView (`Features/Schedule/FieldJobView.swift`), and Client always creates a job too. Missing: a client on its own, and a new quote (the app can only list quotes, `GET /api/schedule/quotes`). Needs a plan: which quote fields on a phone, the create endpoint, Sam's rules. Then Quote joins `AddDialItem` (`App/AddDial.swift`).
+
+**Claudia keeps QuickBooks (2026-11-04):** sending to QuickBooks is built but runs for Mowology only; per-business
+run, imported-customer links, her own items, phone switch, payment bank-match test, Production keys; shadow
+ledger (`books_mode`, monthly compare with her QuickBooks reports) when she considers switching.
+Plan: `2026-11-04-claudia-quickbooks-sending-plan.md`.
+
+**Walk 2 web view of rehearsal2 (Tim's screenshot, 2026-11-04, /crm/jobs/schedule.php):** a business that is not
+Mowology still shows "mowology" as the sidebar logo, "mowology CRM © 2026" in the footer and "Vancouver, BC" (not
+from business settings); the sidebar head is "Charlie" (should be Kaname); the visit-complete panel ("Job Complete!",
+"Add small job or extras", "Complete & Create Invoice", "Complete — No Invoice") renders unstyled and visible under
+the week grid; dashboard targets show Mowology's ($6,000 week target). All first-impression items for Claudia.
+
+**QuickBooks import field check on rehearsal2 (2026-11-04, `scripts/qbo-import-check.snippet.php`):** 60 clients,
+23 services, 44 suppliers, 13 account mappings, business GST. Names, emails, phones, mobiles, companies, service
+prices and QuickBooks item links all match; a second Accept added nothing (idempotent). Two real gaps:
+1. **Billing address of a person client is dropped** (44 of 60): ContactService stores billing only on `companies`;
+   a QuickBooks customer with no company keeps its service address (property) but loses a different mailing address.
+2. **Two clients at the same street address:** `addPropertyToContact`/createContact reuse the first property with that
+   address, so the second client gets no property of its own (36 here, because the sandbox shares 24 public addresses;
+   in real data: couples entered as two customers, landlord + tenant, duplicate QuickBooks customers).
+Also seen: the QuickBooks page subtitle still says "nothing is sent to QuickBooks yet"; a new business's chart of
+accounts is Mowology's (Lawn Care, Hedge & Shrub, Snow Removal, Landscape Design).
+
+**From Otto's session (2026-11-04):** generate_visits, run per business, skips snow statements and the approved-quote
+sweep behind `Tenant::isDefault()`. Gate them on `Tenant::isTest()` instead (G9 added it), so real Ittai businesses
+get them after phase 2.

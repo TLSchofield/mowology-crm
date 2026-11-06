@@ -18,6 +18,9 @@ class BusinessCronFanoutTest extends TestCase
             ['key' => 'rehearsal', 'argv' => ['/php', '/cron.php', '--tenant=rehearsal']],
             ['key' => 'green-leaf', 'argv' => ['/php', '/cron.php', '--tenant=green-leaf']],
         ], BusinessCronFanout::commands(['default', 'rehearsal', 'green-leaf', 'bad key;rm'], '/php', '/cron.php'));
+        $this->assertSame([
+            ['key' => 'rehearsal', 'argv' => ['/php', '/cron.php', '--tenant=rehearsal', 'retry-only']],
+        ], BusinessCronFanout::commands(['rehearsal'], '/php', '/cron.php', ['retry-only']));
 
         $registry = [
             'z' => ['hosts' => ['z.ittai.ca'], 'db_name' => 'tenant_z'],
@@ -41,6 +44,14 @@ class BusinessCronFanoutTest extends TestCase
         $this->assertSame([0, 1, 0], array_column($results, 'exit'));
         $this->assertSame('finished', $results[0]['last_line']);
         $this->assertStringContainsString('broken failed (exit 1: RuntimeException: boom)', BusinessCronFanout::summary($results));
+
+        $fullArgv = [];
+        BusinessCronFanout::run('/cron.php', 2, function (array $argv) use (&$fullArgv): array {
+            $fullArgv = $argv;
+            return ['exit' => 0, 'output' => 'done'];
+        }, ['good'], ['retry-only']);
+        $this->assertSame('--tenant=good', $fullArgv[2]);
+        $this->assertSame('retry-only', $fullArgv[3]);
 
         Tenant::forTests(['key' => 'x', 'cfg' => []]);
         $this->assertSame([], BusinessCronFanout::run('/cron.php', 2, $spawn, ['good']));

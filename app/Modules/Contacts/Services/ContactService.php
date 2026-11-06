@@ -374,6 +374,56 @@ class ContactService
     }
 
     /**
+     * Add a property owned by this contact. An address belonging to another
+     * contact is a different property, even when the street text is the same.
+     *
+     * @return array ['property_id' => int, 'created' => bool]
+     */
+    public function addOwnPropertyToContact(int $contactId, array $addr): array
+    {
+        $address = trim($addr['address'] ?? '');
+
+        $check = $this->db->prepare(
+            "SELECT id, site_contact_id FROM properties
+             WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
+               AND (site_contact_id = ? OR site_contact_id IS NULL)
+             ORDER BY CASE WHEN site_contact_id = ? THEN 0 ELSE 1 END, id
+             LIMIT 1"
+        );
+        $check->execute([$address, $contactId, $contactId]);
+        // force_new: the caller knows the matching property is another building at the same street.
+        $existing = empty($addr['force_new']) ? $check->fetch(\PDO::FETCH_ASSOC) : false;
+
+        if ($existing) {
+            if (!$existing['site_contact_id']) {
+                $this->db->prepare(
+                    "UPDATE properties SET site_contact_id = ? WHERE id = ? AND site_contact_id IS NULL"
+                )->execute([$contactId, $existing['id']]);
+            }
+            return ['property_id' => (int) $existing['id'], 'created' => false];
+        }
+
+        $province = trim((string)($addr['province'] ?? ''));
+        $this->db->prepare("
+            INSERT INTO properties
+                (property_name, address, city, province, postal_code,
+                 latitude, longitude, site_contact_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+        ")->execute([
+            $addr['property_name'] ?? $address,
+            $address,
+            $addr['city'] ?? '',
+            $province !== '' ? $province : 'BC',
+            $addr['postal_code'] ?? '',
+            isset($addr['latitude']) ? (float) $addr['latitude'] : null,
+            isset($addr['longitude']) ? (float) $addr['longitude'] : null,
+            $contactId,
+        ]);
+
+        return ['property_id' => (int) $this->db->lastInsertId(), 'created' => true];
+    }
+
+    /**
      * Add (or link an existing) property to a company.
      * Links via the company's primary_contact_id.
      *

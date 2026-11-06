@@ -11,6 +11,7 @@ $user = getCurrentUser();
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboExpenseSyncService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboRecurringService.php';
 
 $db  = getDB();
 $svc = new QboConnectionService($db);
@@ -101,6 +102,7 @@ $csrf = generateCSRFToken();
 $sync = ($status['connected'] && $svc->tablesReady()) ? new QboSyncService($svc) : null;
 $canSend = $sync !== null && $sync->guard() === null;
 $sent = []; $problems = []; $auto = ['on' => false, 'from' => null]; $receiptsOn = false;
+$pausePrompt = null;
 try {
     $sent = $sync ? $sync->recent(15) : [];
     $problems = $sync ? $sync->problems() : [];
@@ -109,6 +111,7 @@ try {
         $xsync = new QboExpenseSyncService($svc);
         $receiptsOn = $xsync->receiptsOn();
         $problems = array_merge($problems, $xsync->expenseProblems());
+        $pausePrompt = (new QboRecurringService($db, $svc))->pausePrompt();
     }
 } catch (Throwable $e) { /* migration 1383 not run yet */ }
 // What receipts are paid from in Ittai (1010 chequing, 2400 card; 1300 = paid personally, held).
@@ -184,6 +187,7 @@ $activePage = 'accounting';
     <div class="card-body">
         <h2 class="h5">Automatic sending</h2>
         <p class="small text-muted">Every 15 minutes, issued invoices (from the date you pick) and their payments go to QuickBooks by themselves. Invoices that can't go as they are wait below with the reason.</p>
+        <?php if ($pausePrompt !== null): ?><div class="alert alert-warning small" role="status"><?= h($pausePrompt) ?></div><?php endif; ?>
         <form method="post" class="d-flex gap-2 flex-wrap align-items-end mb-3">
             <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
             <input type="hidden" name="action" value="auto">

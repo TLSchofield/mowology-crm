@@ -23,5 +23,10 @@ final class OnboardingApiPresenterTest extends TestCase
         $this->assertSame('2 added', $qbo['parts'][1]['summary'], 'done rows say what was done');
         $this->assertFalse($qbo['parts'][2]['done']); $this->assertSame('4 services to add', $qbo['parts'][2]['summary'], 'rows say what Accept would do');
         $this->assertSame('', $qbo['parts'][3]['summary']);
+        $this->assertTrue($qbo['sending']['offer']);
+        $this->assertSame('Send new invoices to QuickBooks?', $qbo['sending']['title']);
+        $qbo = OnboardingApiPresenter::quickBooksData('yes', true, true, [], true, [], ['on'=>true,'from'=>'2026-11-04']);
+        $this->assertFalse($qbo['sending']['offer']);
+        $this->assertSame('Sending to QuickBooks from 04 Nov 2026', $qbo['sending']['done_line']);
     }
 }

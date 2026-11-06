@@ -28,6 +28,9 @@
  * Optional daily retry of held invoices (creates nothing new):
  *   15 7 * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php retry-only
  *
+ * Other businesses: run per business by app/Core/Cron/business_crons.php (BusinessCrons::REGISTRY
+ * 'contract_billing' and 'contract_billing_retry'); a test business ('test' => true) makes drafts, sends nothing.
+ *
  * Can also be triggered manually by an admin via HTTP POST (same auth as other crons).
  */
 declare(strict_types=1);
@@ -73,6 +76,9 @@ require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // resolveManagementBillingRecipient()
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingPolicy.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboRecurringService.php';
 
 $startMs    = (int)(microtime(true) * 1000);
 // Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
@@ -84,6 +90,9 @@ $logRun = static function (string $status, string $summary, ?string $error = nul
         error_log('[contract_billing] could not record the run — ' . $e->getMessage());
     }
 };
+$retryOnly = $isCli
+    ? in_array('retry-only', array_slice($argv ?? [], 1), true)
+    : !empty($_POST['retry_only']);
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
 $dueDate    = date('Y-m-t');         // last day of current month (Y-m-t = last day)
@@ -93,7 +102,10 @@ require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 $taxRate  = TaxEngine::gstRate($db);
 // One run at a time: an admin "Run now" during the cron could make two invoices for a contract
 // (the idempotency check is a plain SELECT before the INSERT; review 2026-10-12).
-if ((int)$db->query("SELECT GET_LOCK('mw_contract_billing', 0)")->fetchColumn() !== 1) {
+$lockName = 'mw_contract_billing_' . Tenant::key();
+$lockStmt = $db->prepare('SELECT GET_LOCK(?, 0)');
+$lockStmt->execute([$lockName]);
+if ((int)$lockStmt->fetchColumn() !== 1) {
     $msg = 'contract_billing: another run is in progress — nothing done.';
     $logRun('success', $msg);
     if ($isCli) { echo $msg . "\n"; exit(0); }
@@ -105,13 +117,26 @@ $skipped  = [];
 $errors   = [];
 $held     = [];   // not sent: the invoice PDF could not be made (retried next run)
 $retried  = [];   // held invoices from earlier runs, sent now
+$testMade = [];   // created as drafts in a test business; deliberately never sent
+$recurring = null;
+$recurringUnavailable = null;
+if (class_exists('Tenant') && !Tenant::isDefault()) {
+    try {
+        $qboConnection = new QboConnectionService($db);
+        if ($qboConnection->tablesReady() && $qboConnection->company() !== null) {
+            $recurring = new QboRecurringService($db, $qboConnection, 1);
+            $recurring->read(); // before any contract row is locked
+        }
+    } catch (Throwable $e) {
+        $recurring = null;
+        $recurringUnavailable = 'QuickBooks recurring check unavailable: ' . get_class($e);
+    }
+}
 
 // retry-only: just re-send invoices held for a missing PDF; create nothing new.
 // Safe to schedule daily (the monthly line still creates the invoices on the 1st):
 //   15 7 * * * /usr/local/bin/php .../contract_billing.php retry-only
-$retryOnly = $isCli
-    ? in_array('retry-only', array_slice($argv ?? [], 1), true)
-    : !empty($_POST['retry_only']);
+$sendAllowed = ContractBillingPolicy::sendAllowed(Tenant::isTest());
 
 $sender = new ContractInvoiceSender($db, new InvoicePdfGate($db));
 
@@ -122,7 +147,7 @@ try {
         $msg = 'Migration 1007 not applied — invoices.contract_id column missing. Run /crm/api/run-migration-1007.php first.';
         error_log("[contract_billing] {$msg}");
         $logRun('error', 'Migration 1007 not applied', $msg);
-        if ($isCli) { echo $msg . PHP_EOL; exit(1); }
+            if ($isCli) { echo $msg . PHP_EOL; exit(1); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
     }
@@ -160,6 +185,9 @@ try {
 }
 foreach ($heldIds as $heldId) {
     try {
+        if (!$sendAllowed) {
+            continue;
+        }
         $res = $sender->send($heldId);
         if ($res['status'] === 'sent') {
             $retried[] = 'retry: ' . $res['message'];
@@ -313,7 +341,8 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         $why = !$fresh || $fresh['status'] !== 'active' ? 'no longer active'
              : ($fresh['billing_cycle'] !== 'monthly' ? 'no longer billed monthly'
              : (!$plan->fetchColumn() ? 'no active plan'
-             : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')' : null)));
+             : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')'
+             : ($recurring ? $recurring->holdReason(['contact_id' => $contactId, 'property_id' => (int)$ctr['property_id'], 'company_id' => $ctr['company_id'] !== null ? (int)$ctr['company_id'] : null, 'billing_amount' => $fresh['billing_amount']]) : null))));
         if ($why !== null) {
             $db->rollBack();
             $skipped[] = $ctr['contract_number'] . " ({$why})";
@@ -402,14 +431,18 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         // ContractInvoiceSender: no PDF → NOT sent, stays draft, recorded for
         // Charlie + retried at the start of the next run. Sent → status 'sent',
         // autopay, SMS, activity log (same as the old inline code).
-        $res = $sender->send($invoiceId);
-        if ($res['status'] === 'sent') {
-            $created[] = $res['message'];
-        } elseif ($res['status'] === 'held') {
-            $held[]   = $res['message'];
-            $errors[] = "{$ctr['contract_number']}: " . $res['message'];
+        if (!$sendAllowed) {
+            $testMade[] = $invoiceNumber;
         } else {
-            $errors[] = $res['message'];
+            $res = $sender->send($invoiceId);
+            if ($res['status'] === 'sent') {
+                $created[] = $res['message'];
+            } elseif ($res['status'] === 'held') {
+                $held[]   = $res['message'];
+                $errors[] = "{$ctr['contract_number']}: " . $res['message'];
+            } else {
+                $errors[] = $res['message'];
+            }
         }
 
     } catch (Throwable $e) {
@@ -424,6 +457,16 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
 
 // ── 4. Report ─────────────────────────────────────────────────────────────────
 $elapsedMs = (int)(microtime(true) * 1000) - $startMs;
+$testSummary = Tenant::isTest()
+    ? 'test business: ' . count($testMade) . ' invoices made, not sent'
+    : '';
+$summaryParts = [
+    count($created) . ' created, ' . count($retried) . ' retried, ' . count($held) . ' held, '
+        . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
+];
+if ($testSummary !== '') $summaryParts[] = $testSummary;
+if ($recurringUnavailable !== null) $summaryParts[] = $recurringUnavailable;
+$runSummary = implode('; ', $summaryParts);
 
 $report = [
     'success'    => true,
@@ -434,6 +477,8 @@ $report = [
     'held'       => count($held),
     'skipped'    => count($skipped),
     'errors'     => count($errors),
+    'test_made'  => count($testMade),
+    'summary'    => $runSummary,
     'elapsed_ms' => $elapsedMs,
     'detail'     => [
         'created' => array_merge($created, $retried),
@@ -443,8 +488,7 @@ $report = [
     ],
 ];
 
-$logRun(count($errors) > 0 ? 'warning' : 'success',
-    count($created) . ' created, ' . count($retried) . ' retried, ' . count($held) . ' held, ' . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
+$logRun(count($errors) > 0 ? 'warning' : 'success', $runSummary,
     count($errors) > 0 ? implode(' | ', array_slice($errors, 0, 5)) : null);
 
 if ($isCli) {
@@ -454,6 +498,7 @@ if ($isCli) {
     echo "  Held    : " . count($held) . " (NOT sent — invoice PDF could not be made)\n";
     echo "  Skipped : " . count($skipped) . "\n";
     echo "  Errors  : " . count($errors) . "\n";
+    if ($testSummary !== '') echo "  " . $testSummary . "\n";
     if ($errors) {
         foreach ($errors as $err) { echo "  ERROR: {$err}\n"; }
     }

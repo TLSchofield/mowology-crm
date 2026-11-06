@@ -192,28 +192,11 @@ try {
     if (!$dryRun) {
         try {
             require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
-            // Recorded EVERY run (also when off or not connected), so Ada never reads "switched off" as "missed".
             $q0 = (int)(microtime(true) * 1000);
             $qconn = new QboConnectionService($db);
-            $qs = ($qconn->tablesReady() && $qconn->company() !== null) ? new QboSyncService($qconn) : null;
-            if ($qs === null) {
-                recordCronRun('qbo_sync', 'success', 'QuickBooks: not connected — nothing to send.', null, null, !$isCli);
-            } elseif (!$qs->auto()['on']) {
-                recordCronRun('qbo_sync', 'success', 'QuickBooks: automatic sending is off.', null, null, !$isCli);
-            } else {
-                $qr = $qs->runQueue();
-                // Receipts as expenses (own switch, same start date) — after the invoices.
-                require_once APP_ROOT . '/Modules/QuickBooks/Services/QboExpenseSyncService.php';
-                $xr = $qr['stopped'] ? ['sent' => 0, 'held' => 0, 'failed' => 0, 'notes' => [], 'stopped' => null]
-                                     : (new QboExpenseSyncService($qconn))->runExpenses();
-                foreach (['sent', 'held', 'failed'] as $k) $qr[$k] += $xr[$k];
-                $qr['notes'] = array_slice(array_merge($qr['notes'], $xr['notes']), 0, 5);
-                $qr['stopped'] = $qr['stopped'] ?: $xr['stopped'];
-                $qsum = "QuickBooks: {$qr['sent']} sent, {$qr['held']} held, {$qr['failed']} failed" . ($qr['stopped'] ? ' — stopped: ' . $qr['stopped'] : '');
-                if ($qr['sent'] || $qr['held'] || $qr['failed'] || $qr['stopped']) $pennyLog($qsum);
-                recordCronRun('qbo_sync', ($qr['failed'] || $qr['stopped']) ? 'warning' : 'success', $qsum,
-                              (int)(microtime(true) * 1000) - $q0, $qr['notes'] ? implode(' | ', $qr['notes']) : null, !$isCli);
-            }
+            $qr = QboSyncService::runAll($qconn);
+            if ($qr['sent'] || $qr['held'] || $qr['failed'] || $qr['stopped']) $pennyLog($qr['summary']);
+            recordCronRun('qbo_sync', $qr['status'], $qr['summary'], (int)(microtime(true) * 1000) - $q0, $qr['notes_text'], !$isCli);
         } catch (Throwable $e) {
             $pennyLog('QuickBooks sending failed (non-fatal): ' . $e->getMessage());
             recordCronRun('qbo_sync', 'error', 'QuickBooks sending failed', null, $e->getMessage(), !$isCli);

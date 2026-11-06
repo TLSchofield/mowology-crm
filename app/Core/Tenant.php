@@ -139,6 +139,18 @@ final class Tenant
         return self::key() === self::DEFAULT;
     }
 
+    /** Pure registry-config resolver: only an explicit boolean true marks a business as a test business. */
+    public static function isTestCfg(array $cfg): bool
+    {
+        return isset($cfg['test']) && $cfg['test'] === true;
+    }
+
+    /** The original business is never a test business, regardless of registry/global configuration. */
+    public static function isTest(): bool
+    {
+        return !self::isDefault() && self::isTestCfg((array)(self::$current['cfg'] ?? []));
+    }
+
     /** The database this tenant uses: [name, user, pass] — the install's own for the default tenant. */
     public static function db(): array
     {

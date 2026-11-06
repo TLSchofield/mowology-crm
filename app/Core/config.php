@@ -191,6 +191,9 @@ if (!class_exists('Database')) {
             ];
 
             $pdo = new PDO($dsn, $user, $pass, $options);
+            // MySQL 1615 on this host: a failed prepared statement is retried once emulated (RePrepareStatement).
+            require_once __DIR__ . '/RePrepareStatement.php';
+            $pdo->setAttribute(PDO::ATTR_STATEMENT_CLASS, ['RePrepareStatement', [$pdo]]);
 
             // Align MySQL session timezone with PHP (America/Vancouver / Pacific).
             // Use UTC offset instead of named timezone — shared hosting MySQL often

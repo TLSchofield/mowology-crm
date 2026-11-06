@@ -6,6 +6,9 @@ require_once dirname(__DIR__, 2) . '/Settings/Services/BusinessIdentityService.p
 require_once dirname(__DIR__, 2) . '/Settings/Services/Registry/OrgBookBcProvider.php';
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboConnectionService.php';
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboOnboardingService.php';
+require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboSyncService.php';
+require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboExpenseSyncService.php';
+require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboRecurringService.php';
 require_once dirname(__DIR__, 2) . '/Ledger/Services/AccountantInviteService.php';
 
 final class OnboardingStepService
@@ -65,6 +68,20 @@ final class OnboardingStepService
                 $qbo = $this->qbo();
                 if ($do === 'read') { if (!$qbo['connected']) return ['ok' => false, 'error' => 'refused', 'message' => 'Connect QuickBooks first.']; $r = $qbo['onboarding']->pull(); }
                 elseif ($do === 'accept') $r = $qbo['onboarding']->apply((string)($in['part'] ?? ''), $userId);
+                elseif ($do === 'send') {
+                    if (!$qbo['connected']) return ['ok' => false, 'error' => 'refused', 'message' => 'Connect QuickBooks first.'];
+                    $on = filter_var($in['on'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                    if ($qbo['sync']->setAuto($on, $on ? self::businessToday($this->db) : null) === false) {
+                        return ['ok' => false, 'error' => 'refused', 'message' => 'Sending could not be switched ' . ($on ? 'on' : 'off') . '. Nothing was changed.'];
+                    }
+                    $qbo['expenses']->setReceipts($on);
+                    $message = $on ? 'Sending to QuickBooks from today.' : 'Automatic sending is off.';
+                    if ($on) {
+                        $prompt = isset($qbo['recurring']) ? $qbo['recurring']->pausePrompt() : (new QboRecurringService($this->db, $qbo['conn'] ?? null))->pausePrompt();
+                        if ($prompt !== null) $message .= ' ' . $prompt;
+                    }
+                    $r = ['ok' => true, 'message' => $message];
+                }
                 else return self::badAction();
                 return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null]
                     : ['ok' => false, 'error' => 'refused', 'message' => (string)($r['message'] ?? '')];
@@ -100,13 +117,27 @@ final class OnboardingStepService
         return in_array($providerStatus, ['matches', 'none', 'ok'], true) ? 'ok' : ($providerStatus === '' ? 'unavailable' : $providerStatus);
     }
 
+    public static function businessToday(PDO $db, ?DateTimeImmutable $now = null): string
+    {
+        try {
+            $s = $db->query('SELECT timezone FROM business_settings ORDER BY id LIMIT 1');
+            $timezone = trim((string)($s->fetchColumn() ?: ''));
+            if ($timezone !== '') {
+                return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone($timezone))->format('Y-m-d');
+            }
+        } catch (Throwable $e) { /* installations without the column use PHP's configured timezone */ }
+        return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
+    }
+
     private function identity(int $userId)
     { return $this->identityFactory ? ($this->identityFactory)($userId) : new BusinessIdentityService($this->db, new OrgBookBcProvider($this->dbName), $userId); }
     private function qbo(): array
     {
         if ($this->qboFactory) return ($this->qboFactory)();
         $conn = new QboConnectionService($this->db);
-        return ['connected' => $conn->tablesReady() && $conn->company() !== null, 'onboarding' => new QboOnboardingService($this->db, ($conn->tablesReady() && $conn->company()) ? $conn : null)];
+        $connected = $conn->tablesReady() && $conn->company() !== null;
+        return ['connected' => $connected, 'conn' => $connected ? $conn : null, 'onboarding' => new QboOnboardingService($this->db, $connected ? $conn : null),
+                'sync' => new QboSyncService($conn), 'expenses' => new QboExpenseSyncService($conn)];
     }
     private function finish(array $r, OnboardingService $onboarding): array
     { return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null] : ['ok' => false, 'error' => 'validation', 'message' => (string)($r['message'] ?? $r['error'] ?? '')]; }

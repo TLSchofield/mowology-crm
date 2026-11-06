@@ -168,7 +168,7 @@ class OnboardingCompanyModule extends OnboardingModule
  */
 class OnboardingQuickBooksModule extends OnboardingModule
 {
-    public const PARTS = ['business', 'clients', 'services', 'suppliers', 'accounts'];
+    public const PARTS = ['business', 'clients', 'services', 'suppliers', 'accounts', 'contracts'];
 
     public function key(): string { return 'quickbooks'; }
     public function title(): string { return 'QuickBooks'; }
