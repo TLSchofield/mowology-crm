@@ -61,6 +61,17 @@ class ExpenseGateHooks
         }
     }
 
+    /** A receipt dated in a filed year: filed and traced to its one bank line (ClosedYearReceiptTrace). Never fails the save. */
+    public function closedYear(int $expenseId): void
+    {
+        try {
+            require_once __DIR__ . '/ClosedYearReceiptTrace.php';
+            (new ClosedYearReceiptTrace($this->db))->trace($expenseId);
+        } catch (Throwable $e) {
+            error_log('Closed-year receipt trace #' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
     /** Match the receipt's product lines to the shared catalogue (ReceiptCatalogService). Never fails the save. */
     public function catalog(int $expenseId): void
     {

@@ -115,14 +115,17 @@ class ExpenseApprovalService
         if (!in_array((string)$e['status'], ['draft', 'pending_approval'], true)) throw new Exception('Only a receipt that is still open can be filed this way');
         $date = substr((string)$e['expense_date'], 0, 10);
         if ($date === '' || $date >= ExpenseGate::CLOSED_BEFORE) throw new Exception('This is only for a receipt dated in a year that is already filed');
-        if ($this->selfApprovalBlocked((int)$e['created_by'], (int)$currentUser['id'])) throw new Exception('Cannot approve your own expense');
+        // Penny (ClosedYearReceiptTrace, id 0) files only a receipt whose one bank line she found; a person is checked as before.
+        $byPenny = (int)$currentUser['id'] === 0 && ($currentUser['kind'] ?? '') === 'penny';
+        if (!$byPenny && $this->selfApprovalBlocked((int)$e['created_by'], (int)$currentUser['id'])) throw new Exception('Cannot approve your own expense');
 
-        $actor = ['id' => (int)$currentUser['id'], 'kind' => 'user'];
+        $actor = $byPenny ? ['id' => null, 'kind' => 'penny'] : ['id' => (int)$currentUser['id'], 'kind' => 'user'];
         // Re-checked inside the gate on the row it reads (Codex 2026-10-26): a receipt approved, posted or set aside in the
         // meantime is left alone, and only the request that really made the change teaches (a double-click teaches once).
         $res = $this->gate()->apply($expenseId, [
-            'status' => 'rejected', 'approved_by' => (int)$currentUser['id'], 'approved_at' => 'now',
-            'rejection_reason' => 'Filed: already in the ' . substr($date, 0, 4) . ' books (not booked again)',
+            'status' => 'rejected', 'approved_by' => $byPenny ? null : (int)$currentUser['id'], 'approved_at' => 'now',
+            'rejection_reason' => $byPenny ? 'Filed: ' . substr($date, 0, 4) . ' receipt traced to its bank line (already in the ' . substr($date, 0, 4) . ' books, not booked again)'
+                                           : 'Filed: already in the ' . substr($date, 0, 4) . ' books (not booked again)',
         ], $actor, 'file_booked', ['transition' => 'reject', 'only_if' => function (array $b): bool {
             return in_array((string)($b['status'] ?? ''), ['draft', 'pending_approval'], true)
                 && substr((string)($b['expense_date'] ?? ''), 0, 10) < ExpenseGate::CLOSED_BEFORE;
