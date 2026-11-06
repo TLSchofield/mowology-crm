@@ -16,6 +16,16 @@ trades first. The AI back office is the edge.
 5. **Web: Kaname as a fixed name** — remove the `chief_name` override in `app/Services/HeadIdentity.php` after checking no business set it.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
+## Queued from Tim, 2026-11-05 (after Sam step 2)
+- **Ask Kaname buttons:** every answer gets up to 3 rule-chosen actions for the record it is about (quote sent, not
+  accepted → "Nudge <name>" opening Sam's follow-up + "Open quote"; overdue invoice → "Send reminder" via Penny + "Open
+  invoice"; client only → "Open client"). Nothing sent from Ask. Server `CharlieAskService` + iOS `KanameAskBox`; TestFlight.
+- **Ittai loading animation:** replace Apple's spinner app-wide with one `.progressViewStyle` at the root (64 uses,
+  32 files; pull-to-refresh stays system). Design round first (ittai-design-studio): quiet, ink not gold, not the
+  frozen symbol, not Chaos-to-Unity or the knowledge glyph; Reduce Motion = still. Then web + Android to match.
+- **GST 0 can't be set:** `TaxEngine::gstRate()` treats 0 as unset and falls back to 5% — a business not registered
+  for GST (Claudia?) gets GST on Sam's drafts and anything else that uses it.
+
 ## Word pools + recognise → suggest → confirm → learn, for every head (all trades) — Tim 2026-11-05
 Goal (Tim): a system that improves with every tenant, and slowly for Mowology alone if nobody buys it.
 **All heads, one engine on `HeadLessons` (migration 1348)** — each head plugs in its vocabulary: Sam services,
