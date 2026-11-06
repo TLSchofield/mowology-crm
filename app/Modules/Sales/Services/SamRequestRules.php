@@ -15,7 +15,16 @@ final class SamRequestRules
     public static function isRequest(string $subject, string $text): array
     {
         $topic = InboundTopicClassifier::topic($subject, $text);
-        return ['yes' => $topic[0] === 'sales', 'why' => $topic[2]];
+        if ($topic[0] === 'sales') return ['yes' => true, 'why' => $topic[2]];
+
+        // Customers commonly ask to "book a cleanup" rather than "book us in".
+        // The shared classifier intentionally stays conservative, but here a booking
+        // verb plus a service Sam recognises is an unambiguous work request.
+        if (preg_match('/(?<![\pL\pN_])book(?:ed|ing)?(?![\pL\pN_])/iu', $text)
+            && count(self::services($subject . "\n" . $text)) > 0) {
+            return ['yes' => true, 'why' => 'booking request for a recognised service'];
+        }
+        return ['yes' => false, 'why' => $topic[2]];
     }
 
     /** @return string[] */

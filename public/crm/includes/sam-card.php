@@ -103,6 +103,7 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
 
     <div class="mw-pq mw-sam-sec" id="mw-sq" hidden></div>
 
+    <details class="mw-sam-sec is-decide" id="mw-sam-requests" hidden><summary></summary><div class="mw-sam-sec-body"></div></details>
     <details class="mw-sam-sec is-decide" id="mw-sam-acceptances" hidden><summary></summary><div class="mw-sam-sec-body"></div></details>
     <details class="mw-sam-sec is-decide" id="mw-sam-approved" hidden><summary></summary><div class="mw-sam-sec-body"></div></details>
     <details class="mw-sam-sec is-decide" id="mw-sam-replies" hidden><summary></summary><div class="mw-sam-sec-body"></div></details>

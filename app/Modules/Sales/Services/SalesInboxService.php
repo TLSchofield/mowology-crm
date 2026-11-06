@@ -278,13 +278,24 @@ class SalesInboxService
     /** After an inbound email and its files are kept: does it accept quotes? (Sam's "Looks like an acceptance", 2026-10-15) */
     public function afterAttachments(string $key): int
     {
+        $acceptances = 0;
         try {
             require_once __DIR__ . '/SamAcceptanceService.php';
-            return (new SamAcceptanceService($this->db))->detect($key);
+            $acceptances = (new SamAcceptanceService($this->db))->detect($key);
         } catch (Throwable $e) {
             error_log('Acceptance check (' . $key . '): ' . $e->getMessage());   // a bonus — never lose the mail
-            return 0;
         }
+        try {
+            $s = $this->db->prepare("SELECT head FROM sales_messages WHERE message_key = ? LIMIT 1");
+            $s->execute([$key]);
+            if ($s->fetchColumn() === 'sam') {
+                require_once __DIR__ . '/SamRequestService.php';
+                (new SamRequestService($this->db))->propose($key);
+            }
+        } catch (Throwable $e) {
+            error_log('Request check (' . $key . '): ' . $e->getMessage());
+        }
+        return $acceptances;
     }
 
     /** Migration 1206 has added sales_messages.signature. */

@@ -258,12 +258,16 @@ class QuoteService
         require_once __DIR__ . '/QuoteRecipientService.php';
         $recipients = new QuoteRecipientService($this->db);
         $resolved   = $recipients->forProperty($propertyId);
-        $quoteContactId = $resolved['contact_id'] ?? $siteContactId;
+        $explicitContactId = (int)($data['contact_id'] ?? 0);
+        $quoteContactId = $explicitContactId > 0 ? $explicitContactId : ($resolved['contact_id'] ?? $siteContactId);
 
         $quoteNumber = $this->generateQuoteNumber();
         $accessToken = $this->generateAccessToken();
 
-        $this->db->beginTransaction();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
         try {
             $stmt = $this->db->prepare("
                 INSERT INTO quotes (
@@ -291,7 +295,7 @@ class QuoteService
 
             $this->insertLineItems($quoteId, $lineItems);
 
-            if (in_array($resolved['source'], ['property', 'company'], true)) {
+            if ($explicitContactId === 0 && in_array($resolved['source'], ['property', 'company'], true)) {
                 $recipients->markChosen($quoteId);
             }
 
@@ -301,9 +305,11 @@ class QuoteService
                 )->execute([$quoteId, $quoteRequestId]);
             }
 
-            $this->db->commit();
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
         } catch (\Throwable $e) {
-            if ($this->db->inTransaction()) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             throw $e;
@@ -416,6 +422,12 @@ class QuoteService
                     sent_at = NOW(), sent_via = ? WHERE id = ?"
         )->execute([$sentVia, $quoteId]);
         $this->pipelineStage($quoteId);
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/SamRequestService.php';
+            (new SamRequestService($this->db))->recordOutcome($quoteId);
+        } catch (\Throwable $e) {
+            error_log('Sam request outcome hook (' . $quoteId . '): ' . $e->getMessage());
+        }
     }
 
     /** The status a quote has after a send: draft/sent/viewed → sent; any answer stays. */

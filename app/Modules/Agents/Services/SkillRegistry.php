@@ -41,6 +41,7 @@ final class SkillRegistry
             $s('sam', 'reply_draft', 'Draft a quote follow-up', 'SamFollowupService', 'reply_draft'),
             $s('sam', 'send_followup', 'Send a follow-up the owner approved', 'SamFollowupService', null, 'sam.send_followup', 'draft_safety'),
             $s('sam', 'accept_quote', 'Accept a quote the customer signed by email', 'SamAcceptanceService', null, 'sam.accept_quote'),
+            $s('sam', 'prepare_quote', 'Turn a client\'s request for work into a draft quote', 'SamRequestService', null, 'sam.prepare_quote'),
             $s('sam', 'stale_quotes', 'List quotes that need a follow-up', 'SalesDeskService', null),
             $s('mia', 'media_tag', 'Tag a photo by looking at it', 'MediaTagService', 'media_tag'),
             $s('mia', 'article', 'Draft an SEO article', 'ArticleGeneratorService', 'article', null, 'article.honesty'),
