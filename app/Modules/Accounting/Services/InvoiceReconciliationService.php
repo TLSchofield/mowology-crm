@@ -63,7 +63,7 @@ class InvoiceReconciliationService
             if ($score === null) continue;
             $out[] = $this->candidatePayload($dep, $invoice, $score);
         }
-        usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        usort($out, fn($a, $b) => [(int)$a['mismatch'], $b['confidence']] <=> [(int)$b['mismatch'], $a['confidence']]);
         return array_slice($out, 0, $limit);
     }
 
@@ -93,7 +93,7 @@ class InvoiceReconciliationService
                 $hits[] = $this->candidatePayload($dep, $invoice, $score);
             }
             if ($hits) {
-                usort($hits, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+                usort($hits, fn($a, $b) => [(int)$a['mismatch'], $b['confidence']] <=> [(int)$b['mismatch'], $a['confidence']]);
                 $map[(int)$invoice['id']] = array_slice($hits, 0, $per);
             }
         }
@@ -895,6 +895,55 @@ class InvoiceReconciliationService
      *
      * @return array{confidence:int, reasons:string[]}|null
      */
+    /** @var array<int,array{amount:float,date:string,invoice_number:string}>|null Yardi remittances, loaded once per request (or injected by tests) */
+    private ?array $remittances = null;
+
+    /** Test seam: inject the Yardi remittances instead of reading etransfer_notifications. */
+    public function setRemittances(array $remittances): void
+    {
+        $this->remittances = $remittances;
+    }
+
+    /**
+     * Yardi/Tribe EFT remittances the inbox poller parsed. A remittance names the exact invoice
+     * a property manager paid, so it is the strongest evidence a deposit has.
+     */
+    private function loadRemittances(): array
+    {
+        if ($this->remittances !== null) return $this->remittances;
+        $this->remittances = [];
+        try {
+            $q = $this->db->query("
+                SELECT n.amount, n.email_date, n.invoice_hint, i.invoice_number AS matched_number
+                FROM etransfer_notifications n
+                LEFT JOIN invoices i ON i.id = COALESCE(n.recorded_invoice_id, n.matched_invoice_id)
+                WHERE n.source = 'yardi_eft' AND n.status IN ('pending', 'recorded') AND n.amount > 0.005 AND n.email_date IS NOT NULL
+            ");
+            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $num = trim((string)($r['matched_number'] ?: $r['invoice_hint']));
+                if ($num === '') continue;
+                $this->remittances[] = ['amount' => round((float)$r['amount'], 2), 'date' => substr((string)$r['email_date'], 0, 10), 'invoice_number' => $num];
+            }
+        } catch (Throwable $e) {
+            error_log('[invoice-reconciliation] remittances: ' . $e->getMessage());
+        }
+        return $this->remittances;
+    }
+
+    /** The remittance for this deposit: same amount, emailed 0–7 days after the deposit (closest wins). */
+    private function remittanceFor(array $deposit): ?array
+    {
+        $best = null; $bestGap = 99;
+        $on = strtotime(substr((string)$deposit['transaction_date'], 0, 10) . ' 12:00:00');
+        foreach ($this->loadRemittances() as $r) {
+            if (abs($r['amount'] - round((float)$deposit['amount'], 2)) > 0.01) continue;
+            $gap = (int)round((strtotime($r['date'] . ' 12:00:00') - $on) / 86400);
+            if ($gap < 0 || $gap > 7 || $gap >= $bestGap) continue;
+            $best = $r; $bestGap = $gap;
+        }
+        return $best;
+    }
+
     public function scoreDeposit(array $deposit, array $invoice): ?array
     {
         $depAmt  = round((float)$deposit['amount'], 2);
@@ -902,6 +951,15 @@ class InvoiceReconciliationService
         if ($balance <= 0.005) return null;
 
         $reasons = [];
+
+        // Strongest evidence first: the property manager's own remittance names the invoice.
+        $remit = $this->remittanceFor($deposit);
+        $remitText = $remit ? 'Yardi remittance names ' . $remit['invoice_number'] . ' (' . date('M j', strtotime($remit['date'])) . ')' : '';
+        if ($remit && strcasecmp($remit['invoice_number'], (string)($invoice['invoice_number'] ?? '')) === 0) {
+            $reasons = [$remitText];
+            if (abs($depAmt - $balance) <= 0.01) $reasons[] = 'Exact amount';
+            return ['confidence' => 100, 'reasons' => $reasons, 'mismatch' => false, 'evidence' => self::evidence($reasons, $remit, false)];
+        }
 
         // ── Amount (max 50) ──────────────────────────────────────────────
         $total = round((float)($invoice['total'] ?? 0), 2);
@@ -1000,9 +1058,38 @@ class InvoiceReconciliationService
         }
 
         $score = min(100, $score + $descScore);
+        $mismatch = false;
+        if ($remit) {
+            $mismatch = true;
+            // The remittance says this money paid a different invoice: still listed (hand-pick stays possible), but demoted and flagged.
+            $score = min($score, self::MATCH_THRESHOLD + 1);
+            array_unshift($reasons, 'Yardi remittance names ' . $remit['invoice_number'] . ' instead');
+        }
         if ($score < self::MATCH_THRESHOLD) return null;
 
-        return ['confidence' => (int)$score, 'reasons' => $reasons];
+        return ['confidence' => (int)$score, 'reasons' => $reasons, 'mismatch' => $mismatch, 'evidence' => self::evidence($reasons, $remit, $mismatch)];
+    }
+
+    /**
+     * One record per piece of evidence for the invoice page's cards. Only two states: 'ok' fits, 'bad' is a real
+     * mismatch. 'strong' marks the Yardi remittance that names this invoice (the best evidence there is).
+     * @return array<int,array{state:string,strong:bool,kind:string,label:string,detail:string}>
+     */
+    private static function evidence(array $reasons, ?array $remit, bool $mismatch): array
+    {
+        $out = [];
+        foreach ($reasons as $r) {
+            $r = (string)$r;
+            if (strpos($r, 'Yardi remittance') === 0) {
+                $when = $remit ? date('M j', strtotime($remit['date'])) : '';
+                $out[] = $mismatch
+                    ? ['state' => 'bad', 'strong' => true, 'kind' => 'remittance', 'label' => preg_replace('/ instead$/', '', $r) . ', not this invoice', 'detail' => 'Emailed ' . $when . ' for $' . number_format((float)$remit['amount'], 2)]
+                    : ['state' => 'ok', 'strong' => true, 'kind' => 'remittance', 'label' => preg_replace('/ \(.*\)$/', '', $r), 'detail' => 'Emailed ' . $when . ' for $' . number_format((float)$remit['amount'], 2)];
+                continue;
+            }
+            $out[] = ['state' => 'ok', 'strong' => false, 'kind' => 'match', 'label' => $r, 'detail' => ''];
+        }
+        return $out;
     }
 
     /**
@@ -1100,6 +1187,8 @@ class InvoiceReconciliationService
             'covers_more'      => $depAmt > $balance + 0.005,
             'confidence'       => $score['confidence'],
             'reasons'          => $score['reasons'],
+            'evidence'         => $score['evidence'] ?? [],
+            'mismatch'         => !empty($score['mismatch']),
             // Set when e-Transfer payments from the same payer, recorded after this
             // deposit's date, already sum to exactly its amount — i.e. the money was
             // most likely recorded by hand before the bank statement was imported.
