@@ -212,6 +212,8 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/TripLineSuggester.php';
 
 // Sales — Sam the Closer (rate card + pricing)
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserPricing.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamRequestRules.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/JobberLineParser.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SiteMinutesModel.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/DriveMinutesAdded.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserRateCard.php';
