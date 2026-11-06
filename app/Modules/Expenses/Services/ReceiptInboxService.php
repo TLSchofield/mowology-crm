@@ -30,11 +30,11 @@ class ReceiptInboxService
     private PDO $db;
 
     /** Lines are part of the create only when the parser's net items reconcile. */
-    public static function fittedLineItemChanges(array $parsed, ?float $amount, ?float $total): array
+    public static function fittedLineItemChanges(array $parsed, ?float $amount, ?float $total, ?float $gst = null, ?float $pst = null): array
     {
         require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/LineItemFit.php';
         $items = $parsed['line_items'] ?? [];
-        return LineItemFit::addsUp($items, $amount, $total)
+        return LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst)
             ? ['line_items' => $items, 'line_items_source' => 'inbox']
             : [];
     }
@@ -498,7 +498,7 @@ class ReceiptInboxService
                 'status'              => $status,
                 'source'              => 'email_inbox',
                 'created_by'          => $systemUserId,
-            ] + self::fittedLineItemChanges($parsed, $amount, $total), ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
+            ] + self::fittedLineItemChanges($parsed, $amount, $total, $gst, $pst), ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
         } finally {
             $guard->release($mediaId);
         }
@@ -604,10 +604,12 @@ class ReceiptInboxService
                 }
             }
         }
+        if ($isPdf && !extension_loaded('imagick')) {
+            // A scan with no text layer, and no Imagick to turn it into an image (the cron's PHP): Vision reads the
+            // PDF itself (files:annotate, 2026-11-06 — nine emailed scans had sat with no text).
+            return $this->visionPdf($diskPath) ?? ($empty + ['note' => 'imagick missing']);
+        }
         if ($isPdf) {
-            if (!extension_loaded('imagick')) {
-                return $empty + ['note' => 'imagick missing'];
-            }
             try {
                 $im = new \Imagick();
                 $im->setResolution(200, 200);
@@ -675,6 +677,31 @@ class ReceiptInboxService
             if ($tmpPng && is_file($tmpPng)) {
                 @unlink($tmpPng);
             }
+        }
+    }
+
+    /** A scanned PDF read by Google Vision directly; null when Vision is not set up or read nothing. */
+    private function visionPdf(string $diskPath): ?array
+    {
+        try {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            $ocr = extractTextFromPdf($diskPath);
+            $text = (string)($ocr['text'] ?? '');
+            if (!($ocr['success'] ?? false) || trim($text) === '') {
+                if (!empty($ocr['error'])) error_log('[ReceiptInboxService] Vision PDF: ' . $ocr['error']);
+                return null;
+            }
+            $parsed = parseReceiptText($text, $ocr['raw_response'] ?? null);
+            $suggestions = suggestReceiptMeta($text, null, null, null, $parsed);
+            if (function_exists('runHeaderLadder')) {
+                $parsed = runHeaderLadder($this->db, $parsed, $text, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null);
+            }
+            return ['readable' => true, 'source' => 'vision_pdf', 'ocr_text' => $text, 'parsed' => $parsed, 'suggestions' => $suggestions];
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] Vision PDF failed: ' . $e->getMessage());
+            return null;
         }
     }
 

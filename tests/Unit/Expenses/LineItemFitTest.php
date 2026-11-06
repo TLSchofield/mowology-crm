@@ -25,6 +25,15 @@ final class LineItemFitTest extends TestCase
         $this->assertTrue(LineItemFit::addsUp($items, 10.00, null));
     }
 
+    public function test_missing_subtotal_can_fit_total_less_stored_taxes(): void
+    {
+        $items = [['line_total' => 8.83]];
+        $this->assertTrue(LineItemFit::addsUp($items, 0.0, 9.67, 0.05, 0.42, 0.42));
+        $this->assertTrue(LineItemFit::addsUp($items, null, 9.67, 0.05, 0.84, null));
+        $this->assertFalse(LineItemFit::addsUp($items, 0.0, 9.67, 0.05));
+        $this->assertFalse(LineItemFit::addsUp($items, 7.00, 9.67, 0.05, 0.42, 0.42));
+    }
+
     public function test_read_stored_recognises_each_shape_and_empty(): void
     {
         $vision = ['responses' => [['fullTextAnnotation' => ['text' => "Vision\ntext"], 'textAnnotations' => []]]];

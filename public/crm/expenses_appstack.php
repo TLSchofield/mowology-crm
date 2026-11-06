@@ -6219,9 +6219,28 @@ window.localDateYmd = function (date) {
         });
     }
 
+    // What this receipt's items don't account for: subtotal (or total − GST − PST) less the lines. Only in the edit
+    // modal, for someone who can add items. A pick from the vendor's list then fills it (Tim 2026-11-06,
+    // ExpenseLineItemService::remainderLine).
+    function _liGap(items) {
+        if (!document.querySelector('.mw-add-item-btn')) return 0;
+        var v = function (id) { return parseFloat((document.getElementById(id) || {}).value) || 0; };
+        var sub = v('expAmount') > 0 ? v('expAmount') : v('expTotal') - v('expGst') - v('expPst');
+        var sum = (items || []).reduce(function (a, i) { return a + (i.removed ? 0 : parseFloat(i.line_total || i.amount || 0)); }, 0);
+        var gap = Math.round((sub - sum) * 100) / 100;
+        return gap >= 0.01 ? gap : 0;
+    }
+    function _liGapRow(gap, none) {
+        var vName = ((document.getElementById('expVendorSearch') || {}).value || '').trim();
+        return '<tr class="mw-li-gap"><td colspan="6"><span>' + (none ? 'No items read' : '$' + gap.toFixed(2) + ' of this receipt has no item') +
+            '</span> <button type="button" class="btn btn-sm btn-outline-primary mw-li-gap-btn" onclick="showAddLineItemRow()">' +
+            esc(vName ? 'Pick from ' + vName + '\u2019s list' : 'Pick from the list') + '</button></td></tr>';
+    }
+
     function renderLineItemsTable(items, stored, editableScope) {
         window._currentLineItems = items || [];
         if (!items || !items.length) {
+            if (!editableScope && _liGap([]) > 0) return _liGapRow(_liGap([]), true);
             var emptyMsg = '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
             if (editableScope) {
                 emptyMsg += '<tr><td colspan="5" class="text-center py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
@@ -6302,6 +6321,8 @@ window.localDateYmd = function (date) {
 
         if (editableScope) {
             rows += '<tr><td colspan="6" class="text-start py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
+        } else if (_liGap(items) > 0) {
+            rows += _liGapRow(_liGap(items), false);
         }
 
         // Saved lines of the open receipt: their shared-catalogue link, filled in after the table is drawn.
@@ -6825,9 +6846,12 @@ window.localDateYmd = function (date) {
         if (nameEl) nameEl.value = name;
         if (qtyEl)  qtyEl.value  = '1';
         if (upEl)   upEl.value   = price ? price.toFixed(2) : '';
-        if (totEl)  totEl.value  = price ? price.toFixed(2) : '';
+        // What the items don't yet account for goes on this line (the server works out amount and quantity);
+        // a receipt that already adds up gets one at the list price, as before.
+        var fill = _liGap(window._currentLineItems) > 0;
+        if (totEl)  totEl.value  = fill ? '' : (price ? price.toFixed(2) : '');
 
-        commitAddLineItem();
+        commitAddLineItem(fill);
     };
 
     // Wire search input
@@ -6857,7 +6881,8 @@ window.localDateYmd = function (date) {
         });
     }());
 
-    window.commitAddLineItem = async function() {
+    window.commitAddLineItem = async function(fillRemainder) {
+        fillRemainder = fillRemainder === true;
         var expId = document.getElementById('expenseId').value;
         if (!expId) return;
         var name = (document.getElementById('newItemName').value || '').trim();
@@ -6865,8 +6890,8 @@ window.localDateYmd = function (date) {
         var qty  = parseFloat(document.getElementById('newItemQty').value) || 1;
         var up   = document.getElementById('newItemUnitPrice').value;
         var tot  = document.getElementById('newItemTotal').value;
-        // Auto-calc total if blank
-        if (!tot && up) tot = (parseFloat(up) * qty).toFixed(2);
+        // Auto-calc total if blank (not when the server fills what the items don't yet account for)
+        if (!tot && up && !fillRemainder) tot = (parseFloat(up) * qty).toFixed(2);
 
         try {
             var r = await fetch('/crm/api/expenses.php', {
@@ -6880,6 +6905,7 @@ window.localDateYmd = function (date) {
                     quantity: qty,
                     unit_price: up || null,
                     line_total: tot || null,
+                    fill_remainder: fillRemainder,
                 }),
             });
             var d = await r.json();

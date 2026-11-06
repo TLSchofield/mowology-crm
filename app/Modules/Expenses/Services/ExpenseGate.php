@@ -174,6 +174,7 @@ class ExpenseGate
         foreach ($changes as $k => $v) {
             if (in_array($k, self::COLUMNS, true)) $cols[$k] = self::normalise($k, $v);
         }
+        if ($this->hasColumn('amount')) $cols = self::withDerivedSubtotal($before, $cols, $create);
         $cols = $this->withoutMissingColumns($cols);
         if (array_key_exists('status', $cols)) {
             $allowed = self::TRANSITIONS[$transition] ?? null;
@@ -631,6 +632,27 @@ class ExpenseGate
     public const TAX_FLAG_CHECK = 'GST_CHECK';
     /** The highest sales tax that can sit on a Canadian receipt as GST/HST (HST 15%) — above it is impossible. */
     public const MAX_SALES_TAX = 0.15;
+
+    /**
+     * A receipt with a total but no subtotal gets subtotal = total − GST − PST (2026-11-06). 77 stored receipts
+     * had amount 0.00 beside a read total and taxes (42 Chevron), so their pre-tax items could never be checked
+     * against the subtotal; the phone capture path already derived it (ReceiptCaptureService), other paths did not.
+     * On a create (an empty or 0.00 subtotal); on an edit only while the receipt is open, only when the edit touches
+     * the total or taxes, and never when it sends a subtotal itself (a person's explicit 0 stands; a posted receipt's
+     * books never move by this — Codex review 2026-11-06). Only when the result is positive. PURE.
+     */
+    public static function withDerivedSubtotal(array $before, array $cols, bool $create): array
+    {
+        if (!$create) {
+            if (array_key_exists('amount', $cols) || !array_intersect(array_keys($cols), ['gst_amount', 'pst_amount', 'total'])) return $cols;
+            if (!in_array((string)($cols['status'] ?? $before['status'] ?? ''), self::OPEN, true)) return $cols;
+        }
+        $after = array_merge($before, $cols);
+        if (!array_key_exists('total', $after) || (float)($after['amount'] ?? 0) > 0) return $cols;
+        $sub = round((float)$after['total'] - (float)($after['gst_amount'] ?? 0) - (float)($after['pst_amount'] ?? 0), 2);
+        if ($sub > 0 && (float)$after['total'] > 0) $cols['amount'] = $sub;
+        return $cols;
+    }
 
     /**
      * Is this receipt's GST possible? (regions skill CA: GST above the rate × the pre-tax subtotal can't come

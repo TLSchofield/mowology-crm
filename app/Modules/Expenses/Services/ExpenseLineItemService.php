@@ -149,6 +149,26 @@ class ExpenseLineItemService
         $lineTotal = isset($input['line_total']) && $input['line_total'] !== '' && $input['line_total'] !== null ? (float)$input['line_total']
                    : ($unitPrice !== null ? round($unitPrice * $qty, 2) : 0.0);
         $productId = !empty($input['product_id']) ? (int)$input['product_id'] : null;
+        // A product picked from the vendor's list for a receipt whose items weren't read (Tim 2026-11-06: "a search
+        // with pick from list"): the line takes what is still unaccounted for — the receipt's subtotal less the lines
+        // already on it — and the quantity that price implies (2 yards of a $40 mulch on an $80 Lawnboy receipt).
+        $opts = [];
+        if (!empty($input['fill_remainder']) && (!isset($input['line_total']) || $input['line_total'] === '' || $input['line_total'] === null)) {
+            $fill = self::remainderLine($this->subtotalOf($expenseId), $this->linesSum($expenseId), $unitPrice);
+            // Nothing left (another screen filled it): refuse rather than add a line past the subtotal (Codex review 2026-11-06).
+            if ($fill === null) throw new Exception('The items already add up to this receipt — nothing left to fill. Reopen it to see the latest.');
+            $qty = $fill['quantity']; $lineTotal = $fill['line_total'];
+            // Re-checked on the locked receipt inside the gate's transaction, so two picks at once can't both take it.
+            $opts['locked_if'] = static function (array $snap) use ($unitPrice, $lineTotal): bool {
+                $e = $snap['expense'] ?? [];
+                $sub = (float)($e['amount'] ?? 0) > 0 ? (float)$e['amount']
+                     : round((float)($e['total'] ?? 0) - (float)($e['gst_amount'] ?? 0) - (float)($e['pst_amount'] ?? 0), 2);
+                $sum = 0.0;
+                foreach ((array)($snap['lines'] ?? []) as $l) $sum += (float)($l['line_total'] ?? 0);
+                $now = self::remainderLine($sub > 0 ? $sub : null, $sum, $unitPrice);
+                return $now !== null && abs($now['line_total'] - $lineTotal) < 0.005;
+            };
+        }
         $skuRaw    = isset($input['sku_raw']) && trim((string)$input['sku_raw']) !== '' ? mb_substr(trim((string)$input['sku_raw']), 0, 64) : null;
 
         // Through the gate: insert, stock on a linked product, the audit row, and the
@@ -156,8 +176,48 @@ class ExpenseLineItemService
         $res = $this->gate()->apply($expenseId, ['line_item' => [
             'op' => 'add', 'name' => $name, 'quantity' => $qty, 'unit_price' => $unitPrice, 'line_total' => $lineTotal,
             'product_id' => $productId, 'sku_raw' => $skuRaw,
-        ]], $this->actor, $this->source);
+        ]], $this->actor, $this->source, $opts);
+        if (!empty($res['noop']) && $opts) throw new Exception('This receipt changed while you were picking — reopen it to see the latest.');
         return $this->fetchJoined((int)($res['line_item_id'] ?? 0));
+    }
+
+    /**
+     * The line that accounts for what the receipt's items don't yet: line_total = subtotal − lines so far, and,
+     * with a list price, quantity = that ÷ the price (a whole number when it is within 2% of one). Null when nothing
+     * is left over. PURE.
+     * @return ?array{quantity: float, line_total: float}
+     */
+    public static function remainderLine(?float $subtotal, float $linesSum, ?float $unitPrice): ?array
+    {
+        if ($subtotal === null || $subtotal <= 0) return null;
+        $left = round($subtotal - $linesSum, 2);
+        if ($left < 0.01) return null;
+        $qty = 1.0;
+        if ($unitPrice !== null && $unitPrice > 0) {
+            $q = $left / $unitPrice;
+            $whole = round($q);
+            $qty = ($whole >= 1 && abs($q - $whole) <= $whole * 0.02) ? (float)$whole : round($q, 3);
+        }
+        return ['quantity' => $qty, 'line_total' => $left];
+    }
+
+    /** The receipt's pre-tax amount: its subtotal, else total − GST − PST. */
+    private function subtotalOf(int $expenseId): ?float
+    {
+        $s = $this->db->prepare('SELECT amount, total, gst_amount, pst_amount FROM expenses WHERE id = ?');
+        $s->execute([$expenseId]);
+        $e = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$e) return null;
+        if ((float)$e['amount'] > 0) return (float)$e['amount'];
+        $sub = round((float)$e['total'] - (float)$e['gst_amount'] - (float)$e['pst_amount'], 2);
+        return $sub > 0 ? $sub : null;
+    }
+
+    private function linesSum(int $expenseId): float
+    {
+        $s = $this->db->prepare('SELECT COALESCE(SUM(line_total), 0) FROM expense_line_items WHERE expense_id = ?');
+        $s->execute([$expenseId]);
+        return (float)$s->fetchColumn();
     }
 
     /**

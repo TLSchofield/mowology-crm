@@ -35,7 +35,7 @@ final class LineItemBackfillService
         $limit = max(1, min(200, $limit));
         $marks = implode(',', array_fill(0, count($statuses), '?'));
         $sql = "SELECT e.id, e.vendor_id, COALESCE(v.name, e.vendor_name_raw, '') AS vendor,
-                       e.raw_ocr_json, e.amount, e.total
+                       e.raw_ocr_json, e.amount, e.gst_amount, e.pst_amount, e.total
                 FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
                 WHERE e.status IN ({$marks})
                   AND COALESCE(e.forwarded_to_accounting, 0) <> 1
@@ -69,7 +69,9 @@ final class LineItemBackfillService
                 $items = $parsed['line_items'] ?? [];
                 $amount = $row['amount'] !== null ? (float)$row['amount'] : null;
                 $total = $row['total'] !== null ? (float)$row['total'] : null;
-                if (!LineItemFit::addsUp($items, $amount, $total)) {
+                $gst = $row['gst_amount'] !== null ? (float)$row['gst_amount'] : null;
+                $pst = $row['pst_amount'] !== null ? (float)$row['pst_amount'] : null;
+                if (!LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst)) {
                     $result['skipped']['does_not_add_up'] = ($result['skipped']['does_not_add_up'] ?? 0) + 1;
                     continue;
                 }
@@ -85,10 +87,12 @@ final class LineItemBackfillService
                             // The totals may have been edited since the batch read them (Codex review 2026-11-05).
                             $amount = $expense['amount'] !== null ? (float)$expense['amount'] : null;
                             $total = $expense['total'] !== null ? (float)$expense['total'] : null;
+                            $gst = ($expense['gst_amount'] ?? null) !== null ? (float)$expense['gst_amount'] : null;
+                            $pst = ($expense['pst_amount'] ?? null) !== null ? (float)$expense['pst_amount'] : null;
                             return in_array($expense['status'] ?? '', ['draft', 'pending_approval', 'approved'], true)
                                 && (int)($expense['forwarded_to_accounting'] ?? 0) !== 1
                                 && empty($snapshot['lines']) && empty($snapshot['allocations'])
-                                && LineItemFit::addsUp($items, $amount, $total);
+                                && LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst);
                         },
                     ]);
                     if (!empty($applied['noop'])) {

@@ -66,4 +66,14 @@ final class LineItemBackfillServiceTest extends TestCase
         $this->assertSame(1, $r['would_fill']);
         $this->assertSame([], $gate->calls);
     }
+
+    public function test_missing_subtotal_uses_stored_tax_to_fit_items(): void
+    {
+        $db = $this->db();
+        $db->exec("UPDATE expenses SET amount = 0, gst_amount = 0.50, pst_amount = 0 WHERE id = 1");
+        $gate = new ExpenseGateSpy();
+        $r = (new LineItemBackfillService($db, $gate))->run(true);
+        $this->assertSame(1, $r['filled']);
+        $this->assertSame(1, $gate->calls[0]['id']);
+    }
 }

@@ -41572,3 +41572,8 @@ body.mw-books {
 .mw-sam-req-item { display: grid; gap: var(--mw-space-1); }
 .mw-sam-req-price { color: var(--mw-ink-700); font-size: var(--mw-text-sm); }
 .mw-sam-req-quote { display: block; margin: var(--mw-space-1) 0; color: var(--mw-ink-500); font-size: var(--mw-text-xs); }
+
+/* Receipt items: what the items don't account for, with a pick from the vendor's list (2026-11-06) */
+.mw-li-gap td { padding: 8px 6px; background: var(--mw-light); font-size: .82rem; }
+.mw-li-gap span { margin-right: 8px; color: var(--mw-forest); }
+.mw-li-gap-btn { min-height: 32px; }
