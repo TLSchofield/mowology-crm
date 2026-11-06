@@ -109,6 +109,8 @@ class EtransferInboxService
         // "INV-2026-0096", "INV 2026 0096", "inv2026-96", "Invs 2026-0251 and 0383" → normalise.
         $invoiceHints = self::extractInvoiceNumbers($memo ?? '') ?: self::extractInvoiceNumbers($body);
         $invoiceHint = $invoiceHints[0] ?? null;
+        // Year-less ones ("invoices 0065, 0066, 0118 and 0440", 2026-11-05): resolved against the books later.
+        $shortNumbers = self::extractShortInvoiceNumbers($memo ?? '');
 
         // Transfer type — auto-deposited vs needs manual claiming.
         $type = 'unknown';
@@ -129,6 +131,7 @@ class EtransferInboxService
             'memo'             => $memo,
             'invoice_hint'     => $invoiceHint,
             'invoice_hints'    => $invoiceHints,
+            'short_hints'      => $shortNumbers,
             'transfer_type'    => $type,
             'deposit_url'      => $depositUrl,
             'expires_on'       => $expiresOn,
@@ -226,6 +229,119 @@ class EtransferInboxService
     }
 
     /**
+     * Invoice numbers written WITHOUT the year, read only after the word "invoice(s)" / "inv(s)":
+     * "Payment for invoices 0065, 0066, 0118 and 0440" → [65, 66, 118, 440]; "inv #65" → [65]. A number with no such
+     * word before it is never read (phone numbers, addresses, "2 cuts"), nor one written with its year ("2026-0065",
+     * extractInvoiceNumbers() reads those), nor a lone 20xx (a year, not an invoice). The year is never assumed:
+     * resolveShortNumber() looks each one up in the books. PURE (tested).
+     * @return int[]
+     */
+    public static function extractShortInvoiceNumbers(string $text): array
+    {
+        // Not followed by a digit after - . / or a space: "65.00" is an amount, "11/05/2026" a date (Codex 2026-11-06).
+        $n = '#?(\d{2,5})\b(?![-\s.\/]?\d)';
+        if ($text === '' || !preg_match_all('/\b(?:invoices?|invs?)\b\.?[-\s#:]*(?:(?:no|nos|number|numbers)\b\.?[\s#:]*)?' . $n
+                . '((?:\s*(?:,|&|and|\+)\s*#?\d{2,5}\b(?![-\s.\/]?\d))*)/i', $text, $all, PREG_SET_ORDER)) {
+            return [];
+        }
+        $out = [];
+        foreach ($all as $m) {
+            $nums = [$m[1]];
+            if (!empty($m[2]) && preg_match_all('/\d{2,5}/', $m[2], $more)) $nums = array_merge($nums, $more[0]);
+            foreach ($nums as $d) {
+                if (strlen($d) === 4 && $d[0] === '2' && $d[1] === '0') continue;   // "invoice 2026": a year
+                $out[] = (int)$d;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Which of the invoices ending in the same short number is the one meant: the only one, or — when several
+     * years share it — the only one still owing. Otherwise none (the person picks). PURE (tested).
+     */
+    public static function pickShortMatch(array $candidates): ?array
+    {
+        if (count($candidates) === 1) return $candidates[0];
+        $owing = array_values(array_filter($candidates, fn($r) => (float)$r['balance_due'] > 0.005));
+        return count($owing) === 1 ? $owing[0] : null;
+    }
+
+    /** INV-%-0065 for 65. */
+    private static function shortPattern(int $n): string
+    {
+        return 'INV-%-' . str_pad((string)$n, 4, '0', STR_PAD_LEFT);
+    }
+
+    /** The invoice a year-less number means (see pickShortMatch), or null. */
+    public function resolveShortNumber(int $n): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT i.id, i.invoice_number, i.balance_due, i.total, i.status, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number LIKE ?"
+        );
+        $stmt->execute([self::shortPattern($n)]);
+        return self::pickShortMatch($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    }
+
+    /**
+     * The memo names these invoices (2026-11-05, "Penny can't see Alison Birdsall": "invoices 0065, 0066, 0118 and
+     * 0440", $232.84 = four $58.21 invoices). The ONE place both screens (invoices page card, Penny's desk) ask when a
+     * memo names more than one invoice: matchInvoice() alone picks the first one still owing, and recording the whole
+     * transfer against it overpays one invoice and leaves the rest open. Null when the memo names fewer than two
+     * invoices still owing and nothing unclear (the single-invoice path handles those). Suggestion only: a person
+     * records it, and it is never auto-recorded.
+     */
+    public function namedInvoices(?string $memo, float $amount): ?array
+    {
+        $memo = trim((string)$memo);
+        if ($memo === '' || $amount <= 0) return null;
+        $rows = []; $unclear = [];
+        $exact = $this->db->prepare(
+            "SELECT i.id, i.invoice_number, i.balance_due, i.total, i.status, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number = ? LIMIT 1"
+        );
+        foreach (self::extractInvoiceNumbers($memo) as $no) {
+            $exact->execute([$no]);
+            if ($r = $exact->fetch(PDO::FETCH_ASSOC)) $rows[(int)$r['id']] = $r;
+        }
+        foreach (self::extractShortInvoiceNumbers($memo) as $n) {
+            $r = $this->resolveShortNumber($n);
+            if ($r) $rows[(int)$r['id']] = $r; else $unclear[] = str_pad((string)$n, 4, '0', STR_PAD_LEFT);
+        }
+        return self::spreadNamed(array_values($rows), $amount, $unclear);
+    }
+
+    /**
+     * The suggestion from the invoices a memo names, in memo order. adds_up = their open balances come to the
+     * transfer to the cent (each line pays its balance). Otherwise the lines fill in order and `left` says what is
+     * over (positive) or short (negative); the person decides. PURE (tested).
+     * @return array{lines:array,owing:float,adds_up:bool,left:float,paid:string[],unclear:string[],payer_name:?string}|null
+     */
+    public static function spreadNamed(array $rows, float $amount, array $unclear = []): ?array
+    {
+        $open = array_values(array_filter($rows, fn($r) => (float)$r['balance_due'] > 0.005));
+        if (count($open) < 2 && !$unclear) return null;
+        if (!$open && $unclear) return ['lines' => [], 'owing' => 0.0, 'adds_up' => false, 'left' => round($amount, 2),
+            'paid' => array_map(fn($r) => (string)$r['invoice_number'], $rows), 'unclear' => $unclear, 'payer_name' => null];
+        $owing = round(array_sum(array_map(fn($r) => (float)$r['balance_due'], $open)), 2);
+        $addsUp = !$unclear && abs($owing - round($amount, 2)) < 0.005;
+        $payers = array_values(array_unique(array_filter(array_map(fn($r) => trim((string)($r['payer_name'] ?? '')), $open))));
+        return [
+            'lines'      => self::allocateFifo($open, $amount),
+            'owing'      => $owing,
+            'adds_up'    => $addsUp,
+            'left'       => round($amount - $owing, 2),
+            'paid'       => array_values(array_map(fn($r) => (string)$r['invoice_number'],
+                                array_filter($rows, fn($r) => (float)$r['balance_due'] <= 0.005))),
+            'unclear'    => $unclear,
+            'payer_name' => count($payers) === 1 ? $payers[0] : null,
+        ];
+    }
+
+    /**
      * Match parsed fields to an open invoice.
      *
      * @return array{invoice_id:?int,method:string,confidence:string,candidates:array}
@@ -275,6 +391,26 @@ class EtransferInboxService
                     'method'     => 'invoice_number',
                     'confidence' => 'high',
                     'candidates' => $found ?: [$inv],
+                ];
+            }
+        }
+
+        // 1b. A year-less number after "invoice" ("inv #65"): looked up, never assumed. Medium — the year was
+        // inferred, so it is never auto-recorded (autoRecordFullyCertain() wants high).
+        if (!empty($parsed['short_hints'])) {
+            $found = [];
+            foreach ((array)$parsed['short_hints'] as $n) {
+                if ($r = $this->resolveShortNumber((int)$n)) $found[] = $r;
+            }
+            $inv = null;
+            foreach ($found as $r) { if ((float)$r['balance_due'] > 0.005) { $inv = $r; break; } }
+            $inv = $inv ?? ($found[0] ?? null);
+            if ($inv) {
+                return [
+                    'invoice_id' => (int) $inv['id'],
+                    'method'     => 'invoice_number',
+                    'confidence' => 'medium',
+                    'candidates' => $found,
                 ];
             }
         }
@@ -926,16 +1062,32 @@ class EtransferInboxService
         }
         $id = (int) $this->db->lastInsertId();
         $this->storeClaimDetails($id, $parsed);
-        // Every invoice the memo names (PaymentOnTheWay pauses chasing for all of them; migration 1363).
-        if (!empty($parsed['invoice_hints'])) {
-            try {
-                $this->db->prepare("UPDATE etransfer_notifications SET invoice_hints = ? WHERE id = ?")
-                         ->execute([mb_substr(implode(',', $parsed['invoice_hints']), 0, 255), $id]);
-            } catch (PDOException $e) { /* before migration 1363 */ }
-        }
+        // Every invoice the memo names (PaymentOnTheWay pauses chasing for all of them; migration 1363), the
+        // year-less ones as the invoices they resolve to.
+        $this->storeNamedNumbers($id, array_merge((array)($parsed['invoice_hints'] ?? []), $this->resolvedShortNumbers((array)($parsed['short_hints'] ?? []))));
         $this->nudgeAddress($id, 'ingest');
 
         return ['inserted' => true, 'id' => $id, 'row' => $this->find($id)];
+    }
+
+    /** The invoice numbers year-less memo numbers resolve to (unclear ones left out). */
+    private function resolvedShortNumbers(array $short): array
+    {
+        $out = [];
+        foreach ($short as $n) {
+            if ($r = $this->resolveShortNumber((int)$n)) $out[] = (string)$r['invoice_number'];
+        }
+        return $out;
+    }
+
+    private function storeNamedNumbers(int $id, array $numbers): void
+    {
+        $numbers = array_values(array_unique(array_filter($numbers)));
+        if (!$numbers) return;
+        try {
+            $this->db->prepare("UPDATE etransfer_notifications SET invoice_hints = ? WHERE id = ?")
+                     ->execute([mb_substr(implode(',', $numbers), 0, 255), $id]);
+        } catch (PDOException $e) { /* before migration 1363 */ }
     }
 
     /** Deposit link + expiry for a claim-type transfer (migration 1312); fills blanks only. */
@@ -1332,11 +1484,22 @@ class EtransferInboxService
             $checked++;
             $hint = self::extractInvoiceNumber($row['memo'] ?? '')
                  ?? self::extractInvoiceNumber($row['email_subject'] ?? '');
+            $match = null;
+            $short = self::extractShortInvoiceNumbers($row['memo'] ?? '');
+            if ($short) {
+                // Pause chasing every invoice a year-less memo names (PaymentOnTheWay reads invoice_hints).
+                $this->storeNamedNumbers((int)$row['id'], array_merge(self::extractInvoiceNumbers($row['memo'] ?? ''), $this->resolvedShortNumbers($short)));
+            }
+            if ($hint === null && $short) {
+                // Year-less ("invoices 0065, 0066…", 2026-11-05): the hint is the invoice the lookup found.
+                $match = $this->matchInvoice(['short_hints' => $short, 'amount' => null]);
+                foreach ($match['candidates'] as $c) { if ((int)$c['id'] === (int)$match['invoice_id']) $hint = (string)$c['invoice_number']; }
+            }
             if ($hint === null || $hint === $row['invoice_hint']) {
                 continue;
             }
 
-            $match = $this->matchInvoice(['invoice_hint' => $hint, 'amount' => null]);
+            $match = $match ?? $this->matchInvoice(['invoice_hint' => $hint, 'amount' => null]);
             // A re-match never lifts an unproven notice to 'high' (security review #5).
             if ((int)($row['sender_verified'] ?? 0) !== 1 && $match['confidence'] === 'high') $match['confidence'] = 'medium';
             if ((int) $match['invoice_id'] === (int) $row['matched_invoice_id']
@@ -1385,7 +1548,7 @@ class EtransferInboxService
             return ['checked' => 0, 'recorded' => 0, 'recorded_ids' => [], 'skipped' => []];
         }
         $rows = $this->db->prepare(
-            "SELECT n.id, n.amount, n.matched_invoice_id, i.balance_due AS invoice_balance
+            "SELECT n.id, n.amount, n.memo, n.matched_invoice_id, i.balance_due AS invoice_balance
                FROM etransfer_notifications n
                JOIN invoices i ON i.id = n.matched_invoice_id
               WHERE n.status IN ('pending', 'partially_recorded')
@@ -1403,6 +1566,13 @@ class EtransferInboxService
         foreach ($candidates as $c) {
             $amount  = round((float) $c['amount'], 2);
             $balance = round((float) $c['invoice_balance'], 2);
+            // A memo naming more than one invoice always waits for a person, even when the amount happens to
+            // equal the first one's balance (Codex 2026-11-06; plan 2026-11-05).
+            $memo = (string)($c['memo'] ?? '');
+            if (count(self::extractInvoiceNumbers($memo)) + count(self::extractShortInvoiceNumbers($memo)) > 1) {
+                $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => 'the memo names more than one invoice'];
+                continue;
+            }
             if (abs($amount - $balance) > 0.01) {
                 $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => 'amount does not exactly match the invoice balance'];
                 continue;

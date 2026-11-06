@@ -24,6 +24,7 @@
 require_once __DIR__ . '/CharlieFactAnswerer.php';
 require_once __DIR__ . '/CharliePaymentStory.php';
 require_once __DIR__ . '/CharlieAnswerStyle.php';
+require_once dirname(__DIR__, 2) . '/Search/Services/ClientFactAnswerer.php';
 require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
 
@@ -159,6 +160,19 @@ TXT;
         if ($fact) {
             $this->record($question, [$fact['about']], ['facts' => $fact['head']], 'facts', $fact['answer'], null, 0, 0, null, $userId);
             return ['ok' => true, 'answer' => $fact['answer'], 'source' => 'facts', 'left' => $this->status()['left']];
+        }
+
+        // One client's quote / balance / next visit / last message (ClientFactAnswerer): plain SQL with Open / Call /
+        // Text / Email buttons. After the heads' facts, so a truck-log or receipt question keeps its answer.
+        try {
+            $clientFact = (new ClientFactAnswerer($this->db, $this->today()))->answer($question, static function (string $permission): bool { return true; });
+        } catch (Throwable $e) {
+            $clientFact = null;
+            error_log('Charlie client facts: ' . $e->getMessage());
+        }
+        if ($clientFact) {
+            $this->record($question, [$clientFact['about']['name']], ['client' => $clientFact['about']['id']], 'facts', $clientFact['answer'], null, 0, 0, null, $userId);
+            return ['ok' => true, 'answer' => $clientFact['answer'], 'source' => 'facts', 'actions' => $clientFact['actions'], 'left' => $this->status()['left']];
         }
 
         $terms = self::terms($question);

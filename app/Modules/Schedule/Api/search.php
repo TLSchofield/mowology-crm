@@ -10,6 +10,10 @@ declare(strict_types=1);
  * GET /api/schedule/search?mode=nearby&lat=..&lng=..  → { success, results:[…] }   (empty-search state)
  * GET /api/schedule/search?mode=property&id=22[&lat&lng]
  *                                                     → { success, property:{card + notes, plans[].history, upcoming[]} }
+ * GET /api/schedule/search?mode=owner&q=linda          → { success, query, groups, answer }
+ * GET /api/schedule/search?mode=contact&id=473        → { success, contact, properties, quotes, invoices, messages }
+ * POST /api/schedule/search?mode=pick {q,kind,id}       → records an owner search selection
+ * owner / contact / pick need billing.view (admin/manager); crew keep the property search below.
  *
  * (?mode=, never ?action= — the /api router's rewrite owns `action` on GET.)
  * Authorization: Bearer <jwt>. Needs clients.view. Crew-safe: no prices, no invoices, no crew names.
@@ -37,14 +41,59 @@ try {
     require_once CRM_INCLUDES . '/plan-functions.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/ServiceHistoryService.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/FieldSearchService.php';
+    require_once APP_ROOT . '/Modules/Search/Services/UniversalSearchService.php';
+    require_once APP_ROOT . '/Modules/Search/Services/ClientFactAnswerer.php';
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    $mode = (string)($_GET['mode'] ?? 'search');
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET' && !($_SERVER['REQUEST_METHOD'] === 'POST' && $mode === 'pick')) {
         http_response_code(405);
         echo json_encode(['success' => false, 'error' => 'Method not allowed']);
         exit;
     }
 
     $jwtUser = requireJwt();
+    $can = static function (string $perm) use ($jwtUser): bool { return jwtUserHasPermission($jwtUser, $perm); };
+    if ($mode === 'pick') {
+        if (!$can('billing.view')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Owner search needs billing access.']);
+            exit;
+        }
+        $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+        (new UniversalSearchService(getDB()))->recordPick((int)$jwtUser['id'], (string)($body['q'] ?? ''), (string)($body['kind'] ?? ''), (int)($body['id'] ?? 0));
+        echo json_encode(['success' => true]);
+        exit;
+    }
+    if ($mode === 'contact') {
+        if (!$can('billing.view')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Owner search needs billing access.']);
+            exit;
+        }
+        $page = (new UniversalSearchService(getDB()))->contact((int)($_GET['id'] ?? 0), $can);
+        if ($page === null) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'That client is no longer available.']);
+            exit;
+        }
+        echo json_encode(['success' => true] + $page);
+        exit;
+    }
+    if ($mode === 'owner') {
+        if (!$can('billing.view')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Owner search needs billing access.']);
+            exit;
+        }
+        $q = UniversalSearchService::normalize((string)($_GET['q'] ?? ''));
+        $groups=[];$answer=null;
+        if (mb_strlen($q) >= 2) {
+            $groups=(new UniversalSearchService(getDB()))->search($q,$can,(int)$jwtUser['id'])['groups'];
+            $answer=(new ClientFactAnswerer(getDB()))->answer($q,$can);
+        }
+        echo json_encode(['success'=>true,'query'=>$q,'groups'=>$groups,'answer'=>$answer]);
+        exit;
+    }
     if (!jwtUserHasPermission($jwtUser, 'clients.view')) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => "Your account can't look up clients. Ask the office."]);
@@ -56,7 +105,7 @@ try {
     $today   = date('Y-m-d');
     $service = new FieldSearchService(getDB());
 
-    switch ((string)($_GET['mode'] ?? 'search')) {
+    switch ($mode) {
         case 'nearby':
             echo json_encode([
                 'success' => true,

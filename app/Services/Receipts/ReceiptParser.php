@@ -85,7 +85,10 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
 
     // Line items — try position-aware extraction first (groups words by Y-coordinate)
     $positionLines = null;
-    if ($rawResponse !== null) {
+    if (isset($rawResponse['device_lines']) && is_array($rawResponse['device_lines'])) {
+        // The phone's own read sent each line with its box (DeviceOcrCompare.php cleanDeviceOcr()).
+        $positionLines = reconstructLinesFromDeviceBoxes($rawResponse['device_lines'], $rawResponse['device_image'] ?? []);
+    } elseif ($rawResponse !== null) {
         $positionLines = reconstructLinesFromVisionResponse($rawResponse);
     }
     if (!empty($positionLines)) {
@@ -604,6 +607,103 @@ function reconstructLinesFromVisionResponse(array $rawResponse): array
         }
     }
 
+    return $result;
+}
+
+
+/**
+ * Rebuild receipt rows from the phone's own text read (Apple Vision on iPhone, ML Kit on Android).
+ *
+ * The phone reads in blocks: on a Chevron slip every item name comes first, then every price, so its
+ * plain text cannot pair them. Each recognised line arrives with its box (x, y, w, h as 0–1 fractions of
+ * the photo, top-left origin) and, when the phone measured it, its tilt in degrees. Boxes whose vertical
+ * centres sit within half a line height of each other — after taking out the photo's median tilt — form
+ * one row, read left to right and joined by two spaces; two boxes that overlap side by side are never the same row.
+ *
+ * @param array $boxes [['text' => string, 'x' => float, 'y' => float, 'w' => float, 'h' => float, 'deg' => ?float], ...]
+ * @param array $image ['w' => pixels, 'h' => pixels] of the photo the boxes were measured on, for the tilt
+ * @return string[] Row strings, top to bottom
+ */
+function reconstructLinesFromDeviceBoxes(array $boxes, array $image = []): array
+{
+    // Work in pixels when the size is known, so a tilt angle means the same thing across and down the photo.
+    $iw = (float)($image['w'] ?? 0) > 0 ? (float)$image['w'] : 1000.0;
+    $ih = (float)($image['h'] ?? 0) > 0 ? (float)$image['h'] : 1000.0;
+
+    $items = [];
+    $angles = [];
+    foreach ($boxes as $b) {
+        if (!is_array($b)) continue;
+        $text = trim((string)($b['text'] ?? ''));
+        $x = $b['x'] ?? null; $y = $b['y'] ?? null; $w = $b['w'] ?? null; $h = $b['h'] ?? null;
+        if ($text === '' || !is_numeric($x) || !is_numeric($y) || !is_numeric($w) || !is_numeric($h)) continue;
+        if ((float)$w <= 0 || (float)$h <= 0) continue;
+        $items[] = [
+            'text'  => $text,
+            'left'  => (float)$x * $iw,
+            'right' => ((float)$x + (float)$w) * $iw,
+            'cx'    => ((float)$x + (float)$w / 2) * $iw,
+            'cy'    => ((float)$y + (float)$h / 2) * $ih,
+            'h'     => (float)$h * $ih,
+        ];
+        // Only wide lines give a trustworthy angle; a price box is too short to measure one.
+        if (isset($b['deg']) && is_numeric($b['deg']) && abs((float)$b['deg']) < 20 && (float)$w >= 0.15) {
+            $angles[] = (float)$b['deg'];
+        }
+    }
+    if (empty($items)) return [];
+
+    $tan = 0.0;
+    if (count($angles) >= 3) {
+        sort($angles);
+        $median = $angles[(int)(count($angles) / 2)];
+        if (abs($median) >= 0.3) $tan = tan(deg2rad($median));
+    }
+    foreach ($items as &$it) {
+        $it['ry'] = $it['cy'] - $it['cx'] * $tan;   // the row position with the tilt taken out
+    }
+    unset($it);
+
+    usort($items, static function ($a, $b) {
+        return $a['ry'] <=> $b['ry'];
+    });
+    $heights = array_column($items, 'h');
+    sort($heights);
+    $threshold = max($heights[(int)(count($heights) / 2)] * 0.5, 0.001);
+
+    $rows = [];
+    foreach ($items as $it) {
+        $placed = false;
+        // Only the last couple of rows can still take this box (they are sorted top to bottom).
+        for ($r = count($rows) - 1; $r >= 0 && $r >= count($rows) - 2; $r--) {
+            if (abs($it['ry'] - $rows[$r]['ry']) > $threshold) continue;
+            $clash = false;
+            foreach ($rows[$r]['items'] as $o) {
+                $overlap = min($it['right'], $o['right']) - max($it['left'], $o['left']);
+                if ($overlap > 0.3 * min($it['right'] - $it['left'], $o['right'] - $o['left'])) { $clash = true; break; }
+            }
+            if ($clash) continue;
+            $rows[$r]['items'][] = $it;
+            $n = count($rows[$r]['items']);
+            $rows[$r]['ry'] += ($it['ry'] - $rows[$r]['ry']) / $n;
+            $placed = true;
+            break;
+        }
+        if (!$placed) $rows[] = ['ry' => $it['ry'], 'items' => [$it]];
+    }
+
+    usort($rows, static function ($a, $b) {
+        return $a['ry'] <=> $b['ry'];
+    });
+    $result = [];
+    foreach ($rows as $row) {
+        usort($row['items'], static function ($a, $b) {
+            return $a['left'] <=> $b['left'];
+        });
+        // Two spaces between pieces: the item reader takes "name  price" as one item (as the phone's own rows do).
+        $line = trim(implode('  ', array_column($row['items'], 'text')));
+        if ($line !== '') $result[] = $line;
+    }
     return $result;
 }
 

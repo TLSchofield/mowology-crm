@@ -394,6 +394,7 @@ struct KanameAskBox: View {
                         .font(appStyle.font(.subheadline))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                    if !vm.answerActions.isEmpty { QuickActionButtons(actions: vm.answerActions) }
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
