@@ -140,5 +140,20 @@ final class DeviceBoxRowsTest extends TestCase
         $this->assertArrayNotHasKey('lines', cleanDeviceOcr($post));
         $post['client_ocr_lines'] = json_encode([['text' => 'A', 'x' => 2, 'y' => 0, 'w' => 0.1, 'h' => 0.1]]);
         $this->assertArrayNotHasKey('lines', cleanDeviceOcr($post));
+
+        // Wrong types never raise a warning (an error handler that throws would fail the upload).
+        set_error_handler(static function (int $no, string $msg) { throw new ErrorException($msg, 0, $no); });
+        try {
+            $post['client_ocr_lines'] = json_encode(['image' => 'big', 'lines' => [
+                ['text' => ['nested'], 'x' => 0.1, 'y' => 0.1, 'w' => 0.2, 'h' => 0.02],
+                ['text' => 'A', 'x' => 0.1, 'y' => 0.1, 'w' => 0.2, 'h' => 0.02],
+                ['text' => 'B', 'x' => 0.5, 'y' => 0.1, 'w' => 0.2, 'h' => 0.02],
+            ]]);
+            $d = cleanDeviceOcr($post);
+            $this->assertCount(2, $d['lines']);
+            $this->assertSame([], $d['image']);
+        } finally {
+            restore_error_handler();
+        }
     }
 }

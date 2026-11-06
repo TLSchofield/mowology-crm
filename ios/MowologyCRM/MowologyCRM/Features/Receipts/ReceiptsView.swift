@@ -42,6 +42,9 @@ struct ReceiptsView: View {
     /// A receipt photo that failed the edge/sharpness check, held while the crew picks Retake or Use this photo.
     @State private var weakCapture: Data?
     @State private var weakCaptureReason = ""
+    @State private var showWeakCaptureHint = false
+    /// True from the camera opening until its cover has fully gone: an alert raised while it is still leaving is dropped.
+    @State private var cameraOnScreen = false
 
     // Label mode: the next photo is a product bag / machine nameplate, not a receipt.
     // Same upload + OCR, never an expense; Penny or Otto proposes it on the web.
@@ -111,7 +114,13 @@ struct ReceiptsView: View {
             }
         }
         // Camera opens as fullScreenCover directly on this view — no intermediate sheet.
-        .fullScreenCover(isPresented: $showCamera) {
+        .onChange(of: showCamera) { _, open in
+            if open { cameraOnScreen = true }
+        }
+        .fullScreenCover(isPresented: $showCamera, onDismiss: {
+            cameraOnScreen = false
+            if weakCapture != nil { showWeakCaptureHint = true }
+        }) {
             CameraPicker(
                 onCapture: { image in
                     showCamera = false
@@ -129,6 +138,8 @@ struct ReceiptsView: View {
                         if let prep, prep.needsHint {
                             weakCaptureReason = Self.weakCaptureMessage(prep)
                             weakCapture = compressed
+                            // Shown now if the camera has gone, otherwise from the cover's onDismiss.
+                            if !cameraOnScreen { showWeakCaptureHint = true }
                             return
                         }
                         await handleCapture(compressed, asLabel: asLabel)
@@ -195,10 +206,7 @@ struct ReceiptsView: View {
             if err != nil { showErrorAlert = true }
         }
         // The capture hint: a blurry, skewed or distant receipt photo reads badly on the server.
-        .alert(ReceiptPhotoPrep.hintText, isPresented: Binding(
-            get: { weakCapture != nil },
-            set: { if !$0 { weakCapture = nil } }
-        )) {
+        .alert(ReceiptPhotoPrep.hintText, isPresented: $showWeakCaptureHint) {
             Button("Retake") {
                 weakCapture = nil
                 impact.impactOccurred()

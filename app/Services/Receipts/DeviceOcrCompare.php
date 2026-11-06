@@ -84,7 +84,8 @@ function cleanDeviceOcrLines($raw): ?array
     $lines = [];
     foreach ($list as $l) {
         if (!is_array($l) || count($lines) >= DEVICE_OCR_MAX_LINES) continue;
-        $text = trim((string)preg_replace('/[^\P{C}\t]+/u', '', (string)($l['text'] ?? '')));
+        if (!isset($l['text']) || !is_scalar($l['text'])) continue;
+        $text = trim((string)preg_replace('/[^\P{C}\t]+/u', '', (string)$l['text']));
         if ($text === '') continue;
         $box = [];
         foreach (['x', 'y', 'w', 'h'] as $k) {
@@ -99,8 +100,9 @@ function cleanDeviceOcrLines($raw): ?array
     }
     if (count($lines) < 2) return null;
     $image = [];
+    $imageIn = isset($j['image']) && is_array($j['image']) ? $j['image'] : [];
     foreach (['w', 'h'] as $k) {
-        $v = $j['image'][$k] ?? null;
+        $v = $imageIn[$k] ?? null;
         if (is_numeric($v) && (int)$v > 0 && (int)$v < 20000) $image[$k] = (int)$v;
     }
     return ['lines' => $lines, 'image' => $image];
