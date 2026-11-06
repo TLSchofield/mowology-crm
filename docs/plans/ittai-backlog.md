@@ -327,3 +327,11 @@ get them after phase 2.
 - The edge-detect scanner on iPhone auto-captured while the phone was moving: a motion-blurred receipt, "No text found".
   Wanted: auto-capture only when the frame is steady and sharp (or turn auto-capture off / add a manual shutter), and a
   "too blurry — retake" check before upload. Screenshot in the 2026-11-06 Claudia chat. iPhone receipts area.
+
+## Timesheets to payroll — QuickBooks and Wave (Tim 2026-11-06)
+- **QuickBooks:** the Accounting API's `TimeActivity` (hours per employee, per customer/job) fits the connection Ittai already has.
+  Hours tied to a pay type (regular/overtime) for QuickBooks Payroll need Intuit's Premium "Payroll Compensation" API, which has no
+  sandbox. Unsettled: whether QuickBooks Payroll **Canada** turns TimeActivity into paycheques — ask Intuit / test on Tim's company.
+- **Wave:** no payroll or hours in Wave's public API (third-party report, unconfirmed by Wave docs). Realistic path: a weekly hours
+  export in whatever file Wave Payroll imports (check Wave's import format first), or Wave's own timesheet entry by hand.
+- Start: the onboarding payroll answer (`onboarding_payroll`, `onboarding_payroll_app`) says which one a business needs.
