@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ittai social tiles — round 2</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+*{box-sizing:border-box}html{background:var(--page);color:var(--text);font-family:Inter,sans-serif}body{margin:0;padding:clamp(24px,5vw,72px);overflow-x:hidden}header{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:48px;border-bottom:1px solid var(--line);padding-bottom:24px}h1{margin:0;font-size:clamp(28px,4vw,48px);line-height:1.05}p{color:var(--meta)}nav{display:flex;gap:8px;flex-wrap:wrap}nav a{min-height:44px;display:inline-flex;align-items:center;padding:0 18px;border:1px solid var(--line);border-radius:999px;color:var(--text);text-decoration:none}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:32px}.tile{color:var(--text);text-decoration:none}.preview{aspect-ratio:1;overflow:hidden;background:var(--sunk);border:1px solid var(--line)}iframe{width:1080px;height:1080px;border:0;transform:scale(var(--scale,.3));transform-origin:top left;pointer-events:none}.tile h2{font-size:18px;font-weight:600;margin:14px 0 4px}.tile p{font-size:14px;margin:0}@media(max-width:1023px){nav a{min-height:48px}}@media(max-width:720px){header{align-items:start;flex-direction:column}}
+</style>
+</head>
+<body>
+<header>
+<div>
+<h1>Ittai social tiles</h1>
+<p>Round 2 · square and story artboards</p>
+</div>
+<nav aria-label="Variant previews">
+<a href="index.html">Light</a>
+<a href="index.html?variant=navy">Navy</a>
+</nav>
+</header>
+<main class="grid">
+<a class="tile" href="tile-01-office.html">
+<div class="preview">
+<iframe title="Tile 1 preview" src="tile-01-office.html">
+</iframe>
+</div>
+<h2>01 · Office</h2>
+<p>Six specialists. One office.</p>
+</a>
+<a class="tile" href="tile-02-quickbooks.html">
+<div class="preview">
+<iframe title="Tile 2 preview" src="tile-02-quickbooks.html">
+</iframe>
+</div>
+<h2>02 · QuickBooks</h2>
+<p>Keep QuickBooks. Ittai does the typing.</p>
+</a>
+<a class="tile" href="tile-03-penny.html">
+<div class="preview">
+<iframe title="Tile 3 preview" src="tile-03-penny.html">
+</iframe>
+</div>
+<h2>03 · Penny</h2>
+<p>Penny did the books. You checked them.</p>
+</a>
+<a class="tile" href="tile-04-plant.html">
+<div class="preview">
+<iframe title="Tile 4 preview" src="tile-04-plant.html">
+</iframe>
+</div>
+<h2>04 · Plant carousel</h2>
+<p>Three-slide gardening example.</p>
+</a>
+<a class="tile" href="tile-05-crew.html">
+<div class="preview">
+<iframe title="Tile 5 preview" src="tile-05-crew.html">
+</iframe>
+</div>
+<h2>05 · Crew</h2>
+<p>Where is the crew?</p>
+</a>
+<a class="tile" href="tile-06-before-after.html">
+<div class="preview">
+<iframe title="Tile 6 preview" src="tile-06-before-after.html">
+</iframe>
+</div>
+<h2>06 · Before / after</h2>
+<p>Show the work.</p>
+</a>
+<a class="tile" href="tile-07-wordmark.html">
+<div class="preview">
+<iframe title="Tile 7 preview" src="tile-07-wordmark.html">
+</iframe>
+</div>
+<h2>07 · Wordmark</h2>
+<p>Lockup and strapline.</p>
+</a>
+<a class="tile" href="tile-08-founding.html">
+<div class="preview">
+<iframe title="Tile 8 preview" src="tile-08-founding.html">
+</iframe>
+</div>
+<h2>08 · Founding</h2>
+<p>A few founding businesses.</p>
+</a>
+</main>
+<script>const navy=new URLSearchParams(location.search).get('variant')==='navy';document.documentElement.dataset.variant=navy?'navy':'light';document.querySelectorAll('iframe').forEach(f=>f.src=f.src+(navy?'?variant=navy':''));document.querySelectorAll('.tile').forEach(a=>a.href=a.href+(navy?'?variant=navy':''));const size=()=>document.querySelectorAll('.preview').forEach(p=>p.style.setProperty('--scale',p.clientWidth/1080));addEventListener('resize',size);size()</script>
+</body>
+</html>
