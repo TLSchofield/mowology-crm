@@ -281,6 +281,7 @@ require_once __DIR__ . '/../app/Modules/Products/Services/ProductFactAnswerer.ph
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoManualService.php';
 
 // Expenses
+require_once __DIR__ . '/../app/Services/Receipts/LineItemFit.php';
 require_once __DIR__ . '/../app/Services/Receipts/ReceiptIntakeRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptArchiveService.php';
@@ -288,6 +289,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptIntakeService.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptBookkeeperRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptBookkeeperService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/BookkeeperDeskService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/LineItemBackfillService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyReadService.php';   // Penny's read on the receipt screens (2026-10-13)
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptTrailService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.php';
