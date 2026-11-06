@@ -396,6 +396,7 @@ require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
 
 // Agents (policy + ledger + tasks + registries + evals + studio)
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentStudioService.php';
+require_once __DIR__ . '/../app/Modules/Agents/Services/HeadProgressService.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/SkillRegistry.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentEvals.php';
 require_once __DIR__ . '/../app/Services/Copy/DraftSafety.php';

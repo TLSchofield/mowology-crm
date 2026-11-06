@@ -155,6 +155,16 @@ try {
         $parts[] = 'ready brief failed: ' . $e->getMessage();
     }
 
+    try {
+        require_once APP_ROOT . '/Modules/Agents/Services/HeadProgressService.php';
+        $n = (new HeadProgressService($db))->snapshot();
+        if ($n > 0) {
+            $parts[] = 'head stats saved (' . $n . ')';
+        }
+    } catch (Throwable $e) {
+        $parts[] = 'head stats failed: ' . $e->getMessage();
+    }
+
     // The email — once, on weekday mornings (checked at the top of the hour).
     if (!$force && (int)date('i') >= 15) {
         $__finish($u['error'] ? 'warning' : 'success', ($parts ? implode('; ', $parts) . '; ' : '') . 'brief kept ready (email checks at the top of the hour)');

@@ -19,24 +19,34 @@ if (($user['role'] ?? '') !== 'admin') {
 $e = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $error = null;
 $ready = $switches = $overview = $evals = [];
+$progress = $history = [];
 $detail = null;
+$view = (string)($_GET['view'] ?? '') === 'progress' ? 'progress' : 'heads';
 try {
-    require_once APP_ROOT . '/Modules/Agents/Services/AgentStudioService.php';
-    $studio = new AgentStudioService(getDB());
-    $ready = $studio->readiness();
-    $switches = $studio->switches();
-    $overview = $studio->overview();
-    $evals = $studio->evals();
-    $pick = strtolower((string)($_GET['head'] ?? ''));
-    if ($pick !== '' && isset($overview[$pick])) {
-        $detail = $overview[$pick] + [
-            'skill_rows' => SkillRegistry::forHead($pick),
-            'triggers'   => $studio->triggers($pick),
-            'autonomy'   => $studio->autonomy($pick),
-            'tasks'      => $studio->openTasks($pick),
-            'activity'   => $studio->activity($pick),
-            'cost'       => $studio->cost($pick),
-        ];
+    if ($view === 'progress') {
+        require_once APP_ROOT . '/Modules/Agents/Services/HeadProgressService.php';
+        $progressService = new HeadProgressService(getDB());
+        try { $progressService->snapshot(); } catch (Throwable $ignored) { /* progress still reads without it */ }
+        $progress = $progressService->weekly(12);
+        $history = $progressService->history(28);
+    } else {
+        require_once APP_ROOT . '/Modules/Agents/Services/AgentStudioService.php';
+        $studio = new AgentStudioService(getDB());
+        $ready = $studio->readiness();
+        $switches = $studio->switches();
+        $overview = $studio->overview();
+        $evals = $studio->evals();
+        $pick = strtolower((string)($_GET['head'] ?? ''));
+        if ($pick !== '' && isset($overview[$pick])) {
+            $detail = $overview[$pick] + [
+                'skill_rows' => SkillRegistry::forHead($pick),
+                'triggers'   => $studio->triggers($pick),
+                'autonomy'   => $studio->autonomy($pick),
+                'tasks'      => $studio->openTasks($pick),
+                'activity'   => $studio->activity($pick),
+                'cost'       => $studio->cost($pick),
+            ];
+        }
     }
 } catch (Throwable $ex) {
     error_log('Agent Studio: ' . $ex->getMessage());
@@ -44,6 +54,8 @@ try {
 }
 $missing = array_keys(array_filter($ready, static fn($ok) => !$ok));
 $usd = static fn($v): string => $v > 0 ? '$' . number_format((float)$v, $v < 1 ? 3 : 2) : '—';
+// Progress tab: a computed zero is a real $0.00; only "not recorded" is a dash.
+$money = static fn($v): string => $v === null ? '—' : '$' . number_format((float)$v, (float)$v > 0 && (float)$v < 1 ? 3 : 2);
 $when = static fn($t): string => $t ? date('M j, g:i a', strtotime((string)$t)) : '—';
 
 $pageTitle = 'Agent Studio';
@@ -57,7 +69,78 @@ $activePage = 'agents';
     <div class="text-muted">Your AI office: who they are, what they may do on their own, what they are working on and what they cost. Read-only.</div>
   </div>
 
+  <nav class="mw-ag-tabs" aria-label="Agent Studio views">
+    <a class="<?= $view === 'heads' ? 'is-active' : '' ?>" href="?">Heads</a>
+    <a class="<?= $view === 'progress' ? 'is-active' : '' ?>" href="?view=progress">Progress</a>
+  </nav>
+
   <?php if ($error): ?><div class="alert alert-danger"><?= $e($error) ?></div><?php endif; ?>
+
+  <?php if ($view === 'progress'): if ($progress): ?>
+    <p class="text-muted">How each head is getting on, week by week. Weeks start Monday; this week is not finished yet. Numbers come straight from what each head recorded — a blank means nothing was recorded.</p>
+    <div class="mw-hp-grid">
+      <?php foreach ($progress['heads'] as $slug => $head):
+        $headline = HeadProgressService::headline($slug, $head['metrics']);
+        $headlineKeys = ['penny' => 'right_first_time', 'sam' => 'won', 'otto' => 'answered', 'mia' => 'sent', 'yui' => 'sent', 'charlie' => 'ai_calls', 'ada' => 'ai_calls'];
+        $mainValues = $head['metrics'][$headlineKeys[$slug]]['values'];
+        $points = HeadProgressService::sparkline($mainValues);
+        $lastWeekIndex = count($progress['weeks']) - 1;
+        $calls = (int)($head['metrics']['ai_calls']['values'][$lastWeekIndex] ?? 0);
+        $cost = (float)($head['metrics']['ai_cost']['values'][$lastWeekIndex] ?? 0);
+      ?>
+        <a class="mw-hp-card" href="#hp-<?= $e($slug) ?>">
+          <div class="mw-hp-person"><img src="/crm/img/heads/<?= $e($slug) ?>.jpg" alt="" width="40" height="40"><span><strong><?= $e($head['name']) ?></strong><small><?= $e($head['role']) ?></small></span></div>
+          <div class="mw-hp-big"><?= $e($headline['value'] ?? '—') ?></div>
+          <p><?= $e($headline['sentence']) ?></p>
+          <?php if ($points !== ''): ?><svg class="mw-hp-spark" viewBox="0 0 120 28" aria-hidden="true"><polyline points="<?= $e($points) ?>"></polyline></svg><?php endif; ?>
+          <small class="text-muted">AI this week: <?= $e(number_format($calls)) ?> requests, <?= $e($money($cost)) ?></small>
+        </a>
+      <?php endforeach; ?>
+    </div>
+
+    <?php foreach ($progress['heads'] as $slug => $head): ?>
+      <section class="card mw-hp-section" id="hp-<?= $e($slug) ?>">
+        <div class="card-header mw-hp-person"><img src="/crm/img/heads/<?= $e($slug) ?>.jpg" alt="" width="40" height="40"><span><strong><?= $e($head['name']) ?></strong><small><?= $e($head['role']) ?></small></span></div>
+        <?php
+          // Weeks before this head's records begin are left out rather than shown as 0 (firstActiveWeek).
+          $from = HeadProgressService::firstActiveWeek($head['metrics']);
+          $lastWeek = count($progress['weeks']) - 1;
+          $emptyLabels = []; $rows = [];
+          foreach ($head['metrics'] as $metric) {
+              if (array_sum(array_map(static fn($v) => abs((float)($v ?? 0)), $metric['values'])) > 0) { $rows[] = $metric; } else { $emptyLabels[] = $metric['label']; }
+          }
+        ?>
+        <?php if ($rows): ?>
+        <div class="table-responsive"><table class="table table-sm mb-0 mw-hp-table"><thead><tr><th>Week starting</th>
+          <?php foreach ($progress['weeks'] as $i => $week): if ($i < $from) continue; ?><th class="text-right <?= $i === $lastWeek ? 'mw-hp-partial' : '' ?>"><?= $i === $lastWeek ? 'This week' : $e(date('M j', strtotime($week))) ?></th><?php endforeach; ?>
+        </tr></thead><tbody>
+        <?php foreach ($rows as $metric): ?>
+          <tr><th><span><?= $e($metric['label']) ?></span><small><?= $e($metric['how']) ?></small></th>
+          <?php foreach ($metric['values'] as $i => $value):
+            if ($i < $from) continue;
+            $shown = '—';
+            if ($value !== null) {
+                if ($metric['format'] === 'usd') { $shown = $money((float)$value); }
+                elseif ($metric['format'] === 'pct') { $shown = number_format((float)$value) . '%'; }
+                else { $shown = number_format((float)$value); }
+            }
+          ?><td class="text-right <?= $i === $lastWeek ? 'mw-hp-partial' : '' ?>"><?= $e($shown) ?></td><?php endforeach; ?></tr>
+        <?php endforeach; ?>
+        </tbody></table></div>
+        <?php if ($from > 0): ?><div class="mw-hp-empty text-muted">Records begin the week of <?= $e(date('M j', strtotime($progress['weeks'][$from]))) ?>; earlier weeks are left out.</div><?php endif; ?>
+        <?php endif; ?>
+        <?php if ($emptyLabels): ?><div class="mw-hp-empty text-muted">Nothing recorded yet: <?= $e(implode(', ', $emptyLabels)) ?>.</div><?php endif; ?>
+
+        <?php $dates = array_slice($history['dates'] ?? [], -14); $snapshots = $history['heads'][$slug] ?? []; ?>
+        <?php if (count($dates) >= 2): ?>
+          <div class="table-responsive"><table class="table table-sm mb-0 mw-hp-table mw-hp-daily"><thead><tr><th>Daily count</th><?php foreach ($dates as $date): ?><th class="text-right"><?= $e(date('M j', strtotime($date))) ?></th><?php endforeach; ?></tr></thead><tbody>
+          <?php foreach ($snapshots as $key => $byDate): ?><tr><th><?= $e(HeadProgressService::snapshotLabel($key)) ?></th><?php foreach ($dates as $date): $value = $byDate[$date] ?? null; ?><td class="text-right"><?= $value === null ? '—' : $e($key === 'quotes_out_amount' ? $money($value) : number_format($value)) ?></td><?php endforeach; ?></tr><?php endforeach; ?>
+          </tbody></table></div>
+        <?php else: ?><div class="mw-hp-empty text-muted">Daily counts start <?= $e(date('M j', strtotime((string)($history['first'] ?? date('Y-m-d'))))) ?> and build up from there.</div><?php endif; ?>
+      </section>
+    <?php endforeach; ?>
+  <?php endif; ?>
+  <?php else: ?>
 
   <?php if ($missing): ?>
     <div class="alert alert-warning">Not set up yet: <?= $e(implode(', ', $missing)) ?>. Run those migrations in Database &rsaquo; Migrations and the matching sections fill in.</div>
@@ -155,6 +238,7 @@ $activePage = 'agents';
         <?php endforeach; ?></tbody></table></div>
       <?php else: ?><div class="card-body text-muted">No AI calls recorded.</div><?php endif; ?></div>
   </div>
+  <?php endif; ?>
   <?php endif; ?>
 </div>
 
