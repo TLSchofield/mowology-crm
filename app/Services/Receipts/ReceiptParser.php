@@ -166,6 +166,17 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         $result['gst'] = '0.00';
     }
 
+    // A receipt that names no tax anywhere charged none (City of Vancouver landfill, Tim 2026-11-06: #533 read
+    // $39.05 + $1.95 GST for a $41.00 ticket). Guessing 5% here booked GST that was never paid.
+    if ($result['gst'] === null && $result['total'] !== null && receiptPrintsNoTax($lines)) {
+        $result['gst'] = '0.00';
+        $result['gst_source'] = 'exempt';   // the label intake already uses for a GST-free receipt
+        if ($result['subtotal'] === null) {
+            $result['subtotal'] = $result['total'];
+            $result['subtotal_derived'] = true;
+        }
+    }
+
     // If we have total but no GST, estimate GST at 5% (BC standard)
     if ($result['gst'] === null && $result['total'] !== null) {
         $total = (float)$result['total'];
@@ -246,6 +257,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
 function tagGstSource(array $r): array
 {
     if (isset($r['gst']) && $r['gst'] !== null && $r['gst'] !== '') {
+        if (($r['gst_source'] ?? '') === 'exempt') return $r;   // no tax named on the receipt (receiptPrintsNoTax)
         $r['gst_source'] = !empty($r['gst_estimated']) ? 'estimated' : 'printed';
     }
     return $r;
@@ -1910,6 +1922,18 @@ function receiptItemisesTaxWithoutGstLine(array $lines): bool
         foreach ($lines as $line) {
             if (preg_match('/\d[.,]\d{2}\s*' . preg_quote($code, '/') . '\s*$/', trim($line))) return false;
         }
+    }
+    return true;
+}
+
+/**
+ * Pure: does the receipt name no tax at all — no GST / HST / PST / RST / TPS / TVQ / VAT / TAX word anywhere?
+ * Then nothing was charged and the 5% guess must not run. A GST number or "GST incl." still names GST.
+ */
+function receiptPrintsNoTax(array $lines): bool
+{
+    foreach ($lines as $line) {
+        if (preg_match('/\b(?:G\.?S\.?T|H\.?S\.?T|P\.?S\.?T|RST|TPS|TVQ|VAT|TAX(?:ES)?)\b/i', (string)$line)) return false;
     }
     return true;
 }

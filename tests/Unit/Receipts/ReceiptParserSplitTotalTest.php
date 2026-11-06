@@ -125,7 +125,7 @@ final class ReceiptParserSplitTotalTest extends TestCase
     /** No legend at all: the 5% estimate is unchanged. */
     public function testEstimateUnchangedWithoutLegend(): void
     {
-        $parsed = parseReceiptText("SHOP\n2026-10-20\nTOTAL 21.00");
+        $parsed = parseReceiptText("SHOP\n2026-10-20\nGST incl.\nTOTAL 21.00");
 
         $this->assertSame('1.00', $parsed['gst']);
     }

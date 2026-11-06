@@ -66,7 +66,7 @@ class ReceiptHeaderCheckTest extends TestCase
 
     public function testParserMarksDerivedFields(): void
     {
-        $r = parseReceiptText("Hardware\n2026-10-01\nTOTAL 10.50");
+        $r = parseReceiptText("Hardware\n2026-10-01\nGST incl.\nTOTAL 10.50");
         $this->assertTrue($r['gst_estimated']);
         $this->assertTrue($r['subtotal_derived']);
     }
