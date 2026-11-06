@@ -200,4 +200,11 @@ class InvoiceMoveServiceTest extends TestCase
         $this->assertSame([300], array_column($found, 'plan_id'));
         $this->assertSame([], $this->svc()->candidates(999));
     }
+
+    /** @test 2026-11-06: the API never loaded functions.php, so every real move skipped the activity log. */
+    public function the_move_api_loads_the_activity_logger(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/public/crm/api/invoice-move.php');
+        $this->assertStringContainsString("/crm/includes/functions.php'", $src);
+    }
 }

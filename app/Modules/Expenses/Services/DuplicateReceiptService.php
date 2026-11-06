@@ -806,9 +806,15 @@ class DuplicateReceiptService
         }
         $times = array_map(fn($id) => $facts[$id]['time_first'] ?? null, $ids);
         if (!in_array(null, $times, true) && !in_array('', $times, true) && count(array_unique($times)) === 1) {
-            return ['kind' => 'time', 'text' => 'Same total, date and printed time (' . $times[0] . '). No number to prove it.'];
+            $dates = array_map(fn($id, $m) => (string)($facts[$id]['printed_date'] ?? $m['expense_date'] ?? ''), $ids, $members);
+            $sameDay = !in_array('', $dates, true) && count(array_unique($dates)) === 1;
+            return ['kind' => 'time', 'text' => 'Same total' . ($sameDay ? ', date' : '') . ' and printed time (' . $times[0] . '). No number to prove it.'];
         }
-        return ['kind' => 'total_date', 'text' => 'Same total and date. Nothing printed proves it either way.'];
+        // Pairs are found within ±3 days, so "same date" is said only when every date really matches.
+        $dates = array_map(fn($m) => (string)($facts[(int)$m['id']]['printed_date'] ?? $m['expense_date'] ?? ''), $members);
+        $sameDay = !in_array('', $dates, true) && count(array_unique($dates)) === 1;
+        return ['kind' => 'total_date', 'text' => $sameDay ? 'Same total and date. Nothing printed proves it either way.'
+                                                             : 'Same total, dates a few days apart. Nothing printed proves it either way.'];
     }
 
     /**
@@ -829,12 +835,13 @@ class DuplicateReceiptService
         return ['id' => (int)$sorted[0]['id'], 'reason' => 'sent in first'];
     }
 
-    /** Penny's line on how sure she is with this vendor. Pure. */
+    /** Penny's line on how sure she is with this vendor; '' until she has called a pair with it. Pure. */
     public static function confidenceLine(string $vendor, ?array $record): string
     {
         $vendor = trim($vendor) !== '' ? trim($vendor) : 'this vendor';
         $called = (int)($record['called'] ?? 0);
-        if ($called === 0) return "First {$vendor} pair I've seen. Check the photos.";
+        // No record yet: say nothing (Tim 2026-11-06: "First Southlands receipt I've seen eats space unnecessarily").
+        if ($called === 0) return '';
         $agreed = (int)($record['agreed'] ?? 0);
         return "With {$vendor} I've been right {$agreed} of {$called} time" . ($called === 1 ? '' : 's') . '.';
     }

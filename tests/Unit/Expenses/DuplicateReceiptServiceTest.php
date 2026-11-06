@@ -294,8 +294,10 @@ class DuplicateReceiptServiceTest extends TestCase
         $t = DuplicateReceiptService::verdictFor([['id' => 1], ['id' => 2]], [1 => ['time_first' => '09:02'], 2 => ['time_first' => '09:02']]);
         $this->assertSame('time', $t['kind']);
         $this->assertStringContainsString('09:02', $t['text']);
-        $n = DuplicateReceiptService::verdictFor([['id' => 1], ['id' => 2]], [1 => ['time_first' => '09:02']]);
+        $n = DuplicateReceiptService::verdictFor([['id' => 1, 'expense_date' => '2026-10-22'], ['id' => 2, 'expense_date' => '2026-10-22']], [1 => ['time_first' => '09:02']]);
         $this->assertSame('Same total and date. Nothing printed proves it either way.', $n['text']);
+        $apart = DuplicateReceiptService::verdictFor([['id' => 1, 'expense_date' => '2026-10-22'], ['id' => 2, 'expense_date' => '2026-10-23']], []);
+        $this->assertSame('Same total, dates a few days apart. Nothing printed proves it either way.', $apart['text'], 'never claim a date that differs');
     }
 
     public function test_a_short_pad_number_alone_is_not_the_same_receipt(): void
@@ -315,7 +317,7 @@ class DuplicateReceiptServiceTest extends TestCase
 
     public function test_confidence_line_says_her_record_or_that_it_is_the_first(): void
     {
-        $this->assertSame("First Lawnboy pair I've seen. Check the photos.", DuplicateReceiptService::confidenceLine('Lawnboy', null));
+        $this->assertSame('', DuplicateReceiptService::confidenceLine('Lawnboy', null), 'no record: nothing said');
         $this->assertSame("With Shell I've been right 14 of 14 times.", DuplicateReceiptService::confidenceLine('Shell', ['called' => 14, 'agreed' => 14]));
         $this->assertSame("With Rona I've been right 1 of 1 time.", DuplicateReceiptService::confidenceLine('Rona', ['called' => 1, 'agreed' => 1]));
     }
