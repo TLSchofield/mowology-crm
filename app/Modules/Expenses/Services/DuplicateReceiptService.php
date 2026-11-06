@@ -208,7 +208,8 @@ class DuplicateReceiptService
         if (!$copy || !$keep) return ['ok' => false, 'message' => 'Receipt not found'];
         if (!in_array($copy['status'], self::WAITING, true)) return ['ok' => false, 'message' => "That one's already approved — remove the other instead"];
         $actor = ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'];
-        $took = ['fill' => (array)($took['fill'] ?? []), 'lines' => !empty($took['lines']), 'photo' => null];
+        $took = ['fill' => (array)($took['fill'] ?? []), 'lines' => !empty($took['lines']),
+                 'line_ids' => array_map('intval', (array)($took['line_ids'] ?? [])), 'photo' => null];
         if (empty($keep['receipt_media_id']) && !empty($copy['receipt_media_id']) && in_array($keep['status'], self::WAITING, true)) {
             $this->gate()->apply($keepId, ['receipt_media_id' => (int)$copy['receipt_media_id']], $actor, 'duplicates');
             $took['photo'] = (int)$copy['receipt_media_id'];
@@ -287,9 +288,11 @@ class DuplicateReceiptService
                         $carried = array_merge($carried, array_keys($fill));
                         $took['fill'] = $fill;
                     }
+                    $copyLines = $this->lineIds($copyId);
                     if ($this->moveLineItemsIfMissing($copyId, $keepId, $user)) {
                         $carried[] = 'line items';
                         $took['lines'] = true;
+                        $took['line_ids'] = $copyLines;   // Split off moves back only these, and only while they are all still there
                     }
                     if (empty($rows[$keepId]['receipt_media_id']) && !empty($rows[$copyId]['receipt_media_id'])) {
                         $rows[$keepId]['receipt_media_id'] = $rows[$copyId]['receipt_media_id'];   // removeCopy moves the photo
@@ -424,6 +427,10 @@ class DuplicateReceiptService
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
         try {
+            // Claim the merge row first: a double tap / retry finds it already taken and stops here.
+            $claim = $this->db->prepare("UPDATE expense_merges SET unmerged_by = ?, unmerged_at = ?, unmerge_kind = ? WHERE id = ? AND unmerged_at IS NULL");
+            $claim->execute([$actor['id'], date('Y-m-d H:i:s'), $kind, (int)$m['id']]);
+            if ($claim->rowCount() !== 1) throw new RuntimeException("#{$copyId} was already split off");
             $this->gate()->apply($copyId, [
                 'status' => $status, 'approved_by' => $before['approved_by'] ?? null,
                 'approved_at' => $before['approved_at'] ?? null, 'rejection_reason' => $before['rejection_reason'] ?? null,
@@ -435,10 +442,13 @@ class DuplicateReceiptService
                     $this->gate()->apply($keepId, $back, $actor, 'duplicates');
                     $gaveBack = array_keys($back);
                 }
-                if (!empty($took['lines']) && $this->moveLineItemsIfMissing($keepId, $copyId, $user)) $gaveBack[] = 'line items';
+                // Lines go back only when the kept receipt still holds exactly the ones it took (an edit since keeps them there).
+                $taken = array_map('intval', (array)($took['line_ids'] ?? []));
+                if (!empty($took['lines']) && self::sameIds($taken, $this->lineIds($keepId))
+                    && $this->moveLineItemsIfMissing($keepId, $copyId, $user)) $gaveBack[] = 'line items';
             }
-            $this->db->prepare("UPDATE expense_merges SET unmerged_by = ?, unmerged_at = ?, unmerge_kind = ? WHERE id = ?")
-               ->execute([$actor['id'], date('Y-m-d H:i:s'), $kind, (int)$m['id']]);
+            // Merge was a slip or wrong: the "Penny was right" lesson it wrote is taken back.
+            $this->retractAgreement($copyId);
             if ($kind === 'split' && $this->dismissalsReady()) {
                 $this->db->prepare("INSERT IGNORE INTO expense_duplicate_dismissals (expense_a, expense_b, dismissed_by) VALUES (?, ?, ?)")
                    ->execute([min($copyId, $keepId), max($copyId, $keepId), $actor['id']]);
@@ -512,9 +522,10 @@ class DuplicateReceiptService
         try {
             $merged = $this->mergesReady();
             if ($merged) {
-                foreach ($this->db->query("SELECT {$vendorOf} AS vendor, m.unmerged_at, m.unmerge_kind
+                foreach ($this->db->query("SELECT COALESCE(v.name, e.vendor_name_raw, kv.name, k.vendor_name_raw) AS vendor, m.unmerged_at, m.unmerge_kind
                                            FROM expense_merges m JOIN expenses e ON e.id = m.copy_id
-                                           LEFT JOIN vendors v ON v.id = e.vendor_id")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                                           LEFT JOIN vendors v ON v.id = e.vendor_id
+                                           LEFT JOIN expenses k ON k.id = m.kept_id LEFT JOIN vendors kv ON kv.id = k.vendor_id")->fetchAll(PDO::FETCH_ASSOC) as $r) {
                     if ($r['unmerged_at'] === null) $add($r['vendor'], 'agreed');
                     elseif ($r['unmerge_kind'] === 'split') $add($r['vendor'], 'split_off');
                 }
@@ -525,8 +536,9 @@ class DuplicateReceiptService
                 $add($v, 'agreed');
             }
             if ($this->dismissalsReady()) {
-                foreach ($this->db->query("SELECT {$vendorOf} AS vendor FROM expense_duplicate_dismissals d
+                foreach ($this->db->query("SELECT COALESCE(v.name, e.vendor_name_raw, bv.name, b.vendor_name_raw) AS vendor FROM expense_duplicate_dismissals d
                                            JOIN expenses e ON e.id = d.expense_a LEFT JOIN vendors v ON v.id = e.vendor_id
+                                           LEFT JOIN expenses b ON b.id = d.expense_b LEFT JOIN vendors bv ON bv.id = b.vendor_id
                                            WHERE d.dismissed_by IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN) as $v) {
                     $add($v, 'said_different');
                 }
@@ -582,6 +594,36 @@ class DuplicateReceiptService
         }
         if ($photo && (int)($keep['receipt_media_id'] ?? 0) === $photo) $back['receipt_media_id'] = null;
         return $back;
+    }
+
+    /** @return int[] the line item ids on one receipt (none when there is no line-items table). */
+    private function lineIds(int $expenseId): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT id FROM expense_line_items WHERE expense_id = ? ORDER BY id");
+            $s->execute([$expenseId]);
+            return array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    public static function sameIds(array $a, array $b): bool
+    {
+        $a = array_map('intval', $a); $b = array_map('intval', $b);
+        sort($a); sort($b);
+        return $a !== [] && $a === $b;
+    }
+
+    /** Remove the agreement lesson a merge wrote for this copy (Undo and Split off: the owner did not agree after all). */
+    private function retractAgreement(int $copyId): void
+    {
+        try {
+            $this->db->prepare("DELETE FROM head_lessons WHERE head = 'penny' AND source = 'duplicate_merge' AND ref_type = 'expense' AND ref_id = ?")
+               ->execute([$copyId]);
+        } catch (Throwable $e) {
+            // no head_lessons table (before migration 1348) — nothing was recorded
+        }
     }
 
     private function evidenceFor(array $copy, array $keep): array

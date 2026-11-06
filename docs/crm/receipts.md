@@ -246,6 +246,16 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
   its job/category/tag/notes/line items/photo fill whatever the kept one has empty. One
   group only, waiting copies only, all-or-nothing. When a member is already approved, only
   that one can be kept.
+- **Merge with a way back (2026-11-06, iOS 1.3.89, migration 1442):** the card opens on Penny's
+  verdict ("Same receipt: auth 433970 is on both." / "Same total and date. Nothing printed proves
+  it either way."), her record with the vendor, the printed facts side by side (tick = match,
+  highlight = differs) and the receipt she keeps (in the books, else bank-linked, else sent in
+  first; "Keep the other instead" swaps). Two square buttons: **Merge** (`merge` / web
+  `dupe_merge` → `removeCopies`) and **Different** (`not_dupe`). Each merged copy gets an
+  `expense_merges` row; **Undo** (6 s) and **Split off** (iPhone receipt "Also on this purchase")
+  call `DuplicateReceiptService::unmerge()`, which puts the copy back to its waiting status and
+  takes back what the kept receipt took from it while that still waits. Penny never merges on her
+  own (`AgentPolicy` `penny.merge_duplicate` = 2). Plan: `docs/plans/2026-11-05-duplicate-receipts-on-the-phone.md`.
 
 ### One photo, one expense (2026-10-07)
 `ExpenseCreateGuard` in `expenses.php action=create` and iOS `expense-save.php`: a create

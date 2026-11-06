@@ -1,6 +1,6 @@
 # Plan: duplicate receipts on the phone (merge, facts first, big buttons)
 
-Status: **plan only, written 2026-11-05. No code until Tim says go.** Owner: Penny. Builds on
+Status: **built 2026-11-06** (Tim: "Go on duplicate receipts on the phone"), branch `claude/duplicate-receipts-phone`. Step 0 on production: 9 waiting groups, $1,010.47; 4 with a printed number, 5 total-and-date only; no person had ever dismissed a pair the printed facts call "same" (no false positives). Not built: synchronised zoom between the two photos (the pager swipes; each zooms on its own); "misread vs wrong match" split of her record (needs a person to say which). Written 2026-11-05. Owner: Penny. Builds on
 `docs/plans/2026-10-29-penny-possible-twin-check.md` (its phase 2 "merge and split" was never built).
 
 ## Why

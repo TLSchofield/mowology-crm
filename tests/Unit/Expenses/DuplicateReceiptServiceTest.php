@@ -363,4 +363,54 @@ class DuplicateReceiptServiceTest extends TestCase
         $this->assertSame('all into #3', $p['merge_label']);
         $this->assertSame([5, 9], $p['can_swap']);
     }
+
+    // ── Review fixes (2026-11-06) ─────────────────────────────────────────────
+
+    private function withLessons(PDO $db): PDO
+    {
+        $db->exec("CREATE TABLE head_lessons (id INTEGER PRIMARY KEY, site_id INT, head TEXT, subject_kind TEXT, subject_key TEXT, field TEXT,
+                   said TEXT, correct TEXT, source TEXT, ref_type TEXT, ref_id INT, corrected_by INT, reason TEXT, created_at TEXT)");
+        return $db;
+    }
+
+    public function test_undo_takes_back_the_lesson_the_merge_wrote(): void
+    {
+        $db = $this->withLessons($this->deskDb());
+        $svc = $this->desk($db);
+        $svc->removeCopies(412, [408], ['id' => 1]);
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM head_lessons WHERE source = 'duplicate_merge' AND ref_id = 408")->fetchColumn(), 'merge = Penny was right');
+        $svc->unmerge(408, ['id' => 1], 'undo');
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM head_lessons")->fetchColumn(), 'a slip teaches nothing');
+    }
+
+    public function test_split_off_replaces_the_agreement_with_the_correction(): void
+    {
+        $db = $this->withLessons($this->deskDb());
+        $svc = $this->desk($db);
+        $svc->removeCopies(412, [408], ['id' => 1]);
+        $svc->unmerge(408, ['id' => 1], 'split');
+        $rows = $db->query("SELECT source, correct FROM head_lessons")->fetchAll(PDO::FETCH_ASSOC);
+        $this->assertSame([['source' => 'duplicate_split_off', 'correct' => 'not a duplicate']], $rows);
+    }
+
+    public function test_lines_edited_after_the_merge_stay_on_the_kept_receipt(): void
+    {
+        $db = $this->deskDb();
+        $svc = $this->desk($db);
+        $svc->removeCopies(412, [409], ['id' => 1]);
+        $db->exec("INSERT INTO expense_line_items (expense_id, name) VALUES (412, 'Chain oil')");   // the owner adds a line
+        $this->assertTrue($svc->unmerge(409, ['id' => 1], 'undo')['ok']);
+        $this->assertSame(3, (int)$db->query("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = 412")->fetchColumn(), 'nothing moved: the set changed');
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = 409")->fetchColumn());
+    }
+
+    public function test_a_copy_with_no_vendor_counts_under_the_kept_receipts_vendor(): void
+    {
+        $db = $this->deskDb();
+        $db->exec("UPDATE expenses SET vendor_name_raw = 'Home Depot' WHERE id = 412");
+        $this->desk($db)->removeCopies(412, [408], ['id' => 1]);
+        $rec = $this->desk($db)->vendorRecords();
+        $this->assertSame(1, $rec['home depot']['agreed'] ?? 0);
+        $this->assertArrayNotHasKey('unknown vendor', $rec);
+    }
 }

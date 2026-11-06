@@ -15,6 +15,7 @@ happened, the signature, the rule. Start with the one-line rules below; open the
 - **2026-10-13 — Penny read the receipt right, but only her desktop card showed it (Chevron #424)** — Whatever Penny knows about a receipt is shown wherever it is opened; an accepted correction teaches the reader too.
 - **2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)** — An amount that cannot be true is a failed read, never a value; a re-read must be able to replace it.
 
+- **A duplicate merge taught Penny things nobody said (2026-11-06)** — carrying a copy's job/category into the kept receipt went through the gate as a person's override (`expense_gate:duplicates` lessons), and an Undo left the merge's "she was right" lesson behind; `duplicates` is now a `LESSON_SKIP_SOURCES` source and `unmerge()` retracts the agreement.
 - **Approved twin receipts were never re-checked (2026-10-29)** — `TwinFinder::find()` plus a daily `TwinCheckService` now ask about approved receipts that copy a purchase already linked to a bank line; Penny's own "different" call from printed facts is not final.
 ## Bank statements and balancing
 

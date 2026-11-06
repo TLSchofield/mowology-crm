@@ -67,7 +67,9 @@ class ExpenseGate
     /** A person changing one of these overrides what Penny / the receipt reader said (head_lessons). */
     public const LESSON_FIELDS = ['accounting_category', 'payment_method', 'job_id', 'vendor_id', 'vendor_name_raw', 'asset_tag'];
     /** Sources that record their own lesson (against Penny's suggestion) or are not a person's override. */
-    public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line'];
+    // 'duplicates': a merge carrying a copy's fields into the kept receipt (and Split off giving them back) is not a person
+    // correcting what the receipt said — it wrote job → 55 / 55 → null lessons (review 2026-11-06).
+    public const LESSON_SKIP_SOURCES = ['penny_card', 'bank_desk', 'bank_line', 'duplicates'];
     public const OPEN = ['draft', 'pending_approval'];
     public const POSTED = ['approved', 'forwarded'];
     /** Receipts dated before this are in a filed, closed year (same date as LedgerService::FY_START — a test keeps them equal). */
@@ -706,7 +708,7 @@ class ExpenseGate
         if ($this->gstRateCache === null) {
             try {
                 if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
-                $this->gstRateCache = TaxEngine::gstRate($this->db);
+                $this->gstRateCache = TaxEngine::configuredGstRate($this->db);   // the rate on the paper: a non-registrant still pays it, so a 5% GST line is not 'high' or 'wrong'
             } catch (Throwable $e) {
                 $this->gstRateCache = 0.05;
             }
