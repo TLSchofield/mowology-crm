@@ -830,6 +830,12 @@ if (!$message && isset($_GET['created'])) {
     $message = 'Invoice created successfully!';
     $messageType = 'success';
 }
+if (!$message && ($_GET['flash'] ?? '') === 'moved') {
+    $message = 'Invoice moved. If it was already sent, resend it so the client gets the corrected copy.';
+    $messageType = 'success';
+}
+$invoiceMovable = round((float)($invoice['amount_paid'] ?? 0), 2) <= 0
+    && in_array($invoice['status'], ['draft', 'sent', 'viewed', 'overdue'], true);
 if (!$message && isset($_GET['pdf_generated'])) {
     $message = 'PDF generated successfully.';
     $messageType = 'success';
@@ -1424,6 +1430,16 @@ $extraHead = $isPayable
                                               - <?php echo htmlspecialchars($invoice['plan_title']); ?>
                                           <?php endif; ?>
                                       </a>
+                                      <?php if ($invoiceMovable): ?>
+                                          <button type="button" class="btn btn-sm btn-outline-secondary mw-move-btn" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
+                                      <?php endif; ?>
+                                  </span>
+                              </div>
+                          <?php elseif ($invoiceMovable): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Linked Plan</span>
+                                  <span class="mw-detail-value">
+                                      <button type="button" class="btn btn-sm btn-outline-secondary" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
                                   </span>
                               </div>
                           <?php endif; ?>
@@ -2242,4 +2258,7 @@ document.getElementById('refundModal').addEventListener('click', function(e) { i
 </script>
 <?php endif; ?>
 
+<?php if ($invoiceMovable): ?>
+<script src="/crm/js/mw-invoice-move.js?v=20261106a"></script>
+<?php endif; ?>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

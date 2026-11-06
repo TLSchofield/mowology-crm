@@ -617,6 +617,11 @@ $activePage = 'invoices';
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title mb-3">Line Items</h3>
+                        <?php if (round((float)($invoice['amount_paid'] ?? 0), 2) <= 0 && in_array($invoice['status'], ['draft', 'sent', 'viewed', 'overdue'], true)): ?>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
+                            </div>
+                        <?php endif; ?>
                         <?php $crewTimeVisitId = (int)($invoice['visit_id'] ?? 0); include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
 
                         <table class="table table-sm table-bordered mb-0" id="lineItemsTable">
@@ -736,6 +741,7 @@ $activePage = 'invoices';
 
 <script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
 <script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
+<script src="/crm/js/mw-invoice-move.js?v=20261106a"></script>
 <script>
 (function () {
     'use strict';
