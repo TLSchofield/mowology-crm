@@ -215,10 +215,12 @@ function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capT
     if ($mathFails) $missing = array_merge($missing, ['total', 'subtotal', 'gst', 'pst']);
     // Strong read mode (vendor the cheap read keeps getting wrong): an unprinted GST is worth asking about too.
     if (($ctx['read_mode'] ?? '') === 'strong' && in_array('gst_unknown', $reasons, true)) $missing[] = 'gst';
-    // A guessed GST on a receipt that prints its taxes (Lordco's stacked "Goods / GST / PST Total", 2026-11-06): the
-    // rules could not pair the amounts, so the guess must not stand — ask for what is printed under each label.
+    // A guessed GST on a receipt that prints a PST line the rules did not read (Lordco's stacked "Goods / GST / PST
+    // Total", 2026-11-06): the 5% guess assumes GST only, so it is certainly wrong there — ask for what is printed under
+    // each label. Only then: a guessed GST alone still costs no AI call outside strong mode (ReceiptReadModeTest).
     $guessedPrintedTax = in_array('gst_unknown', $reasons, true) && !empty($parsed['gst_estimated'])
-        && function_exists('receiptPrintsNoTax') && !receiptPrintsNoTax(preg_split('/\R/', $text));
+        && (float)($parsed['pst'] ?? 0) == 0.0
+        && preg_match('/\b(?:P\.?S\.?T|RST|QST)\b/i', $text) === 1;
     if ($guessedPrintedTax) $missing = array_merge($missing, ['subtotal', 'gst', 'pst']);
     if (!$missing || ($transport === null && !receiptLlmEnabled())) return $ctx;
 
