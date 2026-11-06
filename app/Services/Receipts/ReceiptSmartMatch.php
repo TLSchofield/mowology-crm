@@ -367,7 +367,14 @@ function kbResolveVendorFromOcr(string $ocrLower, array $ocrPhones, PDO $db): ?a
         $s->execute([$localId]);
         $v = $s->fetch(PDO::FETCH_ASSOC);
         if (!$v) return null;
-        $by = $identity['gst_number'] ? 'GST number' : ($identity['phone_digits'] ? 'phone' : 'web domain');
+        // A GST number is the business itself; a phone or web domain is believed only when the paper also names the
+        // vendor (a wrongly learned phone sent every Lordco receipt to Costco, 2026-11-06). Else local matching decides.
+        $byGst = $identity['gst_number'] && !empty($kbv['gst_number']) && $kbv['gst_number'] === $identity['gst_number'];
+        if (!$byGst && !VendorIdentity::namedOnPaper($ocrLower, (string)$v['name'], $v['aliases'] ?? null)
+            && !VendorIdentity::namedOnPaper($ocrLower, (string)($kbv['display_name'] ?? ''))) {
+            return null;
+        }
+        $by = $byGst ? 'GST number' : ($identity['phone_digits'] ? 'phone' : 'web domain');
         return array_merge($v, ['confidence' => 95, 'reason' => 'Commons match by ' . $by . ': ' . $v['name'], 'kb_vendor_id' => (int)$kbv['id']]);
     } catch (Throwable $e) {
         error_log('kbResolveVendorFromOcr: ' . $e->getMessage());

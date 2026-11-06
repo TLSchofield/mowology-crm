@@ -72,6 +72,27 @@ final class VendorIdentity
         return (bool)preg_match('/(?<![\p{L}\p{N}])' . preg_quote($a, '/') . '(?![\p{L}\p{N}])/iu', $text);
     }
 
+    /**
+     * Pure: does the receipt print this vendor's name or one of its usable aliases (whole words)? The test before a phone,
+     * web domain or GST number read from the paper is believed to be THIS vendor's: Lordco's phone and lordco.com were
+     * learned under "Costco" from a Lordco receipt saved as Costco, and then matched every Lordco receipt to Costco
+     * (2026-11-06, #538).
+     */
+    public static function namedOnPaper(string $text, string $name, ?string $aliases = null): bool
+    {
+        $names = array_merge([$name], $aliases !== null && $aliases !== '' ? array_map('trim', explode(',', $aliases)) : []);
+        foreach ($names as $n) {
+            if ($n === '') continue;
+            if (self::usableAlias($n) && self::textHas($text, $n)) return true;
+            // Or its first real word: the landfill's paper prints "CITY OF / VANCOUVER", not the whole vendor name
+            // "City of Vancouver Vancouver Landfill" — measured on 242 approved receipts, 29 such matches were right.
+            $words = preg_split('/[^\p{L}\p{N}&]+/u', mb_strtolower($n), -1, PREG_SPLIT_NO_EMPTY);
+            $words = array_values(array_filter($words, static fn($w) => !in_array($w, ['the', 'a', 'an', 'le', 'la', 'les'], true)));
+            if ($words && mb_strlen($words[0]) >= 3 && self::textHas($text, $words[0])) return true;
+        }
+        return false;
+    }
+
     /** Last 10 digits of a North American number; null when there aren't 10. */
     public static function phoneDigits(?string $phone): ?string
     {
