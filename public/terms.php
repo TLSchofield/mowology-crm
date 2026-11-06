@@ -2,11 +2,12 @@
 declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
-// DRAFT — not legal advice. Bracketed items [LIKE THIS] must be settled with a lawyer
-// before the sign-in gate is switched on (see migration 1381: the gate stays off until a
-// terms_versions row is activated). TERMS_VERSION must match that row's version.
-const TERMS_VERSION   = '2026-10-25-draft';
-const TERMS_EFFECTIVE = 'DRAFT — [effective date]';
+// Not reviewed by a lawyer. The bracketed choices of the 2026-10-25 draft were settled on 2026-11-06 with
+// the draft's own suggestions (Tim: Mowology Lawns & Landscapes Ltd is the party for now) so the page can be
+// the Intuit app listing's end-user licence agreement. The sign-in gate stays off until a terms_versions row
+// is activated (migration 1381); TERMS_VERSION must match that row's version.
+const TERMS_VERSION   = '2026-11-06';
+const TERMS_EFFECTIVE = 'November 6, 2026';
 
 $pageTitle       = 'Terms of Service | Ittai';
 $pageDescription = 'The terms that apply when your business uses Ittai.';
@@ -52,7 +53,7 @@ $extraHead       = '<link rel="stylesheet" href="/assets/css/pages/terms.css">';
     <main>
         <section class="terms-section" id="agreement">
             <h2>1. The agreement</h2>
-            <p>These terms are between <strong>[Ittai legal entity name]</strong> (&ldquo;Ittai&rdquo;, &ldquo;we&rdquo;) and the business that signs up (&ldquo;you&rdquo;). By signing in after we ask you to accept them, or by using Ittai, you agree to them on behalf of your business and confirm you have authority to do so.</p>
+            <p>These terms are between <strong>Mowology Lawns &amp; Landscapes Ltd</strong>, which operates Ittai (&ldquo;Ittai&rdquo;, &ldquo;we&rdquo;), and the business that signs up (&ldquo;you&rdquo;). By signing in after we ask you to accept them, or by using Ittai, you agree to them on behalf of your business and confirm you have authority to do so.</p>
             <p>Some features have short add-on terms (payments, accounting, messaging). Where an add-on conflicts with these terms for that feature, the add-on wins.</p>
         </section>
 
@@ -107,7 +108,7 @@ $extraHead       = '<link rel="stylesheet" href="/assets/css/pages/terms.css">';
 
         <section class="terms-section" id="third-parties">
             <h2>9. Third-party services</h2>
-            <p>Ittai connects to services we do not control, such as payment processors, accounting software, mapping, email and phone carriers. Their own terms apply, we are not responsible for their availability or conduct, and you are responsible for the accounts you connect.</p>
+            <p>Ittai connects to services we do not control, such as payment processors, accounting software, mapping, email and phone carriers. Their own terms apply, we are not responsible for their availability or conduct, and you are responsible for the accounts you connect. You can disconnect a connected service at any time; how we handle data from connected services, including QuickBooks Online, is in our <a href="/ittai-privacy.php">privacy policy</a>.</p>
         </section>
 
         <section class="terms-section" id="beta">
@@ -122,7 +123,7 @@ $extraHead       = '<link rel="stylesheet" href="/assets/css/pages/terms.css">';
 
         <section class="terms-section" id="liability">
             <h2>12. Limit of liability</h2>
-            <p>To the fullest extent the law allows, we are not liable for indirect, incidental, special or consequential losses, or for lost profits, revenue, data or goodwill. Our total liability for all claims relating to Ittai is limited to <strong>[the greater of $100 or the fees you paid us in the 12 months before the claim &mdash; confirm with counsel]</strong>. Nothing here limits liability that the law does not allow to be limited.</p>
+            <p>To the fullest extent the law allows, we are not liable for indirect, incidental, special or consequential losses, or for lost profits, revenue, data or goodwill. Our total liability for all claims relating to Ittai is limited to the greater of $100 or the fees you paid us in the 12 months before the claim. Nothing here limits liability that the law does not allow to be limited.</p>
         </section>
 
         <section class="terms-section" id="indemnity">
@@ -132,7 +133,7 @@ $extraHead       = '<link rel="stylesheet" href="/assets/css/pages/terms.css">';
 
         <section class="terms-section" id="ending">
             <h2>14. Ending the service</h2>
-            <p>You can cancel at any time from your account or by contacting us; cancelling does not cancel amounts already owing. We may suspend or end access for non-payment, breach of these terms, legal requirement, or risk to the service. After ending, you will have <strong>[30] days</strong> to export your data; after that we may delete it, subject to legal retention duties. Sections that by their nature should survive (fees owing, disclaimers, liability, indemnity, governing law) do.</p>
+            <p>You can cancel at any time from your account or by contacting us; cancelling does not cancel amounts already owing. We may suspend or end access for non-payment, breach of these terms, legal requirement, or risk to the service. After ending, you will have 30 days to export your data; after that we may delete it, subject to legal retention duties. Sections that by their nature should survive (fees owing, disclaimers, liability, indemnity, governing law) do.</p>
         </section>
 
         <section class="terms-section" id="changes">
@@ -142,13 +143,13 @@ $extraHead       = '<link rel="stylesheet" href="/assets/css/pages/terms.css">';
 
         <section class="terms-section" id="law">
             <h2>16. Governing law</h2>
-            <p>These terms are governed by the laws of <strong>[British Columbia and the federal laws of Canada]</strong>. Disputes will be handled in <strong>[the courts of British Columbia / binding arbitration &mdash; counsel to decide]</strong>. Each side tries first to resolve a dispute informally for 60 days after written notice.</p>
+            <p>These terms are governed by the laws of British Columbia and the federal laws of Canada that apply there. Disputes will be handled in the courts of British Columbia. Each side tries first to resolve a dispute informally for 60 days after written notice.</p>
         </section>
 
         <section class="terms-section" id="contact">
             <h2>17. Contact</h2>
             <div class="terms-contact-card">
-                <strong>[Ittai legal entity name]</strong><br>
+                <strong>Mowology Lawns &amp; Landscapes Ltd</strong> (Ittai)<br>
                 <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
                 <a href="tel:7788469273">(778) 846-9273</a>
             </div>
