@@ -21,6 +21,9 @@ struct ItMeniscusItem: Identifiable {
     /// What the bead shows while this tab is selected, when a tap on it does something (Receipts: a camera;
     /// tapping the bead again takes the photo — Tim, 2026-11-05). nil = the tab's own icon.
     var beadIcon: Image? = nil
+    /// Instead of a second icon, the tab's own icon turns into the action by this many degrees (Add: + turns
+    /// into ×). It spins in: two turns clockwise, then a slow turn back to lock (Tim, 2026-11-06).
+    var beadTurn: Double? = nil
     /// Spoken name of that action ("Snap a receipt"), used for the selected tab instead of its title.
     var beadLabel: String? = nil
     /// What a long press does, spoken as a VoiceOver action ("Add a job"). nil = no long press.
@@ -49,7 +52,7 @@ struct ItMeniscusBar: View {
     var body: some View {
         ItMeniscusBarBody(items: items, selected: selected, position: position, style: style, onSelect: { index in
             if index == selected { onReselect?(index) } else { selected = index }
-        }, onLongPress: onLongPress)
+        }, onLongPress: onLongPress, reduceMotion: reduceMotion)
         .frame(height: ItMeniscusGeometry.rise + Self.barHeight)
         // The surface carries on under the home indicator. A fixed-height fill cannot grow into the safe area
         // (1.3.67 on Tim's iPhone showed the page through the home-indicator strip), so the fill is flexible:
@@ -79,6 +82,7 @@ private struct ItMeniscusBarBody: View, Animatable {
     let style: ItAppStyle
     let onSelect: (Int) -> Void
     let onLongPress: ((Int) -> Void)?
+    var reduceMotion = false
     /// The slot a long press just fired on: that slot's own tap, which follows the release, is dropped.
     @State private var longPressed: (id: Int, at: Date)?
 
@@ -171,13 +175,30 @@ private struct ItMeniscusBarBody: View, Animatable {
                     .frame(width: ItMeniscusGeometry.bead, height: ItMeniscusGeometry.bead)
                     .overlay {
                         if items.indices.contains(under) {
-                            // Settled on the selected tab, a tab with an action shows it (Receipts: the camera).
-                            ((settled && items[under].id == selected ? items[under].beadIcon : nil) ?? items[under].icon)
-                                .renderingMode(.template)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 24 * items[under].iconScale, height: 24 * items[under].iconScale)
-                                .foregroundStyle(style.onTenant)
+                            // Landing on the selected tab, a tab with an action turns into it (Receipts: the camera).
+                            // The two cross-fade over the last third of the slide instead of swapping when it lands
+                            // (Tim, 2026-11-06: "Receipts icon to camera jump"); `settle` comes from the animated
+                            // position, so it follows the spring. No `.animation` here: inside
+                            // this per-frame body it left the icon behind at the slot the bead came from.
+                            let item = items[under]
+                            if let turn = item.beadTurn {
+                                ItBeadSpin(open: settled && item.id == selected, turn: turn, reduceMotion: reduceMotion) {
+                                    beadGlyph(item.icon, scale: item.iconScale)
+                                }
+                            } else {
+                            let action = item.id == selected ? item.beadIcon : nil
+                            let settle = action == nil ? 0 : min(1, max(0, 1 - abs(position - CGFloat(selected)) / 0.33))
+                            ZStack {
+                                beadGlyph(item.icon, scale: item.iconScale)
+                                    .opacity(1 - settle)
+                                    .scaleEffect(1 - 0.35 * settle)
+                                // Always drawn (hidden when there is no action): inserted conditionally inside
+                                // this per-frame body it never appeared (simulator, 2026-11-06).
+                                beadGlyph(action ?? item.icon, scale: item.iconScale)
+                                    .opacity(settle)
+                                    .scaleEffect(0.65 + 0.35 * settle)
+                            }
+                            }
                         }
                     }
                     .offset(x: cx - ItMeniscusGeometry.bead / 2, y: 0)
@@ -187,6 +208,48 @@ private struct ItMeniscusBarBody: View, Animatable {
                     .onTapGesture { if settled, items.indices.contains(selected) { onSelect(items[selected].id) } }
                     .allowsHitTesting(settled)
                     .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+private extension ItMeniscusBarBody {
+    func beadGlyph(_ image: Image, scale: CGFloat) -> some View {
+        image
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 24 * scale, height: 24 * scale)
+            .foregroundStyle(style.onTenant)
+    }
+}
+
+/// The bead icon that turns into its action once the bead has landed: fast clockwise spins, then a slow turn back
+/// that locks it in place. Closing unwinds it. The resting angle is `open ? turn : 0`; the keyframes add an offset
+/// that ends on a whole number of turns, so nothing jumps when the animator lets go.
+private struct ItBeadSpin<Content: View>: View {
+    let open: Bool
+    let turn: Double
+    let reduceMotion: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        let rest = open ? turn : 0
+        if reduceMotion {
+            content.rotationEffect(.degrees(rest))
+        } else {
+            content.keyframeAnimator(initialValue: 0.0, trigger: open) { view, offset in
+                view.rotationEffect(.degrees(rest + offset))
+            } keyframes: { _ in
+                if open {
+                    // From the + (−turn), past the × by 30° after two turns, then slowly back onto it.
+                    CubicKeyframe(-turn, duration: 0.01)
+                    CubicKeyframe(720 + 30, duration: 0.6)
+                    SpringKeyframe(720, duration: 0.55, spring: .init(response: 0.55, dampingRatio: 0.9))
+                } else {
+                    CubicKeyframe(turn, duration: 0.01)
+                    CubicKeyframe(0, duration: 0.25)
+                }
             }
         }
     }
