@@ -844,3 +844,10 @@ bottle-deposit items the reader names "Deposit" on four Chevron receipts; treati
 dropped a taxi's fare line ("Amount 21.75"). **Signature:** a replay where a change fixes many receipts and quietly
 breaks a few. **Rule:** every reader change is replayed on the stored receipts (gains AND breaks) before it ships;
 labels match only with their colon (`Deposit:`), and a heading word is dropped only when it can't be an item name.
+
+### 2026-11-06 — The AI read the items right and was thrown away: the gate's subtotal was the rules' misread
+Backtest of the line-item AI step on 21 receipts whose items don't add up: on 6 of the 12 rejections the AI's items summed
+exactly to the amount Tim approved (Shell #518 36.99, Vital Auto #384 1,528.30, London Drugs #382 581.48…), but
+`validateLlmLineItems()` compares them with `parseReceiptText()`'s subtotal, which was wrong (35.23, 1.52, 610.55). Chevron
+fails by exactly its bottle deposits (excluded by the prompt, included in the printed subtotal). Sending the photo changed
+no verdict. **Rule:** before blaming the reader for a `sum_mismatch`, check the reference subtotal against the printed one.
