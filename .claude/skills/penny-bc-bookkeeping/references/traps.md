@@ -858,3 +858,10 @@ The parser guessed "5% GST inside the total" for any receipt with no GST line: T
 GST, and approved entry #63 claims $2.38 GST on a $50 ticket. Landfill tipping fees carry no GST. **Rule:** a receipt that
 names no tax anywhere charged none (`receiptPrintsNoTax()`); the 5% guess runs only when the receipt names a tax.
 
+
+## 2026-11-06 — day/month order: a Home Depot 12/02/25 read as 2 December
+`extractDate()` assumed month first for any a/b/yy with both ≤ 12. Home Depot (Canada) prints day first (26/02/26,
+19/02/26); receipt #535 "12/02/25" was 12 Feb 2025, and #260 "06/05/25" (6 May) had been approved as 5 June.
+**Rule now:** `receiptDateOrder()` takes the order from any other real date on the receipt (a return-by date with a
+13–31; product codes like 10-20-10 never vote); else the vendor's learned `date_order` lesson; else month first. An
+approved date teaches the vendor's order only when the person changed it — keeping the reader's guess is not proof.
