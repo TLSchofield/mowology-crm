@@ -518,7 +518,7 @@ function receiptHeaderAmountLabelled(string $field, string $amount, string $ocrT
     if (!receiptAmountPrintedInText($amount, $ocrText)) return false;
     $labels = [
         'total'    => '/(?<!SUB)(?<!SUB-)TOTAL|AMOUNT\s*DUE|BALANCE\s*DUE|AMOUNT\s*CHARGED|CHARGED/i',
-        'subtotal' => '/SUB[\s-]*TOTAL|MERCHANDISE|FUEL\s*SALES?|NET\s*(AMOUNT|SALES?)/i',
+        'subtotal' => '/SUB[\s-]*TOTAL|MERCHANDISE|FUEL\s*SALES?|NET\s*(AMOUNT|SALES?)|GOODS\s*TOTAL/i',
         'gst'      => '/\b(GST|HST|TAX)\b|G\.S\.T/i',
         'pst'      => '/\b(PST|RST|QST)\b|P\.S\.T/i',
     ];

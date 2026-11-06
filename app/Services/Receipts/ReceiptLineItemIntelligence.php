@@ -215,6 +215,11 @@ function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capT
     if ($mathFails) $missing = array_merge($missing, ['total', 'subtotal', 'gst', 'pst']);
     // Strong read mode (vendor the cheap read keeps getting wrong): an unprinted GST is worth asking about too.
     if (($ctx['read_mode'] ?? '') === 'strong' && in_array('gst_unknown', $reasons, true)) $missing[] = 'gst';
+    // A guessed GST on a receipt that prints its taxes (Lordco's stacked "Goods / GST / PST Total", 2026-11-06): the
+    // rules could not pair the amounts, so the guess must not stand — ask for what is printed under each label.
+    $guessedPrintedTax = in_array('gst_unknown', $reasons, true) && !empty($parsed['gst_estimated'])
+        && function_exists('receiptPrintsNoTax') && !receiptPrintsNoTax(preg_split('/\R/', $text));
+    if ($guessedPrintedTax) $missing = array_merge($missing, ['subtotal', 'gst', 'pst']);
     if (!$missing || ($transport === null && !receiptLlmEnabled())) return $ctx;
 
     try {
@@ -234,6 +239,8 @@ function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capT
     foreach ($llm['fields'] as $f => $v) {
         $isEmpty = $f === 'date' ? empty($parsed['date']) : !isset($parsed[$f]) || $parsed[$f] === '' || $parsed[$f] === null;
         if ($f === 'gst' && !empty($parsed['gst_estimated'])) $isEmpty = true;      // an estimate is not a printed value
+        if ($guessedPrintedTax && $f === 'subtotal' && !empty($parsed['subtotal_derived'])) $isEmpty = true;   // derived from the guess
+        if ($guessedPrintedTax && $f === 'pst' && (float)($parsed['pst'] ?? 0) == 0.0) $isEmpty = true;
         if (!$isEmpty) continue;                       // never overwrite a value the rules read
         $next[$f] = $v;
         $merged[] = $f;
@@ -252,6 +259,12 @@ function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capT
         }
     }
     if (!$merged) return $ctx;
+    // The printed taxes must add up to the total, or the guess stays (it was at least consistent).
+    if ($guessedPrintedTax && !$mathFails && in_array('math_fails', $check(array_diff_key($next, ['gst_estimated' => 1, 'subtotal_derived' => 1])), true)) {
+        $parsed['header_llm_rejected'] = 'printed_tax_sum';
+        $ctx['parsed'] = $parsed;
+        return $ctx;
+    }
     if (in_array('total', $merged, true)) unset($next['total_derived']);
     if (in_array('subtotal', $merged, true)) unset($next['subtotal_derived']);
     if (in_array('gst', $merged, true)) { $next['gst_estimated'] = false; $next['gst_source'] = 'printed'; }
@@ -259,5 +272,9 @@ function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capT
     $next['header_llm_fields'] = array_values(array_unique($merged));
     $next['header_flags']      = $check($next);
     $ctx['parsed'] = $next;
+    // The subtotal the line items were held against was the guess: with the printed one, give the items one more read.
+    if (in_array('subtotal', $merged, true) && lineItemsNeedBetterExtraction($next) && isset($ctx['ocr_text'])) {
+        $ctx = enhanceLineItemExtraction($ctx);
+    }
     return $ctx;
 }
