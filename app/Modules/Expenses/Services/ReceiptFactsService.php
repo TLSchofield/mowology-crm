@@ -195,6 +195,26 @@ class ReceiptFactsService
                 }
             }
         }
+        // The label alone and its number further down: a photo read in two columns puts the left column's lines first
+        // (City of Vancouver landfill #142, 2026-11-06: "Ticket #:", then Truck ID, plates, count, then "43198823").
+        // Only a long number (6–12 digits) alone on a line within the next 10 lines, so a count or a plate never passes.
+        // Swept 2026-11-06: 14 landfill tickets and one Nutrien invoice gained their number.
+        if ($out['doc_number'] === null) {
+            // Not 'transaction': McDonald's prints a terminal id (8080008000) under that label that repeats every visit.
+            foreach (['ticket', 'invoice'] as $kind) {
+                $label = self::DOC_LABELS[$kind];
+                foreach ($lines as $i => $l) {
+                    if (!preg_match('/^' . $label . '[ \t]*[:#\-]?[ \t]*$/i', $l)) continue;
+                    for ($j = $i + 1; $j <= min($i + 10, count($lines) - 1); $j++) {
+                        if (preg_match('/^#?[ \t]*(\d{6,12})$/', $lines[$j], $m)) {
+                            $out['doc_number'] = $m[1];
+                            $out['doc_kind'] = $kind;
+                            break 3;
+                        }
+                    }
+                }
+            }
+        }
         // Numbered receipt pads (Lawnboy, 2026-10-11): a stamped "Nº 003", often read as "No" on
         // one line and "003" on the next. Only a line that is JUST the label (or label + number)
         // counts, so "No signature required" never does. Different numbers = two receipts.

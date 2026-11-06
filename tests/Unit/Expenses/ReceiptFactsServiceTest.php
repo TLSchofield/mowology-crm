@@ -367,4 +367,18 @@ class ReceiptFactsServiceTest extends TestCase
         $f = ReceiptFactsService::parse("CHAMPION LAWN MOWER SALES AND SERVICE 16905\nWORK DONE\n2X HEDGE TRIMMER\nSERVICED BY\nTOTAL 14789");
         $this->assertSame('16905', $f['doc_number']);
     }
+
+    public function test_a_ticket_number_read_in_the_second_column_still_belongs_to_its_label(): void
+    {
+        // Landfill #142 (2026-11-06): the same ticket as #226, but read in two columns.
+        $f = ReceiptFactsService::parse("Time In: 09:02 AM\nTime Out: 09:14 AM\nTicket #:\nTruck ID\nPF8865\nTruck Iac. Plate:\nTrailer ID:\ncount:9996\n43198823\nResidential Cash");
+        $this->assertSame('43198823', $f['doc_number']);
+        $this->assertSame('ticket', $f['doc_kind']);
+    }
+
+    public function test_a_short_number_after_a_lone_ticket_label_is_not_taken(): void
+    {
+        $f = ReceiptFactsService::parse("Ticket #:\nTruck ID\n9996\nTOTAL 12.00");
+        $this->assertNull($f['doc_number']);
+    }
 }
