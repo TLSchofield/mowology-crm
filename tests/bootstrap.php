@@ -282,6 +282,8 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieForemanServ
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/TeamCardService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieFactAnswerer.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAskService.php';
+require_once __DIR__ . '/../app/Modules/Search/Services/UniversalSearchService.php';
+require_once __DIR__ . '/../app/Modules/Search/Services/ClientFactAnswerer.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/AutomatedInvoiceInbox.php';

@@ -105,6 +105,8 @@ final class HeadCardViewModel: ObservableObject {
     // Charlie's Ask box
     @Published var question = ""
     @Published private(set) var answer: String?
+    /// Buttons under a direct answer (Open / Call / Text / Email), when Kaname answered from the records.
+    @Published private(set) var answerActions: [QuickAction] = []
     @Published private(set) var askedQuestion: String?
     @Published private(set) var isAsking = false
 
@@ -254,6 +256,7 @@ final class HeadCardViewModel: ObservableObject {
         defer { isAsking = false }
         askedQuestion = q
         answer = nil
+        answerActions = []
         do {
             let r = try await api.send(["mode": "ask", "question": q])
             if let left = r.left, let a = ask {
@@ -261,6 +264,7 @@ final class HeadCardViewModel: ObservableObject {
             }
             if r.ok, let text = r.answer, !text.isEmpty {
                 answer = text
+                answerActions = r.actions
                 question = ""
                 message = nil
             } else {

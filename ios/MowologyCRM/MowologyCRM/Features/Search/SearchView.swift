@@ -125,19 +125,25 @@ struct SearchView: View {
     @Environment(\.itAppStyle) private var appStyle
 
     @StateObject private var vm: SearchViewModel
+    /// The owner's half of the box (OwnerSearchViews.swift): answers, Ask Kaname, every group. Unused for crew.
+    @StateObject private var owner: OwnerSearchModel
     private let authSession: AuthSession
 
     init(authSession: AuthSession) {
         self.authSession = authSession
         _vm = StateObject(wrappedValue: SearchViewModel(authSession: authSession))
+        _owner = StateObject(wrappedValue: OwnerSearchModel(authSession: authSession))
     }
+
+    /// Admin/manager search everything; crew keep the fast property-only search (no prices, no money).
+    private var isOwner: Bool { authSession.user?.isAdmin == true }
 
     var body: some View {
         let _ = RenderRate.tick("SearchView")
         NavigationStack {
             List {
                 if vm.trimmedQuery.count >= 2 {
-                    resultsSection
+                    if isOwner { ownerResults } else { resultsSection }
                 } else {
                     emptyState
                 }
@@ -153,12 +159,23 @@ struct SearchView: View {
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
             .searchable(text: $vm.query,
                         placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Client, address, building, phone…")
+                        prompt: isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
-            .onChange(of: vm.query) { _, _ in vm.queryChanged() }
+            .onChange(of: vm.query) { _, _ in
+                vm.queryChanged()
+                if isOwner { owner.queryChanged(vm.trimmedQuery) }
+            }
+            .onSubmit(of: .search) {
+                if isOwner && OwnerSearchModel.looksLikeQuestion(vm.trimmedQuery) {
+                    Task { await owner.ask(vm.trimmedQuery) }
+                }
+            }
             .navigationDestination(for: SearchProperty.self) { property in
                 PropertyDetailView(summary: property, searchVM: vm, authSession: authSession)
+            }
+            .navigationDestination(for: OwnerContactRoute.self) { route in
+                OwnerContactView(route: route, apiClient: owner.apiClient, searchVM: vm, authSession: authSession)
             }
             .task { await vm.refreshNearby() }
             .refreshable { await vm.refreshNearby() }
@@ -203,6 +220,71 @@ struct SearchView: View {
                 if !vm.results.isEmpty {
                     Text("Today's stops first, then nearest to you.")
                 }
+            }
+        }
+    }
+
+    // MARK: Owner results — answer, Ask Kaname, properties (field search), then every other group
+
+    @ViewBuilder
+    private var ownerResults: some View {
+        if let answer = owner.answer {
+            Section { QuickAnswerCard(answer: answer).listRowBackground(appStyle.surface) }
+        }
+
+        if vm.trimmedQuery.count >= 3 {
+            Section { AskKanameRow(model: owner, query: vm.trimmedQuery).listRowBackground(appStyle.surface) }
+        }
+
+        if !vm.results.isEmpty {
+            Section("Properties") {
+                ForEach(vm.results) { property in
+                    NavigationLink(value: property) { SearchResultRow(property: property) }
+                        .simultaneousGesture(TapGesture().onEnded {
+                            owner.pick(query: vm.trimmedQuery, kind: "property", id: property.id)
+                        })
+                        .listRowBackground(appStyle.surface)
+                }
+            }
+        }
+
+        ForEach(owner.groups) { group in
+            Section {
+                ForEach(group.items) { item in
+                    OwnerSearchItemLink(item: item) { picked in
+                        owner.pick(query: vm.trimmedQuery, kind: picked.kind, id: picked.entityId)
+                    }
+                }
+            } header: {
+                Text(group.title)
+            } footer: {
+                if group.more { Text("More found — add a word to narrow it down.") }
+            }
+        }
+
+        if (vm.isSearching || owner.isSearching) && vm.results.isEmpty && !owner.hasResults {
+            Section {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Searching…").foregroundStyle(appStyle.meta)
+                }
+            }
+        } else if let failed = owner.failed ?? (vm.searchFailed ? vm.searchErrorDetails ?? "Property search failed without error details." : nil) {
+            Section {
+                Label(failed, systemImage: "wifi.exclamationmark")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.attention)
+            }
+        } else if vm.hasSearched && !vm.isSearching && !owner.isSearching && vm.results.isEmpty && !owner.hasResults {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Nothing found for “\(vm.trimmedQuery)”")
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                    Text("Try part of a name, a street, a phone number or a quote or invoice number — or ask Kaname above.")
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                }
+                .padding(.vertical, 4)
             }
         }
     }

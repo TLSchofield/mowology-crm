@@ -163,6 +163,7 @@
 		5D0857323E415DEF88521408 /* MiaWhen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D1DE4E3BCFD242AF2BD222 /* MiaWhen.swift */; };
 		170362DE05D7AFCF16B41C15 /* TimeChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA859B9B9B8B3298E09B786 /* TimeChip.swift */; };
 		FB151688BFE829A5370D1402 /* AddDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0408D5646F4F158965E9C16 /* AddDial.swift */; };
+		3D7C3A0816924F01062B2862 /* OwnerSearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A05855A3AAAC73B076E63E /* OwnerSearchViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -324,6 +325,7 @@
 		67D1DE4E3BCFD242AF2BD222 /* MiaWhen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiaWhen.swift; sourceTree = "<group>"; };
 		3AA859B9B9B8B3298E09B786 /* TimeChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeChip.swift; sourceTree = "<group>"; };
 		C0408D5646F4F158965E9C16 /* AddDial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddDial.swift; sourceTree = "<group>"; };
+		07A05855A3AAAC73B076E63E /* OwnerSearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnerSearchViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -595,6 +597,7 @@
 			isa = PBXGroup;
 			children = (
 				41E2CA19008E4095446DFDD3 /* SearchView.swift */,
+				07A05855A3AAAC73B076E63E /* OwnerSearchViews.swift */,
 			);
 			path = Search;
 			sourceTree = "<group>";
@@ -896,6 +899,7 @@
 				5D0857323E415DEF88521408 /* MiaWhen.swift in Sources */,
 				170362DE05D7AFCF16B41C15 /* TimeChip.swift in Sources */,
 				FB151688BFE829A5370D1402 /* AddDial.swift in Sources */,
+				3D7C3A0816924F01062B2862 /* OwnerSearchViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

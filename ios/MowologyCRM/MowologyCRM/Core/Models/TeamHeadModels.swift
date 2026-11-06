@@ -331,8 +331,10 @@ struct HeadActionResponse: Decodable {
     let source: String?
     let left: Int?
     let status: String?
+    /// Ask: the buttons under a direct answer (ClientFactAnswerer) — Open / Call / Text / Email.
+    let actions: [QuickAction]
 
-    private enum CodingKeys: String, CodingKey { case ok, message, error, answer, source, left, status }
+    private enum CodingKeys: String, CodingKey { case ok, message, error, answer, source, left, status, actions }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -343,6 +345,7 @@ struct HeadActionResponse: Decodable {
         source = c.bkString(.source)
         left = c.bkInt(.left)
         status = c.bkString(.status)
+        actions = (try? c.decodeIfPresent([QuickAction].self, forKey: .actions)) ?? []
     }
 }
 

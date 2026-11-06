@@ -230,6 +230,13 @@ enum APIEndpoint {
     case fieldSearch(query: String, lat: Double?, lng: Double?)
     case fieldSearchNearby(lat: Double, lng: Double)
     case fieldSearchProperty(id: Int, lat: Double?, lng: Double?)
+    /// GET /api/schedule/search?mode=owner&q — the owner's one box: every group they may see + a direct answer
+    /// (UniversalSearchService / ClientFactAnswerer; billing.view). Crew stay on fieldSearch.
+    case ownerSearch(query: String)
+    /// GET /api/schedule/search?mode=contact&id — a client's page: phone/email, properties, open quotes, unpaid invoices, messages.
+    case ownerSearchContact(id: Int)
+    /// POST /api/schedule/search?mode=pick {q, kind, id} — what was chosen, so it ranks first next time.
+    case ownerSearchPick
 
     /// GET /api/schedule/field-job?mode=nearby — properties near a GPS fix, with their active plans.
     case fieldJobNearby(lat: Double, lng: Double)
@@ -575,6 +582,21 @@ enum APIEndpoint {
             components?.queryItems = items
             return components?.url
 
+        case .ownerSearch(let query):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "owner"), URLQueryItem(name: "q", value: query)]
+            return components?.url
+
+        case .ownerSearchContact(let id):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "contact"), URLQueryItem(name: "id", value: "\(id)")]
+            return components?.url
+
+        case .ownerSearchPick:
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "pick")]
+            return components?.url
+
         case .fieldJobNearby(let lat, let lng):
             var components = URLComponents(string: "\(baseURLString)/schedule/field-job")
             components?.queryItems = [
@@ -725,6 +747,9 @@ enum APIEndpoint {
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
+             .ownerSearch,
+             .ownerSearchContact,
+             .ownerSearchPick,
              .scheduleInvoice,
              .pennyChase,
              .pennyChaseAction,
@@ -811,6 +836,8 @@ enum APIEndpoint {
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
+             .ownerSearch,
+             .ownerSearchContact,
              .quizQuestion: return "GET"
 
         case .quizAction,
@@ -821,6 +848,7 @@ enum APIEndpoint {
              .fieldJobAction,
              .scheduleInvoice,
              .pennyChaseAction,
+             .ownerSearchPick,
              .visitPullForward: return "POST"
 
         case .pennyChase: return "GET"
