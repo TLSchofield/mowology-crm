@@ -38,6 +38,7 @@ Not in scope: running payroll, filing GST.
 - One registered-business change, on purpose: editing a 0% invoice no longer silently re-charges 5%.
 - **Left (literal 5% that doesn't charge a non-registrant today):** MulchPricingService "GST added on top" wording, QboSyncService
   GST_RATE claim check, product-manager default gst_rate, receipt parser/anomaly reading, Jobber history.
-- **Before deploy:** render the four web screens; accept terms on rehearsal2 (terms_versions + acceptance rows); answer "not
+- **2026-11-06 DEPLOYED** (31 files; 8 built on the live copy because production was ahead — G10–G11 lines stay out until their own deploy). Walked on rehearsal2 as a rolled-back preview: web path name→terms→gst→yearend→payroll, old-app path unchanged; bad GST number refused; "not registered" → GST rate 0 and a $100 quote line totals $100; Mowology still 5%. Every deployed page answers 302/401/405, no 500. Not yet seen: the four web screens signed in (Tim), and a real accept on rehearsal2 (makes its terms row current).
+- **Before deploy (done except the signed-in look):** render the four web screens; accept terms on rehearsal2 (terms_versions + acceptance rows); answer "not
   registered" there and check a contract draft, a quote and a receipt carry no GST; Mowology records nothing.
 - **Next:** Android + iPhone screens (send `knows=terms,gst,yearend,payroll`).
