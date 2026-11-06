@@ -242,13 +242,17 @@ private struct ItBeadSpin<Content: View>: View {
                 view.rotationEffect(.degrees(rest + offset))
             } keyframes: { _ in
                 if open {
-                    // From the + (−turn), past the × by 30° after two turns, then slowly back onto it.
-                    CubicKeyframe(-turn, duration: 0.01)
-                    CubicKeyframe(720 + 30, duration: 0.6)
-                    SpringKeyframe(720, duration: 0.55, spring: .init(response: 0.55, dampingRatio: 0.9))
+                    // As if it had weight (Tim, 2026-11-06: the first cut was "jerky"): it gathers speed, coasts two
+                    // turns to a stop 20° past the ×, and only then eases back onto it. The coast ends at rest, so
+                    // the turn back starts from still instead of reversing mid-swing.
+                    MoveKeyframe(-turn)
+                    LinearKeyframe(720 + 20, duration: 1.4,
+                                   timingCurve: .bezier(startControlPoint: UnitPoint(x: 0.4, y: 0),
+                                                        endControlPoint: UnitPoint(x: 0.2, y: 1)))
+                    SpringKeyframe(720, duration: 0.8, spring: .init(duration: 0.8, bounce: 0))
                 } else {
-                    CubicKeyframe(turn, duration: 0.01)
-                    CubicKeyframe(0, duration: 0.25)
+                    MoveKeyframe(turn)
+                    LinearKeyframe(0, duration: 0.4, timingCurve: .easeInOut)
                 }
             }
         }
