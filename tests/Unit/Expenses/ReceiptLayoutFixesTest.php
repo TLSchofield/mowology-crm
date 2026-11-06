@@ -84,4 +84,52 @@ final class ReceiptLayoutFixesTest extends TestCase
         $this->assertSame('Safety Gloves', $items[0]['name']);
         $this->assertSame('12.99', $items[0]['amount']);
     }
+
+    public function testInvoiceTableReadsCurrencyPrefixTaxAndDigitsInName(): void
+    {
+        $text = "Description Qty Unit price Tax Amount\nCloud credits, Studio tier for 2 years 1 CA$1,240.00 13% CA$1,240.00\n\nSubtotal CA$1,240.00\nGST - Canada CA$62.00\nPST - Province CA$86.80\nTotal CA$1,388.80";
+        $r = parseReceiptText($text);
+
+        $this->assertSame('invoice_table', $r['line_items_source']);
+        $this->assertCount(1, $r['line_items']);
+        $this->assertSame('Cloud credits, Studio tier for 2 years', $r['line_items'][0]['name']);
+        $this->assertSame(1, $r['line_items'][0]['quantity']);
+        $this->assertSame(1240.0, $r['line_items'][0]['unit_price']);
+        $this->assertSame('1240.00', $r['line_items'][0]['amount']);
+        $this->assertSame('invoice_table', $r['line_items'][0]['name_source']);
+    }
+
+    public function testInvoiceTableReadsMultipleRowsAndStopsAtSummary(): void
+    {
+        $text = "PRODUCT QUANTITY UNIT PRICE AMT\nDomain (invented.test) Renewal for 1 year 1 US$18.50 US$18.50\nServer Plan Small (monthly) 2 C$9.99 C$19.98\nSubtotal $38.48\nTotal $43.10\nFooter Service 1 $4.62 $4.62";
+        $r = parseReceiptText($text);
+
+        $this->assertSame(['Domain (invented.test) Renewal for 1 year', 'Server Plan Small (monthly)'], array_column($r['line_items'], 'name'));
+        $this->assertSame([1, 2], array_column($r['line_items'], 'quantity'));
+        $this->assertSame([18.5, 9.99], array_column($r['line_items'], 'unit_price'));
+        $this->assertSame(['18.50', '19.98'], array_column($r['line_items'], 'amount'));
+    }
+
+    public function testInvoiceTableRequiresValidRowAndSubtotalArithmetic(): void
+    {
+        $badRow = extractInvoiceTableItems([
+            'ACTIVITY QTY UNIT PRICE TOTAL',
+            'Consulting block 3 $20.00 $70.00',
+            'Subtotal $70.00',
+        ]);
+        $this->assertSame([], $badRow);
+
+        $r = parseReceiptText("ITEM QTY UNIT PRICE AMOUNT\nNotebook pack 2 $5.00 $10.00\nSubtotal $12.00\nTotal $12.60");
+        $this->assertNotSame('invoice_table', $r['line_items_source'] ?? null);
+        $this->assertNotContains('invoice_table', array_column($r['line_items'], 'name_source'));
+    }
+
+    public function testItemsThatAlreadyAddUpAreNotReplacedByAnInvoiceTable(): void
+    {
+        $text = "DESCRIPTION QTY UNIT PRICE AMOUNT\nWidget A 1 $10.00 $10.00\nWidget B 1 $5.00 $5.00\nSubtotal $15.00\nGST $0.75\nTotal $15.75";
+        $first = parseReceiptText($text, null);
+        $this->assertEqualsWithDelta(15.00, array_sum(array_map(fn($i) => (float)($i['line_total'] ?? $i['amount']), $first['line_items'])), 0.001);
+        // Whatever pass read them, a second parse is identical: the table never swaps out items that add up.
+        $this->assertSame($first['line_items'], parseReceiptText($text, null)['line_items']);
+    }
 }

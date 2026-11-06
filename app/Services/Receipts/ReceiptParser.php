@@ -203,6 +203,18 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         }
     }
 
+    // Text-layer PDFs often preserve each invoice row on one line. Use those rows only as
+    // a repair: an existing read that already accounts for the pre-tax subtotal always wins.
+    $invoiceTableSubtotal = invoiceTableSubtotal($lines, $result);
+    if ($invoiceTableSubtotal !== null && $invoiceTableSubtotal > 0
+        && !receiptItemsAddUp($result['line_items'] ?? [], $invoiceTableSubtotal)) {
+        $invoiceTableItems = extractInvoiceTableItems($lines);
+        if (receiptItemsAddUp($invoiceTableItems, $invoiceTableSubtotal)) {
+            $result['line_items'] = $invoiceTableItems;
+            $result['line_items_source'] = 'invoice_table';
+        }
+    }
+
     // The fuel line stands in for the generic items when it accounts for the whole purchase
     // (its amount is the total, the subtotal, or the total less tax — pump prices include GST).
     if (isset($result['_fuel_item'])) {
@@ -1165,6 +1177,83 @@ function receiptItemsAddUp(array $items, float $target, float $tol = 0.05): bool
     $sum = 0.0;
     foreach ($items as $item) $sum += (float)($item['line_total'] ?? $item['amount'] ?? 0);
     return abs($sum - $target) <= $tol + 0.000000001;
+}
+
+/**
+ * Read same-line item rows from a text-layer invoice table. Pure.
+ *
+ * @param list<string> $lines
+ * @return array<int,array<string,mixed>>
+ */
+function extractInvoiceTableItems(array $lines): array
+{
+    $items = [];
+    $inTable = false;
+    $money = '(?:(?:CA|C|US)\$|\$)?\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)\.([0-9]{2})';
+
+    foreach ($lines as $rawLine) {
+        $line = trim($rawLine);
+        if ($line === '') continue;
+
+        if (!$inTable) {
+            $hasDescription = (bool)preg_match('/\b(?:DESCRIPTION|ITEMS?|ACTIVITY|PRODUCTS?)\b/i', $line);
+            $hasQuantity = (bool)preg_match('/\b(?:QTY|QUANTITY)\b/i', $line);
+            $hasAmount = (bool)preg_match('/\b(?:AMOUNT|TOTAL|AMT)\b/i', $line);
+            if ($hasDescription && $hasQuantity && $hasAmount) $inTable = true;
+            continue;
+        }
+
+        if (preg_match('/^(?:SUB\s*TOTAL|TOTAL|TAX|GST|PST)\b/i', $line)) break;
+
+        $pattern = '/^(.+?)\s+(\d+(?:\.\d+)?)\s+' . $money
+            . '(?:\s+\d+(?:\.\d+)?%)?\s+' . $money . '\s*$/i';
+        if (!preg_match($pattern, $line, $m)) continue;
+
+        $name = trim($m[1]);
+        $quantity = (float)$m[2];
+        $unitPrice = (float)str_replace(',', '', $m[3] . '.' . $m[4]);
+        $amount = (float)str_replace(',', '', $m[5] . '.' . $m[6]);
+        if ($name === '' || $quantity <= 0 || $unitPrice < 0 || $amount < 0) continue;
+        if (abs($quantity * $unitPrice - $amount) > 0.02 + 0.000000001
+            && !($quantity == 1.0 && abs($unitPrice - $amount) < 0.000000001)) {
+            continue;
+        }
+
+        $items[] = [
+            'name' => $name,
+            'amount' => number_format($amount, 2, '.', ''),
+            'line_total' => number_format($amount, 2, '.', ''),
+            'quantity' => $quantity == (int)$quantity ? (int)$quantity : $quantity,
+            'unit_price' => round($unitPrice, 2),
+            'sku_raw' => null,
+            'name_source' => 'invoice_table',
+        ];
+    }
+
+    return $items;
+}
+
+/** Printed invoice subtotal, else printed/result total less GST and PST. Pure. */
+function invoiceTableSubtotal(array $lines, array $parsed): ?float
+{
+    $printedTotal = null;
+    foreach ($lines as $rawLine) {
+        $line = trim($rawLine);
+        if (!preg_match('/^(SUB\s*TOTAL|TOTAL)\b.*?(?:(?:CA|C|US)\$|\$)?\s*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)\.([0-9]{2})\s*$/i', $line, $m)) {
+            continue;
+        }
+        $amount = (float)str_replace(',', '', $m[2] . '.' . $m[3]);
+        if (preg_match('/^SUB\s*TOTAL\b/i', $line)) return $amount;
+        if ($printedTotal === null) $printedTotal = $amount;
+    }
+
+    $total = $printedTotal;
+    if ($total === null && isset($parsed['total']) && is_numeric($parsed['total'])) {
+        $total = (float)$parsed['total'];
+    }
+    if ($total === null) return null;
+
+    return $total - (float)($parsed['gst'] ?? 0) - (float)($parsed['pst'] ?? 0);
 }
 
 /**
