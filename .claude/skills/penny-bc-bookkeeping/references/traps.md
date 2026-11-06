@@ -851,3 +851,9 @@ exactly to the amount Tim approved (Shell #518 36.99, Vital Auto #384 1,528.30, 
 `validateLlmLineItems()` compares them with `parseReceiptText()`'s subtotal, which was wrong (35.23, 1.52, 610.55). Chevron
 fails by exactly its bottle deposits (excluded by the prompt, included in the printed subtotal). Sending the photo changed
 no verdict. **Rule:** before blaming the reader for a `sum_mismatch`, check the reference subtotal against the printed one.
+
+### 2026-11-06 — GST invented on GST-free receipts (City of Vancouver landfill)
+The parser guessed "5% GST inside the total" for any receipt with no GST line: Tim's $41.00 landfill ticket read $39.05 + $1.95
+GST, and approved entry #63 claims $2.38 GST on a $50 ticket. Landfill tipping fees carry no GST. **Rule:** a receipt that
+names no tax anywhere charged none (`receiptPrintsNoTax()`); the 5% guess runs only when the receipt names a tax.
+
