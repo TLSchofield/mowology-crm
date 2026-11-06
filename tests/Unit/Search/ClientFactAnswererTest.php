@@ -28,7 +28,8 @@ final class ClientFactAnswererTest extends TestCase
         $answer=(new ClientFactAnswerer($db,'2026-11-06'))->answer("Has Linda's quote been sent?",static function(string $p):bool{return true;});
         self::assertNotNull($answer);self::assertSame('quote_sent',$answer['intent']);
         self::assertStringContainsString('opened 3×',$answer['answer']);
-        self::assertSame(['open','call','text','email'],array_column($answer['actions'],'kind'));
+        self::assertSame(['open','call','text','email','text','email'],array_column($answer['actions'],'kind'));
+        self::assertSame(['Open quote','Call','Text','Email','Nudge by text','Nudge by email'],array_column($answer['actions'],'label'));
     }
 
     public function test_ambiguous_person_and_unknown_intent_return_null(): void
