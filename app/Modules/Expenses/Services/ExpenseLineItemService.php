@@ -152,9 +152,22 @@ class ExpenseLineItemService
         // A product picked from the vendor's list for a receipt whose items weren't read (Tim 2026-11-06: "a search
         // with pick from list"): the line takes what is still unaccounted for — the receipt's subtotal less the lines
         // already on it — and the quantity that price implies (2 yards of a $40 mulch on an $80 Lawnboy receipt).
+        $opts = [];
         if (!empty($input['fill_remainder']) && (!isset($input['line_total']) || $input['line_total'] === '' || $input['line_total'] === null)) {
             $fill = self::remainderLine($this->subtotalOf($expenseId), $this->linesSum($expenseId), $unitPrice);
-            if ($fill !== null) { $qty = $fill['quantity']; $lineTotal = $fill['line_total']; }
+            // Nothing left (another screen filled it): refuse rather than add a line past the subtotal (Codex review 2026-11-06).
+            if ($fill === null) throw new Exception('The items already add up to this receipt — nothing left to fill. Reopen it to see the latest.');
+            $qty = $fill['quantity']; $lineTotal = $fill['line_total'];
+            // Re-checked on the locked receipt inside the gate's transaction, so two picks at once can't both take it.
+            $opts['locked_if'] = static function (array $snap) use ($unitPrice, $lineTotal): bool {
+                $e = $snap['expense'] ?? [];
+                $sub = (float)($e['amount'] ?? 0) > 0 ? (float)$e['amount']
+                     : round((float)($e['total'] ?? 0) - (float)($e['gst_amount'] ?? 0) - (float)($e['pst_amount'] ?? 0), 2);
+                $sum = 0.0;
+                foreach ((array)($snap['lines'] ?? []) as $l) $sum += (float)($l['line_total'] ?? 0);
+                $now = self::remainderLine($sub > 0 ? $sub : null, $sum, $unitPrice);
+                return $now !== null && abs($now['line_total'] - $lineTotal) < 0.005;
+            };
         }
         $skuRaw    = isset($input['sku_raw']) && trim((string)$input['sku_raw']) !== '' ? mb_substr(trim((string)$input['sku_raw']), 0, 64) : null;
 
@@ -163,7 +176,8 @@ class ExpenseLineItemService
         $res = $this->gate()->apply($expenseId, ['line_item' => [
             'op' => 'add', 'name' => $name, 'quantity' => $qty, 'unit_price' => $unitPrice, 'line_total' => $lineTotal,
             'product_id' => $productId, 'sku_raw' => $skuRaw,
-        ]], $this->actor, $this->source);
+        ]], $this->actor, $this->source, $opts);
+        if (!empty($res['noop']) && $opts) throw new Exception('This receipt changed while you were picking — reopen it to see the latest.');
         return $this->fetchJoined((int)($res['line_item_id'] ?? 0));
     }
 

@@ -68,7 +68,10 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(10.0, ExpenseGate::withDerivedSubtotal([], ['total' => 10.5, 'gst_amount' => 0.5, 'amount' => 10.0], true)['amount'], 'a read subtotal is kept');
         $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal(['total' => 12.36, 'amount' => 0], ['notes' => 'x'], false), 'a non-money edit leaves it');
         $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal([], ['total' => 1.0, 'gst_amount' => 1.0], true), 'never zero or negative');
-        $this->assertSame(9.0, ExpenseGate::withDerivedSubtotal(['total' => 9.0, 'amount' => 0.0, 'gst_amount' => 0.0], ['gst_amount' => 0.0], false)['amount'], 'no tax: subtotal = total');
+        $this->assertSame(9.0, ExpenseGate::withDerivedSubtotal(['status' => 'draft', 'total' => 9.0, 'amount' => 0.0, 'gst_amount' => 0.0], ['gst_amount' => 0.0], false)['amount'], 'no tax: subtotal = total');
+        // Codex review 2026-11-06: an explicit 0 stands, and a posted receipt's books never move by this.
+        $this->assertSame(0.0, ExpenseGate::withDerivedSubtotal(['status' => 'draft', 'total' => 105.0, 'gst_amount' => 5.0], ['amount' => 0.0, 'total' => 105.0], false)['amount'], 'explicit 0 kept');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal(['status' => 'approved', 'total' => 105.0, 'amount' => 0.0, 'gst_amount' => 5.0], ['total' => 105.0], false), 'posted: never derived');
 
         // Through the gate: a capture with a total and taxes but no subtotal is saved with one.
         $res = $this->gate->apply(null, ExpenseGate::rowFromInput([

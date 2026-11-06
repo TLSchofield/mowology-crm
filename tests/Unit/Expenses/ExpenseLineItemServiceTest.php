@@ -167,4 +167,21 @@ class ExpenseLineItemServiceTest extends TestCase
         try { $svc->add(1, ['name' => 'Mulch', 'unit_price' => 40, 'line_total' => 40, 'fill_remainder' => true]); } catch (Throwable $e) {}
         $this->assertSame(40.0, $gate->calls[2]['changes']['line_item']['line_total'], 'a typed total wins');
     }
+
+    public function test_fill_remainder_refuses_when_nothing_is_left_and_rechecks_on_the_locked_receipt(): void
+    {
+        $db = ExpenseGateTestDb::make();
+        $db->exec("INSERT INTO expenses (id, expense_date, amount, gst_amount, pst_amount, total, status) VALUES (1, '2026-10-21', 80, 4, 0, 84, 'draft')");
+        $gate = new ExpenseGateSpy();
+        $svc = (new ExpenseLineItemService($db, $gate))->by(['id' => 6, 'kind' => 'user'], 'desktop_line');
+        try { $svc->add(1, ['name' => 'Mulch', 'unit_price' => 40, 'fill_remainder' => true]); } catch (Throwable $e) {}
+        $check = $gate->calls[0]['opts']['locked_if'];
+        $snap = ['expense' => ['amount' => 80, 'total' => 84, 'gst_amount' => 4, 'pst_amount' => 0], 'lines' => []];
+        $this->assertTrue($check($snap));
+        $this->assertFalse($check(['lines' => [['line_total' => 80]]] + $snap), 'another pick filled it meanwhile');
+
+        $db->exec("INSERT INTO expense_line_items (expense_id, name, line_total, sort_order) VALUES (1, 'Mulch', 80, 0)");
+        $this->expectExceptionMessage('nothing left to fill');
+        $svc->add(1, ['name' => 'Mulch', 'unit_price' => 40, 'fill_remainder' => true]);
+    }
 }
