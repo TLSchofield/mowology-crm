@@ -637,7 +637,11 @@ struct ReceiptsView: View {
         let target = scale < 1.0
             ? CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
             : size
-        let renderer = UIGraphicsImageRenderer(size: target)
+        // Scale 1: the default format draws at the screen's scale (3× on an iPhone), so a "1920" photo went up as
+        // 5760 px squeezed under 1.5 MB — harder JPEG compression, softer print for the reader (2026-11-06, #533).
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
         let resized  = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
         // Try 78% first (Capacitor default), fall back if still over 1.5 MB
         if let d = resized.jpegData(compressionQuality: 0.78), d.count <= 1_500_000 { return d }

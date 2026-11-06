@@ -201,12 +201,15 @@ private struct ItMeniscusBarBody: View, Animatable {
                             }
                         }
                     }
-                    .offset(x: cx - ItMeniscusGeometry.bead / 2, y: 0)
                     // The bead itself is a target: tapping it is tapping its tab (the slot button carries the
-                    // accessibility label, so the bead stays hidden from VoiceOver).
+                    // accessibility label, so the bead stays hidden from VoiceOver). Shape and tap come BEFORE the
+                    // offset: `.offset` moves the drawing, not the layout frame, so a shape set after it stayed at the
+                    // bar's left edge and a tap on the bead's raised half fell through to the row behind (Tim's iPhone,
+                    // 2026-11-06: Receipts' camera bead opened Penny's "No receipt" sheet).
                     .contentShape(Circle())
                     .onTapGesture { if settled, items.indices.contains(selected) { onSelect(items[selected].id) } }
                     .allowsHitTesting(settled)
+                    .offset(x: cx - ItMeniscusGeometry.bead / 2, y: 0)
                     .accessibilityHidden(true)
             }
         }
