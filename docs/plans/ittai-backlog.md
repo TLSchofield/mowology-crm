@@ -75,6 +75,23 @@ Sam's part (original):
   - site_id on the mail_tidy tables;
   - a settings page with the "Is work" buttons on Yui's inbox card and in the tidy preview.
 
+## Receipt reading — what the outside world does better (research 2026-11-06)
+Sources: open-source (Donut, LayoutLMv3/LiLT, PaddleOCR, docTR, invoice2data) and commercial (Dext, Hubdoc, AutoEntry,
+Veryfi, Taggun, Mindee, Azure Document Intelligence, AWS Textract AnalyzeExpense). Checked against our code the same day.
+1. **Bake-off first:** ~100 stored receipts (gas station, supplier, scanned PDF, invoice table) through AWS Textract
+   AnalyzeExpense and/or Azure prebuilt-receipt (~$8–10 per 1,000 pages, so ~$1.50/month at our volume; Veryfi has
+   100 free/month), scored per field against owner-approved data with the existing parser scorecard. Decides buy vs build
+   for line items. Unknown: whether either splits BC GST from PST. Needs Tim to open an AWS or Azure account (keys in
+   secrets.php). Crop client names before sending.
+2. **AI step sees the photo:** `extractLineItemsWithLlm()` sends OCR text only. Send the cropped image too, keep the
+   "items must add up / be printed" checks. Fixes column-split and invoice-table receipts where the text order is the fault.
+3. **Column-aware rows for the Vision read:** cluster word x-positions into a name column and a price column, pair by y.
+   Also: `reconstructLinesFromVisionResponse()` joins with one space, which `extractLineItems()` does not read as an item
+   (the phone-box builder uses two). Coordinate with the receipt-layout work in ReceiptParser.php.
+4. Not gaps (already here): per-vendor learned layouts (`ReceiptLearning`), per-field confidence, Penny's per-vendor
+   autonomy. Low value: supplier-portal fetch (Dext Fetch, reviewed as weak); self-hosted models (need Python + GPU).
+   Shared: which API wins per receipt type. Private: the receipts themselves.
+
 ## Receipts as the way in (Penny) — council 2026-10-12
 - A free or cheap receipts-only entry tier *inside* Ittai, not a separate app. The upgrade moment is
   "put this receipt on a job" or "bill this cost".
