@@ -168,4 +168,15 @@ class SamRequestServiceTest extends TestCase
         $this->assertStringContainsString('Nov 2025', SamRequestService::precedentNote(['source' => 'property_jobber', 'date' => '2025-11-12']));
         $this->assertStringContainsString('no price on record', SamRequestService::precedentNote([]));
     }
+
+    public function testAnUnchangedPriceSentWithGstIsNotACorrection(): void
+    {
+        $this->message('gst', 'Can we book a fall cleanup?');
+        $id = (int)$this->service->propose('gst');
+        $this->db->exec("INSERT INTO quotes (id, property_id, status, service_type, amount, subtotal, created_at) VALUES (89, 77, 'sent', 'cleanup', 420, 400, '2026-11-05')");
+        $this->db->exec("UPDATE sam_requests SET status = 'drafted', draft_quote_id = 89, property_id = 77, precedent_json = '{\"source\":\"similar\",\"price\":400,\"count\":3,\"lines\":[]}' WHERE id = " . $id);
+        $this->service->recordOutcome(89);
+        $out = json_decode((string)$this->db->query("SELECT outcome_json FROM sam_requests WHERE id = " . $id)->fetchColumn(), true);
+        $this->assertSame('accepted', $out['price'], '$400 before tax is the same price as the $400 proposed');
+    }
 }

@@ -292,7 +292,7 @@ class SamRequestService
             $q = $this->db->prepare("SELECT property_id, service_type, amount, subtotal FROM quotes WHERE id = ?"); $q->execute([$quoteId]); $quote = $q->fetch(PDO::FETCH_ASSOC); if (!$quote) return;
             $l = $this->db->prepare("SELECT COUNT(*) FROM quote_line_items WHERE quote_id = ?"); $l->execute([$quoteId]); $sentLines = (int)$l->fetchColumn();
             $p = self::decode($r['precedent_json'] ?? null); $saidLines = count(self::draftLines($p, (string)$r['service_key']));
-            $saidPrice = self::outcomeNumber($p['price'] ?? 0); $sentPrice = self::outcomeNumber($quote['amount']);
+            $saidPrice = self::outcomeNumber($p['price'] ?? 0); $sentPrice = self::outcomeNumber($quote['subtotal'] ?? $quote['amount']);   // before tax, like the precedent
             $pairs = ['property' => [(int)$r['property_id'], (int)$quote['property_id']], 'service' => [(string)$r['service_key'], (string)$quote['service_type']],
                 'lines' => [$saidLines, $sentLines], 'price' => [$saidPrice, $sentPrice]];
             $out = ['said' => [], 'sent' => []];

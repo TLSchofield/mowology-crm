@@ -295,7 +295,9 @@ class QuoteService
 
             $this->insertLineItems($quoteId, $lineItems);
 
-            if ($explicitContactId === 0 && in_array($resolved['source'], ['property', 'company'], true)) {
+            // An explicit contact (Sam's request: the person who asked) is a chosen recipient too, or the quote's
+            // "Send to" would fall back to the property's contact (Codex review 2026-11-05).
+            if ($explicitContactId > 0 || in_array($resolved['source'], ['property', 'company'], true)) {
                 $recipients->markChosen($quoteId);
             }
 
