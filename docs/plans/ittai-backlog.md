@@ -349,3 +349,11 @@ get them after phase 2.
   from developer.intuit.com (sign in) and swap on web, iPhone and Android before the app assessment / Marketplace listing.
 - Brand rules to keep: never "QuickBooks"/"QB"/"Intuit" in Ittai's name, app card or logo; Ittai's name/logo bigger than any Intuit mark
   and at the top of ittai.ca; plain factual text ("connects to QuickBooks Online") is fine; no QuickBooks logo elsewhere without approval.
+
+## One shared QuickBooks return address for every business (2026-11-06)
+- Today each business returns from Intuit to its own `https://<business>.ittai.ca/crm/accounting/quickbooks-callback.php`
+  (`QboConnectionService::redirectForThisBusiness()`), and every one must be listed in the Intuit app's Redirect URIs. Fine for a
+  handful; before many businesses join, use one address (e.g. `https://ittai.ca/quickbooks/callback/`) that reads the signed `state`
+  to find the business and hands the code to it. Check Intuit's limit on how many redirect URIs one app may list.
+- Intuit listing URLs in use: launch + connect/reconnect `https://ittai.ca/quickbooks/`, disconnect `https://ittai.ca/quickbooks/disconnected/`,
+  EULA `https://ittai.ca/terms/`, privacy `https://ittai.ca/privacy/`.
