@@ -19,6 +19,7 @@ require_once __DIR__ . '/PruningKnowledge.php';
 require_once dirname(__DIR__, 3) . '/Services/Media/ImageForLlm.php';
 require_once dirname(__DIR__, 3) . '/Services/LlmDailyCap.php';
 require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
 
 final class PruningPlanService
 {
@@ -471,19 +472,10 @@ final class PruningPlanService
         return array_values(array_filter(array_map('intval', explode(',', $csv)), fn($i) => $i > 0));
     }
 
-    /** @return array{code:int, body:string} */
+    /** @return array{code:int, body:string} — through LlmGateway (retry, kill switch, llm_calls cost row). */
     private function send(array $body): array
     {
-        if ($this->transport) return ($this->transport)($body);
-        $ch = curl_init(self::API_URL);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 150, CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_HTTPHEADER => ['content-type: application/json', 'x-api-key: ' . ANTHROPIC_API_KEY, 'anthropic-version: 2023-06-01'],
-            CURLOPT_POSTFIELDS => json_encode($body),
-        ]);
-        $raw = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        return ['code' => $raw === false ? 0 : $code, 'body' => (string)$raw];
+        return LlmGateway::send($body, ['head' => 'otto', 'skill' => 'pruning_plan', 'db' => $this->db,
+                                        'timeout' => 150, 'transport' => $this->transport]);
     }
 }
