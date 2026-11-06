@@ -1091,8 +1091,9 @@ if ($apiKey) {
                                 <span class="mw-totals-value" id="totalDisplay">$0.00</span>
                             </div>
                         </div>
-                        <script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
+                        <script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
                         <script src="/crm/js/mw-unbilled-work.js?v=20261008a"></script>
+                        <script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
                         <script>
                         window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
                         window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
@@ -1130,6 +1131,7 @@ if ($apiKey) {
                             ?>
                             <textarea name="notes" class="form-control" rows="3"
                                       placeholder="Payment terms, thank you message, etc."><?php echo htmlspecialchars($notesValue); ?></textarea>
+                            <div id="miaNoteHost" class="mw-mia-host"></div>
                         </div>
                     </div>
                 </div>
@@ -1629,18 +1631,55 @@ if (invLinesBody) {
         addInvoiceLine().querySelector('.mw-li-desc').focus();
     });
     if (window.MwServicePicker) {
-        MwServicePicker.attach(document.getElementById('invServicePicker'), window.MW_INV_CATALOG || [], function (svc) {
+        window.MW_INV_PICKER = MwServicePicker.attach(document.getElementById('invServicePicker'), window.MW_INV_CATALOG || [], function (svc) {
             // A fresh blank row is replaced rather than left empty above the picked service.
             const rows = invLinesBody.querySelectorAll('.mw-li-row');
             if (rows.length === 1) {
                 const r = rows[0];
                 if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) r.remove();
             }
-            addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: 1, unit_price: svc.base_price });
+            addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: svc.agreed ? (svc.quantity || 1) : 1, unit_price: svc.base_price });
         });
     }
 }
 calculateTotals();
+
+// ── Mia's note suggestion (/crm/api/mia-invoice-suggestion.php) ──
+(function () {
+    const note = document.querySelector('#invoiceForm textarea[name="notes"]');
+    if (!window.MwMiaInvoiceNote || !note) return;
+    MwMiaInvoiceNote.attach({
+        note: note, host: document.getElementById('miaNoteHost'), invoiceId: 0,
+        getContext: function () {
+            const seen = {};
+            const services = Array.from(document.querySelectorAll('#invLineItemsBody input[name="li_title[]"], #invLineItemsBody input[name="li_description[]"]'))
+                .map(function (i) { return i.value.trim(); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = 1; return true; });
+            return { property_id: parseInt(propertyIdInput.value, 10) || 0, contact_id: parseInt(contactIdInput.value, 10) || 0,
+                     company_id: parseInt(companyIdInput.value, 10) || 0, services: services };
+        }
+    });
+})();
+
+// ── Agreed prices for this client (/crm/api/agreed-prices.php → picker "Agreed price" block) ──
+(function () {
+    if (!window.MW_INV_PICKER || !propertyIdInput) return;
+    let lastKey = null, seq = 0;
+    function load() {
+        const pid = parseInt(propertyIdInput.value, 10) || 0;
+        const cid = parseInt(companyIdInput.value, 10) || 0;
+        const key = pid + ':' + cid;
+        if (key === lastKey) return;
+        lastKey = key;
+        const mine = ++seq;   // only the newest request may write (A→B→A can't be overwritten by a stale A)
+        if (!pid) { MW_INV_PICKER.setAgreed([]); return; }
+        fetch('/crm/api/agreed-prices.php?property_id=' + pid + (cid ? '&company_id=' + cid : ''), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (mine === seq) MW_INV_PICKER.setAgreed(d && d.success ? d.items : []); })
+            .catch(function () { if (mine === seq) MW_INV_PICKER.setAgreed([]); });
+    }
+    setInterval(load, 800);   // the customer/property pickers set these hidden inputs from several places
+    load();
+})();
 
 // ── Also unbilled at this address (MwUnbilledWork + /crm/api/unbilled-work.php) ──
 (function () {
