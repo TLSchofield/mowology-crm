@@ -24,6 +24,7 @@
 require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once __DIR__ . '/ReceiptBookkeeperService.php';
 require_once __DIR__ . '/ExpenseApprovalService.php';
+require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/LineItemFit.php';
 if (!function_exists('sameVendorName')) {
     require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/ReceiptLearning.php';
 }
@@ -54,6 +55,106 @@ class BookkeeperDeskService
     private function gate(): ExpenseGate
     {
         return $this->gate ?? ($this->gate = new ExpenseGate($this->db));
+    }
+
+    /** Apply Penny's newest pending line read only when it reconciles and the receipt is untouched. */
+    public function autoApplyPennyItems(int $limit = 50, bool $dryRun = false): array
+    {
+        $result = ['applied' => 0, 'would_apply' => 0, 'skipped' => [], 'ids' => []];
+        $limit = max(1, min(200, $limit));
+        $sql = "SELECT s.id AS suggestion_id, s.expense_id, s.suggestion_json,
+                       e.amount, e.total, e.forwarded_to_accounting
+                FROM expense_suggestions s
+                JOIN expenses e ON e.id = s.expense_id
+                WHERE s.source = 'live' AND s.status = 'pending'
+                  AND e.status IN ('draft', 'pending_approval')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM expense_suggestions newer
+                      WHERE newer.expense_id = s.expense_id AND newer.source = 'live'
+                        AND newer.id > s.id
+                  )
+                ORDER BY s.id DESC LIMIT 500";
+        // $limit caps the writes, not the scan: most pending reads are skipped (their items already add up),
+        // so a scan capped at $limit would look at the same newest ones every run and never reach older drafts.
+        try {
+            $select = $this->db->prepare($sql);
+            $select->execute();
+            $rows = $select->fetchAll(PDO::FETCH_ASSOC);
+            $lines = $this->db->prepare("SELECT id, product_id, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+            $split = $this->db->prepare("SELECT 1 FROM expense_line_allocations WHERE expense_id = ? LIMIT 1");
+        } catch (Throwable $e) {
+            error_log('[BookkeeperDeskService::autoApplyPennyItems] batch: ' . $e->getMessage());
+            $result['skipped']['error'] = 1;
+            return $result;
+        }
+        foreach ($rows as $row) {
+            if ($result['applied'] + $result['would_apply'] >= $limit) break;
+            $id = (int)$row['expense_id'];
+            try {
+                $reason = null;
+                if ((int)$row['forwarded_to_accounting'] === 1) {
+                    $reason = 'forwarded';
+                } else {
+                    $split->execute([$id]);
+                    if ($split->fetchColumn()) $reason = 'split';
+                }
+                $lines->execute([$id]);
+                $stored = $lines->fetchAll(PDO::FETCH_ASSOC);
+                if ($reason === null && array_filter($stored, static function (array $line): bool { return $line['product_id'] !== null; })) {
+                    $reason = 'product_linked';
+                }
+                $amount = $row['amount'] !== null ? (float)$row['amount'] : null;
+                $total = $row['total'] !== null ? (float)$row['total'] : null;
+                if ($reason === null && LineItemFit::addsUp($stored, $amount, $total)) $reason = 'already_adds_up';
+                $items = self::pennyItems(json_decode((string)$row['suggestion_json'], true) ?: []);
+                if ($reason === null && !LineItemFit::addsUp($items, $amount, $total)) $reason = 'penny_does_not_add_up';
+                if ($reason !== null) {
+                    $result['skipped'][$reason] = ($result['skipped'][$reason] ?? 0) + 1;
+                    continue;
+                }
+                if ($dryRun) {
+                    $result['ids'][] = $id;
+                    $result['would_apply']++;
+                } else {
+                    $expectedLineIds = array_map('intval', array_column($stored, 'id'));
+                    $db = $this->db;
+                    $suggestionId = (int)$row['suggestion_id'];
+                    $applied = $this->gate()->apply($id, ['line_items' => $items, 'line_items_source' => 'penny'],
+                                         ['id' => null, 'kind' => 'system'], 'penny_auto', [
+                        'locked_if' => static function (array $snapshot) use ($expectedLineIds, $items, $db, $suggestionId, $id): bool {
+                            $expense = $snapshot['expense'];
+                            if (!in_array($expense['status'] ?? '', ['draft', 'pending_approval'], true)
+                                || (int)($expense['forwarded_to_accounting'] ?? 0) === 1
+                                || !empty($snapshot['allocations'])) return false;
+                            if (array_map('intval', array_column($snapshot['lines'], 'id')) !== $expectedLineIds) return false;
+                            foreach ($snapshot['lines'] as $line) {
+                                if ($line['product_id'] !== null) return false;
+                            }
+                            // The totals may have been edited since the batch read them (Codex review 2026-11-05).
+                            $amount = $expense['amount'] !== null ? (float)$expense['amount'] : null;
+                            $total = $expense['total'] !== null ? (float)$expense['total'] : null;
+                            if (!LineItemFit::addsUp($items, $amount, $total)) return false;
+                            // …and the owner may have accepted or rejected the read, or Penny read it again.
+                            $lock = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+                            $s = $db->prepare("SELECT id, status FROM expense_suggestions WHERE expense_id = ? AND source = 'live' ORDER BY id DESC LIMIT 1" . $lock);
+                            $s->execute([$id]);
+                            $newest = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+                            return (int)($newest['id'] ?? 0) === $suggestionId && ($newest['status'] ?? '') === 'pending';
+                        },
+                    ]);
+                    if (!empty($applied['noop'])) {
+                        $result['skipped']['changed_before_apply'] = ($result['skipped']['changed_before_apply'] ?? 0) + 1;
+                        continue;
+                    }
+                    $result['ids'][] = $id;
+                    $result['applied']++;
+                }
+            } catch (Throwable $e) {
+                error_log('[BookkeeperDeskService::autoApplyPennyItems] expense #' . $id . ': ' . $e->getMessage());
+                $result['skipped']['error'] = ($result['skipped']['error'] ?? 0) + 1;
+            }
+        }
+        return $result;
     }
 
     /**

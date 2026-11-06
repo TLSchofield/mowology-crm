@@ -188,6 +188,23 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(77, (int)$this->row(412)['job_id'], 'never overwrites a job that is there');
     }
 
+    public function test_locked_if_checks_lines_inside_the_write_transaction(): void
+    {
+        $res = $this->gate->apply(412, ['line_items' => [['name' => 'Replacement', 'line_total' => 200]]],
+            ['id' => null, 'kind' => 'system'], 'penny_auto', [
+                'locked_if' => static function (array $snapshot): bool {
+                    foreach ($snapshot['lines'] as $line) {
+                        if ($line['product_id'] !== null) return false;
+                    }
+                    return empty($snapshot['allocations']);
+                },
+            ]);
+
+        $this->assertTrue($res['noop']);
+        $this->assertSame(2, (int)$this->db->query("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = 412")->fetchColumn());
+        $this->assertSame(0, count($this->audit(412)), 'a refused conditional write changes and audits nothing');
+    }
+
     // ── Posted receipts: append-only ─────────────────────────────────────
 
     public function test_a_posted_receipt_is_reposted_once_and_a_rejected_one_reversed(): void

@@ -225,8 +225,13 @@ try {
     if (!$desk->ready()) {
         $finish('warning', 'Bookkeeper not set up (migration 1125) — nothing prepared.');
     }
+    // Recovery is local and free: pending, already-prepared line suggestions must not wait
+    // for the model connection to recover.
+    $auto = $desk->autoApplyPennyItems(50, $dryRun);
+    $pennyLog('Penny items: applied ' . $auto['applied'] . ', would apply ' . $auto['would_apply']
+              . ', skipped ' . array_sum($auto['skipped']) . '.');
     if (!$dryRun && !$svc->ready()) {
-        $finish('warning', 'Bookkeeper not ready (ANTHROPIC_API_KEY missing) — nothing prepared.');
+        $finish('warning', 'Bookkeeper not ready (ANTHROPIC_API_KEY missing) — existing Penny items were still processed.');
     }
 
     $hold = DuplicateReceiptService::heldIds((new DuplicateReceiptService($db))->pairsInLine(60));
