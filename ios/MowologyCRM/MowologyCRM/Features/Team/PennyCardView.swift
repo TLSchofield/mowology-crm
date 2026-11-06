@@ -33,12 +33,13 @@ struct PennyCardView: View {
             } else if vm.showsDupes, let group = vm.currentDupe {
                 dupeCard(group)
                     .id(group.id)
-                    .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .trailing : .leading).combined(with: .opacity),
+                    .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .leading : .trailing).combined(with: .opacity),
                                             removal: .opacity))
                     // A carousel: swipe sideways to the next / previous group (the photos open full screen on a tap).
                     .gesture(DragGesture(minimumDistance: 30).onEnded { g in
                         guard abs(g.translation.width) > abs(g.translation.height) * 1.5, abs(g.translation.width) > 60 else { return }
-                        withAnimation(.easeOut(duration: 0.22)) { g.translation.width < 0 ? vm.nextDupe() : vm.previousDupe() }
+                        // Right to left, as the numbers read: drag right to bring the next group in from the left.
+                        withAnimation(.easeOut(duration: 0.22)) { g.translation.width > 0 ? vm.nextDupe() : vm.previousDupe() }
                     })
             } else if let item = vm.current {
                 receiptCard(item)
@@ -486,17 +487,25 @@ struct PennyCardView: View {
         let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
         let done = Set(vm.dupeSession.filter { vm.dupeOutcome($0) != nil })
         let current = vm.currentDupe?.id
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
+        let pos = vm.dupePos
+        let step: CGFloat = 44
+        // Read right to left (Tim, 2026-11-06: "the Japanese reads design easter egg"): the current number sits enlarged
+        // on the vertical Kaname line at the centre, the ones still to do wait on its left, answered ones go off to the
+        // right. Each step slides the row right, so the next number arrives at the centre.
+        return GeometryReader { geo in
+            let mid = geo.size.width / 2
+            ZStack {
+                Rectangle().fill(appStyle.line).frame(height: 1).accessibilityHidden(true)
                 ForEach(Array(vm.dupeSession.enumerated()), id: \.element) { i, id in
                     let isDone = done.contains(id)
                     let on = id == current
+                    let x = mid - CGFloat(i - pos) * step
                     Button {
-                        withAnimation(.easeOut(duration: 0.22)) { vm.showDupe(id: id) }
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { vm.showDupe(id: id) }
                     } label: {
                         ZStack {
                             Circle().fill(appStyle.page).frame(width: 30, height: 30)
-                            Circle().stroke(on ? indigo : appStyle.line, lineWidth: on ? 2 : 1).frame(width: 28, height: 28)
+                            Circle().stroke(on ? indigo : appStyle.line, lineWidth: on ? 1.5 : 1).frame(width: 28, height: 28)
                             Circle().fill(isDone ? indigo : appStyle.page).frame(width: 22, height: 22)
                             if isDone {
                                 Image(systemName: "checkmark").font(appStyle.font(size: 11, weight: .heavy)).foregroundStyle(Color.white)
@@ -506,17 +515,21 @@ struct PennyCardView: View {
                                     .foregroundStyle(on ? indigo : appStyle.meta)
                             }
                         }
-                        .frame(width: 38, height: 44)          // nine fit across a phone; a full-height touch target
+                        .scaleEffect(on ? 1.4 : 1)
+                        .frame(width: step, height: 52)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)                    // answered ones stay tappable: go back, Unmerge / Undo
+                    .position(x: x, y: 26)
+                    .opacity(x < -step || x > geo.size.width + step ? 0 : 1)
                     .accessibilityLabel("Group \(i + 1) of \(vm.dupeSession.count)" + (isDone ? ", done" : on ? ", showing" : ""))
                 }
             }
-            .background(alignment: .center) {
-                Rectangle().fill(appStyle.line).frame(height: 1).accessibilityHidden(true)
-            }
+            .frame(width: geo.size.width, height: 52)
+            .clipped()
         }
+        .frame(height: 52)
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: pos)
     }
 
     /// An answered group: a status square beside the way back, in the same two columns as Merge / Different.
@@ -647,7 +660,7 @@ struct PennyCardView: View {
                             }
                             .frame(width: gap)
                         }
-                        Text(match ? (v ?? "–") : "\(row.label) \(v ?? "–")")
+                        Text(match ? (v ?? "–") : Self.unmatchedCell(row.label, v))
                             .font(appStyle.font(.footnote, weight: row.state == "differs" ? .semibold : .regular))
                             .foregroundStyle(v == nil ? appStyle.meta : appStyle.text)
                             .lineLimit(match ? 1 : 2)          // "Southlands Nursery" shrinks a little, never wraps
@@ -679,6 +692,13 @@ struct PennyCardView: View {
             }
             .accessibilityHidden(true) }
         }
+    }
+
+    /// A cell in a row that doesn't match: its label goes first so "Card –" reads, unless the value already names itself
+    /// ("Ticket 43198823", "Auth 433970" — not "Number Ticket 43198823").
+    static func unmatchedCell(_ label: String, _ value: String?) -> String {
+        guard let v = value else { return "\(label) –" }
+        return label == "Number" ? v : "\(label) \(v)"
     }
 
     /// Two receipts: the left column hugs the check from the left, the right one from the right. Three or more: centred.
