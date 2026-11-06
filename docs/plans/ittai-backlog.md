@@ -357,3 +357,8 @@ get them after phase 2.
   to find the business and hands the code to it. Check Intuit's limit on how many redirect URIs one app may list.
 - Intuit listing URLs in use: launch + connect/reconnect `https://ittai.ca/quickbooks/`, disconnect `https://ittai.ca/quickbooks/disconnected/`,
   EULA `https://ittai.ca/terms/`, privacy `https://ittai.ca/privacy/`.
+
+## Save Intuit's `intuit_tid` with every QuickBooks error (Intuit app review, 2026-11-06)
+- `QboClient` keeps the error message but not the `intuit_tid` response header Intuit support asks for. Store it with each failed
+  call (qbo_links message / connection last_error) and show it in the held-item reason. Also: read the OAuth endpoints from Intuit's
+  discovery document instead of the fixed URLs in `QboOAuth` (the review asked about both; answered No).

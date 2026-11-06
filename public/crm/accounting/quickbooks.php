@@ -348,4 +348,7 @@ $activePage = 'accounting';
 </form>
 <?php endif; ?>
 
+<?php // Ittai's own support (operated by Mowology Lawns & Landscapes Ltd) — the Intuit app review asks for in-app support, 2026-11-06. ?>
+<p class="text-muted small mt-3 mb-0">Need help with QuickBooks? <a href="mailto:office@mowology.ca">office@mowology.ca</a> &middot; <a href="tel:7788469273">(778) 846-9273</a> &middot; <a href="https://ittai.ca/quickbooks/" target="_blank" rel="noopener">How connecting works</a></p>
+
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
