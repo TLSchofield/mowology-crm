@@ -29,6 +29,7 @@ final class AgentPolicy
         'yui.send_reply'         => 2,
         'sam.send_followup'      => 2,
         'sam.accept_quote'       => 2,
+        'sam.prepare_quote'      => 2,
         'otto.apply_suggestion'  => 2,
         'penny.approve_receipt'  => 2,
         'penny.bank_rule_apply'  => 3,

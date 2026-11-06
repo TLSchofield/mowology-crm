@@ -41567,3 +41567,8 @@ body.mw-books {
 .mw-svc-form-msg { margin-top: var(--mw-space-2); color: var(--mw-orange); font-size: var(--mw-text-xs); }
 .mw-svc-saved { display: block; color: var(--mw-ink-500); font-size: var(--mw-text-xs); }
 @media (max-width: 575.98px) { .mw-svc-form-grid { grid-template-columns: 1fr; } .mw-svc-form-wide { grid-column: auto; } }
+
+/* ── Sam: deterministic inbound work requests ── */
+.mw-sam-req-item { display: grid; gap: var(--mw-space-1); }
+.mw-sam-req-price { color: var(--mw-ink-700); font-size: var(--mw-text-sm); }
+.mw-sam-req-quote { display: block; margin: var(--mw-space-1) 0; color: var(--mw-ink-500); font-size: var(--mw-text-xs); }

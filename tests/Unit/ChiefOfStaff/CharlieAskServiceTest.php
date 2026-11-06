@@ -200,4 +200,15 @@ class CharlieAskServiceTest extends TestCase
         $this->assertStringContainsString('1215', $svc->ask('Has Linda paid?', 7)['message']);
         $this->assertFalse($svc->status()['ready']);
     }
+
+    public function testAPossessiveTypedWithoutTheApostropheIsTriedWithoutTheS(): void
+    {
+        $this->assertSame(['lindas'], CharlieAskService::terms('Has lindas quote been sent'));
+        $this->assertSame(['Linda'], CharlieAskService::terms("Has Linda's quote been sent?"));
+        $this->assertSame(['Linda'], CharlieAskService::terms('Has Linda’s quote been sent?'));
+        $this->assertSame(['lindas', 'linda'], CharlieAskService::nameForms('lindas'));
+        $this->assertSame(['Ross'], CharlieAskService::nameForms('Ross'), 'a double s is a name, not a possessive');
+        $this->assertSame(['1234'], CharlieAskService::nameForms('1234'));
+        $this->assertSame(['Ann'], CharlieAskService::nameForms('Ann'));
+    }
 }

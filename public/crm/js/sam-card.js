@@ -6,7 +6,8 @@
  * Not now. Nothing goes out without Tim's click; edits teach Sam to write it Tim's way.
  * When the customer wrote back, "Draft a reply" asks Claude for one (Tim's click only).
  * API: /crm/api/sales-head.php (?mode=desk; POST send / park / draft_reply / answer / lead_dismiss /
- * maybe_accept / maybe_dismiss — "maybe a lead" enquiries read from Tim's iCloud).
+ * maybe_accept / maybe_dismiss — "maybe a lead" enquiries read from Tim's iCloud;
+ * request_draft / request_dismiss — deterministic work-request cards).
  *
  * Ask first (field recommendations, migration 1180): a customer who replied to an Ask-first
  * note gets a card with "Build the quote" — the quote is built on that observation (photos
@@ -34,6 +35,7 @@
     var rbox = document.getElementById('mw-sam-replies');
     var apbox = document.getElementById('mw-sam-approved');
     var acbox = document.getElementById('mw-sam-acceptances');   // "Looks like an acceptance" (2026-10-15)
+    var reqbox = document.getElementById('mw-sam-requests');
     // Hierarchy (2026-11-04): briefing → next → rows by status → the workspace for one customer.
     var sayEl = document.getElementById('mw-sam-say');
     var nextEl = document.getElementById('mw-sam-first');
@@ -57,6 +59,7 @@
         body.innerHTML = (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') + html;
     }
     var acceptances = [];
+    var requests = [];
     var approved = [];       // quotes just approved — every line ✓ / ✗ (QuoteApprovalService)
     var replies = [];        // unclaimed customer replies (desk.unclaimed)
     var CHARLIE = '/crm/api/charlie.php';
@@ -124,6 +127,7 @@
                 maybes = d.maybe_leads || [];
                 approved = d.approved || [];
                 acceptances = d.acceptances || [];
+                requests = d.requests || [];
                 var deep = false;
                 if (wanted) {
                     for (var w = 0; w < queue.length; w++) if (queue[w].key === wanted) { idx = w; deep = true; break; }
@@ -134,7 +138,7 @@
                 renderBrief(); renderNext(); renderRows();
                 if (deep) openWork(idx);
                 if (working) render();
-                renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderAcceptances(); renderQuiet(); renderRenewals(); renderHygiene();
+                renderLeads(); renderQuestions(); renderAsks(); renderReplies(); renderApproved(); renderRequests(); renderAcceptances(); renderQuiet(); renderRenewals(); renderHygiene();
             })
             .catch(function () { rowsEl.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list. Refresh to try again.</div>'; });
     }
@@ -341,6 +345,54 @@
             approved = approved.filter(function (a) { return a.quote_id !== qid; });
             renderApproved(d && d.ok ? '' : 'That didn\'t work — try again.');
         }).catch(function () { busy = false; b.disabled = false; renderApproved('Network error — try again.'); });
+    });
+
+    // ── Looks like a request ─────────────────────────────────────────────
+    function requestPrecedent(p) {
+        p = p || {};
+        if (p.source === 'property_jobber' || p.source === 'property_quote') {
+            var names = (p.lines || []).map(function (x) { return x.name; }).filter(Boolean).join(', ');
+            return 'Last done ' + shortMonth(p.date) + ': ' + esc(names) + ' — ' + money(p.price);
+        }
+        if (p.source === 'similar') return 'From ' + Number(p.count || 0) + ' similar quotes: ' + money(p.price);
+        return 'No price on record';
+    }
+    function shortMonth(d) {
+        if (!d) return '';
+        var t = new Date(String(d).replace(' ', 'T'));
+        return isNaN(t) ? esc(d) : t.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    }
+    function renderRequests(msg) {
+        if (!reqbox) return;
+        sec(reqbox, 'Looks like a request', requests.length, requests.map(function (r) {
+            var level = r.level === 'sure' ? 'Sure' : r.level === 'likely' ? 'Likely' : 'Not sure';
+            var levelClass = r.level === 'sure' ? 'is-green' : r.level === 'likely' ? 'is-amber' : 'is-red';
+            var place = r.property ? r.property.address : Number(r.property_count || 0) > 1 ? r.property_count + ' properties — which one?' : 'no property found';
+            var canDraft = r.property && r.level !== 'not_sure';
+            var detail = r.level === 'not_sure' ? '' :
+                '<small class="mw-sam-meta">' + esc(place) + '</small>' +
+                '<div class="mw-sam-req-price">' + requestPrecedent(r.precedent) + '</div>' +
+                '<q class="mw-sam-req-quote">' + esc(r.snippet || '') + '</q>';
+            return '<div class="mw-sam-appr mw-sam-req-item" data-req="' + r.id + '">' +
+                '<div class="mw-sam-appr-head"><b>' + esc(r.from) + '</b> wants ' + esc(r.service_label) + ' <span class="mw-charlie-chip ' + levelClass + '">' + level + '</span></div>' +
+                detail +
+                '<small class="mw-sam-meta">Why: ' + esc((r.reasons || []).join(' · ')) + '</small>' +
+                '<div class="mw-sam-lead-act">' + (canDraft ? '<button type="button" class="mw-rc-ok" data-req-draft>Make draft quote</button>' : '') +
+                '<button type="button" class="mw-rc-sk" data-req-no>Not a request</button>' +
+                '<button type="button" class="mw-rc-sk" data-req-wrong>Wrong service</button></div></div>';
+        }).join(''), msg, true);
+    }
+    if (reqbox) reqbox.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-req-draft],[data-req-no],[data-req-wrong]'); if (!b || busy) return;
+        var item = b.closest('[data-req]'), id = +item.getAttribute('data-req'); busy = true;
+        item.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        var draft = b.hasAttribute('data-req-draft');
+        post(draft ? { mode: 'request_draft', id: id } : { mode: 'request_dismiss', id: id, reason: b.hasAttribute('data-req-no') ? 'not_request' : 'wrong_service' })
+            .then(function (d) {
+                busy = false;
+                if (draft && d && d.ok && d.url) { window.location.href = d.url; return; }
+                load().then(function () { renderRequests(d && d.message ? d.message : 'OK.'); });
+            }).catch(function () { busy = false; renderRequests('Network error — nothing changed. Try again.'); });
     });
 
     // ── Looks like an acceptance ─────────────────────────────────────────

@@ -12,6 +12,8 @@
  *                          last email — Tim's click only, capped per day.
  * POST {mode: 'answer', question_id, answer: lost|keep|won, csrf_token}
  * POST {mode: 'lead_dismiss', lead_id, csrf_token}    "Not a lead" (spam, out of area…)
+ * POST {mode: 'request_draft', id, csrf_token}         Build (but never send) a quote from a detected request.
+ * POST {mode: 'request_dismiss', id, reason: not_request|wrong_service, csrf_token}
  * POST {mode: 'maybe_accept'|'maybe_dismiss', candidate_id, csrf_token}   A "maybe a lead" from
  *                          email (EmailLeadService, Tim's iCloud): make it a real lead, or not.
  *                          The desk response carries `maybe_leads`.
@@ -134,6 +136,12 @@ try {
                         return $g;
                     } catch (Throwable $e) { error_log('[sales-head] acceptances: ' . $e->getMessage()); return []; }
                 })(),
+                'requests' => (static function () use ($db): array {
+                    try {
+                        require_once APP_ROOT . '/Modules/Sales/Services/SamRequestService.php';
+                        return (new SamRequestService($db))->open(10);
+                    } catch (Throwable $e) { error_log('[sales-head] requests: ' . $e->getMessage()); return []; }
+                })(),
                 'maybe_leads' => $emailLeads->maybes(8),                // enquiries from email the rules weren't sure about
             ]);
             break;
@@ -160,6 +168,16 @@ try {
             require_once APP_ROOT . '/Modules/Sales/Services/SamAcceptanceService.php';
             $acc = new SamAcceptanceService($db);
             echo json_encode($mode === 'accept_signed' ? $acc->accept((int)($input['id'] ?? 0), (array)$user) : $acc->dismiss((int)($input['id'] ?? 0), (array)$user));
+            break;
+        }
+
+        case 'request_draft':
+        case 'request_dismiss': {
+            require_once APP_ROOT . '/Modules/Sales/Services/SamRequestService.php';
+            $requests = new SamRequestService($db);
+            echo json_encode($mode === 'request_draft'
+                ? $requests->makeDraft((int)($input['id'] ?? 0), (array)$user)
+                : $requests->dismiss((int)($input['id'] ?? 0), (string)($input['reason'] ?? ''), (array)$user));
             break;
         }
 

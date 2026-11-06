@@ -79,6 +79,8 @@ class CloserPricingTest extends TestCase
         $this->assertSame('overseed', CloserPricing::serviceKey('Overseeding'));
         $this->assertSame('beds', CloserPricing::serviceKey('Garden Bed Weeding'));
         $this->assertNull(CloserPricing::serviceKey('Snow removal'));
+        $this->assertSame(['hedge', 'cleanup', 'edge'], CloserPricing::serviceKeys('Fall cleanup and hedge trim'));
+        $this->assertSame(['hedge', 'edge'], CloserPricing::serviceKeys('hedge'));
     }
 
     public function test_seasonal_work_is_spread_over_the_season(): void

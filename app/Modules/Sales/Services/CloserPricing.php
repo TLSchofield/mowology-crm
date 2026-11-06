@@ -41,26 +41,39 @@ class CloserPricing
     /** How often each seasonal service happens in a season, and visits per season. Tim's to change. */
     public const DEFAULT_SEASON = ['visits' => 28, 'cleanup' => 2, 'aeration' => 1, 'overseed' => 1, 'hedge' => 2, 'beds' => 4];
 
+    /** Free-text needles for each service, in matching priority order. */
+    public const SERVICE_WORDS = [
+        'aeration' => ['aerat'],
+        'overseed' => ['overseed', 'over-seed', 'seeding'],
+        'hedge'    => ['hedge', 'shrub', 'prun'],
+        'cleanup'  => ['clean-up', 'cleanup', 'clean up', 'leaf', 'leaves', 'spring', 'fall clean'],
+        'beds'     => ['bed', 'weed', 'mulch', 'garden'],
+        'edge'     => ['edging', 'edge'],
+        'mow'      => ['mow', 'lawn', 'grass', 'cut', 'maintenance'],
+    ];
+
     /** Map free text (a line item's service, a plan's service_type, a product name) to a service key. */
     public static function serviceKey(string $text): ?string
     {
+        $keys = self::serviceKeys($text);
+        return $keys[0] ?? null;
+    }
+
+    /** Return every service named in free text, in matching priority order. */
+    public static function serviceKeys(string $text): array
+    {
         $t = strtolower($text);
-        if ($t === '') return null;
-        $map = [
-            'aeration' => ['aerat'],
-            'overseed' => ['overseed', 'over-seed', 'seeding'],
-            'hedge'    => ['hedge', 'shrub', 'prun'],
-            'cleanup'  => ['clean-up', 'cleanup', 'clean up', 'leaf', 'leaves', 'spring', 'fall clean'],
-            'beds'     => ['bed', 'weed', 'mulch', 'garden'],
-            'edge'     => ['edging', 'edge'],
-            'mow'      => ['mow', 'lawn', 'grass', 'cut', 'maintenance'],
-        ];
-        foreach ($map as $key => $needles) {
+        if ($t === '') return [];
+        $keys = [];
+        foreach (self::SERVICE_WORDS as $key => $needles) {
             foreach ($needles as $n) {
-                if (strpos($t, $n) !== false) return $key;
+                if (strpos($t, $n) !== false) {
+                    $keys[] = $key;
+                    break;
+                }
             }
         }
-        return null;
+        return $keys;
     }
 
     /**
