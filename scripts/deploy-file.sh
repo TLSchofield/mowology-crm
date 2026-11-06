@@ -214,11 +214,9 @@ trap 'rm -f "$LFTP_OUT"' EXIT
 TEMP_NAME="${FILENAME}.deploying"
 TEMP_DEST="${REMOTE_DIR}${TEMP_NAME}"
 
-if ! mw_lftp "
-    put -O '$REMOTE_DIR' '$LOCAL' -o '$TEMP_NAME'
-    mv '$TEMP_DEST' '$EXPECTED_DEST'
-    quit
-" >"$LFTP_OUT" 2>&1; then
+# One line, `;`-separated: lftp appends the URL to the -e text, so in a multi-line script every line
+# but the last ran before the connection existed ("Not connected"; fix 6b3e30b75, 2026-10-18).
+if ! mw_lftp "put -O '$REMOTE_DIR' '$LOCAL' -o '$TEMP_NAME'; mv '$TEMP_DEST' '$EXPECTED_DEST'; quit" >"$LFTP_OUT" 2>&1; then
     echo "ERROR: lftp upload failed" >&2
     cat "$LFTP_OUT" >&2
     exit 5
