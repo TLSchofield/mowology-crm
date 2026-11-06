@@ -311,6 +311,8 @@ struct PennyCrewChaseCard: View {
     @State private var noReceiptFor: PennyChaseItem?
     /// The card in view (the carousel's scroll position); nil before the first swipe = the first card.
     @State private var shownId: Int?
+    /// Where the card in view sat, so an answered charge hands over to the one now in its place.
+    @State private var shownIndex = 0
 
     /// Oldest charge first: the one closest to being forgotten (and to the paper being lost).
     private var oldestFirst: [PennyChaseItem] {
@@ -381,9 +383,12 @@ struct PennyCrewChaseCard: View {
                 // One charge at a time, oldest first, swiped sideways (Tim, 2026-11-06: 30 stacked cards were a wall).
                 if !vm.items.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
-                            ForEach(oldestFirst) { item in
+                        // Not lazy: every card is laid out, so the row takes the tallest card's height and does not
+                        // jump while swiping (30 cards is cheap).
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(Array(oldestFirst.enumerated()), id: \.element.id) { index, item in
                                 chaseCard(item)
+                                    .accessibilityLabel("Charge \(index + 1) of \(vm.items.count)")
                                     .containerRelativeFrame(.horizontal)
                                     .id(item.id)
                             }
@@ -392,6 +397,15 @@ struct PennyCrewChaseCard: View {
                     }
                     .scrollTargetBehavior(.viewAligned)
                     .scrollPosition(id: $shownId)
+                    // An answered charge leaves the list: show its neighbour, so the counter stays true.
+                    .onChange(of: shownId) { _, id in
+                        if let id, let i = oldestFirst.firstIndex(where: { $0.id == id }) { shownIndex = i }
+                    }
+                    .onChange(of: vm.items.map(\.id)) { _, ids in
+                        guard let id = shownId, !ids.contains(id) else { return }
+                        let ordered = oldestFirst
+                        shownId = ordered.isEmpty ? nil : ordered[min(shownIndex, ordered.count - 1)].id
+                    }
                     Text("\(position) of \(vm.items.count) · oldest first · swipe for the next")
                         .font(appStyle.font(.caption2))
                         .foregroundStyle(appStyle.meta)
