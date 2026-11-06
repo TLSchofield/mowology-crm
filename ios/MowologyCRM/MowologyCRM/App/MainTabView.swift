@@ -43,37 +43,61 @@ struct MainTabView: View {
     /// "Booked another day — doing it now?" (VisitPullForwardService): checks while the app is open.
     @ObservedObject private var pullForward = PullForwardCoordinator.shared
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var readyBriefStore = ReadyBriefStore()
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
 
-    /// One list drives both the screens and the meniscus bar (Tim, 2026-11-04 — docs/plans/kaname-tab-and-screen-heads-spec.md).
-    /// Admins: Schedule · Time · Kaname · Search · Receipts — Kaname, the chief of staff, in the centre: the pivot
-    /// of the bar, reached by either thumb. Crew: Schedule · Time · Search · Receipts · Account, unchanged in shape —
-    /// Search stays in the centre where it was. Kaname's tab carries the profile row and Sign Out for admins.
-    private enum Tab: Hashable { case schedule, time, kaname, search, receipts, account }
+    /// The bar (Tim, 2026-11-05): admins Schedule · Search · Kaname · Receipts · Add — Kaname, the chief of staff,
+    /// in the centre; Add at the far right, under the thumb. Crew: Schedule · Search · Receipts · Account · Add.
+    /// Kaname's tab carries the profile row and Sign Out for admins. Time left the bar for the chip at the top of
+    /// every tab (TimeChip); its screen is still a page of the TabView, so it keeps its state and the driver
+    /// question can still open it. Add is not a page: it opens the AddDial over the current screen.
+    private enum Tab: Hashable { case schedule, time, kaname, search, receipts, account, add }
     @State private var selectedTab = Tab.schedule
+    /// The AddDial is open: the bead sits on Add (showing ×) while the screen underneath stays as it was.
+    @State private var addOpen = false
+    /// The bar tab the bead returns to from Time Clock, which has no slot of its own.
+    @State private var lastBarTab = Tab.schedule
     @State private var keyboardUp = false
     /// When a push last sent the user somewhere: the driver question doesn't pull them to Time over it.
     @State private var routedAt: Date?
 
-    private var tabs: [Tab] {
+    /// The bar's slots, left to right.
+    private var barTabs: [Tab] {
         authSession.user?.isAdmin == true
-            ? [.schedule, .time, .kaname, .search, .receipts]
-            : [.schedule, .time, .search, .receipts, .account]
+            ? [.schedule, .search, .kaname, .receipts, .add]
+            : [.schedule, .search, .receipts, .account, .add]
+    }
+
+    /// The TabView's pages: every slot that is a screen, plus Time Clock.
+    private var tabs: [Tab] { barTabs.filter { $0 != .add } + [.time] }
+
+    /// The slot the bead sits on: Add while the dial is open; on Time Clock, the tab it was opened from.
+    private var barIndex: Int {
+        let shown: Tab = addOpen ? .add : (barTabs.contains(selectedTab) ? selectedTab : lastBarTab)
+        return barTabs.firstIndex(of: shown) ?? 0
     }
 
     private var meniscusItems: [ItMeniscusItem] {
-        tabs.enumerated().map { index, tab in
+        barTabs.enumerated().map { index, tab in
             switch tab {
             case .schedule: return ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
-            case .time:     return ItMeniscusItem(id: index, title: "Time", icon: Image(systemName: "clock.fill"))
             case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: Image(uiImage: KanameTabIcon.image), iconScale: 1.35)
             case .search:   return ItMeniscusItem(id: index, title: "Search", icon: Image(systemName: "magnifyingglass"))
-            // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05).
-            case .receipts: return ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"),
-                                                  beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
+            // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05). Not while Time Clock
+            // is showing: the bead is resting there and a tap only goes back (Codex 2026-11-05).
+            case .receipts:
+                return selectedTab == .time
+                    ? ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"))
+                    : ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"),
+                                     beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
             case .account:  return ItMeniscusItem(id: index, title: "Account", icon: Image(systemName: "person.fill"))
+            // Add is an action, not a page: open, the bead shows × and a tap on it closes the dial.
+            case .add:      return ItMeniscusItem(id: index, title: "Add", icon: Image(systemName: "plus"),
+                                                  beadIcon: Image(systemName: "xmark"), beadLabel: "Close",
+                                                  longPressLabel: "Add a job")
+            case .time:     return ItMeniscusItem(id: index, title: "Time", icon: Image(systemName: "clock.fill"))
             }
         }
     }
@@ -87,6 +111,7 @@ struct MainTabView: View {
         case .search:   SearchView(authSession: authSession)
         case .receipts: ReceiptsView(authSession: authSession).environmentObject(authSession)
         case .account:  accountTab
+        case .add:      EmptyView()   // never a page: barTabs only
         }
     }
 
@@ -109,8 +134,19 @@ struct MainTabView: View {
                     .toolbar(.hidden, for: .tabBar)
                     // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
                     .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
+                    .environment(\.openTimeClock, { addOpen = false; selectedTab = .time })
+                    // The veil blocks touches; this keeps VoiceOver out of the screen behind the Add dial too.
+                    .accessibilityHidden(addOpen)
             }
         }
+        // Over the screen, under the bar (the bar is the safe-area inset below), so the bead and its × stay live.
+        .overlay {
+            if addOpen, let slot = barTabs.firstIndex(of: .add) {
+                AddDial(slot: slot, slotCount: barTabs.count, onPick: add, onClose: { addOpen = false })
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86), value: addOpen)
         // The ready brief's head states, for each screen's head face and "needs you" line (ScreenHead.swift).
         .environmentObject(readyBriefStore)
         // The bar's inset does not reach scroll views inside the tabs' navigation stacks, so the last rows of a
@@ -121,12 +157,23 @@ struct MainTabView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
                 ItMeniscusBar(items: meniscusItems, selected: Binding(
-                    get: { tabs.firstIndex(of: selectedTab) ?? 0 },
-                    set: { selectedTab = tabs[$0] }),
+                    get: { barIndex },
+                    set: { index in
+                        guard barTabs.indices.contains(index) else { return }
+                        if barTabs[index] == .add { addOpen = true }
+                        else { addOpen = false; selectedTab = barTabs[index] }
+                    }),
                     onReselect: { index in
-                        if tabs.indices.contains(index), tabs[index] == .receipts {
+                        guard barTabs.indices.contains(index) else { return }
+                        let tab = barTabs[index]
+                        if tab == .add { addOpen = false }                          // the × on the bead
+                        else if selectedTab == .time { selectedTab = tab }          // back from Time Clock
+                        else if tab == .receipts {
                             NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
                         }
+                    },
+                    onLongPress: { index in
+                        if barTabs.indices.contains(index), barTabs[index] == .add { add(.job) }
                     })
             }
         }
@@ -135,6 +182,7 @@ struct MainTabView: View {
         .tint(appStyle.tenant)
         .itAppScreen()
         .task {
+            await ClockChipStore.shared.refresh(authSession: authSession)
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 await readyBriefStore.refresh(authSession: authSession)
             }
@@ -146,6 +194,7 @@ struct MainTabView: View {
             if phase == .active {
                 pullForward.appBecameActive(authSession: authSession)
                 checkDriverQuestion()
+                Task { await ClockChipStore.shared.refresh(authSession: authSession) }
             }
             else if phase == .background { pullForward.appWentInactive() }
         }
@@ -157,7 +206,13 @@ struct MainTabView: View {
         // A sign-in as someone else (admin vs crew) changes the tab list; never leave a tab selected that isn't in it.
         .onChange(of: tabs) { _, now in
             if !now.contains(selectedTab) { selectedTab = .schedule }
+            if !barTabs.contains(lastBarTab) { lastBarTab = .schedule }
         }
+        .onChange(of: selectedTab) { _, now in
+            if barTabs.contains(now) { lastBarTab = now }
+        }
+        // A push, the driver question or a sign-in change moves the page: the dial never stays open over it.
+        .onChange(of: selectedTab) { _, _ in addOpen = false }
         // Every notification route today lands on the schedule; ScheduleView
         // consumes the route itself and opens the stop.
         .onChange(of: notificationRouter.pendingRoute) { _, route in
@@ -188,6 +243,18 @@ struct MainTabView: View {
                (routedAt ?? .distantPast) < asked.addingTimeInterval(-5) {
                 selectedTab = .time
             }
+        }
+    }
+
+    /// A pick from the AddDial (or a long press on Add): Schedule owns the "Add a job" sheet (FieldJobView), so the
+    /// bar switches there and asks it to open — no new root-level sheet (those blocked other sheets, 2026-10-08).
+    private func add(_ item: AddDialItem) {
+        addOpen = false
+        selectedTab = .schedule
+        // After the switch lands, so the sheet presents from a Schedule that is on screen.
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .mwAddFromBar, object: nil,
+                                            userInfo: ["startWithNewClient": item == .client])
         }
     }
 
@@ -250,6 +317,7 @@ struct MainTabView: View {
             .itAppScreen()
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
         }
     }
 }
@@ -367,4 +435,6 @@ extension EnvironmentValues {
 extension Notification.Name {
     /// The Receipts bead was tapped while Receipts is showing: open the receipt camera (ReceiptsView).
     static let mwSnapReceipt = Notification.Name("ca.mowology.snapReceipt")
+    /// Job or Client was picked from the bar's Add dial: Schedule opens "Add a job" (userInfo `startWithNewClient`).
+    static let mwAddFromBar = Notification.Name("ca.mowology.addFromBar")
 }

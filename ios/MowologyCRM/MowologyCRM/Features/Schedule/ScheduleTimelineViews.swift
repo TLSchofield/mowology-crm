@@ -458,8 +458,11 @@ struct ScheduleTimelineDemoOverlay: View {
     var body: some View {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("-mwBeadDemo") {
-            MeniscusBeadDemo().itAppTheme(enabled: true, field: false)
+        if let i = args.firstIndex(of: "-mwBarDemo") {
+            let variant = i + 1 < args.count ? args[i + 1] : "admin"
+            MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
+        } else if args.contains("-mwBeadDemo") {
+            MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwTimelineDemo") {
             let mode = i + 1 < args.count ? args[i + 1] : "day"
             let field = args.contains("-mwTimelineField")
@@ -530,21 +533,57 @@ private struct ScheduleTimelineDemo: View {
 #endif
 
 #if DEBUG
-/// `-mwBeadDemo`: the tab bar with Receipts selected, to see the camera in the bead.
-private struct MeniscusBeadDemo: View {
+/// `-mwBarDemo admin|add|crew|receipts|out|break` (`-mwBeadDemo` = receipts): the tab bar and the Time chip over the
+/// synthetic day — admin or crew slots, the Add dial open, Receipts' camera bead, or the chip clocked out.
+private struct MeniscusBarDemo: View {
     @Environment(\.itAppStyle) private var style
-    @State private var selected = 4
+    let variant: String
+    @State private var selected: Int
+    @State private var addOpen: Bool
+
+    init(variant: String) {
+        self.variant = variant
+        _selected = State(initialValue: variant == "receipts" ? 3 : 0)
+        _addOpen = State(initialValue: variant == "add")
+    }
+
+    private var crew: Bool { variant == "crew" }
+    private var items: [ItMeniscusItem] {
+        let titles: [(String, String)] = crew
+            ? [("Schedule", "calendar"), ("Search", "magnifyingglass"), ("Receipts", "doc.text.image"), ("Account", "person.fill"), ("Add", "plus")]
+            : [("Schedule", "calendar"), ("Search", "magnifyingglass"), ("Kaname", "hexagon"), ("Receipts", "doc.text.image"), ("Add", "plus")]
+        return titles.enumerated().map { i, t in
+            switch t.0 {
+            case "Receipts": return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
+                                                   beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
+            case "Add":      return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
+                                                   beadIcon: Image(systemName: "xmark"), beadLabel: "Close", longPressLabel: "Add a job")
+            default:         return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1))
+            }
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            style.page
-            ItMeniscusBar(items: [
-                ItMeniscusItem(id: 0, title: "Schedule", icon: Image(systemName: "calendar")),
-                ItMeniscusItem(id: 1, title: "Time", icon: Image(systemName: "clock.fill")),
-                ItMeniscusItem(id: 2, title: "Kaname", icon: Image(systemName: "hexagon")),
-                ItMeniscusItem(id: 3, title: "Search", icon: Image(systemName: "magnifyingglass")),
-                ItMeniscusItem(id: 4, title: "Receipts", icon: Image(systemName: "doc.text.image"),
-                               beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt"),
-            ], selected: $selected)
+        NavigationStack {
+            ScheduleTimelineDemo(mode: "day")
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
+        }
+        .overlay {
+            if addOpen {
+                AddDial(slot: items.count - 1, slotCount: items.count, onPick: { _ in addOpen = false }, onClose: { addOpen = false })
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ItMeniscusBar(items: items, selected: Binding(
+                get: { addOpen ? items.count - 1 : selected },
+                set: { if $0 == items.count - 1 { addOpen = true } else { addOpen = false; selected = $0 } }),
+                onReselect: { if $0 == items.count - 1 { addOpen = false } })
+        }
+        .onAppear {
+            ClockChipStore.shared.set(clockedIn: variant != "out", elapsedSeconds: 42 * 60)
+            if variant == "break" { BreakController.shared.demoStartBreak(minutesAgo: 12) }
         }
     }
 }

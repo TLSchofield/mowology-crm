@@ -386,6 +386,7 @@ final class TimeClockViewModel: ObservableObject {
         d.set(clockedIn, forKey: PersistKey.clockedIn)
         d.set(entryId ?? 0, forKey: PersistKey.entryId)
         d.set(clockInTime, forKey: PersistKey.clockInTime)
+        ClockChipStore.shared.set(clockedIn: clockedIn, elapsedSeconds: elapsedSeconds)   // the Time chip at the top
     }
 
     private func restorePersistedClockState() {
@@ -395,6 +396,7 @@ final class TimeClockViewModel: ObservableObject {
         entryId       = savedId > 0 ? savedId : nil
         clockInTime   = d.string(forKey: PersistKey.clockInTime)
         // Elapsed seconds will restart from 0 — server reconciles on reconnect.
+        ClockChipStore.shared.set(clockedIn: clockedIn, elapsedSeconds: nil)   // time unknown until the server answers
         if clockedIn {
             startTicking()
             GPSTrackingService.shared.start(authSession: authSession)   // a no-op while paused for a break
@@ -651,3 +653,10 @@ final class BreakController: ObservableObject {
         return f.date(from: raw)
     }
 }
+
+#if DEBUG
+extension BreakController {
+    /// `-mwBarDemo break`: the Time chip on a break, without a server or a shift.
+    func demoStartBreak(minutesAgo: Int) { startedAt = Date().addingTimeInterval(-Double(minutesAgo) * 60) }
+}
+#endif

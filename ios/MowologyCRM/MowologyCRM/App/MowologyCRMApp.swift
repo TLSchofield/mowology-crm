@@ -135,6 +135,10 @@ struct MowologyCRMApp: App {
     // MARK: - Notification Permission
 
     private func requestNotificationPermission() {
+        #if DEBUG
+        // The design demos (`-mwBarDemo`, `-mwTimelineDemo`…) are screenshotted: the permission alert would cover them.
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("-mw") && $0.hasSuffix("Demo") }) { return }
+        #endif
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
         ) { granted, _ in

@@ -529,6 +529,10 @@ struct ReceiptsView: View {
                 }
             }
         }
+        // The shift, as on every tab (Time left the bar, 2026-11-05). Selecting needs the room, so it steps aside.
+        if !isSelectMode {
+            ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
+        }
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {
                 isSelectMode.toggle()

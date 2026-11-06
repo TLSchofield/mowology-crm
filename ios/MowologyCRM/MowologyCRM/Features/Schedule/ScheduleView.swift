@@ -24,6 +24,8 @@ struct ScheduleView: View {
     @State private var path: [Stop] = []
     /// "Add a job / visit on the spot" sheet.
     @State private var showingFieldJob = false
+    /// Client picked from the Add dial: "Add a job" opens straight on its new-client step.
+    @State private var fieldJobStartsWithNewClient = false
     /// The stop being moved to another date — drives the Move Stop sheet.
     @State private var movingStop: Stop?
     /// A quick action picked on a card, run once by the visit screen it opens (keyed by stop id).
@@ -201,8 +203,14 @@ struct ScheduleView: View {
                 viewModel.stopPolling()
             }
         }
+        // Job or Client from the bar's Add dial (MainTabView).
+        .onReceive(NotificationCenter.default.publisher(for: .mwAddFromBar)) { note in
+            impactMedium.impactOccurred()
+            fieldJobStartsWithNewClient = note.userInfo?["startWithNewClient"] as? Bool ?? false
+            showingFieldJob = true
+        }
         .sheet(isPresented: $showingFieldJob) {
-            FieldJobView(authSession: authSession) {
+            FieldJobView(authSession: authSession, startWithNewClient: fieldJobStartsWithNewClient) {
                 // A visit or job was just added for today — show it.
                 Task { await viewModel.invalidateAndRefresh() }
             }
@@ -352,16 +360,8 @@ struct ScheduleView: View {
             .buttonStyle(.plain)
         }
 
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                impactMedium.impactOccurred()
-                showingFieldJob = true
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(appStyle.tenant)
-            }
-            .accessibilityLabel("Add a job")
-        }
+        // Add moved to the bar's Add slot (Tim, 2026-11-05); the top right shows the shift instead.
+        ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
 
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {

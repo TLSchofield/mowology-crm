@@ -190,6 +190,7 @@ struct TeamView: View {
             .refreshable { await reload() }
             .navigationTitle("Kaname")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
             .task { await loadBrains() }
             .task(id: ittaiDesignEnabled) {
                 if ittaiDesignEnabled { await loadReadyBrief() }

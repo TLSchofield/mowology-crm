@@ -23,6 +23,8 @@ struct ItMeniscusItem: Identifiable {
     var beadIcon: Image? = nil
     /// Spoken name of that action ("Snap a receipt"), used for the selected tab instead of its title.
     var beadLabel: String? = nil
+    /// What a long press does, spoken as a VoiceOver action ("Add a job"). nil = no long press.
+    var longPressLabel: String? = nil
 }
 
 struct ItMeniscusBar: View {
@@ -33,6 +35,8 @@ struct ItMeniscusBar: View {
     @Binding var selected: Int
     /// A tap on the tab that is already selected (the bead): the tab's own action, e.g. Receipts takes a photo.
     var onReselect: ((Int) -> Void)? = nil
+    /// A long press on a tab (Add: straight to "Add a job" — Tim, 2026-11-05). The tap that ends it is ignored.
+    var onLongPress: ((Int) -> Void)? = nil
     /// Animated copy of `selected`, so the bead and notch can be drawn mid-slide.
     @State private var position: CGFloat = 0
 
@@ -43,9 +47,9 @@ struct ItMeniscusBar: View {
     static let iconTop: CGFloat = 14
 
     var body: some View {
-        ItMeniscusBarBody(items: items, selected: selected, position: position, style: style) { index in
+        ItMeniscusBarBody(items: items, selected: selected, position: position, style: style, onSelect: { index in
             if index == selected { onReselect?(index) } else { selected = index }
-        }
+        }, onLongPress: onLongPress)
         .frame(height: ItMeniscusGeometry.rise + Self.barHeight)
         // The surface carries on under the home indicator. A fixed-height fill cannot grow into the safe area
         // (1.3.67 on Tim's iPhone showed the page through the home-indicator strip), so the fill is flexible:
@@ -74,6 +78,9 @@ private struct ItMeniscusBarBody: View, Animatable {
     var position: CGFloat
     let style: ItAppStyle
     let onSelect: (Int) -> Void
+    let onLongPress: ((Int) -> Void)?
+    /// The slot a long press just fired on: that slot's own tap, which follows the release, is dropped.
+    @State private var longPressed: (id: Int, at: Date)?
 
     var animatableData: CGFloat {
         get { position }
@@ -99,7 +106,13 @@ private struct ItMeniscusBarBody: View, Animatable {
                 HStack(spacing: 0) {
                     ForEach(items) { item in
                         let active = item.id == selected
-                        Button { onSelect(item.id) } label: {
+                        Button {
+                            if let lp = longPressed, lp.id == item.id, Date().timeIntervalSince(lp.at) < 0.8 {
+                                longPressed = nil
+                            } else {
+                                onSelect(item.id)
+                            }
+                        } label: {
                             // Every label on one line: the icon has a fixed 22 pt box and a larger one (Kaname's
                             // hexagon) grows upwards out of it, and the stack sits at a fixed top instead of being
                             // centred — centred, the taller Kaname stack pushed its label 4 pt lower (Tim, 1.3.82).
@@ -123,9 +136,19 @@ private struct ItMeniscusBarBody: View, Animatable {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                            guard let onLongPress, item.longPressLabel != nil else { return }
+                            longPressed = (item.id, Date())
+                            onLongPress(item.id)
+                        })
                         .accessibilityLabel(item.title)
                         .accessibilityHint(active && item.beadLabel != nil ? "Tap again: \(item.beadLabel!)" : "")
                         .accessibilityAddTraits(active ? [.isSelected] : [])
+                        .accessibilityActions {
+                            if let label = item.longPressLabel, let onLongPress {
+                                Button(label) { onLongPress(item.id) }
+                            }
+                        }
                     }
                 }
                 .frame(height: ItMeniscusBar.barHeight)

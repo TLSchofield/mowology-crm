@@ -206,9 +206,12 @@ struct FieldJobView: View {
 
     /// Called after something was created, so the schedule can reload.
     let onCreated: () -> Void
+    /// Opened from Client in the bar's Add dial: go straight to "New client at this location".
+    let startWithNewClient: Bool
 
-    init(authSession: AuthSession, onCreated: @escaping () -> Void) {
+    init(authSession: AuthSession, startWithNewClient: Bool = false, onCreated: @escaping () -> Void) {
         _vm = StateObject(wrappedValue: FieldJobViewModel(authSession: authSession))
+        self.startWithNewClient = startWithNewClient
         self.onCreated = onCreated
     }
 
@@ -243,7 +246,11 @@ struct FieldJobView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case .ready:
-                    nearbyList
+                    if startWithNewClient {
+                        FieldJobNewClientView(vm: vm, finish: finish)
+                    } else {
+                        nearbyList
+                    }
                 }
             }
             .background(appStyle.page)
