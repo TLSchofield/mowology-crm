@@ -32,6 +32,7 @@
                 if (!d.ok) { q('.mw-plants-list').innerHTML = '<p class="text-muted small mb-0">' + esc(d.error || 'Plant ID is not set up yet.') + '</p>'; return; }
                 state.beds = d.beds || []; state.canEdit = !!d.can_edit; state.canLibrary = !!d.can_library;
                 q('.mw-plants-attr').textContent = d.attribution || '';
+                state.work = d.work || null;
                 renderList(d.plants || []);
             })
             .catch(function () { q('.mw-plants-list').innerHTML = '<p class="text-muted small mb-0">Could not load plants.</p>'; });
@@ -73,24 +74,62 @@
         return '<div class="small mt-1"><a href="/crm/plants/library.php">' + what + '</a></div>';
     }
 
+    // This month's work (it goes on the visit checklists) and the last work logged (PlantWorkService).
+    function workOf(p) {
+        var due = (p.due_now || []).length ? '<span class="badge badge-success mr-1">Due ' + esc(state.work ? state.work.month : '') + '</span>' + p.due_now.map(esc).join(' · ') : '';
+        var last = p.last_done ? '<span class="text-muted">Last done: ' + esc(p.last_done.task) + ' · ' + esc(String(p.last_done.done_at || '').slice(0, 10)) + '</span>'
+            + ' <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-history="' + p.id + '">History</button>' : '';
+        if (!due && !last) return '';
+        return '<div class="small mt-1">' + due + (due && last ? '<br>' : '') + last + '</div><div class="small mw-plants-history" data-history-for="' + p.id + '" hidden></div>';
+    }
+    function workHead() {
+        var w = state.work;
+        if (!w || !w.ready) return '';
+        var says = w.seeding
+            ? (w.lines ? w.lines + ' plant care line' + (w.lines === 1 ? '' : 's') + (w.more ? ' (+' + w.more + ' more)' : '') + ' go on this month\'s visit checklists.' : 'Nothing due this month; plant care is on for visit checklists.')
+            : 'Plant care is off for this property\'s visit checklists.';
+        return '<p class="small text-muted mb-2">' + says + (state.canEdit ? ' <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-seeding="' + (w.seeding ? 0 : 1) + '">' + (w.seeding ? 'Turn off' : 'Turn on') + '</button>' : '') + '</p>';
+    }
+
     function renderList(plants) {
         var box = q('.mw-plants-list');
         if (!plants.length) { box.innerHTML = '<p class="text-muted small mb-0">No plants recorded here yet. Tap <b>What is this?</b> and take three photos of one plant.</p>'; return; }
-        box.innerHTML = '<table class="table table-sm mb-0"><tbody>' + plants.map(function (p) {
+        box.innerHTML = workHead() + '<table class="table table-sm mb-0"><tbody>' + plants.map(function (p) {
             var thumb = p.thumbs && p.thumbs[0] ? '<img src="' + esc(p.thumbs[0]) + '" alt="" width="44" height="44" class="rounded">' : '';
             var badge = p.status === 'confirmed' ? '' : ' <span class="badge badge-warning">' + (p.status === 'unsure' ? 'not sure' : 'check') + '</span>';
             var acts = state.canEdit ? (p.status !== 'confirmed' ? '<button type="button" class="btn btn-sm btn-outline-primary mr-1" data-check="' + p.id + '">Check</button>' : '')
                 + (!p.bed ? '<a class="btn btn-sm btn-outline-secondary mr-1" href="/crm/products/area-measurement.php?property_id=' + PID + '&plant=' + p.id + '">Draw its bed</a>' : '')
                 + '<button type="button" class="btn btn-sm btn-link text-muted" data-remove="' + p.id + '">Remove</button>' : '';
-            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + '</td>'
+            acts = planButton(p) + acts;
+            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + workOf(p) + '</td>'
                 + '<td class="text-right text-nowrap">' + acts + '</td></tr>';
         }).join('') + '</tbody></table>';
         state.plants = plants;
     }
 
     root.addEventListener('click', function (e) {
-        var t = e.target.closest('[data-check],[data-remove],[data-care]');
+        var h = e.target.closest('[data-history]'), sw = e.target.closest('[data-seeding]');
+        if (h) {
+            var hid = +h.getAttribute('data-history'), out = q('[data-history-for="' + hid + '"]');
+            if (!out) return;
+            if (!out.hidden) { out.hidden = true; return; }
+            out.hidden = false; out.textContent = 'Loading…';
+            fetch(API + '?mode=work_history&plant_id=' + hid, { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var rows = d.history || [];
+                    out.innerHTML = rows.length ? '<ul class="pl-3 mb-0">' + rows.map(function (r) { return '<li>' + esc(String(r.done_at || '').slice(0, 10)) + ' · ' + esc(r.task) + (r.note ? ' <span class="text-muted">— ' + esc(r.note) + '</span>' : '') + '</li>'; }).join('') + '</ul>' : '<span class="text-muted">' + esc(d.error || 'Nothing logged yet.') + '</span>';
+                })
+                .catch(function () { out.textContent = 'Could not load the history.'; });
+            return;
+        }
+        if (sw) {
+            post({ mode: 'plant_checklist', property_id: PID, on: sw.getAttribute('data-seeding') === '1' }).then(function (r) { toast(r.message || 'Done', r.ok ? 'success' : 'error'); load(); });
+            return;
+        }
+        var t = e.target.closest('[data-check],[data-remove],[data-care],[data-plan]');
         if (!t) return;
+        if (t.hasAttribute('data-plan')) { openPlan(+t.getAttribute('data-plan'), t.getAttribute('data-plan-id') ? +t.getAttribute('data-plan-id') : 0); return; }
         if (t.hasAttribute('data-care')) {
             var pl = (state.plants || []).filter(function (x) { return +x.id === +t.getAttribute('data-care'); })[0];
             if (!pl) return;
@@ -108,6 +147,147 @@
             if (p) showResult(p, '');
         }
     });
+
+    // ── Pruning plan (PruningPlanService, migration 1430; badges by photo-markers.js) ──────
+    var PLAN_STATUS = { draft: 'Plan drafted', approved: 'Plan approved', scheduled: 'Plan scheduled', done: 'Pruned' };
+    var plan = { current: null, types: {}, markers: null, dirty: {}, plantId: 0 };
+
+    function planButton(p) {
+        if (p.plan && p.plan.id) {
+            return '<button type="button" class="btn btn-sm btn-outline-success mr-1" data-plan="' + p.id + '" data-plan-id="' + p.plan.id + '">' + esc(PLAN_STATUS[p.plan.status] || 'Plan') + '</button>';
+        }
+        if (state.canLibrary && p.scientific_name) {
+            return '<button type="button" class="btn btn-sm btn-outline-secondary mr-1" data-plan="' + p.id + '" title="Claude drafts a pruning plan from the photos (about a minute)">Pruning plan</button>';
+        }
+        return '';
+    }
+
+    function planPanel() {
+        var el = q('.mw-plants-plan');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'mw-plants-plan border rounded p-3 mb-3';
+            q('.mw-plants-result').insertAdjacentElement('afterend', el);
+        }
+        return el;
+    }
+
+    function openPlan(plantId, planId) {
+        var panel = planPanel();
+        panel.hidden = false;
+        plan.plantId = plantId;
+        if (!planId) { draftPlan(plantId); return; }
+        panel.innerHTML = '<p class="small text-muted mb-0">Loading the plan…</p>';
+        fetch(API + '?mode=pruning_get&id=' + planId, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok || !d.plan) { panel.innerHTML = '<p class="small text-muted mb-0">' + esc(d.error || 'No plan found.') + '</p>'; return; }
+                plan.types = d.types || {}; renderPlan(d.plan);
+            })
+            .catch(function () { panel.innerHTML = '<p class="small text-muted mb-0">Could not load the plan.</p>'; });
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function draftPlan(plantId) {
+        var panel = planPanel();
+        panel.hidden = false;
+        panel.innerHTML = '<p class="small mb-0"><span class="spinner-border spinner-border-sm mr-1"></span> Reading the photos and writing the plan — about a minute. Stay on this page.</p>';
+        post({ mode: 'pruning_draft', plant_id: plantId })
+            .then(function (d) {
+                if (!d.ok) { panel.innerHTML = '<p class="small text-danger mb-0">' + esc(d.message || 'Could not draft a plan.') + '</p>'; return; }
+                plan.types = d.types || {}; renderPlan(d.plan); load();
+            })
+            .catch(function () { panel.innerHTML = '<p class="small text-danger mb-0">The request did not come back. Reload the page: the plan may still have been saved.</p>'; });
+    }
+
+    function planAct(mode, extra) {
+        var body = { mode: mode, id: plan.current.id };
+        Object.keys(extra || {}).forEach(function (k) { body[k] = extra[k]; });
+        return post(body).then(function (d) {
+            toast(d.message || (d.ok ? 'Done' : 'Failed'), d.ok ? 'success' : 'error');
+            if (d.ok && d.plan) { renderPlan(d.plan); load(); }
+            return d;
+        });
+    }
+
+    function typeLabel(t) { return plan.types[t] || t; }
+    function monthWindow(w) {
+        var N = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return w.from === w.to ? N[w.from] : N[w.from] + '–' + N[w.to];
+    }
+
+    function renderPlan(row) {
+        plan.current = row; plan.dirty = {};
+        var panel = planPanel();
+        var P = row.plan;
+        if (!P) { panel.innerHTML = '<p class="small text-muted mb-0">This plan has no content.</p>'; return; }
+        var photo0 = row.photos && row.photos[0];
+        var canEdit = state.canEdit && (row.status === 'draft' || row.status === 'approved');
+        var sp = P.species || {};
+        var conf = sp.confidence != null ? Math.round(sp.confidence * 100) + '%' : '';
+        var head = '<div class="d-flex align-items-start justify-content-between mb-2">'
+            + '<div><h6 class="mb-0">Pruning plan — ' + esc(row.common_name || row.scientific_name) + ' <span class="badge badge-' + (row.status === 'approved' || row.status === 'scheduled' ? 'success' : (row.status === 'done' ? 'secondary' : 'warning')) + '">' + esc(row.status) + '</span></h6>'
+            + '<div class="small text-muted">' + esc(sp.scientific || row.scientific_name) + (conf ? ' · species confidence ' + conf : '') + ' · drafted ' + esc(String(row.created_at).slice(0, 10)) + '</div>'
+            + ((sp.if_wrong || []).map(function (w) { return '<div class="mw-prune-species-warn">If it is actually <b>' + esc(w.instead) + '</b>: ' + esc(w.what_changes) + '</div>'; }).join(''))
+            + '</div><button type="button" class="btn btn-sm btn-link text-muted" data-plan-close>Close</button></div>';
+        var legend = '<div class="mw-prune-legend">' + Object.keys(plan.types).map(function (t) { return '<span><span class="mw-pmark" data-type="' + esc(t) + '"></span>' + esc(plan.types[t]) + '</span>'; }).join('') + '</div>';
+        var photoHtml = photo0 ? '<div class="mw-prune-photo mb-1"></div>' + (row.anchors_usable ? '' : '<div class="small text-muted mb-2">Markers hidden for this plan (positions were not reliable). Use the numbered list.</div>') : '<div class="small text-muted mb-2">No photo on file.</div>';
+        var winHtml = '<div class="mw-prune-windows">'
+            + '<div class="mw-prune-window"><b>Now · ' + esc(monthWindow(P.now)) + '</b>' + (P.now.actions.length ? 'Actions ' + P.now.actions.join(', ') : 'Nothing until the main window') + (P.now.note ? '<div class="text-muted">' + esc(P.now.note) + '</div>' : '') + '</div>'
+            + '<div class="mw-prune-window"><b>Main prune · ' + esc(monthWindow(P.main)) + '</b>' + (P.main.actions.length ? 'Actions ' + P.main.actions.join(', ') : '') + (P.main.note ? '<div class="text-muted">' + esc(P.main.note) + '</div>' : '') + '</div></div>';
+        var acts = '<ul class="mw-prune-actions mb-2">' + P.actions.map(function (a) {
+            return '<li data-n="' + a.n + '"><span class="mw-pmark" data-type="' + esc(a.type) + '">' + a.n + '</span><span><b>' + esc(typeLabel(a.type)) + '</b> — ' + esc(a.what)
+                + '<span class="mw-prune-why">' + esc(a.why) + (a.anchor && a.anchor.confidence === 0 ? ' · not placed on the photo' : '') + '</span></span></li>';
+        }).join('') + '</ul>';
+        var lists = (P.form_goal ? '<p class="small mb-1"><b>Goal:</b> ' + esc(P.form_goal) + '</p>' : '')
+            + (P.multi_year.length ? '<p class="small mb-1"><b>Over the years:</b> ' + P.multi_year.map(function (y) { return 'Year ' + y.year + ': ' + esc(y.aim); }).join(' · ') + '</p>' : '')
+            + (P.site_constraints.length ? '<p class="small mb-1"><b>Site:</b> ' + P.site_constraints.map(esc).join(' · ') + '</p>' : '')
+            + (P.checks_on_site.length ? '<p class="small mb-1"><b>Check on site:</b> ' + P.checks_on_site.map(esc).join(' · ') + '</p>' : '')
+            + '<div class="mw-prune-summary mb-2"><b>For the client:</b> ' + esc(P.client_summary) + '</div>'
+            + '<p class="small mb-2"><b>Crew checklist:</b></p><ol class="small pl-3 mb-2">' + P.crew_checklist.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ol>';
+        var btns = '<div class="mw-prune-btns">'
+            + (canEdit && row.status === 'draft' ? '<button type="button" class="btn btn-sm btn-success mr-1" data-plan-approve>Approve</button>' : '')
+            + (canEdit ? '<button type="button" class="btn btn-sm btn-primary mr-1" data-plan-save hidden>Save marker positions</button>' : '')
+            + (canEdit && photo0 ? '<button type="button" class="btn btn-sm btn-outline-secondary mr-1" data-plan-badges>' + (row.anchors_usable ? 'Hide markers' : 'Show markers') + '</button>' : '')
+            + (state.canLibrary && row.status !== 'scheduled' && row.status !== 'done' ? '<button type="button" class="btn btn-sm btn-outline-secondary mr-1" data-plan-redraft title="Costs one more call">Draft again</button>' : '')
+            + (canEdit ? '<button type="button" class="btn btn-sm btn-link text-danger" data-plan-reject>Reject</button>' : '')
+            + '</div>';
+        panel.innerHTML = head + photoHtml + (photo0 ? legend : '') + winHtml + acts + lists + btns;
+        if (photo0 && !window.MwPhotoMarkers) {
+            q('.mw-prune-photo').innerHTML = '<img src="' + esc(photo0.url) + '" alt="Whole plant" class="img-fluid rounded">';
+        }
+        if (photo0 && window.MwPhotoMarkers) {
+            var markers = row.anchors_usable ? P.actions.filter(function (a) { return !!a.anchor; }).map(function (a) {
+                return { n: a.n, type: a.type, x: a.anchor.x, y: a.anchor.y, confidence: a.anchor.confidence, title: typeLabel(a.type) + ': ' + a.what };
+            }) : [];
+            plan.markers = MwPhotoMarkers.render(q('.mw-prune-photo'), {
+                src: photo0.url, alt: 'Whole plant', markers: markers, draggable: canEdit,
+                onSelect: function (n) { highlight(n); },
+                onMove: function (n, x, y) { plan.dirty[n] = { n: n, x: x, y: y, photo: 0 }; var b = q('[data-plan-save]'); if (b) b.hidden = false; }
+            });
+        }
+        panel.querySelectorAll('.mw-prune-actions li').forEach(function (li) {
+            li.addEventListener('click', function () { var n = +li.getAttribute('data-n'); highlight(n); if (plan.markers) plan.markers.setActive(n); });
+        });
+        var saveBtn = q('[data-plan-save]');
+        if (saveBtn) saveBtn.addEventListener('click', function () {
+            var moved = Object.keys(plan.dirty).map(function (k) { return plan.dirty[k]; });
+            if (!moved.length) return;
+            saveBtn.disabled = true;
+            planAct('pruning_anchors', { anchors: moved }).then(function () { saveBtn.disabled = false; });
+        });
+        var b;
+        if ((b = q('[data-plan-approve]'))) b.addEventListener('click', function () { planAct('pruning_approve'); });
+        if ((b = q('[data-plan-reject]'))) b.addEventListener('click', function () { if (window.confirm('Reject this plan? It stays on record but is no longer the plan for this plant.')) planAct('pruning_reject'); });
+        if ((b = q('[data-plan-badges]'))) b.addEventListener('click', function () { planAct('pruning_badges', { usable: !row.anchors_usable }); });
+        if ((b = q('[data-plan-redraft]'))) b.addEventListener('click', function () { if (window.confirm('Draft a new plan from the photos? The current one stays on record.')) draftPlan(row.plant_record_id); });
+        if ((b = q('[data-plan-close]'))) b.addEventListener('click', function () { panel.hidden = true; });
+    }
+
+    function highlight(n) {
+        var panel = planPanel();
+        panel.querySelectorAll('.mw-prune-actions li').forEach(function (li) { li.classList.toggle('is-active', +li.getAttribute('data-n') === n); });
+    }
 
     // ── Taking the photos ───────────────────────────────────────────────────
     function openTaker() {

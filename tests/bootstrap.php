@@ -572,3 +572,6 @@ require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboOnboardingService
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayrollRules.php';
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayCalculator.php';
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayHours.php';
+require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoPositionService.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/PruningPlanService.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/PlantWorkService.php';

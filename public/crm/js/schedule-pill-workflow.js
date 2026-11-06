@@ -1294,7 +1294,15 @@
         // Shrink a big phone photo once, here, and keep that copy for every retry: the queue then
         // re-sends identical bytes, which the server recognises as the same photo (2026-10-14:
         // full-size photos up to 15 MB timed out on cellular and were dropped after 3 tries).
-        preparePhoto(file).then(function(p) {
+        // Refresh the GPS fix (≤ 60 s old) while the photo is being shrunk, so the
+        // upload carries where THIS photo was taken, not where the shift started.
+        // getGps falls back to the last fix on timeout, so this never blocks a photo.
+        var gpsReady = new Promise(function(resolve) {
+            var t = setTimeout(resolve, 6500);          // never let a silent geolocation bridge hold a photo
+            getGps(function() { clearTimeout(t); resolve(); });
+        });
+        Promise.all([preparePhoto(file), gpsReady]).then(function(res) {
+            var p = res[0];
             doUploadPhoto(visitId, p.file, category, false, callback, p.takenAt);
         });
     }
@@ -2169,13 +2177,18 @@
     //  GPS HELPER
     // ═══════════════════════════════════════════════════════
 
+    // A fix is reused for at most 60 s. It used to be cached for the whole
+    // shift, so every photo of a visit carried the FIRST fix of the day and
+    // the photo pins on the client's visit report all stacked on one spot.
+    var GPS_FRESH_MS = 60 * 1000;
+
     function getGps(callback) {
-        if (cachedGps) {
+        if (cachedGps && (Date.now() - (cachedGps.at || 0)) < GPS_FRESH_MS) {
             callback(cachedGps.lat, cachedGps.lng);
             return;
         }
         if (!navigator.geolocation) {
-            callback(null, null);
+            callback(cachedGps ? cachedGps.lat : null, cachedGps ? cachedGps.lng : null);
             return;
         }
         navigator.geolocation.getCurrentPosition(
@@ -2183,12 +2196,14 @@
                 cachedGps = {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy
+                    accuracy: pos.coords.accuracy,
+                    at: Date.now()
                 };
                 callback(cachedGps.lat, cachedGps.lng);
             },
             function() {
-                callback(null, null);
+                // Refresh failed: the last fix is still better than nothing.
+                callback(cachedGps ? cachedGps.lat : null, cachedGps ? cachedGps.lng : null);
             },
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
         );

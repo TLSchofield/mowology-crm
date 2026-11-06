@@ -1203,14 +1203,14 @@
     // ── Helpers ──
 
     function getGPS(callback) {
-        // Native Capacitor: use native Geolocation plugin with a hard 4s timeout.
+        // Native Capacitor: use native Geolocation plugin with a hard 20s timeout.
         // Without the timeout, a denied/unavailable GPS can hang indefinitely,
         // leaving the clock button disabled with nothing happening.
         if (window.MwNative && window.MwNative.geo) {
             var done = false;
             var timer = setTimeout(function() {
                 if (!done) { done = true; callback(null, null); }
-            }, 4000);
+            }, 20000); // 2026-11-03: was 4 s, shorter than the bridge's own 10 s + 8 s chain
             window.MwNative.geo.getCurrentPosition()
                 .then(function(pos) {
                     if (!done) { done = true; clearTimeout(timer); callback(pos.lat, pos.lng); }

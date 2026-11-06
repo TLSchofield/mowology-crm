@@ -408,3 +408,10 @@ Left over (small, from the emulator run):
 - **New client form** says the address was "filled in from where you're standing" while the street field is empty (only City filled).
 - **QuickBooks "Back to Ittai"** does nothing in the Chrome Custom Tab on the tablet (`ittai://return` resolves when sent directly). Proposed: `intent://return#Intent;scheme=ittai;end` / auto-redirect. Server: parent session.
 - **QuickBooks Read/Accept skipped** — Tim reached Done without reading QuickBooks; Done should require or offer the read. Sandbox customers need real Vancouver (public-place) addresses — Tim: "We need vanciuver addresses in there". Imported data must match our tables — Tim: "We need to ensure the data pulled from quickbooks matches our databases".
+## Area tool ideas from AreaMap Pro (App Store, 2026-11-02)
+Tim asked which AreaMap features fit `crm/products/area-measurement.php`. Already have: polygon/polyline, satellite/hybrid, perimeter, groups, undo/redo, save-to-property, PDF/JSON/screenshot, per-sq-ft pricing, plant focus.
+- **Material estimates from the shape** (their main paid feature): area × depth → mulch/soil/gravel yards, sod rolls, seed lbs; polyline length ÷ post spacing → fence posts/rails. Feeds quote line items directly. Logic in a `MaterialEstimateService` with a test.
+- **Street View peek** before driving out: Google Street View is already licensed with our Maps key; one panel on the measurement page.
+- **Metric toggle** (m², ha, m): cheap; matters once Ittai has tenants who think metric.
+- **Feature pin with coordinates** (a tree, a valve box) saved on the property: builds on the 2026-11-02 photo pins; same `media_assets` position columns or a small `property_markers` table.
+- Skip: GPS boundary walking (city lots trace faster from satellite; background tracking is heavy in the WebView), KML/GPX/GeoJSON export (no buyer).

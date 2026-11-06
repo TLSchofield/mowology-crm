@@ -30,6 +30,8 @@
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
 require_once APP_ROOT . '/Core/Csp.php';
@@ -210,6 +212,24 @@ if ($contact && !$error) {
         $completedVisits = [];
     }
 
+    // Your plants: the confirmed plants on each property, last work done and what comes next (PlantWorkService)
+    $plantSummaries = [];
+    try {
+        $stmt = $db->prepare("SELECT id, address FROM properties WHERE site_contact_id = ? ORDER BY id LIMIT 10");
+        $stmt->execute([$contactId]);
+        $plantProps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if ($plantProps) {
+            require_once APP_ROOT . '/Modules/Plants/Services/PlantWorkService.php';
+            $plantWork = new PlantWorkService($db);
+            foreach ($plantProps as $pp) {
+                $rows = $plantWork->portalSummary((int)$pp['id'], date('Y-m-d'));
+                if ($rows) $plantSummaries[] = ['address' => (string)$pp['address'], 'plants' => $rows];
+            }
+        }
+    } catch (Throwable $e) {
+        $plantSummaries = [];
+    }
+
     // Photos for all completed visits — queried from the unified media system
     // (media_assets + media_links; visit_photos is the legacy table with 0 new rows)
     $visitPhotos  = [];
@@ -324,7 +344,7 @@ function statusBadge(string $status, bool $overdue = false): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Client Portal<?php if ($contact): ?> — <?php echo $contactName; ?><?php endif; ?></title>
-  <link rel="stylesheet" href="/customer/portal.css">
+  <link rel="stylesheet" href="/customer/portal.css?v=20261104p">
   <?php if ($hasAnyPings): ?>
   <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
   <?php endif; ?>
@@ -586,6 +606,32 @@ function statusBadge(string $status, bool $overdue = false): string {
             </li>
           <?php endforeach; ?>
         </ul>
+      <?php endif; ?>
+
+      <?php if (!empty($plantSummaries)): ?>
+        <p class="portal-section-label">Your Plants</p>
+        <?php foreach ($plantSummaries as $ps): ?>
+        <div class="portal-plants">
+          <?php if (count($plantSummaries) > 1): ?>
+            <div class="portal-plants-address"><?php echo htmlspecialchars($ps['address']); ?></div>
+          <?php endif; ?>
+          <ul class="portal-plants-list">
+            <?php foreach ($ps['plants'] as $pl): ?>
+            <li class="portal-plants-row">
+              <div class="portal-plants-name"><?php echo htmlspecialchars($pl['plant']); ?><?php echo $pl['count'] > 1 ? ' <span class="portal-plants-count">&times;' . (int)$pl['count'] . '</span>' : ''; ?></div>
+              <div class="portal-plants-meta">
+                <?php if ($pl['last']): ?>
+                  Last: <?php echo htmlspecialchars($pl['last']['task']); ?>, <?php echo date('M j', strtotime($pl['last']['done_at'])); ?>
+                <?php endif; ?>
+                <?php if ($pl['next']): ?>
+                  <?php echo $pl['last'] ? ' &middot; ' : ''; ?><?php echo $pl['next']['now'] ? 'Due now' : 'Next'; ?>: <?php echo htmlspecialchars($pl['next']['task']); ?> (<?php echo htmlspecialchars($pl['next']['when']); ?>)
+                <?php endif; ?>
+              </div>
+            </li>
+            <?php endforeach; ?>
+          </ul>
+        </div>
+        <?php endforeach; ?>
       <?php endif; ?>
 
       <?php if (!empty($completedVisits)): ?>

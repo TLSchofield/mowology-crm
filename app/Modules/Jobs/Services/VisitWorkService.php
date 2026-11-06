@@ -29,7 +29,11 @@ class VisitWorkService
 
     // ── Pure helpers ────────────────────────────────────────────────────────
 
-    /** @return array<int, array{item:string, checked:bool, note:string}> */
+    /**
+     * Plant lines (PlantWorkService) also keep `key` (care:<card>:<n> | plan:<plan>:<n>) and `plant_ids`;
+     * other rows keep exactly {item, checked, note}.
+     * @return array<int, array{item:string, checked:bool, note:string}>
+     */
     public static function sanitizeChecklist(array $items): array
     {
         $out = [];
@@ -41,11 +45,17 @@ class VisitWorkService
             if ($label === '') {
                 continue;
             }
-            $out[] = [
+            $row = [
                 'item'    => $label,
                 'checked' => !empty($item['checked']),
                 'note'    => substr(strip_tags((string)($item['note'] ?? '')), 0, 500),
             ];
+            $key = (string)($item['key'] ?? '');
+            if ($key !== '' && preg_match('/^(care|plan):\d+:\d+$/', $key)) {
+                $row['key'] = $key;
+                $row['plant_ids'] = array_slice(array_values(array_filter(array_map('intval', (array)($item['plant_ids'] ?? [])), fn($i) => $i > 0)), 0, 50);
+            }
+            $out[] = $row;
         }
         return $out;
     }
@@ -75,23 +85,27 @@ class VisitWorkService
 
     /**
      * The checklist to show: what was saved on the visit, else the plan's
-     * template seeded as unchecked rows (same rule as jobs/visit-work.php).
+     * template seeded as unchecked rows, followed by the plant care due on
+     * the property (PlantWorkService::dueFor). Same rule on web and mobile.
      */
-    public static function resolveChecklist(?string $savedJson, ?string $templateJson): array
+    public static function resolveChecklist(?string $savedJson, ?string $templateJson, array $plantLines = []): array
     {
         $saved = $savedJson ? json_decode($savedJson, true) : null;
         if (is_array($saved) && $saved !== []) {
             return self::sanitizeChecklist($saved);
         }
         $template = $templateJson ? json_decode($templateJson, true) : null;
-        if (!is_array($template)) {
-            return [];
-        }
         $rows = [];
-        foreach ($template as $t) {
-            $rows[] = ['item' => is_array($t) ? ($t['item'] ?? '') : (string)$t, 'checked' => false, 'note' => ''];
+        foreach (is_array($template) ? $template : [] as $t) {
+            $rows[] = is_array($t)
+                ? ['item' => $t['item'] ?? '', 'checked' => false, 'note' => '', 'key' => $t['key'] ?? '', 'plant_ids' => $t['plant_ids'] ?? []]
+                : ['item' => (string)$t, 'checked' => false, 'note' => ''];
         }
-        return self::sanitizeChecklist($rows);
+        $rows = self::sanitizeChecklist($rows);
+        if ($plantLines && class_exists('PlantWorkService')) {
+            $rows = self::sanitizeChecklist(PlantWorkService::seedChecklist($rows, $plantLines));
+        }
+        return $rows;
     }
 
     public static function normalizeNoteType(string $type): string
@@ -126,8 +140,9 @@ class VisitWorkService
     {
         $stmt = $this->db->prepare("
             SELECT v.id, v.stop_id, v.status, v.assigned_crew_id, v.locked_at,
-                   v.checklist_json, v.materials_json,
-                   p.checklist_template, cs.crew_id AS stop_crew_id
+                   v.checklist_json, v.materials_json, v.scheduled_date,
+                   p.checklist_template, p.property_id, p.service_type AS plan_service_type,
+                   cs.crew_id AS stop_crew_id
             FROM job_visits v
             JOIN job_plans p ON v.plan_id = p.id
             LEFT JOIN calendar_stops cs ON v.stop_id = cs.id
@@ -178,14 +193,67 @@ class VisitWorkService
         return [
             'visit_id'  => (int)$visit['id'],
             'locked'    => $visit['locked_at'] !== null,
-            'checklist' => self::resolveChecklist($visit['checklist_json'] ?? null, $visit['checklist_template'] ?? null),
+            'checklist' => self::resolveChecklist($visit['checklist_json'] ?? null, $visit['checklist_template'] ?? null, $this->plantLinesFor($visit)),
             'materials' => self::sanitizeMaterials(is_array($materials) ? $materials : []),
             'notes'     => $notes,
         ];
     }
 
+    /**
+     * The plant care lines for a visit that has no saved checklist yet (seeded once; after the first save the
+     * checklist is the crew's). Never throws: plant lines are extra, the checklist must still load.
+     */
+    public function plantLinesFor(array $visit): array
+    {
+        $saved = !empty($visit['checklist_json']) ? json_decode((string)$visit['checklist_json'], true) : null;
+        if (is_array($saved) && $saved !== []) {
+            return [];
+        }
+        return $this->dueLines($visit);
+    }
+
+    private function dueLines(array $visit): array
+    {
+        try {
+            $work = $this->plantWork();
+            $propertyId = (int)($visit['property_id'] ?? 0);
+            if (!$work || !$work->seedsFor($propertyId, (string)($visit['plan_service_type'] ?? ''))) {
+                return [];
+            }
+            return $work->dueFor($propertyId, (string)($visit['scheduled_date'] ?? '') ?: date('Y-m-d'))['lines'];
+        } catch (Throwable $e) {
+            error_log('VisitWorkService plant lines failed for visit ' . ($visit['id'] ?? '?') . ': ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function plantWork(): ?PlantWorkService
+    {
+        $file = __DIR__ . '/../../Plants/Services/PlantWorkService.php';
+        if (!class_exists('PlantWorkService')) {
+            if (!is_file($file)) {
+                return null;
+            }
+            require_once $file;
+        }
+        return new PlantWorkService($this->db);
+    }
+
     public function saveChecklist(int $visitId, int $userId, array $items, ?string $ip = null, string $source = self::SOURCE_MOBILE): int
     {
+        // Plant lines: give back the keys a client dropped (the iPhone app sends only item/checked/note).
+        $visit = null;
+        try {
+            $visit = $this->loadVisit($visitId);
+            if ($visit && (int)($visit['property_id'] ?? 0) > 0 && $this->plantWork()) {
+                $before = !empty($visit['checklist_json']) ? json_decode((string)$visit['checklist_json'], true) : [];
+                $known = array_merge(is_array($before) ? $before : [], $this->dueLines($visit));
+                $items = PlantWorkService::reattach($items, $known);
+            }
+        } catch (Throwable $e) {
+            error_log("VisitWorkService plant keys failed for visit {$visitId}: " . $e->getMessage());
+        }
+
         $clean = self::sanitizeChecklist($items);
         $json  = json_encode($clean);
         $this->db->prepare("
@@ -198,6 +266,10 @@ class VisitWorkService
         ")->execute([$json, $userId, $json, $visitId]);
 
         $this->audit($visitId, $userId, 'checklist_saved', ['count' => count($clean), 'source' => $source], $ip);
+
+        if ($visit && class_exists('PlantWorkService')) {
+            (new PlantWorkService($this->db))->recordFromChecklist($visitId, (int)($visit['property_id'] ?? 0), $clean, $userId, (string)($visit['scheduled_date'] ?? '') ?: null);
+        }
         return count($clean);
     }
 

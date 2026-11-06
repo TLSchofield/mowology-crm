@@ -1486,3 +1486,26 @@ a:hover { text-decoration: underline; }
 @media (max-width: 480px) {
   .mw-reco-gallery-img { width: 100px; height: 100px; }
 }
+
+/* Your Plants (PlantWorkService, 2026-11-04) */
+.portal-plants { margin-bottom: 24px; }
+.portal-plants-address {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--p-text-mid);
+  margin-bottom: 6px;
+}
+.portal-plants-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--p-bg);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius);
+  box-shadow: var(--p-shadow-sm);
+}
+.portal-plants-row { padding: 10px 14px; border-bottom: 1px solid var(--p-border); }
+.portal-plants-row:last-child { border-bottom: none; }
+.portal-plants-name { font-size: 0.9rem; font-weight: 600; color: var(--p-text); }
+.portal-plants-count { font-weight: 400; color: var(--p-text-light); }
+.portal-plants-meta { font-size: 0.78rem; color: var(--p-text-mid); margin-top: 2px; }

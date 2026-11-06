@@ -111,3 +111,11 @@ unattended from 2026-05-12 09:25 to 2026-05-13 16:29 (next day clock-out), givin
 3. Orphaned timer cron catches any still-running timers hourly
 4. `recalculateTimesheetTotals()` uses per-day ceiling so stored totals can never exceed shift
 5. Anomaly warning UI surfaces shift/job mismatches before approval
+
+## Clock-in GPS: slow fix is not "location off" (2026-11-03)
+
+The truck tablet, permissions all granted, got "Location is required to clock in. Enable location services" at 9:51 with location last accessed at 9:49. Cause: `MwTimeClock.getGPS` capped the native fix at 4 s (the bridge itself at 10 s, high accuracy, no cached position allowed); on timeout the page posted lat/lng = null and the server's only message blamed location services.
+
+Now: `MwNative.geo.getCurrentPosition()` tries a fresh fix (10 s) → any OS fix ≤ 5 min old (8 s) → the tracker's last accepted position (≤ 5 min) → rejects with `code` LOCATION_OFF / PERMISSION / NO_FIX. `my-schedule.php` calls the bridge directly (22 s guard), and on refusal shows an inline notice with Try again and a settings button matching the code. The widget cap is 20 s. Server text: "Couldn't get a GPS fix for this clock-in. Move into the open and try again."
+
+Trap: the crew app does not ship `@capacitor/app`, so `MwNative.openAppSettings()` (App.openUrl) had never worked; both openers now fall back to `BackgroundGeolocation.openSettings()`, which reaches the app's own settings page only. The device Location switch (Settings → Location) is one level up and cannot be opened from the web layer without a native method.
