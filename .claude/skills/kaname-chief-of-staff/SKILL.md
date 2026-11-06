@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Splash/*
   - ios/MowologyCRM/MowologyCRM/Features/Team/*
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -101,6 +101,7 @@ the deadlines calendar, and interrupts only for urgent things. Read the referenc
 | Work Queue critical lane ("House") | `HouseBriefAdapter::fromWorkQueue()` | brief |
 | Badges under his photo | `CharlieBadgeService::badges()` | web card |
 | Kaname's words | `CharlieVoice` | desk, cron, email |
+| Daily head-stat snapshot (every head's "right now" counts for Agent Studio › Progress; the cron's first run after midnight claims the day) | `HeadProgressService::snapshot()` | cron, Progress tab |
 
 Who uses it (graphify, 2026-10-11): `CharlieForemanService` — `app/Modules/ChiefOfStaff/Api/charlie.php`,
 `app/Modules/ChiefOfStaff/Cron/charlie_morning_brief.php`, `app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php`,

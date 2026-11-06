@@ -29,6 +29,16 @@ class ReceiptInboxService
 
     private PDO $db;
 
+    /** Lines are part of the create only when the parser's net items reconcile. */
+    public static function fittedLineItemChanges(array $parsed, ?float $amount, ?float $total): array
+    {
+        require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/LineItemFit.php';
+        $items = $parsed['line_items'] ?? [];
+        return LineItemFit::addsUp($items, $amount, $total)
+            ? ['line_items' => $items, 'line_items_source' => 'inbox']
+            : [];
+    }
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -484,7 +494,7 @@ class ReceiptInboxService
                 'status'              => $status,
                 'source'              => 'email_inbox',
                 'created_by'          => $systemUserId,
-            ], ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
+            ] + self::fittedLineItemChanges($parsed, $amount, $total), ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
         } finally {
             $guard->release($mediaId);
         }

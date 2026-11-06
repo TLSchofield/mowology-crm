@@ -76,6 +76,7 @@ $navItems = [
 
     // ── Growth ────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Growth', 'head' => 'mia'],
+    ['key' => 'mia',       'label' => 'Search & Website', 'icon' => 'search',   'href' => '/crm/marketing/mia.php',         'perm' => 'marketing.approve'],
     ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
     ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
     ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
@@ -149,6 +150,7 @@ if (!function_exists('mwIttaiNavBlocks')) {
             ['users', 'Users & Roles', 'user-plus', '/crm/users_appstack.php', $can('users.manage')],
             ['settings', 'Settings', 'settings', '/crm/settings.php', $can('settings.edit')],
             ['system-health', 'System Health', 'activity', '/crm/ada_appstack.php', $admin],
+            ['agents', 'Agent Studio', 'users', '/crm/agents_appstack.php', $admin],
             ['system-log', 'System Log', 'alert-circle', '/crm/system-log_appstack.php', $admin],
         ] as [$k, $l, $i, $h, $ok]) {
             if ($ok) $groups['ada'][] = ['key' => $k, 'label' => $l, 'icon' => $i, 'href' => $h];

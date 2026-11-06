@@ -94,7 +94,11 @@ try {
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/DeadlineService.php';
         $deadlines = new DeadlineService($db);
-        if ($deadlines->ready()) $deadlines->sync();
+        if ($deadlines->ready()) {
+            $deadlines->sync();
+            $closedByMatch = $deadlines->autoClose(); // payroll remittance whose Wave report matches Wave's debits (2026-11-03)
+            if ($closedByMatch > 0) error_log('charlie_morning_brief: closed ' . $closedByMatch . ' payroll remittance reminder(s) by match');
+        }
     } catch (Throwable $e) {
         error_log('charlie_morning_brief: deadline sync failed: ' . $e->getMessage());
     }
@@ -149,6 +153,16 @@ try {
         $hbr->keepToday(HeadBriefReadyService::todayPayload($card, $desk, $name));
     } catch (Throwable $e) {
         $parts[] = 'ready brief failed: ' . $e->getMessage();
+    }
+
+    try {
+        require_once APP_ROOT . '/Modules/Agents/Services/HeadProgressService.php';
+        $n = (new HeadProgressService($db))->snapshot();
+        if ($n > 0) {
+            $parts[] = 'head stats saved (' . $n . ')';
+        }
+    } catch (Throwable $e) {
+        $parts[] = 'head stats failed: ' . $e->getMessage();
     }
 
     // The email — once, on weekday mornings (checked at the top of the hour).

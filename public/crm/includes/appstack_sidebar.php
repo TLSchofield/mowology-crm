@@ -175,6 +175,12 @@ if (!empty($itShell)):
                     <span class="align-middle">System Health</span>
                 </a>
             </li>
+            <li class="sidebar-item<?php echo ($activePage === 'agents') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/agents_appstack.php">
+                    <i class="align-middle" data-feather="users"></i>
+                    <span class="align-middle">Agent Studio</span>
+                </a>
+            </li>
             <li class="sidebar-item<?php echo ($activePage === 'system-log') ? ' active' : ''; ?>">
                 <a class="sidebar-link" href="/crm/system-log_appstack.php">
                     <i class="align-middle" data-feather="alert-circle"></i>

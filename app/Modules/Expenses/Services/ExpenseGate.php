@@ -31,6 +31,7 @@
  *   ExpenseGate::DELETE => true remove the expense (its posted entry is reversed first)
  * $actor:  ['id' => ?int, 'kind' => 'user'|'penny'|'system']
  * $opts:   transition (approve|reject|forward|cancel), only_if (fn(array $before): bool),
+ *          locked_if (fn(array $snapshot): bool) for a predicate that must still hold at write time,
  *          allow_locked, ocr_parsed (capture baseline), learn_lines (save payload), learn_now (office phone save teaches),
  *          learn_baseline (fallback baseline on approval), price_intel (bool)
  *
@@ -228,10 +229,21 @@ class ExpenseGate
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
         $extra = [];
-        $splitBefore = !$create && $this->split->ready() ? $this->split->forExpense((int)$expenseId) : [];
-        $linesBefore = !$create ? $this->lineSummary((int)$expenseId) : null;
         $lineBefore = null; $lineAfter = null;
         try {
+            // Conditional background writes must test their never-touch rule in the same
+            // transaction as the write. Lock parent first, then both child ranges: on InnoDB
+            // this also prevents a new line/allocation appearing between this test and replace.
+            if (!$create && isset($opts['locked_if']) && is_callable($opts['locked_if'])) {
+                $snapshot = $this->lockedSnapshot((int)$expenseId);
+                if (!$opts['locked_if']($snapshot)) {
+                    if ($own) $this->db->commit();
+                    return self::result((int)$expenseId, 'none', [], true, ['message' => 'Nothing to change']);
+                }
+                $before = $snapshot['expense'];
+            }
+            $splitBefore = !$create && $this->split->ready() ? $this->split->forExpense((int)$expenseId) : [];
+            $linesBefore = !$create ? $this->lineSummary((int)$expenseId) : null;
             if ($delete) {
                 // The posted entry is reversed (append-only) inside the same transaction as the delete
                 // — posting joins it — so a failed delete no longer leaves the receipt with its entry
@@ -372,6 +384,28 @@ class ExpenseGate
             $this->hooks->unpost($id, $userId, 'receipt ' . ($after['status'] ?? 'changed') . ' after posting', $strict);
         }
         return $result;
+    }
+
+    /** State protected until this transaction commits; FOR UPDATE is unsupported by SQLite tests. */
+    private function lockedSnapshot(int $id): array
+    {
+        $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $expense = $this->db->prepare('SELECT * FROM expenses WHERE id = ?' . $lock);
+        $expense->execute([$id]);
+        $row = $expense->fetch(PDO::FETCH_ASSOC) ?: [];
+        if (!$row) throw new Exception('Expense not found');
+
+        // Line values too, so a locked_if can tell a person's edit to an existing line from no change (Codex review 2026-11-05).
+        $lines = $this->db->prepare('SELECT id, product_id, name, quantity, unit_price, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id' . $lock);
+        $lines->execute([$id]);
+        $allocationRows = [];
+        if ($this->split->ready()) {
+            $allocations = $this->db->prepare('SELECT id FROM expense_line_allocations WHERE expense_id = ? ORDER BY id' . $lock);
+            $allocations->execute([$id]);
+            $allocationRows = $allocations->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return ['expense' => $row, 'lines' => $lines->fetchAll(PDO::FETCH_ASSOC),
+                'allocations' => $allocationRows];
     }
 
     // ─────────────────────────────────────────────────────────────────────────

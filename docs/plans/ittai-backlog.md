@@ -16,6 +16,33 @@ trades first. The AI back office is the edge.
 5. **Web: Kaname as a fixed name** — remove the `chief_name` override in `app/Services/HeadIdentity.php` after checking no business set it.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
+## Word pools + recognise → suggest → confirm → learn, for every head (all trades) — Tim 2026-11-05
+Goal (Tim): a system that improves with every tenant, and slowly for Mowology alone if nobody buys it.
+**All heads, one engine on `HeadLessons` (migration 1348)** — each head plugs in its vocabulary: Sam services,
+Yui topics (today `InboundTopicClassifier` + `InboundRouteService` "Move to…"), Penny categories/accounts (today
+`PennyLessons`, `BankRuleLearning`; receipts "read without AI" 0%), Mia photo tags (AI every time, ~25% failing),
+Otto issue kinds. Order: Sam first (the case below), then Yui routing, Penny receipts, Mia tags; each measured on
+Agent Studio › Progress (right first time, AI requests down). **Revised after ChatGPT's review
+(`docs/plans/2026-11-05-head-learning-engine-review-verdict.md`):** the loop is Recognise → Remember → Prepare →
+Approve → Learn; first deliverable is Sam's whole fall-cleanup draft quote (business memory: the property's last
+same-service job, price as a dated precedent), plus only the shared pieces it needs: proposal + per-field outcome
+log (HeadLessons records corrections only), evidence + source on each proposal, negation check, coverage metric.
+Autonomy stays in `AgentPolicy`. Cross-business promotion: design now, build at 3–5 businesses. Mia's failures are a
+bug to fix first. Penny's part builds on `claude/penny-line-items` (three no-AI line-item paths, `LineItemFit`).
+Sam's part (original):
+- **Word pool per service, as data:** each service on a business's books carries its phrases ("fall cleanup",
+  "leaf removal"); phrases weigh more than single words; negative words (fell, injury). Replaces the hard-coded,
+  landscaping-only `EmailLeadService::SERVICES` list.
+- **Sam's three steps, same pattern as Penny's bank lines:** (1) rules — request-for-work topic
+  (`InboundTopicClassifier`) + service words + known client → "Fall Cleanup at <property>, last year's price",
+  levels sure / likely / not sure from which rules matched (no invented %); (2) "Ask Sam" AI only on click when
+  rules can't decide, cached and capped; (3) owner confirms or corrects, two confirmations add the phrase.
+- **Shared:** a starter pool per trade + phrases promoted when several businesses confirm the same mapping
+  (phrase → service only; region-tagged); vendor knowledge commons pattern (`app/Modules/Knowledge/`).
+- **Private:** the email, client, price, and the business's own words (which override shared ones).
+- Log every request + decision; Progress tab measures right-first-time.
+- Trigger case: Meghan's "can we book you guys in for a fall cleanup" (routed to Penny until 2026-11-04).
+
 ## Inbox tidy for every tenant (Yui) — added 2026-10-13
 - **Mowology today:** Yui sorts the iCloud inbox into folders using the CRM's own clients, suppliers
   and payment senders. It is preview-first, moves only, never deletes, and every batch can be undone.
