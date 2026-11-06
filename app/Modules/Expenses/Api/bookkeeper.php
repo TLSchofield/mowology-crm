@@ -32,6 +32,10 @@
  * POST {mode: 'stripe_book', transaction_id, csrf_token}  Book it: transfer + fee line (StripePayoutService).
  * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
  * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
+ * POST {mode: 'dupe_merge', keep_id, copy_ids: [..], csrf_token}  Merge into the kept one (removeCopies, expense_merges 1442).
+ *      'dupe_remove' {copy_id, keep_id} is the same call for one copy (now group-checked: it used removeCopy alone).
+ * POST {mode: 'unmerge', copy_id, kind: undo|split, csrf_token}  Undo / Split off (DuplicateReceiptService::unmerge).
+ * GET  ?mode=merged&expense_id=N  Copies merged into this receipt ("Also on this purchase").
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
  * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable|billed|account|seen|use_bank_line, csrf_token}
  *
@@ -210,7 +214,7 @@ try {
             } elseif ($mode === 'queue') {
                 // Possible duplicates are sorted first and never offered for approval.
                 $dupes = $dupSvc->pairsInLine(60);
-                echo json_encode(['ok' => true, 'dupes' => DuplicateReceiptService::groups($dupes),
+                echo json_encode(['ok' => true, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
                                   'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
@@ -397,10 +401,27 @@ try {
             break;
         }
 
-        case 'dupe_remove': {
+        case 'dupe_remove':
+        case 'dupe_merge': {
+            // Both go through removeCopies(): one duplicate group, waiting copies only, all-or-nothing, an
+            // expense_merges row each (Undo / Split off). dupe_remove used to call removeCopy() with no group check.
             if ($method !== 'POST') throw new RuntimeException('POST required');
             require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
-            echo json_encode((new DuplicateReceiptService($db))->removeCopy((int)($input['copy_id'] ?? 0), (int)($input['keep_id'] ?? 0), $user));
+            $copies = $mode === 'dupe_merge' ? (array)($input['copy_ids'] ?? []) : [$input['copy_id'] ?? 0];
+            echo json_encode((new DuplicateReceiptService($db))->removeCopies((int)($input['keep_id'] ?? 0), array_map('intval', $copies), $user));
+            break;
+        }
+
+        case 'unmerge': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode((new DuplicateReceiptService($db))->unmerge((int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')));
+            break;
+        }
+
+        case 'merged': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode(['ok' => true, 'merged' => (new DuplicateReceiptService($db))->mergedInto((int)($_GET['expense_id'] ?? 0))]);
             break;
         }
 

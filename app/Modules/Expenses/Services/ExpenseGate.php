@@ -74,7 +74,12 @@ class ExpenseGate
     public const CLOSED_BEFORE = '2026-01-01';
     /** The audited transition that may set each closed status. */
     // 'reopen': an approved receipt back to draft by its audited path (ReceiptBankCheck: no statement line for it, 2026-10-15).
-    public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft'];
+    // 'unmerge': a merged duplicate (rejected "Duplicate of receipt #X") back to the waiting status it had — Split off / Undo
+    // on Penny's duplicate card (DuplicateReceiptService::unmerge(), expense_merges, migration 1442). Draft or pending_approval.
+    public const TRANSITIONS = ['approve' => 'approved', 'reject' => 'rejected', 'forward' => 'forwarded', 'cancel' => 'cancelled', 'reopen' => 'draft',
+                                'unmerge' => 'draft'];
+    /** What an 'unmerge' may carry: the status it goes back to and the rejection fields it had before. */
+    public const UNMERGE_FIELDS = ['status', 'approved_by', 'approved_at', 'rejection_reason'];
 
     private const INTS = ['vendor_id', 'job_id', 'property_id', 'contact_id', 'receipt_media_id', 'created_by', 'approved_by',
                           'odometer_start', 'odometer_end'];
@@ -166,6 +171,14 @@ class ExpenseGate
             if ($create || ($before['status'] ?? '') !== 'approved' || array_diff(array_keys($changes), ['status', 'notes'])
                 || ($changes['status'] ?? null) !== 'draft') {
                 throw new InvalidArgumentException('Re-open takes an approved receipt back to draft, with a note, and nothing else');
+            }
+        }
+
+        // Un-merge is as narrow: a rejected receipt back to a waiting status, with its old rejection fields, nothing else.
+        if ($transition === 'unmerge') {
+            if ($create || ($before['status'] ?? '') !== 'rejected' || array_diff(array_keys($changes), self::UNMERGE_FIELDS)
+                || !in_array($changes['status'] ?? null, self::OPEN, true)) {
+                throw new InvalidArgumentException('Split off takes a set-aside copy back to waiting, and nothing else');
             }
         }
 
@@ -750,6 +763,7 @@ class ExpenseGate
     public static function actionFor(string $transition, array $set, bool $lines, bool $split): string
     {
         if ($transition !== '' && isset(self::TRANSITIONS[$transition]) && ($set['status'] ?? null) === self::TRANSITIONS[$transition]) return $transition;
+        if ($transition === 'unmerge' && in_array($set['status'] ?? null, self::OPEN, true)) return 'unmerge';
         if (!$set && $split && !$lines) return 'split';
         if (!$set && $lines) return 'lines';
         return 'update';

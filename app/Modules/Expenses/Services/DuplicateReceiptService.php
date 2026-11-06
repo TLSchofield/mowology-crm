@@ -22,6 +22,7 @@
 require_once __DIR__ . '/ExpenseLookupService.php';
 require_once __DIR__ . '/ExpenseApprovalService.php';
 require_once __DIR__ . '/ReceiptFactsService.php';
+if (!class_exists('HeadLessons')) require_once dirname(__DIR__, 3) . '/Services/HeadLessons.php';
 
 class DuplicateReceiptService
 {
@@ -30,6 +31,10 @@ class DuplicateReceiptService
     private PDO $db;
     /** @var ExpenseGate|null every expense write goes through the gate (migration 1233) */
     private $gate;
+    /** @var bool|null expense_merges exists (migration 1442) */
+    private $mergesReady = null;
+    /** @var array|null vendorRecords(), once per request */
+    private $records = null;
 
     public function __construct(PDO $db, $gate = null)
     {
@@ -183,29 +188,49 @@ class DuplicateReceiptService
     }
 
     /**
-     * Remove a copy: REJECT it as "Duplicate of receipt #X" — kept for the six-year
-     * record, never deleted. Its photo moves to the one kept when that has none (a
-     * waiting receipt only — an approved one is locked). Only a waiting receipt can be
-     * removed this way.
+     * Merge one copy into the kept receipt: REJECT the copy as "Duplicate of receipt #X" — kept for the
+     * six-year record, never deleted. Its photo moves to the one kept when that has none (a waiting
+     * receipt only — an approved one is locked). Only a waiting receipt can be merged away.
+     * New (migration 1442): an expense_merges row holds the copy's prior status and what the kept one
+     * took from it, so unmerge() can split it off again exactly; the owner's tap is recorded as agreeing
+     * with Penny's call (HeadLessons, per vendor). Callers merge through removeCopies() (group-checked).
+     * @param array $took what removeCopies() already carried into the kept one: ['fill' => [col => value], 'lines' => bool]
      */
-    public function removeCopy(int $copyId, int $keepId, array $user): array
+    public function removeCopy(int $copyId, int $keepId, array $user, array $took = []): array
     {
         if (!$copyId || !$keepId || $copyId === $keepId) return ['ok' => false, 'message' => 'Pick the copy and the one to keep'];
-        $s = $this->db->prepare("SELECT id, status, receipt_media_id FROM expenses WHERE id IN (?, ?)");
+        $s = $this->db->prepare("SELECT * FROM expenses WHERE id IN (?, ?)");
         $s->execute([$copyId, $keepId]);
-        $rows = array_column($s->fetchAll(PDO::FETCH_ASSOC), null, 'id');
+        $rows = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] = $r;
         $copy = $rows[$copyId] ?? null;
         $keep = $rows[$keepId] ?? null;
         if (!$copy || !$keep) return ['ok' => false, 'message' => 'Receipt not found'];
         if (!in_array($copy['status'], self::WAITING, true)) return ['ok' => false, 'message' => "That one's already approved — remove the other instead"];
         $actor = ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'];
+        $took = ['fill' => (array)($took['fill'] ?? []), 'lines' => !empty($took['lines']), 'photo' => null];
         if (empty($keep['receipt_media_id']) && !empty($copy['receipt_media_id']) && in_array($keep['status'], self::WAITING, true)) {
             $this->gate()->apply($keepId, ['receipt_media_id' => (int)$copy['receipt_media_id']], $actor, 'duplicates');
+            $took['photo'] = (int)$copy['receipt_media_id'];
         }
+        $evidence = $this->evidenceFor($copy, $keep);
         (new ExpenseApprovalService($this->db, $this->gate()))->reject($copyId, $user, 'Duplicate of receipt #' . $keepId, ['source' => 'duplicates']);
         $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE expense_id = ? AND source = 'live' AND status IN ('pending', 'error')")
            ->execute([$copyId]);
-        return ['ok' => true, 'message' => "Done — #{$copyId} is set aside as a duplicate of #{$keepId} (kept on record, not deleted)."];
+        $mergeId = null;
+        if ($this->mergesReady()) {
+            $before = ['status' => $copy['status'], 'approved_by' => $copy['approved_by'] ?? null, 'approved_at' => $copy['approved_at'] ?? null,
+                       'rejection_reason' => $copy['rejection_reason'] ?? null, 'took' => $took];
+            $this->db->prepare("INSERT INTO expense_merges (copy_id, kept_id, evidence, evidence_text, copy_before_json, merged_by, merged_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)")
+               ->execute([$copyId, $keepId, $evidence['kind'], mb_substr($evidence['text'], 0, 255), json_encode($before),
+                          $actor['id'], date('Y-m-d H:i:s')]);
+            $mergeId = (int)$this->db->lastInsertId();
+        }
+        // Penny proposed it, the owner agreed (Tim 2026-11-05: "affirmation teaches her").
+        $this->lesson($copyId, 'copy of #' . $keepId, 'copy of #' . $keepId, 'duplicate_merge', $actor['id'], $evidence['kind'], true);
+        return ['ok' => true, 'merge_id' => $mergeId,
+                'message' => "Done — #{$copyId} is set aside as a duplicate of #{$keepId} (kept on record, not deleted)."];
     }
 
     /**
@@ -247,10 +272,12 @@ class DuplicateReceiptService
 
         $keepWaits = in_array($rows[$keepId]['status'], self::WAITING, true);
         $carried = [];
+        $merges = [];
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
         try {
             foreach ($removeIds as $copyId) {
+                $took = ['fill' => [], 'lines' => false];
                 if ($keepWaits) {
                     $fill = self::mergeFill($rows[$keepId], $rows[$copyId]);
                     if ($fill) {
@@ -258,15 +285,20 @@ class DuplicateReceiptService
                         $this->gate()->apply($keepId, $fill, ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'], 'duplicates');
                         $rows[$keepId] = $fill + $rows[$keepId];
                         $carried = array_merge($carried, array_keys($fill));
+                        $took['fill'] = $fill;
                     }
-                    if ($this->moveLineItemsIfMissing($copyId, $keepId, $user)) $carried[] = 'line items';
+                    if ($this->moveLineItemsIfMissing($copyId, $keepId, $user)) {
+                        $carried[] = 'line items';
+                        $took['lines'] = true;
+                    }
                     if (empty($rows[$keepId]['receipt_media_id']) && !empty($rows[$copyId]['receipt_media_id'])) {
                         $rows[$keepId]['receipt_media_id'] = $rows[$copyId]['receipt_media_id'];   // removeCopy moves the photo
                         $carried[] = 'photo';
                     }
                 }
-                $res = $this->removeCopy($copyId, $keepId, $user);
+                $res = $this->removeCopy($copyId, $keepId, $user, $took);
                 if (empty($res['ok'])) throw new RuntimeException($res['message'] ?? "Couldn't set #{$copyId} aside");
+                if (!empty($res['merge_id'])) $merges[$copyId] = (int)$res['merge_id'];
             }
             if ($own) $this->db->commit();
         } catch (Throwable $e) {
@@ -281,6 +313,8 @@ class DuplicateReceiptService
             'kept'    => $keepId,
             'removed' => $removeIds,
             'carried' => $carried,
+            'merges'  => $merges,
+            'undo'    => (bool)$merges,
             'message' => "Kept #{$keepId} — " . ($n === 1 ? 'the copy is' : "{$n} copies are") . ' set aside (kept on record, not deleted)'
                        . ($carried ? '; took the ' . implode(', ', $carried) . ' from ' . ($n === 1 ? 'it' : 'them') : '') . '.',
         ];
@@ -341,6 +375,230 @@ class DuplicateReceiptService
         require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
         PennyLessons::expense($this->db, min($a, $b), 'duplicate', 'copy of #' . max($a, $b), 'not a duplicate', 'duplicate_dismiss', (int)$user['id']);
         return ['ok' => true, 'message' => 'Got it — not a duplicate. Both go on for approval.'];
+    }
+
+    public function mergesReady(): bool
+    {
+        if ($this->mergesReady === null) {
+            try {
+                $this->db->query("SELECT 1 FROM expense_merges WHERE 1 = 0");
+                $this->mergesReady = true;
+            } catch (Throwable $e) {
+                $this->mergesReady = false;
+            }
+        }
+        return $this->mergesReady;
+    }
+
+    /**
+     * Split a merged copy off again (expense_merges, migration 1442). The copy goes back to the waiting
+     * status it had (gate transition 'unmerge'); what the kept receipt took from it (empty fields filled,
+     * its photo, its line items) goes back too while the kept one still waits and still holds it.
+     *   $kind 'undo'  — a slip straight after the tap: the pair is asked about again, nothing is learned;
+     *   $kind 'split' — they are two purchases after all: remembered as "not a duplicate" (a person's
+     *                   dismissal) and Penny learns she was wrong (the strongest signal, Tim 2026-11-05).
+     * All-or-nothing.
+     */
+    public function unmerge(int $copyId, array $user, string $kind = 'split'): array
+    {
+        $kind = $kind === 'undo' ? 'undo' : 'split';
+        if (!$copyId) return ['ok' => false, 'message' => 'Pick the receipt to split off'];
+        if (!$this->mergesReady()) return ['ok' => false, 'message' => 'Needs migration 1442'];
+        $s = $this->db->prepare("SELECT * FROM expense_merges WHERE copy_id = ? AND unmerged_at IS NULL ORDER BY id DESC LIMIT 1");
+        $s->execute([$copyId]);
+        $m = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$m) return ['ok' => false, 'message' => "#{$copyId} isn't merged into another receipt — nothing to split off"];
+        $keepId = (int)$m['kept_id'];
+        $e = $this->db->prepare("SELECT * FROM expenses WHERE id IN (?, ?)");
+        $e->execute([$copyId, $keepId]);
+        $rows = [];
+        foreach ($e->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] = $r;
+        if (($rows[$copyId]['status'] ?? '') !== 'rejected') return ['ok' => false, 'message' => "#{$copyId} is no longer set aside — nothing to split off"];
+        $before = json_decode((string)$m['copy_before_json'], true) ?: [];
+        $status = in_array($before['status'] ?? '', self::WAITING, true) ? $before['status'] : 'draft';
+        $actor = ['id' => (int)($user['id'] ?? 0) ?: null, 'kind' => 'user'];
+        $keep = $rows[$keepId] ?? null;
+        $keepWaits = $keep && in_array($keep['status'], self::WAITING, true);
+        $took = (array)($before['took'] ?? []);
+
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $this->gate()->apply($copyId, [
+                'status' => $status, 'approved_by' => $before['approved_by'] ?? null,
+                'approved_at' => $before['approved_at'] ?? null, 'rejection_reason' => $before['rejection_reason'] ?? null,
+            ], $actor, 'duplicates', ['transition' => 'unmerge']);
+            $gaveBack = [];
+            if ($keepWaits) {
+                $back = self::takeBack($keep, (array)($took['fill'] ?? []), $took['photo'] ?? null);
+                if ($back) {
+                    $this->gate()->apply($keepId, $back, $actor, 'duplicates');
+                    $gaveBack = array_keys($back);
+                }
+                if (!empty($took['lines']) && $this->moveLineItemsIfMissing($keepId, $copyId, $user)) $gaveBack[] = 'line items';
+            }
+            $this->db->prepare("UPDATE expense_merges SET unmerged_by = ?, unmerged_at = ?, unmerge_kind = ? WHERE id = ?")
+               ->execute([$actor['id'], date('Y-m-d H:i:s'), $kind, (int)$m['id']]);
+            if ($kind === 'split' && $this->dismissalsReady()) {
+                $this->db->prepare("INSERT IGNORE INTO expense_duplicate_dismissals (expense_a, expense_b, dismissed_by) VALUES (?, ?, ?)")
+                   ->execute([min($copyId, $keepId), max($copyId, $keepId), $actor['id']]);
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $ex) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'message' => $ex->getMessage()];
+        }
+        if ($kind === 'split') {
+            $this->lesson($copyId, 'copy of #' . $keepId, 'not a duplicate', 'duplicate_split_off', $actor['id'], (string)($m['evidence'] ?? ''));
+        }
+        $gaveBack = array_values(array_unique(array_map([self::class, 'fieldLabel'], $gaveBack)));
+        $note = $gaveBack ? ' #' . $keepId . ' gave back the ' . implode(', ', $gaveBack) . '.'
+              : (!$keepWaits && (!empty($took['fill']) || !empty($took['photo']) || !empty($took['lines'])) ? ' #' . $keepId . ' is in the books, so it keeps what it took.' : '');
+        return ['ok' => true, 'copy_id' => $copyId, 'kept_id' => $keepId, 'status' => $status,
+                'message' => ($kind === 'undo' ? "Undone — #{$copyId} is back with #{$keepId} to decide again." : "Split off — #{$copyId} is its own receipt again and goes on for approval.") . $note];
+    }
+
+    /**
+     * Copies merged into this receipt that are still set aside — "Also on this purchase" on the kept receipt.
+     * @return list<array{merge_id:int, copy_id:int, expense_date:?string, total:?string, receipt_media_id:?int,
+     *                    merged_at:string, merged_by:?string, evidence_text:?string}>
+     */
+    public function mergedInto(int $keptId): array
+    {
+        if (!$keptId || !$this->mergesReady()) return [];
+        $s = $this->db->prepare("
+            SELECT m.id AS merge_id, m.copy_id, e.expense_date, e.total, e.receipt_media_id, m.merged_at,
+                   u.full_name AS merged_by, m.evidence_text
+            FROM expense_merges m
+            JOIN expenses e ON e.id = m.copy_id
+            LEFT JOIN users u ON u.id = m.merged_by
+            WHERE m.kept_id = ? AND m.unmerged_at IS NULL AND e.status = 'rejected'
+            ORDER BY m.id
+        ");
+        $s->execute([$keptId]);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $r['merge_id'] = (int)$r['merge_id'];
+            $r['copy_id'] = (int)$r['copy_id'];
+            $r['receipt_media_id'] = $r['receipt_media_id'] ? (int)$r['receipt_media_id'] : null;
+            $r['receipt_path'] = $r['receipt_media_id'] ? '/crm/api/serve-receipt.php?id=' . $r['receipt_media_id'] : null;
+            $out[] = $r;
+        }
+        return $out;
+    }
+
+    /**
+     * Penny's record on duplicates, per vendor (key = HeadLessons::normaliseKey(vendor name)):
+     *   agreed         — pairs she called that a person merged (expense_merges still merged, plus the older
+     *                    "Duplicate of receipt #X" rejects from before the table);
+     *   said_different — pairs a person said are two purchases (expense_duplicate_dismissals with dismissed_by;
+     *                    a Split off writes one too, so it counts here as well);
+     *   split_off      — of those, the ones merged first and split off later.
+     * Undo (a slip) counts nowhere. Read-only; each table is optional.
+     * @return array<string, array{agreed:int, said_different:int, split_off:int, called:int}>
+     */
+    public function vendorRecords(): array
+    {
+        if ($this->records !== null) return $this->records;
+        $rec = [];
+        $add = function (?string $vendor, string $field) use (&$rec) {
+            $k = HeadLessons::normaliseKey($vendor ?? '');
+            if ($k === '') return;
+            $rec[$k] = $rec[$k] ?? ['agreed' => 0, 'said_different' => 0, 'split_off' => 0, 'called' => 0];
+            $rec[$k][$field]++;
+            if ($field !== 'split_off') $rec[$k]['called']++;
+        };
+        $vendorOf = "COALESCE(v.name, e.vendor_name_raw)";
+        try {
+            $merged = $this->mergesReady();
+            if ($merged) {
+                foreach ($this->db->query("SELECT {$vendorOf} AS vendor, m.unmerged_at, m.unmerge_kind
+                                           FROM expense_merges m JOIN expenses e ON e.id = m.copy_id
+                                           LEFT JOIN vendors v ON v.id = e.vendor_id")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    if ($r['unmerged_at'] === null) $add($r['vendor'], 'agreed');
+                    elseif ($r['unmerge_kind'] === 'split') $add($r['vendor'], 'split_off');
+                }
+            }
+            foreach ($this->db->query("SELECT {$vendorOf} AS vendor FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
+                                       WHERE e.status = 'rejected' AND e.rejection_reason LIKE 'Duplicate of receipt #%'"
+                                       . ($merged ? " AND e.id NOT IN (SELECT copy_id FROM expense_merges)" : ''))->fetchAll(PDO::FETCH_COLUMN) as $v) {
+                $add($v, 'agreed');
+            }
+            if ($this->dismissalsReady()) {
+                foreach ($this->db->query("SELECT {$vendorOf} AS vendor FROM expense_duplicate_dismissals d
+                                           JOIN expenses e ON e.id = d.expense_a LEFT JOIN vendors v ON v.id = e.vendor_id
+                                           WHERE d.dismissed_by IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN) as $v) {
+                    $add($v, 'said_different');
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Penny duplicate record: ' . $e->getMessage());
+        }
+        return $this->records = $rec;
+    }
+
+    /**
+     * Groups from groups(), made ready for the card (phone and web, the same words): Penny's verdict, the
+     * receipt she keeps and why, the copies, her record with this vendor, and the facts side by side.
+     * Extra keys only — older app builds read members / pairs / why as before.
+     */
+    public function presentGroups(array $groups): array
+    {
+        if (!$groups) return [];
+        $ids = [];
+        foreach ($groups as $g) foreach ($g['members'] ?? [] as $m) $ids[] = (int)$m['id'];
+        $ids = array_values(array_unique($ids));
+        $facts = [];
+        try {
+            $rf = new ReceiptFactsService($this->db);
+            if ($rf->ready()) $facts = $rf->forExpenses($ids);
+        } catch (Throwable $e) {
+            error_log('Duplicate facts: ' . $e->getMessage());
+        }
+        $linked = [];
+        try {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $s = $this->db->prepare("SELECT matched_expense_id FROM accounting_transactions WHERE matched_expense_id IN ({$in})");
+            $s->execute($ids);
+            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $id) $linked[(int)$id] = true;
+            $s = $this->db->prepare("SELECT expense_id FROM bank_line_receipts WHERE expense_id IN ({$in})");
+            $s->execute($ids);
+            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $id) $linked[(int)$id] = true;
+        } catch (Throwable $e) {
+            // no bank tables here — keep the older one
+        }
+        $records = $this->vendorRecords();
+        $out = [];
+        foreach ($groups as $g) $out[] = self::presentGroup($g, $facts, $linked, $records);
+        return $out;
+    }
+
+    /** What the kept receipt took from the copy and still holds unchanged — the values to clear on a split. */
+    public static function takeBack(array $keep, array $fill, ?int $photo): array
+    {
+        $back = [];
+        foreach ($fill as $col => $val) {
+            if (array_key_exists($col, $keep) && (string)($keep[$col] ?? '') === (string)$val) $back[$col] = null;
+        }
+        if ($photo && (int)($keep['receipt_media_id'] ?? 0) === $photo) $back['receipt_media_id'] = null;
+        return $back;
+    }
+
+    private function evidenceFor(array $copy, array $keep): array
+    {
+        $facts = [];
+        try {
+            $rf = new ReceiptFactsService($this->db);
+            if ($rf->ready()) $facts = $rf->forExpenses([(int)$copy['id'], (int)$keep['id']]);
+        } catch (Throwable $e) { /* no facts — total and date only */ }
+        return self::verdictFor([$keep, $copy], $facts);
+    }
+
+    private function lesson(int $copyId, string $said, string $correct, string $source, ?int $by, string $evidence, bool $agreement = false): void
+    {
+        if (!defined('APP_ROOT')) require_once dirname(__DIR__, 3) . '/Core/paths.php';
+        require_once APP_ROOT . '/Modules/Accounting/Services/PennyLessons.php';
+        PennyLessons::expense($this->db, $copyId, 'duplicate', $said, $correct, $source, $by, $evidence !== '' ? 'evidence: ' . $evidence : null, $agreement);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -474,5 +732,146 @@ class DuplicateReceiptService
             }
         }
         return array_values($out);
+    }
+
+    public const EVIDENCE_ORDER = ['number', 'photo', 'time', 'total_date'];
+
+    /**
+     * Penny's verdict on a group, from printed facts (receipt_facts) and the photo. Pure.
+     *   number     — a printed invoice / auth / ticket number is on both (ReceiptFactsService::duplicateVerdict 'same');
+     *   photo      — the very same photo was sent in twice;
+     *   time       — same printed time, no number to prove it;
+     *   total_date — only the total and date match (how pairs are found): "nothing printed proves it either way".
+     * @param array $members group members (id, receipt_media_id) @param array $facts id => receipt_facts row
+     * @return array{kind:string, text:string}
+     */
+    public static function verdictFor(array $members, array $facts): array
+    {
+        $n = count($members);
+        $ids = array_map(fn($m) => (int)$m['id'], $members);
+        for ($i = 0; $i < $n; $i++) {
+            for ($j = $i + 1; $j < $n; $j++) {
+                $v = ReceiptFactsService::duplicateVerdict($facts[$ids[$i]] ?? null, $facts[$ids[$j]] ?? null);
+                if ($v['verdict'] === 'same') {
+                    $what = preg_replace('/^same\s+/i', '', $v['why']);
+                    return ['kind' => 'number', 'text' => 'Same receipt: ' . $what . ($n > 2 ? " is on all {$n}." : ' is on both.')];
+                }
+            }
+        }
+        $media = array_map(fn($m) => (int)($m['receipt_media_id'] ?? 0), $members);
+        if ($media && min($media) > 0 && count(array_unique($media)) === 1) {
+            return ['kind' => 'photo', 'text' => 'Same photo sent in ' . ($n > 2 ? "{$n} times." : 'twice.')];
+        }
+        $times = array_map(fn($id) => $facts[$id]['time_first'] ?? null, $ids);
+        if (!in_array(null, $times, true) && !in_array('', $times, true) && count(array_unique($times)) === 1) {
+            return ['kind' => 'time', 'text' => 'Same total, date and printed time (' . $times[0] . '). No number to prove it.'];
+        }
+        return ['kind' => 'total_date', 'text' => 'Same total and date. Nothing printed proves it either way.'];
+    }
+
+    /**
+     * Which receipt stays. Pure. One already in the books always stays (it can't be merged away); else the
+     * one matched to a bank line; else the one sent in first. (Plan decision 2, the default until Tim says otherwise.)
+     * @return array{id:int, reason:string}
+     */
+    public static function keeperFor(array $members, array $bankLinked): array
+    {
+        $sorted = $members;
+        usort($sorted, fn($x, $y) => (int)$x['id'] <=> (int)$y['id']);
+        foreach ($sorted as $m) {
+            if (!in_array($m['status'] ?? '', self::WAITING, true)) return ['id' => (int)$m['id'], 'reason' => 'already in the books'];
+        }
+        foreach ($sorted as $m) {
+            if (!empty($bankLinked[(int)$m['id']])) return ['id' => (int)$m['id'], 'reason' => 'matched to a bank line'];
+        }
+        return ['id' => (int)$sorted[0]['id'], 'reason' => 'sent in first'];
+    }
+
+    /** Penny's line on how sure she is with this vendor. Pure. */
+    public static function confidenceLine(string $vendor, ?array $record): string
+    {
+        $vendor = trim($vendor) !== '' ? trim($vendor) : 'this vendor';
+        $called = (int)($record['called'] ?? 0);
+        if ($called === 0) return "First {$vendor} pair I've seen. Check the photos.";
+        $agreed = (int)($record['agreed'] ?? 0);
+        return "With {$vendor} I've been right {$agreed} of {$called} time" . ($called === 1 ? '' : 's') . '.';
+    }
+
+    /**
+     * The facts side by side, one row each. Pure. state: same (every value there and equal — a tick),
+     * differs (two values that disagree — highlighted), missing (some not read — "–"), info (not compared).
+     * A row nobody has a value for is left out.
+     * @return list<array{label:string, values:list<?string>, state:string}>
+     */
+    public static function factRows(array $members, array $facts): array
+    {
+        $rows = [];
+        $col = function (string $label, callable $value, ?callable $norm = null, bool $compare = true) use ($members, &$rows) {
+            $vals = [];
+            foreach ($members as $m) {
+                $v = $value($m);
+                $vals[] = ($v === null || trim((string)$v) === '') ? null : (string)$v;
+            }
+            if (count(array_filter($vals, fn($v) => $v !== null)) === 0) return;
+            $state = 'info';
+            if ($compare) {
+                $present = array_values(array_filter($vals, fn($v) => $v !== null));
+                $keys = array_unique(array_map($norm ?? fn($v) => strtolower(trim($v)), $present));
+                $state = count($keys) > 1 ? 'differs' : (count($present) === count($vals) ? 'same' : 'missing');
+            }
+            $rows[] = ['label' => $label, 'values' => $vals, 'state' => $state];
+        };
+        $f = fn($m) => $facts[(int)$m['id']] ?? [];
+        $col('Vendor', fn($m) => $m['vendor_name'] ?? $m['vendor_name_raw'] ?? null);
+        $col('Date', function ($m) use ($f) {
+            $d = $f($m)['printed_date'] ?? null ?: ($m['expense_date'] ?? null);
+            return $d ? date('M j, Y', strtotime((string)$d)) : null;
+        });
+        $col('Time', function ($m) use ($f) {
+            $x = $f($m);
+            return !empty($x['time_first']) ? $x['time_first'] . (!empty($x['time_last']) ? '–' . $x['time_last'] : '') : null;
+        });
+        $col('Total', fn($m) => isset($m['total']) && $m['total'] !== '' ? '$' . number_format((float)$m['total'], 2) : null);
+        $col('Number', function ($m) use ($f) {
+            $x = $f($m);
+            if (empty($x['doc_number'])) return null;
+            $kind = strtolower((string)($x['doc_kind'] ?? ''));
+            return ($kind !== '' ? ucfirst($kind) . ' ' : '') . $x['doc_number'];
+        }, fn($v) => strtoupper(preg_replace('/[^A-Za-z0-9]/', '', preg_replace('/^\S+\s+/', '', $v))));
+        $col('Card', fn($m) => !empty($f($m)['card_last4']) ? '••' . $f($m)['card_last4'] : null);
+        $col('Status', fn($m) => in_array($m['status'] ?? '', self::WAITING, true) ? 'waiting' : 'in the books', null, false);
+        $col('Sent in by', fn($m) => $m['submitted_by'] ?? null, null, false);
+        return $rows;
+    }
+
+    /** One group for the card. Pure (presentGroups() loads what it needs). */
+    public static function presentGroup(array $g, array $facts, array $bankLinked, array $records): array
+    {
+        $members = $g['members'] ?? [];
+        usort($members, fn($x, $y) => (int)$x['id'] <=> (int)$y['id']);
+        $g['members'] = $members;
+        if (count($members) < 2) return $g;
+        $verdict = self::verdictFor($members, $facts);
+        $keep = self::keeperFor($members, $bankLinked);
+        $copies = [];
+        foreach ($members as $m) {
+            if ((int)$m['id'] !== $keep['id'] && in_array($m['status'] ?? '', self::WAITING, true)) $copies[] = (int)$m['id'];
+        }
+        $vendor = (string)($members[0]['vendor_name'] ?? $members[0]['vendor_name_raw'] ?? '');
+        // "Keep the other instead": only when the kept one still waits (one in the books always stays);
+        // any other waiting receipt can take its place.
+        $alt = $keep['reason'] === 'already in the books' ? [] : $copies;
+        $g['verdict'] = $verdict['text'];
+        $g['evidence'] = $verdict['kind'];
+        $g['keep_id'] = $keep['id'];
+        $g['keep_reason'] = $keep['reason'];
+        $g['keep_line'] = 'Keeping #' . $keep['id'] . ' (' . $keep['reason'] . ')';
+        $g['copy_ids'] = $copies;
+        $g['merge_label'] = (count($copies) > 1 ? 'all into #' : 'into #') . $keep['id'];
+        $g['can_swap'] = $alt;
+        $g['confidence'] = self::confidenceLine($vendor, $records[HeadLessons::normaliseKey($vendor)] ?? null);
+        $g['facts'] = self::factRows($members, $facts);
+        $g['member_ids'] = array_map(fn($m) => (int)$m['id'], $members);
+        return $g;
     }
 }

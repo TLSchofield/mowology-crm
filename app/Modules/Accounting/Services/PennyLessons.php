@@ -27,14 +27,15 @@ class PennyLessons
     public const HEAD = 'penny';
 
     /** A correction to a receipt (category, payment method, job, vendor, split, billable…). */
-    public static function expense(PDO $db, int $expenseId, string $field, $said, $correct, string $source, ?int $by, ?string $reason = null): ?int
+    public static function expense(PDO $db, int $expenseId, string $field, $said, $correct, string $source, ?int $by, ?string $reason = null,
+                                   bool $agreement = false): ?int
     {
         try {
             $s = $db->prepare("SELECT COALESCE(v.name, e.vendor_name_raw) FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?");
             $s->execute([$expenseId]);
             $vendor = trim((string)$s->fetchColumn());
             return self::subject($db, 'vendor', $vendor !== '' ? $vendor : 'unknown vendor', $field, $said, $correct, $source, $by,
-                                 'expense', $expenseId, $reason);
+                                 'expense', $expenseId, $reason, $agreement);
         } catch (Throwable $e) {
             error_log('Penny lesson (expense #' . $expenseId . ', ' . $source . '): ' . $e->getMessage());
             return null;
@@ -56,9 +57,10 @@ class PennyLessons
     }
 
     public static function subject(PDO $db, string $kind, string $key, string $field, $said, $correct, string $source, ?int $by,
-                                   ?string $refType = null, ?int $refId = null, ?string $reason = null): ?int
+                                   ?string $refType = null, ?int $refId = null, ?string $reason = null, bool $agreement = false): ?int
     {
         return HeadLessons::recordQuietly($db, [
+            'agreement' => $agreement,   // the owner confirmed Penny's own call (a merge she proposed) — counts too
             'head' => self::HEAD, 'subject_kind' => $kind, 'subject_key' => $key, 'field' => $field,
             'said' => $said, 'correct' => $correct, 'source' => $source, 'ref_type' => $refType, 'ref_id' => $refId,
             'corrected_by' => $by, 'reason' => $reason,

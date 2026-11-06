@@ -14,6 +14,14 @@
  *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
  * POST {mode: 'reject', suggestion_id, reason}
  * POST {mode: 'not_dupe', pairs: [[a, b], ...]}
+ * POST {mode: 'merge', keep_id, copy_ids: [..]}       Merge the copies into the kept receipt → {ok, message, merges:{copy:id}, undo}
+ *        (removeCopies + an expense_merges row each, migration 1442). 'remove_dupes' {keep_id, remove_ids} is the
+ *        same call for app builds before 1.3.89.
+ * POST {mode: 'unmerge', copy_id, kind: undo|split}     Undo straight after a merge (asked again) or Split off later
+ *        (two purchases: remembered, Penny learns) — DuplicateReceiptService::unmerge().
+ * GET  ?mode=merged&expense_id=N   Copies merged into this receipt ("Also on this purchase"), photos signed for the app.
+ * Each dupes group also carries Penny's verdict, keep_id / keep_line / copy_ids / merge_label / can_swap,
+ * confidence (her record with the vendor) and facts [{label, values[], state: same|differs|missing|info}].
  * POST {mode: 'remove_dupes', keep_id, remove_ids: [..]}
  *      → {ok, message, kept, removed[], carried[]}  "Keep this one" — the other copies are
  *        rejected "Duplicate of receipt #keep" (DuplicateReceiptService::removeCopies; added
@@ -149,7 +157,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'remove_dupes', 'move', 'message_done']);
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done']);
 
     if ($mode === 'risk') {
         // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
@@ -190,7 +198,7 @@ try {
             $pairs  = $dupSvc->pairsInLine(60);
             $queue  = $desk->queue((int)($_GET['limit'] ?? 15), DuplicateReceiptService::heldIds($pairs));
             [$queue, $dupes] = ReceiptImageLinks::resignDesk(
-                $queue, DuplicateReceiptService::groups($pairs), time() + ReceiptImageLinks::TTL, ReceiptImageLinks::key(jwtSecret())
+                $queue, $dupSvc->presentGroups(DuplicateReceiptService::groups($pairs)), time() + ReceiptImageLinks::TTL, ReceiptImageLinks::key(jwtSecret())
             );
             $tagLabels = ['truck' => 'Truck', 'equipment' => 'Equipment', 'stock' => 'Shop stock'];
             $tags = [['value' => 'none', 'label' => 'None']];
@@ -280,6 +288,36 @@ try {
                 if (!$res['ok']) break;
             }
             echo json_encode($res);
+            break;
+        }
+
+        case 'merge': {
+            // "Merge" on Penny's duplicate card: the copies are set aside into the kept receipt (removeCopies:
+            // one group, waiting copies only, all-or-nothing), each with an expense_merges row for Undo / Split off.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode((new DuplicateReceiptService($db))->removeCopies(
+                (int)($input['keep_id'] ?? 0), array_map('intval', (array)($input['copy_ids'] ?? [])), $user
+            ));
+            break;
+        }
+
+        case 'unmerge': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode((new DuplicateReceiptService($db))->unmerge(
+                (int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')
+            ));
+            break;
+        }
+
+        case 'merged': {
+            $rows = (new DuplicateReceiptService($db))->mergedInto((int)($_GET['expense_id'] ?? 0));
+            $exp = time() + ReceiptImageLinks::TTL;
+            $key = ReceiptImageLinks::key(jwtSecret());
+            foreach ($rows as &$r) {
+                $r['receipt_path'] = $r['receipt_media_id'] ? ReceiptImageLinks::appUrl((int)$r['receipt_media_id'], $exp, $key) : null;
+            }
+            unset($r);
+            echo json_encode(['ok' => true, 'merged' => $rows]);
             break;
         }
 
