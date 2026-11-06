@@ -175,7 +175,10 @@ function recordHeaderLessons(PDO $db, ?int $vendorId, ?string $vendorName, array
     }
 
     // The store's day/month order, from confirmed facts only (see dateOrderLesson()).
-    $dateOrder = dateOrderLesson($ocrText, isset($final['expense_date']) ? (string)$final['expense_date'] : null);
+    // An approved date teaches only when the person changed it: keeping the reader's own guess is not a choice
+    // (code review 2026-11-06 — lazy approvals would otherwise outvote the receipts that prove the order).
+    $dateCorrected = !empty($diff['fields']['date']['corrected']);
+    $dateOrder = dateOrderLesson($ocrText, $dateCorrected && isset($final['expense_date']) ? (string)$final['expense_date'] : null);
     if ($vendorId && $dateOrder !== null) {
         addFieldLesson($db, $vendorId, $vendorName, 'date_order', null, $dateOrder, $ocrText);
     }

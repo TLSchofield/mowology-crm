@@ -134,11 +134,14 @@ class ReceiptDateOrderTest extends TestCase
         $this->assertSame('dmy', vendorDateOrderFromLessons($db, 7));
         $this->assertNull(vendorDateOrderFromLessons($db, 8));
 
-        // Same order again counts; an opposite order tying it cancels the habit.
-        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-02-12'], $final, self::AMBIGUOUS);
+        // Keeping the reader's own guess teaches nothing (code review 2026-11-06).
+        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-12-02'], ['expense_date' => '2025-12-02'], self::AMBIGUOUS);
+        $this->assertSame('1', (string)$db->query("SELECT SUM(times_seen) FROM receipt_parse_lessons WHERE field_name = 'date_order'")->fetchColumn());
+        // A person correcting the date to one reading counts; an opposite order tying it cancels the habit.
+        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-12-02'], $final, self::AMBIGUOUS);
         $this->assertSame('2', (string)$db->query("SELECT times_seen FROM receipt_parse_lessons WHERE corrected_value = 'dmy'")->fetchColumn());
-        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-12-02'], ['expense_date' => '2025-12-02'], self::AMBIGUOUS);
-        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-12-02'], ['expense_date' => '2025-12-02'], self::AMBIGUOUS);
+        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-02-12'], ['expense_date' => '2025-12-02'], self::AMBIGUOUS);
+        recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-02-12'], ['expense_date' => '2025-12-02'], self::AMBIGUOUS);
         $this->assertNull(vendorDateOrderFromLessons($db, 7));
     }
 
@@ -147,5 +150,21 @@ class ReceiptDateOrderTest extends TestCase
         $db = $this->lessonDb();
         recordHeaderLessons($db, 7, 'Example Hardware', ['date' => '2025-12-02'], ['expense_date' => '2025-03-04'], self::AMBIGUOUS);
         $this->assertSame('0', (string)$db->query("SELECT COUNT(*) FROM receipt_parse_lessons WHERE field_name = 'date_order'")->fetchColumn());
+    }
+
+    public function testProductCodesAndOldYearsAreNotDateProof(): void
+    {
+        $this->assertNull(receiptDateOrder("FERT 10-20-10\nSOIL 20-10-10"), 'fertilizer analysis is not a date');
+        $this->assertNull(receiptDateOrder("PART 16-24-12-08"), 'inside a longer chain');
+        $this->assertNull(receiptDateOrder("31/02/2026"), 'not a calendar date');
+        $this->assertSame('dmy', receiptDateOrder("RETURN BY 13/05/2025"));
+        $this->assertSame('mdy', receiptDateOrder("RETURN BY 05/13/2025"));
+    }
+
+    public function testKeepingTheReadersGuessTeachesNothing(): void
+    {
+        // dateOrderLesson() only sees an approved date when the person changed it (recordHeaderLessons passes null otherwise).
+        $this->assertNull(dateOrderLesson("SALE 06/05/25", null));
+        $this->assertSame('dmy', dateOrderLesson("SALE 06/05/25", '2025-05-06'));
     }
 }

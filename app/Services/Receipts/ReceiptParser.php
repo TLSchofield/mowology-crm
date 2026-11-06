@@ -2197,11 +2197,16 @@ function extractSubtotal(string $text): ?string
  */
 function receiptDateOrder(string $text): ?string
 {
+    // Only real dates vote (code review 2026-11-06): a product code like "10-20-10" or "16-24-12" is not one —
+    // never inside a longer number chain, the year plausible for a receipt, and a valid calendar date that way round.
     $votes = [];
-    if (preg_match_all('/(?<!\d)(\d{1,2})[\/\-](\d{1,2})[\/\-](?:\d{4}|\d{2})(?!\d)/', $text, $all, PREG_SET_ORDER)) {
+    $maxYear = (int)date('Y') + 1;
+    if (preg_match_all('/(?<![\d\/\-.])(\d{1,2})([\/\-.])(\d{1,2})\2(\d{4}|\d{2})(?![\d\/\-]|\.\d)/', $text, $all, PREG_SET_ORDER)) {
         foreach ($all as $m) {
-            if ((int)$m[1] >= 13 && (int)$m[1] <= 31) $votes['dmy'] = true;
-            if ((int)$m[2] >= 13 && (int)$m[2] <= 31) $votes['mdy'] = true;
+            $a = (int)$m[1]; $b = (int)$m[3]; $y = (int)$m[4]; if (strlen($m[4]) === 2) $y += 2000;
+            if ($y < 2015 || $y > $maxYear) continue;
+            if ($a >= 13 && $b <= 12 && checkdate($b, $a, $y)) $votes['dmy'] = true;
+            if ($b >= 13 && $a <= 12 && checkdate($a, $b, $y)) $votes['mdy'] = true;
         }
     }
     return count($votes) === 1 ? key($votes) : null;
