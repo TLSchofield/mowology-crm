@@ -25,6 +25,13 @@ final class ReceiptLlmGateTest extends TestCase
         $this->assertSame('sum_mismatch', validateLlmLineItems([['name' => 'WIDGET', 'line_total' => '36.99']], $text, 40.00));
     }
 
+    public function testADepartmentLineIsNotASubtotal(): void
+    {
+        // Fuel plus store items: only the fuel row would sum to the printed FUEL SALES — not enough.
+        $text = "CHEVRON\nREGULAR 30.000L 36.99\nCOFFEE 2.49\nFUEL SALES 36.99\nSUBTOTAL 39.48\nGST 1.97\nTOTAL 41.45";
+        $this->assertSame('sum_mismatch', validateLlmLineItems([['name' => 'REGULAR', 'line_total' => '36.99']], $text, 39.48));
+    }
+
     public function testNoTaxReceiptMatchesItsPrintedTotal(): void
     {
         $text = "CITY OF\nVANCOUVER\n10 - Green Waste\n\$41.00\nTotal Fee:\n\$41.00";

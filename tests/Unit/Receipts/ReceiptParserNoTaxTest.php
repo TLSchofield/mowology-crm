@@ -35,5 +35,7 @@ final class ReceiptParserNoTaxTest extends TestCase
         $this->assertFalse(receiptPrintsNoTax(["Tax", "1.05"]));
         $this->assertFalse(receiptPrintsNoTax(["G.S.T. 1.20"]));
         $this->assertFalse(receiptPrintsNoTax(["PST 7%"]));
+        $this->assertFalse(receiptPrintsNoTax(["TAXE 1.50"]));
+        $this->assertFalse(receiptPrintsNoTax(["TVH 13%"]));
     }
 }

@@ -1927,13 +1927,13 @@ function receiptItemisesTaxWithoutGstLine(array $lines): bool
 }
 
 /**
- * Pure: does the receipt name no tax at all — no GST / HST / PST / RST / TPS / TVQ / VAT / TAX word anywhere?
+ * Pure: does the receipt name no tax at all — no GST / HST / PST / RST / TPS / TVQ / TVH / VAT / IVA / TAX(E) word anywhere?
  * Then nothing was charged and the 5% guess must not run. A GST number or "GST incl." still names GST.
  */
 function receiptPrintsNoTax(array $lines): bool
 {
     foreach ($lines as $line) {
-        if (preg_match('/\b(?:G\.?S\.?T|H\.?S\.?T|P\.?S\.?T|RST|TPS|TVQ|VAT|TAX(?:ES)?)\b/i', (string)$line)) return false;
+        if (preg_match('/\b(?:G\.?S\.?T|H\.?S\.?T|P\.?S\.?T|RST|TPS|TVQ|TVH|VAT|IVA|TAX(?:ES?)?)\b/i', (string)$line)) return false;
     }
     return true;
 }

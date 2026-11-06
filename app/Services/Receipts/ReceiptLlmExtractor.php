@@ -381,9 +381,30 @@ function receiptLlmSumPrinted(float $sum, string $ocrText): bool
 {
     if ($sum <= 0) return false;
     $amount = number_format($sum, 2, '.', '');
-    if (receiptHeaderAmountLabelled('subtotal', $amount, $ocrText)) return true;
+    // Only a real SUBTOTAL label: a department line ("FUEL SALES 36.99", "MERCHANDISE") would let a partial set of
+    // rows through on a receipt that sells more than one kind of thing (review 2026-11-06).
+    if (receiptLlmAmountUnderLabel($amount, $ocrText, '/SUB[\s-]*TOTAL/i')) return true;
     return function_exists('receiptPrintsNoTax') && receiptPrintsNoTax(preg_split('/\R/', $ocrText))
         && receiptHeaderAmountLabelled('total', $amount, $ocrText);
+}
+
+/** Pure: is $amount printed on a line with $label, or on one of the two lines under a label line that has no amount? */
+function receiptLlmAmountUnderLabel(string $amount, string $ocrText, string $label): bool
+{
+    if (!receiptAmountPrintedInText($amount, $ocrText)) return false;
+    $pattern = '/(?<![\d.])' . preg_quote($amount, '/') . '(?!\d)/';
+    $lines = preg_split('/\R/', (string)preg_replace('/(?<=\d),(?=\d{2}(?!\d))/', '.', (string)preg_replace('/(?<=\d),(?=\d{3}(?!\d))/', '', $ocrText)));
+    $n = count($lines);
+    for ($i = 0; $i < $n; $i++) {
+        if (!preg_match($label, $lines[$i])) continue;
+        if (preg_match($pattern, $lines[$i])) return true;
+        if (!preg_match('/\d+\.\d{2}/', $lines[$i])) {
+            for ($j = $i + 1; $j <= $i + 2 && $j < $n; $j++) {
+                if (preg_match($pattern, $lines[$j]) && !preg_match('/[A-Za-z]{4,}/', preg_replace('/\b(CAD|CDN)\b/i', '', $lines[$j]))) return true;
+            }
+        }
+    }
+    return false;
 }
 
 /** Pure: the deposits printed on a receipt ("2 Deposit 0.20", "DEPOSIT $0.10"), summed; 0 when none. */
