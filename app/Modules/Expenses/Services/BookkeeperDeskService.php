@@ -63,7 +63,7 @@ class BookkeeperDeskService
         $result = ['applied' => 0, 'would_apply' => 0, 'skipped' => [], 'ids' => []];
         $limit = max(1, min(200, $limit));
         $sql = "SELECT s.id AS suggestion_id, s.expense_id, s.suggestion_json,
-                       e.amount, e.total, e.forwarded_to_accounting
+                       e.amount, e.gst_amount, e.pst_amount, e.total, e.forwarded_to_accounting
                 FROM expense_suggestions s
                 JOIN expenses e ON e.id = s.expense_id
                 WHERE s.source = 'live' AND s.status = 'pending'
@@ -105,9 +105,11 @@ class BookkeeperDeskService
                 }
                 $amount = $row['amount'] !== null ? (float)$row['amount'] : null;
                 $total = $row['total'] !== null ? (float)$row['total'] : null;
-                if ($reason === null && LineItemFit::addsUp($stored, $amount, $total)) $reason = 'already_adds_up';
+                $gst = $row['gst_amount'] !== null ? (float)$row['gst_amount'] : null;
+                $pst = $row['pst_amount'] !== null ? (float)$row['pst_amount'] : null;
+                if ($reason === null && LineItemFit::addsUp($stored, $amount, $total, 0.05, $gst, $pst)) $reason = 'already_adds_up';
                 $items = self::pennyItems(json_decode((string)$row['suggestion_json'], true) ?: []);
-                if ($reason === null && !LineItemFit::addsUp($items, $amount, $total)) $reason = 'penny_does_not_add_up';
+                if ($reason === null && !LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst)) $reason = 'penny_does_not_add_up';
                 if ($reason !== null) {
                     $result['skipped'][$reason] = ($result['skipped'][$reason] ?? 0) + 1;
                     continue;
@@ -136,7 +138,9 @@ class BookkeeperDeskService
                             // The totals may have been edited since the batch read them (Codex review 2026-11-05).
                             $amount = $expense['amount'] !== null ? (float)$expense['amount'] : null;
                             $total = $expense['total'] !== null ? (float)$expense['total'] : null;
-                            if (!LineItemFit::addsUp($items, $amount, $total)) return false;
+                            $gst = ($expense['gst_amount'] ?? null) !== null ? (float)$expense['gst_amount'] : null;
+                            $pst = ($expense['pst_amount'] ?? null) !== null ? (float)$expense['pst_amount'] : null;
+                            if (!LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst)) return false;
                             // …and the owner may have accepted or rejected the read, or Penny read it again.
                             $lock = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
                             $s = $db->prepare("SELECT id, status FROM expense_suggestions WHERE expense_id = ? AND source = 'live' ORDER BY id DESC LIMIT 1" . $lock);

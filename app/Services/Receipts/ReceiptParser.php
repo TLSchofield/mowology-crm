@@ -188,6 +188,21 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         $result = mergeLayoutItems($result, applyLineLayout($ocrText, $vendorProfile['layout']));
     }
 
+    // A phone text reader can emit the product names and numeric columns as separate blocks.
+    // Use that interpretation only to repair a read that misses the printed/derived pre-tax subtotal.
+    $subtotal = isset($result['subtotal']) && is_numeric($result['subtotal']) ? (float)$result['subtotal'] : null;
+    if ($subtotal === null && isset($result['total']) && is_numeric($result['total'])) {
+        $subtotal = (float)$result['total'] - (float)($result['gst'] ?? 0) - (float)($result['pst'] ?? 0);
+    }
+    if ($subtotal === null) $subtotal = separatedColumnsSubtotal($lines);
+    if ($subtotal !== null && $subtotal > 0 && !receiptItemsAddUp($result['line_items'] ?? [], $subtotal)) {
+        $columnItems = pairSeparatedColumns($lines);
+        if (receiptItemsAddUp($columnItems, $subtotal)) {
+            $result['line_items'] = $columnItems;
+            $result['line_items_source'] = 'columns';
+        }
+    }
+
     // The fuel line stands in for the generic items when it accounts for the whole purchase
     // (its amount is the total, the subtotal, or the total less tax — pump prices include GST).
     if (isset($result['_fuel_item'])) {
@@ -286,7 +301,7 @@ function fuelItemFitsReceipt(array $item, array $parsed): bool
 function extractFuelPumpItem(array $lines): ?array
 {
     $text = implode("\n", $lines);
-    if (!preg_match('/\b(?:FUEL\s+SALES?|FUEL\s+AMOUNT|GAS\s+SALES?)\b\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})(?!\d)/i', $text, $am)) {
+    if (!preg_match('/\b(?:FUEL\s+SALES?|FUEL\s+AMOUNT|GAS\s+SALES?|TOTAL\s+FUEL|FUEL\s+TOTAL)\b\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})(?!\d)/i', $text, $am)) {
         return null;
     }
     $amount = (float)str_replace(',', '.', $am[1]);
@@ -657,6 +672,43 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
         // Learned noise for this vendor — skip outright
         if ($noiseKeys && in_array(strtoupper($line), $noiseKeys, true)) continue;
 
+        // Count + bottle deposit total. The parenthesised value is the entire line, not a unit price.
+        if (preg_match('/^(\d+)\s+Deposit\s*\(\s*\$?\s*(\d{1,6}\.\d{2})\s*\)\s*$/i', $line, $m)) {
+            $items[] = ['name' => 'Deposit', 'amount' => $m[2], 'quantity' => (int)$m[1],
+                        'unit_price' => null, 'sku_raw' => null, 'is_bottle_deposit' => true];
+            $inItemZone = true;
+            continue;
+        }
+
+        // Plain-text Chevron rows: name, then "qty price", then the printed amount. Consume all
+        // three lines together so the backward price fallback cannot read the same block twice.
+        $qtyPrice = trim((string)($lines[$i + 1] ?? ''));
+        $printedAmount = trim((string)($lines[$i + 2] ?? ''));
+        if (preg_match('/[A-Za-z]{3,}/', $line) && !isTaxOrSummaryLabel($line) && !isColumnHeading($line)
+            && preg_match('/^(\d{1,3})\s+\$?(\d{1,6}\.\d{2})$/', $qtyPrice, $qm)
+            && preg_match('/^\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}$/', $printedAmount, $am)
+            && abs((int)$qm[1] * (float)$qm[2] - (float)$am[1]) < 0.015) {
+            $items[] = ['name' => $line, 'amount' => $am[1], 'quantity' => (int)$qm[1],
+                        'unit_price' => (float)$qm[2], 'sku_raw' => null];
+            $inItemZone = true;
+            $i += 2;
+            continue;
+        }
+        $qtyOnly = trim((string)($lines[$i + 1] ?? ''));
+        $unitOnly = trim((string)($lines[$i + 2] ?? ''));
+        $amountOnly = trim((string)($lines[$i + 3] ?? ''));
+        if (preg_match('/[A-Za-z]{3,}/', $line) && !isTaxOrSummaryLabel($line) && !isColumnHeading($line)
+            && preg_match('/^(\d{1,3})$/', $qtyOnly, $qm)
+            && preg_match('/^\$?(\d{1,6}\.\d{2})$/', $unitOnly, $um)
+            && preg_match('/^\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}$/', $amountOnly, $am)
+            && abs((int)$qm[1] * (float)$um[1] - (float)$am[1]) < 0.015) {
+            $items[] = ['name' => $line, 'amount' => $am[1], 'quantity' => (int)$qm[1],
+                        'unit_price' => (float)$um[1], 'sku_raw' => null];
+            $inItemZone = true;
+            $i += 3;
+            continue;
+        }
+
         // Multi-buy promotion with an amount — Home Depot prints "Buy 10 Get 10% Bagged Lim -14.98"
         // (OCR often "Bu 10 Get…") under the item it discounts: net it into that item, so the lime
         // reads 10 x $13.48 = $134.82, not $149.80 (2026-10-13). The "----Buy 10 Get 10%----" banner
@@ -782,6 +834,40 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
         // Pattern: Material code + description (landfill/waste style: "10 - Green Waste")
         if (preg_match('/^\d{1,4}\s+[-–]\s+(.+)$/i', $line, $m)) {
             $itemName = trim($m[1]);
+            $materialAmount = null;
+            $totalFee = null;
+            $quantity = 1;
+            $unit = null;
+            $unitPrice = null;
+            $consumedThrough = $i;
+            for ($j = $i + 1; $j < min($lineCount, $i + 9); $j++) {
+                $look = trim($lines[$j]);
+                if ($materialAmount === null && preg_match('/^\$?(\d{1,6}\.\d{2})$/', $look, $mm)) {
+                    $materialAmount = (float)$mm[1];
+                    $consumedThrough = max($consumedThrough, $j);
+                }
+                if (preg_match('/^(\d+\.?\d*)\s*(tonne|kg|yard|cu\.?\s*yd|m3|litre|gal)s?\s*@\s*\$?(\d+\.?\d*)\s*\/\s*\w+/i', $look, $tm)) {
+                    $quantity = (float)$tm[1]; $unit = strtolower($tm[2]); $unitPrice = (float)$tm[3];
+                    $consumedThrough = max($consumedThrough, $j);
+                }
+                if (preg_match('/^Total\s+Fee\s*:?\s*\$?\s*(\d{1,6}\.\d{2})$/i', $look, $fm)) {
+                    $totalFee = (float)$fm[1];
+                    $consumedThrough = max($consumedThrough, $j);
+                }
+                if (preg_match('/^Total\s+Fee\s*:?\s*$/i', $look)
+                    && preg_match('/^\$?(\d{1,6}\.\d{2})$/', trim((string)($lines[$j + 1] ?? '')), $fm)) {
+                    $totalFee = (float)$fm[1];
+                    $consumedThrough = max($consumedThrough, $j + 1);
+                }
+            }
+            if ($materialAmount !== null && $totalFee !== null && abs($materialAmount - $totalFee) <= 1.00) {
+                $items[] = ['name' => $itemName, 'amount' => number_format($totalFee, 2, '.', ''),
+                            'line_total' => number_format($totalFee, 2, '.', ''), 'quantity' => $quantity,
+                            'unit_price' => $unitPrice, 'unit' => $unit, 'sku_raw' => null];
+                $inItemZone = true;
+                $i = min($lineCount - 1, $consumedThrough);
+                continue;
+            }
             if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
                 $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                 $inItemZone = true;
@@ -932,7 +1018,8 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
             if ($i + 1 < $lineCount) {
                 $nextLine = trim($lines[$i + 1]);
                 if (preg_match('/^(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $nextLine, $pm)) {
-                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null, 'is_adjustment' => true];
+                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1], 'quantity' => 1, 'unit_price' => null,
+                                'sku_raw' => null, 'is_adjustment' => true, 'is_deposit_adjustment' => true];
                     $i++;
                 }
             }
@@ -1042,6 +1129,8 @@ function extractLineItems(array $lines, ?array $vendorProfile = null): array
         $qty = (float)($item['quantity'] ?? 1);
         $up = $item['unit_price'];
 
+        if (!empty($item['is_bottle_deposit'])) continue;
+
         if ($up !== null && $up > 0 && $qty == 1 && $total > $up * 1.01) {
             // unit_price known but qty=1 seems wrong — derive qty
             $item['quantity'] = round($total / $up, 3);
@@ -1064,9 +1153,122 @@ function isTaxOrSummaryLabel(string $s): bool
 {
     $s = trim($s);
     return (bool)preg_match(
-        '/^(?:(?:GST|PST|HST|QST|RST)(?:\s*[\/&+]\s*(?:GST|PST|HST|QST|RST))?|(?:SALES\s+)?TAX(?:ES)?|SUB[\s\-]*TOTAL|TOTAL(?:\s+CAD)?|AMOUNT\s+DUE|BALANCE\s+DUE)\b[^A-Za-z]*$/i',
+        '/^(?:(?:GST|PST|HST|QST|RST)(?:\s*[\/&+]\s*(?:GST|PST|HST|QST|RST))?|(?:SALES\s+)?TAX(?:ES)?|SUB[\s\-]*TOTAL|TOTAL(?:\s+CAD)?|TOTAL\s+(?:FEE|FUEL|SALES?)|EXTRA\s+FEE|TOTAL\s+TENDERED|DEPOSIT(?=\s*:)|AMOUNT\s+DUE|BALANCE\s+DUE)\b\s*:?\s*\$?\s*[\d.,%\s]*$/i',
         $s
     );
+}
+
+/** Whether parser-shaped items total a target within the strict receipt fit tolerance. Pure. */
+function receiptItemsAddUp(array $items, float $target, float $tol = 0.05): bool
+{
+    if (!$items) return false;
+    $sum = 0.0;
+    foreach ($items as $item) $sum += (float)($item['line_total'] ?? $item['amount'] ?? 0);
+    return abs($sum - $target) <= $tol + 0.000000001;
+}
+
+/**
+ * Pair a phone reader's separated product-name and amount columns. Pure.
+ * @param list<string> $lines
+ * @return array<int,array<string,mixed>>
+ */
+function pairSeparatedColumns(array $lines): array
+{
+    $start = null;
+    $end = count($lines);
+    foreach ($lines as $i => $raw) {
+        $line = trim($raw);
+        if ($start === null && preg_match('/^PRODUCTS?$/i', $line)) { $start = $i + 1; continue; }
+        if ($start !== null && preg_match('/^TOTAL(?:\s+CAD)?\s*\$?\s*$/i', $line)) { $end = $i; break; }
+    }
+    if ($start === null) return [];
+
+    $names = [];
+    $amounts = [];
+    $pendingQty = null;
+    $skipTaxAmount = false;
+    for ($i = $start; $i < $end; $i++) {
+        $line = trim($lines[$i]);
+        if ($line === '' || isColumnHeading($line) || preg_match('/^(?:QTY|PRICE|AMOUNT)(?:\s+(?:QTY|PRICE|AMOUNT))*$/i', $line)) continue;
+        if (preg_match('/^(?:GST|PST|HST|QST|RST)\b/i', $line)) { $pendingQty = null; $skipTaxAmount = true; continue; }
+        if (preg_match('/^(\d+)\s+Deposit\s*\(\s*\$?\s*(\d{1,6}\.\d{2})\s*\)$/i', $line, $m)) {
+            $names[] = ['name' => 'Deposit', 'quantity' => (int)$m[1], 'unit_price' => null, 'is_bottle_deposit' => true];
+            $amounts[] = $m[2];
+            continue;
+        }
+        if (preg_match('/^(\d{1,3})\s+\$?(\d{1,6}\.\d{2})$/', $line, $m)) {
+            $pendingQty = ['quantity' => (int)$m[1], 'unit_price' => (float)$m[2]];
+            continue;
+        }
+        if (preg_match('/^\$?(\d{1,6}\.\d{2})\s+\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}$/', $line, $m)) {
+            $amounts[] = $m[2];
+            $pendingQty = null;
+            continue;
+        }
+        if (preg_match('/^\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}$/', $line, $m)) {
+            if ($skipTaxAmount) { $skipTaxAmount = false; continue; }
+            $amounts[] = $m[1];
+            if ($pendingQty !== null && isset($names[count($amounts) - 1])) $names[count($amounts) - 1] = array_replace($names[count($amounts) - 1], $pendingQty);
+            $pendingQty = null;
+            continue;
+        }
+        if (preg_match('/^\d+\s+\$?(\d{1,6}\.\d{2})\s+\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}$/', $line, $m)) {
+            $amounts[] = $m[2];
+            continue;
+        }
+        if (preg_match('/^@\s*\$?\s*\d{1,6}\.\d{2}/', $line)
+            || preg_match('/^\d+\s+[A-Za-z]/', $line)) continue;
+        if (preg_match('/[A-Za-z]{3,}/', $line) && !isTaxOrSummaryLabel($line)
+            && !isSeparatedColumnsNonItemLine($line)) {
+            $names[] = ['name' => $line, 'quantity' => 1, 'unit_price' => null];
+        }
+    }
+    if (count($amounts) === count($names) + 1) {
+        $largest = array_search(max(array_map('floatval', $amounts)), array_map('floatval', $amounts), true);
+        if ($largest !== false) array_splice($amounts, (int)$largest, 1);
+    }
+    if (count($names) !== count($amounts) || !$names) return [];
+    $items = [];
+    foreach ($names as $i => $name) {
+        $items[] = ['name' => $name['name'], 'amount' => $amounts[$i], 'line_total' => $amounts[$i],
+                    'quantity' => $name['quantity'], 'unit_price' => $name['unit_price'], 'sku_raw' => null,
+                    'name_source' => 'columns', 'is_bottle_deposit' => !empty($name['is_bottle_deposit'])];
+    }
+    return $items;
+}
+
+/** Store, payment, and footer metadata cannot be product names in a separated OCR column. Pure. */
+function isSeparatedColumnsNonItemLine(string $line): bool
+{
+    $line = trim($line);
+    return (bool)preg_match(
+        '/^(?:'
+        . '(?:STORE|LOCATION)\s*(?:#|NO\.?|NUMBER|ID)?\s*[A-Z0-9-]*'
+        . '|(?:VISA|MASTERCARD|MASTER\s*CARD|AMEX|AMERICAN\s+EXPRESS|INTERAC|DEBIT|CREDIT|CASH)'
+        . '|APPROVED|DECLINED|AUTH(?:ORI[ZS]ATION)?(?:\s*(?:#|NO\.?|CODE))?\s*[A-Z0-9-]*'
+        . '|TRANSACTION\s+(?:RECORD|APPROVED)|CUSTOMER\s+COPY|MERCHANT\s+COPY'
+        . '|THANK(?:\s+YOU)?(?:\s+FOR\s+(?:SHOPPING|YOUR\s+PURCHASE))?[!.]*'
+        . ')$/i',
+        $line
+    );
+}
+
+/** Printed total less separately printed GST/PST in a separated-column receipt. Pure. */
+function separatedColumnsSubtotal(array $lines): ?float
+{
+    $tax = 0.0;
+    $hasTax = false;
+    $total = null;
+    $count = count($lines);
+    for ($i = 0; $i < $count; $i++) {
+        $line = trim($lines[$i]);
+        if (preg_match('/^(?:GST|PST|HST|QST|RST)\b/i', $line)
+            && preg_match('/^\$?(\d{1,6}\.\d{2})$/', trim((string)($lines[$i + 1] ?? '')), $m)) {
+            $tax += (float)$m[1]; $hasTax = true; $i++; continue;
+        }
+        if ($hasTax && preg_match('/^\$?(\d{1,6}\.\d{2})$/', $line, $m)) $total = (float)$m[1];
+    }
+    return $hasTax && $total !== null && $total > $tax ? round($total - $tax, 2) : null;
 }
 
 /**
@@ -1078,6 +1280,9 @@ function isColumnHeading(string $s): bool
     // Three or more heading words and nothing else, one of them a quantity / amount column — so a real
     // two-word item like "UNIT PRICE" or "ITEM TOTAL" is never dropped (Codex review 2026-10-15).
     $words = preg_split('/[\s\/|:.]+/', strtoupper(trim($s)), -1, PREG_SPLIT_NO_EMPTY);
+    // A lone column heading read as an item name ("PRODUCT" carrying the first price, Chevron #163, replay 2026-11-06).
+    // Not AMOUNT: a taxi receipt's fare line is "Amount 21.75".
+    if (count($words) === 1 && in_array($words[0], ['PRODUCT', 'PRODUCTS', 'DESCRIPTION', 'QTY', 'QUANTITY'], true)) return true;
     if (count($words) < 3) return false;
     $heading = ['QTY', 'QUANTITY', 'PRICE', 'AMOUNT', 'AMT', 'DESCRIPTION', 'DESC', 'ITEM', 'ITEMS', 'EACH', 'EA', 'UNIT', 'EXT', 'EXTENDED', 'TOTAL', 'SKU', 'PRODUCT', '$'];
     foreach ($words as $w) if (!in_array($w, $heading, true)) return false;
@@ -1087,9 +1292,10 @@ function isColumnHeading(string $s): bool
 /** Items without tax / total lines or column headings (whatever pass produced them). Pure. */
 function dropTaxLineItems(array $items): array
 {
-    return array_values(array_filter($items, fn($it) => !isTaxOrSummaryLabel((string)($it['name'] ?? ''))
+    return array_values(array_filter($items, fn($it) => !empty($it['is_bottle_deposit'])
+        || !empty($it['is_deposit_adjustment']) || (!isTaxOrSummaryLabel((string)($it['name'] ?? ''))
         && !isTaxOrSummaryLabel((string)($it['ocr_name'] ?? ''))
-        && !isColumnHeading((string)(($it['name'] ?? '') !== '' ? $it['name'] : ($it['ocr_name'] ?? '')))));
+        && !isColumnHeading((string)(($it['name'] ?? '') !== '' ? $it['name'] : ($it['ocr_name'] ?? ''))))));
 }
 
 /**

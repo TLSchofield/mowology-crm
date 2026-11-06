@@ -30,11 +30,11 @@ class ReceiptInboxService
     private PDO $db;
 
     /** Lines are part of the create only when the parser's net items reconcile. */
-    public static function fittedLineItemChanges(array $parsed, ?float $amount, ?float $total): array
+    public static function fittedLineItemChanges(array $parsed, ?float $amount, ?float $total, ?float $gst = null, ?float $pst = null): array
     {
         require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/LineItemFit.php';
         $items = $parsed['line_items'] ?? [];
-        return LineItemFit::addsUp($items, $amount, $total)
+        return LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst)
             ? ['line_items' => $items, 'line_items_source' => 'inbox']
             : [];
     }
@@ -498,7 +498,7 @@ class ReceiptInboxService
                 'status'              => $status,
                 'source'              => 'email_inbox',
                 'created_by'          => $systemUserId,
-            ] + self::fittedLineItemChanges($parsed, $amount, $total), ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
+            ] + self::fittedLineItemChanges($parsed, $amount, $total, $gst, $pst), ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
         } finally {
             $guard->release($mediaId);
         }

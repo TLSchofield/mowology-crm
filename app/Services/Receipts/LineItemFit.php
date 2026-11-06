@@ -16,7 +16,7 @@ final class LineItemFit
         return $sum;
     }
 
-    public static function addsUp(array $items, ?float $amount, ?float $total, float $tol = 0.05): bool
+    public static function addsUp(array $items, ?float $amount, ?float $total, float $tol = 0.05, ?float $gst = null, ?float $pst = null): bool
     {
         $kept = array_filter($items, static function ($item): bool {
             return is_array($item) && empty($item['removed']);
@@ -31,6 +31,11 @@ final class LineItemFit
         $sum = self::sum($items);
         foreach ([$amount, $total] as $target) {
             if ($target !== null && $target > 0 && abs($sum - $target) <= $tol + 0.000000001) return true;
+        }
+        if (($amount === null || $amount <= 0) && $total !== null && $total > 0
+            && (($gst !== null && $gst > 0) || ($pst !== null && $pst > 0))) {
+            $preTax = $total - ($gst ?? 0) - ($pst ?? 0);
+            if ($preTax > 0 && abs($sum - $preTax) <= $tol + 0.000000001) return true;
         }
         return false;
     }

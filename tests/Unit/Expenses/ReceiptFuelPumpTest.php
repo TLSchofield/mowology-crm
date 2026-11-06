@@ -63,4 +63,14 @@ TXT;
         $it = extractFuelPumpItem(['DIESEL', '30.000L AT $2.000/L', 'Fuel sales $ 60.00']);
         $this->assertSame('Diesel fuel', $it['name']);
     }
+
+    public function testShellTotalFuelOnTheNextLineIsRecognised(): void
+    {
+        $r = parseReceiptText("Diesel\nPUMP No.\n10\nLITRES\n52.418\nPRICE/L\n$2.019\nTOTAL FUEL\n$105.83\nTOTAL SALE\n$105.83\nGST - Fuel $5.04");
+        $this->assertSame(['Diesel fuel'], array_column($r['line_items'], 'name'));
+        $this->assertSame('105.83', $r['line_items'][0]['line_total']);
+        $this->assertSame('fuel_pump', $r['line_items_source']);
+
+        $this->assertNotNull(extractFuelPumpItem(['REGULAR', 'LITRES 10.000', 'PRICE/L 2.000', 'FUEL TOTAL', '20.00']));
+    }
 }

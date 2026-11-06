@@ -174,8 +174,8 @@ class ExpenseGate
         foreach ($changes as $k => $v) {
             if (in_array($k, self::COLUMNS, true)) $cols[$k] = self::normalise($k, $v);
         }
+        if ($this->hasColumn('amount')) $cols = self::withDerivedSubtotal($before, $cols, $create);
         $cols = $this->withoutMissingColumns($cols);
-        $cols = self::withDerivedSubtotal($before, $cols, $create);
         if (array_key_exists('status', $cols)) {
             $allowed = self::TRANSITIONS[$transition] ?? null;
             if (!in_array($cols['status'], self::OPEN, true) && $cols['status'] !== $allowed) {
