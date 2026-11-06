@@ -315,3 +315,10 @@ accounts is Mowology's (Lawn Care, Hedge & Shrub, Snow Removal, Landscape Design
 **From Otto's session (2026-11-04):** generate_visits, run per business, skips snow statements and the approved-quote
 sweep behind `Tenant::isDefault()`. Gate them on `Tenant::isTest()` instead (G9 added it), so real Ittai businesses
 get them after phase 2.
+
+## Penny's onboarding asks the book questions, one by one (Tim 2026-11-06)
+- **Terms near the start:** right after "About you", Penny shows the terms and privacy policy and the owner accepts (records the version in `terms_versions`/acceptance — the sign-in gate, migration 1381, is off today).
+- **GST:** registered? number, and how often they file. Not registered → GST rate 0, so contract billing and invoices add none (Claudia, G9–G11).
+- **Year-end:** who does it — an accountant (→ the existing invite step) or "I do it myself" (Penny says plainly the terms ask for a review before filing, and offers the accountant login).
+- **Payroll:** how they run it today (e.g. Wave) — Ittai doesn't, so Penny knows not to expect it.
+- One question per screen on web, iPhone and Android; iPhone hard-codes the company step (`ItPennyOnboarding.swift`), Android to check — parity is part of the job.
