@@ -80,7 +80,7 @@ class BookkeeperDeskService
             $select = $this->db->prepare($sql);
             $select->execute();
             $rows = $select->fetchAll(PDO::FETCH_ASSOC);
-            $lines = $this->db->prepare("SELECT id, product_id, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+            $lines = $this->db->prepare("SELECT id, product_id, name, quantity, unit_price, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
             $split = $this->db->prepare("SELECT 1 FROM expense_line_allocations WHERE expense_id = ? LIMIT 1");
         } catch (Throwable $e) {
             error_log('[BookkeeperDeskService::autoApplyPennyItems] batch: ' . $e->getMessage());
@@ -117,16 +117,19 @@ class BookkeeperDeskService
                     $result['would_apply']++;
                 } else {
                     $expectedLineIds = array_map('intval', array_column($stored, 'id'));
+                    $expectedLines = self::lineFingerprint($stored);
                     $db = $this->db;
                     $suggestionId = (int)$row['suggestion_id'];
                     $applied = $this->gate()->apply($id, ['line_items' => $items, 'line_items_source' => 'penny'],
                                          ['id' => null, 'kind' => 'system'], 'penny_auto', [
-                        'locked_if' => static function (array $snapshot) use ($expectedLineIds, $items, $db, $suggestionId, $id): bool {
+                        'locked_if' => static function (array $snapshot) use ($expectedLineIds, $expectedLines, $items, $db, $suggestionId, $id): bool {
                             $expense = $snapshot['expense'];
                             if (!in_array($expense['status'] ?? '', ['draft', 'pending_approval'], true)
                                 || (int)($expense['forwarded_to_accounting'] ?? 0) === 1
                                 || !empty($snapshot['allocations'])) return false;
                             if (array_map('intval', array_column($snapshot['lines'], 'id')) !== $expectedLineIds) return false;
+                            // Same rows but a person changed a line's name, quantity or amount: leave their edit alone.
+                            if (self::lineFingerprint($snapshot['lines']) !== $expectedLines) return false;
                             foreach ($snapshot['lines'] as $line) {
                                 if ($line['product_id'] !== null) return false;
                             }
@@ -155,6 +158,15 @@ class BookkeeperDeskService
             }
         }
         return $result;
+    }
+
+    /** The editable values of a receipt's stored lines, for "has anyone touched these since we read them". */
+    public static function lineFingerprint(array $lines): string
+    {
+        return json_encode(array_map(static function (array $l): array {
+            return [(int)($l['id'] ?? 0), (string)($l['name'] ?? ''), round((float)($l['quantity'] ?? 0), 3),
+                    $l['unit_price'] === null ? null : round((float)$l['unit_price'], 2), round((float)($l['line_total'] ?? 0), 2)];
+        }, array_values($lines))) ?: '';
     }
 
     /**

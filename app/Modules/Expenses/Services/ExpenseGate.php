@@ -395,7 +395,8 @@ class ExpenseGate
         $row = $expense->fetch(PDO::FETCH_ASSOC) ?: [];
         if (!$row) throw new Exception('Expense not found');
 
-        $lines = $this->db->prepare('SELECT id, product_id FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id' . $lock);
+        // Line values too, so a locked_if can tell a person's edit to an existing line from no change (Codex review 2026-11-05).
+        $lines = $this->db->prepare('SELECT id, product_id, name, quantity, unit_price, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id' . $lock);
         $lines->execute([$id]);
         $allocationRows = [];
         if ($this->split->ready()) {

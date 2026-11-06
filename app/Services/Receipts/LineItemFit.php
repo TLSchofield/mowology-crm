@@ -22,6 +22,10 @@ final class LineItemFit
             return is_array($item) && empty($item['removed']);
         });
         if (!$kept) return false;
+        // A line whose amount is not a number ("$5.00", "") would count as 0 and let an incomplete set pass (Codex review 2026-11-05).
+        foreach ($kept as $item) {
+            if (!is_numeric($item['line_total'] ?? ($item['amount'] ?? null))) return false;
+        }
         // Either figure counts: most receipts print pre-tax item prices (they sum to the subtotal), but fuel
         // and some stores print tax-in prices (they sum to the total). The replay measured both (2026-11-05).
         $sum = self::sum($items);

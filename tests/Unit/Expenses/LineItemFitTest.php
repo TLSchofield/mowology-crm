@@ -36,4 +36,21 @@ final class LineItemFitTest extends TestCase
         $this->assertSame(['text' => '', 'raw_response' => null, 'format' => 'none'], LineItemFit::readStored(null));
         $this->assertSame('none', LineItemFit::readStored('  ')['format']);
     }
+
+    public function testALineWhoseAmountIsNotANumberFailsTheCheck(): void
+    {
+        $items = [['line_total' => '$5.00'], ['line_total' => 10.00]];
+        $this->assertFalse(LineItemFit::addsUp($items, 10.00, null), '"$5.00" must not count as 0');
+        $this->assertFalse(LineItemFit::addsUp([['line_total' => ''], ['line_total' => 10]], 10.00, null));
+        $this->assertTrue(LineItemFit::addsUp([['line_total' => '5.00'], ['line_total' => 5]], 10.00, null));
+    }
+
+    public function testAPersonsEditToAnExistingLineChangesTheFingerprint(): void
+    {
+        $read = [['id' => 7, 'name' => 'Mulch', 'quantity' => '2.000', 'unit_price' => '5.00', 'line_total' => '10.00']];
+        $same = [['id' => 7, 'name' => 'Mulch', 'quantity' => 2, 'unit_price' => 5, 'line_total' => 10]];
+        $edited = [['id' => 7, 'name' => 'Mulch', 'quantity' => '2.000', 'unit_price' => '5.00', 'line_total' => '12.00']];
+        $this->assertSame(BookkeeperDeskService::lineFingerprint($read), BookkeeperDeskService::lineFingerprint($same));
+        $this->assertNotSame(BookkeeperDeskService::lineFingerprint($read), BookkeeperDeskService::lineFingerprint($edited));
+    }
 }
