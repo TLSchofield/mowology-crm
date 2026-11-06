@@ -7,7 +7,7 @@ class ClientFactAnswerer
 {
     /** Every word intent() reads, so person() never takes one for a name. */
     public const INTENT_WORDS = [
-        'quote', 'sent', 'send', 'went', 'gone', 'out', 'open', 'opened', 'seen', 'answer', 'reply', 'replied', 'accepted',
+        'quote', 'sent', 'send', 'went', 'gone', 'out', 'open', 'opened', 'seen', 'answer', 'answered', 'respond', 'responded', 'declined', 'reply', 'replied', 'accepted',
         'approved', 'status', 'paid', 'pay', 'owe', 'owes', 'owing', 'balance', 'outstanding', 'overdue', 'next', 'when',
         'visit', 'coming', 'scheduled', 'booked', 'say', 'said', 'says', 'wrote', 'email', 'emailed', 'message', 'text',
         'texted', 'heard', 'last', 'did', 'has', 'have', 'been', 'yet', 'what', 'from',
@@ -32,14 +32,15 @@ class ClientFactAnswerer
 
     private function intent(string $q): ?string
     {
-        if (self::has($q, ['quote']) && self::has($q, ['sent','send','went','gone','out','open','opened','seen','answer','reply','replied','accepted','approved','status'])) return 'quote_sent';
+        if (self::has($q, ['quote']) && self::has($q, ['sent','send','went','gone','out','open','opened','seen','answer','answered','reply','replied','respond','responded','accepted','approved','declined','status'])) return 'quote_sent';
         if (self::has($q, ['paid','pay','owe','owes','owing','balance','outstanding','overdue'])) return 'paid';
         if (self::has($q, ['next','when','visit','coming','scheduled','booked'])) return 'next_visit';
         if (self::has($q, ['say','said','says','wrote','email','emailed','message','text','texted','reply','replied','heard'])) return 'last_message';
         return null;
     }
 
-    private function person(string $q): ?array
+    /** Everyone the question could be about (contacts, then companies); answer() keeps the one who has the record. */
+    private function people(string $q): array
     {
         // Intent words are not names: "what did linda say" must look up Linda only (terms() keeps "say").
         $terms = array_values(array_filter(CharlieAskService::terms($q), static function (string $t): bool {
@@ -48,18 +49,10 @@ class ClientFactAnswerer
         // Filler a phone keyboard leaves lowercase ("anything", "ever") names nobody: keep only words that name someone,
         // then every kept word must name the same person ("linda jones" beats Linda Smith).
         $terms = array_values(array_filter($terms, function (string $t): bool { return $this->namesSomeone($t); }));
-        if (!$terms) return null;
-        $contacts=[];$companies=[];
-        try {
-            $parts=[];$args=[];
-            foreach ($terms as $term) {
-                $forms=[];
-                foreach(CharlieAskService::nameForms(mb_strtolower($term))as$form){$forms[]='(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?)';$args[]='%'.$form.'%';$args[]='%'.$form.'%';}
-                $parts[]='('.implode(' OR ',$forms).')';
-            }
-            $s=$this->db->prepare('SELECT id,first_name,last_name,email,phone FROM contacts WHERE is_active=1 AND '.implode(' AND ',$parts).' LIMIT 3');$s->execute($args);
-            foreach($s->fetchAll(PDO::FETCH_ASSOC)as$r)$contacts[(int)$r['id']]=$r;
-        } catch(Throwable $e){return null;}
+        if (!$terms) return [];
+        // Whole names first, so "linda" is Linda Chou or Linda Tam but not Belinda; part-words only when nothing is whole.
+        $contacts = $this->contactsNamed($terms, true) ?: $this->contactsNamed($terms, false);
+        $companies = [];
         try {
             $parts=[];$args=[];
             foreach ($terms as $term) {
@@ -67,12 +60,30 @@ class ClientFactAnswerer
                 foreach(CharlieAskService::nameForms(mb_strtolower($term))as$form){$forms[]='LOWER(company_name) LIKE ?';$args[]='%'.$form.'%';}
                 $parts[]='('.implode(' OR ',$forms).')';
             }
-            $s=$this->db->prepare("SELECT id,company_name,billing_email FROM companies WHERE account_status='active' AND ".implode(' AND ',$parts).' LIMIT 3');$s->execute($args);
-            foreach($s->fetchAll(PDO::FETCH_ASSOC)as$r)$companies[(int)$r['id']]=$r;
+            $s=$this->db->prepare("SELECT id,company_name,billing_email FROM companies WHERE account_status='active' AND ".implode(' AND ',$parts).' LIMIT 5');$s->execute($args);
+            foreach($s->fetchAll(PDO::FETCH_ASSOC)as$r)$companies[]=['kind'=>'company','id'=>(int)$r['id'],'name'=>$r['company_name'],'phone'=>null,'email'=>$r['billing_email']??null];
         } catch(Throwable $e){/* contacts can still answer */}
-        if(count($contacts)+count($companies)!==1)return null;
-        if($contacts){$r=reset($contacts);return['kind'=>'contact','id'=>(int)$r['id'],'name'=>trim($r['first_name'].' '.$r['last_name']),'phone'=>$r['phone']??null,'email'=>$r['email']??null];}
-        $r=reset($companies);return['kind'=>'company','id'=>(int)$r['id'],'name'=>$r['company_name'],'phone'=>null,'email'=>$r['billing_email']??null];
+        return array_merge($contacts, $companies);
+    }
+
+    /** @return array[] candidates; $whole = every word equals a first or last name (else a part of one). */
+    private function contactsNamed(array $terms, bool $whole): array
+    {
+        $out = [];
+        try {
+            $parts=[];$args=[];
+            foreach ($terms as $term) {
+                $forms=[];
+                foreach(CharlieAskService::nameForms(mb_strtolower($term))as$form){
+                    $forms[]=$whole?'(LOWER(first_name) = ? OR LOWER(last_name) = ?)':'(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?)';
+                    $v=$whole?$form:'%'.$form.'%';$args[]=$v;$args[]=$v;
+                }
+                $parts[]='('.implode(' OR ',$forms).')';
+            }
+            $s=$this->db->prepare('SELECT id,first_name,last_name,email,phone FROM contacts WHERE is_active=1 AND '.implode(' AND ',$parts).' LIMIT 10');$s->execute($args);
+            foreach($s->fetchAll(PDO::FETCH_ASSOC)as$r)$out[]=['kind'=>'contact','id'=>(int)$r['id'],'name'=>trim($r['first_name'].' '.$r['last_name']),'phone'=>$r['phone']??null,'email'=>$r['email']??null];
+        } catch(Throwable $e){error_log('[search] contactsNamed failed: '.$e->getMessage());}
+        return $out;
     }
 
     private function namesSomeone(string $term): bool
@@ -101,13 +112,19 @@ class ClientFactAnswerer
     public function answer(string $q, callable $can): ?array
     {
         $intent=$this->intent($q);if($intent===null)return null;
-        $person=$this->person($q);if($person===null)return null;
-        try {
-            if($intent==='quote_sent')return $this->quote($person,$can);
-            if($intent==='paid')return $this->paid($person,$can);
-            if($intent==='next_visit')return $this->visit($person,$can);
-            return $this->message($person,$can);
-        }catch(Throwable $e){error_log('[search] answer failed: '.$e->getMessage());return null;}
+        // Six Lindas, one with a quote: "has lindas quote been sent" is about her. Two with an answer → not sure → null.
+        $found=[];
+        foreach($this->people($q) as $person){
+            try {
+                if($intent==='quote_sent')$r=$this->quote($person,$can);
+                elseif($intent==='paid')$r=$this->paid($person,$can);
+                elseif($intent==='next_visit')$r=$this->visit($person,$can);
+                else $r=$this->message($person,$can);
+            }catch(Throwable $e){error_log('[search] answer failed: '.$e->getMessage());$r=null;}
+            if($r!==null)$found[]=$r;
+            if(count($found)>1)return null;
+        }
+        return $found[0]??null;
     }
 
     private function owner(array $p, string $alias): array
@@ -136,19 +153,27 @@ class ClientFactAnswerer
         $s=$this->db->prepare("SELECT q.id,q.quote_number,q.title,q.status,q.sent_at,q.accepted_at,q.email_opened_at,q.viewed_at,$viewCount AS view_count FROM quotes q WHERE $where ORDER BY q.created_at DESC,q.id DESC LIMIT 1");$s->execute($args);$r=$s->fetch(PDO::FETCH_ASSOC);if(!$r)return null;
         $head=$p['name']."'s quote ".$r['quote_number'].(!empty($r['title'])?' ('.$r['title'].')':'');
         if(empty($r['sent_at']))$answer=$head.': not sent yet (draft)';
-        else{$opened=$r['view_count']!==null?(int)$r['view_count']:((!empty($r['email_opened_at'])||!empty($r['viewed_at']))?1:0);$tail=!empty($r['accepted_at'])?'accepted '.date('M j',strtotime($r['accepted_at'])):'no reply yet';$answer=$head.': sent '.date('M j',strtotime($r['sent_at'])).' · opened '.$opened.'× · '.$tail;}
+        else{$opened=$r['view_count']!==null?(int)$r['view_count']:((!empty($r['email_opened_at'])||!empty($r['viewed_at']))?1:0);$st=strtolower((string)$r['status']);$tail=!empty($r['accepted_at'])?'accepted '.date('M j',strtotime($r['accepted_at'])):($st==='accepted'?'accepted':($st==='declined'?'declined':($st==='expired'?'expired':'no reply yet')));$answer=$head.': sent '.date('M j',strtotime($r['sent_at'])).' · opened '.$opened.'× · '.$tail;}
         return$this->result($answer,'quote_sent',$p,$this->actions($p,['label'=>'Open quote','url'=>'/crm/quotes/view.php?id='.(int)$r['id']]));
     }
 
     private function paid(array $p,callable $can): ?array
     {
         if(!$can('billing.view'))return null;[$where,$args]=$this->owner($p,'i');
-        $s=$this->db->prepare("SELECT i.id,i.invoice_number,i.balance_due,i.due_date FROM invoices i WHERE $where AND i.balance_due>0 AND i.status NOT IN ('draft','cancelled') ORDER BY i.due_date,i.id LIMIT 100");$s->execute($args);$rows=$s->fetchAll(PDO::FETCH_ASSOC);
-        if($rows){$sum=0;foreach($rows as$r)$sum+=(float)$r['balance_due'];$old=$rows[0];$answer=$p['name'].' owes $'.number_format($sum,2).' on '.count($rows).' invoice'.(count($rows)===1?'':'s').', oldest '.$old['invoice_number'].' due '.date('M j',strtotime($old['due_date']));if(!empty($old['due_date'])&&$old['due_date']<$this->today()){$days=(int)((strtotime($this->today())-strtotime((string)$old['due_date']))/86400);$answer.=' ('.$days.' days overdue)';}return$this->result($answer,'paid',$p,$this->actions($p,['label'=>'Open invoice','url'=>'/crm/invoices/view.php?id='.(int)$old['id']]));}
+        $open="$where AND i.balance_due>0 AND i.status NOT IN ('draft','cancelled')";
+        $s=$this->db->prepare("SELECT COUNT(*) n, COALESCE(SUM(i.balance_due),0) owed FROM invoices i WHERE $open");$s->execute($args);$tot=$s->fetch(PDO::FETCH_ASSOC);
+        if((int)($tot['n']??0)>0){
+            // Oldest by due date; an invoice with no due date comes last and is never given one.
+            $s=$this->db->prepare("SELECT i.id,i.invoice_number,i.due_date FROM invoices i WHERE $open ORDER BY (i.due_date IS NULL),i.due_date,i.id LIMIT 1");$s->execute($args);$old=$s->fetch(PDO::FETCH_ASSOC);
+            $n=(int)$tot['n'];$answer=$p['name'].' owes $'.number_format((float)$tot['owed'],2).' on '.$n.' invoice'.($n===1?'':'s').', oldest '.$old['invoice_number'];
+            if(!empty($old['due_date'])){$answer.=' due '.date('M j',strtotime((string)$old['due_date']));if($old['due_date']<$this->today()){$days=(int)((strtotime($this->today())-strtotime((string)$old['due_date']))/86400);$answer.=' ('.$days.' days overdue)';}}
+            return$this->result($answer,'paid',$p,$this->actions($p,['label'=>'Open invoice','url'=>'/crm/invoices/view.php?id='.(int)$old['id']]));
+        }
         $paidColumn=$this->columnExists('invoices','paid_at')?'paid_at':($this->columnExists('invoices','payment_date')?'payment_date':null);
-        $amountColumn=$this->columnExists('invoices','total')?'total':($this->columnExists('invoices','amount_paid')?'amount_paid':($this->columnExists('invoices','total_amount')?'total_amount':null));
-        if($paidColumn===null||$amountColumn===null)return null;
-        $s=$this->db->prepare("SELECT i.id,i.invoice_number,i.$amountColumn AS paid_amount,i.$paidColumn AS paid_date FROM invoices i WHERE $where AND i.$paidColumn IS NOT NULL ORDER BY i.$paidColumn DESC,i.id DESC LIMIT 1");$s->execute($args);$r=$s->fetch(PDO::FETCH_ASSOC);if(!$r)return null;$answer=$p['name'].' is paid up — last payment $'.number_format((float)$r['paid_amount'],2).' on '.date('M j',strtotime($r['paid_date'])).' ('.$r['invoice_number'].')';return$this->result($answer,'paid',$p,$this->actions($p,['label'=>'Open invoice','url'=>'/crm/invoices/view.php?id='.(int)$r['id']]));
+        $amounts=[];foreach(['amount_paid','total_amount','total'] as $col)if($this->columnExists('invoices',$col))$amounts[]="NULLIF(i.$col,0)";
+        if($paidColumn===null||!$amounts)return null;
+        $amountExpr='COALESCE('.implode(',',$amounts).',0)';
+        $s=$this->db->prepare("SELECT i.id,i.invoice_number,$amountExpr AS paid_amount,i.$paidColumn AS paid_date FROM invoices i WHERE $where AND i.$paidColumn IS NOT NULL ORDER BY i.$paidColumn DESC,i.id DESC LIMIT 1");$s->execute($args);$r=$s->fetch(PDO::FETCH_ASSOC);if(!$r)return null;$answer=$p['name'].' is paid up — last paid '.$r['invoice_number'].' ($'.number_format((float)$r['paid_amount'],2).') on '.date('M j',strtotime($r['paid_date']));return$this->result($answer,'paid',$p,$this->actions($p,['label'=>'Open invoice','url'=>'/crm/invoices/view.php?id='.(int)$r['id']]));
     }
 
     private function visit(array $p,callable $can): ?array

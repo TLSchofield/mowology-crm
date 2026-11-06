@@ -68,7 +68,7 @@ class UniversalSearchService
     private function picked(array $items, int $userId, string $prefix): array
     {
         try {
-            $s = $this->db->prepare('SELECT kind, entity_id, picks, last_at FROM search_picks WHERE user_id = ? AND prefix = ?');
+            $s = $this->db->prepare('SELECT kind, entity_id, picks, last_at FROM search_picks WHERE user_id = ? AND prefix = ? ORDER BY picks DESC, last_at DESC LIMIT 200');
             $s->execute([$userId, $prefix]);
             $rank = [];
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rank[$r['kind'] . ':' . $r['entity_id']] = [(int)$r['picks'], (string)$r['last_at']];

@@ -58,7 +58,7 @@ final class ClientFactAnswererTest extends TestCase
         self::assertNotNull($owing);self::assertStringNotContainsString('overdue',$owing['answer']);
         $db->exec("UPDATE invoices SET balance_due=0,paid_at='2026-11-03' WHERE id=1");
         $paid=$answerer->answer('Has Linda Jones paid?',$can);
-        self::assertNotNull($paid);self::assertStringContainsString('last payment $100.00 on Nov 3',$paid['answer']);
+        self::assertNotNull($paid);self::assertStringContainsString('last paid INV-1 ($100.00) on Nov 3',$paid['answer']);
     }
 
     public function test_visit_message_and_phone_less_actions(): void
@@ -90,5 +90,32 @@ final class ClientFactAnswererTest extends TestCase
         $db->exec("INSERT INTO invoices (id,invoice_number,total,balance_due,due_date,paid_at,contact_id,company_id,status) VALUES(2,'INV-8',50,0,'2026-09-01','2026-09-03',1,NULL,'paid')");
         $a=(new ClientFactAnswerer($db,'2026-11-06'))->answer('does linda owe anything',static function(string $p):bool{return true;});
         self::assertNotNull($a);self::assertStringContainsString('paid up',$a['answer']);
+    }
+
+    public function test_undated_invoice_gets_no_made_up_due_date_and_declined_quote_says_so(): void
+    {
+        $db=$this->db();$db->exec("INSERT INTO contacts VALUES(1,'Linda','Jones',NULL,NULL,1)");
+        $db->exec("INSERT INTO invoices (id,invoice_number,total,balance_due,due_date,paid_at,contact_id,company_id) VALUES(1,'INV-1',40,40,NULL,NULL,1,NULL)");
+        $db->exec("INSERT INTO invoices (id,invoice_number,total,balance_due,due_date,paid_at,contact_id,company_id) VALUES(2,'INV-2',60,60,'2026-10-01',NULL,1,NULL)");
+        $can=static function(string $p):bool{return true;};$a=(new ClientFactAnswerer($db,'2026-11-06'))->answer('does linda owe',$can);
+        self::assertStringContainsString('owes $100.00 on 2 invoices, oldest INV-2 due Oct 1',$a['answer']);self::assertStringNotContainsString('Jan 1',$a['answer']);
+        $db->exec("INSERT INTO quotes (id,quote_number,title,status,sent_at,contact_id,created_at) VALUES(1,'QUO-1','Cleanup','declined','2026-10-20',1,'2026-10-20')");
+        $q=(new ClientFactAnswerer($db,'2026-11-06'))->answer('has linda answered the quote',$can);
+        self::assertStringContainsString('declined',$q['answer']);self::assertStringNotContainsString('no reply',$q['answer']);
+    }
+
+    public function test_of_several_namesakes_the_one_with_the_record_answers_and_part_words_do_not_count(): void
+    {
+        $db=$this->db();
+        $db->exec("INSERT INTO contacts VALUES(1,'Linda','Chou',NULL,NULL,1)");
+        $db->exec("INSERT INTO contacts VALUES(2,'Linda','Tam',NULL,'604-555-0000',1)");
+        $db->exec("INSERT INTO contacts VALUES(3,'Belinda','Guttman',NULL,NULL,1)");
+        $db->exec("INSERT INTO quotes (id,quote_number,title,status,sent_at,contact_id,created_at) VALUES(1,'QUO-7','Hedges','sent','2026-10-15',2,'2026-10-15')");
+        $db->exec("INSERT INTO quotes (id,quote_number,title,status,sent_at,contact_id,created_at) VALUES(2,'QUO-8','Beds','sent','2026-10-16',3,'2026-10-16')");
+        $can=static function(string $p):bool{return true;};
+        $a=(new ClientFactAnswerer($db,'2026-11-06'))->answer('has lindas quote been sent',$can);
+        self::assertNotNull($a);self::assertStringContainsString('Linda Tam',$a['answer']);
+        $db->exec("INSERT INTO quotes (id,quote_number,title,status,sent_at,contact_id,created_at) VALUES(3,'QUO-9','Mulch','sent','2026-10-17',1,'2026-10-17')");
+        self::assertNull((new ClientFactAnswerer($db,'2026-11-06'))->answer('has lindas quote been sent',$can));
     }
 }
