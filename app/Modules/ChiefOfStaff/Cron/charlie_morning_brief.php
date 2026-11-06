@@ -94,7 +94,11 @@ try {
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/DeadlineService.php';
         $deadlines = new DeadlineService($db);
-        if ($deadlines->ready()) $deadlines->sync();
+        if ($deadlines->ready()) {
+            $deadlines->sync();
+            $closedByMatch = $deadlines->autoClose(); // payroll remittance whose Wave report matches Wave's debits (2026-11-03)
+            if ($closedByMatch > 0) error_log('charlie_morning_brief: closed ' . $closedByMatch . ' payroll remittance reminder(s) by match');
+        }
     } catch (Throwable $e) {
         error_log('charlie_morning_brief: deadline sync failed: ' . $e->getMessage());
     }
