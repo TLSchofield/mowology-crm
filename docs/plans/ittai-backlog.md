@@ -362,3 +362,8 @@ get them after phase 2.
 - `QboClient` keeps the error message but not the `intuit_tid` response header Intuit support asks for. Store it with each failed
   call (qbo_links message / connection last_error) and show it in the held-item reason. Also: read the OAuth endpoints from Intuit's
   discovery document instead of the fixed URLs in `QboOAuth` (the review asked about both; answered No).
+
+## Two-step sign-in (MFA) for owners and office staff (Intuit app review, 2026-11-06)
+- Ittai sign-in is email + password (web) or PIN (crew phones), no second step. Intuit's assessment asks (answered No). Owners and
+  anyone with books/QuickBooks access should get a second step (authenticator app or emailed code) before Ittai holds many
+  businesses' QuickBooks data. Third-party notes say store-level security applies past 500 connections — check Intuit's current rule.
