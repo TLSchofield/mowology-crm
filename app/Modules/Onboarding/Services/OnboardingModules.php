@@ -173,6 +173,58 @@ class OnboardingTermsModule extends OnboardingModule
     }
 }
 
+/**
+ * What a read QuickBooks already says about the book questions (GST, year-end, payroll), from the onboarding
+ * snapshot. Pure from(); read() is null until QuickBooks has been read, and then every step asks as before.
+ */
+class OnboardingQboFacts
+{
+    public const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    /** @return array{gst_registered:?bool, gst_number:?string, gst_number_raw:?string, gst_last_filed:?string, fiscal_start:?string, fiscal_end:?string, payroll_in_qbo:?bool}|null */
+    public static function read(OnboardingContext $c): ?array
+    {
+        try {
+            $s = $c->db->prepare("SELECT kind, data FROM qbo_onboarding_snapshot WHERE site_id = 1 AND kind IN ('agency', 'company') ORDER BY id");
+            $s->execute();
+            $all = $s->fetchAll(PDO::FETCH_ASSOC);
+            if (!(int)$c->one('SELECT COUNT(*) FROM qbo_onboarding_snapshot WHERE site_id = 1')) return null;
+        } catch (Throwable $e) {
+            return null;
+        }
+        $agencies = []; $company = [];
+        foreach ($all as $r) {
+            $d = json_decode((string)$r['data'], true);
+            if (!is_array($d)) continue;
+            if ($r['kind'] === 'agency') $agencies[] = $d; elseif (!$company) $company = $d;
+        }
+        return self::from($agencies, $company);
+    }
+
+    /** Pure: the facts from the 'agency' rows and the 'company' row. */
+    public static function from(array $agencies, array $company): array
+    {
+        $gst = null; $tax = null;
+        foreach ($agencies as $a) {
+            if (strtoupper((string)($a['TaxAgencyConfig'] ?? '')) === 'HIDDEN_AGENCY') continue;
+            $gst = $gst ?? false;
+            $name = (string)($a['DisplayName'] ?? ''); $reg = trim((string)($a['TaxRegistrationNumber'] ?? ''));
+            if (!empty($a['TaxTrackedOnSales']) && ($reg !== '' || preg_match('/revenue|\bCRA\b/i', $name))) { $gst = true; $tax = $a; break; }
+        }
+        $raw = $tax !== null && trim((string)($tax['TaxRegistrationNumber'] ?? '')) !== '' ? trim((string)$tax['TaxRegistrationNumber']) : null;
+        $start = trim((string)($company['FiscalYearStartMonth'] ?? ''));
+        $start = in_array($start, self::MONTHS, true) ? $start : null;
+        $payroll = null;
+        foreach ((array)($company['NameValue'] ?? []) as $nv) {
+            if (is_array($nv) && ($nv['Name'] ?? '') === 'PayrollFeature') $payroll = strtolower((string)($nv['Value'] ?? '')) === 'true' ? true : (strtolower((string)($nv['Value'] ?? '')) === 'false' ? false : null);
+        }
+        $last = $tax !== null ? trim((string)($tax['LastFileDate'] ?? '')) : '';
+        return ['gst_registered' => $gst, 'gst_number' => $raw !== null ? OnboardingGstModule::gstNumber($raw) : null, 'gst_number_raw' => $raw,
+                'gst_last_filed' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $last) ? $last : null,
+                'fiscal_start' => $start, 'fiscal_end' => $start !== null ? self::MONTHS[(array_search($start, self::MONTHS, true) + 11) % 12] : null, 'payroll_in_qbo' => $payroll];
+    }
+}
+
 /** "Is your business registered for GST?" — 'no' switches GST off (TaxEngine::gstRegistered). */
 class OnboardingGstModule extends OnboardingModule
 {
@@ -181,7 +233,16 @@ class OnboardingGstModule extends OnboardingModule
     public function key(): string { return 'gst'; }
     public function title(): string { return 'GST'; }
     public function owner(): string { return 'penny'; }
-    public function question(OnboardingContext $c): string { return 'Is your business registered for GST?'; }
+    public function question(OnboardingContext $c): string
+    {
+        $f = OnboardingQboFacts::read($c);
+        if ($f !== null && $f['gst_registered'] === true) {
+            $n = $f['gst_number'] ?? $f['gst_number_raw'];
+            return "QuickBooks says you're registered for GST" . ($n !== null ? ', number ' . $n : '') . '. Is that right — and how often do you file?';
+        }
+        if ($f !== null && $f['gst_registered'] === false) return 'QuickBooks shows no GST registration. Is that right?';
+        return 'Is your business registered for GST?';
+    }
 
     public function answer(OnboardingContext $c): ?string
     {
@@ -214,6 +275,8 @@ class OnboardingGstModule extends OnboardingModule
         if (!in_array($registered, ['yes', 'no', 'unsure'], true)) return ['ok' => false, 'message' => 'Pick yes, no or not sure.'];
         $gst = null;
         if ($registered === 'yes') {
+            // No number sent: the one QuickBooks has, when it is a valid GST number.
+            if (trim($number) === '') $number = (string)((OnboardingQboFacts::read($c)['gst_number'] ?? null));
             if (trim($number) !== '' && ($gst = self::gstNumber($number)) === null) return ['ok' => false, 'message' => 'A GST number is 9 digits (then RT0001). Check it, or leave it blank for now.'];
             if ($filing !== '' && !isset(self::FILING[$filing])) return ['ok' => false, 'message' => 'Pick monthly, quarterly or annually.'];
         }
@@ -240,6 +303,8 @@ class OnboardingYearEndModule extends OnboardingModule
     public function question(OnboardingContext $c): string
     {
         $q = 'Who does your year-end — an accountant, or you?';
+        $f = OnboardingQboFacts::read($c);
+        if ($f !== null && $f['fiscal_start'] !== null) $q = 'Your books run ' . $f['fiscal_start'] . ' to ' . $f['fiscal_end'] . ' (from QuickBooks). ' . $q;
         if ($this->answer($c) === 'self') $q .= ' The terms ask that an accountant or bookkeeper reviews your books before you file. You can still invite one on the next step.';
         return $q;
     }
@@ -257,6 +322,8 @@ class OnboardingYearEndModule extends OnboardingModule
     {
         if (!in_array($who, ['accountant', 'self'], true)) return ['ok' => false, 'message' => 'Pick an accountant or yourself.'];
         $c->saveSetting('onboarding_yearend', $who, 'Onboarding: who does the year-end (OnboardingYearEndModule)');
+        $start = OnboardingQboFacts::read($c)['fiscal_start'] ?? null;
+        if ($start !== null) $c->saveSetting('onboarding_fiscal_start', $start, 'Onboarding: the month the books start, from QuickBooks (OnboardingYearEndModule)');
         return ['ok' => true, 'message' => 'Got it.'];
     }
 }
@@ -269,7 +336,13 @@ class OnboardingPayrollModule extends OnboardingModule
     public function key(): string { return 'payroll'; }
     public function title(): string { return 'Payroll'; }
     public function owner(): string { return 'penny'; }
-    public function question(OnboardingContext $c): string { return 'How do you run payroll today?'; }
+    public const QBO_APP = 'QuickBooks Payroll';
+
+    public function question(OnboardingContext $c): string
+    {
+        $f = OnboardingQboFacts::read($c);
+        return $f !== null && $f['payroll_in_qbo'] === true ? 'You run payroll in QuickBooks — is that right?' : 'How do you run payroll today?';
+    }
 
     public function answer(OnboardingContext $c): ?string
     {

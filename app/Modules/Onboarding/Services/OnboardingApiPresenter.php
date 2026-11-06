@@ -23,6 +23,7 @@ final class OnboardingApiPresenter
         $qbo = new QboOnboardingService($db, $connected ? $conn : null);
         $invited = $ctx->setting('onboarding_accountant_invited');
         try { $logins = (int)$ctx->one("SELECT COUNT(*) FROM users WHERE role = 'accountant'"); } catch (Throwable $e) { $logins = 0; }
+        $qf = OnboardingQboFacts::read($ctx);   // what a read QuickBooks already says, or null
         return [
             'name' => self::nameData($name->me($ctx), $name->known($ctx), $name->nextPart($ctx)),
             'company' => self::companyData($identity->current()),
@@ -30,9 +31,9 @@ final class OnboardingApiPresenter
                                                   $qbo->partPreviews(), $connected ? (new QboSyncService($conn))->auto() : ['on' => false, 'from' => null]),
             'terms' => ['accepted' => $ctx->setting(OnboardingTermsModule::SETTING) === OnboardingTermsModule::TERMS_VERSION, 'version' => OnboardingTermsModule::TERMS_VERSION,
                         'terms_url' => OnboardingTermsModule::TERMS_URL, 'privacy_url' => OnboardingTermsModule::PRIVACY_URL],
-            'gst' => ['answer' => (new OnboardingGstModule())->answer($ctx), 'number' => (string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1'), 'filing' => (string)$ctx->setting('gst_filing')],
-            'yearend' => ['answer' => (new OnboardingYearEndModule())->answer($ctx)],
-            'payroll' => ['answer' => (new OnboardingPayrollModule())->answer($ctx), 'app' => (string)$ctx->setting('onboarding_payroll_app')],
+            'gst' => ['qbo' => $qf, 'answer' => (new OnboardingGstModule())->answer($ctx), 'number' => (string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1'), 'filing' => (string)$ctx->setting('gst_filing')],
+            'yearend' => ['qbo' => $qf, 'answer' => (new OnboardingYearEndModule())->answer($ctx)],
+            'payroll' => ['qbo' => $qf, 'answer' => (new OnboardingPayrollModule())->answer($ctx), 'app' => (string)$ctx->setting('onboarding_payroll_app')],
             'books' => ['acknowledged' => $ctx->setting('onboarding_books_ack') === '1'],
             'accountant' => ['invited_name' => $invited !== null && $invited !== '' ? $invited : null, 'logins' => $logins],
             'done' => ['ready' => (new OnboardingService($ctx, null, $knows))->readyToFinish(), 'complete' => $ctx->setting('onboarding_complete') === '1'],

@@ -355,16 +355,26 @@ $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
                     <button class="it-ob-button it-ob-button-primary" name="do" value="accept"><?= $state === 'done' ? 'Accepted — continue' : 'I accept' ?></button>
                 </form>
 
-            <?php elseif ($key === 'gst'): $ga = $mod->answer($ctx); ?>
+            <?php elseif ($key === 'gst'): $ga = $mod->answer($ctx); $qf = OnboardingQboFacts::read($ctx); $qg = $qf['gst_registered'] ?? null; ?>
+                <?php if ($qg !== null && $ga === null): ?>
+                    <?php if ($qg === true && $qf['gst_number'] === null && $qf['gst_number_raw'] !== null): ?><p class="it-obs-fact">QuickBooks has <?= h($qf['gst_number_raw']) ?> — I need the 9-digit GST number, so add it below.</p><?php endif; ?>
+                    <?php if ($qg === true && $qf['gst_last_filed'] !== null): ?><p class="it-obs-fact">Last filed <?= h(date('j M Y', strtotime($qf['gst_last_filed']))) ?>.</p><?php endif; ?>
+                    <?php if ($qg === false): ?>
+                    <form method="post" class="it-ob-actions">
+                        <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="gst"><input type="hidden" name="do" value="answer">
+                        <button class="it-ob-button it-ob-button-primary" name="registered" value="no">Yes, I am not registered</button>
+                    </form>
+                    <?php endif; ?>
+                <?php endif; ?>
                 <form method="post" class="it-ob-form">
                     <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="gst"><input type="hidden" name="do" value="answer">
                     <fieldset class="it-obs-choice">
                         <legend class="it-obs-fact">Pick one</legend>
-                        <label class="it-obs-option"><input type="radio" name="registered" value="yes"<?= $ga === 'yes' ? ' checked' : '' ?> required> <span>Yes, I am registered</span></label>
-                        <label class="it-obs-option"><input type="radio" name="registered" value="no"<?= $ga === 'no' ? ' checked' : '' ?>> <span>No, I am not</span></label>
+                        <label class="it-obs-option"><input type="radio" name="registered" value="yes"<?= $ga === 'yes' || ($ga === null && $qg === true) ? ' checked' : '' ?> required> <span>Yes, I am registered</span></label>
+                        <label class="it-obs-option"><input type="radio" name="registered" value="no"<?= $ga === 'no' || ($ga === null && $qg === false) ? ' checked' : '' ?>> <span>No, I am not</span></label>
                         <label class="it-obs-option"><input type="radio" name="registered" value="unsure"<?= $ga === 'unsure' ? ' checked' : '' ?>> <span>Not sure</span></label>
                     </fieldset>
-                    <div class="it-ob-field"><label for="ob-gst-number">GST number (if registered)</label><input class="it-ob-input" id="ob-gst-number" name="number" autocomplete="off" placeholder="123456789 RT0001" value="<?= h((string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1')) ?>"></div>
+                    <div class="it-ob-field"><label for="ob-gst-number">GST number (if registered)</label><input class="it-ob-input" id="ob-gst-number" name="number" autocomplete="off" placeholder="123456789 RT0001" value="<?= h((string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1') ?: (string)($qf['gst_number'] ?? '')) ?>"></div>
                     <div class="it-ob-field"><label for="ob-gst-filing">How often do you file?</label>
                         <select class="it-ob-input" id="ob-gst-filing" name="filing">
                             <option value="">Not sure</option>
@@ -382,7 +392,14 @@ $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
                     <button class="it-ob-button it-ob-button-link" name="who" value="self">I do it myself</button>
                 </form>
 
-            <?php elseif ($key === 'payroll'): ?>
+            <?php elseif ($key === 'payroll'): $qf = OnboardingQboFacts::read($ctx); ?>
+                <?php if (($qf['payroll_in_qbo'] ?? null) === true && $mod->answer($ctx) === null): ?>
+                <form method="post" class="it-ob-actions">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="payroll"><input type="hidden" name="do" value="answer">
+                    <input type="hidden" name="app" value="<?= h(OnboardingPayrollModule::QBO_APP) ?>">
+                    <button class="it-ob-button it-ob-button-primary" name="how" value="app">Yes, in QuickBooks</button>
+                </form>
+                <?php endif; ?>
                 <form method="post" class="it-ob-form">
                     <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="payroll"><input type="hidden" name="do" value="answer">
                     <div class="it-ob-field"><label for="ob-payroll-app">If you use an app, which one?</label><input class="it-ob-input" id="ob-payroll-app" name="app" maxlength="<?= (int)OnboardingPayrollModule::APP_MAX ?>" autocomplete="off" value="<?= h((string)$ctx->setting('onboarding_payroll_app')) ?>"></div>
