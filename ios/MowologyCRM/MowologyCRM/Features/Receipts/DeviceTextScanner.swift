@@ -121,7 +121,8 @@ enum DeviceTextScanner {
             let rows = Self.rows(from: observations)
             let text = rows.joined(separator: "\n")
             let lines = Self.linesJSON(from: observations, width: cgImage.width, height: cgImage.height)
-            job.done(text.isEmpty ? nil : Result(text: text, version: "r\(request.revision)", linesJSON: lines))
+            // An empty text is an answer ("nothing readable" — the readability check needs it); nil means the read failed.
+            job.done(Result(text: text, version: "r\(request.revision)", linesJSON: text.isEmpty ? nil : lines))
         }
     }
 

@@ -309,6 +309,56 @@ struct PennyCrewChaseCard: View {
 
     @State private var alreadyFor: PennyChaseItem?
     @State private var noReceiptFor: PennyChaseItem?
+    /// The card in view (the carousel's scroll position); nil before the first swipe = the first card.
+    @State private var shownId: Int?
+
+    /// Oldest charge first: the one closest to being forgotten (and to the paper being lost).
+    private var oldestFirst: [PennyChaseItem] {
+        vm.items.sorted { ($0.date, $0.time ?? "", $0.id) < ($1.date, $1.time ?? "", $1.id) }
+    }
+
+    private var position: Int {
+        guard let id = shownId, let i = oldestFirst.firstIndex(where: { $0.id == id }) else { return 1 }
+        return i + 1
+    }
+
+    private func chaseCard(_ item: PennyChaseItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(PennyChaseViewModel.money(item.amount))
+                    .font(appStyle.font(.title3, weight: .semibold).monospacedDigit())
+                Spacer()
+                Text(PennyChaseViewModel.shortDate(item.date))
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+            }
+            Text(item.ask.isEmpty ? "\(item.vendor) · \(PennyChaseViewModel.money(item.amount))" : item.ask)
+                .font(appStyle.font(.subheadline))
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                Button("Snap it") { onSnap() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(appStyle.tenant)
+                Button("It's already in") {
+                    alreadyFor = item
+                    Task { await vm.loadRecent(for: item) }
+                }
+                .buttonStyle(.bordered)
+                Button("No receipt") { noReceiptFor = item }
+                    .buttonStyle(.borderless)
+                    .tint(appStyle.meta)
+            }
+            .font(appStyle.font(.caption, weight: .semibold))
+            .controlSize(appStyle.isEnabled ? .large : .small)
+            .disabled(vm.busy != nil)
+        }
+        .padding(12)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .accessibilityElement(children: .contain)
+    }
 
     var body: some View {
         if !vm.items.isEmpty || vm.message != nil {
@@ -328,29 +378,25 @@ struct PennyCrewChaseCard: View {
                         }
                     }
                 }
-                ForEach(vm.items) { item in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(item.ask.isEmpty ? "\(item.vendor) · \(PennyChaseViewModel.money(item.amount))" : item.ask)
-                            .font(appStyle.font(.subheadline))
-                            .fixedSize(horizontal: false, vertical: true)
-                        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
-                            Button("Snap it") { onSnap() }
-                                .buttonStyle(.borderedProminent)
-                                .tint(appStyle.tenant)
-                            Button("It's already in") {
-                                alreadyFor = item
-                                Task { await vm.loadRecent(for: item) }
+                // One charge at a time, oldest first, swiped sideways (Tim, 2026-11-06: 30 stacked cards were a wall).
+                if !vm.items.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 12) {
+                            ForEach(oldestFirst) { item in
+                                chaseCard(item)
+                                    .containerRelativeFrame(.horizontal)
+                                    .id(item.id)
                             }
-                            .buttonStyle(.bordered)
-                            Button("No receipt") { noReceiptFor = item }
-                                .buttonStyle(.borderless)
-                                .tint(appStyle.meta)
                         }
-                        .font(appStyle.font(.caption, weight: .semibold))
-                        .controlSize(appStyle.isEnabled ? .large : .small)
-                        .disabled(vm.busy != nil)
+                        .scrollTargetLayout()
                     }
-                    if item.id != vm.items.last?.id { Divider() }
+                    .scrollTargetBehavior(.viewAligned)
+                    .scrollPosition(id: $shownId)
+                    Text("\(position) of \(vm.items.count) · oldest first · swipe for the next")
+                        .font(appStyle.font(.caption2))
+                        .foregroundStyle(appStyle.meta)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityHidden(true)
                 }
                 if let m = vm.message {
                     Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? .red : appStyle.tenant)

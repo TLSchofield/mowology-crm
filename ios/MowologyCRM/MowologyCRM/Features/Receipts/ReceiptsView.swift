@@ -270,14 +270,38 @@ struct ReceiptsView: View {
             }.value
             guard !compressed.isEmpty else { return }
             if let prep, prep.needsHint {
-                weakCaptureReason = Self.weakCaptureMessage(prep)
-                weakCapture = compressed
-                // Shown now if the camera has gone, otherwise from the cover's onDismiss.
-                if !cameraOnScreen { showWeakCaptureHint = true }
+                raiseWeakCapture(compressed, reason: Self.weakCaptureMessage(prep))
                 return
             }
-            await handleCapture(compressed, asLabel: asLabel)
+            // Can the print be read? The phone's own text read (needed for the upload anyway) decides: a motion-blurred
+            // auto-shot scored as sharp as a good photo on every pixel measure, but read 30 garbled characters where good
+            // photos read ~550 (Tim's iPhone, 2026-11-06, media 1622). The same read then goes with the upload.
+            var deviceRead: DeviceTextScanner.Prefetched? = nil
+            if !asLabel {
+                let read = DeviceTextScanner.Prefetched(compressed)
+                if let result = await read.task.value, !Self.readLooksLikeAReceipt(result.text) {
+                    raiseWeakCapture(compressed, reason: "The phone couldn't read the print — it looks blurred. Hold the phone steady "
+                                     + "over the receipt until it takes the picture (or tap Auto at the top to take it yourself).")
+                    return
+                }
+                deviceRead = read
+            }
+            await handleCapture(compressed, asLabel: asLabel, deviceRead: deviceRead)
         }
+    }
+
+    /// A weak photo: held while the crew picks Retake or Use this photo.
+    private func raiseWeakCapture(_ data: Data, reason: String) {
+        weakCaptureReason = reason
+        weakCapture = data
+        // Shown now if the camera has gone, otherwise from the cover's onDismiss.
+        if !cameraOnScreen { showWeakCaptureHint = true }
+    }
+
+    /// The phone read enough of the photo to be a receipt: some text and at least one money amount. Pure.
+    nonisolated static func readLooksLikeAReceipt(_ text: String) -> Bool {
+        let chars = text.filter { !$0.isWhitespace }.count
+        return chars >= 60 && text.range(of: #"\d[.,]\d{2}\b"#, options: .regularExpression) != nil
     }
 
     private func cameraCancelled() {
@@ -307,12 +331,13 @@ struct ReceiptsView: View {
 
     /// `asLabel` is fixed when the photo is taken (not read from `labelMode` later): a second snap started while
     /// this one compresses must not turn this receipt into a label or the other way round.
-    private func handleCapture(_ compressed: Data, asLabel: Bool) async {
+    /// `deviceRead`: a text read already made of this photo (the readability check), reused for the upload.
+    private func handleCapture(_ compressed: Data, asLabel: Bool, deviceRead prefetched: DeviceTextScanner.Prefetched? = nil) async {
         // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
         // The phone's own text read starts now and runs while the fix settles; upload waits for both.
-        let deviceRead: DeviceTextScanner.Prefetched? = asLabel ? nil : DeviceTextScanner.Prefetched(compressed)
+        let deviceRead: DeviceTextScanner.Prefetched? = asLabel ? nil : (prefetched ?? DeviceTextScanner.Prefetched(compressed))
         defer { deviceRead?.cancel() }   // owned by this capture; harmless once the upload has used it
         let loc = await Self.captureFix() ?? locationManager.location
         if asLabel {

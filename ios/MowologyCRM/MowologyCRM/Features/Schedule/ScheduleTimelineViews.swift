@@ -463,6 +463,8 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwChaseDemo") {
+            PennyChaseDemo().itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwReceiptZoomDemo") {
             ReceiptZoomDemo().itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwTimelineDemo") {
@@ -475,6 +477,32 @@ struct ScheduleTimelineDemoOverlay: View {
         #endif
     }
 }
+
+#if DEBUG
+/// `-mwChaseDemo`: Penny's missing-receipt carousel with invented charges (no sign-in, no client data).
+private struct PennyChaseDemo: View {
+    private struct DemoAPI: PennyChaseAPI {
+        func mine() async throws -> PennyChaseMineResponse {
+            let json = #"{"ok":true,"ready":true,"count":4,"total":222.19,"items":[ {"id":3,"ask":"Hi Tim — CHV43073 Marine charged $7.01 on Oct 7. Do you have the receipt?","amount":7.01,"date":"2026-10-07","vendor":"Chevron"}, {"id":1,"ask":"Hi Tim — Pointofsale(sqchampionlawnmowe) charged $147.84 on Oct 22. Do you have the receipt?","amount":147.84,"date":"2026-10-22","vendor":"Champion"}, {"id":4,"ask":"Hi Tim — Choices West 16TH charged $8.99 on Sep 30. Do you have the receipt?","amount":8.99,"date":"2026-09-30","vendor":"Choices"}, {"id":2,"ask":"Hi Tim — Preauthorizedpayment(ifspremiumfin) charged $58.35 on Oct 19. Do you have the receipt?","amount":58.35,"date":"2026-10-19","vendor":"IFS"}]}"#
+            return try JSONDecoder().decode(PennyChaseMineResponse.self, from: Data(json.utf8))
+        }
+        func recent(itemId: Int) async throws -> PennyChaseRecentResponse { throw URLError(.notConnectedToInternet) }
+        func admin() async throws -> PennyChaseAdminResponse { throw URLError(.notConnectedToInternet) }
+        func send(_ body: [String: Any]) async throws -> PennyChaseActionResponse { throw URLError(.notConnectedToInternet) }
+    }
+    @StateObject private var vm = PennyChaseViewModel(api: DemoAPI())
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section { PennyCrewChaseCard(vm: vm, onSnap: {}) }
+            }
+            .navigationTitle("Receipts")
+            .task { await vm.loadMine() }
+        }
+    }
+}
+#endif
 
 #if DEBUG
 /// `-mwReceiptZoomDemo`: an invented receipt pinned as on the review sheet, over sample fields (no sign-in, no client data).
