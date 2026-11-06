@@ -17,7 +17,13 @@ trades first. The AI back office is the edge.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
 ## Queued from Tim, 2026-11-05 (after Sam step 2)
-- **Ask Kaname buttons:** every answer gets up to 3 rule-chosen actions for the record it is about (quote sent, not
+- **One search box for the owner — phase 1 BUILT 2026-11-06** (iPhone Search tab + web global search on
+  `UniversalSearchService`; `ClientFactAnswerer` answers quote sent? / owes? / next visit? / last message? with
+  Open/Call/Text/Email; Ask Kaname row; client page; picks learned in `search_picks`, migration 1441). Phase 2: tap a
+  person to make a chip that narrows the search ("Linda ×" + "unpaid"), verbs ("call linda", "nudge linda", "invoice
+  linda"), a big mic button, "Nothing found → what did you mean?" teaching the word pool, Nudge / Send reminder buttons.
+- **Ask Kaname buttons:** (Open / Call / Text / Email shipped with the owner search, 2026-11-06; Nudge / Send reminder
+  still to do) every answer gets up to 3 rule-chosen actions for the record it is about (quote sent, not
   accepted → "Nudge <name>" opening Sam's follow-up + "Open quote"; overdue invoice → "Send reminder" via Penny + "Open
   invoice"; client only → "Open client"). Nothing sent from Ask. Server `CharlieAskService` + iOS `KanameAskBox`; TestFlight.
 - **Ittai loading animation:** replace Apple's spinner app-wide with one `.progressViewStyle` at the root (64 uses,

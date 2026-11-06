@@ -34,7 +34,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Used to take before, during and after photos of each job, and to photograph receipts for expense tracking.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Records sound with job videos taken in the app's camera.</string>
+	<string>Records sound with job videos taken in the app's camera, and listens when you tap the microphone to search by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turns what you say into words in the search box when you tap the microphone. Nothing you say is kept.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to select receipt photos from your library.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

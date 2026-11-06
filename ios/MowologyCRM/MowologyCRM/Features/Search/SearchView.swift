@@ -127,6 +127,9 @@ struct SearchView: View {
     @StateObject private var vm: SearchViewModel
     /// The owner's half of the box (OwnerSearchViews.swift): answers, Ask Kaname, every group. Unused for crew.
     @StateObject private var owner: OwnerSearchModel
+    @StateObject private var voice = VoiceSearch()
+    /// The "Linda ×" chip: at most one client at a time.
+    @State private var scopes: [OwnerSearchScope] = []
     private let authSession: AuthSession
 
     init(authSession: AuthSession) {
@@ -137,12 +140,22 @@ struct SearchView: View {
 
     /// Admin/manager search everything; crew keep the fast property-only search (no prices, no money).
     private var isOwner: Bool { authSession.user?.isAdmin == true }
+    private var scope: OwnerSearchScope? { isOwner ? scopes.first : nil }
+    /// With a chip the box may be empty: "Linda ×" alone lists everything about Linda.
+    private var showsResults: Bool { vm.trimmedQuery.count >= 2 || scope != nil }
 
     var body: some View {
         let _ = RenderRate.tick("SearchView")
         NavigationStack {
             List {
-                if vm.trimmedQuery.count >= 2 {
+                if let e = voice.error {
+                    Section {
+                        Label(e, systemImage: "mic.slash")
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.attention)
+                    }
+                }
+                if showsResults {
                     if isOwner { ownerResults } else { resultsSection }
                 } else {
                     emptyState
@@ -156,21 +169,33 @@ struct SearchView: View {
             // Inline like every other tab: a large title sat under the heads bar (MainTabView's top inset) and was
             // clipped (Tim's screenshot, 2026-10-19).
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { micButton }
+                ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
+            }
             .searchable(text: $vm.query,
+                        tokens: $scopes,
                         placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")
+                        prompt: scope != nil ? "Anything about them — “unpaid”, “quotes”…"
+                            : (isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")) { token in
+                Label(token.name, systemImage: token.kind == "company" ? "building.2" : "person.fill")
+            }
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
             .onChange(of: vm.query) { _, _ in
                 vm.queryChanged()
-                if isOwner { owner.queryChanged(vm.trimmedQuery) }
+                if isOwner { owner.queryChanged(vm.trimmedQuery, scope: scope) }
+            }
+            .onChange(of: scopes) { _, new in
+                if new.count > 1 { scopes = [new[new.count - 1]] }
+                if isOwner { owner.queryChanged(vm.trimmedQuery, scope: scopes.first) }
             }
             .onSubmit(of: .search) {
                 if isOwner && OwnerSearchModel.looksLikeQuestion(vm.trimmedQuery) {
-                    Task { await owner.ask(vm.trimmedQuery) }
+                    Task { await owner.ask(askText) }
                 }
             }
+            .onDisappear { voice.stop() }
             .navigationDestination(for: SearchProperty.self) { property in
                 PropertyDetailView(summary: property, searchVM: vm, authSession: authSession)
             }
@@ -224,6 +249,26 @@ struct SearchView: View {
         }
     }
 
+    /// Big mic: speech fills the box; the answers and groups follow as if typed.
+    private var micButton: some View {
+        Button {
+            voice.toggle { text in vm.query = text }
+        } label: {
+            Image(systemName: voice.isListening ? "mic.fill" : "mic")
+                .font(appStyle.font(.title3, weight: .semibold))
+                .symbolEffect(.pulse, isActive: voice.isListening)
+                .frame(minWidth: 48, minHeight: 44)
+        }
+        .tint(voice.isListening ? appStyle.attention : appStyle.tenant)
+        .accessibilityLabel(voice.isListening ? "Stop listening" : "Search by voice")
+    }
+
+    /// What Ask Kaname is asked: the chip's name joins the words ("Linda Tam: unpaid").
+    private var askText: String {
+        guard let scope else { return vm.trimmedQuery }
+        return vm.trimmedQuery.isEmpty ? scope.name : "\(scope.name): \(vm.trimmedQuery)"
+    }
+
     // MARK: Owner results — answer, Ask Kaname, properties (field search), then every other group
 
     @ViewBuilder
@@ -233,10 +278,10 @@ struct SearchView: View {
         }
 
         if vm.trimmedQuery.count >= 3 {
-            Section { AskKanameRow(model: owner, query: vm.trimmedQuery).listRowBackground(appStyle.surface) }
+            Section { AskKanameRow(model: owner, query: askText).listRowBackground(appStyle.surface) }
         }
 
-        if !vm.results.isEmpty {
+        if scope == nil && !vm.results.isEmpty {
             Section("Properties") {
                 ForEach(vm.results) { property in
                     NavigationLink(value: property) { SearchResultRow(property: property) }
@@ -251,14 +296,25 @@ struct SearchView: View {
         ForEach(owner.groups) { group in
             Section {
                 ForEach(group.items) { item in
-                    OwnerSearchItemLink(item: item) { picked in
+                    OwnerSearchItemLink(item: item, onPick: { picked in
                         owner.pick(query: vm.trimmedQuery, kind: picked.kind, id: picked.entityId)
-                    }
+                    }, onNarrow: { chosen in
+                        scopes = [chosen]
+                        vm.query = ""
+                    })
                 }
             } header: {
                 Text(group.title)
             } footer: {
                 if group.more { Text("More found — add a word to narrow it down.") }
+            }
+        }
+
+        if let missed = owner.missedQuery, missed != vm.trimmedQuery || owner.hasResults || !vm.results.isEmpty {
+            Section {
+                Label("Pick the right one and “\(missed)” will find it next time.", systemImage: "star")
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
         }
 
@@ -275,12 +331,13 @@ struct SearchView: View {
                     .font(appStyle.font(.subheadline))
                     .foregroundStyle(appStyle.attention)
             }
-        } else if vm.hasSearched && !vm.isSearching && !owner.isSearching && vm.results.isEmpty && !owner.hasResults {
+        } else if (vm.hasSearched || scope != nil) && !vm.isSearching && !owner.isSearching && (scope != nil || vm.results.isEmpty) && !owner.hasResults {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Nothing found for “\(vm.trimmedQuery)”")
                         .font(appStyle.font(.subheadline, weight: .semibold))
-                    Text("Try part of a name, a street, a phone number or a quote or invoice number — or ask Kaname above.")
+                    Text(scope != nil ? "Nothing about \(scope?.name ?? "them") matches that. Remove the word, or the chip." :
+                         "Try another word — what you pick next is remembered for “\(vm.trimmedQuery)”. Or ask Kaname above.")
                         .font(appStyle.font(.caption))
                         .foregroundStyle(appStyle.meta)
                 }

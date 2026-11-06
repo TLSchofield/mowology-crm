@@ -10,7 +10,8 @@ declare(strict_types=1);
  * GET /api/schedule/search?mode=nearby&lat=..&lng=..  → { success, results:[…] }   (empty-search state)
  * GET /api/schedule/search?mode=property&id=22[&lat&lng]
  *                                                     → { success, property:{card + notes, plans[].history, upcoming[]} }
- * GET /api/schedule/search?mode=owner&q=linda          → { success, query, groups, answer }
+ * GET /api/schedule/search?mode=owner&q=linda[&scope_kind=contact|company&scope_id=N]
+ *                                                     → { success, query, scope, groups, answer }
  * GET /api/schedule/search?mode=contact&id=473        → { success, contact, properties, quotes, invoices, messages }
  * POST /api/schedule/search?mode=pick {q,kind,id}       → records an owner search selection
  * owner / contact / pick need billing.view (admin/manager); crew keep the property search below.
@@ -86,12 +87,20 @@ try {
             exit;
         }
         $q = UniversalSearchService::normalize((string)($_GET['q'] ?? ''));
+        // One person the phone narrowed to ("Linda ×" chip): then the query may be empty and has no 2-letter minimum.
+        $scope = null;
+        $scopeKind = (string)($_GET['scope_kind'] ?? '');
+        $scopeId = (int)($_GET['scope_id'] ?? 0);
+        if (($scopeKind === 'contact' || $scopeKind === 'company') && $scopeId > 0) $scope = ['kind' => $scopeKind, 'id' => $scopeId];
         $groups=[];$answer=null;
-        if (mb_strlen($q) >= 2) {
-            $groups=(new UniversalSearchService(getDB()))->search($q,$can,(int)$jwtUser['id'])['groups'];
-            $answer=(new ClientFactAnswerer(getDB()))->answer($q,$can);
+        if ($scope !== null || mb_strlen($q) >= 2) {
+            $groups=(new UniversalSearchService(getDB()))->search($q,$can,(int)$jwtUser['id'],5,$scope)['groups'];
+            if ($q !== '') {
+                $answerer=new ClientFactAnswerer(getDB());
+                $answer=$answerer->command($q,$can,$scope) ?? $answerer->answer($q,$can,$scope);
+            }
         }
-        echo json_encode(['success'=>true,'query'=>$q,'groups'=>$groups,'answer'=>$answer]);
+        echo json_encode(['success'=>true,'query'=>$q,'scope'=>$scope,'groups'=>$groups,'answer'=>$answer]);
         exit;
     }
     if (!jwtUserHasPermission($jwtUser, 'clients.view')) {

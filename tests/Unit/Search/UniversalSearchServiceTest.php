@@ -63,4 +63,11 @@ final class UniversalSearchServiceTest extends TestCase
         self::assertSame(7,$group['items'][0]['id']);
         self::assertSame(1,$service->search('Alex P',static function(string $p):bool{return $p==='clients.view';},4,1)['groups'][0]['items'][0]['id']);
     }
+
+    public function test_whole_names_come_before_part_words(): void
+    {
+        $items = [['label' => 'Belinda Guttman'], ['label' => 'Linda Chou'], ['label' => 'Melinda Meszaros'], ['label' => 'Linda Tam']];
+        $out = UniversalSearchService::wholeNamesFirst($items, UniversalSearchService::tokens('lindas'));
+        self::assertSame(['Linda Chou', 'Linda Tam', 'Belinda Guttman', 'Melinda Meszaros'], array_column($out, 'label'));
+    }
 }
