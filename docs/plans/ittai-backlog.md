@@ -341,3 +341,11 @@ get them after phase 2.
   each rolling four calendar quarters and warns as it nears the small-supplier limit ($30,000 in Canada) — e.g. at 80% and on
   crossing, saying it must register and charge GST from the supply that takes it over (check the exact CRA timing rule in the
   `regions` skill / with Sit Lim before wording it). Shows on Penny's card and the brief; never changes the setting itself.
+
+## Intuit's official "Connect to QuickBooks" button (Tim 2026-11-06)
+- Ours is plain text "Connect QuickBooks" (`public/crm/accounting/quickbooks.php:179`, `public/crm/onboarding/step.php:261`, and the
+  phone apps). Intuit's technical requirements ask for their supplied button (text-only since 2021, refreshed artwork 2024; English and
+  French, png/svg, base + hover), shown only while not connected, replaced by Disconnect once connected. Download the current pack
+  from developer.intuit.com (sign in) and swap on web, iPhone and Android before the app assessment / Marketplace listing.
+- Brand rules to keep: never "QuickBooks"/"QB"/"Intuit" in Ittai's name, app card or logo; Ittai's name/logo bigger than any Intuit mark
+  and at the top of ittai.ca; plain factual text ("connects to QuickBooks Online") is fine; no QuickBooks logo elsewhere without approval.
