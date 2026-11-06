@@ -121,40 +121,15 @@ struct ReceiptsView: View {
             cameraOnScreen = false
             if weakCapture != nil { showWeakCaptureHint = true }
         }) {
-            CameraPicker(
-                onCapture: { image in
-                    showCamera = false
-                    retakePending = false
-                    let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
-                    Task {
-                        // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread.
-                        // A receipt is cropped to its edges and straightened first (labels are left as shot).
-                        let (compressed, prep): (Data, ReceiptPhotoPrep.Outcome?) = await Task.detached(priority: .userInitiated) {
-                            guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
-                            let prep = ReceiptPhotoPrep.prepare(image)
-                            return (ReceiptsView.resizeAndCompress(prep.image), prep)
-                        }.value
-                        guard !compressed.isEmpty else { return }
-                        if let prep, prep.needsHint {
-                            weakCaptureReason = Self.weakCaptureMessage(prep)
-                            weakCapture = compressed
-                            // Shown now if the camera has gone, otherwise from the cover's onDismiss.
-                            if !cameraOnScreen { showWeakCaptureHint = true }
-                            return
-                        }
-                        await handleCapture(compressed, asLabel: asLabel)
-                    }
-                },
-                onCancel: {
-                    showCamera = false
-                    // Retake abandoned: the uploaded receipt (intake + photo) was kept, so reopen it.
-                    if retakePending {
-                        retakePending = false
-                        if viewModel.intakeResponse != nil { showReview = true }
-                    }
-                }
-            )
-            .ignoresSafeArea()
+            // Receipts: Apple's document camera with live edge guides and auto-capture (it hands back the page
+            // already cropped). Labels, and phones without it (the simulator too), keep the system camera.
+            if !labelMode && DocumentCameraPicker.isSupported {
+                DocumentCameraPicker(onCapture: { cameraCaptured($0, scanned: true) }, onCancel: cameraCancelled)
+                    .ignoresSafeArea()
+            } else {
+                CameraPicker(onCapture: { cameraCaptured($0, scanned: false) }, onCancel: cameraCancelled)
+                    .ignoresSafeArea()
+            }
         }
         // Library fallback (PhotosPicker sheet)
         .sheet(isPresented: $showLibrary) {
@@ -275,6 +250,42 @@ struct ReceiptsView: View {
                 }
                 await handleCapture(compressed, asLabel: false)   // the library is for receipts
             }
+        }
+    }
+
+    // MARK: - Camera result
+
+    /// A photo from either camera. `scanned`: the document camera already cropped and straightened it.
+    private func cameraCaptured(_ image: UIImage, scanned: Bool) {
+        showCamera = false
+        retakePending = false
+        let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
+        Task {
+            // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread.
+            // A receipt is cropped to its edges and straightened first (labels are left as shot; a scan is already cropped).
+            let (compressed, prep): (Data, ReceiptPhotoPrep.Outcome?) = await Task.detached(priority: .userInitiated) {
+                guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
+                let prep = ReceiptPhotoPrep.prepare(image, alreadyCropped: scanned)
+                return (ReceiptsView.resizeAndCompress(prep.image), prep)
+            }.value
+            guard !compressed.isEmpty else { return }
+            if let prep, prep.needsHint {
+                weakCaptureReason = Self.weakCaptureMessage(prep)
+                weakCapture = compressed
+                // Shown now if the camera has gone, otherwise from the cover's onDismiss.
+                if !cameraOnScreen { showWeakCaptureHint = true }
+                return
+            }
+            await handleCapture(compressed, asLabel: asLabel)
+        }
+    }
+
+    private func cameraCancelled() {
+        showCamera = false
+        // Retake abandoned: the uploaded receipt (intake + photo) was kept, so reopen it.
+        if retakePending {
+            retakePending = false
+            if viewModel.intakeResponse != nil { showReview = true }
         }
     }
 

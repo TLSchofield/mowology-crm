@@ -136,6 +136,12 @@ struct ReceiptReviewView: View {
 
     var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            // The receipt stays in view while the fields scroll beneath it, so each amount can be checked against the
+            // paper (Tim, 2026-11-06). Opens zoomed to the receipt's width; pinch, drag, double-tap.
+            if let ui = capturedImage {
+                pinnedReceipt(ui)
+            }
             Form {
                 unreadSection
                 receiptImageSection
@@ -154,6 +160,7 @@ struct ReceiptReviewView: View {
                     }
                     .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
+            }
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
@@ -192,7 +199,7 @@ struct ReceiptReviewView: View {
         .onChange(of: vendorName) { _, new in handleVendorTyped(new) }
         .onChange(of: jobSearch)  { _, new in handleJobTyped(new) }
         .fullScreenCover(isPresented: $showImageFull) {
-            if let data = imageData, let ui = UIImage(data: data) {
+            if let ui = capturedImage {
                 ZoomableCapturedImageView(image: ui)
             }
         }
@@ -248,30 +255,16 @@ struct ReceiptReviewView: View {
 
     private var receiptImageSection: some View {
         Section {
-            HStack {
-                Spacer()
-                if let data = imageData, let ui = UIImage(data: data) {
-                    Image(uiImage: ui)
-                        .resizable().scaledToFit()
-                        .frame(maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-                        .overlay(alignment: .bottomTrailing) {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(appStyle.font(.caption, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(6)
-                                .background(.black.opacity(0.55), in: Circle())
-                                .padding(8)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { showImageFull = true }
-                } else {
+            // The photo itself is pinned above the form (pinnedReceipt); only the no-photo placeholder sits here.
+            if capturedImage == nil {
+                HStack {
+                    Spacer()
                     RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .fill(appStyle.sunk)
                         .frame(height: 120)
                         .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
+                    Spacer()
                 }
-                Spacer()
             }
             HStack(spacing: 8) {
                 ocrBadge
@@ -283,6 +276,30 @@ struct ReceiptReviewView: View {
             }
         }
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    /// The captured photo, decoded once per render.
+    private var capturedImage: UIImage? { imageData.flatMap { UIImage(data: $0) } }
+
+    /// The receipt pinned above the form: about 40% of the screen, zoomed to its width; the corner button opens it full screen.
+    private func pinnedReceipt(_ ui: UIImage) -> some View {
+        ReceiptZoomView(image: ui)
+            .frame(maxWidth: .infinity)
+            .frame(height: UIScreen.main.bounds.height * 0.4)
+            .background(appStyle.sunk)
+            .overlay(alignment: .bottomTrailing) {
+                Button { showImageFull = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(appStyle.font(.caption, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .padding(10)
+                .accessibilityLabel("Show the receipt full screen")
+            }
+            .overlay(alignment: .bottom) { Divider() }
+            .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
     }
 
     private var readBadgeText: String {
@@ -876,39 +893,24 @@ struct ReceiptReviewView: View {
 // MARK: - Full-screen captured image
 
 /// Pinch/pan viewer for the just-captured photo (a local UIImage, not a URL —
-/// ReceiptDetailView's ZoomableReceiptView handles the server-hosted case).
+/// ReceiptDetailView's ReceiptZoomView handles the server-hosted case).
 private struct ZoomableCapturedImageView: View {
     @Environment(\.itAppStyle) private var appStyle
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
-    @State private var scale: CGFloat = 1
-    @State private var lastScale: CGFloat = 1
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .frame(width: UIScreen.main.bounds.width * scale,
-                           height: UIScreen.main.bounds.height * scale)
-            }
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { v in scale = max(1, min(5, lastScale * v)) }
-                    .onEnded { _ in lastScale = scale }
-            )
-            .onTapGesture(count: 2) {
-                withAnimation { scale = scale > 1 ? 1 : 2.5; lastScale = scale }
-            }
+            // Same view as the pinned receipt: opens at the receipt's width, pinch / drag / double-tap.
+            ReceiptZoomView(image: image).ignoresSafeArea(edges: .bottom)
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(appStyle.font(.title))
                     .foregroundStyle(.white.opacity(0.9))
                     .padding()
             }
+            .accessibilityLabel("Close")
         }
     }
 }

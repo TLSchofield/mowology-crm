@@ -463,6 +463,8 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwReceiptZoomDemo") {
+            ReceiptZoomDemo().itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwTimelineDemo") {
             let mode = i + 1 < args.count ? args[i + 1] : "day"
             let field = args.contains("-mwTimelineField")
@@ -473,6 +475,48 @@ struct ScheduleTimelineDemoOverlay: View {
         #endif
     }
 }
+
+#if DEBUG
+/// `-mwReceiptZoomDemo`: an invented receipt pinned as on the review sheet, over sample fields (no sign-in, no client data).
+private struct ReceiptZoomDemo: View {
+    private static let receipt: UIImage = {
+        let size = CGSize(width: 900, height: 2400)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            UIColor(white: 0.97, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            let font = UIFont.monospacedSystemFont(ofSize: 34, weight: .regular)
+            let rows = ["CHEVRON #20145", "3250 MACDONALD ST", "2026-11-02 14:31", "", "COFFEE LG           2.61",
+                        "EGG SANDWICH        6.49", "WASHER FLUID 4L     7.99", "2 Deposit           0.20", "",
+                        "SUBTOTAL           17.29", "GST 5%              0.86", "TOTAL              18.15", "",
+                        "DEBIT              18.15", "APPROVED 239870"]
+            for (i, row) in rows.enumerated() {
+                (row as NSString).draw(at: CGPoint(x: 60, y: 80 + CGFloat(i) * 56),
+                                       withAttributes: [.font: font, .foregroundColor: UIColor(white: 0.12, alpha: 1)])
+            }
+        }
+    }()
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ReceiptZoomView(image: Self.receipt)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: UIScreen.main.bounds.height * 0.4)
+                    .background(Color(white: 0.9))
+                    .overlay(alignment: .bottom) { Divider() }
+                Form {
+                    Section { LabeledContent("Total", value: "$18.15"); LabeledContent("Subtotal", value: "$17.29"); LabeledContent("GST", value: "$0.86") }
+                    Section { LabeledContent("Vendor", value: "Chevron"); LabeledContent("Date", value: "Nov 2, 2026") }
+                }
+            }
+            .navigationTitle("Review Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+#endif
 
 #if DEBUG
 private struct ScheduleTimelineDemo: View {

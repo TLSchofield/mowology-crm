@@ -925,61 +925,31 @@ private struct EditExpenseView: View {
 
 // MARK: - Full-screen zoomable receipt
 
-/// Tap a receipt thumbnail to inspect it full-screen. Supports pinch-to-zoom,
-/// double-tap to toggle zoom, and drag-to-pan while zoomed — for reading faint
-/// handwritten totals/GST that are illegible at thumbnail size.
+/// Tap a receipt thumbnail to inspect it full-screen: opens at the receipt's width, pinch / drag / double-tap
+/// (ReceiptZoomView) — for reading faint handwritten totals/GST that are illegible at thumbnail size.
 struct ZoomableReceiptView: View {
     @Environment(\.itAppStyle) private var appStyle
     let url: URL
     @Environment(\.dismiss) private var dismiss
-
-    @State private var scale: CGFloat = 1
-    @GestureState private var pinch: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @GestureState private var drag: CGSize = .zero
+    @State private var image: UIImage?
+    @State private var failed: String?
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            AsyncImage(url: url) { phase in
-                if let img = phase.image {
-                    img.resizable().scaledToFit()
-                        .scaleEffect(max(1, scale * pinch))
-                        .offset(x: offset.width + drag.width, y: offset.height + drag.height)
-                        .gesture(
-                            MagnificationGesture()
-                                .updating($pinch) { value, state, _ in state = value }
-                                .onEnded { value in
-                                    scale = min(max(scale * value, 1), 5)
-                                    if scale == 1 { offset = .zero }
-                                }
-                        )
-                        .simultaneousGesture(
-                            DragGesture()
-                                .updating($drag) { value, state, _ in
-                                    if scale > 1 { state = value.translation }
-                                }
-                                .onEnded { value in
-                                    guard scale > 1 else { return }
-                                    offset.width += value.translation.width
-                                    offset.height += value.translation.height
-                                }
-                        )
-                        .onTapGesture(count: 2) {
-                            withAnimation(.spring(response: 0.3)) {
-                                if scale > 1 { scale = 1; offset = .zero } else { scale = 2.5 }
-                            }
-                        }
-                } else if phase.error != nil {
-                    VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle").font(appStyle.font(.largeTitle))
-                        Text("Couldn't load image").font(appStyle.font(.footnote))
-                    }
-                    .foregroundStyle(.white.opacity(0.8))
-                } else {
-                    ProgressView().tint(.white)
+            if let image {
+                ReceiptZoomView(image: image).ignoresSafeArea(edges: .bottom)
+            } else if let failed {
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle").font(appStyle.font(.largeTitle))
+                    Text("Couldn't load image").font(appStyle.font(.footnote))
+                    Text(failed).font(appStyle.font(.caption2)).multilineTextAlignment(.center)
                 }
+                .foregroundStyle(.white.opacity(0.8))
+                .padding()
+            } else {
+                ProgressView().tint(.white)
             }
 
             VStack {
@@ -992,9 +962,27 @@ struct ZoomableReceiptView: View {
                             .foregroundStyle(.white, .black.opacity(0.4))
                             .padding()
                     }
+                    .accessibilityLabel("Close")
                 }
                 Spacer()
             }
+        }
+        .task(id: url) { await load() }
+    }
+
+    /// The same signed link AsyncImage loaded; the precise failure is kept (ErrorDetails), never a generic label.
+    private func load() async {
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                failed = "HTTP \(http.statusCode)"
+                return
+            }
+            guard let ui = UIImage(data: data) else { failed = "The file is not an image (\(data.count) bytes)"; return }
+            image = ui
+        } catch {
+            failed = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "ReceiptImage", message: failed ?? "")
         }
     }
 }
