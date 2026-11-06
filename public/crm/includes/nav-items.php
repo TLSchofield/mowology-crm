@@ -76,6 +76,7 @@ $navItems = [
 
     // ── Growth ────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Growth', 'head' => 'mia'],
+    ['key' => 'mia',       'label' => 'Search & Website', 'icon' => 'search',   'href' => '/crm/marketing/mia.php',         'perm' => 'marketing.approve'],
     ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
     ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
     ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
