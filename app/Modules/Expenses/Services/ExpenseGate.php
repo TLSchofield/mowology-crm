@@ -398,7 +398,7 @@ class ExpenseGate
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
         // A receipt dated in a filed year is filed and traced to its bank line by itself (Tim, 2026-11-06), after the
         // learning above so the saved values teach first. Not from the filing itself (it is no longer open by then).
-        if ($source !== 'file_booked' && ($create || array_intersect($changed, ['total', 'expense_date', 'status']))
+        if ($source !== 'file_booked' && ($create || array_intersect($changed, ['total', 'expense_date', 'status', 'raw_ocr_json']))
             && in_array((string)($after['status'] ?? ''), ['draft', 'pending_approval'], true)
             && substr((string)($after['expense_date'] ?? ''), 0, 10) !== '' && substr((string)($after['expense_date'] ?? ''), 0, 10) < self::CLOSED_BEFORE) {
             $this->hooks->closedYear($id);
