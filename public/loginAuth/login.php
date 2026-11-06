@@ -18,6 +18,11 @@ if (isLoggedIn()) {
 
 
 $error = '';
+// A message left by two-step.php (code attempts ran out, or the 5 minutes did): shown once.
+if (!empty($_SESSION['signin_notice']) && is_string($_SESSION['signin_notice'])) {
+    $error = $_SESSION['signin_notice'];
+    unset($_SESSION['signin_notice']);
+}
 
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -43,29 +48,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $isDriver = false;
             $loginRole = null;
-            if (loginUser($email, $password, $isDriver, $loginRole)) {
+            $twoStepPending = false;
+            if (loginUser($email, $password, $isDriver, $loginRole, $twoStepPending)) {
                 // Use the $isDriver flag captured by loginUser() before session_write_close()
                 // cleared $_SESSION — reading $_SESSION here would always return empty.
-                // The outside accountant lands on the Ledger (AccountantFence, 2026-10-13).
-                $dest = AccountantFence::isAccountantRole($loginRole) ? AccountantFence::HOME
-                    : ($isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php');
-                // Account owners accept the current Terms of Service once (migration 1381). Off
-                // until a terms_versions row is active; any failure here fails open to $dest.
-                if (!$isDriver && in_array($loginRole, ['admin', 'manager'], true)) {
-                    try {
-                        require_once APP_ROOT . '/Modules/Legal/Services/TermsService.php';
-                        // $_SESSION is already closed here (see loginUser), so look the id up again.
-                        $__q = getDB()->prepare("SELECT id FROM users WHERE LOWER(email) = ? OR (username IS NOT NULL AND LOWER(username) = ?) LIMIT 1");
-                        $__q->execute([$email, $email]);
-                        $__uid = (int)$__q->fetchColumn();
-                        if ($__uid > 0 && (new TermsService(getDB()))->needsAcceptance($__uid)) {
-                            $dest = '/crm/terms-accept.php';
-                        }
-                    } catch (Throwable $e) {
-                        error_log('login terms gate: ' . $e->getMessage());
-                    }
-                }
-                header('Location: ' . $dest);
+                // The outside accountant lands on the Ledger (AccountantFence, 2026-10-13); owners meet the
+                // Terms gate; signInDestination() holds those rules for this page and two-step.php alike.
+                header('Location: ' . signInDestination($isDriver, $loginRole, $email));
+                exit();
+            } elseif ($twoStepPending) {
+                // Correct password, two-step is on for this person and this browser isn't trusted: ask for the code.
+                header('Location: /loginAuth/two-step.php');
                 exit();
             } else {
                 $error = 'Invalid email or password.';

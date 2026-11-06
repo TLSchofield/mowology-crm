@@ -140,6 +140,9 @@ if (!isset($user)) $user = ['name' => 'Admin'];
                 <a class="dropdown-item" href="/crm/profile.php">
                     <i class="align-middle mr-1" data-feather="user"></i> Profile
                 </a>
+                <a class="dropdown-item" href="/crm/account/two-step.php">
+                    <i class="align-middle mr-1" data-feather="shield"></i> Two-step sign-in
+                </a>
                 <a class="dropdown-item" href="/crm/settings.php">
                     <i class="align-middle mr-1" data-feather="settings"></i> Settings
                 </a>

@@ -93,6 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && $tokenData && $db) {
 
                 $db->commit();
 
+                // A password change also ends every "trusted device" for two-step sign-in (migration 1440; no-op without it).
+                try { (new TwoStepService($db, null))->revokeAllDevices((int)$tokenData['user_id']); } catch (Throwable $e) { error_log('two-step devices not revoked: ' . $e->getMessage()); }
+
                 // Log activity
                 logActivity((int)$tokenData['user_id'], null, 'Password reset completed', "IP: " . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
 

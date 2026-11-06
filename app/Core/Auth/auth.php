@@ -84,6 +84,7 @@ if (!function_exists('sanitizeInput')) {
 require_once __DIR__ . '/AuthFreshness.php';
 require_once __DIR__ . '/RoleRules.php';
 require_once __DIR__ . '/AccountantFence.php';
+require_once __DIR__ . '/TwoStepService.php';
 
 function isLoggedIn(): bool {
     if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) return false;
@@ -272,7 +273,96 @@ function purgeExpiredLoginAttempts(): int {
 
 // -------------------- Login / Logout --------------------
 
-function loginUser(string $email, string $password, bool &$isDriver = false, ?string &$role = null): bool {
+/**
+ * The one place a person becomes signed in: sets the session keys and runs the post-login cleanup.
+ * Used by loginUser() (password only) and /loginAuth/two-step.php (password + code), so the two can't drift.
+ * $user is the users row (id, email, password_hash, names, role, is_driver); $email the normalised sign-in name.
+ * Closes the session when done.
+ */
+function finishSignIn(array $user, string $email, bool &$isDriver, ?string &$role): void {
+    $db = getDB();
+    session_regenerate_id(true);
+    unset($_SESSION['two_step_pending']);   // a half-finished two-step attempt never outlives a full sign-in
+
+    // Force a fresh CSRF token for the authenticated session.
+    // session_regenerate_id() carries over all session data including the
+    // pre-auth CSRF token that was embedded in the login page HTML.
+    // Without this, the login-page token remains valid post-authentication.
+    unset($_SESSION['csrf_token']);
+
+    $_SESSION['user_id']         = (int)$user['id'];
+    $_SESSION['user_email']      = (string)$user['email'];
+    $_SESSION['user_name']       = (string)($user['full_name'] ?? '');
+    $_SESSION['user_role']       = (string)($user['role'] ?: 'user');
+    $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
+    $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
+    $_SESSION['user_full_name']  = (string)($user['full_name'] ?? '');
+    $_SESSION['user_is_driver']  = !empty($user['is_driver']);
+    $_SESSION['login_time']      = time();
+    $_SESSION['last_activity']   = time();
+    $_SESSION['user_checked_at'] = time();
+    $_SESSION['pwd_v']           = AuthFreshness::passwordVersion((string)$user['password_hash']);
+
+    // Capture driver flag NOW before session_write_close() clears $_SESSION.
+    $isDriver = !empty($user['is_driver']);
+    $role     = (string)($user['role'] ?: 'user');
+
+    // Release the session file lock now — all session writes are done.
+    // Without this the lock is held through the DB calls below, and the
+    // redirect target (app-launch.php) blocks at session_start() until
+    // this script exits, causing a race that shows the user as not-logged-in.
+    session_write_close();
+
+    // ── Post-auth cleanup: non-critical. Session is already committed above.
+    // Any DB error here (e.g. MySQL 1615 "Prepared statement needs to be
+    // re-prepared" on cPanel shared hosting) must NOT cause a false login
+    // failure — the user is already authenticated.
+    try {
+        $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
+        $upd->execute([(int)$user['id']]);
+    } catch (Throwable $e) {
+        _loginDebugLog("loginUser() last_login update failed (non-fatal): " . $e->getMessage());
+    }
+
+    try {
+        clearLoginAttempts($email);
+    } catch (Throwable $e) {
+        _loginDebugLog("loginUser() clearLoginAttempts failed (non-fatal): " . $e->getMessage());
+    }
+
+    try {
+        logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+    } catch (Throwable $e) {
+        _loginDebugLog("loginUser() logActivity failed (non-fatal): " . $e->getMessage());
+    }
+}
+
+/**
+ * Where a person lands right after signing in: the accountant's Ledger, the driver portal, or app-launch; the
+ * Terms of Service page first for an account owner who has not accepted the current version (migration 1381; off
+ * until a terms_versions row is active, and any failure here fails open to the normal destination).
+ * Shared by login.php and two-step.php. The session is already closed, so the user is looked up again by $email.
+ */
+function signInDestination(bool $isDriver, ?string $role, string $email): string {
+    $dest = AccountantFence::isAccountantRole($role) ? AccountantFence::HOME
+        : ($isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php');
+    if (!$isDriver && in_array($role, ['admin', 'manager'], true)) {
+        try {
+            require_once APP_ROOT . '/Modules/Legal/Services/TermsService.php';
+            $q = getDB()->prepare("SELECT id FROM users WHERE LOWER(email) = ? OR (username IS NOT NULL AND LOWER(username) = ?) LIMIT 1");
+            $q->execute([$email, $email]);
+            $uid = (int)$q->fetchColumn();
+            if ($uid > 0 && (new TermsService(getDB()))->needsAcceptance($uid)) {
+                $dest = '/crm/terms-accept.php';
+            }
+        } catch (Throwable $e) {
+            error_log('login terms gate: ' . $e->getMessage());
+        }
+    }
+    return $dest;
+}
+
+function loginUser(string $email, string $password, bool &$isDriver = false, ?string &$role = null, bool &$twoStepPending = false): bool {
     $db = getDB();
 
     // Normalize input: trim, lowercase, strip invisible chars
@@ -296,60 +386,34 @@ function loginUser(string $email, string $password, bool &$isDriver = false, ?st
         }
 
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
-            session_regenerate_id(true);
-
-            // Force a fresh CSRF token for the authenticated session.
-            // session_regenerate_id() carries over all session data including the
-            // pre-auth CSRF token that was embedded in the login page HTML.
-            // Without this, the login-page token remains valid post-authentication.
-            unset($_SESSION['csrf_token']);
-
-            $_SESSION['user_id']         = (int)$user['id'];
-            $_SESSION['user_email']      = (string)$user['email'];
-            $_SESSION['user_name']       = (string)($user['full_name'] ?? '');
-            $_SESSION['user_role']       = (string)($user['role'] ?: 'user');
-            $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
-            $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
-            $_SESSION['user_full_name']  = (string)($user['full_name'] ?? '');
-            $_SESSION['user_is_driver']  = !empty($user['is_driver']);
-            $_SESSION['login_time']      = time();
-            $_SESSION['last_activity']   = time();
-            $_SESSION['user_checked_at'] = time();
-            $_SESSION['pwd_v']           = AuthFreshness::passwordVersion((string)$user['password_hash']);
-
-            // Capture driver flag NOW before session_write_close() clears $_SESSION.
-            $isDriver = !empty($user['is_driver']);
-            $role     = (string)($user['role'] ?: 'user');
-
-            // Release the session file lock now — all session writes are done.
-            // Without this the lock is held through the DB calls below, and the
-            // redirect target (app-launch.php) blocks at session_start() until
-            // this script exits, causing a race that shows the user as not-logged-in.
-            session_write_close();
-
-            // ── Post-auth cleanup: non-critical. Session is already committed above.
-            // Any DB error here (e.g. MySQL 1615 "Prepared statement needs to be
-            // re-prepared" on cPanel shared hosting) must NOT cause a false login
-            // failure — the user is already authenticated.
-            try {
-                $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
-                $upd->execute([(int)$user['id']]);
-            } catch (Throwable $e) {
-                _loginDebugLog("loginUser() last_login update failed (non-fatal): " . $e->getMessage());
+            // Two-step sign-in (opt-in, migration 1440): someone who turned it on needs a code unless this
+            // browser holds a live trusted-device cookie of theirs. Not enrolled, or the tables missing = unchanged.
+            // A caller that did not pass $twoStepPending can't ask for a code, so it is refused, never let through.
+            $twoStepAware = func_num_args() >= 5;
+            $twoStepPending = false;
+            $uid = (int)$user['id'];
+            $twoStep = new TwoStepService($db, null);
+            if ($twoStep->isEnrolled($uid)) {   // a database error here throws: caught below, no session is set
+                $cookie = TwoStepService::cookieName(Tenant::isDefault(), Tenant::key());
+                $trusted = isset($_COOKIE[$cookie]) && is_string($_COOKIE[$cookie])
+                    && $twoStep->isTrusted($uid, $_COOKIE[$cookie]);
+                if (!$trusted) {
+                    if (!$twoStepAware) {
+                        _loginDebugLog('loginUser(): two-step needed but the caller cannot ask for a code — refused');
+                        return false;
+                    }
+                    session_regenerate_id(true);
+                    unset($_SESSION['csrf_token']);
+                    $_SESSION['two_step_pending'] = TwoStepService::pendingNew(
+                        $uid, $email, !empty($user['is_driver']), (string)($user['role'] ?: 'user'),
+                        AuthFreshness::passwordVersion((string)$user['password_hash']), time()
+                    );
+                    $twoStepPending = true;
+                    return false;   // not signed in yet; the caller sends the browser to /loginAuth/two-step.php
+                }
             }
 
-            try {
-                clearLoginAttempts($email);
-            } catch (Throwable $e) {
-                _loginDebugLog("loginUser() clearLoginAttempts failed (non-fatal): " . $e->getMessage());
-            }
-
-            try {
-                logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-            } catch (Throwable $e) {
-                _loginDebugLog("loginUser() logActivity failed (non-fatal): " . $e->getMessage());
-            }
-
+            finishSignIn($user, $email, $isDriver, $role);
             return true;
         }
 
