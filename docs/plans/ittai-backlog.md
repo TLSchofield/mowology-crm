@@ -367,3 +367,7 @@ get them after phase 2.
 - Ittai sign-in is email + password (web) or PIN (crew phones), no second step. Intuit's assessment asks (answered No). Owners and
   anyone with books/QuickBooks access should get a second step (authenticator app or emailed code) before Ittai holds many
   businesses' QuickBooks data. Third-party notes say store-level security applies past 500 connections — check Intuit's current rule.
+
+## Business keys: enforce lowercase letters, digits, dashes (security review follow-up, 2026-11-06)
+- `PdfStore`/`StoredPdfPath` require `[a-z0-9-]+` business keys; `Tenant::valid()` doesn't enforce it. A key with `_` or a capital
+  would make every PDF write fail. Add the check to `Tenant::valid()` (or a registry test). All current keys pass.
