@@ -321,6 +321,21 @@ sum to the regex subtotal and every name is present in the OCR text. Needs
 `ops_settings.receipt_llm_extraction = '0'`). Results are tagged
 `expenses.line_items_source = 'llm'` and flagged "AI extracted — please verify" on every card.
 
+**No-AI recovery (2026-11-05).** Three paths fill items without OCR or a model call, and only
+when the items add up to the receipt's subtotal *or* total (`LineItemFit::addsUp`, ±0.05; fuel
+prints tax-in prices):
+
+| Path | Where | `line_items_source` |
+|---|---|---|
+| Emailed receipts keep the items the reader parsed (they used to be dropped) | `ReceiptInboxService::fittedLineItemChanges()` on create | `inbox` |
+| Penny's pending item read lands on a draft whose items are missing or wrong | `BookkeeperDeskService::autoApplyPennyItems()`, each `penny_prepare` run, even when the model is down | `penny` |
+| Stored OCR text re-parsed for receipts with no items | `LineItemBackfillService`; admin `/crm/api/line-item-backfill.php` (GET dry run, POST + CSRF + `commit=1`) | `reread` |
+
+Never on forwarded, split or product-linked receipts; money fields never change. Each write
+re-checks its rule on a locked snapshot (`ExpenseGate` `locked_if`). Replay on 406 receipts:
+43% → 55% adding up. Because auto-applied Penny items carry `penny`, approving the receipt
+still teaches the reader the vendor's layout (`teachReaderFromPenny`).
+
 Both review cards (web mobile + iOS) let the user rename / mark "not an item" / add a
 missed item before saving; the desktop review panel does the same inline. After save,
 the desktop edit modal and the iOS detail sheet edit, delete, add and link items through
