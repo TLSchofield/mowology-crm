@@ -1,0 +1,41 @@
+/* ittai.ca legal pages — Ittai v1.2 tokens (light / dark), as on the ittai.ca coming-soon page. No hex outside :root. */
+:root {
+  --page: #F4F5F3; --surface: #FFFFFF; --line: #D9DFDA;
+  --text: #131D17; --meta: #48534C; --brand: #233A5E;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0F1512; --surface: #161E1A; --line: #2C3832;
+    --text: #E9EEEA; --meta: #AFB9B3; --brand: #A9B9DA;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--page); }
+body {
+  margin: 0; background: var(--page); color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px; line-height: 24px; -webkit-font-smoothing: antialiased;
+}
+a { color: var(--brand); }
+.it-top, .terms-hero, .terms-layout, .it-foot { max-width: 1040px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+.it-top { display: flex; align-items: center; justify-content: space-between; padding-top: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.it-brand { display: flex; align-items: center; gap: 8px; color: var(--brand); text-decoration: none; font-weight: 600; font-size: 20px; }
+.it-brand .symbol { display: block; }
+.it-top nav a { margin-left: 16px; color: var(--meta); text-decoration: none; font-size: 14px; }
+.terms-hero { padding-top: 40px; padding-bottom: 24px; }
+.terms-hero h1 { margin: 0 0 8px; font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -0.01em; }
+.terms-updated { margin: 0; color: var(--meta); font-size: 14px; line-height: 20px; }
+.terms-layout { display: grid; grid-template-columns: 200px 1fr; gap: 48px; padding-top: 24px; padding-bottom: 64px; }
+.terms-toc { position: sticky; top: 24px; align-self: start; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 20px; }
+.terms-toc-title { font-weight: 600; margin-bottom: 4px; }
+.terms-toc a { color: var(--meta); text-decoration: none; }
+.terms-section { margin-bottom: 32px; }
+.terms-section h2 { margin: 0 0 12px; font-size: 20px; line-height: 28px; font-weight: 600; }
+.terms-section p, .terms-section li { margin: 0 0 12px; font-size: 15px; line-height: 24px; }
+.terms-section ul { padding-left: 20px; margin: 0 0 12px; }
+.terms-contact-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; margin-top: 16px; font-size: 15px; line-height: 24px; }
+.it-foot { padding-top: 24px; padding-bottom: 40px; border-top: 1px solid var(--line); color: var(--meta); font-size: 14px; }
+@media (max-width: 800px) {
+  .terms-layout { grid-template-columns: 1fr; gap: 24px; }
+  .terms-toc { position: static; }
+}
