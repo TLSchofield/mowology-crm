@@ -41373,6 +41373,34 @@ body.mw-books {
 .mw-ag-level { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; text-align: center; font-weight: 700; font-size: .8rem; background: var(--mw-light); color: var(--mw-forest); }
 .mw-ag-level.is-3, .mw-ag-level.is-4 { background: var(--mw-lime); }
 
+/* Agent Studio — Progress tab (2026-11-05) */
+.mw-ag-tabs { display: flex; gap: 8px; margin: 0 0 16px; border-bottom: 1px solid var(--mw-ink-200); }
+.mw-ag-tabs a { padding: 8px 12px; color: var(--mw-ink-700); text-decoration: none; border-bottom: 2px solid transparent; }
+.mw-ag-tabs a:hover, .mw-ag-tabs a.is-active { color: var(--mw-ink-900); border-bottom-color: var(--mw-green); text-decoration: none; }
+.mw-hp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin: 16px 0 24px; }
+.mw-hp-card { display: flex; flex-direction: column; min-width: 0; padding: 16px; color: var(--mw-ink-900); background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: 8px; text-decoration: none; }
+.mw-hp-card:hover { color: var(--mw-ink-900); border-color: var(--mw-green); text-decoration: none; }
+.mw-hp-person { display: flex; align-items: center; gap: 10px; }
+.mw-hp-person img { flex: 0 0 40px; border-radius: 50%; object-fit: cover; }
+.mw-hp-person small { display: block; color: var(--mw-ink-700); font-size: .75rem; }
+.mw-hp-big { margin-top: 14px; color: var(--mw-ink-900); font-size: 1.75rem; font-weight: 700; line-height: 1; }
+.mw-hp-card p { flex: 1 1 auto; margin: 8px 0; font-size: .85rem; line-height: 1.45; }
+.mw-hp-spark { width: 120px; height: 28px; margin: 4px 0 10px; overflow: visible; }
+.mw-hp-spark polyline { fill: none; stroke: var(--mw-green); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.mw-hp-section { scroll-margin-top: 16px; }
+.mw-hp-section .card-header { background: var(--mw-light); }
+.mw-hp-table { min-width: max-content; }
+.mw-hp-table th, .mw-hp-table td { padding: 8px 10px; white-space: nowrap; vertical-align: middle; }
+.mw-hp-table thead th { color: var(--mw-ink-700); font-size: .75rem; }
+.mw-hp-table tr > :first-child { position: sticky; left: 0; z-index: 1; min-width: 210px; background: var(--mw-ink-0); }
+.mw-hp-table thead tr > :first-child { z-index: 2; background: var(--mw-light); }
+.mw-hp-table tbody th span, .mw-hp-table tbody th small { display: block; }
+.mw-hp-table tbody th small { max-width: 260px; color: var(--mw-ink-700); font-weight: 400; white-space: normal; }
+.mw-hp-partial { color: var(--mw-ink-500); background: var(--mw-light); }
+.mw-hp-empty { padding: 10px 16px; font-size: .82rem; }
+.mw-hp-daily { border-top: 1px solid var(--mw-ink-200); }
+@media (max-width: 575.98px) { .mw-hp-grid { grid-template-columns: 1fr; } }
+
 /* ── Expenses list: Bank link status (Ittai v1.2 status tokens; status = icon + word, never colour alone) ── */
 .it-bank { --it-complete:#1B5F3C; --it-blocked:#A12C1F; --it-progress:#2F5E8C; --it-meta:#56635B;
   display:inline-flex; align-items:center; gap:4px; font-size:12px; line-height:16px; font-weight:500; white-space:nowrap; text-decoration:none; }
