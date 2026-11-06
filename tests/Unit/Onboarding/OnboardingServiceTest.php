@@ -38,15 +38,15 @@ class OnboardingServiceTest extends TestCase
 
     public function test_the_default_path(): void
     {
-        $this->assertSame(['name', 'terms', 'gst', 'yearend', 'payroll', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->webSvc($this->db())->order());
+        $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'], $this->webSvc($this->db())->order());
         $this->assertSame(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->svc($this->db())->order(), 'an old app never sees the new steps');
     }
 
     public function test_a_saved_old_order_gets_terms_right_after_name(): void
     {
-        $all = ['name', 'terms', 'gst', 'yearend', 'payroll', 'company', 'quickbooks', 'books', 'accountant', 'done'];
+        $all = ['name', 'terms', 'company', 'quickbooks', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'];
         $this->assertSame($all, OnboardingService::normalise(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $all, ['done']));
-        $this->assertSame(['company', 'name', 'terms', 'gst', 'yearend', 'payroll', 'quickbooks', 'books', 'accountant', 'done'],
+        $this->assertSame(['company', 'name', 'terms', 'quickbooks', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'],
             OnboardingService::normalise(['company', 'name', 'quickbooks', 'books', 'accountant'], $all, ['done']), 'after wherever name sits');
     }
 

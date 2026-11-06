@@ -58,9 +58,10 @@ class OnboardingService
     /** The default path. A new module: one line here (its place is the default order). */
     public static function defaultModules(): array
     {
-        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingGstModule(), new OnboardingYearEndModule(),
-                new OnboardingPayrollModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(),
-                new OnboardingBooksModule(), new OnboardingAccountantModule(), new OnboardingDoneModule()];
+        // GST after QuickBooks (Tim, 2026-11-06): the book questions follow the books themselves.
+        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(),
+                new OnboardingBooksModule(), new OnboardingGstModule(), new OnboardingYearEndModule(), new OnboardingPayrollModule(),
+                new OnboardingAccountantModule(), new OnboardingDoneModule()];
     }
 
     public function context(): OnboardingContext { return $this->c; }
