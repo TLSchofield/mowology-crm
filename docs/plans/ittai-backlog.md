@@ -8,6 +8,21 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Service word pools + Sam's three steps on requests (Sam, all trades) — Tim 2026-11-05
+Goal (Tim): a system that improves with every tenant, and slowly for Mowology alone if nobody buys it.
+- **Word pool per service, as data:** each service on a business's books carries its phrases ("fall cleanup",
+  "leaf removal"); phrases weigh more than single words; negative words (fell, injury). Replaces the hard-coded,
+  landscaping-only `EmailLeadService::SERVICES` list.
+- **Sam's three steps, same pattern as Penny's bank lines:** (1) rules — request-for-work topic
+  (`InboundTopicClassifier`) + service words + known client → "Fall Cleanup at <property>, last year's price",
+  levels sure / likely / not sure from which rules matched (no invented %); (2) "Ask Sam" AI only on click when
+  rules can't decide, cached and capped; (3) owner confirms or corrects, two confirmations add the phrase.
+- **Shared:** a starter pool per trade + phrases promoted when several businesses confirm the same mapping
+  (phrase → service only; region-tagged); vendor knowledge commons pattern (`app/Modules/Knowledge/`).
+- **Private:** the email, client, price, and the business's own words (which override shared ones).
+- Log every request + decision; Progress tab measures right-first-time.
+- Trigger case: Meghan's "can we book you guys in for a fall cleanup" (routed to Penny until 2026-11-04).
+
 ## Inbox tidy for every tenant (Yui) — added 2026-10-13
 - **Mowology today:** Yui sorts the iCloud inbox into folders using the CRM's own clients, suppliers
   and payment senders. It is preview-first, moves only, never deletes, and every batch can be undone.
