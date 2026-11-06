@@ -10,6 +10,10 @@
  *
  * `catalog` is InvoiceLineItems::catalog(): [{id, name, description, base_price,
  * category_name, unit_abbreviation}]. Picking a service calls onPick(service) and closes.
+ *
+ * attach() returns { setAgreed(items) }. Agreed items (ClientAgreedPrices rows: name, unit_price,
+ * quantity, unit_type, label) are listed FIRST under "Agreed price" and passed to onPick with
+ * `agreed: true` and `base_price` = the agreed unit price; the catalog stays below as the fallback.
  */
 (function () {
     'use strict';
@@ -20,8 +24,9 @@
     }
 
     function attach(host, catalog, onPick) {
-        if (!host) return;
+        if (!host) return { setAgreed: function () {} };
         catalog = catalog || [];
+        var agreed = [];
         host.classList.add('mw-template-dropdown');
         host.innerHTML =
             '<button type="button" class="btn btn-secondary btn-sm mw-sp-btn">+ Add from services</button>' +
@@ -40,7 +45,33 @@
         function render(q) {
             q = (q || '').toLowerCase().trim();
             results.innerHTML = '';
-            if (!catalog.length) {
+            var agreedShown = 0;
+            agreed.forEach(function (a) {
+                var hay = (a.name + ' ' + (a.label || '')).toLowerCase();
+                if (q && hay.indexOf(q) === -1) return;
+                if (!agreedShown) {
+                    var ah = document.createElement('div');
+                    ah.className = 'mw-template-header mw-template-header-agreed';
+                    ah.textContent = 'Agreed price for this client';
+                    results.appendChild(ah);
+                }
+                agreedShown++;
+                var ai = document.createElement('div');
+                ai.className = 'mw-template-item mw-template-item-agreed';
+                ai.innerHTML = '<div><div class="mw-template-name">' + esc(a.name) +
+                    ' <span class="mw-template-agreed-tag">Agreed price</span></div>' +
+                    '<div class="mw-template-price">$' + (parseFloat(a.unit_price) || 0).toFixed(2) +
+                    (a.unit_type ? '&nbsp;/&nbsp;' + esc(a.unit_type) : '') + '</div>' +
+                    (a.label ? '<div class="mw-template-agreed-label">' + esc(a.label) + '</div>' : '') + '</div>';
+                ai.addEventListener('click', function () {
+                    close();
+                    onPick({ agreed: true, name: a.name, description: a.description || a.name,
+                             base_price: a.unit_price, quantity: a.quantity, unit_type: a.unit_type,
+                             plan_id: a.plan_id, label: a.label });
+                });
+                results.appendChild(ai);
+            });
+            if (!catalog.length && !agreedShown) {
                 results.innerHTML = '<div class="mw-template-empty">No services in the catalog.</div>';
                 return;
             }
@@ -65,7 +96,7 @@
                 results.appendChild(item);
                 shown++;
             });
-            if (!shown) results.innerHTML = '<div class="mw-template-empty">No matching services.</div>';
+            if (!shown && !agreedShown) results.innerHTML = '<div class="mw-template-empty">No matching services.</div>';
         }
 
         function open() {
@@ -88,6 +119,7 @@
         document.addEventListener('click', function (e) {
             if (!host.contains(e.target)) close();
         });
+        return { setAgreed: function (items) { agreed = items || []; if (menu.classList.contains('show')) render(search.value); } };
     }
 
     window.MwServicePicker = { attach: attach };
