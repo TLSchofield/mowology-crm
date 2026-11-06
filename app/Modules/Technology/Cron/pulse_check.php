@@ -51,6 +51,21 @@ $__finish = static function (string $status, string $summary, ?string $error = n
     }
 };
 
+// Tim 2026-11-04: ride on pulse_check (every 5 min) so no new cPanel line is needed. Started before Pulse's own
+// checks, so a failing check never stops the businesses' crons; the runner has its own lock and log (business_crons).
+$__businessNote = '';
+if ($__cli && Tenant::isDefault()) {
+    try {
+        require_once APP_ROOT . '/Core/BusinessCronFanout.php';
+        if (!BusinessCronFanout::startDetached([BusinessCronFanout::cliBinary(), APP_ROOT . '/Core/Cron/business_crons.php'])) {
+            $__businessNote = '; business crons could not start';
+        }
+    } catch (Throwable $e) {
+        $__businessNote = '; business crons could not start';
+        error_log('pulse_check business crons: ' . $e->getMessage());
+    }
+}
+
 try {
     $db = getDB();
     try {
@@ -66,7 +81,7 @@ try {
     foreach ($res as $key => $r) {
         if (in_array($r['status'], ['warn', 'fail'], true)) $bad[] = $key . ' ' . $r['status'];
     }
-    $summary = count($res) . ' checks' . ($bad ? ' — ' . implode(', ', $bad) : ' — all good');
+    $summary = count($res) . ' checks' . ($bad ? ' — ' . implode(', ', $bad) : ' — all good') . $__businessNote;
     // The cron itself succeeded; what Pulse found is reported through Ada and Charlie, not as a failed cron.
     $__finish('success', $summary);
 } catch (Throwable $e) {

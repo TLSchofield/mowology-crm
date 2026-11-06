@@ -24,10 +24,7 @@ final class CronLock
     public static function acquire(string $name): self
     {
         $lock = new self();
-        $lock->path = sys_get_temp_dir()
-            . '/mowology_cron_'
-            . preg_replace('/[^a-z0-9_]/i', '_', $name)
-            . '.lock';
+        $lock->path = self::lockPath($name);
 
         $handle = fopen($lock->path, 'c');
         if ($handle === false) {
@@ -49,6 +46,13 @@ final class CronLock
         $lock->handle = $handle;
         register_shutdown_function([$lock, 'release']);
         return $lock;
+    }
+
+    public static function lockPath(string $name): string
+    {
+        $suffix = '';
+        if (class_exists('Tenant', false) && !\Tenant::isDefault()) $suffix = '_' . \Tenant::key();
+        return sys_get_temp_dir() . '/mowology_cron_' . preg_replace('/[^a-z0-9_]/i', '_', $name) . $suffix . '.lock';
     }
 
     public function release(): void
