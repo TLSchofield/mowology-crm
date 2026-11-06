@@ -210,6 +210,26 @@ class ReceiptFactsService
             }
         }
 
+        // Pre-printed numbered repair-order pads (Champion, 2026-11-06: "Champion uses invoice numbers that aren't being
+        // picked up"). The red pad number sits beside the shop's name and OCR glues it onto that line:
+        // "CHAMPION LAWN MOWER SALES AND SERVICE 15826". Only on a form that says REPAIR ORDER — on any other receipt a
+        // number after the name is usually a store number (Chevron, Shell), which would make two visits look the same.
+        // The form is known by "REPAIR ORDER", or by "WORK DONE" + "SERVICED BY" when the read lost those words (#486).
+        // A pad number is never reused, so 4–7 digits stand on their own (unlike Lawnboy's 1–100 stamped pads).
+        // Swept over all 448 read receipts on 2026-11-06: 14 matches, every one a Champion pad.
+        $repairOrder = preg_match('/\bREPAIR\s+ORDER\b/i', $text)
+            || (preg_match('/\bWORK\s+DONE\b/i', $text) && preg_match('/\bSERVICED\s+BY\b/i', $text));
+        if ($out['doc_number'] === null && $repairOrder) {
+            foreach ($lines as $l) {
+                if (preg_match('/^([A-Z][A-Z&\'.\- ]{9,}?)\s+(\d{4,7})$/', $l, $m)
+                    && !preg_match('/\b(?:TOTAL|SUBTOTAL|GST|PST|HST|TAX|LABOU?R|PARTS|AMOUNT|BALANCE|PHONE|PH)\b/i', $m[1])) {
+                    $out['doc_number'] = $m[2];
+                    $out['doc_kind'] = 'invoice';
+                    break;
+                }
+            }
+        }
+
         // Card last 4 (cashier / employee ids are masked too — skip those lines)
         $cardPatterns = [
             '/(?:\*|X|x|•){2,}[ \t]*(\d{4})(?!\d)/u',
