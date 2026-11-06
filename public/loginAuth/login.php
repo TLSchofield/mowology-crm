@@ -1,7 +1,8 @@
 <?php
 require_once __DIR__ . '/auth.php';
 // The business's own name (Ittai founding businesses, 2026-10-23); never another business's.
-require_once __DIR__ . '/signin-chrome.php';   // Ittai v1.2 sign-in look (2026-10-23)
+require_once __DIR__ . '/signin-chrome.php';
+require_once APP_ROOT . '/Core/Auth/LoginCaptcha.php';   // reCAPTCHA v3, watch mode first (2026-11-06)   // Ittai v1.2 sign-in look (2026-10-23)
 $__bizName = itSigninBizName();
 
 header('Cache-Control: no-store, no-cache, must-revalidate');
@@ -37,6 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please enter both email and password.';
         } elseif (isLoginRateLimited($email)) {
             $error = 'Too many login attempts. Please try again in a few minutes.';
+        } elseif (!LoginCaptcha::check((string)($_POST['recaptcha_v3_token'] ?? ''), $_SERVER['REMOTE_ADDR'] ?? null)) {
+            $error = "We couldn't confirm this sign-in. Wait a minute and try again. If it keeps happening, allow Google's check (google.com) in your browser.";
         } else {
             $isDriver = false;
             $loginRole = null;
@@ -79,6 +82,7 @@ $csrf_token = generateLoginCSRFToken();
 <html lang="en">
 <head>
 <?php itSigninHead('Sign in - ' . $__bizName); ?>
+<?= LoginCaptcha::headTags() ?>
 </head>
 <body class="<?= itSigninBodyClass() ?>">
 <main class="it-signin-wrap">
@@ -98,7 +102,7 @@ $csrf_token = generateLoginCSRFToken();
             <div class="it-signin-banner-arrow" id="bannerArrow" aria-hidden="true"></div>
         </div>
 
-        <form class="it-signin-form" method="POST" action="">
+        <form class="it-signin-form" id="signinForm" method="POST" action="">
             <?php if ($error): ?>
                 <div class="it-signin-msg it-signin-msg--error" role="alert"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
@@ -333,5 +337,6 @@ $csrf_token = generateLoginCSRFToken();
     }
 })();
 </script>
+<?= LoginCaptcha::formTags('signinForm') ?>
 </body>
 </html>
