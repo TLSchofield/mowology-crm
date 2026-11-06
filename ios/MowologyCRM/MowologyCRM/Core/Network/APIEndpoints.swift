@@ -159,6 +159,9 @@ enum APIEndpoint {
     /// receipt where it differs (PennyReadService). Crew get it for their own receipts.
     /// "Use Penny's version" / "Keep mine" POST to .bookkeeperAction with mode penny_apply / penny_keep.
     case bookkeeperSuggestion(expenseId: Int)
+    /// GET /api/expenses/bookkeeper-mobile?mode=merged&expense_id=N — copies merged into this receipt
+    /// ("Also on this purchase"); Split off posts {mode: unmerge, copy_id, kind: split} to .bookkeeperAction.
+    case bookkeeperMerged(expenseId: Int)
 
     /// GET /api/sales/sales-head-mobile?mode=desk — Sam's desk: stats, follow-up queue (with
     /// drafts), leads, questions, replies waiting (JWT, admin or billing.edit).
@@ -459,6 +462,11 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "mode", value: "suggestion"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
             return components?.url
 
+        case .bookkeeperMerged(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "merged"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
         case .salesDesk:
             var components = URLComponents(string: "\(baseURLString)/sales/sales-head-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "desk")]
@@ -721,6 +729,7 @@ enum APIEndpoint {
              .bookkeeperAction,
              .bookkeeperRisk,
              .bookkeeperSuggestion,
+             .bookkeeperMerged,
              .salesDesk,
              .salesThread,
              .salesAction,
@@ -819,6 +828,7 @@ enum APIEndpoint {
              .bookkeeperQueue,
              .bookkeeperRisk,
              .bookkeeperSuggestion,
+             .bookkeeperMerged,
              .salesDesk,
              .salesThread,
              .teamHeadBrief,

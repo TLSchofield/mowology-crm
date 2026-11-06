@@ -92,54 +92,106 @@
 
     // ── Possible duplicates: settled first, never offered for approval ──────
     var WAITING = ['draft', 'pending_approval'];
-    function dupCard(r) {
+    var undoTimer = null;
+    function dupMember(g, id) {
+        for (var i = 0; i < g.members.length; i++) { if (String(g.members[i].id) === String(id)) return g.members[i]; }
+        return null;
+    }
+    function dupThumb(r) {
         var name = r.vendor_name || r.vendor_name_raw || 'Unknown vendor';
-        var waiting = WAITING.indexOf(r.status) !== -1;
         var photo = r.receipt_path
             ? '<img class="mw-rc-dup-photo" src="' + esc(r.receipt_path) + '" alt="Receipt #' + esc(r.id) + '" data-zoomsrc="' + esc(r.receipt_path) + '">'
             : '<div class="mw-rc-nophoto">No photo</div>';
-        return '<div class="mw-rc-dup-side">' + photo +
-            '<div class="mw-rc-dup-facts"><b>' + esc(name) + '</b><span>' + esc(r.expense_date || '') + ' · ' + money(r.total) + '</span>' +
-            '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small>' +
-            (r.facts_line ? '<small class="mw-rc-facts" title="Printed on the receipt">🧾 ' + esc(r.facts_line) + '</small>' : '') + '</div>' +
-            (waiting
-                ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ It\'s a copy — set aside</button>'
-                : '<div class="mw-rc-dup-note">Already ' + (r.status === 'forwarded' ? 'sent to accounting' : 'approved') + ' — this one stays</div>') +
-          '</div>';
+        return '<div class="mw-rc-dup-side">' + photo + '<small>#' + esc(r.id) + ' · ' + esc(name) + '</small></div>';
     }
-    function renderDupe(msg) {
+    function dupFacts(g) {
+        var ids = g.member_ids || g.members.map(function (m) { return m.id; });
+        var head = '<tr><th scope="col"><span class="mw-rc-dup-sr">Fact</span></th>' + ids.map(function (id) { return '<th scope="col">#' + esc(id) + '</th>'; }).join('') + '</tr>';
+        var rows = (g.facts || []).map(function (f) {
+            var st = ['same', 'differs', 'missing', 'info'].indexOf(f.state) !== -1 ? f.state : 'info';
+            var cells = ids.map(function (id, i) {
+                var v = f.values ? f.values[i] : null;
+                var txt = (v === null || v === undefined || v === '') ? '–' : String(v);
+                return '<td class="mw-rc-dup-' + st + '">' + esc(txt) + (st === 'same' ? ' <span class="mw-rc-dup-tick" aria-label="matches">✓</span>' : '') + '</td>';
+            }).join('');
+            return '<tr><th scope="row">' + esc(f.label) + '</th>' + cells + '</tr>';
+        }).join('');
+        return '<div class="mw-rc-dup-tablewrap"><table class="mw-rc-dup-table"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>';
+    }
+    function dupMergeLabel(g) {
+        return g.copy_ids.length > 1 ? 'all into #' + g.keep_id : 'into #' + g.keep_id;
+    }
+    function renderDupe(msg, undoIds) {
         var g = dupes[0];
         var n = g.members.length;
-        root.innerHTML = '<div class="mw-rc-top"><span><b>Possible duplicate' + (n > 2 ? 's' : '') + '</b>' + (dupes.length > 1 ? ' · group 1 of ' + dupes.length : '') +
-                ' · sorted before anything is approved</span></div>' +
-            '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — ' : '') +
-                (n === 2 ? 'these two look' : 'these ' + n + ' look') + ' like the same purchase: ' +
-                (g.why && g.why.length ? esc(g.why.join('; ')) + '. ' : 'same total, within 3 days. ') +
-                'Set the copies aside and keep one — they\'re kept on record, not deleted, and a copy\'s photo moves to the one you keep if that has none.</div>' +
-            '<div class="mw-rc-dup">' + g.members.map(dupCard).join('') + '</div>' +
-            '<div class="mw-rc-actions">' +
-              '<button type="button" class="mw-rc-ed" data-dup-not="1">' + (n === 2 ? 'Not duplicates' : 'None of these are duplicates') + ' — approve ' + (n === 2 ? 'both' : 'them all') + '</button>' +
-              '<a class="mw-rc-sk" href="/crm/expenses_appstack.php">Compare every field on the receipts page →</a>' +
+        var swaps = (g.can_swap || []).filter(function (id) { return String(id) !== String(g.keep_id); });
+        var keepLine = g.keep_line || ('Keeping #' + g.keep_id);
+        var msgHtml = msg ? esc(msg) : '';
+        if (undoIds && undoIds.length) msgHtml += ' · <button type="button" class="mw-rc-dup-undo" data-dup-undo="' + esc(undoIds.join(',')) + '">Undo</button>';
+        root.innerHTML = '<div class="mw-rc-top"><span><b>Possible duplicate' + (n > 2 ? 's' : '') + '</b>' + (dupes.length > 1 ? ' · 1 of ' + dupes.length : '') + '</span></div>' +
+            '<div class="mw-rc-dup-verdict">' + esc(g.verdict || 'These look like the same purchase.') + '</div>' +
+            (g.confidence ? '<div class="mw-rc-dup-conf">' + esc(g.confidence) + '</div>' : '') +
+            dupFacts(g) +
+            '<div class="mw-rc-dup">' + g.members.map(dupThumb).join('') + '</div>' +
+            '<div class="mw-rc-dup-keep"><span>' + esc(keepLine) + '</span>' +
+              swaps.map(function (id) { return '<button type="button" class="mw-rc-dup-swap" data-dup-swap="' + esc(id) + '">' + (swaps.length > 1 || n > 2 ? 'Keep #' + esc(id) + ' instead' : 'Keep the other instead') + '</button>'; }).join('') +
             '</div>' +
-            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+            '<div class="mw-rc-dup-btns">' +
+              '<button type="button" class="mw-rc-dup-btn is-merge" data-dup-merge="1"><span class="mw-rc-dup-ico" aria-hidden="true">⇲</span><b>Merge</b><small>' + esc(dupMergeLabel(g)) + '</small></button>' +
+              '<button type="button" class="mw-rc-dup-btn is-diff" data-dup-not="1"><span class="mw-rc-dup-ico" aria-hidden="true">⧉</span><b>Different</b><small>' + (n > 2 ? 'keep them all' : 'keep both') + '</small></button>' +
+            '</div>' +
+            '<div class="mw-rc-dup-far"><a class="mw-rc-sk" href="/crm/expenses_appstack.php">Compare every field on the receipts page →</a></div>' +
+            '<div class="mw-rc-msg" role="status">' + msgHtml + '</div>';
     }
-    /** The copy goes into the one that stays: an approved/sent member, else the oldest other waiting one. */
-    function keeperFor(g, removeId) {
-        var others = g.members.filter(function (m) { return String(m.id) !== String(removeId); });
-        var settled = others.filter(function (m) { return WAITING.indexOf(m.status) === -1; });
-        return (settled[0] || others[0]).id;
+    /** "Keep the other instead": the chosen receipt stays, every other waiting member becomes a copy. */
+    function swapKeeper(id) {
+        var g = dupes[0];
+        var m = dupMember(g, id);
+        if (!g || !m) return;
+        g.keep_id = m.id;
+        g.copy_ids = g.members.filter(function (x) { return String(x.id) !== String(m.id) && WAITING.indexOf(x.status) !== -1; }).map(function (x) { return x.id; });
+        g.can_swap = g.members.filter(function (x) { return String(x.id) !== String(m.id) && WAITING.indexOf(x.status) !== -1; }).map(function (x) { return x.id; });
+        g.keep_line = 'Keeping #' + m.id + (WAITING.indexOf(m.status) === -1 ? ' (already in the books)' : '');
+        renderDupe();
     }
-    function settleDupe(removeId, notDupe) {
+    function settleDupe(notDupe) {
         if (busy || !dupes.length) return;
         var g = dupes[0];
+        if (!notDupe && !(g.copy_ids && g.copy_ids.length)) return;
         busy = true;
         var req = notDupe
             ? post({ mode: 'not_dupe', pairs: g.pairs })
-            : post({ mode: 'dupe_remove', copy_id: removeId, keep_id: keeperFor(g, removeId) });
+            : post({ mode: 'dupe_merge', keep_id: g.keep_id, copy_ids: g.copy_ids });
         req.then(function (d) {
             busy = false;
             if (!(d && d.ok)) { renderDupe((d && d.message) || 'Could not save'); return; }
-            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — they go on for approval.' : (d.message || 'Copy set aside.')); else renderDupe(notDupe ? 'Got it — not duplicates.' : (d.message || 'Copy set aside.')); });
+            var keep = g.keep_id;
+            var undoIds = (!notDupe && d.undo && d.merges) ? Object.keys(d.merges) : [];
+            var say = notDupe ? 'Got it — two purchases.' : 'Merged into #' + keep;
+            load().then(function () {
+                if (!dupes.length) render(say); else renderDupe(say, undoIds);
+                if (undoIds.length) {
+                    clearTimeout(undoTimer);
+                    undoTimer = setTimeout(function () {
+                        var b = root.querySelector('[data-dup-undo]');
+                        if (b && b.parentNode) { b.parentNode.innerHTML = esc(say); }
+                    }, 6000);
+                }
+            });
+        }).catch(function () { busy = false; renderDupe('Network error — try again'); });
+    }
+    function undoDupe(ids) {
+        if (busy || !ids.length) return;
+        busy = true;
+        clearTimeout(undoTimer);
+        // One copy after another: each gives back what the kept receipt took from it (same row).
+        var rs = [];
+        ids.reduce(function (p, id) {
+            return p.then(function () { return post({ mode: 'unmerge', copy_id: id, kind: 'undo' }).then(function (d) { rs.push(d); }); });
+        }, Promise.resolve()).then(function () {
+            busy = false;
+            var bad = rs.filter(function (d) { return !(d && d.ok); })[0];
+            load().then(function () { var m = bad ? (bad.message || 'Could not undo') : 'Undone — back as they were.'; if (dupes.length) renderDupe(m); else render(m); });
         }).catch(function () { busy = false; renderDupe('Network error — try again'); });
     }
 
@@ -736,9 +788,14 @@
             return;
         }
         if (e.target.hasAttribute && e.target.hasAttribute('data-ipenny')) { usePennyItems(); return; }
-        var dr = e.target.getAttribute && e.target.getAttribute('data-dup-remove');
-        if (dr) { settleDupe(dr, false); return; }
-        if (e.target.getAttribute && e.target.getAttribute('data-dup-not')) { settleDupe(null, true); return; }
+        var dupBtn = e.target.closest && e.target.closest('[data-dup-merge],[data-dup-not],[data-dup-swap],[data-dup-undo]');
+        if (dupBtn) {
+            if (dupBtn.hasAttribute('data-dup-merge')) settleDupe(false);
+            else if (dupBtn.hasAttribute('data-dup-not')) settleDupe(true);
+            else if (dupBtn.hasAttribute('data-dup-swap')) swapKeeper(dupBtn.getAttribute('data-dup-swap'));
+            else undoDupe(dupBtn.getAttribute('data-dup-undo').split(','));
+            return;
+        }
         var zsrc = e.target.getAttribute && e.target.getAttribute('data-zoomsrc');
         if (zsrc) { window.open(zsrc, '_blank', 'noopener'); return; }
         if (e.target.getAttribute('data-zoom')) { setZoom(true); render(); return; }

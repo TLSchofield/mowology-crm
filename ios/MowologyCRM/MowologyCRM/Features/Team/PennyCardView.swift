@@ -18,7 +18,7 @@ struct PennyCardView: View {
     @State private var zoomTarget: ZoomTarget?
     @State private var showReject = false
     @State private var rejectReason = ""
-    @State private var keepTarget: KeepTarget?
+    @State private var pagerTarget: PagerTarget?
 
     @Environment(\.openURL) private var openURL
 
@@ -51,16 +51,8 @@ struct PennyCardView: View {
         } message: {
             Text("It leaves Penny's desk and won't be booked. The person who sent it in sees the reason.")
         }
-        .alert(keepTarget?.title ?? "", isPresented: Binding(
-            get: { keepTarget != nil },
-            set: { if !$0 { keepTarget = nil } }
-        ), presenting: keepTarget) { target in
-            Button(target.removeCount == 1 ? "Remove the copy" : "Remove \(target.removeCount) copies", role: .destructive) {
-                Task { await vm.keep(target.member, in: target.group) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("They're set aside as duplicates — kept on record, not deleted. Anything the one you keep is missing (job, category, notes, line items, photo) is taken from them.")
+        .fullScreenCover(item: $pagerTarget) { t in
+            DupePhotoPager(urls: t.urls, labels: t.labels, start: t.start)
         }
     }
 
@@ -376,53 +368,175 @@ struct PennyCardView: View {
             .foregroundStyle(color)
     }
 
-    // MARK: - Duplicates
+    // MARK: - Duplicates (plan 2026-11-05: Penny's verdict and the printed facts first, two big square buttons)
 
     private func dupeCard(_ group: BKDupeGroup) -> some View {
-        let n = group.members.count
-        return VStack(alignment: .leading, spacing: 12) {
+        let keep = vm.keepId(for: group)
+        let copies = vm.copyIds(for: group)
+        let swaps = vm.swapOptions(for: group)
+        let members = group.members.sorted { $0.id < $1.id }
+        return VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(n > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
-                if vm.dupes.count > 1 {
-                    badge("group 1 of \(vm.dupes.count)", color: appStyle.meta)
-                }
+                Text(members.count > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
+                if vm.dupes.count > 1 { badge("1 of \(vm.dupes.count)", color: appStyle.meta) }
                 Spacer()
             }
-            Text("\(n == 2 ? "These two look" : "These \(n) look") like the same purchase: same total, within 3 days. Sorted before anything is approved.")
-                .font(appStyle.font(.subheadline))
-                .foregroundStyle(appStyle.meta)
 
+            // 1. Penny's verdict, large, and how sure she is with this vendor.
+            VStack(alignment: .leading, spacing: 4) {
+                Text(group.verdict ?? "Same total, within 3 days. Nothing printed proves it either way.")
+                    .font(appStyle.font(.title3, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let c = group.confidence {
+                    Text(c).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .combine)
+
+            // 2. The facts side by side.
+            if !group.facts.isEmpty { factsTable(group.facts, members: members, keep: keep) }
+
+            // 3. Photos — tap for full screen, swipe between them.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(group.members) { m in dupeMember(m, in: group) }
+                HStack(spacing: 10) {
+                    ForEach(Array(members.enumerated()), id: \.element.id) { i, m in dupeThumb(m, index: i, members: members, keep: keep) }
                 }
             }
 
-            Button {
-                Task { await vm.notDuplicates(group) }
-            } label: {
-                HStack {
-                    if vm.isBusy { ProgressView() }
-                    Text(n == 2 ? "Not duplicates — approve both" : "None of these are duplicates")
+            // 4. Which one is kept, in words; the swap well away from the buttons.
+            VStack(alignment: .leading, spacing: 6) {
+                Text(vm.keepLine(for: group))
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                ForEach(swaps, id: \.self) { id in
+                    Button(swaps.count == 1 ? "Keep the other instead" : "Keep #\(id) instead") { vm.chooseKeep(id, in: group) }
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(appStyle.tenant)
+                        .disabled(vm.isBusy)
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(appStyle.tenant)
+
+            // 5. Two square buttons, side by side, nothing else near them.
+            HStack(spacing: 16) {
+                squareButton(icon: "arrow.triangle.merge", title: "Merge",
+                             detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
+                    Task { await vm.merge(group) }
+                }
+                .disabled(copies.isEmpty)
+                .accessibilityHint("Sets #\(copies.map(String.init).joined(separator: ", #")) aside as a copy of #\(keep). You can undo it.")
+                squareButton(icon: "doc.on.doc", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
+                    Task { await vm.different(group) }
+                }
+                .accessibilityHint("They are separate purchases. Both go on for approval.")
+            }
             .disabled(vm.isBusy)
+            .padding(.top, 4)
 
-            Text("Same receipt? Tap \"Keep this one\" under the copy to keep — the others are set aside, not deleted.")
-                .font(appStyle.font(.caption))
-                .foregroundStyle(appStyle.meta)
+            undoOrMessage
+        }
+    }
+
+    /// 6. "Merged into #N · Undo" for about 6 seconds after a merge, else the usual message line.
+    @ViewBuilder private var undoOrMessage: some View {
+        if let m = vm.lastMerge {
+            HStack {
+                Text("Merged into #\(m.keepId)").font(appStyle.font(.subheadline, weight: .semibold))
+                Spacer()
+                Button("Undo") { Task { await vm.undoLastMerge() } }
+                    .font(appStyle.font(.subheadline, weight: .bold))
+                    .foregroundStyle(appStyle.tenant)
+                    .frame(minWidth: 64, minHeight: 44)
+            }
+            .padding(.horizontal, 12)
+            .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        } else {
             messageLine
         }
     }
 
-    private func dupeMember(_ m: BKDupeMember, in group: BKDupeGroup) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    /// A square button: a width-filling clear base made square (half the row each, about 160 pt on a 393 pt phone,
+    /// 120 at 320 pt), the button laid over it, so both buttons are exactly the same size whatever their text.
+    private func squareButton(icon: String, title: String, detail: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        let shape = RoundedRectangle(cornerRadius: appStyle.cornerRadius(16))
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                Button(action: action) {
+                    VStack(spacing: 8) {
+                        if vm.isBusy { ProgressView().tint(filled ? appStyle.onTenant : appStyle.tenant).frame(height: 42) }
+                        else { Image(systemName: icon).font(appStyle.font(size: 34, weight: .semibold)).frame(height: 42) }
+                        Text(title).font(appStyle.font(.title3, weight: .bold))
+                        Text(detail).font(appStyle.font(.footnote)).opacity(0.85)
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .foregroundStyle(filled ? appStyle.onTenant : appStyle.tenant)
+                    .background(filled ? appStyle.tenant : Color.clear, in: shape)
+                    .overlay(shape.strokeBorder(appStyle.tenant, lineWidth: filled ? 0 : 2))
+                    .contentShape(shape)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(title), \(detail)")
+            }
+    }
+
+    private func factsTable(_ rows: [BKDupeFactRow], members: [BKDupeMember], keep: Int) -> some View {
+        let labelW: CGFloat = 78
+        let colW: CGFloat = members.count > 2 ? 108 : 124
+        return ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 0) {
+                    Text("").frame(width: labelW, alignment: .leading)
+                    ForEach(members) { m in
+                        Text("#\(m.id)\(m.id == keep ? " · kept" : "")")
+                            .font(appStyle.font(.caption, weight: .bold))
+                            .foregroundStyle(m.id == keep ? appStyle.tenant : appStyle.meta)
+                            .frame(width: colW, alignment: .leading)
+                    }
+                }
+                .padding(.bottom, 4)
+                ForEach(rows) { row in
+                    HStack(alignment: .top, spacing: 0) {
+                        HStack(spacing: 3) {
+                            Text(row.label).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                            if row.state == "same" {
+                                Image(systemName: "checkmark").font(appStyle.font(size: 10, weight: .bold)).foregroundStyle(appStyle.tenant)
+                                    .accessibilityLabel("matches")
+                            }
+                        }
+                        .frame(width: labelW, alignment: .leading)
+                        ForEach(Array(row.values.enumerated()), id: \.offset) { _, v in
+                            Text(v ?? "–")
+                                .font(appStyle.font(.footnote, weight: row.state == "differs" ? .semibold : .regular))
+                                .foregroundStyle(v == nil ? appStyle.meta : appStyle.text)
+                                .lineLimit(2)
+                                .padding(.horizontal, 4).padding(.vertical, 2)
+                                .frame(width: colW - 6, alignment: .leading)
+                                .background(row.state == "differs" && v != nil ? appStyle.attention.opacity(0.18) : Color.clear,
+                                            in: RoundedRectangle(cornerRadius: 4))
+                                .frame(width: colW, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityValue(row.state == "differs" ? "differs" : row.state == "same" ? "matches" : "")
+                    Divider().overlay(appStyle.line)
+                }
+            }
+        }
+    }
+
+    private func dupeThumb(_ m: BKDupeMember, index: Int, members: [BKDupeMember], keep: Int) -> some View {
+        let urls = members.compactMap { $0.receiptPath.flatMap(URL.init(string:)) }
+        let labels = members.filter { $0.receiptPath.flatMap(URL.init(string:)) != nil }.map { "#\($0.id)" }
+        let start = labels.firstIndex(of: "#\(m.id)") ?? 0
+        return VStack(alignment: .leading, spacing: 4) {
             Group {
                 if let s = m.receiptPath, let url = URL(string: s) {
-                    Button { zoomTarget = ZoomTarget(url: url) } label: {
+                    Button { pagerTarget = PagerTarget(urls: urls, labels: labels, start: start) } label: {
                         AsyncImage(url: url) { phase in
                             if let img = phase.image { img.resizable().scaledToFill() }
                             else if phase.error != nil { Image(systemName: "photo").foregroundStyle(appStyle.meta) }
@@ -430,41 +544,17 @@ struct PennyCardView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Photo of receipt #\(m.id), opens full screen")
                 } else {
                     Label("No photo", systemImage: "photo").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                 }
             }
-            .frame(width: 150, height: 170)
+            .frame(width: 110, height: 130)
             .background(appStyle.sunk)
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-
-            Text(m.displayVendor).font(appStyle.font(.subheadline, weight: .bold)).lineLimit(1)
-            Text("\(m.expenseDate ?? "") · \(m.total.map { String(format: "$%.2f", $0) } ?? "—")")
-                .font(appStyle.font(.caption))
-            Text("#\(m.id) · \((m.status ?? "").replacingOccurrences(of: "_", with: " "))\(m.submittedBy.map { " · from \($0)" } ?? "")")
-                .font(appStyle.font(.caption))
-                .foregroundStyle(appStyle.meta)
-                .lineLimit(2)
-            if !m.isWaiting {
-                Text(m.status == "forwarded" ? "Already sent to accounting" : "Already approved")
-                    .font(appStyle.font(.caption))
-                    .foregroundStyle(appStyle.tenant)
-            }
-            if PennyCardViewModel.canKeep(m, in: group) {
-                Button {
-                    keepTarget = KeepTarget(member: m, group: group)
-                } label: {
-                    Label("Keep this one", systemImage: "checkmark.circle")
-                        .font(appStyle.font(.caption, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(appStyle.tenant)
-                .controlSize(.small)
-                .disabled(vm.isBusy)
-            }
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(m.id == keep ? appStyle.tenant : Color.clear, lineWidth: 2))
+            Text("#\(m.id)").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(m.id == keep ? appStyle.tenant : appStyle.meta)
         }
-        .frame(width: 150, alignment: .leading)
     }
 }
 
@@ -491,15 +581,50 @@ private struct ConfidenceChip: View {
     }
 }
 
-/// "Keep this one" waiting for its confirmation.
-private struct KeepTarget {
-    let member: BKDupeMember
-    let group: BKDupeGroup
+/// The duplicate photos open full screen, swipe between them.
+private struct PagerTarget: Identifiable {
+    let urls: [URL]
+    let labels: [String]
+    let start: Int
+    var id: String { urls.map(\.absoluteString).joined(separator: "|") + "#\(start)" }
+}
 
-    var removeCount: Int { PennyCardViewModel.copiesToRemove(keeping: member.id, in: group).count }
-    var title: String {
-        "Remove \(removeCount == 1 ? "1 copy" : "\(removeCount) copies"), keep #\(member.id)?"
+/// Full-screen pager over a duplicate group's photos: each page is the receipt zoom view (pinch, drag,
+/// double-tap); swipe sideways to the other receipt to compare the same spot.
+private struct DupePhotoPager: View {
+    let urls: [URL]
+    let labels: [String]
+    @State var selection: Int
+
+    init(urls: [URL], labels: [String], start: Int) {
+        self.urls = urls
+        self.labels = labels
+        _selection = State(initialValue: min(max(0, start), max(0, urls.count - 1)))
     }
+
+    var body: some View {
+        TabView(selection: $selection) {
+            ForEach(Array(urls.enumerated()), id: \.offset) { i, url in
+                ZoomableReceiptView(url: url)
+                    .overlay(alignment: .topLeading) {
+                        Text("\(labels[safe: i] ?? "") · \(i + 1) of \(urls.count)")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .padding()
+                    }
+                    .tag(i)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: urls.count > 1 ? .always : .never))
+        .background(Color.black.ignoresSafeArea())
+        .ignoresSafeArea()
+    }
+}
+
+private extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
 /// The photo open in the full-screen viewer.
@@ -507,3 +632,44 @@ private struct ZoomTarget: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
 }
+
+#if DEBUG
+/// `-mwDupeDemo two|three|first|done` (add `-mwTimelineField` for field mode): Penny's duplicate card with invented
+/// receipts — no sign-in, no client data. Merge answers as the server does (undo available).
+struct PennyDupeDemo: View {
+    let variant: String
+
+    private struct DemoAPI: BookkeeperDeskAPI {
+        let variant: String
+        func loadQueue() async throws -> BookkeeperQueueResponse {
+            let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Shell","Shell"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
+            let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total and date. Nothing printed proves it either way.","evidence":"total_date","confidence":"First Champion pair I've seen. Check the photos.","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
+            let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell : shell + "," + champ
+            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"dupes":["# + groups + "]}"
+            return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
+        }
+        func send(_ body: [String: Any]) async throws -> BookkeeperActionResponse {
+            let mode = body["mode"] as? String ?? ""
+            let json = mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
+                     : #"{"ok":true,"message":"Got it — not a duplicate. Both go on for approval."}"#
+            return try JSONDecoder().decode(BookkeeperActionResponse.self, from: Data(json.utf8))
+        }
+    }
+
+    @StateObject private var vm: PennyCardViewModel
+
+    init(variant: String) {
+        self.variant = variant
+        _vm = StateObject(wrappedValue: PennyCardViewModel(api: DemoAPI(variant: variant)))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView { PennyCardView(vm: vm).padding(16) }
+                .navigationTitle("Penny")
+                .itAppScreen()
+        }
+        .task { await vm.load() }
+    }
+}
+#endif

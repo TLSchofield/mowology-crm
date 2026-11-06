@@ -36,6 +36,16 @@ final class PennyCardViewModel: ObservableObject {
     // MARK: - Desk state
     @Published private(set) var queue: [BookkeeperItem] = []
     @Published private(set) var dupes: [BKDupeGroup] = []
+    /// "Keep the other instead": the receipt chosen to stay, per group id (else Penny's pick).
+    @Published private(set) var keepChoice: [String: Int] = [:]
+    /// The merge just made, for "Merged into #N · Undo" (cleared after about 6 seconds).
+    @Published private(set) var lastMerge: LastMerge?
+
+    struct LastMerge: Equatable {
+        let keepId: Int
+        let copyIds: [Int]
+        let at: Date
+    }
     @Published private(set) var categories: [String] = []
     @Published private(set) var tagOptions: [BKTagOption] = BKTagOption.defaults
     @Published private(set) var index = 0
@@ -183,6 +193,89 @@ final class PennyCardViewModel: ObservableObject {
         guard let r = await perform(["mode": "not_dupe", "pairs": group.pairs]) else { return }
         await load()
         show(r.message ?? "Got it — they go on for approval.", error: false)
+    }
+
+    // MARK: - Duplicates: Merge / Different / Undo (plan 2026-11-05)
+
+    /// The receipt that stays: your "Keep the other instead" choice, else Penny's (server keep_id),
+    /// else the same rule on an older server — one in the books, else the first sent in.
+    func keepId(for group: BKDupeGroup) -> Int {
+        if let c = keepChoice[group.id], group.members.contains(where: { $0.id == c }) { return c }
+        return Self.defaultKeep(group)
+    }
+
+    nonisolated static func defaultKeep(_ group: BKDupeGroup) -> Int {
+        if let k = group.keepId, group.members.contains(where: { $0.id == k }) { return k }
+        let sorted = group.members.sorted { $0.id < $1.id }
+        return (sorted.first { !$0.isWaiting } ?? sorted.first)?.id ?? 0
+    }
+
+    /// Why that one stays, in words: Penny's reason for her pick, "your pick" for a swap.
+    func keepLine(for group: BKDupeGroup) -> String {
+        let k = keepId(for: group)
+        if keepChoice[group.id] == k, k != group.keepId { return "Keeping #\(k) (your pick)" }
+        if let r = group.keepReason, k == group.keepId { return "Keeping #\(k) (\(r))" }
+        return "Keeping #\(k)"
+    }
+
+    /// The receipts Merge sets aside: every other member still waiting.
+    func copyIds(for group: BKDupeGroup) -> [Int] { Self.copiesToRemove(keeping: keepId(for: group), in: group) }
+
+    /// Receipts that may be kept instead. Never when one is already in the books (it always stays).
+    func swapOptions(for group: BKDupeGroup) -> [Int] { Self.swapOptions(keeping: keepId(for: group), in: group) }
+
+    nonisolated static func swapOptions(keeping keepId: Int, in group: BKDupeGroup) -> [Int] {
+        if group.members.contains(where: { !$0.isWaiting }) { return [] }
+        return group.members.filter { $0.id != keepId }.map(\.id)
+    }
+
+    func chooseKeep(_ id: Int, in group: BKDupeGroup) {
+        guard Self.swapOptions(keeping: keepId(for: group), in: group).contains(id) else { return }
+        keepChoice[group.id] = id
+    }
+
+    func merge(_ group: BKDupeGroup) async {
+        guard !isBusy else { return }
+        let keep = keepId(for: group)
+        let copies = copyIds(for: group)
+        guard keep > 0, !copies.isEmpty else { return }
+        guard let r = await perform(["mode": "merge", "keep_id": keep, "copy_ids": copies]) else { return }
+        keepChoice[group.id] = nil
+        await load()
+        if r.undo == true {
+            let m = LastMerge(keepId: keep, copyIds: copies, at: Date())
+            lastMerge = m
+            show("Merged into #\(keep)", error: false)
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                if self?.lastMerge == m { self?.lastMerge = nil }
+            }
+        } else {
+            show(r.message ?? "Merged into #\(keep).", error: false)
+        }
+    }
+
+    /// Undo straight after Merge: each copy goes back and the pair is asked about again (nothing learned).
+    func undoLastMerge() async {
+        guard let m = lastMerge, !isBusy else { return }
+        lastMerge = nil
+        var last: BookkeeperActionResponse?
+        for id in m.copyIds {
+            guard let r = await perform(["mode": "unmerge", "copy_id": id, "kind": "undo"]) else { await load(); return }
+            last = r
+        }
+        await load()
+        show(last?.message ?? "Undone — back to decide again.", error: false)
+    }
+
+    /// "Different": two purchases — remembered for good, both go on for approval.
+    func different(_ group: BKDupeGroup) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "not_dupe", "pairs": group.pairs]) else { return }
+        keepChoice[group.id] = nil
+        lastMerge = nil
+        await load()
+        show(r.message ?? "Got it — two purchases.", error: false)
     }
 
     /// "Keep this one": every other waiting copy in the group is set aside (rejected
