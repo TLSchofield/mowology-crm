@@ -8,12 +8,14 @@ if (!defined('APP_ROOT')) {
 }
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+require_once PUBLIC_ROOT . '/loginAuth/auth.php';   // getUserPermissions() for jwtUserHasPermission()
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') { http_response_code(405); echo json_encode(['ok' => false, 'error' => 'method_not_allowed']); exit; }
 $user = requireJwt();
-if (!jwtIsAdmin((string)$user['role'])) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'forbidden']); exit; }
+// Connecting QuickBooks needs settings.edit, as on the web (security review 2026-11-06, #3).
+if (!jwtIsAdmin((string)$user['role']) || !jwtUserHasPermission($user, 'settings.edit')) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'forbidden']); exit; }
 $db = getDB();
 $service = new QboConnectionService($db);
 $missing = $service->missing();
