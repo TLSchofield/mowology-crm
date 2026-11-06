@@ -105,9 +105,22 @@ class ExpenseCreateGuard
             if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
             $s = $this->db->prepare("SELECT GET_LOCK(?, 10)");
             $s->execute([self::lockName($mediaId)]);
-            if ((int)$s->fetchColumn() === 1) $this->held[$mediaId] = true;
+            $got = $s->fetchColumn();
         } catch (Throwable $e) {
-            // No lock: the SELECT below still catches every request but a true race.
+            // GET_LOCK itself unavailable: the SELECT below still catches every request but a true race.
+            return;
         }
+        if (!self::lockAcquired($got)) {
+            // Another save of this photo still holds it (Codex nightly 2026-11-05): carrying on unlocked could insert
+            // a second expense beside the one being written. Refuse; the retry finds that expense and dedupes.
+            throw new RuntimeException('This receipt is still being saved — try again in a moment.');
+        }
+        $this->held[$mediaId] = true;
+    }
+
+    /** GET_LOCK answers 1 (got it), 0 (timed out) or NULL (error). Pure (tested). */
+    public static function lockAcquired($result): bool
+    {
+        return $result !== null && $result !== false && (int)$result === 1;
     }
 }

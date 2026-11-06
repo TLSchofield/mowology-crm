@@ -265,6 +265,9 @@ class DepositBackfillService
             if ($r['action'] === 'link_crm') {
                 try {
                     $this->db->beginTransaction();
+                    // Two runs at once both saw the deposit unallocated and each linked a payment (Codex nightly
+                    // 2026-11-05): the deposit row is locked first, so the second run sees the first one's link.
+                    $this->lockDeposit($tx);
                     $ids = [];
                     foreach ($r['pick'] as $p) $ids = array_merge($ids, $this->allocationsFor($p, $r['deposit'], $userId));
                     $rec->linkAllocationsToDeposit($tx, $ids, $userId);
@@ -278,7 +281,11 @@ class DepositBackfillService
                     $out['skipped'][] = ['deposit' => $tx, 'why' => $e->getMessage()];
                 }
             } elseif ($r['action'] === 'source_jobber') {
+                // One transaction too: a failure after some source rows were written used to report the deposit
+                // skipped while those rows stayed (Codex nightly 2026-11-05).
                 try {
+                    $this->db->beginTransaction();
+                    $this->lockDeposit($tx);
                     $ins = $this->db->prepare("
                         INSERT IGNORE INTO bank_deposit_sources (transaction_id, source, source_id, contact_id, payer_name, method, amount, created_by)
                         VALUES (?, 'jobber_payment', ?, ?, ?, ?, ?, ?)
@@ -299,8 +306,10 @@ class DepositBackfillService
                         WHERE id = ?
                     ")->execute([mb_substr($refs, 0, 100), count($contacts) === 1 ? $contacts[0] : null,
                                  'Jobber-era payment: ' . $refs . ($payer !== '' ? ' — ' . $payer : '') . ' (deposit backfill ' . date('Y-m-d') . ')', $tx]);
+                    $this->db->commit();
                     $out['sourced']++;
                 } catch (Throwable $e) {
+                    if ($this->db->inTransaction()) $this->db->rollBack();
                     $out['skipped'][] = ['deposit' => $tx, 'why' => $e->getMessage()];
                 }
             }
@@ -448,6 +457,13 @@ class DepositBackfillService
      * it is already paid). Caller holds the transaction.
      * @return int[]
      */
+    /** Hold the deposit row for this transaction (MySQL only; SQLite in tests has no row locks). */
+    private function lockDeposit(int $txId): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        $this->db->prepare("SELECT id FROM accounting_transactions WHERE id = ? FOR UPDATE")->execute([$txId]);
+    }
+
     private function allocationsFor(array $cand, array $dep, int $userId): array
     {
         $s = $this->db->prepare("SELECT id, amount FROM invoice_payment_allocations WHERE invoice_id = ? AND transaction_id IS NULL");

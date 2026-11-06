@@ -42,4 +42,14 @@ class ExpenseAccessRulesTest extends TestCase
         $this->assertFalse(ExpenseService::isOffice('staff', false));
         $this->assertFalse(ExpenseService::isOffice('user', false));
     }
+
+    public function test_line_edits_and_rescans_use_the_same_rules(): void
+    {
+        // Codex nightly 2026-11-05: line edits skipped the approved check, and a rescan read any media id.
+        $root = dirname(__DIR__, 3) . '/app/Modules/Expenses/Api/';
+        $lines = file_get_contents($root . 'expense-line-items.php');
+        $this->assertStringContainsString('ExpenseService::editBlockReason(', $lines, 'line edits follow the header edit rule');
+        $intake = file_get_contents($root . 'receipt-intake.php');
+        $this->assertStringContainsString('ExpenseService::currentUserCanSeeReceiptMedia($db, $rescanMediaId', $intake, 'a rescan only reads a photo you may open');
+    }
 }

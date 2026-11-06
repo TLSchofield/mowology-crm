@@ -337,10 +337,17 @@ class ExpenseGate
                          || (bool)array_intersect(array_keys($set), self::BOOKS);
             $repost = $wasPosted && $isPosted && $booksChanged;
             $unpost = $wasPosted && !$isPosted;
-            // Inside a caller's transaction the books change joins it (posting no longer opens its own),
-            // strictly: a failure throws so the caller rolls back. It used to "wait for the nightly
-            // repost" — a job that never existed (Fable review 2026-10-13).
-            $strict = !$own;
+            // The books change joins this write's transaction, strictly: a failure throws and nothing is saved.
+            // Inside a caller's transaction that was already so (Fable review 2026-10-13); when the gate owned the
+            // transaction the receipt committed first and a failed repost/reversal was only logged, leaving the
+            // books on the old receipt with no runner to repair it (Codex nightly 2026-11-05). Same rule as delete.
+            $userId = $actor['id'] ?? null;
+            $reposted = false;
+            if ($repost) {
+                $reposted = $this->hooks->repost($id, $userId, 'receipt changed after posting (' . $source . ')', true);
+            } elseif ($unpost) {
+                $this->hooks->unpost($id, $userId, 'receipt ' . ($after['status'] ?? 'changed') . ' after posting', true);
+            }
 
             $this->audit($id, $action, $source, $actor, $changed,
                 $create ? [] : self::auditValues(array_intersect_key($before, $set)) + ($linesChange ? ['lines' => $linesBefore] : []) + ($splitChange ? ['allocations' => self::splitSummary($splitBefore)] : []),
@@ -374,14 +381,10 @@ class ExpenseGate
         }
         $this->learn($id, $create, $before, $after, $changed, $changes, $actor, $source, $opts, $lineBefore, $lineAfter, $extra);
 
-        $userId = $actor['id'] ?? null;
         if ($repost) {
-            $result['reposted'] = $this->hooks->repost($id, $userId, 'receipt changed after posting (' . $source . ')', $strict);
-            // Said out loud (Codex review 2026-10-14): the edit is saved but the books still show the
-            // old receipt until the repost runner catches it.
-            if (!$result['reposted']) $result['repost_failed'] = true;
-        } elseif ($unpost) {
-            $this->hooks->unpost($id, $userId, 'receipt ' . ($after['status'] ?? 'changed') . ' after posting', $strict);
+            $result['reposted'] = $reposted;
+            // Not posted yet, or migration 1131 missing: saved, and the books follow at the nightly sync.
+            if (!$reposted) $result['repost_failed'] = true;
         }
         return $result;
     }

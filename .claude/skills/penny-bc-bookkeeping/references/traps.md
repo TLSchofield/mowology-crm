@@ -346,6 +346,7 @@ one of them. **Rule:** one account number, one meaning — check the chart's nam
   - `BankLineMoveService::move()` is all-or-nothing; inside a caller's transaction a failure throws.
   - Deleting a posted receipt is refused if its entry can't be reversed (`ExpenseGateHooks::unpost(..., strict)`).
   - Receipt edits inside a caller's transaction (Penny's card) re-post at once — the "nightly repost" never existed.
+  - **2026-11-05 (Codex nightly):** the same was still true when the gate owned the transaction — the receipt committed, then a failed repost/unpost was only logged. Now the books change runs strictly before the gate commits, always; `BankTransferDirectionRepair` reverses + reposts in one transaction per line; deposit backfill locks the deposit row and sources Jobber payments in one transaction (branch `codex-fixes/2026-11-05`, not deployed).
   - Undoing an import / removing a duplicate line reverses its entries (`BankImportService::reverseJournalForLines()`).
   - On a card statement a line the parser called a charge ("GOOGLE *PAYMENT") is never a payoff.
 - **Rule:** see operating-rules "A books write lands in both places or neither".

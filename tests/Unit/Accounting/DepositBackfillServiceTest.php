@@ -115,4 +115,25 @@ final class DepositBackfillServiceTest extends TestCase
         $this->assertSame(3780.00, $s['income_drop']);
         $this->assertSame(1, $s['by_action']['review']['n']);
     }
+
+    public function testAFailedJobberSourcingKeepsNoSourceRows(): void
+    {
+        // Codex nightly 2026-11-05: source rows written before a failure stayed while the deposit read "skipped".
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->exec("CREATE TABLE bank_deposit_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, transaction_id INTEGER, source TEXT, source_id INTEGER,
+                   contact_id INTEGER, payer_name TEXT, method TEXT, amount REAL, created_by INTEGER, UNIQUE (source, source_id))");
+        // No payment_reference column: the bank-line update after the inserts fails.
+        $db->exec("CREATE TABLE accounting_transactions (id INTEGER PRIMARY KEY, notes TEXT)");
+        $db->exec("INSERT INTO accounting_transactions (id) VALUES (7)");
+        $plan = [['action' => 'source_jobber', 'deposit' => ['id' => 7, 'amount' => 946.45],
+                  'pick' => [self::c('job58', 'jobber', 451.37, 'Cheque', '2026-03-24'), self::c('job59', 'jobber', 495.08, 'Cheque', '2026-03-24')]]];
+
+        $out = (new DepositBackfillService($db))->apply($plan, 1);
+
+        $this->assertSame(0, $out['sourced']);
+        $this->assertCount(1, $out['skipped']);
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM bank_deposit_sources")->fetchColumn(), 'skipped means nothing was written');
+        $this->assertFalse($db->inTransaction());
+    }
 }

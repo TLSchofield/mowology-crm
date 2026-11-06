@@ -222,6 +222,36 @@ class ExpenseGateTest extends TestCase
         $this->assertSame(1, $this->hooks->count('unpost'), 'rejected after posting: its entry is reversed');
     }
 
+    public function test_a_failed_repost_saves_nothing(): void
+    {
+        // Codex nightly 2026-11-05: the receipt committed first and a failed repost was only logged,
+        // so it read $210 while the books kept the old amount. Now the change and the books go together.
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $total = $this->row(412)['total'];
+        $this->hooks->repostThrows = 'ledger unavailable';
+        try {
+            $this->gate->apply(412, ['total' => 210.00], self::TIM, 'desktop_modal');
+            $this->fail('a repost failure must surface');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('ledger unavailable', $e->getMessage());
+        }
+        $this->assertSame($total, $this->row(412)['total'], 'the receipt keeps what the books show');
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public function test_a_failed_reversal_keeps_the_receipt_approved(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->hooks->unpostThrows = 'ledger unavailable';
+        try {
+            $this->gate->apply(412, ['status' => 'rejected', 'rejection_reason' => 'dupe'], self::TIM, 'approval', ['transition' => 'reject']);
+            $this->fail('a reversal failure must surface');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('ledger unavailable', $e->getMessage());
+        }
+        $this->assertSame('approved', $this->row(412)['status'], 'not rejected while its entry is still live');
+    }
+
     public function test_inside_someone_elses_transaction_the_repost_joins_it(): void
     {
         // Was "the repost waits for the nightly repost" — a job that never existed (Fable 2026-10-13).
