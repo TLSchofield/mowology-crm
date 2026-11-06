@@ -415,3 +415,5 @@ Tim asked which AreaMap features fit `crm/products/area-measurement.php`. Alread
 - **Metric toggle** (m², ha, m): cheap; matters once Ittai has tenants who think metric.
 - **Feature pin with coordinates** (a tree, a valve box) saved on the property: builds on the 2026-11-02 photo pins; same `media_assets` position columns or a small `property_markers` table.
 - Skip: GPS boundary walking (city lots trace faster from satellite; background tracking is heavy in the WebView), KML/GPX/GeoJSON export (no buyer).
+- **Otto's icon (Tim, 2026-11-06):** "Otto is a hex icon now I thought". Check which icon Otto (operations head) shows in the iPhone app against the current head icons and match it. Own chat.
+- **Add a job: repeat options (Tim, 2026-11-06, iPhone "New client" step):** the Week / 2 weeks / Month segmented control is hard to tap; wants a day picker, Annual and Custom repeat, and "best day to service regularly". Bring the iPhone sheet up to the web's repeat options. Own chat.

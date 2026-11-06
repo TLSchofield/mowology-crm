@@ -557,7 +557,7 @@ private struct MeniscusBarDemo: View {
             case "Receipts": return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
                                                    beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
             case "Add":      return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
-                                                   beadIcon: Image(systemName: "xmark"), beadLabel: "Close", longPressLabel: "Add a job")
+                                                   beadTurn: 45, beadLabel: "Close", longPressLabel: "Add a job")
             default:         return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1))
             }
         }

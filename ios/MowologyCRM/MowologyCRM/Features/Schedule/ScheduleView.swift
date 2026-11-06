@@ -353,7 +353,7 @@ struct ScheduleView: View {
                 pickerDate = viewModel.selectedDate
                 showDatePicker = true
             } label: {
-                Text(viewModel.selectedDate.formatted(.dateTime.month(.wide)))
+                Text(viewModel.selectedDate.formatted(.dateTime.month(.abbreviated)))   // "Nov": "November" wrapped beside the Clock in chip (Tim, 2026-11-06)
                     .font(appStyle.font(.headline, weight: .semibold))
                     .foregroundStyle(appStyle.text)
             }

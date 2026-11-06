@@ -93,9 +93,9 @@ struct MainTabView: View {
                     : ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"),
                                      beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
             case .account:  return ItMeniscusItem(id: index, title: "Account", icon: Image(systemName: "person.fill"))
-            // Add is an action, not a page: open, the bead shows × and a tap on it closes the dial.
+            // Add is an action, not a page: open, the bead's + spins into × and a tap on it closes the dial.
             case .add:      return ItMeniscusItem(id: index, title: "Add", icon: Image(systemName: "plus"),
-                                                  beadIcon: Image(systemName: "xmark"), beadLabel: "Close",
+                                                  beadTurn: 45, beadLabel: "Close",
                                                   longPressLabel: "Add a job")
             case .time:     return ItMeniscusItem(id: index, title: "Time", icon: Image(systemName: "clock.fill"))
             }
