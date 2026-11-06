@@ -19,6 +19,7 @@
  *        same call for app builds before 1.3.89.
  * POST {mode: 'unmerge', copy_id, kind: undo|split}     Undo straight after a merge (asked again) or Split off later
  *        (two purchases: remembered, Penny learns) — DuplicateReceiptService::unmerge().
+ * POST {mode: 'undismiss', pairs: [[a, b], ...]}   Undo "Different" on an answered group (DuplicateReceiptService::undismiss).
  * GET  ?mode=merged&expense_id=N   Copies merged into this receipt ("Also on this purchase"), photos signed for the app.
  * Each dupes group also carries Penny's verdict, keep_id / keep_line / copy_ids / merge_label / can_swap,
  * confidence (her record with the vendor) and facts [{label, values[], state: same|differs|missing|info}].
@@ -157,7 +158,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done']);
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done']);
 
     if ($mode === 'risk') {
         // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
@@ -306,6 +307,20 @@ try {
             echo json_encode((new DuplicateReceiptService($db))->unmerge(
                 (int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')
             ));
+            break;
+        }
+
+        case 'undismiss': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $dup = new DuplicateReceiptService($db);
+            $res = ['ok' => false, 'message' => 'Nothing to undo'];
+            $db->beginTransaction();
+            foreach ((array)($input['pairs'] ?? []) as $pr) {
+                $res = $dup->undismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
+                if (!$res['ok']) break;
+            }
+            $res['ok'] ? $db->commit() : $db->rollBack();
+            echo json_encode($res);
             break;
         }
 

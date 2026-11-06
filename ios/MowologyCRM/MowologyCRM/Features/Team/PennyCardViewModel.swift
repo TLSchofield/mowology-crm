@@ -36,24 +36,67 @@ final class PennyCardViewModel: ObservableObject {
     // MARK: - Desk state
     @Published private(set) var queue: [BookkeeperItem] = []
     @Published private(set) var dupes: [BKDupeGroup] = []
-    /// The duplicate group on screen (a carousel: swipe sideways; after an answer the next one shows).
-    @Published private(set) var dupeIndex = 0
+    // MARK: Duplicates carousel (Tim, 2026-11-06: "I should be able to swipe back to 1 and view the merged bill and
+    // unmerge it if I want"). The carousel walks every group seen since the card opened. An open group is on the
+    // server's list; an answered one keeps its last snapshot and what was decided, so it can be viewed and reversed.
+
+    enum DupeOutcome: Equatable {
+        case merged(keep: Int, copies: [Int])
+        case different(pairs: [[Int]])
+        case elsewhere                      // gone from the list without an answer here (web card, another phone)
+    }
+
+    @Published private(set) var dupeSession: [String] = []
+    @Published private(set) var dupeSnapshots: [String: BKDupeGroup] = [:]
+    @Published private(set) var dupeOutcomes: [String: DupeOutcome] = [:]
+    @Published private(set) var dupePos = 0
     @Published private(set) var dupeSwipeForward = true
-    var currentDupe: BKDupeGroup? { dupes.isEmpty ? nil : dupes[min(dupeIndex, dupes.count - 1)] }
-    func nextDupe() { guard dupes.count > 1 else { return }; dupeSwipeForward = true; dupeIndex = (dupeIndex + 1) % dupes.count }
-    func showDupe(_ i: Int) { guard dupes.indices.contains(i), i != dupeIndex else { return }; dupeSwipeForward = i > dupeIndex; dupeIndex = i }
-    func previousDupe() { guard dupes.count > 1 else { return }; dupeSwipeForward = false; dupeIndex = (dupeIndex - 1 + dupes.count) % dupes.count }
+    /// "On to the receipts" after the last group: the carousel steps aside until a new duplicate turns up.
+    @Published private(set) var dupesFinished = false
+
+    var dupeOpenIds: Set<String> { Set(dupes.map(\.id)) }
+    var currentDupeId: String? { dupeSession.indices.contains(dupePos) ? dupeSession[dupePos] : nil }
+    var currentDupe: BKDupeGroup? {
+        guard let id = currentDupeId else { return nil }
+        return dupes.first { $0.id == id } ?? dupeSnapshots[id]
+    }
+    /// nil while the group is open; else what was decided.
+    func dupeOutcome(_ id: String) -> DupeOutcome? {
+        dupeOpenIds.contains(id) ? nil : (dupeOutcomes[id] ?? .elsewhere)
+    }
+    var showsDupes: Bool { !dupeSession.isEmpty && !dupesFinished }
+    var dupesAllAnswered: Bool { dupes.isEmpty && !dupeSession.isEmpty }
+
+    private func trackDupes() {
+        for g in dupes {
+            dupeSnapshots[g.id] = g
+            dupeOutcomes[g.id] = nil                    // back on the list (Unmerge / Undo): open again
+            if !dupeSession.contains(g.id) { dupeSession.append(g.id); dupesFinished = false }
+        }
+        if dupePos >= dupeSession.count { dupePos = max(0, dupeSession.count - 1) }
+    }
+
+    func nextDupe() { move(to: dupePos + 1) }
+    func previousDupe() { move(to: dupePos - 1) }
+    func showDupe(id: String) { if let i = dupeSession.firstIndex(of: id) { move(to: i) } }
+    private func move(to i: Int) {
+        guard dupeSession.indices.contains(i), i != dupePos else { return }
+        dupeSwipeForward = i > dupePos
+        dupePos = i
+    }
+    /// After an answer: the next open group after this one (wrapping), else stay on the answered card.
+    private func advanceToOpen() {
+        let n = dupeSession.count
+        guard n > 0 else { return }
+        for step in 1...n {
+            let i = (dupePos + step) % n
+            if dupeOpenIds.contains(dupeSession[i]) { move(to: i); return }
+        }
+    }
+    func finishDupes() { dupesFinished = true }
 
     /// "Keep the other instead": the receipt chosen to stay, per group id (else Penny's pick).
     @Published private(set) var keepChoice: [String: Int] = [:]
-    /// The merge just made, for "Merged into #N · Undo" (cleared after about 6 seconds).
-    @Published private(set) var lastMerge: LastMerge?
-
-    struct LastMerge: Equatable {
-        let keepId: Int
-        let copyIds: [Int]
-        let at: Date
-    }
     @Published private(set) var categories: [String] = []
     @Published private(set) var tagOptions: [BKTagOption] = BKTagOption.defaults
     @Published private(set) var index = 0
@@ -132,7 +175,7 @@ final class PennyCardViewModel: ObservableObject {
         lines = r.lines
         queue = r.queue
         dupes = r.dupes
-        if dupeIndex >= dupes.count { dupeIndex = 0 }
+        trackDupes()
         categories = r.categories
         tagOptions = r.assetTags.isEmpty ? BKTagOption.defaults : r.assetTags
         index = 0
@@ -250,41 +293,42 @@ final class PennyCardViewModel: ObservableObject {
         guard keep > 0, !copies.isEmpty else { return }
         guard let r = await perform(["mode": "merge", "keep_id": keep, "copy_ids": copies]) else { return }
         keepChoice[group.id] = nil
+        dupeOutcomes[group.id] = .merged(keep: keep, copies: copies)
         await load()
-        if r.undo == true {
-            let m = LastMerge(keepId: keep, copyIds: copies, at: Date())
-            lastMerge = m
-            show("Merged into #\(keep)", error: false)
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
-                if self?.lastMerge == m { self?.lastMerge = nil }
-            }
-        } else {
-            show(r.message ?? "Merged into #\(keep).", error: false)
-        }
+        show(r.undo == false ? (r.message ?? "Merged into #\(keep).") : "Merged into #\(keep). Swipe back to unmerge.", error: false)
+        advanceToOpen()
     }
 
-    /// Undo straight after Merge: each copy goes back and the pair is asked about again (nothing learned).
-    func undoLastMerge() async {
-        guard let m = lastMerge, !isBusy else { return }
-        lastMerge = nil
-        var last: BookkeeperActionResponse?
-        for id in m.copyIds {
-            guard let r = await perform(["mode": "unmerge", "copy_id": id, "kind": "undo"]) else { await load(); return }
-            last = r
-        }
-        await load()
-        show(last?.message ?? "Undone — back to decide again.", error: false)
-    }
-
-    /// "Different": two purchases — remembered for good, both go on for approval.
+    /// "Different": two purchases — remembered, both go on for approval.
     func different(_ group: BKDupeGroup) async {
         guard !isBusy else { return }
         guard let r = await perform(["mode": "not_dupe", "pairs": group.pairs]) else { return }
         keepChoice[group.id] = nil
-        lastMerge = nil
+        dupeOutcomes[group.id] = .different(pairs: group.pairs)
         await load()
         show(r.message ?? "Got it — two purchases.", error: false)
+        advanceToOpen()
+    }
+
+    /// Reverse an answered group from its card: Unmerge (each copy back, the pair asked again, Penny's lesson taken
+    /// back) or undo "Different". The group comes back open on this card.
+    func reopen(_ id: String) async {
+        guard !isBusy, let outcome = dupeOutcome(id) else { return }
+        var last: BookkeeperActionResponse?
+        switch outcome {
+        case .merged(_, let copies):
+            for c in copies {
+                guard let r = await perform(["mode": "unmerge", "copy_id": c, "kind": "undo"]) else { await load(); return }
+                last = r
+            }
+        case .different(let pairs):
+            guard let r = await perform(["mode": "undismiss", "pairs": pairs]) else { return }
+            last = r
+        case .elsewhere:
+            return
+        }
+        await load()
+        show(last?.message ?? "Back to decide again.", error: false)
     }
 
     /// "Keep this one": every other waiting copy in the group is set aside (rejected
@@ -438,7 +482,7 @@ final class PennyCardViewModel: ObservableObject {
         let savedIsError = messageIsError
         queue = r.queue
         dupes = r.dupes
-        if dupeIndex >= dupes.count { dupeIndex = 0 }
+        trackDupes()
         if !r.categories.isEmpty { categories = r.categories }
         index = keepId.flatMap { id in queue.firstIndex { $0.suggestionId == id } } ?? 0
         fillForm()

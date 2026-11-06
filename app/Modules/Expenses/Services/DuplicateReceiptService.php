@@ -643,6 +643,28 @@ class DuplicateReceiptService
         PennyLessons::expense($this->db, $copyId, 'duplicate', $said, $correct, $source, $by, $evidence !== '' ? 'evidence: ' . $evidence : null, $agreement);
     }
 
+    /**
+     * Take back a person's "not a duplicate" (Penny's card: swipe back to an answered group, Undo — Tim 2026-11-06). The
+     * pair is asked about again and the lesson that answer wrote is removed. Penny's own dismissals from printed facts
+     * (dismissed_by NULL) are not touched; a pair split off after a merge is undone through unmerge(), not here.
+     */
+    public function undismiss(int $a, int $b, array $user): array
+    {
+        if (!$a || !$b || $a === $b) return ['ok' => false, 'message' => 'Pick two receipts'];
+        if (!$this->dismissalsReady()) return ['ok' => false, 'message' => 'Needs migration 1127'];
+        [$lo, $hi] = [min($a, $b), max($a, $b)];
+        $del = $this->db->prepare("DELETE FROM expense_duplicate_dismissals WHERE expense_a = ? AND expense_b = ? AND dismissed_by IS NOT NULL");
+        $del->execute([$lo, $hi]);
+        if ($del->rowCount() < 1) return ['ok' => false, 'message' => "#{$lo} and #{$hi} weren't marked as two purchases by a person"];
+        try {
+            $this->db->prepare("DELETE FROM head_lessons WHERE head = 'penny' AND source = 'duplicate_dismiss' AND ref_type = 'expense' AND ref_id = ?")
+               ->execute([$lo]);
+        } catch (Throwable $e) {
+            // no head_lessons table — nothing was recorded
+        }
+        return ['ok' => true, 'message' => "Undone — #{$lo} and #{$hi} are back to decide."];
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────

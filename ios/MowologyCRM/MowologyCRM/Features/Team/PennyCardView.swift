@@ -30,7 +30,7 @@ struct PennyCardView: View {
                     .padding(.vertical, 40)
             } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty {
                 errorState(err)
-            } else if let group = vm.currentDupe {
+            } else if vm.showsDupes, let group = vm.currentDupe {
                 dupeCard(group)
                     .id(group.id)
                     .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .trailing : .leading).combined(with: .opacity),
@@ -383,6 +383,7 @@ struct PennyCardView: View {
         let copies = vm.copyIds(for: group)
         let swaps = vm.swapOptions(for: group)
         let members = group.members.sorted { $0.id < $1.id }
+        let outcome = vm.dupeOutcome(group.id)
         // Fits one phone screen (Tim, 2026-11-06): matching facts fold into one ticked line, the table keeps only
         // what differs or wasn't read, status and sender sit under the photos, the squares are capped.
         let compared = group.facts.filter { $0.state != "info" }
@@ -390,11 +391,13 @@ struct PennyCardView: View {
         let rows = compared   // every compared fact, auth number included (Tim, 2026-11-06: "auth should be in the table")
         let info = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
         return VStack(alignment: .leading, spacing: 10) {
-            if vm.dupes.count > 1 {
+            if vm.dupeSession.count > 1 {
                 dupePager
             } else {
                 Text(members.count > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
             }
+            // Undo sits up here, under the numbers: at the bottom the tab bar's Kaname button covered it.
+            undoOrMessage
 
             // 1. Penny's verdict, large, and how sure she is with this vendor.
             VStack(alignment: .leading, spacing: 4) {
@@ -418,7 +421,8 @@ struct PennyCardView: View {
                 HStack(alignment: .top, spacing: members.count > 2 ? 10 : 16) {
                     ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
                         dupeThumb(m, index: i, members: members, keep: keep,
-                                  status: info["Status"]?[safe: i] ?? nil, sender: info["Sent in by"]?[safe: i] ?? nil,
+                                  status: Self.statusAfter(outcome, member: m.id) ?? info["Status"]?[safe: i] ?? nil,
+                              sender: info["Sent in by"]?[safe: i] ?? nil,
                                   reads: members.indices.map { Self.pennyRead(compared, at: $0) })
                     }
                 }
@@ -427,7 +431,7 @@ struct PennyCardView: View {
 
                 // 4. The swap, small and away from the buttons. (Which one is kept is on its photo and on Merge.)
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(swaps, id: \.self) { id in
+                    ForEach(outcome == nil ? swaps : [], id: \.self) { id in
                         Button(swaps.count == 1 ? "Keep the other instead" : "Keep #\(id) instead") { vm.chooseKeep(id, in: group) }
                             .font(appStyle.font(.footnote))
                             .foregroundStyle(appStyle.tenant)
@@ -435,25 +439,29 @@ struct PennyCardView: View {
                     }
                 }
 
-                // 5. Two square buttons, side by side, nothing else near them (capped so the card fits one screen).
-                HStack(spacing: 16) {
-                    squareButton(icon: "arrow.triangle.merge", title: "Merge",
-                                 detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
-                        Task { await vm.merge(group) }
+                // 5. Open: Merge / Different. Answered: what was decided, and the way back (Unmerge / Undo).
+                if let outcome {
+                    answeredButtons(outcome, group: group)
+                } else {
+                    // 5. Two square buttons, side by side, nothing else near them (capped so the card fits one screen).
+                    HStack(spacing: 16) {
+                        squareButton(icon: "arrow.triangle.merge", title: "Merge",
+                                     detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
+                            Task { await vm.merge(group) }
+                        }
+                        .disabled(copies.isEmpty)
+                        .accessibilityHint("Sets #\(copies.map(String.init).joined(separator: ", #")) aside as a copy of #\(keep). You can undo it.")
+                        squareButton(icon: "doc.on.doc", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
+                            Task { await vm.different(group) }
+                        }
+                        .accessibilityHint("They are separate purchases. Both go on for approval.")
                     }
-                    .disabled(copies.isEmpty)
-                    .accessibilityHint("Sets #\(copies.map(String.init).joined(separator: ", #")) aside as a copy of #\(keep). You can undo it.")
-                    squareButton(icon: "doc.on.doc", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
-                        Task { await vm.different(group) }
-                    }
-                    .accessibilityHint("They are separate purchases. Both go on for approval.")
+                    .disabled(vm.isBusy)
+                    .frame(maxWidth: 2 * 150 + 16)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
                 }
-                .disabled(vm.isBusy)
-                .frame(maxWidth: 2 * 150 + 16)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 2)
 
-                undoOrMessage
             }
             .padding(8)
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
@@ -471,30 +479,38 @@ struct PennyCardView: View {
         }
     }
 
-    /// Which group, as numbered circles on a horizontal line (Tim, 2026-11-06: "this is Kaname at work"): each number in a
-    /// Kaname-style ring with a page-coloured gap, the current one filled indigo. Tap a number to go to that group.
+    /// Progress through the duplicates, as numbered circles on a horizontal line (Tim, 2026-11-06: "this is Kaname at work"),
+    /// each in a Kaname-style ring: answered = filled indigo with a tick, current = indigo ring and number, the rest open.
+    /// Tap an open one to go to it.
     private var dupePager: some View {
         let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        let done = Set(vm.dupeSession.filter { vm.dupeOutcome($0) != nil })
+        let current = vm.currentDupe?.id
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(vm.dupes.indices, id: \.self) { i in
-                    let on = i == vm.dupeIndex
+                ForEach(Array(vm.dupeSession.enumerated()), id: \.element) { i, id in
+                    let isDone = done.contains(id)
+                    let on = id == current
                     Button {
-                        withAnimation(.easeOut(duration: 0.22)) { vm.showDupe(i) }
+                        withAnimation(.easeOut(duration: 0.22)) { vm.showDupe(id: id) }
                     } label: {
                         ZStack {
                             Circle().fill(appStyle.page).frame(width: 30, height: 30)
-                            Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 28, height: 28)
-                            Circle().fill(on ? indigo : appStyle.page).frame(width: 22, height: 22)
-                            Text("\(i + 1)")
-                                .font(appStyle.font(.footnote, weight: .bold))
-                                .foregroundStyle(on ? Color.white : appStyle.meta)
+                            Circle().stroke(on ? indigo : appStyle.line, lineWidth: on ? 2 : 1).frame(width: 28, height: 28)
+                            Circle().fill(isDone ? indigo : appStyle.page).frame(width: 22, height: 22)
+                            if isDone {
+                                Image(systemName: "checkmark").font(appStyle.font(size: 11, weight: .heavy)).foregroundStyle(Color.white)
+                            } else {
+                                Text("\(i + 1)")
+                                    .font(appStyle.font(.footnote, weight: .bold))
+                                    .foregroundStyle(on ? indigo : appStyle.meta)
+                            }
                         }
                         .frame(width: 38, height: 44)          // nine fit across a phone; a full-height touch target
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Group \(i + 1) of \(vm.dupes.count)\(on ? ", showing" : "")")
+                    .buttonStyle(.plain)                    // answered ones stay tappable: go back, Unmerge / Undo
+                    .accessibilityLabel("Group \(i + 1) of \(vm.dupeSession.count)" + (isDone ? ", done" : on ? ", showing" : ""))
                 }
             }
             .background(alignment: .center) {
@@ -503,22 +519,65 @@ struct PennyCardView: View {
         }
     }
 
-    /// 6. "Merged into #N · Undo" for about 6 seconds after a merge, else the usual message line.
-    @ViewBuilder private var undoOrMessage: some View {
-        if let m = vm.lastMerge {
-            HStack {
-                Text("Merged into #\(m.keepId)").font(appStyle.font(.subheadline, weight: .semibold))
-                Spacer()
-                Button("Undo") { Task { await vm.undoLastMerge() } }
-                    .font(appStyle.font(.subheadline, weight: .bold))
-                    .foregroundStyle(appStyle.tenant)
-                    .frame(minWidth: 64, minHeight: 44)
+    /// An answered group: a status square beside the way back, in the same two columns as Merge / Different.
+    @ViewBuilder private func answeredButtons(_ outcome: PennyCardViewModel.DupeOutcome, group: BKDupeGroup) -> some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 16) {
+                switch outcome {
+                case .merged(let keep, let copies):
+                    statusSquare(icon: "arrow.triangle.merge", title: "Merged",
+                                 detail: "#" + copies.map(String.init).joined(separator: ", #") + " into #\(keep)")
+                    squareButton(icon: "arrow.uturn.backward", title: "Unmerge", detail: "decide again", filled: false) {
+                        Task { await vm.reopen(group.id) }
+                    }
+                    .accessibilityHint("Brings the copy back to waiting and asks about this pair again.")
+                case .different:
+                    statusSquare(icon: "doc.on.doc", title: "Different", detail: "both kept")
+                    squareButton(icon: "arrow.uturn.backward", title: "Undo", detail: "decide again", filled: false) {
+                        Task { await vm.reopen(group.id) }
+                    }
+                case .elsewhere:
+                    statusSquare(icon: "checkmark", title: "Settled", detail: "on another screen")
+                    Color.clear.frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
+                }
             }
-            .padding(.horizontal, 12)
-            .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-        } else {
-            messageLine
+            .disabled(vm.isBusy)
+            .frame(maxWidth: 2 * 150 + 16)
+            .frame(maxWidth: .infinity)
+            if vm.dupesAllAnswered {
+                Button("All sorted. On to the receipts") { withAnimation { vm.finishDupes() } }
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.tenant)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
         }
+    }
+
+    /// The decided state, same size as a button but not one: quiet fill, no border.
+    private func statusSquare(icon: String, title: String, detail: String) -> some View {
+        let shape = RoundedRectangle(cornerRadius: appStyle.cornerRadius(16))
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                VStack(spacing: 8) {
+                    Image(systemName: icon).font(appStyle.font(size: 30, weight: .semibold)).frame(height: 42)
+                    Text(title).font(appStyle.font(.title3, weight: .bold))
+                    Text(detail).font(appStyle.font(.footnote)).multilineTextAlignment(.center)
+                }
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .padding(10)
+                .foregroundStyle(appStyle.meta)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(appStyle.sunk, in: shape)
+                .accessibilityElement(children: .combine)
+            }
+    }
+
+    /// 6. Penny's message line, under the numbers.
+    @ViewBuilder private var undoOrMessage: some View {
+        messageLine        // Undo lives on the answered card itself now: swipe back, Unmerge (Tim, 2026-11-06)
     }
 
     /// A square button: a width-filling clear base made square (half the row each, about 160 pt on a 393 pt phone,
@@ -683,6 +742,12 @@ struct PennyCardView: View {
         rows.compactMap { $0.values[safe: i] ?? nil }.joined(separator: " · ")
     }
 
+    /// On an answered card the snapshot's status is stale: a merged copy is now set aside.
+    static func statusAfter(_ outcome: PennyCardViewModel.DupeOutcome?, member: Int) -> String? {
+        if case .merged(_, let copies)? = outcome, copies.contains(member) { return "set aside" }
+        return nil
+    }
+
     /// "TIM SCHOFIELD" → "Tim S." — first name and initial, so it fits under a photo.
     static func shortName(_ name: String) -> String {
         let parts = name.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
@@ -790,18 +855,23 @@ private struct ZoomTarget: Identifiable {
 struct PennyDupeDemo: View {
     let variant: String
 
-    private struct DemoAPI: BookkeeperDeskAPI {
+    @MainActor private final class DemoAPI: BookkeeperDeskAPI {
         let variant: String
+        var answered = 0          // groups merged / said different: the server drops them from the list
+        init(variant: String) { self.variant = variant }
         func loadQueue() async throws -> BookkeeperQueueResponse {
             let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Southlands Nursery","Southlands Nursery"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
             let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
             let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell
-                : variant == "nine" ? ([shell] + Array(repeating: champ, count: 8)).joined(separator: ",") : shell + "," + champ
+                : variant == "nine" ? ([shell] + (1...8).map { k in champ.replacingOccurrences(of: "48", with: "4\(k)") }).dropFirst(answered).joined(separator: ",")
+                : shell + "," + champ
             let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"dupes":["# + groups + "]}"
             return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
         }
         func send(_ body: [String: Any]) async throws -> BookkeeperActionResponse {
             let mode = body["mode"] as? String ?? ""
+            if mode == "merge" || mode == "not_dupe" { answered += 1 }
+            if mode == "unmerge" || mode == "undismiss" { answered = max(0, answered - 1) }
             let json = mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
                      : #"{"ok":true,"message":"Got it — not a duplicate. Both go on for approval."}"#
             return try JSONDecoder().decode(BookkeeperActionResponse.self, from: Data(json.utf8))
@@ -833,7 +903,16 @@ struct PennyDupeDemo: View {
                 .navigationTitle("Penny")
                 .itAppScreen()
         }
-        .task { await vm.load() }
+        .task {
+            await vm.load()
+            // `-mwDupeAnswered N` (+ `-mwDupeBack`): merge the first N groups at launch, then go back to the first,
+            // to see the filled numbers and an answered card.
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-mwDupeAnswered"), i + 1 < args.count, let n = Int(args[i + 1]) {
+                for _ in 0..<n { if let g = vm.currentDupe { await vm.merge(g) } }
+                if args.contains("-mwDupeBack"), let first = vm.dupeSession.first { vm.showDupe(id: first) }
+            }
+        }
     }
 }
 #endif
