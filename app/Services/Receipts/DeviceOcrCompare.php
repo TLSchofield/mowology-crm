@@ -17,6 +17,8 @@ declare(strict_types=1);
 const DEVICE_OCR_ENGINES = ['apple_vision', 'mlkit'];
 const DEVICE_OCR_MAX_CHARS = 20000;
 const DEVICE_OCR_FIELDS = ['total', 'gst', 'subtotal', 'date', 'vendor_hint'];
+/** Most line boxes kept from one phone read; a receipt has far fewer. */
+const DEVICE_OCR_MAX_LINES = 800;
 /** In 'on' mode this share of receipts is also read by Vision, so text that doesn't match its photo is caught. */
 const DEVICE_OCR_SPOT_CHECK_PCT = 25;
 
@@ -56,7 +58,70 @@ function cleanDeviceOcr(array $post): ?array
     if (function_exists('mb_substr')) $text = mb_substr($text, 0, DEVICE_OCR_MAX_CHARS);
     if ($text === '') return null;
     $version = substr(preg_replace('/[^A-Za-z0-9._-]/', '', (string)($post['client_ocr_version'] ?? '')), 0, 20);
-    return ['text' => $text, 'engine' => $engine, 'version' => $version];
+    $out = ['text' => $text, 'engine' => $engine, 'version' => $version];
+    $boxes = cleanDeviceOcrLines($post['client_ocr_lines'] ?? null);
+    if ($boxes !== null) {
+        $out['lines'] = $boxes['lines'];
+        $out['image'] = $boxes['image'];
+    }
+    return $out;
+}
+
+/**
+ * Pure: the phone's line boxes (iPhone 1.3.85+ / Android 2.2.9+), or null when absent or unreadable. Older apps
+ * send none and nothing changes for them. The field is JSON:
+ *   {"v":1, "image":{"w":px,"h":px}, "lines":[{"text":"…","x":0.08,"y":0.31,"w":0.42,"h":0.016,"deg":-0.8}, …]}
+ * x/y/w/h are 0–1 fractions of the photo with the origin top-left; deg is the line's tilt, positive when its
+ * right end sits lower. A bad line is dropped, never trusted.
+ * @return array{lines: array<int, array{text: string, x: float, y: float, w: float, h: float, deg?: float}>, image: array{w?: int, h?: int}}|null
+ */
+function cleanDeviceOcrLines($raw): ?array
+{
+    if (!is_string($raw) || $raw === '' || strlen($raw) > 400000) return null;
+    $j = json_decode($raw, true);
+    if (!is_array($j)) return null;
+    $list = isset($j['lines']) && is_array($j['lines']) ? $j['lines'] : (deviceOcrIsList($j) ? $j : []);
+    $lines = [];
+    foreach ($list as $l) {
+        if (!is_array($l) || count($lines) >= DEVICE_OCR_MAX_LINES) continue;
+        if (!isset($l['text']) || !is_scalar($l['text'])) continue;
+        $text = trim((string)preg_replace('/[^\P{C}\t]+/u', '', (string)$l['text']));
+        if ($text === '') continue;
+        $box = [];
+        foreach (['x', 'y', 'w', 'h'] as $k) {
+            if (!isset($l[$k]) || !is_numeric($l[$k])) continue 2;
+            $box[$k] = (float)$l[$k];
+        }
+        if ($box['w'] <= 0 || $box['h'] <= 0 || $box['x'] < -0.05 || $box['y'] < -0.05
+            || $box['x'] + $box['w'] > 1.05 || $box['y'] + $box['h'] > 1.05) continue;
+        $line = ['text' => function_exists('mb_substr') ? mb_substr($text, 0, 200) : substr($text, 0, 200)] + $box;
+        if (isset($l['deg']) && is_numeric($l['deg']) && abs((float)$l['deg']) <= 45) $line['deg'] = (float)$l['deg'];
+        $lines[] = $line;
+    }
+    if (count($lines) < 2) return null;
+    $image = [];
+    $imageIn = isset($j['image']) && is_array($j['image']) ? $j['image'] : [];
+    foreach (['w', 'h'] as $k) {
+        $v = $imageIn[$k] ?? null;
+        if (is_numeric($v) && (int)$v > 0 && (int)$v < 20000) $image[$k] = (int)$v;
+    }
+    return ['lines' => $lines, 'image' => $image];
+}
+
+/** PHP 7.4 has no array_is_list(). */
+function deviceOcrIsList(array $a): bool
+{
+    return $a === [] || array_keys($a) === range(0, count($a) - 1);
+}
+
+/**
+ * The second argument parseReceiptText() takes for a device read: its line boxes when the phone sent them
+ * (rows then pair names with prices — reconstructLinesFromDeviceBoxes()), otherwise null as before.
+ */
+function deviceOcrRaw(?array $device): ?array
+{
+    if (empty($device['lines'])) return null;
+    return ['device_lines' => $device['lines'], 'device_image' => $device['image'] ?? []];
 }
 
 /** Is there enough here to be a receipt: a few lines, a money amount, and a date-like token. */
@@ -121,7 +186,7 @@ function logDeviceOcrCompare(PDO $db, int $mediaId, ?int $vendorId, array $devic
 {
     try {
         if (!function_exists('parseReceiptText')) return;
-        if ($deviceParsed === null) $deviceParsed = parseReceiptText($device['text'], null);
+        if ($deviceParsed === null) $deviceParsed = parseReceiptText($device['text'], deviceOcrRaw($device));
         $cmp = compareParsedHeaders($serverParsed, $deviceParsed);
         $fields = count($cmp);
         $agree = count(array_filter($cmp, static fn($c) => $c['match']));

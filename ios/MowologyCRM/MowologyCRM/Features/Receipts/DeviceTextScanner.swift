@@ -10,6 +10,10 @@ enum DeviceTextScanner {
         let text: String
         let engine = "apple_vision"
         let version: String
+        /// Each recognised line with its box, as JSON for `client_ocr_lines` (DeviceOcrCompare.php
+        /// cleanDeviceOcrLines()): the server rebuilds the receipt's rows from them, so a name read in one
+        /// block and its price in another still pair. Nil when there was nothing to send.
+        var linesJSON: String? = nil
     }
 
     /// A read already in flight, started by the caller while the GPS fix is still settling.
@@ -116,8 +120,30 @@ enum DeviceTextScanner {
             // stay on one line, left to right, so "TOTAL   23.28" is not split across lines.
             let rows = Self.rows(from: observations)
             let text = rows.joined(separator: "\n")
-            job.done(text.isEmpty ? nil : Result(text: text, version: "r\(request.revision)"))
+            let lines = Self.linesJSON(from: observations, width: cgImage.width, height: cgImage.height)
+            job.done(text.isEmpty ? nil : Result(text: text, version: "r\(request.revision)", linesJSON: lines))
         }
+    }
+
+    /// `{"v":1,"image":{"w":…,"h":…},"lines":[{"text","x","y","w","h","deg"}]}` — x/y/w/h as 0–1 fractions with
+    /// the origin top-left (Vision's runs bottom-up, so y is flipped), deg the line's tilt, positive when its right
+    /// end sits lower in the photo.
+    static func linesJSON(from observations: [VNRecognizedTextObservation], width: Int, height: Int) -> String? {
+        let w = Double(max(width, 1)), h = Double(max(height, 1))
+        let lines: [[String: Any]] = observations.compactMap { o in
+            guard let top = o.topCandidates(1).first, !top.string.isEmpty else { return nil }
+            let b = o.boundingBox
+            let dx = Double(o.topRight.x - o.topLeft.x) * w
+            let dyUp = Double(o.topRight.y - o.topLeft.y) * h
+            let deg = dx > 0 ? -atan2(dyUp, dx) * 180 / .pi : 0
+            func r(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
+            return ["text": top.string, "x": r(Double(b.minX)), "y": r(1 - Double(b.maxY)),
+                    "w": r(Double(b.width)), "h": r(Double(b.height)), "deg": (deg * 100).rounded() / 100]
+        }
+        guard lines.count >= 2 else { return nil }
+        let payload: [String: Any] = ["v": 1, "image": ["w": width, "h": height], "lines": lines]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func rows(from observations: [VNRecognizedTextObservation]) -> [String] {

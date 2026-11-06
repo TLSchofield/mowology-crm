@@ -60,22 +60,26 @@ class EtransferDeskService
         $hasInvoice = $conf === 'high';
         $hasBank    = !empty($et['bank_transaction_id']);
 
+        // The memo names several invoices ("invoices 0065, 0066, 0118 and 0440"): pay exactly those (one place:
+        // EtransferInboxService::namedInvoices(), the invoices page asks the same). 2026-11-05.
+        $named = $active > 0 ? $this->inbox->namedInvoices($et['memo'] ?? null, $active) : null;
+
         $duplicate = null; $spread = []; $value = null;
-        if (!$hasInvoice && $active > 0) {
+        if (!$named && !$hasInvoice && $active > 0) {
             $duplicate = $this->inbox->findLikelyDuplicatePayment($et['sender_name'] ?? null, $active, $et['email_date'] ?? null);
             if (!$duplicate) {
                 $spread = $this->inbox->suggestFifoAllocation($et['sender_name'] ?? null, $active);
                 if (!$spread) $value = $this->inbox->suggestFifoAllocationByValue($active, $et['sender_name'] ?? null, $et['memo'] ?? null);
             }
         }
-        $lines = $value['lines'] ?? $spread;
-        if (!$lines && ($matchedNo !== '' || !empty($et['invoice_hint']))) {
+        $lines = $named['lines'] ?? $value['lines'] ?? $spread;
+        if (!$named && !$lines && ($matchedNo !== '' || !empty($et['invoice_hint']))) {
             $lines = [['invoice_number' => $matchedNo ?: (string)$et['invoice_hint'], 'apply_amount' => $active]];
         }
         // More than the invoice owes (Alberta 3025 Strata, 2026-10-14: "Invs 2026-0251 and 0383", 0251 already
         // paid): the line takes what is owed and the rest is offered as the client's credit.
         $over = 0.0; $alreadyPaid = [];
-        if (!$duplicate && count($lines) === 1 && $lines[0]['invoice_number'] !== '') {
+        if (!$named && !$duplicate && count($lines) === 1 && $lines[0]['invoice_number'] !== '') {
             $q = $this->db->prepare("SELECT balance_due FROM invoices WHERE invoice_number = ? LIMIT 1");
             $q->execute([$lines[0]['invoice_number']]);
             $bal = $q->fetchColumn();
@@ -92,6 +96,10 @@ class EtransferDeskService
                 if ($r && (float)$r['balance_due'] <= 0.005) $alreadyPaid[] = $r['invoice_number'] . ($r['paid_at'] ? ' (paid ' . date('M j', strtotime((string)$r['paid_at'])) . ')' : '');
             }
         }
+        if ($named && $named['left'] > 0.005 && !$named['unclear']) {
+            $over = $named['left'];
+            $alreadyPaid = $named['paid'];
+        }
         $canCredit = $over > 0 || ($partial && $active > 0.005);
 
         // Learned from your past recordings: this sender pays someone else's invoices.
@@ -101,8 +109,8 @@ class EtransferDeskService
             && $this->inbox->timesPaidFor($et['sender_name'] ?? null, $payer) > 0) {
             $learnedPayer = $payer;
         }
-        $kind = $duplicate ? 'duplicate' : ($conf === 'high' ? 'match' : ($conf === 'medium' ? 'likely'
-              : ($value ? 'value' : (count($lines) > 1 ? 'spread' : ($partial && !$lines ? 'leftover' : ($lines ? 'hint' : 'none'))))));
+        $kind = $named ? ($named['adds_up'] ? 'named' : 'named_check') : ($duplicate ? 'duplicate' : ($conf === 'high' ? 'match' : ($conf === 'medium' ? 'likely'
+              : ($value ? 'value' : (count($lines) > 1 ? 'spread' : ($partial && !$lines ? 'leftover' : ($lines ? 'hint' : 'none')))))));
 
         return [
             'id'        => (int)$et['id'],
@@ -114,17 +122,18 @@ class EtransferDeskService
             'claim'     => ($et['transfer_type'] ?? '') === 'claim',
             'kind'      => $kind,
             'lines'     => array_map(fn($l) => ['invoice' => (string)$l['invoice_number'], 'amount' => round((float)$l['apply_amount'], 2)], $lines),
-            'confirmed' => 1 + ($hasInvoice ? 1 : 0) + ($hasBank ? 1 : 0),
-            'missing'   => array_values(array_filter([$hasInvoice ? null : 'invoice match', $hasBank ? null : 'bank deposit'])),
+            'confirmed' => 1 + ($hasInvoice || $kind === 'named' ? 1 : 0) + ($hasBank ? 1 : 0),
+            'missing'   => array_values(array_filter([$hasInvoice || $kind === 'named' ? null : 'invoice match', $hasBank ? null : 'bank deposit'])),
             'duplicate' => $duplicate ? ['date' => $duplicate['pay_date'], 'invoices' => $duplicate['invoice_numbers']] : null,
             // Keep the rest as the client's credit (ClientCreditService::addOverpayment): $over after these lines,
             // or everything left on a part-recorded transfer.
             'credit'    => $canCredit ? ['amount' => $over > 0 ? $over : $active, 'with_record' => $over > 0, 'already_paid' => $alreadyPaid] : null,
             // The clues (memo / name + the oldest invoices to the cent) say WHY — as a person would explain it.
-            'say'       => !empty($value['clue']) && $over <= 0
+            'say'       => $named ? self::sayNamed($et['sender_name'] ?: 'Someone', $active, $named)
+                : (!empty($value['clue']) && $over <= 0
                 ? ($et['sender_name'] ?: 'Someone') . ' sent $' . number_format($active, 2) . ': ' . $value['clue'] . ' (' . implode(', ', array_map(fn($l) => $l['invoice_number'], $lines)) . '). Check, then record.'
                 : ($over > 0 ? self::sayOver($et['sender_name'] ?: 'Someone', $active, $lines[0], $over, $alreadyPaid) : self::say($learnedPayer && in_array($kind, ['spread', 'hint'], true) ? 'learned' : $kind, $et['sender_name'] ?: 'Someone', $active, $allocated, $lines,
-                                     $value['payer_name'] ?? $learnedPayer, $duplicate, $matchedNo)),
+                                     $value['payer_name'] ?? $learnedPayer, $duplicate, $matchedNo))),
         ];
     }
 
@@ -139,6 +148,32 @@ class EtransferDeskService
         return "{$sender} sent {$m($active)}: {$m($line['apply_amount'])} pays " . ($line['invoice_number'] ?? $line['invoice'] ?? '') . " and {$m($over)} is extra"
              . ($alreadyPaid ? ' — they named ' . implode(', ', $alreadyPaid) . ', already paid' : '')
              . ". Record it and keep {$m($over)} as credit for their next invoice? (A refund is yours to send.)";
+    }
+
+    /** Pure (tested): a memo that names several invoices (EtransferInboxService::spreadNamed()). */
+    public static function sayNamed(string $sender, float $active, array $named): string
+    {
+        $m = fn($v) => '$' . number_format((float)$v, 2);
+        $list = implode(', ', array_map(fn($l) => (string)($l['invoice_number'] ?? $l['invoice'] ?? ''), $named['lines']));
+        $n = count($named['lines']);
+        $payer = (string)($named['payer_name'] ?? '');
+        $for = $payer !== '' ? " ({$payer})" : '';
+        if ($named['adds_up']) {
+            $s = "{$sender} paid {$m($active)} for the {$n} invoices named in the memo{$for}: {$list}.";
+            if ($payer !== '' && !EtransferInboxService::samePayer($sender, $payer)) {
+                $s .= " Sent by {$sender}, not {$payer}. Recording this teaches me they pay for {$payer}.";
+            }
+            return $s . ' Record it?';
+        }
+        $s = "{$sender} sent {$m($active)} and the memo names " . ($list !== '' ? $list : 'invoices');
+        if ($list !== '') {
+            $s .= ", which come to {$m($named['owing'])}";
+            if ($named['left'] > 0.005) $s .= " — {$m($named['left'])} more than they owe";
+            elseif ($named['left'] < -0.005) $s .= " — {$m(-$named['left'])} short";
+        }
+        if ($named['paid']) $s .= '. Already paid: ' . implode(', ', $named['paid']);
+        foreach ($named['unclear'] as $u) $s .= ". Invoice {$u} matches more than one invoice, or none: pick it";
+        return $s . '. Check, then record.';
     }
 
     public static function say(string $kind, string $sender, float $active, float $allocated, array $lines, ?string $payer, ?array $dup, string $matchedNo): string

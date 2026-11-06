@@ -411,7 +411,7 @@ final class HeadCardViewModel: ObservableObject {
     // MARK: - Formatting
 
     /// A CRM path ("/crm/…") as a full URL for Safari.
-    static func webURL(_ path: String) -> URL? {
+    nonisolated static func webURL(_ path: String) -> URL? {
         if path.hasPrefix("http") { return URL(string: path) }
         return URL(string: "https://mowology.ca" + (path.hasPrefix("/") ? path : "/" + path))
     }

@@ -331,7 +331,7 @@ class ReceiptIntakeService
         if ($deviceOcr && $deviceMode === 'on' && $readMode !== 'strong') {
             try {
                 require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
-                $deviceParsed = parseReceiptText($deviceOcr['text'], null);
+                $deviceParsed = parseReceiptText($deviceOcr['text'], deviceOcrRaw($deviceOcr));
                 $devVendor = suggestReceiptMeta($deviceOcr['text'], null, null, null);
                 $devVendorId = !empty($devVendor['vendor_id']) ? (int)$devVendor['vendor_id'] : null;
                 $devStrong = receiptReadMode($devVendorId ? getVendorParseProfile($this->db, $devVendorId) : null) === 'strong';
@@ -392,7 +392,8 @@ class ReceiptIntakeService
             $liProfile = getVendorLineItemProfile($profileVendorId);
             // Always parse with the vendor's learned line-item profile, including in 'on' mode where $ocrText is the
             // phone's text: the profile shapes how items are split (reusing the profile-less device parse lost it).
-            $parsed = parseReceiptText($ocrText, $rawResponse, $liProfile);
+            // A phone read carries no Vision response but may carry its line boxes, which pair names with prices.
+            $parsed = parseReceiptText($ocrText, $rawResponse ?? ($useDevice ? deviceOcrRaw($deviceOcr) : null), $liProfile);
 
             // Items don't add up? Escalate Tesseract→Vision, then the LLM tier.
             $enh = enhanceLineItemExtraction([
@@ -551,7 +552,7 @@ class ReceiptIntakeService
         if ($deviceOcr) {
             try {
                 if ($deviceParsed === null) {
-                    $deviceParsed = parseReceiptText($deviceOcr['text'], null);
+                    $deviceParsed = parseReceiptText($deviceOcr['text'], deviceOcrRaw($deviceOcr));
                 }
                 $deviceFill = ReceiptIntakeRules::deviceTotalFill($parsed, $deviceParsed, $ocrText, $deviceOcr['text']);
                 if ($deviceFill !== null) {

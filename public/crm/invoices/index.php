@@ -291,19 +291,29 @@ $activePage = 'invoices';
                     // would never find anything (or worse, something wrong).
                     $activeAmount = $isPartial ? $remaining : $etAmount;
 
+                    // A "medium" match is a single open invoice whose balance equals the transfer to the cent (matchInvoice step 2).
+                    // That invoice is the proposal. It used to be ignored: only a "high" match counted, so the screen offered an
+                    // oldest-first spread across the payer's other invoices and never showed the exact one (2026-10-23: John Hughes'
+                    // $1,890.00 cleared INV-2026-0465 exactly; the panel proposed ten invoices).
+                    $exactMatch = $conf === 'medium' && !empty($et['matched_invoice_id'])
+                                  && abs((float)($et['matched_balance'] ?? 0) - $activeAmount) < 0.01;
+
+                    // The memo names several invoices: exactly those, never the first one for the whole amount
+                    // (EtransferInboxService::namedInvoices(), the one place; Penny's desk asks the same). 2026-11-05.
+                    $namedSpread     = ($etransferSvc && $activeAmount > 0) ? $etransferSvc->namedInvoices($et['memo'] ?? null, $activeAmount) : null;
                     $likelyDuplicate = null;
                     $fifoSpread      = [];
                     $valueFallback   = null;
-                    if (!$hasInvoiceMatch && $activeAmount > 0 && $etransferSvc) {
+                    if (!$namedSpread && !$hasInvoiceMatch && $activeAmount > 0 && $etransferSvc) {
                         $likelyDuplicate = $etransferSvc->findLikelyDuplicatePayment($et['sender_name'] ?? null, $activeAmount, $et['email_date'] ?? null);
-                        if (!$likelyDuplicate) {
+                        if (!$likelyDuplicate && !$exactMatch) {
                             $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $activeAmount);
                             if (empty($fifoSpread)) {
                                 $valueFallback = $etransferSvc->suggestFifoAllocationByValue($activeAmount, $et['sender_name'] ?? null, $et['memo'] ?? null);
                             }
                         }
                     }
-                    $spreadLines    = $valueFallback['lines'] ?? $fifoSpread;
+                    $spreadLines    = $namedSpread['lines'] ?? ($valueFallback['lines'] ?? $fifoSpread);
                     $spansMultiple  = count($spreadLines) > 1;
                     $isValueGuess   = $valueFallback !== null;
                     $nothingLeftFor = $isPartial && !$likelyDuplicate && empty($spreadLines);
@@ -316,7 +326,8 @@ $activePage = 'invoices';
                     $clientUrl = !empty($et['matched_company_id']) ? '/crm/companies/view.php?id=' . (int)$et['matched_company_id']
                                : (!empty($et['matched_contact_id']) ? '/crm/clients_appstack.php?action=view_contact&id=' . (int)$et['matched_contact_id'] : '');
 
-                    if ($likelyDuplicate || $nothingLeftFor || $isValueGuess || $spansMultiple || $conf === 'medium') $invState = 'warn';
+                    if ($namedSpread) $invState = $namedSpread['adds_up'] ? 'on' : 'warn';
+                    elseif ($likelyDuplicate || $nothingLeftFor || $isValueGuess || $spansMultiple || $conf === 'medium') $invState = 'warn';
                     elseif ($hasInvoiceMatch) $invState = 'on';
                     elseif (!empty($spreadLines)) $invState = 'warn';
                     else $invState = 'off';
@@ -329,12 +340,14 @@ $activePage = 'invoices';
                     ?>
                     <div class="mw-et-row mw-et-chainrow" data-id="<?php echo (int)$et['id']; ?>">
                         <div class="mw-et-head">
+                            <span class="mw-pm" data-pm aria-hidden="true"></span>
                             <strong class="mw-et-sender"><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
                             <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
                             <?php if ($clientUrl): ?><a class="mw-et-client" href="<?php echo htmlspecialchars($clientUrl); ?>"><i data-feather="user"></i> All invoices &amp; payments</a><?php endif; ?>
                             <span class="mw-et-status mw-et-status--<?php echo $lit === 3 ? 'ready' : ($needsLook ? 'look' : 'wait'); ?>">
                                 <?php echo $lit; ?> of 3<?php echo $lit === 3 ? ' — ready to record' : ($needsLook ? ' — check the amber card' : ''); ?>
                             </span>
+                            <span class="mw-et-pm-state" role="status" aria-live="polite">Not recorded yet. Penny is waiting for you.</span>
                         </div>
 
                         <div class="mw-et-chain">
@@ -357,7 +370,25 @@ $activePage = 'invoices';
 
                             <div class="mw-et-card is-<?php echo $invState; ?>">
                                 <div class="mw-et-card-title"><i data-feather="file-text"></i> Invoice<?php if ($invState === 'on'): ?> <i data-feather="check" class="mw-et-tick"></i><?php endif; ?></div>
-                                <?php if ($likelyDuplicate): ?>
+                                <?php if ($namedSpread):
+                                    $namedPayer = (string)($namedSpread['payer_name'] ?? '');
+                                    $namedN = count($namedSpread['lines']); ?>
+                                    <div class="mw-et-card-main"><?php echo $namedSpread['adds_up']
+                                        ? 'Pays the ' . $namedN . ' invoices named in the memo' . ($namedPayer !== '' ? ' (' . htmlspecialchars($namedPayer) . ')' : '')
+                                        : 'The memo names ' . ($namedN ?: 'unclear') . ' invoice' . ($namedN === 1 ? '' : 's'); ?></div>
+                                    <?php foreach (array_slice($namedSpread['lines'], 0, 6) as $sl): ?>
+                                        <div class="mw-et-card-sub"><?php echo htmlspecialchars($sl['invoice_number']); ?> · <?php echo formatCurrency((float)$sl['apply_amount']); ?></div>
+                                    <?php endforeach; ?>
+                                    <?php if (!$namedSpread['adds_up'] && $namedN): ?>
+                                        <div class="mw-et-card-sub">They come to <?php echo formatCurrency($namedSpread['owing']); ?><?php
+                                            echo $namedSpread['left'] > 0.005 ? ', ' . formatCurrency($namedSpread['left']) . ' left over' : ($namedSpread['left'] < -0.005 ? ', ' . formatCurrency(-$namedSpread['left']) . ' short' : ''); ?>. Check it.</div>
+                                    <?php endif; ?>
+                                    <?php if ($namedSpread['paid']): ?><div class="mw-et-card-sub">Already paid: <?php echo htmlspecialchars(implode(', ', $namedSpread['paid'])); ?></div><?php endif; ?>
+                                    <?php foreach ($namedSpread['unclear'] as $u): ?><div class="mw-et-card-sub">Names invoice <?php echo htmlspecialchars($u); ?>: more than one, or none. Pick it.</div><?php endforeach; ?>
+                                    <?php if ($namedPayer !== '' && !EtransferInboxService::samePayer((string)($et['sender_name'] ?? ''), $namedPayer)): ?>
+                                        <div class="mw-et-card-sub">Sent by <?php echo htmlspecialchars($et['sender_name'] ?: 'someone else'); ?>, not <?php echo htmlspecialchars($namedPayer); ?>. Recording this teaches Penny they pay for <?php echo htmlspecialchars($namedPayer); ?>.</div>
+                                    <?php endif; ?>
+                                <?php elseif ($likelyDuplicate): ?>
                                     <div class="mw-et-card-main">Possibly already recorded</div>
                                     <div class="mw-et-card-sub">Same amount recorded <?php echo htmlspecialchars($etD($likelyDuplicate['pay_date'])); ?> on <?php echo htmlspecialchars(implode(', ', $likelyDuplicate['invoice_numbers'])); ?>. Check, then dismiss rather than record again.</div>
                                 <?php elseif ($nothingLeftFor): ?>
@@ -368,7 +399,7 @@ $activePage = 'invoices';
                                     <div class="mw-et-card-sub">Issued <?php echo htmlspecialchars($etD($et['matched_invoice_date'] ?? null)); ?> · <?php echo formatCurrency((float)($et['matched_balance'] ?? 0)); ?> owing</div>
                                     <div class="mw-et-card-sub"><?php
                                         $how = (string)($et['match_method'] ?? '');
-                                        echo $how === 'invoice_number' ? 'Named in the email memo' : ($how === 'reference_number' ? 'Interac reference matches' : 'Matched by the sender’s name — check it'); ?></div>
+                                        echo $how === 'invoice_number' ? 'Named in the email memo' : ($how === 'reference_number' ? 'Interac reference matches' : ($how === 'amount' ? 'The one open invoice for exactly this amount — check it' : 'Matched by the sender’s name — check it')); ?></div>
                                 <?php elseif (!empty($spreadLines)): ?>
                                     <div class="mw-et-card-main"><?php echo $isValueGuess ? 'Clears ' . htmlspecialchars($valueFallback['payer_name']) . '’s balance' : (count($spreadLines) > 1 ? count($spreadLines) . ' invoices, oldest first' : 'Oldest open invoice'); ?></div>
                                     <?php foreach (array_slice($spreadLines, 0, 4) as $sl): ?>
@@ -655,16 +686,26 @@ $activePage = 'invoices';
                                                 <span class="mw-match-balance">Balance due <?php echo formatCurrency($balance); ?></span>
                                             </div>
                                             <?php foreach ($matches as $m): ?>
-                                            <div class="mw-match-item">
-                                                <span class="mw-conf-badge mw-conf-<?php echo $m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low'); ?>" title="Match confidence"><?php echo (int)$m['confidence']; ?>%</span>
+                                            <div class="mw-match-item<?php echo !empty($m['mismatch']) ? ' mw-match-item--bad' : ''; ?>">
+                                                <span class="mw-conf-badge mw-conf-<?php echo !empty($m['mismatch']) ? 'bad' : ($m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low')); ?>" title="Match confidence"><?php echo !empty($m['mismatch']) ? 'Mismatch' : (int)$m['confidence'] . '%'; ?></span>
                                                 <div class="mw-match-info">
                                                     <div class="mw-match-desc"><?php echo htmlspecialchars($m['description'] ?: 'Bank deposit'); ?></div>
                                                     <div class="mw-match-meta">
                                                         <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
-                                                        <?php foreach ($m['reasons'] as $reason): ?>
-                                                            <span class="mw-match-reason"><?php echo htmlspecialchars($reason); ?></span>
-                                                        <?php endforeach; ?>
                                                     </div>
+                                                    <?php if (!empty($m['evidence'])): ?>
+                                                        <div class="mw-ev-grid">
+                                                            <?php foreach ($m['evidence'] as $ev): ?>
+                                                                <div class="mw-ev mw-ev--<?php echo $ev['state'] === 'bad' ? 'bad' : 'ok'; ?><?php echo !empty($ev['strong']) ? ' mw-ev--strong' : ''; ?>">
+                                                                    <i data-feather="<?php echo !empty($ev['strong']) ? 'mail' : ($ev['state'] === 'bad' ? 'x' : 'check'); ?>"></i>
+                                                                    <div>
+                                                                        <span class="mw-ev-label"><?php echo htmlspecialchars($ev['label']); ?></span>
+                                                                        <?php if (!empty($ev['detail'])): ?><small class="mw-ev-detail"><?php echo htmlspecialchars($ev['detail']); ?></small><?php endif; ?>
+                                                                    </div>
+                                                                </div>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
                                                     <?php if (!empty($m['covers_more'])): ?>
                                                         <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
                                                     <?php endif; ?>
@@ -680,9 +721,9 @@ $activePage = 'invoices';
                                                                data-balance="<?php echo number_format($balance, 2, '.', ''); ?>"
                                                                data-remaining="<?php echo number_format($m['amount'], 2, '.', ''); ?>">
                                                     </div>
-                                                    <button type="button" class="mw-action-btn mw-action-btn-paid"
+                                                    <button type="button" class="mw-action-btn mw-action-btn-paid"<?php echo !empty($m['mismatch']) ? ' data-mismatch="1"' : ''; ?>
                                                             onclick="mwAttachDeposit(this, <?php echo (int)$invoice['id']; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo htmlspecialchars(json_encode($invoice['invoice_number']), ENT_QUOTES); ?>)">
-                                                        Attach
+                                                        <?php echo !empty($m['mismatch']) ? 'Attach anyway' : 'Attach'; ?>
                                                     </button>
                                                     <button type="button" class="mw-match-dismiss" title="This deposit's money was already recorded by hand — stop suggesting it"
                                                             onclick="mwMarkDepositRecorded(this, <?php echo (int)$m['tx_id']; ?>, <?php echo htmlspecialchars(json_encode($m['description'] ?: 'Bank deposit')); ?>)">Already recorded</button>
@@ -843,6 +884,7 @@ $activePage = 'invoices';
 
 <div id="mw-toast" class="mw-toast" role="alert" aria-live="assertive" style="display:none;"></div>
 
+<script src="/crm/js/penny-mark.js?v=20261023a"></script>
 <script>
 (function () {
     'use strict';
@@ -1158,6 +1200,7 @@ $activePage = 'invoices';
         var remaining = parseFloat(input.dataset.remaining);
 
         if (!(amount > 0)) { showToast('Enter a valid amount.', 'error'); return; }
+        if (btn.dataset.mismatch === '1' && !confirm('The Yardi remittance for this deposit names a different invoice. Attach it to ' + invNum + ' anyway?')) return;
         if (amount > remaining + 0.005) {
             showToast('Amount exceeds the deposit (' + formatMoney(remaining) + ' available).', 'error');
             return;
@@ -1230,6 +1273,20 @@ $activePage = 'invoices';
 
     // ── Pending e-Transfers panel ──────────────────────────────────────────
     var etPanel = document.getElementById('etransfers');
+    // Penny's mark on each strip: three lines tumble until Record is confirmed by the server, then lock into a triangle.
+    var etMarks = {};
+    function etSay(row, text, cls) {
+        var el = row.querySelector('.mw-et-pm-state');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'mw-et-pm-state' + (cls ? ' ' + cls : '');
+    }
+    if (etPanel && window.PennyMark) {
+        Array.prototype.forEach.call(etPanel.querySelectorAll('.mw-et-row'), function (r) {
+            var host = r.querySelector('[data-pm]');
+            if (host) etMarks[r.getAttribute('data-id')] = window.PennyMark.create(host);
+        });
+    }
     if (etPanel) {
         etPanel.addEventListener('click', function (e) {
             var addSplitBtn = e.target.closest('.mw-et-add-split');
@@ -1345,6 +1402,8 @@ $activePage = 'invoices';
                 body.append('action', 'record');
                 recordBtn.disabled = true;
                 recordBtn.textContent = 'Recording…';
+                if (etMarks[id]) etMarks[id].busy(true);
+                etSay(row, 'Recording… nothing is recorded until the server confirms.', '');
             } else {
                 if (!confirm('Dismiss this e-Transfer? It will no longer show here.')) return;
                 body.append('action', 'dismiss');
@@ -1356,7 +1415,11 @@ $activePage = 'invoices';
                 .then(function (data) {
                     if (data.ok) {
                         showToast(data.message || 'Done.', 'success');
+                        var mk = etMarks[id];
+                        if (mk) mk.busy(false);
                         if (data.fully_allocated === false) {
+                            if (mk) mk.lock([true, true, false]);
+                            etSay(row, 'Part recorded. ' + (typeof data.remaining === 'number' ? '$' + data.remaining.toFixed(2) + ' is still waiting for an invoice.' : 'The rest is still waiting for an invoice.'), 'is-bad');
                             // Partially recorded — keep the row so staff can assign the remainder.
                             var splitsEl = row.querySelector('.mw-et-splits');
                             splitsEl.innerHTML =
@@ -1373,13 +1436,28 @@ $activePage = 'invoices';
                             recordBtn.textContent = 'Record';
                             return;
                         }
+                        if (recordBtn && mk) {
+                            // Server confirmed: lock the triangle, say so in words, then reload so the invoice list shows it.
+                            mk.lock(true);
+                            etSay(row, 'Recorded. The invoice is updated.', 'is-ok');
+                            Array.prototype.forEach.call(row.querySelectorAll('button, input'), function (el) { el.disabled = true; });
+                            recordBtn.textContent = 'Recorded';
+                            setTimeout(function () { window.location.reload(); }, 1700);
+                            return;
+                        }
                         row.parentNode.removeChild(row);
                         var remaining = etPanel.querySelectorAll('.mw-et-row').length;
                         var cnt = etPanel.querySelector('.mw-et-count');
                         if (cnt) cnt.textContent = remaining;
                         if (remaining === 0) etPanel.parentNode.removeChild(etPanel);
+                        // A recorded payment changes the invoice list and the totals below this panel: reload so the page
+                        // shows it (2026-10-23: the card vanished but the invoice still looked unpaid until a manual reload).
+                        if (recordBtn) setTimeout(function () { window.location.reload(); }, 900);
                     } else {
                         showToast(data.message || 'Could not record.', 'error');
+                        if (etMarks[id]) etMarks[id].busy(false);
+                        var why = String(data.message || 'The server did not record it.');
+                        etSay(row, why + (/[.!?]$/.test(why) ? ' ' : '. ') + 'Nothing was changed.', 'is-bad');
                         if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
                         if (dismissBtn) dismissBtn.disabled = false;
                         if (data.can_merge && recordBtn) {
@@ -1413,6 +1491,8 @@ $activePage = 'invoices';
                 .catch(function (err) {
                     console.error('[etransfer]', err);
                     showToast('Network error — please try again.', 'error');
+                    if (etMarks[id]) etMarks[id].busy(false);
+                    etSay(row, 'No connection. Nothing was changed.', 'is-bad');
                     if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
                     if (dismissBtn) dismissBtn.disabled = false;
                 });
