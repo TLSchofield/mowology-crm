@@ -34,3 +34,13 @@ wider than ~2 character widths (the column gap), so "COFFEE LG      2.61" reads 
 ## Ship
 Codex review (or the code-reviewer agent while Codex is out), deploy through the feature/language gate, verify on
 production; iPhone 1.3.86 (camera bead tap fix + 1920 px photos) goes to TestFlight in the same push.
+
+## Results (2026-11-06)
+- **Fix 1 SHIPS.** Header replay on 285 approved receipts: GST 61.1% → 70.2%, subtotal 44.5% → 51.3%, total/PST/date
+  unchanged; 48 values fixed. The 6 "worse" are City of Vancouver landfill receipts whose approved entry is itself off:
+  #63 claims $2.38 GST on a $50 ticket; #142, #168, #276, #305 record amount = total ÷ 1.05 with no GST (cost understated).
+  Those are books corrections for Tim, not reader regressions.
+- **Fix 3 DROPPED.** Items-add-up over the corpus went 119 → 117 (2 fixed, 4 broken). The two-space join exposes two older
+  faults in the Vision row builder: quantity lines ("3 EA @ 21.99 EA 65.97") become items and double-count (#60 COE), and
+  rows from a tilted photo pair across lines (#163 Chevron: a deposit's 0.10 beside DIET COKE). A real fix needs tilt
+  correction (as `reconstructLinesFromDeviceBoxes()` does) and quantity-line handling — a plan of its own.
