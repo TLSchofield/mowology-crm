@@ -411,6 +411,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
         $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
         $taxRate   = round(floatval($bs['gst_rate'] ?? 5.00) / 100, 4);
+        require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+        if (!TaxEngine::gstRegistered($db)) $taxRate = 0.0;
         $gstNumber = trim($bs['gst_registration'] ?? '');
         $taxAmount = round($subtotal * $taxRate, 2);
         $total     = $subtotal + $taxAmount;
@@ -1043,6 +1045,8 @@ if ($apiKey) {
                             $trStmt = $db->query("SELECT gst_rate FROM business_settings LIMIT 1");
                             $trRow  = $trStmt ? $trStmt->fetch(PDO::FETCH_ASSOC) : null;
                             if ($trRow && $trRow['gst_rate'] !== null) $formTaxRate = round((float)$trRow['gst_rate'] / 100, 4);
+                            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+                            if (!TaxEngine::gstRegistered($db)) $formTaxRate = 0.0;
                         } catch (Throwable $e) { /* keep 5% */ }
                         ?>
                         <?php if (!empty($prefill['plan_line_items'])): ?>
