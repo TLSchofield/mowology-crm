@@ -27,6 +27,7 @@ class TextBridgeService
     public const MAX_BATCH = 500;
     public const SALT_KEY = 'text_bridge_salt';
     public const HEARTBEAT_KEY = 'text_bridge_heartbeat';
+    public const KEPT_CONTACTS_KEY = 'text_bridge_kept_contacts';
     public const SILENT_MINUTES = 60;
 
     private PDO $db;
@@ -83,6 +84,9 @@ class TextBridgeService
             } catch (Throwable $e) { continue; }
         }
         $this->map = self::hashMap($rows, $salt);
+        if ($this->inboxReady()) {
+            foreach ($this->personalHashes() as $hash) unset($this->map[(string)$hash]);
+        }
         return [$salt, $this->map];
     }
 
@@ -103,6 +107,11 @@ class TextBridgeService
             VALUES (?, ?, ?, 'sms', ?, 'text', 'text', NULL, ?, ?)
         ");
         foreach ($msgs as $m) {
+            $postedHash = is_array($m) ? strtolower((string)($m['hash'] ?? '')) : '';
+            if (preg_match('/^[0-9a-f]{64}$/', $postedHash) && isset($personal[$postedHash])) {
+                $res['personal']++;
+                continue;
+            }
             $row = is_array($m) ? self::row($m, $map) : null;
             if ($row === null) { $res['invalid']++; continue; }
             if ($row === 'unknown') {
@@ -369,12 +378,151 @@ class TextBridgeService
         $this->map = null;
         [$salt, $map] = $this->numbers();
         $h = self::hash($phone10, $salt);
-        if (isset($map[$h])) return ['ok' => false, 'error' => 'That number belongs to a customer.'];
+        if ($this->contactIdsForNumbers([$phone10])) return ['ok' => false, 'error' => 'That number is on a contact: use Personal on the contact instead.'];
         $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
         $this->db->prepare("{$verb} INTO text_personal (number_hash, marked_by) VALUES (?, ?)")->execute([$h, $userId]);
         $del = $this->db->prepare("DELETE FROM text_unmatched WHERE phone10 = ?");
         $del->execute([$phone10]);
         return ['ok' => true, 'deleted' => $del->rowCount()];
+    }
+
+    /** True when the contact is attached to a company or any work record. Missing legacy tables/columns are ignored. */
+    public function hasWorkOnFile(int $contactId): bool
+    {
+        try {
+            $st = $this->db->prepare("SELECT company_id FROM contacts WHERE id = ?");
+            $st->execute([$contactId]);
+            $companyId = $st->fetchColumn();
+            if ($companyId !== false && $companyId !== null && (string)$companyId !== '' && (int)$companyId !== 0) return true;
+        } catch (Throwable $e) { /* older contacts table */ }
+        foreach (['quotes', 'invoices', 'contracts', 'property_contacts'] as $table) {
+            try {
+                $st = $this->db->prepare("SELECT 1 FROM {$table} WHERE contact_id = ? LIMIT 1");
+                $st->execute([$contactId]);
+                if ($st->fetchColumn()) return true;
+            } catch (Throwable $e) { continue; }
+        }
+        return false;
+    }
+
+    /**
+     * Remove one saved personal contact's text history and block all numbers on that contact.
+     * @return array{ok: bool, error?: string, needs_confirm?: bool, deleted?: int}
+     */
+    public function markContactPersonal(int $contactId, ?int $userId, bool $confirmed = false): array
+    {
+        $st = $this->db->prepare("SELECT id, first_name, last_name, phone, mobile FROM contacts WHERE id = ?");
+        $st->execute([$contactId]);
+        $contact = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$contact) return ['ok' => false, 'error' => 'Contact not found.'];
+        $numbers = [];
+        foreach (['phone', 'mobile'] as $field) {
+            $number = self::normalize(isset($contact[$field]) ? (string)$contact[$field] : null);
+            if ($number !== null) $numbers[$number] = $number;
+        }
+        $numbers = array_values($numbers);
+        if (!$numbers) return ['ok' => false, 'error' => 'This contact has no phone number on file.'];
+
+        $work = $this->hasWorkOnFile($contactId);
+        if (!$work) {
+            foreach ($this->contactIdsForNumbers($numbers, $contactId) as $otherId) {
+                if ($this->hasWorkOnFile($otherId)) { $work = true; break; }
+            }
+        }
+        if ($work && !$confirmed) {
+            $first = trim((string)($contact['first_name'] ?? ''));
+            if ($first === '') $first = trim((string)($contact['last_name'] ?? '')) ?: 'This contact';
+            return ['ok' => false, 'needs_confirm' => true,
+                    'error' => $first . ' has work on file (quotes, invoices, contracts or a property). Mark personal anyway?'];
+        }
+
+        $verb = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+        try {
+            $this->db->beginTransaction();
+            $ins = $this->db->prepare("{$verb} INTO text_personal (number_hash, marked_by) VALUES (?, ?)");
+            $unmatched = $this->db->prepare("DELETE FROM text_unmatched WHERE phone10 = ?");
+            foreach ($numbers as $number) {
+                $ins->execute([self::hash($number, $this->salt()), $userId]);
+                $unmatched->execute([$number]);
+            }
+            $del = $this->db->prepare("DELETE FROM sales_messages WHERE mailbox = ? AND contact_id = ?");
+            $del->execute([self::MAILBOX, $contactId]);
+            $deleted = $del->rowCount();
+            $kept = array_values(array_filter($this->keptContactIds(), fn($id) => $id !== $contactId));
+            $this->putSetting(self::KEPT_CONTACTS_KEY, json_encode($kept), 'Messages bridge: texted contacts the owner said are work, not personal');
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+        $this->map = null;
+        return ['ok' => true, 'deleted' => $deleted];
+    }
+
+    /** Contacts with text history but no known work, excluding those the owner chose to keep. */
+    public function textedWithoutWork(int $limit = 20): array
+    {
+        $limit = max(1, min(200, $limit));
+        $kept = array_flip($this->keptContactIds());
+        $active = '';
+        try { $this->db->query("SELECT is_active FROM contacts LIMIT 1"); $active = ' AND COALESCE(c.is_active, 1) = 1'; }
+        catch (Throwable $e) { /* older contacts table */ }
+        $st = $this->db->prepare("SELECT c.id, c.first_name, c.last_name, COUNT(sm.id) AS texts, MAX(sm.sent_at) AS last_at
+                                  FROM contacts c JOIN sales_messages sm ON sm.contact_id = c.id
+                                  WHERE sm.mailbox = ?{$active}
+                                  GROUP BY c.id, c.first_name, c.last_name ORDER BY last_at DESC");
+        $st->execute([self::MAILBOX]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $id = (int)$row['id'];
+            if (isset($kept[$id]) || $this->hasWorkOnFile($id)) continue;
+            $out[] = ['id' => $id, 'name' => trim((string)$row['first_name'] . ' ' . (string)$row['last_name']),
+                      'texts' => (int)$row['texts'], 'last_at' => (string)$row['last_at']];
+            if (count($out) >= $limit) break;
+        }
+        return $out;
+    }
+
+    /** Stop offering a known work contact on the privacy review list. */
+    public function keepContact(int $contactId): array
+    {
+        $st = $this->db->prepare("SELECT 1 FROM contacts WHERE id = ?");
+        $st->execute([$contactId]);
+        if (!$st->fetchColumn()) return ['ok' => false, 'error' => 'Contact not found.'];
+        $ids = $this->keptContactIds();
+        if (!in_array($contactId, $ids, true)) $ids[] = $contactId;
+        $this->putSetting(self::KEPT_CONTACTS_KEY, json_encode(array_values($ids)), 'Messages bridge: texted contacts the owner said are work, not personal');
+        return ['ok' => true];
+    }
+
+    /** @return int[] */
+    private function keptContactIds(): array
+    {
+        $ids = json_decode($this->setting(self::KEPT_CONTACTS_KEY) ?? '[]', true);
+        if (!is_array($ids)) return [];
+        return array_values(array_unique(array_filter(array_map('intval', $ids), fn($id) => $id > 0)));
+    }
+
+    /** @param string[] $numbers @return int[] */
+    private function contactIdsForNumbers(array $numbers, ?int $exceptId = null): array
+    {
+        if (!$numbers) return [];
+        $wanted = array_flip($numbers);
+        $rows = [];
+        foreach (["SELECT id, phone, mobile FROM contacts WHERE COALESCE(is_active, 1) = 1", "SELECT id, phone, mobile FROM contacts", "SELECT id, phone FROM contacts"] as $sql) {
+            try { $rows = $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC); break; }
+            catch (Throwable $e) { continue; }
+        }
+        $ids = [];
+        foreach ($rows as $row) {
+            $id = (int)$row['id'];
+            if ($exceptId !== null && $id === $exceptId) continue;
+            foreach (['phone', 'mobile'] as $field) {
+                $number = self::normalize(isset($row[$field]) ? (string)$row[$field] : null);
+                if ($number !== null && isset($wanted[$number])) { $ids[$id] = $id; break; }
+            }
+        }
+        return array_values($ids);
     }
 
     /** Last-seen + counts from the Mac (numbers only). */

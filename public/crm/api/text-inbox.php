@@ -3,10 +3,12 @@
  * Texts from numbers that are not a customer yet — JSON for the panel on Yui's card (2026-10-22).
  * Logic: TextBridgeService (migration 1396). Owner only; CSRF on every POST. `mode`, never `action`.
  *
- * GET  ?mode=list                       the waiting numbers, each with its latest messages
+ * GET  ?mode=list                       waiting numbers plus texted contacts with no work on file
  * GET  ?mode=search&q=…                 customers to link a number to
  * POST {mode:'link', phone10, contact_id, replace?}   put the number on that customer; their texts move across
  * POST {mode:'personal', phone10}       delete these texts and never bring this number in again
+ * POST {mode:'personal_contact', contact_id, confirmed?} delete a saved personal contact's texts and block its numbers
+ * POST {mode:'keep_contact', contact_id} stop offering a saved contact for privacy review
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -48,7 +50,8 @@ try {
     }
     if ($method === 'GET' && $mode === 'list') {
         $svc->adoptUnmatched();   // a number Tim just added to a customer by hand
-        echo json_encode(['ok' => true, 'count' => $svc->unknownCount(), 'threads' => $svc->unknownThreads()]);
+        echo json_encode(['ok' => true, 'count' => $svc->unknownCount(), 'threads' => $svc->unknownThreads(),
+                          'contacts' => $svc->textedWithoutWork()]);
     } elseif ($method === 'GET' && $mode === 'search') {
         echo json_encode(['ok' => true, 'results' => $svc->searchContacts((string)($input['q'] ?? ''))]);
     } elseif ($method === 'POST' && $mode === 'link') {
@@ -56,6 +59,10 @@ try {
         echo json_encode($svc->linkToContact((string)($input['phone10'] ?? ''), (int)($input['contact_id'] ?? 0), $replace));
     } elseif ($method === 'POST' && $mode === 'personal') {
         echo json_encode($svc->markPersonal((string)($input['phone10'] ?? ''), (int)($user['id'] ?? 0)));
+    } elseif ($method === 'POST' && $mode === 'personal_contact') {
+        echo json_encode($svc->markContactPersonal((int)($input['contact_id'] ?? 0), (int)($user['id'] ?? 0), (bool)($input['confirmed'] ?? false)));
+    } elseif ($method === 'POST' && $mode === 'keep_contact') {
+        echo json_encode($svc->keepContact((int)($input['contact_id'] ?? 0)));
     } else {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'Unknown mode']);

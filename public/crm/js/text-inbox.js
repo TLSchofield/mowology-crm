@@ -11,6 +11,7 @@
     var listEl = document.getElementById('mw-txi-list');
     var countEl = document.getElementById('mw-txi-count');
     var msgEl = document.getElementById('mw-txi-msg');
+    var contactsEl = document.getElementById('mw-txi-contacts');
 
     function el(tag, cls, text) {
         var e = document.createElement(tag);
@@ -40,7 +41,11 @@
             Object.keys(data).forEach(function (k) { url += '&' + k + '=' + encodeURIComponent(data[k]); });
         }
         return fetch(url, opts).then(function (r) { return r.json(); }).then(function (d) {
-            if (!d.ok) throw new Error(d.error || 'Failed');
+            if (!d.ok) {
+                var error = new Error(d.error || 'Failed');
+                error.data = d;
+                throw error;
+            }
             return d;
         });
     }
@@ -138,15 +143,85 @@
         return card;
     }
 
+    function contactActions(c, row, actions) {
+        actions.textContent = '';
+        var keep = el('button', 'btn btn-sm btn-outline-secondary', 'Keep');
+        keep.type = 'button';
+        keep.addEventListener('click', function () {
+            keep.disabled = true;
+            call('keep_contact', { contact_id: c.id }, 'POST').then(function () {
+                row.remove();
+                say(c.name + ' kept as a work contact.', 'ok');
+            }).catch(function (e) { say(e.message, 'bad'); contactActions(c, row, actions); });
+        });
+        var personal = el('button', 'btn btn-sm btn-outline-danger', 'Personal');
+        personal.type = 'button';
+        personal.addEventListener('click', function () { contactConfirm(c, row, actions, false); });
+        actions.appendChild(keep);
+        actions.appendChild(personal);
+    }
+
+    function contactConfirm(c, row, actions, confirmed) {
+        actions.textContent = '';
+        var prompt = confirmed ? '' : 'Delete ' + c.texts + ' text' + (c.texts === 1 ? '' : 's') + ' with ' + c.name + ' and never bring this number in again?';
+        var line = el('span', 'mw-txi-confirm', prompt);
+        var remove = el('button', 'btn btn-sm btn-danger', confirmed ? 'Mark personal anyway' : 'Delete texts');
+        remove.type = 'button';
+        var cancel = el('button', 'btn btn-sm btn-outline-secondary', 'Cancel');
+        cancel.type = 'button';
+        cancel.addEventListener('click', function () { contactActions(c, row, actions); });
+        remove.addEventListener('click', function () {
+            remove.textContent = 'Deleting…';
+            remove.disabled = true;
+            cancel.disabled = true;
+            call('personal_contact', { contact_id: c.id, confirmed: confirmed }, 'POST').then(function (d) {
+                say('Marked personal: ' + d.deleted + ' text' + (d.deleted === 1 ? '' : 's') + ' deleted.', 'ok');
+                load();
+            }).catch(function (e) {
+                if (e.data && e.data.needs_confirm) {
+                    actions.textContent = '';
+                    actions.appendChild(el('span', 'mw-txi-confirm', e.message));
+                    var anyway = el('button', 'btn btn-sm btn-danger', 'Mark personal anyway');
+                    anyway.type = 'button';
+                    anyway.addEventListener('click', function () { contactConfirm(c, row, actions, true); });
+                    var no = el('button', 'btn btn-sm btn-outline-secondary', 'Cancel');
+                    no.type = 'button';
+                    no.addEventListener('click', function () { contactActions(c, row, actions); });
+                    actions.appendChild(anyway);
+                    actions.appendChild(no);
+                    return;
+                }
+                say(e.message, 'bad');
+                contactActions(c, row, actions);
+            });
+        });
+        if (prompt) actions.appendChild(line);
+        actions.appendChild(remove);
+        actions.appendChild(cancel);
+        if (confirmed) remove.click();
+    }
+
+    function contactRow(c) {
+        var row = el('div', 'mw-txi-contact');
+        var info = el('div', 'mw-txi-contact-info');
+        info.appendChild(el('div', 'mw-txi-contact-name', c.name));
+        info.appendChild(el('div', 'mw-txi-meta', c.texts + ' text' + (c.texts === 1 ? '' : 's') + ' · latest ' + when(c.last_at)));
+        var actions = el('div', 'mw-txi-contact-actions');
+        row.appendChild(info);
+        row.appendChild(actions);
+        contactActions(c, row, actions);
+        return row;
+    }
+
     function load() {
         return call('list').then(function (d) {
             countEl.textContent = d.count ? d.count + (d.count === 1 ? ' number' : ' numbers') : '';
             listEl.textContent = '';
-            if (!d.threads.length) {
-                listEl.appendChild(el('span', 'mw-txi-empty', 'Nothing waiting.'));
-                return;
-            }
+            if (!d.threads.length) listEl.appendChild(el('span', 'mw-txi-empty', 'No unknown numbers waiting.'));
             d.threads.forEach(function (t) { listEl.appendChild(threadCard(t)); });
+            contactsEl.textContent = '';
+            if (!d.contacts.length) contactsEl.appendChild(el('span', 'mw-txi-empty', 'No contacts waiting for review.'));
+            d.contacts.forEach(function (c) { contactsEl.appendChild(contactRow(c)); });
         }).catch(function (e) { listEl.textContent = ''; say(e.message, 'bad'); });
     }
 
