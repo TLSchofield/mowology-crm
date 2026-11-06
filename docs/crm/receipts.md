@@ -340,6 +340,25 @@ total (`BookkeeperDeskService::lineFingerprint`, from `ExpenseGate`'s locked sna
 existing line is never overwritten; `LineItemFit::addsUp` fails a set with any non-numeric line amount. Live dry run
 that day: Penny's path would fill 25 receipts (37 skipped as not adding up); the re-read path 34 of 119 (admin-run only).
 
+**Reader layouts and fallbacks (2026-11-06).** Replay of the free reader on the same 406 stored receipts: 101 → 158
+read right (fit now also accepts total − GST − PST when the stored subtotal is 0), none broken.
+
+| Change | Where | Gain |
+|---|---|---|
+| Weigh tickets: the material line takes the printed Total Fee (the city rounds weight × rate) | `extractLineItems()` material pattern | landfill +26 |
+| `TOTAL FUEL` is a fuel-pump amount; TOTAL FEE/FUEL/SALE(S), EXTRA FEE, TOTAL TENDERED and a `Deposit:` label are not items | `extractFuelPumpItem()`, `isTaxOrSummaryLabel()` | Shell +11 |
+| A printed item is read once; `N Deposit ($0.20)` is an item; names and amounts printed in separate blocks are paired in order (kept only when they add up); a lone `PRODUCT` heading is not an item | `extractLineItems()`, `pairSeparatedColumns()`, `isColumnHeading()` | Chevron +15 |
+| Emailed PDF invoices: `name qty [CA$]unit [tax%] [CA$]amount` rows under a DESCRIPTION/QTY/AMOUNT heading | `parseReceiptText()` invoice-table pass | web host +3, Anthropic +2 |
+| Fit check falls back to total − GST − PST when the subtotal is 0 | `LineItemFit::addsUp($items, $amount, $total, $tol, $gst, $pst)` and its three callers | — |
+
+Also: a create or money edit with a total but no subtotal saves amount = total − GST − PST
+(`ExpenseGate::withDerivedSubtotal`; 77 stored receipts had 0.00, left as they are). A scanned emailed PDF
+(no text layer; the cron has no Imagick) is read by Google Vision `files:annotate` (`extractTextFromPdf`).
+A product picked from the vendor's list in the desktop edit modal fills what the items don't cover
+(`ExpenseLineItemService::add` `fill_remainder`, `remainderLine()`: subtotal − lines, quantity from the list
+price); the modal shows "Pick from <vendor>'s list" when items are missing or short. Handwritten receipts
+(Lawnboy, Champion) stay unread by the reader: the pick, or the model tier.
+
 Both review cards (web mobile + iOS) let the user rename / mark "not an item" / add a
 missed item before saving; the desktop review panel does the same inline. After save,
 the desktop edit modal and the iOS detail sheet edit, delete, add and link items through
