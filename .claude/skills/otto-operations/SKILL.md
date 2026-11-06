@@ -33,7 +33,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.1.1
+  version: 1.2.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -156,6 +156,7 @@ reference that matches the task:
 | The week's load against crew capacity (80% full, 100% over, a plan length that looks wrong first) | `WeekLoadRules::days()` / `WeekLoadRules::briefItem()`; crew count `OttoHarvestService::crewCount()` (ops_settings `otto_crew_count` overrides) | brief |
 | Seasonal stock watch (owner-named items, dated decide-by; seeded with ice melt / salt when snow routes exist) | `SeasonalStockRules::items()`; list in ops_settings `otto_seasonal_stock` via `OttoHarvestService::watchList()` | brief |
 | Quarterly supplier review (90-day receipt spend, concentration > 60% with an alternative in the directory, price lists > 90 days old) | `SupplierReviewRules::build()` / `SupplierReviewRules::briefItem()` | brief |
+| A plan's visit length (`job_plans.estimated_duration_minutes`, the booked slot) — ONE writer since 2026-11-05 | `VisitDurationService::apply()` on Tim's tap, proposed by `VisitDurationService::review()` from timers checked against GPS time on the lot (`VisitDurationRules::choose()`); GPS time per visit stored nightly by `VisitDurationService::measure()` (trip cron, table `visit_onsite_time`, migration 1439) | Otto's card, the review page, day capacity, the schedule |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |
 
 **Not yet central (known):** iPhone renders per-kind buttons for older kinds itself

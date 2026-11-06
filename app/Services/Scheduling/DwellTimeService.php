@@ -17,9 +17,6 @@ declare(strict_types=1);
  *   job_plans.gps_avg_dwell_minutes — rolling GPS average across completed visits
  *   job_plans.gps_visit_count       — count of GPS-quality visits
  *
- * When gps_visit_count >= 2, the GPS average is promoted into
- * job_plans.estimated_duration_minutes so the scheduler uses it automatically.
- *
  * Called from:
  *   VisitCompletionService::capture()  — per-visit, at completion
  *   backfill-gps-dwell.php             — admin backfill for historical visits
@@ -38,9 +35,6 @@ class DwellTimeService
 
     /** GPS-derived maximum — anything longer is probably a forgotten clock-out. */
     private const GPS_MAX_MINUTES = 480;
-
-    /** How many GPS visits are required before GPS overrides the timer estimate. */
-    private const GPS_PROMOTE_THRESHOLD = 2;
 
     /**
      * Compute GPS dwell time for a single completed visit and persist it.
@@ -120,8 +114,6 @@ class DwellTimeService
      * Recompute the rolling GPS dwell average for a plan from all its completed,
      * quality-filtered visits, then write gps_avg_dwell_minutes and gps_visit_count.
      *
-     * When the count reaches GPS_PROMOTE_THRESHOLD, the GPS average is promoted
-     * into estimated_duration_minutes so the scheduler uses it automatically.
      */
     public static function updatePlanDwellAverage(int $planId): void
     {
@@ -150,23 +142,7 @@ class DwellTimeService
             WHERE id = ?
         ")->execute([$avgDwell, $visitCount, $planId]);
 
-        // Promote GPS average into the scheduler's estimated_duration_minutes
-        // once enough data points have accumulated.
-        if ($avgDwell !== null
-            && $visitCount >= self::GPS_PROMOTE_THRESHOLD
-            && $avgDwell >= self::GPS_MIN_MINUTES
-        ) {
-            $db->prepare("
-                UPDATE job_plans SET estimated_duration_minutes = ? WHERE id = ?
-            ")->execute([$avgDwell, $planId]);
-
-            error_log(sprintf(
-                '[DwellTimeService] GPS dwell promoted — plan #%d: %d min (%d GPS visits)',
-                $planId,
-                $avgDwell,
-                $visitCount
-            ));
-        }
+        // Plan lengths are set only by Otto's review, on the owner's tap (2026-11-05).
     }
 
     /**

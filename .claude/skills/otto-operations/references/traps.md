@@ -203,3 +203,8 @@ fix the plan before reading the week.
 **What happened:** clients imported from QuickBooks onto a new business would never have got a pin or lot border. The auto-place candidates were active properties, quotes from the last 12 months and leads from the last 30 days, and no business database had ever run a cron (0 `cron_runs` rows in testcompany, rehearsal and rehearsal2). The 6-hourly summary said "0 pinned, 0 lot border(s)", which looked like "nothing to do".
 **Signature:** a 0 from Otto's run while new clients sit unpinned; a business's `cron_runs` table is empty.
 **Rule:** "new" is decided by id above a frozen starting line (`otto_new_after_id`, its own `ops_settings` row), never by which code path made the property or by its `created_at` (Jobber reconsent back-dates it). A per-business job runs as its own CLI process with `--tenant=<key>` (`BusinessCronFanout`; production has `exec` disabled but `proc_open` allowed). `GET_LOCK` names are server-wide, so they carry the database name. Outside BC there is no lot map: record `no_source:<code>` and make no request.
+
+## Plan lengths were overwritten by three raw averages (found 2026-11-05)
+- What happened: `VisitCompletionService` (every finish), `DwellTimeService` (GPS backfill) and `backfill-duration-avg.php` each wrote `job_plans.estimated_duration_minutes` from plain averages. Forgotten timers left plans at 3,000 to 8,000 minutes; the iPhone timeline showed "9:00–8:13".
+- Signature: a plan length far from its GPS time on site; Otto's approved length changed again after the next finish.
+- Rule: only `VisitDurationService::apply()` writes a plan length, on Tim's tap. Time on site is measured inside the drawn lot border (the 150 m proof radius covers the neighbours) and on one day only.

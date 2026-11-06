@@ -1,9 +1,11 @@
 <?php
 /**
- * VisitDurationRules — Otto: how long a lawn cut really takes, from the job timers.
+ * VisitDurationRules — Otto: how long every recurring visit really takes.
  *
  * Pure functions only (unit tested). VisitDurationService loads the rows and applies changes.
  *
+ * Phone/tablet GPS measures sessions on the property. Timers still preserve person-minutes for
+ * costing; GPS replaces crew-minutes when a timer ran on, ended short, or was not usable.
  * Per visit (job_time_entries, void excluded):
  *   person-minutes  every person's timer added up (two people for 30 min = 60)
  *   crew-minutes    the time the crew was on site: the union of the timers (two people for 30 min = 30)
@@ -21,6 +23,8 @@
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once __DIR__ . '/../../Tracking/Services/RouteProofService.php';   // inPolygon(), pure
+
 class VisitDurationRules
 {
     public const SAMPLES          = 8;
@@ -33,6 +37,11 @@ class VisitDurationRules
     public const MIN_CHANGE_MIN   = 5;
     public const MIN_CHANGE_PCT   = 0.15;
     public const ROUND_TO         = 5;
+    public const GPS_GAP_MIN      = 20;
+    public const GPS_MIN_POINTS   = 5;
+    public const AGREE_PCT        = 0.15;
+    /** The truck parks at the kerb, outside the lot's border: this close to the property pin counts. */
+    public const TRUCK_RADIUS_M   = 40;
     public const COVERAGE_DAYS    = 60;
     /** After "Keep the plan", wait for this many more timed visits before asking again. */
     public const KEEP_WAIT        = 3;
@@ -81,6 +90,93 @@ class VisitDurationRules
         }
         if ($cur !== null) $total += $cur[1] - $cur[0];
         return $total;
+    }
+
+    /** Split on-property fixes into visits to the site without counting the time away. */
+    public static function onsiteMinutes(array $timestamps): array
+    {
+        $timestamps = array_values(array_map('intval', $timestamps));
+        sort($timestamps);
+        $n = count($timestamps);
+        if (!$n) return ['minutes' => 0, 'points' => 0, 'sessions' => 0, 'first' => null, 'last' => null];
+        $seconds = 0;
+        $sessions = 0;
+        $start = $timestamps[0];
+        $last = $start;
+        for ($i = 1; $i < $n; $i++) {
+            $ts = $timestamps[$i];
+            if ($ts - $last > self::GPS_GAP_MIN * 60) {
+                if ($last > $start) { $seconds += $last - $start; $sessions++; }
+                $start = $ts;
+            }
+            $last = $ts;
+        }
+        if ($last > $start) { $seconds += $last - $start; $sessions++; }
+        return ['minutes' => (int)round($seconds / 60), 'points' => $n, 'sessions' => $sessions,
+            'first' => $timestamps[0], 'last' => $timestamps[$n - 1]];
+    }
+
+    /**
+     * Fixes inside the property's drawn border (ray casting), or all of them when there is no border.
+     * Each fix has latitude / longitude. PURE.
+     */
+    public static function insideBorder(array $fixes, ?array $polygon): array
+    {
+        if (!$polygon || count($polygon) < 3) return array_values($fixes);
+        return array_values(array_filter($fixes, fn($f) => isset($f['latitude'], $f['longitude'])
+            && RouteProofService::inPolygon((float)$f['latitude'], (float)$f['longitude'], $polygon)));
+    }
+
+    /**
+     * Only the fixes of the day with the most of them. A visit's fixes can run over several days (a timer
+     * left on overnight, a visit recorded later), which summed sessions across days into 446 min for a
+     * 69-minute morning (preview, 2026-11-05). Each fix has timestamp 'Y-m-d H:i:s'. PURE.
+     */
+    public static function busiestDay(array $fixes): array
+    {
+        $byDay = [];
+        foreach ($fixes as $f) $byDay[substr((string)($f['timestamp'] ?? ''), 0, 10)][] = $f;
+        if (!$byDay) return [];
+        uasort($byDay, fn($a, $b) => count($b) <=> count($a));
+        return array_values(reset($byDay));
+    }
+
+    /** Prefer trustworthy property presence while retaining timer person-minutes where possible. */
+    public static function choose(array $timer, ?array $gps): array
+    {
+        $gpsOk = $gps !== null && (int)$gps['points'] >= self::GPS_MIN_POINTS
+            && (int)$gps['minutes'] >= self::MIN_MINUTES;
+        $timerOk = ($timer['excluded'] ?? null) === null
+            && (int)($timer['crew_min'] ?? 0) >= self::MIN_MINUTES;
+        $out = $timer;
+        $out['gps_min'] = $gps !== null ? (int)$gps['minutes'] : null;
+        $out['gps_source'] = $gps['source'] ?? null;
+        if ($timerOk && $gpsOk) {
+            $tm = (int)$timer['crew_min'];
+            $gm = (int)$gps['minutes'];
+            if (abs($tm - $gm) <= self::AGREE_PCT * $gm) {
+                $out['basis'] = 'timer_agrees';
+            } elseif ($tm > $gm) {
+                $out['crew_min'] = $gm;
+                $out['person_min'] = (int)round((int)$timer['person_min'] * $gm / $tm);
+                $out['basis'] = 'timer_ran_on';
+            } else {
+                $out['crew_min'] = $gm;
+                $out['person_min'] = $gm * max(1, (int)$timer['people']);
+                $out['basis'] = 'timer_short';
+            }
+        } elseif ($gpsOk) {
+            $out['crew_min'] = (int)$gps['minutes'];
+            $out['person_min'] = (int)$gps['minutes'];
+            $out['people'] = max(1, (int)($timer['people'] ?? 0));
+            $out['excluded'] = null;
+            $out['basis'] = 'gps_only';
+        } elseif ($timerOk) {
+            $out['basis'] = 'timer_only';
+        } else {
+            $out['basis'] = 'none';
+        }
+        return $out;
     }
 
     public static function median(array $xs): ?float
@@ -177,6 +273,13 @@ class VisitDurationRules
         $why = ['auto_stopped' => 'stopped by the system', 'under_5' => 'under 5 min', 'over_3x' => 'timer left running'];
         $d = array_count_values(array_column($s['dropped'], 'why'));
         foreach ($d as $k => $n) $parts[] = $n . ' dropped (' . ($why[$k] ?? $k) . ')';
+        $bases = array_count_values(array_column($s['used'], 'basis'));
+        if (!empty($bases['timer_ran_on'])) $parts[] = $bases['timer_ran_on'] . ' from GPS (timer ran on)';
+        if (!empty($bases['gps_only'])) $parts[] = $bases['gps_only'] . ' GPS only (no timer)';
+        if (!empty($bases['timer_short'])) $parts[] = $bases['timer_short'] . ' from GPS (timer short)';
+        $truck = count(array_filter($s['used'], fn($v) => in_array($v['basis'] ?? '', ['timer_ran_on', 'gps_only', 'timer_short'], true)
+            && ($v['gps_source'] ?? null) === 'truck'));
+        if ($truck) $parts[] = $truck . " from the truck's GPS";
         return implode(' · ', $parts);
     }
 

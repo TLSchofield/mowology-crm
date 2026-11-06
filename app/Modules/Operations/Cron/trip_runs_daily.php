@@ -87,6 +87,7 @@ try {
         error_log('[trip_runs_daily] learnPlaces: ' . $e->getMessage());   // pricing still runs
     }
     $tot = ['stored' => 0, 'removed' => 0, 'open' => 0, 'unnamed' => 0, 'days' => 0];
+    $__facts = '';
     for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
         $r = $svc->process(date('Y-m-d', $t));
         foreach (['stored', 'removed', 'open', 'unnamed'] as $k) $tot[$k] += $r[$k];
@@ -100,9 +101,16 @@ try {
     } catch (Throwable $e) {
         error_log('[trip_runs_daily] breaks: ' . $e->getMessage());
     }
+    // On-site time (migration 1439): durable GPS evidence for Otto's visit-length review.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/VisitDurationService.php';
+        $dur = (new VisitDurationService(getDB()))->measure($__from, $__to);
+        $__facts .= "; time on site: {$dur['measured']} visit(s) measured ({$dur['phone']} phone, {$dur['truck']} truck)";
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] time on site: ' . $e->getMessage());
+    }
     // Shared facts (migration 1218): Penny tags the runs to jobs, then Otto recomputes the medians
     // the other heads read. Additive — a failure here never loses the priced runs above.
-    $__facts = '';
     try {
         require_once APP_ROOT . '/Modules/Expenses/Services/TripAttributionService.php';
         require_once APP_ROOT . '/Modules/Operations/Services/CostFactsService.php';
@@ -116,13 +124,13 @@ try {
                 $at['tagged'] += $a['tagged'];
             }
             $f = $cf->refresh();
-            $__facts = "; {$at['rows']} job cost line(s), {$at['tagged']} receipt(s) tagged to a job, {$f['facts']} cost fact(s)";
+            $__facts .= "; {$at['rows']} job cost line(s), {$at['tagged']} receipt(s) tagged to a job, {$f['facts']} cost fact(s)";
         } else {
-            $__facts = '; cost facts need migration 1218';
+            $__facts .= '; cost facts need migration 1218';
         }
     } catch (Throwable $e) {
         error_log('[trip_runs_daily] cost facts: ' . $e->getMessage());
-        $__facts = '; cost facts failed: ' . $e->getMessage();
+        $__facts .= '; cost facts failed: ' . $e->getMessage();
     }
     // Contract sites (migration 1267): Otto logs work done there with nothing scheduled, by himself —
     // yesterday, or the last 14 days on the first run. Additive: a failure never loses the runs above.

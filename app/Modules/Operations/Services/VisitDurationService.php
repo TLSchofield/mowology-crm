@@ -1,8 +1,8 @@
 <?php
 /**
- * VisitDurationService — Otto: real lawn-cut lengths against the plan, and how much is timed.
+ * VisitDurationService — Otto: real recurring-visit lengths from timers and on-site GPS.
  *
- *   review()            every recurring lawn plan: samples, medians (crew- and person-minutes),
+ *   review()            recurring plans: samples, medians (crew- and person-minutes),
  *                       what was dropped and why, and the proposed length. Read-only.
  *   coverage()          of the visits completed in the last 60 days, how many have a job timer.
  *   items()             Otto's suggestions (kind 'duration'), one per plan with a proposal.
@@ -14,12 +14,10 @@
  * DayBattleCard, the schedule's job minutes), so applying here is how the planner learns.
  * Otto never changes a length by himself.
  *
- * Note: DwellTimeService::updatePlanDwellAverage() ALSO writes estimated_duration_minutes (from GPS
- * dwell) when /crm/api/backfill-gps-dwell.php is run. That path is silent; this one is not.
- *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/VisitDurationRules.php';
+require_once __DIR__ . '/../../Tracking/Services/RouteProofService.php';
 
 class VisitDurationService
 {
@@ -77,11 +75,14 @@ class VisitDurationService
         ");
         $s->execute(array_merge(array_values($planIds), [date('Y-m-d', strtotime($this->today . ' -' . self::LOOKBACK_DAYS . ' days'))]));
         $visits = $s->fetchAll(PDO::FETCH_ASSOC);
-        $entries = $this->loadEntries(array_map(fn($v) => (int)$v['id'], $visits));
+        $ids = array_map(fn($v) => (int)$v['id'], $visits);
+        $entries = $this->loadEntries($ids);
+        $gps = $this->loadGps($ids);
         $out = [];
         foreach ($visits as $v) {
             $out[(int)$v['plan_id']][] = ['visit_id' => (int)$v['id'], 'date' => (string)$v['scheduled_date'],
-                'departure' => (bool)$v['departure'], 'entries' => $entries[(int)$v['id']] ?? []];
+                'departure' => (bool)$v['departure'], 'entries' => $entries[(int)$v['id']] ?? [],
+                'gps' => $gps[(int)$v['id']] ?? null];
         }
         return $out;
     }
@@ -112,6 +113,121 @@ class VisitDurationService
         return $out;
     }
 
+    /** Stored GPS survives the source trails' retention window. Missing migration means no GPS. */
+    protected function loadGps(array $visitIds): array
+    {
+        $out = [];
+        try {
+            foreach (array_chunk($visitIds, 500) as $chunk) {
+                if (!$chunk) continue;
+                $in = implode(',', array_fill(0, count($chunk), '?'));
+                $s = $this->db->prepare("SELECT visit_id, minutes, points, source FROM visit_onsite_time WHERE visit_id IN ({$in})");
+                $s->execute($chunk);
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $out[(int)$r['visit_id']] = ['minutes' => (int)$r['minutes'], 'points' => (int)$r['points'], 'source' => (string)$r['source']];
+                }
+            }
+        } catch (Throwable $e) { return []; }
+        return $out;
+    }
+
+    /** Completed visits in the requested local-date range. */
+    protected function loadMeasureVisits(string $from, string $to): array
+    {
+        $s = $this->db->prepare("SELECT id, COALESCE(DATE(completed_at), scheduled_date) AS day, scheduled_date FROM job_visits
+            WHERE status = 'completed' AND COALESCE(DATE(completed_at), scheduled_date) BETWEEN ? AND ?");
+        $s->execute([$from, $to]);
+        return $s->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Truck pings are loaded once per day, then tested against each sparse-phone visit. */
+    protected function loadTruckPings(string $day): array
+    {
+        $s = $this->db->prepare("SELECT lat, lng, recorded_at FROM vehicle_location_pings
+            WHERE recorded_at >= ? AND recorded_at < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY recorded_at");
+        $s->execute([$day, $day]);
+        return $s->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    protected function onsiteTableReady(): bool
+    {
+        try { return $this->db->query("SELECT 1 FROM visit_onsite_time LIMIT 1") !== false; }
+        catch (Throwable $e) { return false; }
+    }
+
+    protected function loadPhoneFixes(array $visitIds): array
+    {
+        return (new RouteProofService($this->db))->forVisits($visitIds);
+    }
+
+    protected function loadVisitSite(int $visitId): array
+    {
+        return (new RouteProofService($this->db))->siteForVisit($visitId);
+    }
+
+    protected function loadGpsRadius(): int
+    {
+        return (new RouteProofService($this->db))->radiusM();
+    }
+
+    protected function storeOnsite(int $visitId, array $m, string $source): void
+    {
+        $s = $this->db->prepare("INSERT INTO visit_onsite_time
+            (visit_id, minutes, points, sessions, source, first_at, last_at, measured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              minutes = IF(VALUES(points) >= points, VALUES(minutes), minutes),
+              sessions = IF(VALUES(points) >= points, VALUES(sessions), sessions),
+              source = IF(VALUES(points) >= points, VALUES(source), source),
+              first_at = IF(VALUES(points) >= points, VALUES(first_at), first_at),
+              last_at = IF(VALUES(points) >= points, VALUES(last_at), last_at),
+              measured_at = IF(VALUES(points) >= points, VALUES(measured_at), measured_at),
+              points = GREATEST(points, VALUES(points))");
+        $s->execute([$visitId, $m['minutes'], $m['points'], $m['sessions'], $source,
+            $m['first'] !== null ? date('Y-m-d H:i:s', $m['first']) : null,
+            $m['last'] !== null ? date('Y-m-d H:i:s', $m['last']) : null, date('Y-m-d H:i:s')]);
+    }
+
+    /** Measure on-property sessions, preferring phone/tablet evidence and filling sparse visits from the truck. */
+    public function measure(string $from, string $to): array
+    {
+        $zero = ['visits' => 0, 'measured' => 0, 'phone' => 0, 'truck' => 0];
+        if (!$this->onsiteTableReady()) return $zero;
+        $visits = $this->loadMeasureVisits($from, $to);
+        $out = $zero;
+        $out['visits'] = count($visits);
+        $phone = [];
+        foreach (array_chunk(array_map(fn($v) => (int)$v['id'], $visits), 100) as $chunk) $phone += $this->loadPhoneFixes($chunk);
+        $truckDays = [];
+        $radius = $this->loadGpsRadius();
+        foreach ($visits as $v) {
+            $id = (int)$v['id'];
+            $site = $this->loadVisitSite($id);
+            // Timing needs the lot, not the street: the 150 m proof radius covers the neighbours too, and
+            // a visit with no timer takes every on-site fix of the day. With a drawn border only fixes
+            // inside it count; the truck parks at the kerb, so it is held to TRUCK_RADIUS_M of the pin.
+            $fixes = VisitDurationRules::busiestDay(VisitDurationRules::insideBorder($phone[$id] ?? [], $site['polygon'] ?? null));
+            $source = 'phone';
+            if (count($fixes) < VisitDurationRules::GPS_MIN_POINTS) {
+                // The day the crew was there: the phones' own day when they saw the site, else the scheduled
+                // day. A visit marked complete on Monday for Friday's work must not read Monday's truck trail.
+                $day = $fixes ? substr((string)$fixes[0]['timestamp'], 0, 10) : (string)($v['scheduled_date'] ?? $v['day']);
+                if (!isset($truckDays[$day])) $truckDays[$day] = $this->loadTruckPings($day);
+                $mapped = array_map(fn($p) => ['latitude' => $p['lat'], 'longitude' => $p['lng'], 'timestamp' => $p['recorded_at']], $truckDays[$day]);
+                $truck = RouteProofService::onSite($mapped, ['lat' => $site['lat'] ?? null, 'lng' => $site['lng'] ?? null],
+                    min($radius, VisitDurationRules::TRUCK_RADIUS_M));
+                // Sparse phone fixes are still evidence; replace them only when the truck fills more of the visit.
+                if (count($truck) > count($fixes)) { $fixes = $truck; $source = 'truck'; }
+            }
+            $m = VisitDurationRules::onsiteMinutes(array_map(fn($f) => (int)strtotime((string)$f['timestamp']), $fixes));
+            if ($m['points'] < 2) continue;
+            $this->storeOnsite($id, $m, $source);
+            $out['measured']++;
+            $out[$source]++;
+        }
+        return $out;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Review
     // ─────────────────────────────────────────────────────────────────────────
@@ -125,7 +241,7 @@ class VisitDurationService
         foreach ($plans as $p) {
             $rows = [];
             foreach ($visits[(int)$p['id']] ?? [] as $v) {
-                $m = VisitDurationRules::visitMinutes($v['entries'], $v['departure']);
+                $m = VisitDurationRules::choose(VisitDurationRules::visitMinutes($v['entries'], $v['departure']), $v['gps'] ?? null);
                 $rows[] = ['visit_id' => $v['visit_id'], 'date' => $v['date']] + $m;
             }
             $planned = $p['estimated_duration_minutes'] !== null ? (int)$p['estimated_duration_minutes'] : null;
@@ -180,7 +296,7 @@ class VisitDurationService
         if (!$this->ready()) return [];
         $out = [];
         $kept = $this->keptOn();
-        foreach ($this->review(false) as $r) {
+        foreach ($this->review(true) as $r) {
             if ($r['proposed'] === null || $r['last_date'] === null) continue;
             // "Keep the plan" → quiet until KEEP_WAIT more timed visits have come in (owner, 2026-10-07).
             if (isset($kept[$r['plan_id']]) && !VisitDurationRules::askAgain($r['timed_dates'], $kept[$r['plan_id']])) continue;
@@ -252,7 +368,7 @@ class VisitDurationService
     {
         $batch = 'b' . date('YmdHis') . '-' . $actorId;
         $done = [];
-        foreach ($this->review(false) as $r) {
+        foreach ($this->review(true) as $r) {
             if ($r['proposed'] === null || !$r['confident']) continue;
             $res = $this->apply($r['plan_id'], $r['proposed'], $actorId, $r, $batch);
             if ($res['ok']) $done[] = ['plan_id' => $r['plan_id'], 'street' => $r['street'], 'old' => $res['old'], 'new' => $res['new'], 'change_id' => $res['change_id']];
