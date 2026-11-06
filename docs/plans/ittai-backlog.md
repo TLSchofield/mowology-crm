@@ -323,7 +323,7 @@ get them after phase 2.
 - **Payroll:** how they run it today (e.g. Wave) — Ittai doesn't, so Penny knows not to expect it.
 - One question per screen on web, iPhone and Android; iPhone hard-codes the company step (`ItPennyOnboarding.swift`), Android to check — parity is part of the job.
 
-## iPhone receipt capture takes blurred photos (Tim 2026-11-06)
+## iPhone receipt capture takes blurred photos (Tim 2026-11-06) — being handled in another session
 - The edge-detect scanner on iPhone auto-captured while the phone was moving: a motion-blurred receipt, "No text found".
   Wanted: auto-capture only when the frame is steady and sharp (or turn auto-capture off / add a manual shutter), and a
   "too blurry — retake" check before upload. Screenshot in the 2026-11-06 Claudia chat. iPhone receipts area.
