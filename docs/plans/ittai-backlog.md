@@ -328,7 +328,7 @@ get them after phase 2.
   Wanted: auto-capture only when the frame is steady and sharp (or turn auto-capture off / add a manual shutter), and a
   "too blurry — retake" check before upload. Screenshot in the 2026-11-06 Claudia chat. iPhone receipts area.
 
-## Timesheets to payroll — QuickBooks and Wave (Tim 2026-11-06)
+## Timesheets to payroll — QuickBooks and Wave (Tim 2026-11-06) — Tim: the QuickBooks TimeActivity part "is useful" (wanted)
 - **QuickBooks:** the Accounting API's `TimeActivity` (hours per employee, per customer/job) fits the connection Ittai already has.
   Hours tied to a pay type (regular/overtime) for QuickBooks Payroll need Intuit's Premium "Payroll Compensation" API, which has no
   sandbox. Unsettled: whether QuickBooks Payroll **Canada** turns TimeActivity into paycheques — ask Intuit / test on Tim's company.
