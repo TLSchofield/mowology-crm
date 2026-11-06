@@ -23,6 +23,7 @@ if (defined('APP_ROOT')) {
 requireLogin();
 $user = getCurrentUser();
 $db = getDB();
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 $error = '';
 $success = '';
 
@@ -945,7 +946,7 @@ Work to be completed weather permitting.</textarea>
             }
         });
 
-        var tax = subtotal * 0.05;
+        var tax = subtotal * <?= json_encode(TaxEngine::chargedRate($db, 0.05)) ?>; // 0 when not registered for GST
         var total = subtotal + tax;
 
         document.getElementById('subtotalDisplay').textContent = formatCurrencyJS(subtotal);

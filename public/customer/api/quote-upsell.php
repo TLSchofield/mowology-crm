@@ -648,7 +648,8 @@ function recalculateQuoteTotals(int $quoteId): array {
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     $subtotal  = round((float)$row['subtotal'], 2);
-    $taxRate   = 0.05;
+    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+    $taxRate   = TaxEngine::chargedRate($db, 0.05);   // 0 when the business is not registered for GST
     $taxAmount = round($subtotal * $taxRate, 2);
     $total     = $subtotal + $taxAmount;
 

@@ -1201,7 +1201,7 @@ $extraHead = $isPayable
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['subtotal']); ?></span>
                               </div>
                               <div class="mw-total-row">
-                                  <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)</span>
+                                  <span>GST (<?php echo round(($invoice['tax_rate'] ?? 0.05) * 100); ?>%)</span>
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['tax_amount'] ?: 0); ?></span>
                               </div>
                               <div class="mw-total-row mw-grand">

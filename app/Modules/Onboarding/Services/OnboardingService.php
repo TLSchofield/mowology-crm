@@ -26,17 +26,40 @@ class OnboardingService
     /** @var array<string, OnboardingModule> */
     private array $modules = [];
 
-    /** @param list<OnboardingModule>|null $modules */
-    public function __construct(OnboardingContext $c, ?array $modules = null)
+    /**
+     * Steps added after the first phone apps shipped: an app that does not know one shows "You're set up" for it,
+     * so a client must say which it knows (see knowsFrom) or these are left out of the path as if absent.
+     */
+    public const NEW_STEPS = ['terms', 'gst', 'yearend', 'payroll'];
+
+    /**
+     * @param list<OnboardingModule>|null $modules
+     * @param list<string>|null $knows  step keys the client can show; null = all (the web page)
+     */
+    public function __construct(OnboardingContext $c, ?array $modules = null, ?array $knows = null)
     {
         $this->c = $c;
-        foreach ($modules ?? self::defaultModules() as $m) $this->modules[$m->key()] = $m;
+        foreach ($modules ?? self::defaultModules() as $m) {
+            if ($knows !== null && in_array($m->key(), self::NEW_STEPS, true) && !in_array($m->key(), $knows, true)) continue;
+            $this->modules[$m->key()] = $m;
+        }
+    }
+
+    /**
+     * Pure: the step keys a phone declared (comma list or array); absent or empty = an old app that knows none of NEW_STEPS.
+     * @param mixed $raw  @return list<string>
+     */
+    public static function knowsFrom($raw): array
+    {
+        $list = is_array($raw) ? $raw : explode(',', is_string($raw) ? $raw : '');
+        return array_values(array_unique(array_filter(array_map(fn($k) => strtolower(trim((string)$k)), $list), fn($k) => $k !== '')));
     }
 
     /** The default path. A new module: one line here (its place is the default order). */
     public static function defaultModules(): array
     {
-        return [new OnboardingNameModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(),
+        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingGstModule(), new OnboardingYearEndModule(),
+                new OnboardingPayrollModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(),
                 new OnboardingBooksModule(), new OnboardingAccountantModule(), new OnboardingDoneModule()];
     }
 
@@ -128,6 +151,9 @@ class OnboardingService
         if (!$m || !$m->skippable()) return ['ok' => false, 'message' => 'That step cannot be skipped.'];
         $s = array_values(array_diff($this->skipped(), [$key]));
         if ($skip) $s[] = $key;
+        // A step this client can't see (an old phone) keeps its skip: it is out of skipped() here, not undone.
+        $saved = json_decode((string)$this->c->setting(self::SKIPPED), true);
+        foreach (is_array($saved) ? $saved : [] as $k) if (in_array($k, self::NEW_STEPS, true) && !isset($this->modules[$k]) && !in_array($k, $s, true)) $s[] = $k;
         $this->c->saveSetting(self::SKIPPED, json_encode($s), 'Onboarding: steps the owner skipped (OnboardingService)');
         return ['ok' => true, 'message' => ($skip ? 'Skipped' : 'Brought back') . ' "' . $m->title() . '".'];
     }

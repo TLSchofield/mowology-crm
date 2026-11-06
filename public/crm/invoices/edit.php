@@ -129,8 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $servicePostalCode  !== $billingPostalCode
         ) ? 1 : 0;
 
-        $taxRate = floatval($invoice['tax_rate'] ?? 0.05);
-        if ($taxRate <= 0) $taxRate = 0.05;
+        // 0.05 only when the invoice has no rate at all (NULL); a 0% invoice stays 0%, and a business not registered for GST charges none.
+        require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+        $taxRate = TaxEngine::chargedRate($db, $invoice['tax_rate'] === null ? 0.05 : floatval($invoice['tax_rate']));
 
         // Status is restricted to non-paid values — "paid" must come from
         // record-payment.php which also updates amount_paid + paid_at.

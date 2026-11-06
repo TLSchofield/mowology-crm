@@ -29,3 +29,15 @@ Penny-led (shadow first: Ittai keeps the books alongside QuickBooks until they a
 6. Claudia's walk on rehearsal2: answer "not registered" and confirm a contract draft and a receipt carry no GST.
 
 Not in scope: running payroll, filing GST.
+
+## Progress
+- **2026-11-06 server part BUILT, not deployed.** Codex at its limit → built by web-builder, reviewed by code-reviewer (no defects
+  for registered businesses; 9 non-registrant gaps found and fixed: invoice edit re-charging 5%, work-order invoice, quote upsell,
+  quote totals + JS preview, product line rates, the two calculateQuoteTotals defaults, GST report ITCs, "GST (5%)" on 0% invoices,
+  terms row re-activation). `TaxEngine::gstRegistered()` / `chargedRate()` are the one switch. 4169 tests OK.
+- One registered-business change, on purpose: editing a 0% invoice no longer silently re-charges 5%.
+- **Left (literal 5% that doesn't charge a non-registrant today):** MulchPricingService "GST added on top" wording, QboSyncService
+  GST_RATE claim check, product-manager default gst_rate, receipt parser/anomaly reading, Jobber history.
+- **Before deploy:** render the four web screens; accept terms on rehearsal2 (terms_versions + acceptance rows); answer "not
+  registered" there and check a contract draft, a quote and a receipt carry no GST; Mowology records nothing.
+- **Next:** Android + iPhone screens (send `knows=terms,gst,yearend,payroll`).

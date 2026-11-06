@@ -395,6 +395,8 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
                 $taxRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'tax_rate' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
                 if ($taxRow) $taxRate = (float)$taxRow['setting_value'];
             } catch (Exception $e) {}
+            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+            $taxRate = TaxEngine::chargedRate($db, $taxRate);   // not registered for GST → none
 
             $taxAmount  = round($subtotal * $taxRate, 2);
             $total      = round($subtotal + $taxAmount, 2);

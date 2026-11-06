@@ -634,7 +634,7 @@ class ExpenseGate
         if ($this->gstRateCache === null) {
             try {
                 if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
-                $this->gstRateCache = TaxEngine::gstRate($this->db);
+                $this->gstRateCache = TaxEngine::configuredGstRate($this->db);   // the rate on the paper: a non-registrant still pays it, so a 5% GST line is not 'high' or 'wrong'
             } catch (Throwable $e) {
                 $this->gstRateCache = 0.05;
             }

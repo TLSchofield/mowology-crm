@@ -24,14 +24,104 @@ class OnboardingServiceTest extends TestCase
         return $db;
     }
 
+    /** The path as the first phone apps see it (the new steps held back): these tests are about the mechanics, not the new steps. */
     private function svc(PDO $db): OnboardingService
+    {
+        return new OnboardingService(new OnboardingContext($db, 1), null, []);
+    }
+
+    /** The web page: every step. */
+    private function webSvc(PDO $db): OnboardingService
     {
         return new OnboardingService(new OnboardingContext($db, 1));
     }
 
     public function test_the_default_path(): void
     {
-        $this->assertSame(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->svc($this->db())->order());
+        $this->assertSame(['name', 'terms', 'gst', 'yearend', 'payroll', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->webSvc($this->db())->order());
+        $this->assertSame(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->svc($this->db())->order(), 'an old app never sees the new steps');
+    }
+
+    public function test_a_saved_old_order_gets_terms_right_after_name(): void
+    {
+        $all = ['name', 'terms', 'gst', 'yearend', 'payroll', 'company', 'quickbooks', 'books', 'accountant', 'done'];
+        $this->assertSame($all, OnboardingService::normalise(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $all, ['done']));
+        $this->assertSame(['company', 'name', 'terms', 'gst', 'yearend', 'payroll', 'quickbooks', 'books', 'accountant', 'done'],
+            OnboardingService::normalise(['company', 'name', 'quickbooks', 'books', 'accountant'], $all, ['done']), 'after wherever name sits');
+    }
+
+    public function test_the_new_steps_are_hidden_from_apps_that_do_not_know_them(): void
+    {
+        $db = $this->db();
+        $ctx = new OnboardingContext($db, 1);
+        $this->assertSame([], OnboardingService::knowsFrom(null), 'absent = an old app');
+        $this->assertSame([], OnboardingService::knowsFrom(''));
+        $this->assertSame(['terms', 'gst'], OnboardingService::knowsFrom(' Terms, gst ,,terms'));
+        $this->assertSame(['gst'], OnboardingService::knowsFrom(['gst']));
+        $old = new OnboardingService($ctx, null, OnboardingService::knowsFrom(null));
+        $this->assertNull($old->module('terms'));
+        $this->assertSame('name', $old->next());
+        $some = new OnboardingService($ctx, null, ['terms']);
+        $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'books', 'accountant', 'done'], $some->order());
+        $all = new OnboardingService($ctx, null, OnboardingService::knowsFrom('terms,gst,yearend,payroll'));
+        $this->assertSame($this->webSvc($db)->order(), $all->order());
+        // readyToFinish ignores the steps the app cannot show, and counts the ones it can.
+        $name = $old->module('name');
+        $name->save($ctx, 'Tim', 'S', 'Tim'); $name->saveReach($ctx, 'app', ''); $name->saveQuiet($ctx, '21:00', '06:30', true);
+        $db->exec("INSERT INTO business_identity VALUES (1, 'X Ltd', 'X', NULL)");
+        foreach (['quickbooks', 'books', 'accountant'] as $k) $old->skip($k, true);
+        $this->assertTrue((new OnboardingService($ctx, null, []))->readyToFinish());
+        $this->assertFalse($this->webSvc($db)->readyToFinish(), 'the web page still needs terms, GST, year-end and payroll');
+        $this->assertFalse((new OnboardingService($ctx, null, ['terms']))->readyToFinish());
+    }
+
+    public function test_the_new_steps_save_their_answers_and_finish_by_them(): void
+    {
+        $db = $this->db();
+        $db->exec("CREATE TABLE business_settings (id INTEGER PRIMARY KEY, gst_registration TEXT)");
+        $db->exec("INSERT INTO business_settings VALUES (1, '')");
+        $ctx = new OnboardingContext($db, 1);
+        $terms = new OnboardingTermsModule(); $gst = new OnboardingGstModule(); $ye = new OnboardingYearEndModule(); $pay = new OnboardingPayrollModule();
+        $this->assertSame('todo', $terms->state($ctx));
+        $this->assertFalse($terms->skippable());
+        $terms->accept($ctx);
+        $this->assertSame('done', $terms->state(new OnboardingContext($db, 1)));
+
+        $this->assertFalse($gst->save($ctx, 'maybe')['ok']);
+        $this->assertFalse($gst->save($ctx, 'yes', '12345')['ok']);
+        $this->assertFalse($gst->save($ctx, 'yes', '', 'weekly')['ok']);
+        $this->assertTrue($gst->save($ctx, 'yes', '123 456 789 rt0001', 'quarterly')['ok']);
+        $this->assertSame('123456789RT0001', $db->query('SELECT gst_registration FROM business_settings')->fetchColumn());
+        $this->assertSame('Registered for GST · files quarterly.', $gst->summary(new OnboardingContext($db, 1)));
+        $this->assertSame('123456789', OnboardingGstModule::gstNumber('123456789'));
+        $this->assertTrue($gst->save($ctx, 'no')['ok']);
+        $this->assertSame('Not registered for GST — no GST is charged or claimed.', $gst->summary($ctx));
+        $this->assertSame('done', $gst->state($ctx));
+
+        $this->assertFalse($ye->save($ctx, 'nobody')['ok']);
+        $ye->save($ctx, 'self');
+        $this->assertStringContainsString('reviews your books', $ye->question($ctx));
+        $this->assertSame('Year-end: you.', $ye->summary($ctx));
+        $ye->save($ctx, 'accountant');
+        $this->assertSame('Year-end: your accountant.', $ye->summary($ctx));
+
+        $this->assertFalse($pay->save($ctx, 'robots')['ok']);
+        $this->assertFalse($pay->save($ctx, 'app', str_repeat('x', 61))['ok']);
+        $this->assertTrue($pay->save($ctx, 'app', "  <b>Wave</b>  ")['ok']);
+        $this->assertSame('Payroll: Wave.', $pay->summary($ctx));
+        $pay->save($ctx, 'none');
+        $this->assertSame('', (string)$ctx->setting('onboarding_payroll_app'));
+        $this->assertSame('Payroll: no staff on payroll.', $pay->summary($ctx));
+        foreach ([$gst, $ye, $pay] as $m) $this->assertTrue($m->skippable());
+        $this->assertSame([], $gst->needs());
+    }
+
+    /** app/ cannot read public/, so the version lives twice; this fails the day they drift. */
+    public function test_the_terms_version_matches_the_live_text(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/public/includes/legal/ittai-legal.php');
+        $this->assertSame(1, preg_match("/define\('TERMS_VERSION', '([^']+)'\)/", $src, $m));
+        $this->assertSame($m[1], OnboardingTermsModule::TERMS_VERSION);
     }
 
     public function test_a_saved_order_is_made_whole(): void
@@ -153,6 +243,15 @@ class OnboardingServiceTest extends TestCase
         $this->assertSame(1, $p['done'], 'a skipped step counts as finished');
         $this->assertTrue($this->svc($db)->skip('accountant', false)['ok']);
         $this->assertSame([], $this->svc($db)->skipped());
+    }
+
+    public function test_an_old_app_skipping_a_step_keeps_a_skipped_new_step(): void
+    {
+        $db = $this->db();
+        $this->assertTrue($this->webSvc($db)->skip('gst', true)['ok']);
+        $this->assertTrue($this->svc($db)->skip('accountant', true)['ok'], 'an old phone skips a step it knows');
+        $this->assertContains('gst', $this->webSvc($db)->skipped(), 'the web page still sees GST skipped');
+        $this->assertContains('accountant', $this->webSvc($db)->skipped());
     }
 
     /** About you, one side at a time (owner, 2026-10-20): name to use · how to reach you · when not to bother you. */

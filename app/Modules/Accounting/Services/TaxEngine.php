@@ -56,8 +56,38 @@ class TaxEngine
     /**
      * The GST rate as a fraction (0.05), from the one editable place — business_settings.gst_rate
      * (a percent). Falls back to tax_rates, then 5%. Use this anywhere GST is charged or shown.
+     * 0.0 for a business that said it is not registered for GST (gstRegistered): it charges none.
      */
     public static function gstRate(PDO $db): float
+    {
+        return self::gstRegistered($db) ? self::configuredGstRate($db) : 0.0;
+    }
+
+    /**
+     * Is this business registered for GST? False only when onboarding recorded 'no' (ops_settings gst_registered);
+     * 'yes', 'unsure', unanswered, or a missing table/row all mean registered — today's behaviour.
+     */
+    public static function gstRegistered(PDO $db): bool
+    {
+        try {
+            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'gst_registered'");
+            $s->execute();
+            return $s->fetchColumn() !== 'no';
+        } catch (Throwable $e) { /* no ops_settings table */ }
+        return true;
+    }
+
+    /** $rate as charged: 0.0 for a business not registered for GST, else $rate untouched. */
+    public static function chargedRate(PDO $db, float $rate): float
+    {
+        return self::gstRegistered($db) ? $rate : 0.0;
+    }
+
+    /**
+     * The rate printed on receipts and set in Settings, whether or not the business is registered — what a
+     * supplier's GST line is checked against (a non-registrant still pays it, it just can't claim it back).
+     */
+    public static function configuredGstRate(PDO $db): float
     {
         try {
             $pct = $db->query("SELECT gst_rate FROM business_settings LIMIT 1")->fetchColumn();

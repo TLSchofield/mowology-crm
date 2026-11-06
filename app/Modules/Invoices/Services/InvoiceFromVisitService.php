@@ -404,6 +404,8 @@ class InvoiceFromVisitService
         // GST
         $bsRow    = $this->db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC);
         $taxRate  = round(floatval($bsRow['gst_rate'] ?? 5.00) / 100, 4);
+        require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+        if (!TaxEngine::gstRegistered($this->db)) $taxRate = 0.0;
         $gstNum   = trim($bsRow['gst_registration'] ?? '');
 
         $fullSubtotal = round($baseSubtotal + $extrasAmount, 2);

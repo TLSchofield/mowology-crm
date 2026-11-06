@@ -31,6 +31,9 @@ if (!jwtIsAdmin((string)$jwtUser['role'])) {
 $decoded = json_decode((string)file_get_contents('php://input'), true);
 $body = is_array($decoded) ? $decoded : [];
 $body['_site_url'] = Tenant::appUrl();
+$body['_ip'] = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+$body['_ua'] = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+$body['knows'] = $body['knows'] ?? '';   // an app that does not say which new steps it knows knows none
 $result = (new OnboardingStepService(getDB(), Tenant::db()[0]))->apply((int)$jwtUser['id'], $body);
 if (!$result['ok']) {
     http_response_code(400);
@@ -38,7 +41,7 @@ if (!$result['ok']) {
     exit;
 }
 $key = trim((string)($body['key'] ?? ''));
-$data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[0]);
+$data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[0], OnboardingService::knowsFrom($body['knows']));
 if (isset($result['matches'])) { $data[$key]['matches'] = $result['matches']; $data[$key]['registry'] = $result['registry'] ?? ''; }
 if (isset($result['invite'])) $data[$key]['invite'] = $result['invite'];
 $out = ['ok' => true, 'next' => $result['next'], 'data' => $data[$key] ?? []];

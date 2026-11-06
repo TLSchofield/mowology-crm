@@ -106,4 +106,80 @@ final class OnboardingStepServiceTest extends TestCase
         $r=$s->apply(7,['key'=>'accountant','do'=>'invite','name'=>'Pat Books','email'=>'pat@example.com','_site_url'=>'https://tenant.test']);
         $this->assertSame(['link'=>'https://tenant.test/invite','expires_at'=>'2026-10-30 10:00:00','name'=>'Pat Books'],$r['invite']);
     }
+
+    private function withTerms(PDO $db): void
+    {
+        $db->exec("CREATE TABLE terms_versions (id INTEGER PRIMARY KEY, doc_key TEXT DEFAULT 'platform', version TEXT, is_current INT DEFAULT 0, activated_at TEXT, created_at TEXT, UNIQUE (doc_key, version))");
+        $db->exec("CREATE TABLE terms_acceptances (id INTEGER PRIMARY KEY, user_id INT, doc_key TEXT DEFAULT 'platform', version TEXT, accepted_at TEXT DEFAULT CURRENT_TIMESTAMP, ip_address TEXT, user_agent TEXT, UNIQUE (user_id, doc_key, version))");
+    }
+
+    public function test_terms_accept_saves_and_records_for_a_non_default_business_only(): void
+    {
+        $db=$this->db();$this->withTerms($db);
+        try {
+            Tenant::forTests(null);   // Mowology: only the setting, no gate switched on
+            $s=new OnboardingStepService($db,'tenant');
+            $this->assertTrue($s->apply(7,['key'=>'terms','do'=>'accept','_ip'=>'1.2.3.4','_ua'=>'UA'])['ok']);
+            $this->assertSame(OnboardingTermsModule::TERMS_VERSION,$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_terms_accepted'")->fetchColumn());
+            $this->assertSame(0,(int)$db->query('SELECT COUNT(*) FROM terms_versions')->fetchColumn());
+
+            Tenant::forTests(['key'=>'greenleaf','cfg'=>['db_name'=>'x']]);
+            $this->assertTrue($s->apply(7,['key'=>'terms','do'=>'accept','_ip'=>'1.2.3.4','_ua'=>'UA'])['ok']);
+            $this->assertTrue($s->apply(7,['key'=>'terms','do'=>'accept'])['ok'],'twice is fine');
+            $row=$db->query('SELECT version, is_current FROM terms_versions')->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame(OnboardingTermsModule::TERMS_VERSION,$row['version']);$this->assertSame(1,(int)$row['is_current']);
+            $this->assertSame('1.2.3.4',$db->query('SELECT ip_address FROM terms_acceptances WHERE user_id=7')->fetchColumn());
+            $this->assertSame(1,(int)$db->query('SELECT COUNT(*) FROM terms_acceptances')->fetchColumn());
+        } finally { Tenant::forTests(null); }
+    }
+
+    public function test_a_terms_version_someone_set_non_current_stays_off(): void
+    {
+        $db=$this->db();$this->withTerms($db);
+        $db->exec("INSERT INTO terms_versions (doc_key, version, is_current) VALUES ('platform', '2026-01-01', 0)");
+        try {
+            Tenant::forTests(['key'=>'greenleaf','cfg'=>['db_name'=>'x']]);
+            $this->assertTrue((new OnboardingStepService($db,'tenant'))->apply(7,['key'=>'terms','do'=>'accept'])['ok']);
+            $this->assertSame(0,(int)$db->query('SELECT COUNT(*) FROM terms_versions WHERE is_current = 1')->fetchColumn());
+            $this->assertSame(1,(int)$db->query('SELECT COUNT(*) FROM terms_versions')->fetchColumn());
+        } finally { Tenant::forTests(null); }
+    }
+
+    public function test_terms_accept_survives_missing_tables(): void
+    {
+        $db=$this->db();
+        try {
+            Tenant::forTests(['key'=>'greenleaf','cfg'=>['db_name'=>'x']]);
+            $r=(new OnboardingStepService($db,'tenant'))->apply(7,['key'=>'terms','do'=>'accept']);
+            $this->assertTrue($r['ok']);
+            $this->assertSame(OnboardingTermsModule::TERMS_VERSION,$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_terms_accepted'")->fetchColumn());
+        } finally { Tenant::forTests(null); }
+    }
+
+    public function test_gst_yearend_and_payroll_answers(): void
+    {
+        $db=$this->db();$s=new OnboardingStepService($db,'tenant');
+        $this->assertFalse($s->apply(7,['key'=>'gst','do'=>'answer','registered'=>'yes','number'=>'12'])['ok']);
+        $this->assertFalse($s->apply(7,['key'=>'gst','do'=>'answer','registered'=>'yes','filing'=>'weekly'])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'gst','do'=>'answer','registered'=>'yes','number'=>'123456789 RT0001','filing'=>'annual'])['ok']);
+        $this->assertSame('123456789RT0001',$db->query('SELECT gst_registration FROM business_settings WHERE id=1')->fetchColumn());
+        $this->assertSame('annual',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='gst_filing'")->fetchColumn());
+        $this->assertTrue($s->apply(7,['key'=>'gst','do'=>'answer','registered'=>'no'])['ok']);
+        $this->assertSame('no',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='gst_registered'")->fetchColumn());
+        $this->assertFalse($s->apply(7,['key'=>'yearend','do'=>'answer','who'=>'x'])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'yearend','do'=>'answer','who'=>'self'])['ok']);
+        $this->assertFalse($s->apply(7,['key'=>'payroll','do'=>'answer','how'=>'app','app'=>str_repeat('a',61)])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'payroll','do'=>'answer','how'=>'app','app'=>' Wave '])['ok']);
+        $this->assertSame('Wave',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_payroll_app'")->fetchColumn());
+        $this->assertSame('Choose a valid action.',$s->apply(7,['key'=>'gst','do'=>'nope'])['message']);
+    }
+
+    public function test_an_old_app_cannot_reach_or_see_the_new_steps(): void
+    {
+        $db=$this->db();$s=new OnboardingStepService($db,'tenant');
+        $this->assertSame('No such step.',$s->apply(7,['key'=>'gst','do'=>'answer','registered'=>'no','knows'=>''])['message']);
+        $this->assertSame('No such step.',$s->apply(7,['key'=>'terms','do'=>'accept','knows'=>'gst'])['message']);
+        $this->assertTrue($s->apply(7,['key'=>'gst','do'=>'answer','registered'=>'no','knows'=>'gst,terms'])['ok']);
+        $this->assertSame('name',$s->apply(7,['key'=>'books','do'=>'ack','knows'=>''])['next'],'next is a step the old app knows');
+    }
 }

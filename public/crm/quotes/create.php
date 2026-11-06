@@ -11,6 +11,7 @@ $user = getCurrentUser();
 requirePermission('billing.edit');
 
 $db = getDB();
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Create Quote', $_SERVER['REQUEST_METHOD']);
@@ -837,7 +838,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 }
             });
 
-            const taxRate = 0.05;
+            const taxRate = <?= json_encode(TaxEngine::chargedRate($db, 0.05)) ?>; // 0 when the business is not registered for GST (same rate the server uses)
             const tax = subtotal * taxRate;
             const total = subtotal + tax;
 

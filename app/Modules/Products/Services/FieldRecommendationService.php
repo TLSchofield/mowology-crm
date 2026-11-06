@@ -464,6 +464,17 @@ class FieldRecommendationService
         return $quoteId;
     }
 
+    /** False only for a business that said in onboarding it is not registered for GST. */
+    private function gstRegistered(): bool
+    {
+        try {
+            if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
+            return TaxEngine::gstRegistered($this->db);
+        } catch (Throwable $e) {
+            return true;
+        }
+    }
+
     /**
      * One quote line for the recommended service. Flat-priced products bill at
      * base_price; measurement-driven ones go through QuoteCalculator.
@@ -473,6 +484,7 @@ class FieldRecommendationService
         $taxRate = (int)($product['taxable'] ?? 1) === 1
             ? (float)($product['gst_rate'] ?? 5.00)
             : 0.0;
+        if ($taxRate > 0 && !$this->gstRegistered()) $taxRate = 0.0;   // not registered for GST: no GST on the line
 
         $rule = $this->loadPricingRule((int)$product['id']);
 

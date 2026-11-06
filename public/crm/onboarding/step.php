@@ -72,6 +72,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $send = (new OnboardingStepService($db, Tenant::db()[0]))->apply($uid,
                 ['key' => 'quickbooks', 'do' => 'send', 'on' => (string)($_POST['on'] ?? '') === '1']);
             $_SESSION['ob_flash'] = $send;
+        } elseif (in_array($key, ['terms', 'gst', 'yearend', 'payroll'], true) && in_array($do, ['accept', 'answer'], true)) {
+            // The step service does the saving (and, for the terms, the acceptance record); the page only passes the form on.
+            require_once APP_ROOT . '/Modules/Onboarding/Services/OnboardingStepService.php';
+            $r = (new OnboardingStepService($db, Tenant::db()[0]))->apply($uid, [
+                'key' => $key, 'do' => $do, 'registered' => (string)($_POST['registered'] ?? ''), 'number' => (string)($_POST['number'] ?? ''),
+                'filing' => (string)($_POST['filing'] ?? ''), 'who' => (string)($_POST['who'] ?? ''), 'how' => (string)($_POST['how'] ?? ''),
+                'app' => (string)($_POST['app'] ?? ''), '_ip' => (string)($_SERVER['REMOTE_ADDR'] ?? ''), '_ua' => (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
+            ]);
+            if (!empty($r['ok'])) $goNext();
+            $_SESSION['ob_flash'] = ['ok' => false, 'message' => (string)($r['message'] ?? 'That did not work.')];
         } elseif ($key === 'books' && $do === 'ack') {
             $mod->acknowledge($ctx);
             $goNext();
@@ -334,6 +344,54 @@ $money = fn($v) => $v === null ? '—' : '$' . number_format((float)$v, 2);
                         <a class="it-ob-button it-ob-button-link" href="step.php?m=quickbooks">Back</a>
                     </form>
                 <?php endif; ?>
+
+            <?php elseif ($key === 'terms'): ?>
+                <p class="it-obs-fact">
+                    <a href="<?= h(OnboardingTermsModule::TERMS_URL) ?>" target="_blank" rel="noopener">Terms of service</a> ·
+                    <a href="<?= h(OnboardingTermsModule::PRIVACY_URL) ?>" target="_blank" rel="noopener">Privacy policy</a>
+                </p>
+                <form method="post" class="it-ob-actions">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="terms">
+                    <button class="it-ob-button it-ob-button-primary" name="do" value="accept"><?= $state === 'done' ? 'Accepted — continue' : 'I accept' ?></button>
+                </form>
+
+            <?php elseif ($key === 'gst'): $ga = $mod->answer($ctx); ?>
+                <form method="post" class="it-ob-form">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="gst"><input type="hidden" name="do" value="answer">
+                    <fieldset class="it-obs-choice">
+                        <legend class="it-obs-fact">Pick one</legend>
+                        <label class="it-obs-option"><input type="radio" name="registered" value="yes"<?= $ga === 'yes' ? ' checked' : '' ?> required> <span>Yes, I am registered</span></label>
+                        <label class="it-obs-option"><input type="radio" name="registered" value="no"<?= $ga === 'no' ? ' checked' : '' ?>> <span>No, I am not</span></label>
+                        <label class="it-obs-option"><input type="radio" name="registered" value="unsure"<?= $ga === 'unsure' ? ' checked' : '' ?>> <span>Not sure</span></label>
+                    </fieldset>
+                    <div class="it-ob-field"><label for="ob-gst-number">GST number (if registered)</label><input class="it-ob-input" id="ob-gst-number" name="number" autocomplete="off" placeholder="123456789 RT0001" value="<?= h((string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1')) ?>"></div>
+                    <div class="it-ob-field"><label for="ob-gst-filing">How often do you file?</label>
+                        <select class="it-ob-input" id="ob-gst-filing" name="filing">
+                            <option value="">Not sure</option>
+                            <?php foreach (OnboardingGstModule::FILING as $v => $label): ?><option value="<?= h($v) ?>"<?= (string)$ctx->setting('gst_filing') === $v ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?>
+                        </select>
+                    </div>
+                    <p class="it-obs-fact">If you are not registered, Ittai charges and claims no GST.</p>
+                    <div class="it-ob-actions"><button class="it-ob-button it-ob-button-primary">Continue</button></div>
+                </form>
+
+            <?php elseif ($key === 'yearend'): ?>
+                <form method="post" class="it-ob-actions">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="yearend"><input type="hidden" name="do" value="answer">
+                    <button class="it-ob-button it-ob-button-primary" name="who" value="accountant">An accountant</button>
+                    <button class="it-ob-button it-ob-button-link" name="who" value="self">I do it myself</button>
+                </form>
+
+            <?php elseif ($key === 'payroll'): ?>
+                <form method="post" class="it-ob-form">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>"><input type="hidden" name="m" value="payroll"><input type="hidden" name="do" value="answer">
+                    <div class="it-ob-field"><label for="ob-payroll-app">If you use an app, which one?</label><input class="it-ob-input" id="ob-payroll-app" name="app" maxlength="<?= (int)OnboardingPayrollModule::APP_MAX ?>" autocomplete="off" value="<?= h((string)$ctx->setting('onboarding_payroll_app')) ?>"></div>
+                    <div class="it-ob-actions">
+                        <button class="it-ob-button it-ob-button-primary" name="how" value="app">I use an app</button>
+                        <button class="it-ob-button it-ob-button-link" name="how" value="accountant">My accountant does it</button>
+                        <button class="it-ob-button it-ob-button-link" name="how" value="none">No staff on payroll</button>
+                    </div>
+                </form>
 
             <?php elseif ($key === 'books'): ?>
                 <form method="post" class="it-ob-actions">

@@ -125,6 +125,8 @@ try {
     $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
     $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
     if ($bs && isset($bs['gst_rate'])) $taxRate = round((float)$bs['gst_rate'] / 100, 4);
+    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+    if (!TaxEngine::gstRegistered($db)) $taxRate = 0.0;
     if ($bs && !empty($bs['gst_registration'])) $gstNum = $bs['gst_registration'];
 } catch (Exception $e) {}
 

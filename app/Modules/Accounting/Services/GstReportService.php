@@ -147,9 +147,22 @@ class GstReportService
         }
     }
 
+    /** False only for a business that said in onboarding it is not registered for GST. */
+    private function gstRegistered(): bool
+    {
+        try {
+            if (!class_exists('TaxEngine')) require_once __DIR__ . '/TaxEngine.php';
+            return TaxEngine::gstRegistered($this->db);
+        } catch (Throwable $e) {
+            return true;
+        }
+    }
+
     /** Expenses whose GST may be claimed: approved or posted, with GST. */
     public function itcExpenses(string $from, string $to): array
     {
+        // A business not registered for GST claims no input tax credits (onboarding): line 106 is 0.
+        if (!$this->gstRegistered()) return [];
         $in = implode(',', array_fill(0, count(self::ITC_STATUSES), '?'));
         $stmt = $this->db->prepare("
             SELECT e.id, e.expense_date, e.description,

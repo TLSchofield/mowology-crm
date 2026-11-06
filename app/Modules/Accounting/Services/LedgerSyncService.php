@@ -93,7 +93,25 @@ class LedgerSyncService
             'vendor_id'       => !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
             'meals'           => GstReportService::isMeals($row['accounting_category'] ?? null, $this->gstSettings()['meals_categories']),
             'meals_itc_rate'  => $this->gstSettings()['meals_rate'],
-        ] + (in_array($cat, self::CAPITAL_RULE_CATEGORIES, true) ? ['capital_rule' => ['threshold' => $this->capitalThreshold()]] : []);
+        ] + (in_array($cat, self::CAPITAL_RULE_CATEGORIES, true) ? ['capital_rule' => ['threshold' => $this->capitalThreshold()]] : [])
+          // Not registered for GST: no input tax credit, the GST stays in the cost. Absent for a registered business, so its args are unchanged.
+          + ($this->gstRegistered() ? [] : ['claim_itc' => false]);
+    }
+
+    private ?bool $gstRegisteredCache = null;
+
+    /** TaxEngine::gstRegistered, read once (false only after onboarding recorded "not registered"). */
+    private function gstRegistered(): bool
+    {
+        if ($this->gstRegisteredCache === null) {
+            try {
+                if (!class_exists('TaxEngine')) require_once __DIR__ . '/TaxEngine.php';
+                $this->gstRegisteredCache = TaxEngine::gstRegistered($this->db);
+            } catch (\Throwable $e) {
+                $this->gstRegisteredCache = true;
+            }
+        }
+        return $this->gstRegisteredCache;
     }
 
     /** Receipt categories whose items of the capital threshold or more each are equipment (CapitalItemRule). */
@@ -214,6 +232,7 @@ class LedgerSyncService
         if ($held !== false) return $held;
         $gst     = round((float)($row['gst_amount'] ?? 0), 2);
         $pst     = round((float)($row['pst_amount'] ?? 0), 2);
+        if ($type === 'expense' && !$this->gstRegistered()) $gst = 0.0;   // no GST claimed back: the whole amount is cost, nothing to 2210
         // A card refund / statement credit is staged as a NEGATIVE expense: money back onto the card,
         // the cost reduced. It used to be skipped here, so the P&L netted it and the journal didn't
         // (review 2026-10-12). Reverse of an expense: DR the card/bank, CR the cost (and the ITC).
