@@ -68,3 +68,4 @@ Moved out of SKILL.md 2026-10-29 so the entry file stays short. Tests still chec
 | Receipt footing (lines > total) and capital-asset flag (≥ $500 equipment; `ops_settings capitalization_threshold`) | `checkFooting()` / `checkCapitalAsset()` in `AnomalyDetector.php` | every receipt risk read |
 | The year's tax, honestly (fiscal YTD, annualised with the seasonal caveat, rate only from `ops_settings tax_rate_combined`) | `TaxInstalmentNote::build()` via `CashFlowForecastService::taxNote()` | cash-flow page notes |
 | Owner pulse bands (A/R ageing with every >30-day invoice named, revenue MoM, runway n/a) | `PulseBands` via `OwnerFreedomService::pulse()` | Owner Freedom page |
+| A receipt dated in a closed year: filed and traced to its one bank line (link + file atomically; never booked again) | `ClosedYearReceiptTrace::trace()` (gate hook `ExpenseGateHooks::closedYear`) | phone upload, rescan, inbox, any save of an open 2025 receipt |

@@ -877,3 +877,10 @@ bank lines were searched. A 2025 receipt with no bank line (#535 Home Depot $10.
 Northwest Landscape #537 printed G.S.T. 4.53 and P.S.T. 6.34; the reader saw no GST line and guessed 5% of the total
 (4.83, no PST). `parseReceiptText()` now reads dotted labels as GST/PST/HST (replay: 6 fixed, none worse).
 
+### 2026-11-06 — Lordco read as Costco: the commons learned a vendor's phone from a mis-filed receipt
+A Lordco receipt saved as Costco (Oct 24) taught the vendor commons Lordco's phone and lordco.com under "Costco"; a commons
+phone match (95) then beat everything, so every Lordco receipt read as Costco — and a local "Lordco" vendor did not help.
+**Rule:** a phone / web domain from the paper belongs to a vendor only when the paper names that vendor
+(`VendorIdentity::namedOnPaper`), both for matching (`kbResolveVendorFromOcr`) and learning (`publishLesson`). A GST number
+match stays trusted. Fix the system, not the receipt: hand corrections teach nothing (Tim, 2026-11-06).
+
