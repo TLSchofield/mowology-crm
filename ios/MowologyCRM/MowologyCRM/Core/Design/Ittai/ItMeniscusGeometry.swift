@@ -17,7 +17,7 @@ enum ItMeniscusGeometry {
     /// Ring of page colour between the bead and the notch.
     static let gap: CGFloat = 6
     /// How far the bead's top sits above the bar's top edge.
-    static let rise: CGFloat = 20
+    static let rise: CGFloat = 22   // 20 until 1.3.84 (the collar touched the selected label, Tim 1.3.82); above 22 the notch rises over the edge
     /// Horizontal run of each shoulder curve where the straight edge bends into the notch.
     static let shoulder: CGFloat = 14
     /// Where a shoulder hands over to the arc, in degrees from the bowl's bottom.

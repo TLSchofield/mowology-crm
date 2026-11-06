@@ -38,6 +38,9 @@ struct ItMeniscusBar: View {
 
     /// Bar height below its top edge (labels sit here); the bead rises `rise` above it.
     static let barHeight: CGFloat = 58
+    /// Icons start this far below the bar's edge, so labels start at iconTop + 25 (39 pt): 5 pt clear of the bead's
+    /// collar, which ends at ItMeniscusGeometry.depth (34 pt). At 1.3.82 the collar touched the label (Tim's iPhone).
+    static let iconTop: CGFloat = 14
 
     var body: some View {
         ItMeniscusBarBody(items: items, selected: selected, position: position, style: style) { index in
@@ -97,12 +100,16 @@ private struct ItMeniscusBarBody: View, Animatable {
                     ForEach(items) { item in
                         let active = item.id == selected
                         Button { onSelect(item.id) } label: {
+                            // Every label on one line: the icon has a fixed 22 pt box and a larger one (Kaname's
+                            // hexagon) grows upwards out of it, and the stack sits at a fixed top instead of being
+                            // centred — centred, the taller Kaname stack pushed its label 4 pt lower (Tim, 1.3.82).
                             VStack(spacing: 3) {
                                 item.icon
                                     .renderingMode(.template)
                                     .resizable()
                                     .scaledToFit()
                                     .frame(width: 22 * item.iconScale, height: 22 * item.iconScale)
+                                    .frame(width: 22, height: 22, alignment: .bottom)
                                     .foregroundStyle(style.meta)
                                     .opacity(item.id == under ? 0 : 1)
                                 Text(item.title)
@@ -111,7 +118,8 @@ private struct ItMeniscusBarBody: View, Animatable {
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .padding(.top, ItMeniscusBar.iconTop)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

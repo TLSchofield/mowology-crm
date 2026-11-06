@@ -23,6 +23,9 @@ check(near(segs.last!.end.x, cx + G.halfWidth), "rejoins at the half width")
 
 // It cups the bead: the bottom is the bead's bottom plus the gap, under the centre; every arc point is bowl from the bead's centre.
 check(near(G.depth, G.bead - G.rise + G.gap), "depth = bead bottom + gap")
+// Labels start 39 pt below the edge (ItMeniscusBar.iconTop 14 + 22 icon + 3): the collar must end at least 4 pt above
+// them (at 1.3.82 it touched the selected label on Tim's iPhone).
+check(39 - G.depth >= 4, "collar clears the labels (\(39 - G.depth) pt)")
 let bottom = segs.map(\.end).max { $0.y < $1.y }!
 check(near(bottom.x, cx) && near(bottom.y, G.depth), "deepest point under the centre")
 for s in segs.dropFirst().dropLast() {
