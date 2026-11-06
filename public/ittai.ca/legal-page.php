@@ -1,17 +1,12 @@
 <?php
 declare(strict_types=1);
-// ittai.ca/terms/ and ittai.ca/privacy/ (2026-11-06) — the same text as mowology.ca/terms.php and
-// /ittai-privacy.php (public/includes/legal/), in Ittai's own v1.2 look. The ittai.ca site is this folder
-// (public_html/ittai.ca); its index.html is the coming-soon page and is not in the repo.
+// ittai.ca/terms/, /privacy/ and /quickbooks/ (2026-11-06) — the legal text is the same as mowology.ca/terms.php and
+// /ittai-privacy.php (public/includes/legal/), in Ittai's own v1.2 look. The ittai.ca site is this folder (public_html/ittai.ca).
 require_once dirname(__DIR__) . '/includes/legal/ittai-legal.php';
 
-function ittaiLegalPage(string $kind): void
+/** The page top: head, Ittai header and title. $title and $meta are trusted page text (no user input). */
+function ittaiPageStart(string $title, string $meta): void
 {
-    $isTerms = $kind === 'terms';
-    $title = $isTerms ? 'Terms of Service' : 'Privacy Policy';
-    $meta = $isTerms ? 'Version ' . TERMS_VERSION . ' &bull; Effective ' . TERMS_EFFECTIVE
-                     : 'Effective ' . ITTAI_PRIVACY_EFFECTIVE . ' &bull; ' . ITTAI_LEGAL_ENTITY . ' (Vancouver, BC)';
-    $ittaiPrivacyHref = '/privacy/';
     header('Content-Type: text/html; charset=utf-8');
     ?>
 <!doctype html>
@@ -48,11 +43,27 @@ function ittaiLegalPage(string $kind): void
   <h1><?= $title ?></h1>
   <p class="terms-updated"><?= $meta ?></p>
 </div>
-<div class="terms-layout">
-<?php require dirname(__DIR__) . '/includes/legal/ittai-' . ($isTerms ? 'terms' : 'privacy') . '-body.php'; ?>
-</div>
+<?php
+}
+
+function ittaiPageEnd(): void
+{
+    ?>
 <footer class="it-foot">&copy; <?= date('Y') ?> <?= ITTAI_LEGAL_ENTITY ?></footer>
 </body>
 </html>
 <?php
+}
+
+function ittaiLegalPage(string $kind): void
+{
+    $isTerms = $kind === 'terms';
+    $ittaiPrivacyHref = '/privacy/';
+    ittaiPageStart($isTerms ? 'Terms of Service' : 'Privacy Policy',
+        $isTerms ? 'Version ' . TERMS_VERSION . ' &bull; Effective ' . TERMS_EFFECTIVE
+                 : 'Effective ' . ITTAI_PRIVACY_EFFECTIVE . ' &bull; ' . ITTAI_LEGAL_ENTITY . ' (Vancouver, BC)');
+    echo '<div class="terms-layout">' . "\n";
+    require dirname(__DIR__) . '/includes/legal/ittai-' . ($isTerms ? 'terms' : 'privacy') . '-body.php';
+    echo "</div>\n";
+    ittaiPageEnd();
 }

@@ -39,3 +39,8 @@ a { color: var(--brand); }
   .terms-layout { grid-template-columns: 1fr; gap: 24px; }
   .terms-toc { position: static; }
 }
+/* Single-column pages (ittai.ca/quickbooks/) */
+.it-page { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+.it-page > * { max-width: 720px; }
+.it-page ol { padding-left: 20px; margin: 0 0 12px; }
+.it-page ol li { margin: 0 0 8px; font-size: 15px; line-height: 24px; }
