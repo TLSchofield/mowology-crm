@@ -1437,6 +1437,7 @@ $extraHead = $isPayable
                                   </span>
                               </div>
                           <?php endif; ?>
+                          <?php $crewTimeVisitId = (int)($invoice['visit_id'] ?? 0); $crewTimeClass = 'mt-3 mb-0'; include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
                       </div>
                   </div>
 
