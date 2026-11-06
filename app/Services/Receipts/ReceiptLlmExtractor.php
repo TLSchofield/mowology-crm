@@ -35,6 +35,7 @@ const RECEIPT_LLM_FILE_MAX_BYTES = 3_500_000;
 /** Long side a photo is shrunk to (the API's own working size; its hard limit is 8000 px). */
 const RECEIPT_LLM_IMAGE_LONG_EDGE = 1568;
 
+
 /**
  * Is the LLM tier available and switched on?
  */
@@ -242,14 +243,14 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     if (!receiptLlmEnabled()) {
         return $fail('LLM extraction disabled');
     }
-    // Hard daily ceiling (security review, low, 2026-10-12): mail from outside can trigger this.
+    $ocrText = trim($ocrText);
+    if ($ocrText === '' || strlen($ocrText) > 20000) {
+        return $fail('OCR text empty or too long');   // no call will be made: nothing is taken from today's allowance
+    }
+    // Hard daily ceiling (security review, low, 2026-10-12): mail from outside can trigger this. Taken only when a call will be made.
     require_once dirname(__DIR__) . '/LlmDailyCap.php';
     if (!LlmDailyCap::take(getDB(), 'receipt_llm', 60)) {
         return $fail('Daily AI limit reached');
-    }
-    $ocrText = trim($ocrText);
-    if ($ocrText === '' || strlen($ocrText) > 20000) {
-        return $fail('OCR text empty or too long');
     }
 
     $model = defined('RECEIPT_LLM_MODEL') && RECEIPT_LLM_MODEL !== '' ? RECEIPT_LLM_MODEL : RECEIPT_LLM_DEFAULT_MODEL;
@@ -288,7 +289,17 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     if ($code !== 200 || !is_array($data)) {
         return $fail('Claude API error: ' . ($data['error']['message'] ?? "HTTP {$code}"));
     }
+    $usage0 = $data['usage'] ?? null;
+    $logEarly = static function (string $note) use ($usage0): void {
+        try {
+            require_once dirname(__DIR__) . '/LlmUsageLog.php';
+            LlmUsageLog::record(getDB(), 'receipt_llm', defined('RECEIPT_LLM_MODEL') && RECEIPT_LLM_MODEL !== '' ? (string)RECEIPT_LLM_MODEL : RECEIPT_LLM_DEFAULT_MODEL,
+                (int)($usage0['input_tokens'] ?? 0) + (int)($usage0['cache_read_input_tokens'] ?? 0) + (int)($usage0['cache_creation_input_tokens'] ?? 0),
+                (int)($usage0['output_tokens'] ?? 0), false, null, $note);
+        } catch (Throwable $e) { /* usage log is a bonus */ }
+    };
     if (($data['stop_reason'] ?? '') === 'refusal') {
+        $logEarly('refusal');
         return $fail('Claude declined the request', 'refusal');
     }
 
@@ -300,6 +311,7 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     }
     $decoded = json_decode(trim($text), true);
     if (!is_array($decoded) || !isset($decoded['items']) || !is_array($decoded['items'])) {
+        $logEarly('bad_json');
         return $fail('Unparseable model output', 'bad_json');
     }
 
@@ -307,8 +319,8 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     foreach ($decoded['items'] as $row) {
         $name = trim((string)($row['name'] ?? ''));
         $lt   = isset($row['line_total']) ? (float)$row['line_total'] : null;
-        if ($name === '' || $lt === null) continue;
-        $qty = isset($row['quantity']) && (float)$row['quantity'] > 0 ? (float)$row['quantity'] : 1.0;
+        if ($name === '' || $lt === null || !is_finite($lt)) continue;   // 1e309 would otherwise become the text "inf"
+        $qty = isset($row['quantity']) && is_finite((float)$row['quantity']) && (float)$row['quantity'] > 0 ? (float)$row['quantity'] : 1.0;
         $up  = isset($row['unit_price']) && $row['unit_price'] !== null ? round((float)$row['unit_price'], 2) : null;
         $items[] = [
             'name'       => mb_substr($name, 0, 255),
@@ -322,7 +334,16 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     }
 
     $usage = $data['usage'] ?? null;
+    $logUsage = static function (bool $ok, string $note) use ($usage): void {
+        try {
+            require_once dirname(__DIR__) . '/LlmUsageLog.php';
+            LlmUsageLog::record(getDB(), 'receipt_llm', defined('RECEIPT_LLM_MODEL') && RECEIPT_LLM_MODEL !== '' ? (string)RECEIPT_LLM_MODEL : RECEIPT_LLM_DEFAULT_MODEL,
+                (int)($usage['input_tokens'] ?? 0) + (int)($usage['cache_read_input_tokens'] ?? 0) + (int)($usage['cache_creation_input_tokens'] ?? 0),
+                (int)($usage['output_tokens'] ?? 0), $ok, null, $note);
+        } catch (Throwable $e) { /* usage log is a bonus */ }
+    };
     if (empty($items)) {
+        $logUsage(false, 'no_items');
         return ['success' => false, 'items' => [], 'error' => null, 'rejected_reason' => 'no_items', 'usage' => $usage, 'with_image' => $fileBlock !== null];
     }
 
@@ -330,9 +351,11 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
     $reason = validateLlmLineItems($items, $ocrText, $subtotal);
     if ($reason !== null) {
         error_log("ReceiptLlmExtractor: rejected ({$reason})");
+        $logUsage(false, $reason);
         return ['success' => false, 'items' => [], 'error' => null, 'rejected_reason' => $reason, 'usage' => $usage, 'with_image' => $fileBlock !== null];
     }
 
+    $logUsage(true, count($items) . ' items');
     return ['success' => true, 'items' => $items, 'error' => null, 'rejected_reason' => null, 'usage' => $usage, 'with_image' => $fileBlock !== null];
 }
 
@@ -344,6 +367,16 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
  */
 function validateLlmLineItems(array $items, string $ocrText, ?float $subtotal): ?string
 {
+    // Sanity bounds first (audit 2026-10-26): finite, within a receipt's reach, and a sane number of rows. A discount line may be negative.
+    if (count($items) > 80) return 'too_many_items';
+    $sum0 = 0.0;
+    foreach ($items as $it) {
+        $lt = (float)$it['line_total'];
+        if (!is_finite($lt) || abs($lt) > 100000 || (float)($it['quantity'] ?? 1) > 100000) return 'out_of_range';
+        $sum0 += $lt;
+    }
+    // Without a parsed subtotal there is nothing to hold the rows against: at least require that they add to a positive amount.
+    if (($subtotal === null || $subtotal <= 0) && $sum0 <= 0) return 'no_positive_total';
     if ($subtotal !== null && $subtotal > 0) {
         $sum = 0.0;
         foreach ($items as $it) $sum += (float)$it['line_total'];
