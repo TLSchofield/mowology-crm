@@ -617,6 +617,7 @@ $activePage = 'invoices';
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title mb-3">Line Items</h3>
+                        <?php $crewTimeVisitId = (int)($invoice['visit_id'] ?? 0); include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
 
                         <table class="table table-sm table-bordered mb-0" id="lineItemsTable">
                             <thead class="table-light">
