@@ -93,6 +93,36 @@ class ExpenseSplitServiceTest extends TestCase
         $this->assertSame('Oakridge Gardens (JOB-2026-0501)', $p['jobs'][0]['label']);
     }
 
+    public function test_save_reads_the_receipt_locked_and_current(): void
+    {
+        // Codex nightly 2026-11-06: save() split a snapshot read without a lock. It now reads FOR UPDATE
+        // inside a transaction (MySQL only), and the split is worked from the total as it is at save time.
+        $db = ExpenseGateTestDb::make();
+        ExpenseGateTestDb::lawnboy412($db, 'approved');
+        $svc = new ExpenseSplitService($db);
+        $this->assertSame('', $svc->lockClause(true), 'SQLite: no FOR UPDATE');
+        $db->beginTransaction();
+        $this->assertSame('', $svc->lockClause(false));
+        $db->prepare("UPDATE expenses SET total = 228.90, gst_amount = 10.50 WHERE id = 412")->execute();
+        $saved = $svc->save(412, ExpenseGateTestDb::split412(), 6);
+        $db->commit();
+        $sum = 0.0;
+        foreach ($saved as $a) $sum += $a['net_amount'] + $a['gst_amount'] + $a['pst_amount'];
+        $this->assertEqualsWithDelta(228.90, $sum, 0.0001);
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/app/Modules/Expenses/Services/ExpenseSplitService.php');
+        $this->assertStringContainsString('$this->receipt($expenseId, true)', $src);
+    }
+
+    public function test_split_endpoint_checks_the_receipt_is_yours(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/app/Modules/Expenses/Api/expenses.php');
+        $i = strpos($src, "case 'split':");
+        $block = substr($src, $i, strpos($src, "case 'update_line_item':") - $i);
+        $this->assertStringContainsString('SELECT created_by FROM expenses WHERE id = ?', $block);
+        $this->assertStringContainsString("empty(\$who['is_admin'])", $block);
+        $this->assertLessThan(strpos($block, '->propose('), strpos($block, 'Expense not found'), 'owner check before the proposal');
+    }
+
     // ── The books ───────────────────────────────────────────────────────
 
     private function saved412(): PDO

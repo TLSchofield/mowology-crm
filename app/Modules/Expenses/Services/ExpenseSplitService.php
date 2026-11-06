@@ -327,23 +327,35 @@ class ExpenseSplitService
     }
 
     /** The receipt's header + lines (with the product's stock flag). */
-    public function receipt(int $expenseId): ?array
+    /** @param bool $forUpdate read the receipt as it is now and hold it until the caller's transaction ends (save) */
+    public function receipt(int $expenseId, bool $forUpdate = false): ?array
     {
+        $lock = $this->lockClause($forUpdate);
         $s = $this->db->prepare("SELECT id, expense_date, vendor_id, vendor_name_raw, total, gst_amount, pst_amount, accounting_category,
-                                        job_id, asset_tag, status FROM expenses WHERE id = ?");
+                                        job_id, asset_tag, status FROM expenses WHERE id = ?" . $lock);
         $s->execute([$expenseId]);
         $e = $s->fetch(PDO::FETCH_ASSOC);
         if (!$e) return null;
-        $e['lines'] = $this->lines($expenseId);
+        $e['lines'] = $this->lines($expenseId, $lock);
         return $e;
     }
 
-    private function lines(int $expenseId): array
+    /**
+     * FOR UPDATE inside a transaction on MySQL: a plain read there sees the transaction's old
+     * snapshot, so a total changed by another save meanwhile would be split at the old figure
+     * (Codex nightly 2026-11-06). SQLite tests have no FOR UPDATE.
+     */
+    public function lockClause(bool $forUpdate): string
+    {
+        return $forUpdate && $this->db->inTransaction() && $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+    }
+
+    private function lines(int $expenseId, string $lock = ''): array
     {
         try {
             $s = $this->db->prepare("SELECT li.id, li.name, li.quantity, li.unit_price, li.line_total, li.product_id, COALESCE(p.track_inventory, 0) AS track_inventory
                                      FROM expense_line_items li LEFT JOIN products p ON p.id = li.product_id
-                                     WHERE li.expense_id = ? ORDER BY li.sort_order, li.id");
+                                     WHERE li.expense_id = ? ORDER BY li.sort_order, li.id" . $lock);
             $s->execute([$expenseId]);
             return $s->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
@@ -363,7 +375,7 @@ class ExpenseSplitService
      */
     public function save(int $expenseId, array $choices, ?int $userId, string $source = 'owner'): array
     {
-        $e = $this->receipt($expenseId);
+        $e = $this->receipt($expenseId, true);
         if (!$e) throw new InvalidArgumentException('Receipt not found');
         $lines = $e['lines'];
         if (count($lines) < 2) throw new InvalidArgumentException('A receipt needs two or more lines to split');

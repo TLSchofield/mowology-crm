@@ -261,6 +261,12 @@ try {
             // GET ?action=split&id=N — the split by line saved on the receipt, and Penny's
             // per-line proposal (job / category / stock) for the edit modal's "Split by line".
             require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseSplitService.php';
+            // Own receipts only for crew, like catalog_lines (Codex nightly 2026-11-06).
+            $own = $db->prepare("SELECT created_by FROM expenses WHERE id = ?");
+            $own->execute([(int)($_GET['id'] ?? 0)]);
+            $owner = $own->fetchColumn();
+            $who = expenseActor();
+            if ($owner === false || (empty($who['is_admin']) && (int)$owner !== (int)$who['id'])) throw new Exception('Expense not found');
             $splitSvc = new ExpenseSplitService($db);
             echo json_encode($splitSvc->ready()
                 ? ['success' => true, 'ready' => true] + $splitSvc->propose((int)($_GET['id'] ?? 0))

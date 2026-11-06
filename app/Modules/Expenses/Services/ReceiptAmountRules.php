@@ -67,4 +67,23 @@ final class ReceiptAmountRules
     {
         return $rowCount === 1;
     }
+
+    /**
+     * A GST-exempt vendor's read: GST goes to zero, the printed total stays what was paid, and the
+     * amount is the total less PST. The camera and OCR-queue paths used to set total = subtotal,
+     * and with no GST line the parser's subtotal is total / 1.05, so the receipt lost 4.76%
+     * (Codex nightly 2026-11-06). The email path already worked from the total.
+     */
+    public static function exemptParsed(array $parsed): array
+    {
+        $parsed['gst'] = '0.00';
+        $parsed['gst_estimated'] = false;
+        $parsed['gst_source'] = 'exempt';
+        $parsed['gst_exempt'] = true;
+        if (isset($parsed['total']) && $parsed['total'] !== null && $parsed['total'] !== '') {
+            $amount = self::amountFromTotal((float)$parsed['total'], 0.0, (float)($parsed['pst'] ?? 0));
+            $parsed['subtotal'] = number_format($amount, 2, '.', '');
+        }
+        return $parsed;
+    }
 }

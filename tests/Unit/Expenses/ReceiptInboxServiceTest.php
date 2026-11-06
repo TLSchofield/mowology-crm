@@ -171,4 +171,28 @@ class ReceiptInboxServiceTest extends TestCase
         $this->assertSame(['status' => 'draft', 'high_confidence' => false], ReceiptInboxService::inboxStatus(false));
         $this->assertNotSame('approved', ReceiptInboxService::inboxStatus(true)['status']);
     }
+
+    // ── A failed create leaves no orphan copy (Codex nightly 2026-11-06) ──
+
+    public function test_failed_create_drops_the_stored_copy_unless_an_expense_uses_it(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->exec("CREATE TABLE media_assets (id INTEGER PRIMARY KEY)");
+        $db->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, receipt_media_id INTEGER)");
+        $db->exec("INSERT INTO media_assets (id) VALUES (1), (2)");
+        $db->exec("INSERT INTO expenses VALUES (10, 2)");
+        $f1 = tempnam(sys_get_temp_dir(), 'mwrx');
+        $f2 = tempnam(sys_get_temp_dir(), 'mwrx');
+        $drop = new ReflectionMethod(ReceiptInboxService::class, 'dropUnusedMedia');
+        $svc = new ReceiptInboxService($db);
+        $drop->invoke($svc, 1, $f1);
+        $drop->invoke($svc, 2, $f2);
+        $this->assertSame([2], array_map('intval', $db->query("SELECT id FROM media_assets")->fetchAll(PDO::FETCH_COLUMN)));
+        $this->assertFileDoesNotExist($f1);
+        $this->assertFileExists($f2, 'an expense points at it: kept');
+        @unlink($f2);
+        $src = (string)file_get_contents(dirname(__DIR__, 3) . '/app/Modules/Expenses/Services/ReceiptInboxService.php');
+        $this->assertStringContainsString('$this->dropUnusedMedia((int)$mediaId, (string)$diskPath);', $src);
+    }
 }

@@ -468,13 +468,8 @@ class ReceiptIntakeService
 
             // Apply GST-exempt override: if matched vendor doesn't charge GST, zero it out
             if (!empty($suggestions['vendor_gst_exempt'])) {
-                $parsed['gst'] = '0.00';
-                $parsed['gst_estimated'] = false;
-                $parsed['gst_source'] = 'exempt';
-                $parsed['gst_exempt'] = true;
-                if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
-                    $parsed['total'] = $parsed['subtotal'];
-                }
+                require_once __DIR__ . '/ReceiptAmountRules.php';
+                $parsed = ReceiptAmountRules::exemptParsed($parsed);
             }
 
             // Word-level confidence extraction

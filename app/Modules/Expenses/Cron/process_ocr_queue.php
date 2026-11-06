@@ -410,13 +410,8 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
         }
 
         if (!empty($suggestions['vendor_gst_exempt'])) {
-            $parsed['gst'] = '0.00';
-            $parsed['gst_estimated'] = false;
-            $parsed['gst_source']    = 'exempt';
-            $parsed['gst_exempt']    = true;
-            if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
-                $parsed['total'] = $parsed['subtotal'];
-            }
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+            $parsed = ReceiptAmountRules::exemptParsed($parsed);
         }
 
         // Per-field confidences (Vision word-level), if available

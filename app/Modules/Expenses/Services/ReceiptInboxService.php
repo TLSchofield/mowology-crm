@@ -395,10 +395,32 @@ class ReceiptInboxService
         $mediaId  = $stored['media_id'];
         $diskPath = $stored['disk_path'];
 
-        // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
-        $ocr = $this->runOcr($diskPath, $isPdf);
+        try {
+            // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
+            $ocr = $this->runOcr($diskPath, $isPdf);
 
-        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
+            return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
+        } catch (\Throwable $e) {
+            // The claim is released and the next poll stores the file again: drop this copy unless an
+            // expense already points at it (Codex nightly 2026-11-06 — orphan media on every retry).
+            $this->dropUnusedMedia((int)$mediaId, (string)$diskPath);
+            throw $e;
+        }
+    }
+
+    /** Remove a media row + file stored for an attachment whose expense never got made. Never throws. */
+    private function dropUnusedMedia(int $mediaId, string $diskPath): void
+    {
+        if ($mediaId <= 0) return;
+        try {
+            $used = $this->db->prepare("SELECT 1 FROM expenses WHERE receipt_media_id = ? LIMIT 1");
+            $used->execute([$mediaId]);
+            if ($used->fetchColumn()) return;
+            $this->db->prepare("DELETE FROM media_assets WHERE id = ?")->execute([$mediaId]);
+            if ($diskPath !== '' && is_file($diskPath)) @unlink($diskPath);
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] could not drop unused media ' . $mediaId . ': ' . $e->getMessage());
+        }
     }
 
     /**
