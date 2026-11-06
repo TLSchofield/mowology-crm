@@ -270,6 +270,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/PayerTone.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/ReminderGate.php';
 
 // Products
+require_once __DIR__ . '/../app/Modules/Products/Services/ProductQuickAddService.php';
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldAskService.php';
 // Label photo → product / machine; receipts → products; Otto's care view and manual reading (migration 1225)

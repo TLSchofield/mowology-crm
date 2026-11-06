@@ -777,6 +777,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $csrfToken = generateCSRFToken();
+$canSaveService = userHasPermission('products.edit') || (($user['role'] ?? '') === 'admin');
 
 $pageTitle  = 'Create Invoice';
 $activePage = 'invoices';
@@ -1140,6 +1141,7 @@ if ($apiKey) {
                         window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
                         window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
                         window.MW_INV_TAX     = <?php echo json_encode($formTaxRate); ?>;
+                        window.MW_INV_CAN_SAVE_SERVICE = <?php echo $canSaveService ? 'true' : 'false'; ?>;
                         </script>
 
                         <?php
@@ -1607,6 +1609,158 @@ document.getElementById('invoiceForm').addEventListener('submit', function (e) {
 
 // ── Line items + totals ──
 const invLinesBody = document.getElementById('invLineItemsBody');
+let invServiceOptionsPromise = null;
+
+function invoiceServiceOptions() {
+    if (!invServiceOptionsPromise) {
+        invServiceOptionsPromise = fetch('/crm/api/product-quick-add.php', { credentials: 'same-origin' })
+            .then(function (response) {
+                if (!response.ok) throw new Error('Options request failed');
+                return response.json();
+            })
+            .then(function (data) {
+                return data.success ? data : { categories: [], units: [] };
+            })
+            .catch(function () { return { categories: [], units: [] }; });
+    }
+    return invServiceOptionsPromise;
+}
+
+function serviceFormField(labelText, control) {
+    const field = document.createElement('label');
+    field.className = 'mw-svc-form-field';
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    field.appendChild(label);
+    field.appendChild(control);
+    return field;
+}
+
+function serviceSelect(firstOption) {
+    const select = document.createElement('select');
+    select.className = 'form-control form-control-sm';
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = firstOption;
+    select.appendChild(option);
+    return select;
+}
+
+function fillServiceSelect(select, options, textKey) {
+    options.forEach(function (item) {
+        const option = document.createElement('option');
+        option.value = String(item.id);
+        option.textContent = item[textKey] || '';
+        select.appendChild(option);
+    });
+}
+
+function openServiceForm(row, link) {
+    if (row._svcFormRow) {
+        row._svcFormRow.remove();
+        row._svcFormRow = null;
+        return;
+    }
+
+    const formRow = document.createElement('tr');
+    formRow.className = 'mw-svc-form-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    const panel = document.createElement('div');
+    panel.className = 'mw-svc-form';
+    const grid = document.createElement('div');
+    grid.className = 'mw-svc-form-grid';
+
+    const titleValue = row.querySelector('input[name="li_title[]"]').value.trim();
+    const descriptionValue = row.querySelector('.mw-li-desc').value.trim();
+    const name = document.createElement('input');
+    name.type = 'text'; name.maxLength = 255; name.className = 'form-control form-control-sm';
+    name.value = titleValue || descriptionValue;
+    const price = document.createElement('input');
+    price.type = 'number'; price.step = '0.01'; price.min = '0'; price.className = 'form-control form-control-sm';
+    price.value = row.querySelector('.mw-li-unit').value;
+    const category = serviceSelect('No category');
+    const unit = serviceSelect('No unit');
+    const description = document.createElement('textarea');
+    description.rows = 2; description.maxLength = 2000; description.className = 'form-control form-control-sm';
+    description.value = descriptionValue && descriptionValue !== name.value ? descriptionValue : '';
+
+    grid.appendChild(serviceFormField('Name', name));
+    grid.appendChild(serviceFormField('Price', price));
+    grid.appendChild(serviceFormField('Category', category));
+    grid.appendChild(serviceFormField('Unit', unit));
+    const descriptionField = serviceFormField('Description', description);
+    descriptionField.classList.add('mw-svc-form-wide');
+    grid.appendChild(descriptionField);
+
+    const actions = document.createElement('div');
+    actions.className = 'mw-svc-form-actions';
+    const save = document.createElement('button');
+    save.type = 'button'; save.className = 'btn btn-sm btn-primary'; save.textContent = 'Save service';
+    const cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'btn btn-sm btn-outline-secondary'; cancel.textContent = 'Cancel';
+    const message = document.createElement('div');
+    message.className = 'mw-svc-form-msg';
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    panel.appendChild(grid);
+    panel.appendChild(actions);
+    panel.appendChild(message);
+    cell.appendChild(panel);
+    formRow.appendChild(cell);
+    row.parentNode.insertBefore(formRow, row.nextSibling);
+    row._svcFormRow = formRow;
+    name.focus();
+
+    invoiceServiceOptions().then(function (options) {
+        if (!formRow.isConnected) return;
+        fillServiceSelect(category, options.categories || [], 'name');
+        fillServiceSelect(unit, options.units || [], 'name');
+    });
+
+    cancel.addEventListener('click', function () {
+        formRow.remove();
+        row._svcFormRow = null;
+    });
+    // These fields sit inside #invoiceForm: Enter must save the service, never submit the invoice.
+    [name, price, category, unit].forEach(function (field) {
+        field.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); if (!save.disabled) save.click(); }
+        });
+    });
+    save.addEventListener('click', function () {
+        const csrf = document.querySelector('#invoiceForm input[name="csrf_token"]');
+        const body = new FormData();
+        body.append('name', name.value);
+        body.append('price', price.value);
+        body.append('category_id', category.value);
+        body.append('unit_type_id', unit.value);
+        body.append('description', description.value);
+        body.append('csrf_token', csrf ? csrf.value : '');
+        save.disabled = true;
+        message.textContent = '';
+        fetch('/crm/api/product-quick-add.php', { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    // The invoice line itself stays exactly as typed; only the catalog gains a service.
+                    window.MW_INV_CATALOG.push(data.item);
+                    formRow.remove();
+                    row._svcFormRow = null;
+                    const saved = document.createElement('span');
+                    saved.className = 'mw-svc-saved';
+                    saved.textContent = 'Saved as service';
+                    link.replaceWith(saved);
+                } else if (data.duplicate) {
+                    message.textContent = (data.message || '') + ' It is already in Add from services.';
+                } else {
+                    message.textContent = data.message || data.error || 'Could not save that service.';
+                }
+            })
+            .catch(function () { message.textContent = 'Could not reach the server. Try again.'; })
+            .then(function () { if (formRow.isConnected) save.disabled = false; });
+    });
+}
 
 function calculateTotals() {
     if (!invLinesBody) return;
@@ -1648,6 +1802,14 @@ function addInvoiceLine(data) {
     if (data.unit_price != null) row.querySelector('.mw-li-unit').value = (parseFloat(data.unit_price) || 0).toFixed(2);
     if (data.visit_id) row.querySelector('.mw-li-visit').value = String(data.visit_id);
     if (data.service_date) row.querySelector('.mw-li-sdate').value = data.service_date;
+    if (window.MW_INV_CAN_SAVE_SERVICE) {
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'btn btn-link btn-sm mw-svc-save-link';
+        link.textContent = 'Save as service';
+        link.addEventListener('click', function () { openServiceForm(row, link); });
+        row.querySelector('td').appendChild(link);
+    }
     if (data.unbilled && data.visit_id) {
         // Ticked from "Also unbilled at this address": the server claims this visit on save.
         row.dataset.unbilledVisit = String(data.visit_id);
@@ -1657,6 +1819,7 @@ function addInvoiceLine(data) {
     }
     row.querySelectorAll('.mw-li-qty, .mw-li-unit').forEach(function (inp) { inp.addEventListener('input', calculateTotals); });
     row.querySelector('.mw-li-remove').addEventListener('click', function () {
+        if (row._svcFormRow) row._svcFormRow.remove();
         row.remove();
         if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();   // always keep one row
         calculateTotals();
@@ -1678,9 +1841,14 @@ if (invLinesBody) {
             const rows = invLinesBody.querySelectorAll('.mw-li-row');
             if (rows.length === 1) {
                 const r = rows[0];
-                if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) r.remove();
+                if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) {
+                    if (r._svcFormRow) r._svcFormRow.remove();
+                    r.remove();
+                }
             }
-            addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: svc.agreed ? (svc.quantity || 1) : 1, unit_price: svc.base_price });
+            const addedRow = addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: svc.agreed ? (svc.quantity || 1) : 1, unit_price: svc.base_price });
+            const saveLink = addedRow.querySelector('.mw-svc-save-link');
+            if (saveLink) saveLink.hidden = true;
         });
     }
 }

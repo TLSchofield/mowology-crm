@@ -41555,3 +41555,15 @@ body.mw-books {
 .mw-crew-time-people { margin-top: 2px; color: var(--mw-ink-500); font-size: .76rem; }
 .mw-crew-time-flag { display: inline-block; margin: 5px 4px 0 0; padding: 1px 7px; border-radius: 999px; background: var(--mw-ink-0); color: var(--mw-forest); font-size: .68rem; }
 .mw-crew-time-none { color: var(--mw-ink-500); font-weight: 400; }
+
+/* ── Invoice create: save line as service ── */
+.mw-svc-save-link { display: block; padding: 0; color: var(--mw-green); font-size: var(--mw-text-xs); }
+.mw-svc-form { padding: var(--mw-space-3); border-radius: 6px; background: var(--mw-light); }
+.mw-svc-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--mw-space-2) var(--mw-space-3); }
+.mw-svc-form-field { display: block; margin: 0; color: var(--mw-ink-700); font-size: var(--mw-text-xs); }
+.mw-svc-form-field > span { display: block; margin-bottom: var(--mw-space-1); }
+.mw-svc-form-wide { grid-column: 1 / -1; }
+.mw-svc-form-actions { display: flex; gap: var(--mw-space-2); margin-top: var(--mw-space-3); }
+.mw-svc-form-msg { margin-top: var(--mw-space-2); color: var(--mw-orange); font-size: var(--mw-text-xs); }
+.mw-svc-saved { display: block; color: var(--mw-ink-500); font-size: var(--mw-text-xs); }
+@media (max-width: 575.98px) { .mw-svc-form-grid { grid-template-columns: 1fr; } .mw-svc-form-wide { grid-column: auto; } }
