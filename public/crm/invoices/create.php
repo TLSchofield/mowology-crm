@@ -143,6 +143,12 @@ if ($visitId) {
     }
 }
 
+$crewTime = null;
+if ($visitId && !empty($prefill['visit_id'])) {
+    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceCrewTime.php';
+    $crewTime = (new InvoiceCrewTime($db))->forVisit((int)$visitId);
+}
+
 // Prefill from plan (contract upfront/manual billing — no visit required)
 if (!$visitId && isset($_GET['plan_id'])) {
     $planId = intval($_GET['plan_id']);
@@ -1054,6 +1060,42 @@ if ($apiKey) {
                             <input type="date" id="service_date" name="service_date" class="form-control" hidden
                                    value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                         </div>
+
+                        <?php if ($crewTime !== null): ?>
+                        <div class="mw-crew-time mb-3">
+                            <div class="mw-crew-time-label">Crew time on site</div>
+                            <?php if ($crewTime['has_time']): ?>
+                                <?php
+                                $crewTimeParts = [];
+                                if ($crewTime['arrived'] && $crewTime['left']) {
+                                    $crewTimeParts[] = date('g:i a', strtotime($crewTime['arrived'])) . ' – ' . date('g:i a', strtotime($crewTime['left']));
+                                } elseif ($crewTime['running'] && $crewTime['arrived']) {
+                                    $crewTimeParts[] = 'since ' . date('g:i a', strtotime($crewTime['arrived']));
+                                }
+                                if ($crewTime['on_site_minutes'] !== null) {
+                                    $crewTimeParts[] = InvoiceCrewTime::formatMinutes((int)$crewTime['on_site_minutes']) . ' on site';
+                                }
+                                if ($crewTime['crew_count'] > 0) {
+                                    $crewTimeParts[] = (int)$crewTime['crew_count'] . ' crew';
+                                }
+                                $crewTimeParts[] = InvoiceCrewTime::formatMinutes((int)$crewTime['crew_minutes']) . ' crew-time';
+                                $crewPeople = [];
+                                foreach ($crewTime['people'] as $person) {
+                                    $crewPeople[] = $person['name'] . ' ' . InvoiceCrewTime::formatMinutes((int)$person['minutes']);
+                                }
+                                ?>
+                                <div class="mw-crew-time-main"><?php echo htmlspecialchars(implode(' · ', $crewTimeParts)); ?></div>
+                                <?php if (count($crewTime['people']) > 1): ?>
+                                <div class="mw-crew-time-people"><?php echo htmlspecialchars(implode(' · ', $crewPeople)); ?></div>
+                                <?php endif; ?>
+                                <?php if ($crewTime['running']): ?><span class="mw-crew-time-flag">Timer still running</span><?php endif; ?>
+                                <?php if ($crewTime['estimated']): ?><span class="mw-crew-time-flag">Includes estimated time</span><?php endif; ?>
+                                <?php if ($crewTime['source'] === 'visit'): ?><span class="mw-crew-time-flag">From the visit record, no timers</span><?php endif; ?>
+                            <?php else: ?>
+                                <div class="mw-crew-time-main mw-crew-time-none">No crew time recorded for this visit.</div>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
 
                         <!-- Other unbilled work at this property (UnbilledWorkFinder) — filled by MwUnbilledWork -->
                         <div id="invUnbilledPanel" class="mw-unbilled mb-3" hidden></div>
