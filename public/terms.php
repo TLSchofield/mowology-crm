@@ -104,6 +104,7 @@ $extraHead       = '<link rel="stylesheet" href="/assets/css/pages/terms.css">';
         <section class="terms-section" id="advice">
             <h2>8. No professional advice</h2>
             <p>Ittai, including its bookkeeping features, is a tool. It is not legal, tax, accounting, payroll or financial advice, and we are not your accountant. Tax rates, categories, remittances and filings remain your responsibility; confirm anything important with a qualified professional.</p>
+            <p><strong>Your books are yours to verify.</strong> Entries that Ittai or its bookkeeping assistant prepares are suggestions until you approve them. Before you rely on your books for a tax return, a GST/HST or PST filing, payroll remittances or a lender, you agree to have them reviewed by a qualified accountant or bookkeeper. We are not responsible for penalties, interest or reassessments that result from filing figures that were not reviewed.</p>
         </section>
 
         <section class="terms-section" id="third-parties">
