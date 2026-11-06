@@ -865,3 +865,15 @@ names no tax anywhere charged none (`receiptPrintsNoTax()`); the 5% guess runs o
 **Rule now:** `receiptDateOrder()` takes the order from any other real date on the receipt (a return-by date with a
 13–31; product codes like 10-20-10 never vote); else the vendor's learned `date_order` lesson; else month first. An
 approved date teaches the vendor's order only when the person changed it — keeping the reader's guess is not proof.
+
+### 2026-11-06 — 2025 receipts called "duplicates" without checking; the rule is file + trace
+Tim photographed 2025 receipts and Claude called them duplicate drafts. None had been booked; four matched 2025 bank
+lines exactly. **Rule (Tim):** a receipt dated in a closed year is stored and traced to its 2025 bank line —
+`ExpenseApprovalService::fileAsBooked()` then `BankImportService::attachExpenseMatch()` (correct a misread total first;
+the link refuses unequal amounts). Never approved as a new expense; never called a duplicate until both expenses and
+bank lines were searched. A 2025 receipt with no bank line (#535 Home Depot $10.04) is a question for Tim.
+
+### 2026-11-06 — "G.S.T." / "P.S.T." with dots were not tax lines to the reader
+Northwest Landscape #537 printed G.S.T. 4.53 and P.S.T. 6.34; the reader saw no GST line and guessed 5% of the total
+(4.83, no PST). `parseReceiptText()` now reads dotted labels as GST/PST/HST (replay: 6 fixed, none worse).
+
