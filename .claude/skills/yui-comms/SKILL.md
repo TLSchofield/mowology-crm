@@ -18,7 +18,7 @@ covers:
   - tools/messages-bridge/*
   - ios/MowologyCRM/MowologyCRM/Features/Team/*
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -101,6 +101,7 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 | Supplier mail + business licence | `SupplierInboxService::poll()` | inside sales_inbox_poll (office@ + iCloud) |
 | Facts in mail/money (strata, roles, details) | `ClueService` (`app/Modules/Comms/Cron/clues_daily.php`) | Yui + Penny clues |
 | Customer texts from Tim's iPhone | `TextBridgeService::ingest()` + `tools/messages-bridge/bridge.py` | Sam/Yui history |
+| Personal texts out of the record (unknown number or saved contact) | `TextBridgeService::markPersonal()` / `TextBridgeService::markContactPersonal()` | Yui's text panel (owner only) |
 | Email out | `sendEmail()` in `app/Services/Messaging/MessagingService.php` | everything |
 | Text out | `sendSms()` in `app/Services/Messaging/MessagingService.php` | 14 other files |
 | Push out | `PushDispatcher::notifyUser()` → push_queue → `PushDispatcher::drainQueue()` (`app/Services/Push/Cron/push-drain.php`, CLI only) | 8 callers |

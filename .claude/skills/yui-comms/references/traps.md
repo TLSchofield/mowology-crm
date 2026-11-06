@@ -2,6 +2,19 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-11-05 — Personal texts filed as client history (FIXED)
+Tim's personal iMessages with someone saved as a contact (no quote, invoice, contract or property) were stored in
+`sales_messages` (mailbox 'imessage', 292 rows since July) and read as client mail by Yui, Sam and the voice learner.
+Signature: outbound 'imessage' rows for a contact with no work on file; `TextBridgeService::numbers()` hashed EVERY
+active contact with a phone, and Personal only existed for numbers on no contact. Found while reading Tim's sent mail
+for his voice. Fix: a number in `text_personal` never matches (`TextBridgeService::numbers()` drops it,
+`TextBridgeService::ingest()` refuses it even from an older bridge); `TextBridgeService::markContactPersonal()`
+blocks the contact's numbers and deletes that contact's texts only (emails untouched), asking again when the contact
+has work on file; Yui's text panel lists `TextBridgeService::textedWithoutWork()` with Keep / Personal.
+**Rule:** being a contact is not being a client. Anything that reads `sales_messages` as "client history" or learns
+from it must expect personal rows until the owner has reviewed the texted-without-work list; never quote raw
+snippets from it in docs.
+
 ## 2026-10-11 — Yardi / SparcPay remittances are not being read (OPEN)
 `yardi_eft_inbox_poll` ran 2,663 times reporting "Scanned 0 email(s)" while office@ held 5 Yardi
 remittances (May–Jul) and info@ had forwarded Dorset ones. Remittances name invoice numbers, so
