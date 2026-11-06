@@ -72,4 +72,23 @@ final class FieldJobServiceTest extends TestCase
         $this->assertNotNull(FieldJobService::missingForJob(['service_type' => 'Lawn Cut', 'first_name' => 'Ann'], true));
         $this->assertNull(FieldJobService::missingForJob(['service_type' => 'Lawn Cut', 'first_name' => 'Ann', 'property_address' => '1 Main St'], true));
     }
+
+    public function testCreateClientNeedsOnlyNameAndAddress(): void
+    {
+        $this->assertNotNull(FieldJobService::missingForClient([]));
+        $this->assertNotNull(FieldJobService::missingForClient(['first_name' => 'Ann']));
+        $this->assertNotNull(FieldJobService::missingForClient(['property_address' => '1 Main St']));
+        $this->assertNull(FieldJobService::missingForClient(['first_name' => 'Ann', 'property_address' => '1 Main St']));
+        $this->assertSame('Vancouver', FieldJobService::cityOrDefault(['property_city' => '  ']));
+        $this->assertSame('Burnaby', FieldJobService::cityOrDefault(['property_city' => ' Burnaby ']));
+    }
+
+    public function testCreateClientRejectsBeforeTouchingTheDatabase(): void
+    {
+        $pdo = $this->createMock(PDO::class);
+        $pdo->expects($this->never())->method('prepare');
+        $res = (new FieldJobService($pdo))->createClient(['first_name' => 'Ann'], 'Crew');
+        $this->assertFalse($res['success']);
+        $this->assertSame(400, $res['status']);
+    }
 }

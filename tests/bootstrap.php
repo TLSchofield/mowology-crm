@@ -494,6 +494,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/ClientVisibilityService.ph
 require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookRefreshService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CrewAssignmentService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitCarryGuard.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/StopRescheduleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';

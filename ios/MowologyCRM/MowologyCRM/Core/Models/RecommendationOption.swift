@@ -95,7 +95,13 @@ struct RecommendationPerson: Decodable, Hashable {
         consent   = (try? c.decode(String.self, forKey: .consent)) ?? ""
     }
 
-    var roleLabel: String { role == "onsite" ? "on-site contact" : "site contact" }
+    var roleLabel: String {
+        switch role {
+        case "onsite":  return "on-site contact"
+        case "manager": return "property manager"   // a managed building: the firm's contact (2026-10-27)
+        default:        return "site contact"
+        }
+    }
 }
 
 /// GET /api/schedule/recommendation?mode=recipients

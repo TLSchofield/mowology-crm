@@ -129,6 +129,19 @@ class FieldAskServiceTest extends TestCase
         $this->assertSame(4, FieldAskService::pickAskRecipient(null, $site)['contact_id']);
     }
 
+    public function test_property_manager_wins_when_the_building_is_managed(): void
+    {
+        // Tisdall 2026-10-27: a managed building's Ask first went to the caretaker on site; the
+        // manager decides, so they get it — the firm's PRIMARY contact (who signs), never its
+        // accounts contact (who invoices go to).
+        $onsite  = $this->person(31, 'Gaby', 'gaby@example.com', 'onsite');
+        $site    = $this->person(4, 'Ron', 'ron@example.com', 'site');
+        $manager = $this->person(77, 'Pat', 'pat@manager.example.com', 'manager');
+        $this->assertSame(77, FieldAskService::pickAskRecipient($onsite, $site, $manager)['contact_id']);
+        // A manager without an email cannot be asked: back to the old rule.
+        $this->assertSame(31, FieldAskService::pickAskRecipient($onsite, $site, $this->person(77, 'Pat', null, 'manager'))['contact_id']);
+    }
+
     public function test_nobody_with_an_email_means_nobody_to_ask(): void
     {
         $this->assertNull(FieldAskService::pickAskRecipient($this->person(31, 'Gaby', null, 'onsite'), $this->person(4, 'D', '', 'site')));

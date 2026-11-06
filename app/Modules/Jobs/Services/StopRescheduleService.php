@@ -115,6 +115,12 @@ class StopRescheduleService
 
         $this->db->beginTransaction();
         try {
+            // Finished work stays on its day: a scheduled visit that already has an After photo is
+            // completed here and gets a fresh visit on the new date instead (VisitCarryGuard, 2026-10-27).
+            require_once __DIR__ . '/VisitCarryGuard.php';
+            $guard   = new VisitCarryGuard($this->db);
+            $settled = $newDate !== $oldDate ? $guard->settleStop($stopId) : [];
+
             // crew_id may be NULL (unassigned stop) — match it explicitly.
             if ($stop['crew_id'] === null) {
                 $existingStmt = $this->db->prepare("
@@ -188,6 +194,8 @@ class StopRescheduleService
                 $resultStopId = $stopId;
             }
 
+            $freshVisitIds = $guard->recreateOn($settled, $newDate, $resultStopId);
+
             $this->db->commit();
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
@@ -202,6 +210,10 @@ class StopRescheduleService
             'new_date'        => $newDate,
             'new_route_order' => $newRouteOrder,
             'merged'          => (bool)$existingStop,
+            // Visits completed on the old day because they already had an After photo,
+            // and the fresh visits that replace them on the new day.
+            'settled_visit_ids' => array_map(static fn (array $v): int => (int)$v['id'], $settled),
+            'fresh_visit_ids'   => $freshVisitIds,
         ];
     }
 

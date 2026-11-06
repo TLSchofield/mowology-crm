@@ -35,14 +35,18 @@ if (!function_exists('itSigninBizName')) {
             . '<meta name="robots" content="noindex">' . "\n"
             . '<title>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</title>' . "\n"
             . '<link rel="preconnect" href="https://fonts.googleapis.com">' . "\n"
-            . '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Zen+Kaku+Gothic+New:wght@500&display=swap" rel="stylesheet">' . "\n"
+            . '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">' . "\n"
             . '<link href="' . $v('/crm/css/ittai-tokens.css') . '" rel="stylesheet">' . "\n"
             . '<link href="' . $v('/crm/css/ittai-signin.css') . '" rel="stylesheet">' . "\n";
     }
 
     /**
-     * Lockup B: the IttaiSymbol (v1.2 frozen, 64 row — drawn at 64 px) in currentColor + "Ittai 一体".
-     * Geometry copied unchanged from assets/symbol/ittai-symbol-64.svg.
+     * The v1.3 lockup (Tim, 2026-10-18; on the web 2026-11-03): the IttaiSymbol (v1.2 frozen, 64 row — drawn at
+     * 64 px, geometry copied unchanged from assets/symbol/ittai-symbol-64.svg) + the drawn lowercase "ittai"
+     * wordmark (navy letters, antique-gold dots and ONE beam joining the double t; master
+     * renders/ittai-wordmark-v1.3/ittai-wordmark-navy-gold.svg, viewBox "-1 23 180.2 79", drawn at 44 px — navy-only
+     * would apply below 24 px) + the strapline. Same lockup as the Android sign-in (auth/SignInScreen.kt ItWordmark).
+     * The text form stays "Ittai"; lockup B's typed "Ittai 一体" is retired.
      */
     function itSigninLockup(): void
     {
@@ -60,7 +64,24 @@ if (!function_exists('itSigninBizName')) {
     <g stroke="currentColor" stroke-width="1.3"><line x1="32" y1="20" x2="32" y2="14"/><line x1="42.39" y1="26" x2="47.59" y2="23"/><line x1="42.39" y1="38" x2="47.59" y2="41"/><line x1="32" y1="44" x2="32" y2="50"/><line x1="21.61" y1="38" x2="16.41" y2="41"/><line x1="21.61" y1="26" x2="16.41" y2="23"/></g>
     <circle cx="32" cy="32" r="9" fill="none" stroke="currentColor" stroke-width="2.5"/>
   </svg>
-  <span class="it-signin-word">Ittai<span lang="ja">一体</span></span>
+  <div class="it-signin-mark">
+    <svg class="it-signin-wordmark" viewBox="-1 23 180.2 79" role="img" aria-label="Ittai" focusable="false">
+      <g fill="currentColor">
+        <rect x="0" y="44" width="13" height="56"/>
+        <rect x="31" y="28" width="13" height="72"/>
+        <rect x="62" y="28" width="13" height="72"/>
+        <rect x="134.2" y="44" width="13" height="56"/>
+        <rect x="165.2" y="44" width="13" height="56"/>
+      </g>
+      <circle cx="118.6" cy="72" r="22.1" fill="none" stroke="currentColor" stroke-width="13"/>
+      <g class="it-signin-wordmark-gold">
+        <circle cx="6.5" cy="31.5" r="6"/>
+        <rect x="25" y="44" width="56" height="11" rx="5.5"/>
+        <circle cx="171.7" cy="31.5" r="6"/>
+      </g>
+    </svg>
+    <p class="it-signin-strapline">Every i dotted. Every t crossed.</p>
+  </div>
 </div>
 SVG;
     }

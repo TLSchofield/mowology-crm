@@ -22,24 +22,28 @@ body.it-signin *, body.it-signin *::before, body.it-signin *::after { box-sizing
 
 .it-signin-wrap { width: 100%; max-width: 400px; }
 
-/* Lockup B: symbol + "Ittai 一体", one ink (brand). The symbol is the 64 row — drawn at 64 px, never scaled. */
+/* The v1.3 lockup: symbol (64 row — drawn at 64 px, never scaled) + the drawn "ittai" wordmark at 44 px + strapline,
+   one ink (brand). The gold is the wordmark's own (the v1.3 master), not a working-screen colour; it has no token. */
 .it-signin-lockup {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: var(--it-space-4);
   margin-bottom: var(--it-space-8);
   color: var(--it-brand);
 }
 .it-signin-symbol { width: 64px; height: 64px; flex: none; }
-.it-signin-word {
-  font-family: "Zen Kaku Gothic New", var(--it-font-sans);
-  font-size: 26px;
+.it-signin-mark { display: flex; flex-direction: column; align-items: flex-start; }
+.it-signin-wordmark { display: block; height: 44px; width: auto; color: var(--it-brand); --it-signin-gold: #A8843A; }
+.it-signin-wordmark-gold { fill: var(--it-signin-gold); }
+.it-signin-strapline {
+  margin: var(--it-space-2) 0 0;
+  color: var(--it-meta);
+  font-size: 14px;
   font-weight: 500;
-  line-height: 1;
-  color: var(--it-brand);
+  line-height: 1.3;
+  white-space: nowrap;
 }
-.it-signin-word [lang="ja"] { margin-left: 0.3em; }
 
 .it-signin-card {
   position: relative;
@@ -180,5 +184,5 @@ body.it-signin button:focus-visible { outline: var(--it-stroke-focus) solid var(
 
 @media (max-width: 380px) {
   .it-signin-card { padding: var(--it-space-6) var(--it-space-5); }
-  .it-signin-word { font-size: 22px; }
+  .it-signin-strapline { font-size: 13px; }
 }

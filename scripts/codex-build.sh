@@ -23,9 +23,11 @@
 # Exit codes: 0 committed · 2 tests still failing (left uncommitted for Claude) · 3 bad setup.
 # =============================================================================
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # resolved BEFORE the cd into the worktree (2026-10-26: a relative dirname broke the source line)
 
 NAME="${1:?usage: codex-build.sh <name> <task-file> [<reference-dir>]}"
 TASK="${2:?task file}"
+case "$TASK" in /*) ;; *) TASK="$PWD/$TASK" ;; esac   # resolved BEFORE the cd into the worktree (2026-10-26: a relative task path was read from the wrong dir and Codex got an empty brief)
 REF="${3:-}"
 WT="$HOME/Projects/mowology-android-codex"
 OUT="$HOME/.mowology-codex/builds/$NAME"
@@ -61,17 +63,21 @@ Rules:
 
 gradle_check() {   # → $OUT/test-<n>.txt; returns 0 when tests + compile pass
   local n="$1"
-  ( ./android/gradlew -p android --offline testDebugUnitTest compileDebugKotlin -q > "$OUT/test-$n.txt" 2>&1 )
+  # Both flavors, explicitly, and --continue so a failure in one still runs the other (2026-10-26: `testDebugUnitTest`
+  # + a grep of test-results/testDebugUnitTest/ reported "0 failing" from stale files while the mowology flavor had two red tests).
+  rm -rf android/app/build/test-results/testMowologyDebugUnitTest android/app/build/test-results/testTenanttestDebugUnitTest
+  ( ./android/gradlew -p android --offline --continue testMowologyDebugUnitTest testTenanttestDebugUnitTest compileMowologyDebugKotlin compileTenanttestDebugKotlin -q > "$OUT/test-$n.txt" 2>&1 )
   local rc=$?
-  local res; res="$(grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' android/app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null \
-                   | awk -F'"' '{t+=$2; f+=$6+$8} END {print t" tests, "f" failing"}')"
+  local res; res="$(for d in testMowologyDebugUnitTest testTenanttestDebugUnitTest; do
+                     grep -ho 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "android/app/build/test-results/$d"/*.xml 2>/dev/null \
+                       | awk -F'"' -v f="$d" '{t+=$2; x+=$6+$8} END {printf "%s %d tests %d failing; ", f, t, x}'; done)"
   log "tests/compile round $n: rc=$rc ${res:-no results}"
   return $rc
 }
 
 # Codex usage used up mid-build (scripts/lib/codex-run.sh exit 75): stop, leave the worktree for Claude, and say so —
 # the chat hands the rest to the web-builder / code-reviewer Claude agents.
-. "$(dirname "$0")/lib/codex-run.sh"
+. "$SCRIPT_DIR/lib/codex-run.sh"
 codex_call() {     # <logname> <codex exec args...>
   local rc=0
   CODEX_CALLER="codex-build.sh $NAME" codex_run "$OUT/$1" "${@:2}" || rc=$?
