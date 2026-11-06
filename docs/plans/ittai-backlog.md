@@ -371,3 +371,8 @@ get them after phase 2.
 ## Business keys: enforce lowercase letters, digits, dashes (security review follow-up, 2026-11-06)
 - `PdfStore`/`StoredPdfPath` require `[a-z0-9-]+` business keys; `Tenant::valid()` doesn't enforce it. A key with `_` or a capital
   would make every PDF write fail. Add the check to `Tenant::valid()` (or a registry test). All current keys pass.
+
+## Trackimo per business (security review follow-up, 2026-11-06)
+- `TrackimoService` signs in with Mowology's own TRACKIMO_* constants for every business. Files are now per business (#8), but a
+  second business turning tracking on would read Mowology's trucks. Before then: per-business Trackimo credentials (encrypted,
+  like the QuickBooks keys) and refuse tracking where none are set.
