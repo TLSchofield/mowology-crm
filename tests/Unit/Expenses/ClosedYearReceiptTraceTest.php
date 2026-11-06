@@ -19,12 +19,10 @@ final class ClosedYearReceiptTraceTest extends TestCase
         $this->assertNull(ClosedYearReceiptTrace::pick([], 10.04));
     }
 
-    public function testTwoExactLinesNeedAClearLeader(): void
+    public function testTwoExactLinesAreLeftToAPerson(): void
     {
-        $tie = [['transaction_id' => 1, 'amount' => 12.00, 'confidence' => 70], ['transaction_id' => 2, 'amount' => 12.00, 'confidence' => 60]];
-        $this->assertNull(ClosedYearReceiptTrace::pick($tie, 12.00));
-        $clear = [['transaction_id' => 1, 'amount' => 12.00, 'confidence' => 90], ['transaction_id' => 2, 'amount' => 12.00, 'confidence' => 40]];
-        $this->assertSame(1, ClosedYearReceiptTrace::pick($clear, 12.00)['transaction_id']);
+        $two = [['transaction_id' => 1, 'amount' => 12.00, 'confidence' => 90], ['transaction_id' => 2, 'amount' => 12.00, 'confidence' => 40]];
+        $this->assertNull(ClosedYearReceiptTrace::pick($two, 12.00));
     }
 
     public function testOnlyOpenClosedYearReceiptsApply(): void

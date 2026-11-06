@@ -25,17 +25,14 @@ final class ClosedYearReceiptTrace
     }
 
     /**
-     * Pure: the one bank line this receipt is, or null. Exactly one candidate at the exact amount; when several share the
-     * amount, one whose confidence is clearly ahead (≥ 20 points) — otherwise a person decides.
-     * @param list<array{transaction_id:int, amount:float, confidence?:int|float}> $candidates
+     * Pure: the one bank line this receipt is, or null — exactly one candidate at the exact amount. Two lines at the same
+     * amount can be two purchases at one shop: a person decides (review 2026-11-06).
+     * @param list<array{transaction_id:int, amount:float}> $candidates
      */
     public static function pick(array $candidates, float $total): ?array
     {
         $exact = array_values(array_filter($candidates, static fn($c) => abs(abs((float)($c['amount'] ?? 0)) - round($total, 2)) < 0.005));
-        if (count($exact) === 1) return $exact[0];
-        if (count($exact) < 2) return null;
-        usort($exact, static fn($a, $b) => (float)($b['confidence'] ?? 0) <=> (float)($a['confidence'] ?? 0));
-        return (float)($exact[0]['confidence'] ?? 0) - (float)($exact[1]['confidence'] ?? 0) >= 20 ? $exact[0] : null;
+        return count($exact) === 1 ? $exact[0] : null;
     }
 
     /** Pure: is this receipt one to trace — open, dated in a filed year, a real amount, not paid personally? */
@@ -68,10 +65,26 @@ final class ClosedYearReceiptTrace
         $line = self::pick($bank->candidateTransactionsForExpense($expenseId, 8), (float)$row['total']);
         if ($line === null) return ['action' => 'no_line'];
 
+        // Linked and filed together or not at all: a receipt filed without its line would leave every queue unseen.
         require_once __DIR__ . '/ExpenseApprovalService.php';
-        $filed = (new ExpenseApprovalService($this->db))->fileAsBooked($expenseId, ['id' => 0, 'kind' => 'penny']);
-        if (empty($filed['success'])) return ['action' => 'no_line'];
-        $bank->attachExpenseMatch((int)$line['transaction_id'], $expenseId, 0);
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        else $this->db->exec('SAVEPOINT closed_year_trace');   // inside a caller's transaction: undo only this step
+        try {
+            $bank->attachExpenseMatch((int)$line['transaction_id'], $expenseId, 0);
+            $filed = (new ExpenseApprovalService($this->db))->fileAsBooked($expenseId, ['id' => 0, 'kind' => 'penny']);
+            if (empty($filed['success']) || stripos((string)($filed['message'] ?? ''), 'nothing to change') !== false) {
+                throw new RuntimeException('dealt with meanwhile');   // someone else filed or posted it: leave it as they did
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+            } else {
+                $this->db->exec('ROLLBACK TO SAVEPOINT closed_year_trace');
+            }
+            return ['action' => 'no_line'];
+        }
         return ['action' => 'traced', 'transaction_id' => (int)$line['transaction_id']];
     }
 }

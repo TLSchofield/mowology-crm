@@ -275,8 +275,18 @@ function enhanceHeaders(array $ctx, ?callable $transport = null, ?callable $capT
     $next['header_flags']      = $check($next);
     $ctx['parsed'] = $next;
     // The subtotal the line items were held against was the guess: with the printed one, give the items one more read.
+    // Only the AI item step (ocr_source 'vision' = no second paid read) and only its items are taken — the headers just
+    // merged stay (review 2026-11-06).
     if (in_array('subtotal', $merged, true) && lineItemsNeedBetterExtraction($next) && isset($ctx['ocr_text'])) {
-        $ctx = enhanceLineItemExtraction($ctx);
+        $re = enhanceLineItemExtraction(array_merge($ctx, ['ocr_source' => 'vision', 'file_path' => null]));
+        if (!empty($re['llm_used'])) {
+            foreach (['line_items', 'line_items_source', 'llm_attempted', 'items_sum', 'items_match_subtotal', 'line_item_quality'] as $k) {
+                if (array_key_exists($k, $re['parsed'])) $next[$k] = $re['parsed'][$k];
+            }
+            $next = array_merge($next, assessLineItemQuality($next));
+            $ctx['parsed'] = $next;
+            $ctx['llm_used'] = true;
+        }
     }
     return $ctx;
 }

@@ -23,5 +23,6 @@ final class VendorNamedOnPaperTest extends TestCase
     {
         $this->assertFalse(VendorIdentity::namedOnPaper(self::LORDCO, 'Costco', 'Costco, COSTCO WHOLESALE'));
         $this->assertFalse(VendorIdentity::namedOnPaper("costcoe parts", 'Costco'));   // whole words only
+        $this->assertFalse(VendorIdentity::namedOnPaper("home sweet home\nfurniture", 'Home Hardware'));   // one generic word is not enough
     }
 }

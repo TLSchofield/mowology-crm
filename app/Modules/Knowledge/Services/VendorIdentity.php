@@ -86,9 +86,15 @@ final class VendorIdentity
             if (self::usableAlias($n) && self::textHas($text, $n)) return true;
             // Or its first real word: the landfill's paper prints "CITY OF / VANCOUVER", not the whole vendor name
             // "City of Vancouver Vancouver Landfill" — measured on 242 approved receipts, 29 such matches were right.
-            $words = preg_split('/[^\p{L}\p{N}&]+/u', mb_strtolower($n), -1, PREG_SPLIT_NO_EMPTY);
-            $words = array_values(array_filter($words, static fn($w) => !in_array($w, ['the', 'a', 'an', 'le', 'la', 'les'], true)));
-            if ($words && mb_strlen($words[0]) >= 3 && self::textHas($text, $words[0])) return true;
+            // Two real words must both be printed ("city" + "vancouver"); a one-word name must be a usable name by itself.
+            $words = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($n), -1, PREG_SPLIT_NO_EMPTY);
+            $words = array_values(array_filter($words, static fn($w) => mb_strlen($w) >= 3
+                && !in_array($w, ['the', 'and', 'les', 'des', 'inc', 'ltd', 'llc', 'corp', 'co'], true)));
+            if (count($words) >= 2) {
+                if (self::textHas($text, $words[0]) && self::textHas($text, $words[1])) return true;
+            } elseif (count($words) === 1 && self::usableAlias($words[0]) && self::textHas($text, $words[0])) {
+                return true;
+            }
         }
         return false;
     }

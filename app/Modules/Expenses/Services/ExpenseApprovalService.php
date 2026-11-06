@@ -132,8 +132,11 @@ class ExpenseApprovalService
         }]);
         if (!empty($res['noop'])) return ['success' => true, 'message' => 'Nothing to change: it was already dealt with'];
 
-        require_once __DIR__ . '/ExpenseGateHooks.php';
-        (new ExpenseGateHooks($this->db))->learnConfirmed($expenseId, $opts['learn_baseline'] ?? null, true);
+        // A person's filing confirms the receipt and teaches; Penny's (ClosedYearReceiptTrace) proves only the amount.
+        if (!$byPenny) {
+            require_once __DIR__ . '/ExpenseGateHooks.php';
+            (new ExpenseGateHooks($this->db))->learnConfirmed($expenseId, $opts['learn_baseline'] ?? null, true);
+        }
         return ['success' => true, 'message' => 'Filed: kept with its photo, nothing booked again'];
     }
 
