@@ -39,6 +39,9 @@ struct ReceiptsView: View {
     @State private var snapAnotherPending = false
     /// Camera opened from the review's Retake: cancelling it brings the same review back.
     @State private var retakePending = false
+    /// A receipt photo that failed the edge/sharpness check, held while the crew picks Retake or Use this photo.
+    @State private var weakCapture: Data?
+    @State private var weakCaptureReason = ""
 
     // Label mode: the next photo is a product bag / machine nameplate, not a receipt.
     // Same upload + OCR, never an expense; Penny or Otto proposes it on the web.
@@ -115,11 +118,19 @@ struct ReceiptsView: View {
                     retakePending = false
                     let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
                     Task {
-                        // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
-                        let compressed: Data = await Task.detached(priority: .userInitiated) {
-                            ReceiptsView.resizeAndCompress(image)
+                        // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread.
+                        // A receipt is cropped to its edges and straightened first (labels are left as shot).
+                        let (compressed, prep): (Data, ReceiptPhotoPrep.Outcome?) = await Task.detached(priority: .userInitiated) {
+                            guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
+                            let prep = ReceiptPhotoPrep.prepare(image)
+                            return (ReceiptsView.resizeAndCompress(prep.image), prep)
                         }.value
                         guard !compressed.isEmpty else { return }
+                        if let prep, prep.needsHint {
+                            weakCaptureReason = Self.weakCaptureMessage(prep)
+                            weakCapture = compressed
+                            return
+                        }
                         await handleCapture(compressed, asLabel: asLabel)
                     }
                 },
@@ -182,6 +193,28 @@ struct ReceiptsView: View {
         }
         .onChange(of: viewModel.uploadError) { _, err in
             if err != nil { showErrorAlert = true }
+        }
+        // The capture hint: a blurry, skewed or distant receipt photo reads badly on the server.
+        .alert(ReceiptPhotoPrep.hintText, isPresented: Binding(
+            get: { weakCapture != nil },
+            set: { if !$0 { weakCapture = nil } }
+        )) {
+            Button("Retake") {
+                weakCapture = nil
+                impact.impactOccurred()
+                // Let the alert finish leaving before the camera cover is presented.
+                Task {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    showCamera = true
+                }
+            }
+            Button("Use this photo") {
+                guard let data = weakCapture else { return }
+                weakCapture = nil
+                Task { await handleCapture(data, asLabel: false) }
+            }
+        } message: {
+            Text(weakCaptureReason)
         }
         .alert("Upload Failed", isPresented: $showErrorAlert) {
             Button("OK") { viewModel.uploadError = nil }
@@ -578,6 +611,16 @@ struct ReceiptsView: View {
     // MARK: - Image resize + compress
 
     // Matches Capacitor behaviour: max 1920px wide, 78% JPEG quality → ~200-600 KB
+    /// What was wrong with the photo, in the crew's words.
+    nonisolated static func weakCaptureMessage(_ prep: ReceiptPhotoPrep.Outcome) -> String {
+        var why: [String] = []
+        if prep.isSmall { why.append(prep.cropped ? "the receipt is small in the photo" : "the receipt's edges weren't found") }
+        if prep.isSkewed { why.append("it was taken at an angle") }
+        if prep.isBlurry { why.append("the print looks blurry") }
+        let reason = why.isEmpty ? "" : why.joined(separator: ", ").prefix(1).uppercased() + why.joined(separator: ", ").dropFirst() + ". "
+        return reason + "Lay it flat, hold the phone straight above it and let it fill the screen."
+    }
+
     nonisolated static func resizeAndCompress(_ image: UIImage) -> Data {
         let maxDim: CGFloat = 1920
         let size = image.size

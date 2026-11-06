@@ -68,7 +68,7 @@ function cleanDeviceOcr(array $post): ?array
 }
 
 /**
- * Pure: the phone's line boxes (iPhone 1.3.85+ / Android 1.8.1+), or null when absent or unreadable. Older apps
+ * Pure: the phone's line boxes (iPhone 1.3.85+ / Android 2.2.9+), or null when absent or unreadable. Older apps
  * send none and nothing changes for them. The field is JSON:
  *   {"v":1, "image":{"w":px,"h":px}, "lines":[{"text":"…","x":0.08,"y":0.31,"w":0.42,"h":0.016,"deg":-0.8}, …]}
  * x/y/w/h are 0–1 fractions of the photo with the origin top-left; deg is the line's tilt, positive when its

@@ -180,6 +180,9 @@ final class APIClient: ObservableObject {
             body.appendField(name: "client_ocr_text", value: device.text, boundary: boundary)
             body.appendField(name: "client_ocr_engine", value: device.engine, boundary: boundary)
             body.appendField(name: "client_ocr_version", value: device.version, boundary: boundary)
+            if let lines = device.linesJSON {
+                body.appendField(name: "client_ocr_lines", value: lines, boundary: boundary)
+            }
         }
         if let lat = lat { body.appendField(name: "lat", value: "\(lat)", boundary: boundary) }
         if let lng = lng { body.appendField(name: "lng", value: "\(lng)", boundary: boundary) }
