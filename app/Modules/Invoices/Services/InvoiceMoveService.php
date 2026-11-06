@@ -64,8 +64,15 @@ class InvoiceMoveService
             $sql .= $order;
             array_push($args, $propertyId, $address !== '' ? $address : '__no_address__');
         } else {
-            $sql .= " AND (jp.property_id = ? OR jp.company_id = ? OR pr.property_manager_id = ? OR LOWER(TRIM(pr.address)) = ?)";
-            array_push($args, $propertyId, $companyId, $companyId, $address !== '' ? $address : '__no_address__');
+            // Only real links widen the list: an invoice with no property/company must not match every unlinked job.
+            $or = [];
+            if ($propertyId > 0) { $or[] = 'jp.property_id = ?'; $args[] = $propertyId; }
+            if ($companyId > 0)  { $or[] = 'jp.company_id = ?'; $or[] = 'pr.property_manager_id = ?'; $args[] = $companyId; $args[] = $companyId; }
+            if ($address !== '') { $or[] = 'LOWER(TRIM(pr.address)) = ?'; $args[] = $address; }
+            if (!$or) {
+                return [];   // nothing to go on — the person can search by job number or title
+            }
+            $sql .= ' AND (' . implode(' OR ', $or) . ')';
             $sql .= $order;
             array_push($args, $propertyId, $address !== '' ? $address : '__no_address__');
         }
@@ -190,7 +197,7 @@ class InvoiceMoveService
                 }
             }
             // 3. Lines tied to the old visit (or to none) follow; lines on other visits stay.
-            $lineWhere = $oldVisit > 0 ? "(visit_id = ? OR visit_id IS NULL)" : "(visit_id IS NULL OR visit_id = 0)";
+            $lineWhere = $oldVisit > 0 ? "(visit_id = ? OR visit_id IS NULL OR visit_id = 0)" : "(visit_id IS NULL OR visit_id = 0)";
             $set = $newVisit !== null ? "visit_id = ?, service_date = ?" : "visit_id = ?";
             $this->db->prepare("UPDATE invoice_line_items SET {$set} WHERE invoice_id = ? AND {$lineWhere}")
                 ->execute($this->lineArgs($newVisit, $ctx, $invoiceId, $oldVisit));
