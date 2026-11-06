@@ -116,6 +116,18 @@ class StripePayoutService
         $r = $this->read($line);
         if (!$r['ok']) return ['ok' => false, 'message' => $r['reason']];
 
+        $lock = 'stripe_payout_' . md5((string)$r['payout']);
+        $lockStmt = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $lockStmt->execute([$lock]);
+        if ((int)$lockStmt->fetchColumn() !== 1) return ['ok' => false, 'message' => 'That payout is being booked on another bank line.'];
+        try {
+            $used = $this->db->prepare("SELECT id, transaction_date FROM accounting_transactions
+                                        WHERE reference_type = 'bank_import' AND type = 'transfer' AND payment_reference = ? AND id <> ? LIMIT 1");
+            $used->execute([$r['payout'], $transactionId]);
+            if ($u = $used->fetch(PDO::FETCH_ASSOC)) {
+                return ['ok' => false, 'message' => 'That payout is already booked on bank line #' . $u['id'] . ' — this line is probably a duplicate import (run duplicate bank lines first).'];
+            }
+
         $ids = array_map(fn($i) => (int)$i['invoice_id'], $r['invoices']);
         $feeId = null;
         $this->db->beginTransaction();
@@ -163,8 +175,20 @@ class StripePayoutService
         }
 
         // Journal: the deposit had no entry (revenue deposits are skipped); reverse one if it somehow has.
-        $old = $ledger->findEntryIdBySource('bank_import', $transactionId);
-        if ($old) $ledger->reverseEntry($old, $userId, 'Stripe payout ' . $r['payout'] . ' — its invoices already carry this revenue', 'penny');
+        $reversalWarning = false;
+        try {
+            $old = $ledger->findEntryIdBySource('bank_import', $transactionId);
+            if ($old) $ledger->reverseEntry($old, $userId, 'Stripe payout ' . $r['payout'] . ' — its invoices already carry this revenue', 'penny');
+        } catch (Throwable $e) {
+            $reversalWarning = true;
+            error_log('Stripe payout reversal failed (bank line ' . $transactionId . ', payout ' . $r['payout'] . '): ' . $e->getMessage());
+            try {
+                $this->db->prepare("INSERT INTO activity_log (user_id, action, details, created_at) VALUES (?, 'stripe_payout_reversal_failed', ?, NOW())")
+                         ->execute([$userId ?: null, json_encode(['bank_line_id' => $transactionId, 'payout_id' => $r['payout'], 'error' => $e->getMessage()])]);
+            } catch (Throwable $logError) {
+                error_log('Could not log stripe_payout_reversal_failed: ' . $logError->getMessage());
+            }
+        }
         if ($feeId) {
             try {
                 $args = (new LedgerSyncService($this->db, $ledger))->bankEntryArgsFor($feeId);
@@ -173,8 +197,12 @@ class StripePayoutService
                 error_log('Stripe fee journal post failed (tx ' . $feeId . '): ' . $e->getMessage());   // nightly sync posts it
             }
         }
-        return ['ok' => true, 'message' => 'Booked: ' . count($ids) . ' invoices (' . implode(', ', array_column($r['invoices'], 'number')) . ') and ' . self::money($r['fees']) . ' Stripe fees.',
+        return ['ok' => true, 'message' => 'Booked: ' . count($ids) . ' invoices (' . implode(', ', array_column($r['invoices'], 'number')) . ') and ' . self::money($r['fees']) . ' Stripe fees.' . ($reversalWarning ? ' The old journal reversal needs a look.' : ''),
                 'invoices' => $r['invoices'], 'fees' => $r['fees']];
+        } finally {
+            $release = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            $release->execute([$lock]);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

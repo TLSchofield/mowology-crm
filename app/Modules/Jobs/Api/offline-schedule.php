@@ -53,6 +53,9 @@ try {
         $appointments = (new AppointmentService(getDB()))->forRange($start, $end, $crewFilter);
     } catch (Throwable $e) {
         error_log('[offline-schedule] appointments: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Could not load appointments']);
+        exit;
     }
 
     // Build compact day array suitable for IDB storage

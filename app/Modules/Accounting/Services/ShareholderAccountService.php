@@ -304,19 +304,22 @@ class ShareholderAccountService
         foreach ($need as $code) if (!$this->accountId($code)) return ['ok' => false, 'message' => "Account {$code} is missing — run migration 1255."];
         $note = mb_substr(trim($note), 0, 250);
 
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
         $this->db->prepare("INSERT INTO shareholder_clearings (clearing_type, entry_date, amount, withholdings, note, created_by, created_at)
                             VALUES (?, ?, ?, ?, ?, ?, NOW())")->execute([$type, $date, round($amount, 2), round($withholdings, 2), $note ?: null, $userId ?: null]);
         $id = (int)$this->db->lastInsertId();
         $entry = self::buildClearing($type, $amount, $withholdings, $date, $note)
                + ['source_type' => 'shareholder_clearing', 'source_id' => $id, 'created_by' => $userId, 'proposed_by' => 'owner'];
-        try {
-            $entryId = $this->ledger->postManual($entry);
+        $entryId = $this->ledger->postManual($entry);
+        $this->db->prepare("UPDATE shareholder_clearings SET journal_entry_id = ? WHERE id = ?")->execute([$entryId, $id]);
+        if ($own) $this->db->commit();
+        return ['ok' => true, 'message' => 'Booked: $' . number_format($amount, 2) . ' ' . $type . ' clears the shareholder account (entry #' . $entryId . ').', 'id' => $id, 'entry_id' => $entryId];
         } catch (Throwable $e) {
-            $this->db->prepare("DELETE FROM shareholder_clearings WHERE id = ?")->execute([$id]);
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
-        $this->db->prepare("UPDATE shareholder_clearings SET journal_entry_id = ? WHERE id = ?")->execute([$entryId, $id]);
-        return ['ok' => true, 'message' => 'Booked: $' . number_format($amount, 2) . ' ' . $type . ' clears the shareholder account (entry #' . $entryId . ').', 'id' => $id, 'entry_id' => $entryId];
     }
 
     public function undoClearing(int $id, int $userId): array
@@ -326,8 +329,18 @@ class ShareholderAccountService
         $c = $s->fetch(PDO::FETCH_ASSOC);
         if (!$c) return ['ok' => false, 'message' => 'Not found'];
         if ($this->ledger->isLocked((string)$c['entry_date'])) return ['ok' => false, 'message' => substr((string)$c['entry_date'], 0, 7) . ' is locked.'];
-        $rev = $c['journal_entry_id'] ? $this->ledger->reverseEntry((int)$c['journal_entry_id'], $userId, 'shareholder clearing undone', 'owner') : null;
-        $this->db->prepare("UPDATE shareholder_clearings SET undone_at = NOW(), undone_by = ?, reversal_entry_id = ? WHERE id = ?")->execute([$userId ?: null, $rev, $id]);
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            $rev = $c['journal_entry_id'] ? $this->ledger->reverseEntry((int)$c['journal_entry_id'], $userId, 'shareholder clearing undone', 'owner') : null;
+            $mark = $this->db->prepare("UPDATE shareholder_clearings SET undone_at = NOW(), undone_by = ?, reversal_entry_id = ? WHERE id = ? AND undone_at IS NULL");
+            $mark->execute([$userId ?: null, $rev, $id]);
+            if ($mark->rowCount() !== 1) throw new RuntimeException('That clearing was already undone.');
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'message' => 'Not undone: ' . $e->getMessage()];
+        }
         return ['ok' => true, 'message' => 'Clearing undone' . ($rev ? ' (reversal #' . $rev . ')' : '') . '.'];
     }
 

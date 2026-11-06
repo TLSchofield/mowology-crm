@@ -91,7 +91,13 @@ class MonthCloseService
                                    FROM expenses e WHERE e.status IN ('draft', 'pending_approval') GROUP BY ym")->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $receipts[$r['ym']] = [(int)$r['n'], round((float)$r['amt'], 2), (int)$r['unmatched']];
         }
-        $lines = $this->waitingBankLinesByMonth();
+        $bankLinesFailed = false;
+        try {
+            $lines = $this->waitingBankLinesByMonth();
+        } catch (Throwable $e) {
+            $lines = [];
+            $bankLinesFailed = true;
+        }
         $settlements = $this->settlementsByMonth($current, $locked, $today);
         $bankAge = $this->bankAgeByMonth($current, $locked, $today);
 
@@ -109,6 +115,7 @@ class MonthCloseService
             $row['grace_until'] = self::graceUntil($m);
             $row['blockers'] = $row['locked'] ? [] : self::blockers($row, $today);
             if (!$row['locked'] && $reportFailed) $row['blockers'][] = 'the bank balance check could not run — try again';
+            if (!$row['locked'] && $bankLinesFailed) $row['blockers'][] = 'bank lines could not be checked — try again';
             $row['ready'] = !$row['locked'] && !$row['blockers'];
             $out[] = $row;
         }
@@ -276,6 +283,7 @@ class MonthCloseService
             }
         } catch (Throwable $e) {
             error_log('[MonthClose] bank lines: ' . $e->getMessage());
+            throw new RuntimeException('bank lines could not be checked', 0, $e);
         }
         return $out;
     }

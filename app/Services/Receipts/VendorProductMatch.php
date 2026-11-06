@@ -99,7 +99,10 @@ function matchVendorProducts(int $vendorId, string $ocrText, array $parsed): arr
     }
 
     // 3) Enhance the parsed total/GST if they're missing — use bare numbers near labels
-    $parsed = enhanceAmountsFromBareNumbers($parsed, $lines, $productMatches, $products);
+    $vendorStmt = $db->prepare("SELECT gst_exempt FROM vendors WHERE id = ? LIMIT 1");
+    $vendorStmt->execute([$vendorId]);
+    $vendorGstExempt = (bool)$vendorStmt->fetchColumn();
+    $parsed = enhanceAmountsFromBareNumbers($parsed, $lines, $productMatches, $products, $vendorGstExempt);
 
     // 4) Rebuild line_items from product matches if parser found none
     if (empty($parsed['line_items']) && !empty($productMatches)) {
@@ -449,11 +452,15 @@ function pairMatchesWithAmounts(array $matches, array $lines, array $products): 
  * If the standard parser couldn't find a total (because "56.70" OCR'd as "6043"),
  * try to reconstruct it from product match amounts + known GST rate.
  */
-function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $productMatches, array $products): array
+function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $productMatches, array $products, bool $vendorGstExempt = false): array
 {
     // If total already found with decimal, trust it
     if ($parsed['total'] !== null) {
         return $parsed;
+    }
+
+    if ($vendorGstExempt) {
+        $parsed['gst'] = number_format(0, 2, '.', '');
     }
 
     $lineCount = count($lines);
@@ -470,7 +477,9 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
             }
         }
         if ($hasAmount && $itemTotal > 0) {
-            $gst = round($itemTotal * 0.05, 2);
+            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+            $gst = ReceiptAmountRules::calculatedGst($itemTotal, TaxEngine::gstRate(), $vendorGstExempt);
             $parsed['subtotal'] = number_format($itemTotal, 2, '.', '');
             $parsed['gst'] = number_format($gst, 2, '.', '');
             $parsed['total'] = number_format($itemTotal + $gst, 2, '.', '');
@@ -531,7 +540,9 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
                                     }
                                 }
                                 if ($itemTotal > 0) {
-                                    $expectedGST = $itemTotal * 0.05;
+                                    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+                                    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+                                    $expectedGST = ReceiptAmountRules::calculatedGst($itemTotal, TaxEngine::gstRate(), $vendorGstExempt);
                                     if (abs($candidate - $expectedGST) < 1.00) {
                                         $parsed['gst'] = number_format($candidate, 2, '.', '');
                                         $parsed['gst_source'] = 'vendor_product_match';

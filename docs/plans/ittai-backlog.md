@@ -175,6 +175,25 @@ Sam's part (original):
   fill them in Settings → Users and Penny's payroll checks gain the same.
 - **Restock velocity** stays n/a until stock is counted somewhere (no table today).
 
+## Kaname follow-ups (2026-11-03)
+- **Penalty dates first?** Tim's rule (2026-10-11) vs the learned ranking: give forced-red lines (`BriefStatus::forcedRed`) a floor in `CharlieRankService::rank()` if he says so.
+- **Group runs of one kind** (Sam 19 campaign replies, Otto 20 job timers, Penny 5 "same purchase?") into one line with a count: each head's own session, it needs a noun per kind.
+- **195 of 200 lines are status sentences, not decisions** ("Send 28 invoices? Tap"): head by head.
+- **Penny's routed mail:** "Meghan wrote about billing: can we book you for a fall cleanup" is a booking request filed as billing (InboundTopicClassifier).
+- **Sam marks 25 of 31 lines urgent** (19 are replies to Mia's fall email): fix the priority at the source; Yui marks all 9 approvals urgent.
+- **Show the status chip in the NEW dashboard layout** ("Three things need you today"): the JSON already has `status`, `trend`, `urgency_notes`; only the classic card draws them.
+- **Charlie status thresholds** (`charlie_status_money_red`, `charlie_status_deadline_days`) are defaults until Dec 1; review then.
+
+## Yui and Otto-leads follow-ups (2026-11-03)
+- **Urgent email for a held message** (payment-detail change, wire, password ask): `CharlieUrgentService` is ahead on production; add a Yui source
+  there (key `urgent:yui:hold:<hash>`) once it is pulled into the branch. Today a hold is priority 1 in Yui's card and Charlie's brief only.
+- **Cold pitches in Sam's replies:** "A customer replied 'Hello' — Tree Service App" is a vendor pitch with a contact record; inbox-manager files pitches
+  silently. A pitch rule (sender describes their product, not a problem) belongs with `UnclaimedReplyService::isAutomated()`.
+- **A client who leaves rude-to-Tim** (contact #218, Nov 2: "exceptionally rude", switching company) is in no queue; a lost-client note should reach Tim.
+- **Yard for Otto's route days:** `ops_settings` closer_depot_lat / closer_depot_lng are empty.
+- **A suite failure that did not reproduce** (once in four full runs on 2026-11-03); if it returns, capture the name.
+- **`git push` to `feature/language` is refused by the permission layer** in this session; 20+ local commits wait on the worktree branch.
+
 ## Ada follow-ups (2026-11-03, after the register shipped)
 - **Drift: 88 files on production differ from `feature/language`** (`app/Core/Auth/JwtAuth.php`, `session_config.php`, Accounting services, schedule pages, `appstack_*.php`, `public/.htaccess`…) — other sessions' deploys from other branches. Ada's drift row is now truthful and Critical. A session should walk the list: `scripts/prod-pull.sh --into-repo` each, decide branch vs live, commit what is wanted, redeploy through a manifest-recording script. Until then the red stands, correctly.
 - **`ReviewRequestService`: Unknown column `c.review_request_sent_at`** (live error log 13:38, visit #2378) — a migration shipped and never run, or a column renamed; one of the "116 never run". Owner: Mia / visits.
@@ -191,10 +210,10 @@ Sam's part (original):
 4. **Otto** — DONE 2026-11-03 (`docs/plans/2026-11-03-otto-harvest.md`) — `operations` plugin (capacity-plan, vendor-review, change-request) + small-business inventory/restock
    (velocity, stockout, reorder maths, buffer = min(30, max(7, lead/2))), payroll-prep punch rules weekly on time_entries;
    diff against OttoRules / OttoActionService / RecurringBillService / supplier lists.
-5. **Yui** — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
+5. **Yui** — DONE 2026-11-03 (`docs/plans/2026-11-03-yui-harvest.md`) — inbox-manager (needs-you / drafted / handled; >5 "needs you" means the threshold is wrong; archive never delete),
    voice profile + slop test, outreach cadences (0/+4/+11/+21; never two sends in 48 h; trades 6–8 am or after 5 pm),
    customer-support `ticket-triage` / `draft-response`; diff against YuiRules / YuiDraftService / IcloudInboxRouter.
-6. **Kaname (Charlie)** — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask
+6. **Kaname (Charlie)** — DONE 2026-11-03 (`docs/plans/2026-11-03-kaname-harvest.md`) — monday-brief ("merge, don't staple"; "the one thing" closes it; skip missing reports silently; ask
    before posting bad news), business-pulse rollup (worst section; forced red on named client + amount + deadline ≤ 7 d),
    report-builder sanity checks (partial period, totals tie, "n/a — source" never an estimate), report-pack cadence;
    diff against CharlieBriefService / CharlieRankService / CharlieUrgentService / HouseBriefAdapter.
@@ -417,3 +436,7 @@ Tim asked which AreaMap features fit `crm/products/area-measurement.php`. Alread
 - Skip: GPS boundary walking (city lots trace faster from satellite; background tracking is heavy in the WebView), KML/GPX/GeoJSON export (no buyer).
 - **Otto's icon (Tim, 2026-11-06):** "Otto is a hex icon now I thought". Check which icon Otto (operations head) shows in the iPhone app against the current head icons and match it. Own chat.
 - **Add a job: repeat options (Tim, 2026-11-06, iPhone "New client" step):** the Week / 2 weeks / Month segmented control is hard to tap; wants a day picker, Annual and Custom repeat, and "best day to service regularly". Bring the iPhone sheet up to the web's repeat options. Own chat.
+## Market research per product: find local suppliers, fetch their prices, ask for delivery quotes (Tim, 2026-11-03)
+Tim: "in general our CRM should take a product our client sells and then search for local suppliers and fetch their prices and/or email them requesting delivery prices etc."
+What exists (verified 2026-11-03): `MarketPriceService` reads published Shopify feeds weekly (My Garden Bag, live, shared regional layer, migration 1375); Otto's supplier directory and finder; `SupplierPriceListService` (a tenant's own trade lists, private); `SupplierFormService` (Otto fills a supplier's form, sends only on Tim's yes, from office@); the vendor knowledge commons for shared facts. Not yet: nothing starts from a PRODUCT and goes looking, nothing asks a supplier for a delivery price, nothing connects the market table to a product's price outside the mulch fact (being wired 2026-11-03: `MulchPriceBand`).
+Shape to plan (own chat, plan first): (1) per product, find candidates (the directory, the web, Tim's names), (2) read published prices where a feed exists (reader per site type; Shopify done), (3) where none exists, draft a "delivery price for <product>, <quantity>, <postcode>" email to the supplier, sent only on Tim's yes from office@mowology.ca, replies read by the existing supplier inbox reader and turned into a price row with the source and date, (4) shared facts (a public price) go to the regional layer, a private quote stays with the tenant, (5) every price carries its source, date and "GST stated or not", never a guess, (6) a read that finds nothing says so. Multi-discipline tenants: no trade words in the schema; the product, not "mulch", is the key. Open for Tim: how many suppliers per product, how often to re-ask, who may be emailed.

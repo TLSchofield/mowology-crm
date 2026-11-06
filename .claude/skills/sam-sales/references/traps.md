@@ -117,3 +117,7 @@ Not done: a post-approval extra is not added to the existing job automatically â
   wrap customer text in `<customer_message>` tags with `DraftSafety::DATA_NOTE`; a draft holding an email,
   link or bank/payment detail not in the contact's record returns `flags`/`flag_label` and the web card
   shows a red badge. iPhone does not show the badge yet (gap).
+
+### Mulch price: three prices, and "bark mulch" is not the first product (2026-11-03)
+Sam's mulch box shows the floor (cost plus margin), what Tim was PAID per yard (accepted quotes) and what the MARKET publishes (`MulchPriceBand`; market rows come from the weekly market read, shared regional layer). It never recommends a number and never writes a price.
+Traps: (1) `MulchPricingService::product()` returns the first family product with a cost, which was Cedar Mulch; the band must follow the product actually sold (most accepted quotes). (2) A quote line's blank unit does not prove "per yard": the line must be named after a product sold by the cubic yard, and a price far above the catalogue price is a flat job. (3) Expired is not lost. (4) Each market source has its own last read; a stale price is shown but never used as evidence of room. (5) A dry run on live caught (1): never ship a new number on tests alone.

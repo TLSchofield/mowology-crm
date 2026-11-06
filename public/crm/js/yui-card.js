@@ -150,10 +150,16 @@
 
     function row(it) {
         var s = it.section, main, acts = [];
-        if (s === 'inbox') {
-            main = (it.yes ? '<span class="mw-sam-yes">Yes</span> ' : '') + '<b>' + esc(it.name) + '</b> ' + (it.channel === 'sms' ? 'texted' : 'replied') +
+        if (s === 'inbox' && it.hold) {
+            // Asked for something only a phone call can confirm: the words, the check, and nothing to write with.
+            main = '<span class="mw-yui-hold">Hold</span> ' + esc(it.text) +
+                '<small class="mw-yui-meta">' + esc(ago(it.at)) + (it.subject ? ' · ' + esc(it.subject) : '') + '</small>';
+            acts.push('<a class="mw-rc-ed" href="' + esc(safeUrl(it.url)) + '">Open</a>');
+        } else if (s === 'inbox') {
+            main = (it.yes ? '<span class="mw-sam-yes">Yes</span> ' : '') + (it.upset ? '<span class="mw-yui-upset" title="' + esc(it.upset_why || '') + '">Unhappy</span> ' : '') + '<b>' + esc(it.name) + '</b> ' + (it.channel === 'sms' ? 'texted' : 'replied') +
                 (it.quote ? ' <q>' + esc(it.quote) + '</q>' : '') +
-                '<small class="mw-yui-meta">' + (it.channel !== 'sms' && it.subject ? esc(it.subject) + ' · ' : '') + esc(ago(it.at)) + '</small>';
+                '<small class="mw-yui-meta">' + (it.channel !== 'sms' && it.subject ? esc(it.subject) + ' · ' : '') + esc(ago(it.at)) +
+                (it.stage === 'late' ? ' · <span class="mw-yui-late">waited ' + (it.waiting_days | 0) + ' weekdays</span>' : '') + '</small>';
             if (it.to && it.to.email) acts.push('<button type="button" class="mw-rc-ok" data-do="claude"' + (draftsLeft === 0 ? ' disabled title="No drafts left today"' : '') + '>Draft reply</button>');
             if (it.to) acts.push('<button type="button" class="mw-rc-ed" data-do="write">Write</button>');
             acts.push('<a class="mw-rc-ed" href="' + esc(safeUrl(it.url)) + '">Open</a>');
@@ -171,7 +177,7 @@
         }
         acts.push('<button type="button" class="mw-rc-sk" data-do="handled">Handled</button>');
         var isOpen = open === it.key;
-        return '<div class="mw-yui-row' + (it.yes ? ' is-yes' : '') + (s === 'arrears' ? ' is-money' : '') + (isOpen ? ' is-open' : '') + '" data-k="' + esc(it.key) + '">' +
+        return '<div class="mw-yui-row' + (it.yes ? ' is-yes' : '') + (it.hold ? ' is-hold' : '') + (s === 'arrears' ? ' is-money' : '') + (isOpen ? ' is-open' : '') + '" data-k="' + esc(it.key) + '">' +
             '<div class="mw-yui-line"><div class="mw-yui-main">' + main + '</div><div class="mw-sam-lead-act mw-yui-act">' + acts.join('') + '</div></div>' +
             (isOpen ? editor(it) : '') + '</div>';
     }

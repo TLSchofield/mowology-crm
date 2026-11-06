@@ -167,5 +167,17 @@ try {
 } catch (Throwable $e) {
     $salesLog('Suppliers: ' . $e->getMessage());
 }
+// Otto (2026-11-03): a new lead's pin and arrival border the moment it has an address, however it arrived
+// (website form, the Kitsilano site, email) — the city lot map first, then the province's. Additive: never fails Sam's poll.
+try {
+    $ottoLead = APP_ROOT . '/Modules/Operations/Services/OttoLeadService.php';
+    if (is_file($ottoLead)) {
+        require_once $ottoLead;
+        $pl = (new OttoLeadService(getDB()))->placeOpenLeads();
+        if ($pl['tried'] > 0) $summary .= " Otto placed {$pl['bordered']} of {$pl['tried']} new lead(s) on the map" . ($pl['pinned'] ? " ({$pl['pinned']} pinned)" : '') . '.';
+    }
+} catch (Throwable $e) {
+    $salesLog('Otto lead placement: ' . $e->getMessage());
+}
 $salesLog($summary);
 $finish($errors > 0 ? 'warning' : 'success', $summary, $errors > 0 ? "{$errors} error(s)" : null);

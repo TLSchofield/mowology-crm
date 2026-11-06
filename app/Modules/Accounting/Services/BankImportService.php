@@ -410,6 +410,9 @@ class BankImportService
         ?array $balanceCheck = null
     ): array {
 
+        foreach ($rows as $index => $row) {
+            self::validateCommitAmounts($row, $index + 1);
+        }
         // A bank line cannot post after the day it is imported. A future date means
         // the year was mis-inferred — refuse the batch rather than book it.
         $latestAllowed = date('Y-m-d', strtotime($this->today() . ' +1 day'));
@@ -419,6 +422,13 @@ class BankImportService
                 '%d row(s) are dated after today (first: %s "%s") — check the statement year before importing.',
                 count($future), $future[0]['date'], substr((string)($future[0]['description'] ?? ''), 0, 60)
             ), 422);
+        }
+
+        $this->dupUsed = [];
+        foreach ($rows as $index => $row) {
+            $duplicateId = $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], (string)$row['type']);
+            $rows[$index]['is_duplicate'] = $duplicateId !== null;
+            $rows[$index]['duplicate_tx_id'] = $duplicateId;
         }
 
         $sessionId = $this->createSession([
@@ -613,6 +623,17 @@ class BankImportService
                 // ── Reconcile processor payment (Stripe/PayPal/etc) to invoice ─
                 if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
                     $invTxId       = (int)$row['matched_invoice_tx_id'];
+                    $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
+                    $owns = $this->db->prepare("SELECT 1 FROM accounting_transactions WHERE id = ? AND reference_type = 'invoice' AND reference_id = ?");
+                    $owns->execute([$invTxId, $invoiceIdForDeposit]);
+                    if (!$invoiceIdForDeposit || !$owns->fetchColumn()) {
+                        $row['match_candidate'] = false;
+                        $row['matched_invoice_tx_id'] = null;
+                    }
+                }
+
+                if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
+                    $invTxId       = (int)$row['matched_invoice_tx_id'];
                     $processingFee = (float)($row['processing_fee'] ?? 0);
                     $confidence    = (int)($row['match_confidence'] ?? 88);
                     $payRef        = $row['matched_invoice']['payment_reference'] ?? '';
@@ -650,6 +671,7 @@ class BankImportService
                     $depositAmount = round((float)$row['amount'], 2);
                     $priorInvoice  = null;
                     $priorInvoiceTx = null;
+                    $invoiceTxDelta = null;
                     $newAllocationIds = [];
 
                     $invState = null;
@@ -700,6 +722,16 @@ class BankImportService
                             $invoiceIdForDeposit, $depositAmount, 'e_transfer', $payRef !== '' ? $payRef : null,
                             (string)$row['date'], $txId, $userId
                         );
+                        if ($priorInvoiceTx) {
+                            $afterTx = $this->db->prepare("SELECT amount, gst_amount FROM accounting_transactions WHERE id = ?");
+                            $afterTx->execute([$invTxId]);
+                            if ($currentTx = $afterTx->fetch(PDO::FETCH_ASSOC)) {
+                                $invoiceTxDelta = [
+                                    'amount' => (float)$currentTx['amount'] - (float)$priorInvoiceTx['amount'],
+                                    'gst_amount' => (float)$currentTx['gst_amount'] - (float)$priorInvoiceTx['gst_amount'],
+                                ];
+                            }
+                        }
                         $ids = $this->db->prepare("SELECT id FROM invoice_payment_allocations WHERE transaction_id = ?");
                         $ids->execute([$txId]);
                         $newAllocationIds = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
@@ -754,12 +786,14 @@ class BankImportService
                     $row['_revert'] = ['unflag_tx' => [$invTxId]];
                     if ($priorInvoice) {
                         $row['_revert']['restore_invoice'] = $priorInvoice;
+                        $row['_revert']['invoice_delta'] = $depositAmount;
                     }
                     if ($newAllocationIds) {
                         $row['_revert']['delete_allocations'] = $newAllocationIds;
                     }
                     if ($priorInvoiceTx) {
                         $row['_revert']['restore_tx'] = $priorInvoiceTx;
+                        $row['_revert']['tx_delta'] = $invoiceTxDelta;
                     }
                     $row['invoice_match_action'] = $plan['action'];
                     $rowStmt->execute([
@@ -869,6 +903,39 @@ class BankImportService
      */
     public function rollback(int $sessionId, ?int $userId = null): int
     {
+        $dateValues = [];
+        $rowsForLock = $this->db->prepare("SELECT transaction_date, raw_row FROM bank_import_rows WHERE session_id = ?");
+        $rowsForLock->execute([$sessionId]);
+        $txIds = [];
+        $invoiceIds = [];
+        foreach ($rowsForLock->fetchAll(PDO::FETCH_ASSOC) as $lockRow) {
+            $dateValues[] = (string)$lockRow['transaction_date'];
+            $decoded = json_decode((string)($lockRow['raw_row'] ?? ''), true);
+            $revert = is_array($decoded) ? ($decoded['_revert'] ?? []) : [];
+            foreach (array_merge($revert['unflag_tx'] ?? [], $revert['delete_tx'] ?? []) as $id) $txIds[] = (int)$id;
+            if (!empty($revert['restore_tx']['transaction_date'])) $dateValues[] = (string)$revert['restore_tx']['transaction_date'];
+            if (!empty($revert['restore_invoice']['id'])) $invoiceIds[] = (int)$revert['restore_invoice']['id'];
+            if (!empty($revert['reopen_invoice']['id'])) $invoiceIds[] = (int)$revert['reopen_invoice']['id'];
+        }
+        if ($txIds) {
+            $in = implode(',', array_fill(0, count($txIds), '?'));
+            $s = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id IN ({$in})");
+            $s->execute($txIds);
+            $dateValues = array_merge($dateValues, $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        if ($invoiceIds) {
+            $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+            $s = $this->db->prepare("SELECT issue_date FROM invoices WHERE id IN ({$in})");
+            $s->execute($invoiceIds);
+            $dateValues = array_merge($dateValues, $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        require_once __DIR__ . '/LedgerService.php';
+        $ledger = new LedgerService($this->db);
+        foreach (array_unique(array_filter($dateValues)) as $date) {
+            if ($ledger->isLocked((string)$date)) {
+                throw new RuntimeException(substr((string)$date, 0, 7) . ' is locked — the import was not rolled back.');
+            }
+        }
         $ownTransaction = !$this->db->inTransaction();
         // Audit trail (Fable audit #25, 2026-10-12): every invoice this undo touches, before → after.
         $audit = [];
@@ -933,18 +1000,33 @@ class BankImportService
                 if (!empty($revert['restore_invoice']['id'])) {
                     $pi = $revert['restore_invoice'];
                     if ($before = $snap((int)$pi['id'])) $audit[] = ['invoice', (int)$pi['id'], $before, $pi];
-                    $this->db->prepare("
+                    if (isset($revert['invoice_delta'])) {
+                        $this->db->prepare("
+                            UPDATE invoices SET
+                                amount_paid = GREATEST(0, amount_paid - ?),
+                                balance_due = LEAST(total, balance_due + ?),
+                                status = CASE WHEN amount_paid <= 0.005 THEN ? WHEN balance_due <= 0.005 THEN 'paid' ELSE 'partial' END,
+                                payment_method = CASE WHEN amount_paid <= 0.005 THEN ? ELSE payment_method END,
+                                paid_at = CASE WHEN amount_paid <= 0.005 THEN ? ELSE paid_at END
+                            WHERE id = ?
+                        ")->execute([(float)$revert['invoice_delta'], (float)$revert['invoice_delta'],
+                            $pi['status'], $pi['payment_method'], $pi['paid_at'], (int)$pi['id']]);
+                    } else {
+                        $this->db->prepare("
                         UPDATE invoices SET status = ?, amount_paid = ?, balance_due = ?, payment_method = ?, paid_at = ?
                         WHERE id = ?
-                    ")->execute([
-                        $pi['status'], $pi['amount_paid'], $pi['balance_due'],
-                        $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
-                    ]);
+                        ")->execute([$pi['status'], $pi['amount_paid'], $pi['balance_due'], $pi['payment_method'], $pi['paid_at'], (int)$pi['id']]);
+                    }
                 }
                 if (!empty($revert['restore_tx']['id'])) {
                     $pt = $revert['restore_tx'];
-                    $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
-                             ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
+                    if (is_array($revert['tx_delta'] ?? null)) {
+                        $this->db->prepare("UPDATE accounting_transactions SET amount = GREATEST(0, amount - ?), gst_amount = GREATEST(0, gst_amount - ?) WHERE id = ?")
+                            ->execute([(float)$revert['tx_delta']['amount'], (float)$revert['tx_delta']['gst_amount'], (int)$pt['id']]);
+                    } else {
+                        $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
+                            ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
+                    }
                 }
             }
 
@@ -1010,6 +1092,19 @@ class BankImportService
             . count(array_filter($audit, fn($a) => $a[0] === 'invoice')) . ' invoice(s) restored, '
             . count(array_filter($audit, fn($a) => $a[0] === 'allocation')) . ' payment allocation(s) removed.'];
         return $out;
+    }
+
+    public static function validateCommitAmounts(array $row, int $rowNumber = 0): void
+    {
+        $prefix = $rowNumber > 0 ? 'Row ' . $rowNumber . ': ' : '';
+        // A zero-dollar line (a waived fee) is harmless and has always imported; only a non-number is refused.
+        if (!isset($row['amount']) || !is_numeric($row['amount'])) {
+            throw new InvalidArgumentException($prefix . 'amount must be a number.');
+        }
+        $gst = $row['gst_amount'] ?? 0;
+        if (!is_numeric($gst) || (float)$gst < 0 || (float)$gst > abs((float)$row['amount'])) {
+            throw new InvalidArgumentException($prefix . 'GST must be numeric and between zero and the transaction amount.');
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -4146,6 +4241,19 @@ class BankImportService
         return ['points' => $points, 'reason' => 'GPS: ' . $who . ' at ' . trim((string)$stop['place_name']) . ' ' . $at . ' — ' . $how];
     }
 
+    /** The date printed on the receipt (receipt_facts), or null. Never fails a match. */
+    private function printedDateFor(int $expenseId): ?string
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptFactsService.php';
+            $f = (new ReceiptFactsService($this->db))->forExpense($expenseId);
+            $d = is_array($f) ? (string)($f['printed_date'] ?? '') : '';
+            return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     /** Otto's stop for a receipt, or null (never fails a match). */
     private function stopForExpense(int $expenseId): ?array
     {
@@ -4162,10 +4270,10 @@ class BankImportService
      * Edit Expense modal. Only offers transactions not already claimed by another
      * expense (mirrors findExpenseMatch()'s bt.id IS NULL guard).
      */
-    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null): array
+    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null, ?string $printedDate = null): array
     {
         $stmt = $this->db->prepare("
-            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name, e.amount, e.gst_amount, e.pst_amount, e.accounting_category
             FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?
         ");
         $stmt->execute([$expenseId]);
@@ -4173,6 +4281,7 @@ class BankImportService
         if (!$expense) return [];
         // What the Edit Expense form shows right now, before Save — a receipt saved without its
         // PST ($196.08) matched its $199.71 bank line as "within 2%" (2026-10-13).
+        $expense['saved_total'] = round((float)$expense['total'], 2);   // what the receipt says, for the tip check
         if ($total !== null && $total > 0) $expense['total'] = round($total, 2);
         if ($date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $expense['expense_date'] = $date;
         // Penny's read of the PRINTED total, when she disagrees with the saved one (a scanner misread):
@@ -4182,7 +4291,19 @@ class BankImportService
         if ($penny !== null && abs($penny - (float)$expense['total']) >= 0.01) $expense['penny_total'] = $penny;
         $alt = $expense['penny_total'] ?? $expense['total'];
 
-        $stmt = $this->db->prepare("
+        // The date PRINTED on the receipt is a second anchor: the form's date can be wrong (Dunbar Lumber 2026-10-24:
+        // form said Jun 22, receipt and bank said May 27, so the exact $48.13 line fell outside the window and all
+        // three offered lines tied at 10%). Search and score around both dates, keep each line's best score.
+        $printed = ($printedDate !== null && $printedDate !== '') ? $printedDate : $this->printedDateFor($expenseId);
+        if ($printed !== null && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $printed) || $printed === $expense['expense_date'])) $printed = null;
+        $expense['printed_date'] = $printed;
+        $anchors = [(string)$expense['expense_date']];
+        if ($printed !== null) $anchors[] = $printed;
+
+        $stop = $this->stopForExpense($expenseId);
+        $best = [];
+        foreach ($anchors as $anchor) {
+            $stmt = $this->db->prepare("
             SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
             FROM accounting_transactions at
             WHERE at.type = 'expense'
@@ -4195,27 +4316,36 @@ class BankImportService
             ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
             LIMIT 50
         ");
-        $stmt->execute([
-            $expense['total'], $expense['total'], $alt, $alt,
-            $expense['expense_date'], $expense['expense_date'],
-            $expense['expense_date'],
-        ]);
-
-        $out = [];
-        $stop = $this->stopForExpense($expenseId);
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
-            $score = $this->scoreExpenseTransactionPair($expense, $tx, $stop);
-            if ($score === null) continue;
-            $out[] = [
-                'transaction_id' => (int)$tx['id'],
-                'date'           => substr((string)$tx['transaction_date'], 0, 10),
-                'description'    => (string)$tx['description'],
-                'bank_account'   => (string)($tx['bank_account'] ?? ''),
-                'amount'         => round((float)$tx['amount'], 2),
-                'confidence'     => $score['confidence'],
-                'reasons'        => $score['reasons'],
-            ];
+            $stmt->execute([$expense['total'], $expense['total'], $alt, $alt, $anchor, $anchor, $anchor]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
+                $scored = $expense;
+                $scored['expense_date'] = $anchor;
+                $score = $this->scoreExpenseTransactionPair($scored, $tx, $stop);
+                if ($score === null) continue;
+                $id = (int)$tx['id'];
+                $row = [
+                    'transaction_id' => $id,
+                    'date'           => substr((string)$tx['transaction_date'], 0, 10),
+                    'description'    => (string)$tx['description'],
+                    'bank_account'   => (string)($tx['bank_account'] ?? ''),
+                    'amount'         => round((float)$tx['amount'], 2),
+                    'confidence'     => $score['confidence'],
+                    'reasons'        => $score['reasons'],
+                ];
+                if (!isset($best[$id]) || $row['confidence'] > $best[$id]['confidence']) $best[$id] = $row;
+            }
         }
+        // Receipt and bank agree, the form does not: say so, and hand the UI the date to offer. Decided after the
+        // best row is chosen, so a tie between the two anchors (both capped at 100) cannot lose it.
+        foreach ($best as &$row) {
+            if ($printed !== null && $row['date'] === $printed) {
+                $row['reasons'][] = 'The receipt prints ' . date('M j', strtotime($printed)) . ', the same day as this line — the form says '
+                                  . date('M j', strtotime((string)$expense['expense_date'])) . '. Check the date.';
+                $row['suggest_expense_date'] = $printed;
+            }
+        }
+        unset($row);
+        $out = array_values($best);
         usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
         $out = $this->receiptFactsBoost($out, null, $expenseId);
         $out = array_slice($out, 0, $limit);
@@ -4252,12 +4382,14 @@ class BankImportService
             FROM accounting_transactions at
             WHERE at.type = 'expense' AND at.reference_type = 'bank_import' AND at.matched_expense_id IS NULL
               AND " . self::NOT_STRIPE_FEE_SQL . "
-              AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
+              AND (at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
+                   OR at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY))
               AND ({$like})
-            ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
+            ORDER BY LEAST(ABS(DATEDIFF(at.transaction_date, ?)), ABS(DATEDIFF(at.transaction_date, ?))) ASC
             LIMIT 50
         ");
-        $s->execute(array_merge([$expense['expense_date'], $expense['expense_date']], array_map(fn($w) => '%' . $w . '%', array_keys($words)), [$expense['expense_date']]));
+        $second = !empty($expense['printed_date']) ? $expense['printed_date'] : $expense['expense_date'];   // no printed date: the same window twice
+        $s->execute(array_merge([$expense['expense_date'], $expense['expense_date'], $second, $second], array_map(fn($w) => '%' . $w . '%', array_keys($words)), [$expense['expense_date'], $second]));
         $out = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $tx) {
             if (in_array((int)$tx['id'], $exclude, true)) continue;
@@ -4265,29 +4397,72 @@ class BankImportService
             foreach ($names as $n) if (self::vendorInDescription($n, (string)$tx['description'])) { $hit = true; break; }
             if (!$hit) continue;
             $out[] = self::vendorLine($expense, $tx);
-            if (count($out) >= self::VENDOR_LINES_MAX) break;
         }
-        return $out;
+        // Two same-vendor charges that could each be "the receipt plus a tip" (two visits): don't pick for the owner.
+        if (count(array_filter($out, fn($l) => !empty($l['tip']))) > 1) {
+            $out = array_map(fn($l) => !empty($l['tip']) ? self::vendorLine(['no_tip' => true] + $expense, ['id' => $l['transaction_id'], 'transaction_date' => $l['date'],
+                    'description' => $l['description'], 'amount' => $l['amount'], 'bank_account' => $l['bank_account']]) : $l, $out);
+        }
+        // The same amount first (a date to check), then a different amount; nearest date within each.
+        usort($out, fn($a, $b) => [empty($a['same_amount']), -$a['confidence']] <=> [empty($b['same_amount']), -$b['confidence']]);
+        return array_slice($out, 0, self::VENDOR_LINES_MAX);
+    }
+
+    /**
+     * A meal's bank charge is the receipt plus a tip the paper didn't carry (Tim, 2026-10-26: Moxies, Ah Long Sushi, Whitespot).
+     * When the receipt is a MEALS receipt, the bank charged $1+ more than the receipt total, the gap is a plausible tip (5–35% of
+     * the pre-tax amount) and the charge is within 3 days of the receipt, say what the tip would be and what the receipt would
+     * become: the tip goes in the PRE-TAX amount (a tip carries no GST or PST), the tax stays as printed, the total is the bank charge.
+     * @return array{tip: float, pct: float, amount: float, total: float}|null
+     */
+    public static function tipSuggestion(array $expense, float $bankAmount, string $bankDate): ?array
+    {
+        if (!in_array(strtolower(trim((string)($expense['accounting_category'] ?? ''))), ['meals', 'meals & entertainment'], true)) return null;
+        $total = round((float)($expense['saved_total'] ?? $expense['total'] ?? 0), 2);
+        $bank = round($bankAmount, 2);
+        $tip = round($bank - $total, 2);
+        if ($total <= 0 || $tip < 1.00) return null;
+        $gst = round((float)($expense['gst_amount'] ?? 0), 2);
+        $pst = round((float)($expense['pst_amount'] ?? 0), 2);
+        $pre = isset($expense['amount']) && (float)$expense['amount'] > 0 ? round((float)$expense['amount'], 2) : round($total - $gst - $pst, 2);
+        if ($pre <= 0) return null;
+        // The receipt must already add up (pre-tax + GST + PST = total); one that doesn't — a tip already in it, a misread — is not ours to guess at.
+        if (abs($pre + $gst + $pst - $total) > 0.011) return null;
+        $pct = $tip / $pre * 100;
+        if ($pct < 5 || $pct > 35) return null;
+        $dates = array_filter([(string)($expense['expense_date'] ?? ''), (string)($expense['printed_date'] ?? '')]);
+        $near = false;
+        foreach ($dates as $d) if (abs((int)round((strtotime(substr($bankDate, 0, 10) . ' 12:00:00 UTC') - strtotime(substr($d, 0, 10) . ' 12:00:00 UTC')) / 86400)) <= 3) $near = true;
+        if (!$near) return null;
+        return ['tip' => $tip, 'pct' => round($pct, 1), 'amount' => round($pre + $tip, 2), 'total' => $bank];
     }
 
     /** One same-vendor candidate, shaped like the others; low confidence, says what to check. Pure. */
     public static function vendorLine(array $expense, array $tx): array
     {
         $days = (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400);
+        if (!empty($expense['printed_date'])) {   // the date printed on the receipt counts too: nearest of the two
+            $days = min($days, (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['printed_date'])) / 86400));
+        }
         $amt = round((float)$tx['amount'], 2);
         $same = abs($amt - round((float)$expense['total'], 2)) < 0.01;
+        $tip = ($same || !empty($expense['no_tip'])) ? null : self::tipSuggestion($expense, $amt, (string)$tx['transaction_date']);
         $reasons = ['Same vendor'];
         $reasons[] = $same ? 'Same amount, ' . $days . ' day' . ($days === 1 ? '' : 's') . ' apart — check the date'
-                           : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total';
+                           : ($tip ? 'Adds a $' . number_format($tip['tip'], 2) . ' tip (' . rtrim(rtrim(number_format($tip['pct'], 1), '0'), '.') . '%) to the receipt — check the paper'
+                                   : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total');
         return [
             'transaction_id' => (int)$tx['id'],
             'date'           => substr((string)$tx['transaction_date'], 0, 10),
             'description'    => (string)$tx['description'],
             'bank_account'   => (string)($tx['bank_account'] ?? ''),
             'amount'         => $amt,
-            'confidence'     => max(10, 30 - $days),
+            // Same vendor AND amount is a real lead, only the date is off: it must not tie with a different amount.
+            'confidence'     => $same ? max(25, 45 - $days) : ($tip ? max(40, 55 - $days) : max(10, 30 - $days)),
             'reasons'        => $reasons,
             'vendor_only'    => true,
+            'same_amount'    => $same,
+            'tip'            => $tip,
         ];
     }
 
@@ -4372,6 +4547,9 @@ class BankImportService
      */
     public function attachExpenseMatch(int $transactionId, int $expenseId, int $userId): array
     {
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
         $stmt = $this->db->prepare("
             SELECT id, matched_expense_id, transaction_date, description, amount
             FROM accounting_transactions
@@ -4382,7 +4560,8 @@ class BankImportService
         if (!$transaction) throw new RuntimeException('Bank transaction not found.');
         if ($transaction['matched_expense_id']) throw new RuntimeException('Transaction is already matched to an expense.');
 
-        $stmt = $this->db->prepare("SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?"
+            . ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : ''));
         $stmt->execute([$expenseId]);
         $expense = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$expense) throw new RuntimeException('Expense not found.');
@@ -4422,7 +4601,12 @@ class BankImportService
         // The bank line is the truth about where the money came from (Vital Auto #384, 2026-10-12).
         $source = $this->checkReceiptFunding($expenseId, $transactionId, $userId);
 
+        if ($own) $this->db->commit();
         return ['transaction_id' => $transactionId, 'expense_id' => $expenseId, 'confidence' => $confidence, 'payment_source' => $source];
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /** Every receipt ↔ statement-line link: the receipt's payment method follows the line's account. */

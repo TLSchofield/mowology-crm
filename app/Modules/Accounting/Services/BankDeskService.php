@@ -332,7 +332,6 @@ class BankDeskService
             if ($expenseId) {
                 $linked = $this->linkReceipt($transactionId, $expenseId, (int)$user['id']);
                 if ($linked) $this->alignReceiptCategory($expenseId, $accountId);
-                else (new BankLineMoveService($this->db))->rejournal($transactionId, (int)$user['id']);
             }
             $outcome = $suggestedId && $suggestedId === $accountId ? 'accepted' : 'edited';
         } elseif ($suggestedId && $suggestedId !== (int)($tx['account_id'] ?? 0)) {
@@ -410,6 +409,8 @@ class BankDeskService
      */
     public function linkReceipt(int $transactionId, int $expenseId, int $userId): bool
     {
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
         try {
             (new BankImportService($this->db))->attachExpenseMatch($transactionId, $expenseId, $userId);
             // Append-only: the bank line's own entry is reversed, not deleted.
@@ -419,8 +420,10 @@ class BankDeskService
             if ($entryId) {
                 $ledger->reverseEntry($entryId, $userId, 'linked to receipt #' . $expenseId . ' — the receipt carries this cost', 'penny');
             }
+            if ($own) $this->db->commit();
             return true;
         } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
             error_log('Penny receipt link failed (tx ' . $transactionId . ', expense ' . $expenseId . '): ' . $e->getMessage());
             return false;
         }

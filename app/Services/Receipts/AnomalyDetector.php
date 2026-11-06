@@ -108,7 +108,8 @@ function checkHighAmount(array $e, PDO $db): ?array
     $category = $e['accounting_category'] ?? '';
     if ($total <= 0 || empty($category)) return null;
 
-    $monthNum = (int)date('n');
+    require_once dirname(__DIR__, 2) . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+    $monthNum = ReceiptAmountRules::monthNumber((string)($e['expense_date'] ?? date('Y-m-d')));
 
     try {
         $stmt = $db->prepare("

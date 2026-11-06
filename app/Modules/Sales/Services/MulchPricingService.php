@@ -39,6 +39,7 @@ require_once __DIR__ . '/CloserPricing.php';
 require_once __DIR__ . '/SiteMinutesModel.php';
 require_once __DIR__ . '/DriveMinutesAdded.php';
 require_once __DIR__ . '/CloserRateCard.php';
+require_once __DIR__ . '/MulchPriceBand.php';
 require_once dirname(__DIR__, 2) . '/Operations/Services/CostFactsService.php';
 
 class MulchPricingService
@@ -58,6 +59,7 @@ class MulchPricingService
         'mulch_haul_crew'           => 1.0,   // people in the truck on the pickup
         'mulch_receipts_n'          => 6.0,   // last N receipt lines in the median
         'mulch_min_charge'          => 0.0,   // 0 = use the derived one-yard minimum
+        'mulch_market_per_yard'     => 0.0,   // 0 = not set: what other landscapers charge installed (Tim's own figure), shown as a fourth line
     ];
     public const SETTING_LABELS = [
         'mulch_yards_per_load'      => 'Yards per load (mulch)',
@@ -67,6 +69,7 @@ class MulchPricingService
         'mulch_haul_crew'           => 'People in the truck',
         'mulch_receipts_n'          => 'Receipt lines in the median',
         'mulch_min_charge'          => 'Minimum charge',
+        'mulch_market_per_yard'     => 'What others charge installed (per yard)',
     ];
 
     /** Per-yard unit costs outside this band are not bulk yards (bags, delivery fees, OCR junk). */
@@ -521,6 +524,82 @@ class MulchPricingService
         return $out;
     }
 
+    /** Products sold by the cubic yard: lower-case name => catalogue price per yard (null when unset). A quote line named after one is a per-yard price. */
+    public function yardProducts(): array
+    {
+        try {
+            $out = [];
+            foreach ($this->db->query("SELECT p.name, p.base_price FROM products p JOIN unit_types u ON u.id = p.unit_type_id WHERE u.name LIKE '%Yard%'")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[strtolower(trim((string)$r['name']))] = (float)$r['base_price'] > 0 ? (float)$r['base_price'] : null;
+            }
+            return $out;
+        } catch (Throwable $e) {
+            $this->readErrors[] = 'yard products: ' . $e->getMessage();
+            return [];
+        }
+    }
+
+    /**
+     * Quote lines of this family on accepted, declined or expired quotes, newest first (any age). Which of them are per-yard prices
+     * is decided in MulchPriceBand (the line's name must be a yard product and its unit blank or a yard).
+     */
+    public function bandQuotes(string $family): array
+    {
+        try {
+            $rows = $this->db->query("
+                SELECT qli.service_type, qli.description, qli.unit_type, qli.unit_price, q.quote_number, q.status, q.created_at
+                FROM quote_line_items qli JOIN quotes q ON q.id = qli.quote_id
+                WHERE q.status IN ('accepted', 'declined', 'expired') AND qli.unit_price > 0
+                ORDER BY q.id DESC LIMIT 3000
+            ")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            $this->readErrors[] = 'band quotes: ' . $e->getMessage();
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            if (self::family((string)$r['service_type'] . ' ' . (string)$r['description']) !== $family) continue;
+            $out[] = ['quote' => (string)$r['quote_number'], 'status' => (string)$r['status'], 'date' => substr((string)$r['created_at'], 0, 10),
+                      'service_type' => (string)$r['service_type'], 'unit_type' => (string)($r['unit_type'] ?? ''), 'unit_price' => (float)$r['unit_price']];
+        }
+        return $out;
+    }
+
+    /** What others publish for this material (the shared market layer, read weekly) and when it was last read. [] / null when absent. */
+    public function marketRows(string $family): array
+    {
+        $file = dirname(__DIR__, 2) . '/Operations/Services/MarketPriceService.php';
+        if (!is_file($file)) return ['rows' => [], 'read' => null];
+        try {
+            require_once $file;
+            $svc = new MarketPriceService($this->db);
+            $rows = $svc->ready() ? $svc->current([], $family) : [];
+            $read = [];
+            if ($svc->ready()) {
+                foreach ($this->db->query("SELECT name, last_fetched_at FROM market_price_sources WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    if ($r['last_fetched_at']) $read[(string)$r['name']] = substr((string)$r['last_fetched_at'], 0, 10); // per source
+                }
+            }
+            return ['rows' => $rows, 'read' => $read];
+        } catch (Throwable $e) {
+            $this->readErrors[] = 'market prices: ' . $e->getMessage();
+            return ['rows' => [], 'read' => null];
+        }
+    }
+
+    /** The three prices (floor, paid, market) with their reasons for a priced breakdown. */
+    public function band(array $out, string $family, float $yardsPerLoad, float $ownRate, ?string $namedProduct = null, ?string $today = null): array
+    {
+        $m = $this->marketRows($family);
+        $yard = $this->yardProducts();
+        return MulchPriceBand::build([
+            'floor' => ['sell' => $out['sell_per_yard'], 'cost' => $out['cost_per_yard'], 'margin_pct' => $out['target_margin_pct'] ?? null],
+            'yards_per_load' => $yardsPerLoad, 'product_name' => $namedProduct,
+            'yard_names' => array_keys($yard), 'catalogue' => $yard, 'quotes' => $this->bandQuotes($family),
+            'market' => $m['rows'], 'market_read' => $m['read'], 'own_rate' => $ownRate, 'today' => $today ?? date('Y-m-d'),
+        ]);
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // The breakdown
     // ═════════════════════════════════════════════════════════════════════════
@@ -610,7 +689,7 @@ class MulchPricingService
             $s = $this->db->prepare("SELECT i.id, i.name, i.price, l.list_date, l.supplier_account_id, a.name AS supplier, a.lat, a.lng
                                      FROM supplier_price_items i JOIN supplier_price_lists l ON l.id = i.list_id
                                      LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
-                                     WHERE i.id = ? AND i.site_id = ? AND l.site_id = ? AND l.kind = 'availability'");
+                                     WHERE i.id = ? AND i.site_id = ? AND l.site_id = ? AND l.kind = 'availability' AND l.needs_review = 0");
             $site = defined('MW_SITE_ID') ? (int)MW_SITE_ID : 1;   // this tenant's own lists only (review 2026-10-19)
             $s->execute([$itemId, $site, $site]);
             $r = $s->fetch(PDO::FETCH_ASSOC);
@@ -746,7 +825,7 @@ class MulchPricingService
             ['key' => 'margin', 'label' => 'Target margin', 'value' => round($margin * 100, 1), 'real' => true, 'source' => 'overhead_settings.profit_margin'],
         ];
         foreach (self::DEFAULTS as $k => $d) {
-            if ($k === 'mulch_receipts_n' || ($k === 'mulch_min_charge' && $sv($k) <= 0)) continue;   // 0 = derived, nothing assumed
+            if ($k === 'mulch_receipts_n' || $k === 'mulch_market_per_yard' || ($k === 'mulch_min_charge' && $sv($k) <= 0)) continue;   // 0 = derived / optional: nothing assumed, and the market rate never feeds the price
             $inputs[] = ['key' => $k, 'label' => self::SETTING_LABELS[$k], 'value' => $sv($k), 'real' => !$set[$k]['seeded'],
                          'source' => $set[$k]['present'] ? ($set[$k]['seeded'] ? 'setting, still the default' : 'Tim\'s setting') : 'default (migration 1270 not run)'];
         }
@@ -767,6 +846,12 @@ class MulchPricingService
                              (float)($haul['per_load'] ?? 0), (float)$disposal['per_load'], $margin, $sv('mulch_min_charge'));
             $out = array_merge($out, $p);
             $out['target_margin_pct'] = round($margin * 100, 1);
+            try {
+                $ypl = $family === 'mulch' ? $sv('mulch_yards_per_load') : $sv('soil_yards_per_load');
+                $out['band'] = $this->band($out, $family, $ypl, $sv('mulch_market_per_yard'), !empty($opt['product_id']) ? ($product['name'] ?? null) : null);
+            } catch (Throwable $e) {
+                $this->readErrors[] = 'band: ' . $e->getMessage(); // the price still stands without its comparison
+            }
         }
         $out['headline'] = self::headline($out);
         $out['all_real'] = !in_array(false, array_column($inputs, 'real'), true);
@@ -788,6 +873,7 @@ class MulchPricingService
                 : $b['material']['source'],
             'haul_basis' => $b['haul']['note'] ?? '', 'haul_tier' => $b['haul']['tier'] ?? 'none',
             'includes_pickup' => ($b['haul']['per_yard'] ?? null) !== null,
+            'band' => $b['band'] ?? null,
             // Stored on the quote line when Tim clicks "Use" — TripLineSuggester then skips "Material pickup".
             'snapshot' => $b['sell_per_yard'] === null ? null : json_encode([
                 'source' => self::SNAPSHOT_SOURCE, 'family' => $b['product']['family'], 'where' => $b['location']['label'] ?? '',
@@ -818,6 +904,7 @@ class MulchPricingService
             $est = self::hint($b)['estimated'];
             if ($est) $s .= ' Assumed, not measured: ' . implode(', ', $est) . '.';
             if (($b['location']['kind'] ?? 'none') === 'none') $s .= ' Give me an address or postcode for the haul from there.';
+            if (!empty($b['band']['reading'])) $s .= ' ' . $b['band']['reading'];
         }
         return ['answer' => $s . "\n— from Sam's mulch pricing", 'head' => 'sam', 'about' => strtolower($b['product']['label'])];
     }

@@ -114,7 +114,10 @@ try {
                 ];
             }
         } catch (PDOException $e) {
-            // clients/client_contacts absent (pre-Phase-1) — fall through to legacy.
+            error_log(get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Unable to load invoice recipients. Please try again.']);
+            exit;
         }
     }
 

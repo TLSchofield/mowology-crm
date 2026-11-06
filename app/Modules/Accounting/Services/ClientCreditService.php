@@ -248,10 +248,42 @@ class ClientCreditService
         $acct->execute([self::DEPOSITS_CODE]);
         $depositsId = $acct->fetchColumn();
         if (!$depositsId) throw new \RuntimeException('Account ' . self::DEPOSITS_CODE . ' Customer Deposits is missing from the chart');
-        $u = $this->db->prepare("UPDATE accounting_transactions SET type = 'transfer', account_id = ?
-                                 WHERE id = ? AND type = 'income' AND reference_type = 'bank_import'");
-        $u->execute([(int)$depositsId, $transactionId]);
-        return $u->rowCount() === 1;
+
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            // Refuse a closed period before changing the line. Older installs (and the small
+            // SQLite fixture) may not have transaction_date yet; the guarded UPDATE below is
+            // still the authority for whether the line is eligible to move.
+            $transactionDate = null;
+            try {
+                $date = $this->db->prepare("SELECT transaction_date FROM accounting_transactions
+                                            WHERE id = ? AND type = 'income' AND reference_type = 'bank_import'");
+                $date->execute([$transactionId]);
+                $foundDate = $date->fetchColumn();
+                $transactionDate = $foundDate === false ? null : (string)$foundDate;
+            } catch (\PDOException $e) { /* transaction_date predates some legacy schemas */ }
+            if ($transactionDate !== null) {
+                require_once __DIR__ . '/LedgerService.php';
+                if ((new LedgerService($this->db))->isLocked($transactionDate)) {
+                    throw new \RuntimeException(substr($transactionDate, 0, 7) . ' is locked — the deposit was not moved.');
+                }
+            }
+
+            $u = $this->db->prepare("UPDATE accounting_transactions SET type = 'transfer', account_id = ?
+                                     WHERE id = ? AND type = 'income' AND reference_type = 'bank_import'");
+            $u->execute([(int)$depositsId, $transactionId]);
+            if ($u->rowCount() !== 1) {
+                if ($own) $this->db->rollBack();
+                return false;
+            }
+
+            if ($own) $this->db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /** Journal for credit applied to an invoice: DR 2160 Customer Deposits / CR 1100 AR — no cash moves. */
@@ -299,13 +331,19 @@ class ClientCreditService
             if (!$invoice) {
                 throw new \RuntimeException("Invoice {$invoiceId} not found");
             }
-            if (in_array($invoice['status'], ['paid', 'cancelled'], true)) {
+            if (in_array($invoice['status'], ['paid', 'cancelled', 'void'], true)) {
                 throw new \RuntimeException("Invoice is already {$invoice['status']} — nothing to apply credit to");
             }
 
             $clientId = $this->resolveClientId($invoice);
             if (!$clientId) {
                 throw new \RuntimeException("Could not resolve a client for invoice {$invoiceId}");
+            }
+
+            if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+                $lockClient = $this->db->prepare("SELECT id FROM clients WHERE id = ? FOR UPDATE");
+                $lockClient->execute([$clientId]);
+                if (!$lockClient->fetchColumn()) throw new \RuntimeException("Client {$clientId} not found");
             }
 
             $balanceDue = (float) $invoice['balance_due'];

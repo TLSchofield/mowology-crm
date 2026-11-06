@@ -18,6 +18,7 @@
     var qs = document.getElementById('mw-charlie-qs');
     var brief = document.getElementById('mw-charlie-brief');
     var badBox = document.getElementById('mw-charlie-bad');
+    var statusBox = document.getElementById('mw-charlie-status');
     var inboxBox = document.getElementById('mw-charlie-inbox');
     var busy = false;
     var current = null;
@@ -53,6 +54,18 @@
         var bad = d.bad || [];
         badBox.hidden = !bad.length;
         badBox.innerHTML = bad.length ? '<b>' + esc(d.bad_lead) + '</b><ul>' + bad.map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul>' : '';
+    }
+
+    // One status for the whole brief (the worst head), its comparison with yesterday, and the heads that cry wolf.
+    function renderStatus(d) {
+        if (!statusBox) return;
+        var st = d.status;
+        if (!st || !st.sentence) { statusBox.hidden = true; return; }
+        var html = '<span class="mw-charlie-chip is-' + esc(st.overall === 'unknown' ? 'amber' : st.overall) + '"' + (st.note ? ' title="' + esc(st.note) + '"' : '') + '>' + esc(st.sentence) + '</span>';
+        if (d.trend) html += '<small class="mw-charlie-trend">' + esc(d.trend) + '</small>';
+        (d.urgency_notes || []).forEach(function (n) { html += '<small class="mw-charlie-trend">' + esc(n) + '</small>'; });
+        statusBox.innerHTML = html;
+        statusBox.hidden = false;
     }
 
     function renderInbox(inbox) {
@@ -112,6 +125,7 @@
                     window.dispatchEvent(new CustomEvent('mw:charlie-today', { detail: d }));
                 } catch (err) { /* a listener's failure is never Charlie's */ }
                 renderSay(d);
+                renderStatus(d);
                 renderHeads(d.heads);
                 renderQuestions(d.questions);
                 renderInbox(d.inbox);

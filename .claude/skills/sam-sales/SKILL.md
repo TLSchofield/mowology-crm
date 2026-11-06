@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Team/SamCard*
   - ios/MowologyCRM/MowologyCRM/Core/Models/SalesModels.swift
 metadata:
-  version: 1.2.2
+  version: 1.3.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -124,6 +124,10 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 `recalculateQuoteTotals` in `public/customer/api/quote-upsell.php`). The text rule is in three
 (server, `public/crm/js/sam-card.js`, iOS). A change means finding every copy
 (`grep -rn "0\.05\|TAX_RATE" app/Modules/Quotes app/Modules/Sales public/customer public/includes app/Services/CrmFunctions.php`).
+
+**New leads (2026-11-03):** the "New leads" box sits right under the follow-up carousel and the headline's "N new leads" links to it;
+a lead's Start quote opens `public/crm/quote-workflow.php?request_id=` (measure and quote), never the bare create form; each lead row
+carries Otto's "Best day to look" line (`LeadRouteDay`, added in `SalesDeskService::withVisitDays()` — the ranker `SalesDeskService::rankLeads()` is static and must never use `$this`).
 
 ## Keeping this skill true
 

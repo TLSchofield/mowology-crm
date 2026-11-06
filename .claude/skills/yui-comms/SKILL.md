@@ -97,6 +97,10 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 | Client replies nobody answered (Sam's lane vs Yui's) | `UnclaimedReplyService::items()` / `UnclaimedReplyService::lane()` | Yui desk, Sam desk, Kaname, contact timeline |
 | Yui's five sections + brief | `YuiDeskService::desk()` / `YuiDeskService::brief()` (decisions in `app/Modules/Comms/Services/YuiRules.php`) | web card, iPhone Team tab, Kaname |
 | Drafting and sending a Yui message | `YuiDraftService::draftReply()` (Claude, capped) / `YuiDraftService::send()` | `app/Modules/Comms/Api/yui.php` |
+| A message that asks for a payment-detail change, an urgent wire, a password or code, a signer change, or client data to a new address: held, no draft, Tim calls the number on file (2026-11-03, shared/untrusted-content) | `UntrustedAsk::detect()`, shown by `YuiDeskService::holds()`; `YuiDraftService::draftReply()` and `YuiDraftService::send()` refuse a held item | Yui's card (Open / Handled only), Charlie's brief |
+| How long a client reply has waited (weekdays; 3+ is late), bare acknowledgements and staff texts that need nothing | `ReplyClock::stage()` / `ReplyClock::ackOnly()` / `ReplyClock::isStaff()` inside `YuiDeskService::inbox()` | Yui's card, brief headline |
+| An unhappy client: first in the list, acknowledgement-only draft | `UpsetSignal::assess()` / `UpsetSignal::draftRule()` | Yui's card, Claude draft |
+| What to look at twice in a drafted reply (a price, a date or a length the conversation does not support) | `DraftChecks::check()` via `YuiDraftService::draftReply()` flag_label | Yui's card |
 | Text rules check | `YuiRules::smsProblems()` (wraps `SamFollowupService::smsProblems()`) | Yui send, `public/crm/js/yui-card.js` mirror |
 | Supplier mail + business licence | `SupplierInboxService::poll()` | inside sales_inbox_poll (office@ + iCloud) |
 | Facts in mail/money (strata, roles, details) | `ClueService` (`app/Modules/Comms/Cron/clues_daily.php`) | Yui + Penny clues |

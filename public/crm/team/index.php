@@ -32,6 +32,12 @@ $stmt = $db->query("
 ");
 $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Crew roles hold team.view (the roster) but not team.edit: pay rates are for those who manage the team (Codex nightly 2026-11-03).
+if (!userHasPermission('team.edit')) {
+    foreach ($employees as &$emp) { unset($emp['hourly_rate']); }
+    unset($emp);
+}
+
 // Role badge colors
 $roleBadges = [
     'admin' => 'mw-ts-status-approved',

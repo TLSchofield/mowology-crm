@@ -205,10 +205,24 @@ class InvoiceRefundServiceTest extends TestCase
         $this->assertSame([39.35, 1.88, 420], $update[1]);
     }
 
+    public static function setUpBeforeClass(): void
+    {
+        // The Stripe SDK is not installed in the test tree; these stand-ins mirror the three classes the service tells apart.
+        if (!class_exists('Stripe\\Exception\\ApiErrorException', false)) {
+            eval('namespace Stripe\\Exception; '
+               . 'class ApiErrorException extends \\Exception { protected $httpStatus; '
+               . 'public static function factory($m, $s = null) { $e = new static($m); $e->httpStatus = $s; return $e; } '
+               . 'public function getHttpStatus() { return $this->httpStatus; } } '
+               . 'class InvalidRequestException extends ApiErrorException {} '
+               . 'class ApiConnectionException extends ApiErrorException {}');
+        }
+    }
+
     public function testStripeFailureLeavesInvoiceUntouchedAndMarksRowFailed(): void
     {
         [$pdo, $log] = $this->fakeDb();
-        $stripe = $this->fakeStripe(new RuntimeException('card closed'));
+        // Stripe answered with a 4xx: a definite refusal, so the row is marked failed
+        $stripe = $this->fakeStripe(\Stripe\Exception\InvalidRequestException::factory('card closed', 400));
 
         try {
             $this->service($pdo, $stripe)->refund(420, 78.70, 'Billed twice', 7);
@@ -221,6 +235,30 @@ class InvoiceRefundServiceTest extends TestCase
         $this->assertStringContainsString("status = 'failed'", $sql);
         $this->assertStringNotContainsString('UPDATE invoices', $sql);
         $this->assertStringNotContainsString('accounting_transactions', $sql);
+    }
+
+    public function testAmbiguousStripeFailureKeepsTheRowPendingAndNeverMarksItFailed(): void
+    {
+        [$pdo, $log] = $this->fakeDb();
+        $stripe = $this->fakeStripe(new RuntimeException('connection reset'));
+
+        try {
+            $this->service($pdo, $stripe)->refund(420, 78.70, 'Billed twice', 7);
+            $this->fail('expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('did not confirm the refund', $e->getMessage());
+        }
+
+        $this->assertStringNotContainsString("status = 'failed'", $this->sqlLog($log));
+        $this->assertStringNotContainsString('UPDATE invoices', $this->sqlLog($log));
+    }
+
+    public function testOnlyA4xxFromStripeIsADefiniteRefusal(): void
+    {
+        $this->assertTrue(InvoiceRefundService::isDefiniteRefusal(\Stripe\Exception\InvalidRequestException::factory('no', 400)));
+        $this->assertFalse(InvoiceRefundService::isDefiniteRefusal(\Stripe\Exception\ApiConnectionException::factory('timeout')));
+        $this->assertFalse(InvoiceRefundService::isDefiniteRefusal(\Stripe\Exception\ApiErrorException::factory('boom', 502)));
+        $this->assertFalse(InvoiceRefundService::isDefiniteRefusal(new RuntimeException('x')));
     }
 
     public function testOverRefundNeverReachesStripe(): void

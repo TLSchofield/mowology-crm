@@ -37,7 +37,7 @@ final class SamSignals
             elseif (($l['bucket'] ?? '') === 'qualified' && (int)($l['age_days'] ?? 0) >= self::LEAD_WEEK_DAYS) $week[] = 'Lead ' . ($l['name'] ?? '') . ' is ' . (int)$l['age_days'] . ' days old with no quote';
         }
         foreach ($quiet as $q) {
-            $line = ($q['name'] ?? 'A client') . ' has gone ' . ($q['state'] ?? 'quiet') . ' (' . ($q['reason'] ?? '') . ')';
+            $line = ($q['name'] ?? 'A client') . (($q['state'] ?? 'quiet') === 'gone' ? ' looks lost' : ' has gone quiet') . ' (' . ($q['reason'] ?? '') . ')';
             if (($q['state'] ?? '') === 'gone' && (float)($q['spend_12m'] ?? 0) >= self::GONE_WORTH) $today[] = $line; else $week[] = $line;
         }
         foreach ($expiring as $e) if ((int)($e['days_left'] ?? 99) <= self::EXPIRY_DAYS) $week[] = ($e['quote_number'] ?? 'A quote') . ' for ' . ($e['name'] ?? 'a client') . ' ($' . number_format((float)($e['amount'] ?? 0), 0) . ') expires in ' . (int)$e['days_left'] . ' days with no reply';

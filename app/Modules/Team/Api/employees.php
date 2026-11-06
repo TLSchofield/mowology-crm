@@ -523,7 +523,7 @@ try {
             if (!$targetId) throw new Exception('Employee ID required');
 
             // Prevent removing your own admin role
-            $roleIds = array_filter(array_map('intval', $input['roles'] ?? []));
+            $roleIds = array_values(array_unique(array_filter(array_map('intval', $input['roles'] ?? []))));
             if ($targetId === $user['id']) {
                 $adminRoleId = (int)$db->query("SELECT id FROM roles WHERE name = 'admin' LIMIT 1")->fetchColumn();
                 if ($adminRoleId && !in_array($adminRoleId, $roleIds)) {
@@ -531,10 +531,26 @@ try {
                 }
             }
 
-            $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetId]);
-            $stmt = $db->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)");
-            foreach ($roleIds as $rid) {
-                $stmt->execute([$targetId, $rid]);
+            if ($roleIds) {
+                $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
+                $validRoles = $db->prepare("SELECT COUNT(*) FROM roles WHERE id IN ({$placeholders})");
+                $validRoles->execute(array_values($roleIds));
+                if ((int)$validRoles->fetchColumn() !== count($roleIds)) {
+                    throw new Exception('One or more selected roles are invalid.');
+                }
+            }
+
+            $db->beginTransaction();
+            try {
+                $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetId]);
+                $stmt = $db->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)");
+                foreach ($roleIds as $rid) {
+                    $stmt->execute([$targetId, $rid]);
+                }
+                $db->commit();
+            } catch (Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                throw $e;
             }
 
             logActivity($user['id'], null, 'Updated RBAC roles for user #' . $targetId, implode(',', $roleIds));

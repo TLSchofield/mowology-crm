@@ -23,6 +23,9 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/CharlieRankService.php';
+require_once __DIR__ . '/BriefStatus.php';
+require_once __DIR__ . '/UrgencyGuard.php';
+require_once __DIR__ . '/BriefTrend.php';
 require_once __DIR__ . '/CharlieBriefService.php';
 require_once __DIR__ . '/CharlieVoice.php';
 
@@ -112,7 +115,17 @@ class CharlieDeskService
     {
         $c = $this->briefs->collect($name);
         $this->sync($c);
-        $ranked = CharlieRankService::rank($this->withFirstSeen($c['items']), $this->prefs(), $this->hiddenKeys(), $this->day());
+        // A head cannot make everything urgent: past UrgencyGuard::CAP its extra priority-1 lines are RANKED as priority 2
+        // (stored priorities and the head's own text are untouched). The status below still reads the original priorities.
+        $items = $this->withFirstSeen($c['items']);
+        $origP = [];
+        foreach ($items as $it) $origP[$it['key']] = (int)$it['priority'];
+        $guard = UrgencyGuard::apply($items);
+        $ranked = CharlieRankService::rank($guard['items'], $this->prefs(), $this->hiddenKeys(), $this->day());
+        // "Urgent" = what still counts as urgent after the guard; then every line goes back to its head's own priority, so nothing
+        // downstream (card, ready brief, snapshot, phone) is told a different priority than the head sent.
+        $urgentCount = count(array_filter($ranked, fn($r) => (int)$r['priority'] === 1));
+        $ranked = UrgencyGuard::restore($ranked, $origP);
         $one = $ranked[0] ?? null;
 
         $rankOf = [];
@@ -139,9 +152,57 @@ class CharlieDeskService
             'say'       => CharlieVoice::say($name, $one, max(0, count($ranked) - 1), $withItems),
             'bad'       => self::badNews($c['failed'], $ranked, $extraBad),
         ];
+        // One status (the worst head), the comparison with yesterday and the urgency notes — Kaname harvest, 2026-11-03.
+        try {
+            $names = [];
+            foreach ($c['heads'] as $head => $h) $names[$head] = (string)($h['name'] ?? ucfirst((string)$head));
+            $byHead = array_fill_keys($c['ok'], []);
+            foreach ($ranked as $r) $byHead[$r['head']][] = $r;
+            $view['status'] = BriefStatus::assess($byHead, $c['failed'], $names, $this->day(), $this->statusSince(),
+                                                  (float)($this->setting('charlie_status_money_red') ?: BriefStatus::MONEY_RED),
+                                                  (int)($this->setting('charlie_status_deadline_days') ?: BriefStatus::RED_DEADLINE_DAYS));
+            $view['status']['sentence'] = BriefStatus::sentence($view['status']);
+            $view['trend'] = BriefTrend::compare(count($ranked), $urgentCount, BriefTrend::fromSnapshot($this->yesterdayPayload()));
+            $view['urgency_notes'] = UrgencyGuard::notes($guard['inflated'], $names);
+        } catch (Throwable $e) {
+            error_log('Charlie status/trend: ' . $e->getMessage());
+        }
         $this->snapshot($view);
         $this->maybeAskWhichFirst($ranked);
         return $view;
+    }
+
+    /** An ops_settings value, or null. */
+    private function setting(string $key): ?string
+    {
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([$key]);
+            $v = $s->fetchColumn();
+            return $v === false ? null : (string)$v;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /** The day the status colours were first used: they are on their defaults for BriefStatus::TUNE_DAYS after it. */
+    private function statusSince(): string
+    {
+        $v = $this->setting('charlie_status_since');
+        if ($v !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) return $v;
+        $today = $this->day();
+        try {
+            $this->db->prepare("INSERT IGNORE INTO ops_settings (setting_key, setting_value, description) VALUES ('charlie_status_since', ?, ?)")
+                ->execute([$today, 'Kaname: the day the brief status colours (BriefStatus) were first used; defaults until 4 weeks later, then review charlie_status_money_red / charlie_status_deadline_days']);
+        } catch (Throwable $e) { /* the note simply says defaults */ }
+        return $today;
+    }
+
+    private function yesterdayPayload(): ?array
+    {
+        $row = $this->brief(date('Y-m-d', strtotime($this->day() . ' -1 day')));
+        $j = $row ? json_decode((string)($row['payload'] ?? ''), true) : null;
+        return is_array($j) ? $j : null;
     }
 
     /**
@@ -285,7 +346,16 @@ class CharlieDeskService
             $heads[$head] = ['name' => $h['name'], 'role' => $h['role'], 'headline' => $h['headline'],
                              'waiting' => $h['waiting'] ?? count($h['items']), 'items' => array_map($slim, $h['items'])];
         }
-        return ['one' => $view['one']['key'] ?? null, 'items' => $items, 'heads' => $heads, 'bad' => array_values((array)($view['bad'] ?? []))];
+        $out = ['one' => $view['one']['key'] ?? null, 'items' => $items, 'heads' => $heads, 'bad' => array_values((array)($view['bad'] ?? []))];
+        if (!empty($view['trend'])) $out['counts'] = ['total' => (int)$view['trend']['total'], 'urgent' => (int)$view['trend']['urgent']];
+        if (!empty($view['status'])) {
+            $out['status'] = ['overall' => $view['status']['overall'], 'sentence' => $view['status']['sentence'], 'note' => $view['status']['note'] ?? null];
+            $out['trend'] = $view['trend']['line'] ?? null;
+            $ok = array_keys($view['heads']);
+            $out['built'] = ['at' => date('H:i'), 'heads_ok' => count($view['connected'] ?? $ok), 'heads_total' => count($view['connected'] ?? $ok) + count($view['failed'] ?? []),
+                             'failed' => array_values(array_keys((array)($view['failed'] ?? [])))];
+        }
+        return $out;
     }
 
     /**

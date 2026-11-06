@@ -53,14 +53,14 @@ $body = json_decode(file_get_contents('php://input'), true) ?? [];
 $deviceToken = trim($body['device_token'] ?? '');
 $platform    = trim($body['platform'] ?? 'ios');
 
+// Sanitise before validating so punctuation cannot satisfy the length check.
+$deviceToken = preg_replace('/[^a-f0-9]/i', '', $deviceToken);
 if (strlen($deviceToken) < 32) {
     http_response_code(400);
     echo json_encode(['error' => 'Invalid device token']);
     exit;
 }
 
-// Sanitise
-$deviceToken = preg_replace('/[^a-f0-9]/i', '', $deviceToken);
 $platform    = in_array($platform, ['ios', 'android'], true) ? $platform : 'ios';
 
 try {

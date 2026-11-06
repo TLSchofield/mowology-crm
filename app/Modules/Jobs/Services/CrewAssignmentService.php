@@ -81,6 +81,16 @@ class CrewAssignmentService
             throw new Exception('A stop already exists for this property, date, and crew');
         }
 
+        // The plan id comes from the caller: it must be the plan this stop belongs to, or "all future" would rewrite another plan.
+        if ($scope === 'all_future' && $planId > 0) {
+            $own = $this->db->prepare("SELECT 1 FROM job_visits WHERE stop_id = ? AND plan_id = ? LIMIT 1");
+            $own->execute([$stopId, $planId]);
+            if (!$own->fetchColumn()) {
+                throw new Exception('That plan does not match this stop');
+            }
+        }
+
+        $futureStopsUpdated = 0;
         $this->db->beginTransaction();
         try {
             $this->db->prepare("UPDATE calendar_stops SET crew_id = ?, updated_at = NOW() WHERE id = ?")
@@ -101,6 +111,10 @@ class CrewAssignmentService
                 }
             }
 
+            if ($scope === 'all_future' && $planId > 0) {
+                $futureStopsUpdated = $this->propagateToFuture($planId, $stopId, $crewIds, $leadCrewId);
+            }
+
             $this->db->commit();
         } catch (Throwable $e) {
             $this->db->rollBack();
@@ -108,11 +122,6 @@ class CrewAssignmentService
         }
 
         // ── "All future visits" scope: propagate to plan + all future stops ──────
-        $futureStopsUpdated = 0;
-        if ($scope === 'all_future' && $planId > 0) {
-            $futureStopsUpdated = $this->propagateToFuture($planId, $stopId, $crewIds, $leadCrewId);
-        }
-
         $this->notifyAssignedCrew($crewIds, $stop, $stopId);
 
         if ($actorUserId !== null && function_exists('logActivityExtended')) {
@@ -167,6 +176,10 @@ class CrewAssignmentService
             $insFutureStmt = $this->db->prepare("INSERT INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)");
             $updFutureStmt = $this->db->prepare("UPDATE calendar_stops SET crew_id = ?, updated_at = NOW() WHERE id = ?");
             $clrFutureStmt = $this->db->prepare("UPDATE calendar_stops SET crew_id = NULL, updated_at = NOW() WHERE id = ?");
+            $updVisitStmt = $this->db->prepare("
+                UPDATE job_visits SET assigned_crew_id = ?, updated_at = NOW()
+                WHERE stop_id = ? AND plan_id = ? AND status = 'scheduled'
+            ");
 
             foreach ($futureStopIds as $fid) {
                 $delFutureStmt->execute([$fid]);
@@ -178,6 +191,7 @@ class CrewAssignmentService
                 } else {
                     $clrFutureStmt->execute([$fid]);
                 }
+                $updVisitStmt->execute([$leadCrewId, $fid, $planId]);
                 $futureStopsUpdated++;
             }
         }

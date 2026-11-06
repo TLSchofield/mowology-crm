@@ -5,6 +5,10 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/signin-chrome.php';   // Ittai v1.2 sign-in look (2026-10-23)
 $__bizName = itSigninBizName();
 
+// The reset token is in the URL: keep the page out of browser and proxy caches.
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
+
 // If already logged in, redirect to app
 if (isLoggedIn()) {
     header('Location: /crm/app-launch.php');
@@ -86,6 +90,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && $tokenData && $db) {
                 $hashedPassword = hashPassword($password);
                 $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1");
                 $stmt->execute([$hashedPassword, (int)$tokenData['user_id']]);
+                if ($stmt->rowCount() !== 1) {
+                    throw new RuntimeException('reset user no longer exists');
+                }
 
                 // Delete the used token (or all tokens for that user)
                 $stmt = $db->prepare("DELETE FROM password_reset_tokens WHERE user_id = ? LIMIT 10");

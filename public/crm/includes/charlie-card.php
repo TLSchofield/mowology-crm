@@ -72,6 +72,7 @@ $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
   </div>
   <?php endif; ?>
 
+  <div class="mw-charlie-status" id="mw-charlie-status" hidden></div>
   <div class="mw-charlie-bad" id="mw-charlie-bad" hidden></div>
   <div class="mw-charlie-say" id="mw-charlie-say" aria-live="polite">
     <span class="mw-charlie-lead">Reading everyone's desks…</span>

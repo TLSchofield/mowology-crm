@@ -166,6 +166,20 @@ class LedgerService
      */
     public function postEntry(array $entry): int
     {
+        $sourceType = $entry['source_type'] ?? 'manual';
+        $sourceId = $entry['source_id'] ?? null;
+        if ($sourceType === 'manual' || $sourceId === null) return $this->postEntryUnlocked($entry);
+        $lock = 'ledger_post_' . md5($sourceType . ':' . $sourceId);
+        $this->acquireNamedLock($lock);
+        try {
+            return $this->postEntryUnlocked($entry);
+        } finally {
+            $this->releaseNamedLock($lock);
+        }
+    }
+
+    private function postEntryUnlocked(array $entry): int
+    {
         $this->validateEntry($entry);
 
         $entryDate  = $entry['entry_date'] ?? date('Y-m-d');
@@ -470,7 +484,8 @@ class LedgerService
             $args = $split->ledgerArgs((int)$exp['id'], $exp['vendor_name'] ?? null);
             if ($args) return array_merge($exp, $args);   // a person's split wins
         } catch (\Throwable $e) {
-            return $exp;   // never block a posting over the split read
+            error_log('[LedgerService] split lookup for expense #' . (int)$exp['id'] . ': ' . $e->getMessage());
+            throw $e;
         }
         return $this->withCapitalItems($exp);
     }
@@ -825,6 +840,29 @@ class LedgerService
      */
     public function reverseEntry(int $entryId, ?int $userId, string $why, string $proposedBy = 'owner'): int
     {
+        // Same lock name as postEntry() for the entry's own source, so a repost and a reversal of that source can never interleave
+        // (Codex review 2026-11-04); the per-entry lock stays for manual entries, which have no source.
+        $locks = ['ledger_rev_' . $entryId];
+        try {
+            $src = $this->db->prepare("SELECT source_type, source_id FROM journal_entries WHERE id = ?");
+            $src->execute([$entryId]);
+            if ($r = $src->fetch(PDO::FETCH_ASSOC)) {
+                if (($r['source_type'] ?? 'manual') !== 'manual' && $r['source_id'] !== null) {
+                    array_unshift($locks, 'ledger_post_' . md5($r['source_type'] . ':' . $r['source_id']));
+                }
+            }
+        } catch (Throwable $e) { /* no source columns here: the entry lock alone */ }
+        $held = [];
+        try {
+            foreach ($locks as $lock) { $this->acquireNamedLock($lock); $held[] = $lock; }
+            return $this->reverseEntryUnlocked($entryId, $userId, $why, $proposedBy);
+        } finally {
+            foreach (array_reverse($held) as $lock) $this->releaseNamedLock($lock);
+        }
+    }
+
+    private function reverseEntryUnlocked(int $entryId, ?int $userId, string $why, string $proposedBy): int
+    {
         $s = $this->db->prepare("SELECT id, entry_date, memo, reversed_by_entry_id FROM journal_entries WHERE id = ?");
         $s->execute([$entryId]);
         $orig = $s->fetch(PDO::FETCH_ASSOC);
@@ -912,6 +950,25 @@ class LedgerService
             }
         }
         return $seen[$k];
+    }
+
+    private function acquireNamedLock(string $name): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        $s = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $s->execute([$name]);
+        if ((int)$s->fetchColumn() !== 1) throw new RuntimeException('Could not obtain ledger posting lock.');
+    }
+
+    private function releaseNamedLock(string $name): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        try {
+            $s = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            $s->execute([$name]);
+        } catch (Throwable $e) {
+            error_log('[LedgerService] release lock ' . $name . ': ' . $e->getMessage());
+        }
     }
 
     /** Resolve a chart_of_accounts.id from its code. Cached per-request. */

@@ -114,6 +114,11 @@ require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/UntrustedAsk.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/ReplyClock.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/UpsetSignal.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/DraftChecks.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBrainService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/ClueService.php';
@@ -171,6 +176,9 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaEmailHubService.ph
 
 // Otto — operations head
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/ParcelLotService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/CityParcelService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/ClockWeekRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/WeekLoadRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SeasonalStockRules.php';
@@ -180,6 +188,8 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/HttpFetch.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/ParcelLotService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CityParcelService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/LeadRouteDay.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoLeadService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OpsDeskService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
@@ -221,11 +231,15 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/JobberLineParser.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SiteMinutesModel.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/DriveMinutesAdded.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserRateCard.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/MulchPriceBand.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserSettingsService.php';
 
 // Charlie — Chief of Staff
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieRankService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/BriefStatus.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/UrgencyGuard.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/BriefTrend.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieVoice.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadStateService.php';
@@ -340,6 +354,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/MonthCloseListServic
 // Wave payroll import + shareholder account (migration 1255)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/PayrollRunChecks.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/WavePayrollImportService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PayrollRemitMatch.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PayrollRemitCheck.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ShareholderAccountService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/Fy2026OpeningService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberCsv.php';

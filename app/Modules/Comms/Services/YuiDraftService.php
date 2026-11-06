@@ -17,6 +17,8 @@
  */
 require_once dirname(__DIR__, 3) . '/Modules/Agents/Services/AgentActivity.php';
 require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
+require_once __DIR__ . '/UpsetSignal.php';
+require_once __DIR__ . '/DraftChecks.php';
 require_once __DIR__ . '/YuiRules.php';
 
 class YuiDraftService
@@ -83,6 +85,8 @@ class YuiDraftService
     public function draftReply(array $item, string $owner, int $userId): array
     {
         if (($item['section'] ?? '') !== 'inbox') return ['ok' => false, 'message' => 'I only draft replies to client messages.'];
+        // A message that asks for something only a phone call can confirm gets no draft at all (UntrustedAsk).
+        if (!empty($item['hold'])) return ['ok' => false, 'message' => 'That message asks for something only a phone call can confirm. No draft: call the number we have on file.'];
         if (!defined('ANTHROPIC_API_KEY') || ANTHROPIC_API_KEY === '') {
             return ['ok' => false, 'message' => 'No Anthropic key set up — write this one yourself.'];
         }
@@ -98,11 +102,14 @@ class YuiDraftService
             ")->fetchAll(PDO::FETCH_COLUMN);
         } catch (Throwable $e) { /* no examples yet */ }
 
-        $prompt = YuiRules::replyPrompt($item, $this->thread((int)$item['contact_id'], 8), $owner, $examples);
+        $thread = $this->thread((int)$item['contact_id'], 8);
+        $prompt = YuiRules::replyPrompt($item, $thread, $owner, $examples);
+        // An unhappy client gets an acknowledgement only: no offer, fix, price or blame (UpsetSignal).
+        if (!empty($item['upset'])) $prompt['system'] .= UpsetSignal::draftRule($owner);
         // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
         $gw = LlmGateway::send([
                 'model'      => self::CLAUDE_MODEL,
-                'max_tokens' => 600,
+                'max_tokens' => !empty($item['upset']) ? 250 : 600,
                 'system'     => $prompt['system'],
                 'messages'   => [['role' => 'user', 'content' => $prompt['user']]],
             ], ['head' => 'yui', 'skill' => 'reply_draft', 'db' => $this->db, 'timeout' => 45]);
@@ -127,7 +134,11 @@ class YuiDraftService
         // Flag emails / links / bank details the client's record doesn't hold (Fable review 2026-10-12).
         require_once dirname(__DIR__, 3) . '/Services/Copy/DraftSafety.php';
         $flags = DraftSafety::flags($text, implode(' ', [(string)($item['to']['email'] ?? ''), (string)($item['to']['phone'] ?? '')]));
-        return ['ok' => true, 'body' => $text, 'drafts_left' => $this->claudeLeft(), 'flags' => $flags, 'flag_label' => DraftSafety::label($flags)];
+        // Prices, dates and lengths the conversation does not support (DraftChecks): flags beside the bank / link flags; Tim edits and sends.
+        $conversation = implode(' ', array_map(fn($m) => (string)($m['snippet'] ?? '') . ' ' . (string)($m['subject'] ?? ''), $thread)) . ' ' . (string)($item['text'] ?? '') . ' ' . (string)($item['quote'] ?? '');
+        $checks = DraftChecks::check($text, $conversation);
+        return ['ok' => true, 'body' => $text, 'drafts_left' => $this->claudeLeft(), 'flags' => $flags, 'checks' => $checks,
+                'flag_label' => DraftSafety::label($flags) . ($checks ? ($flags ? ' · ' : '') . implode(' · ', $checks) : '')];
     }
 
     /**
@@ -137,6 +148,8 @@ class YuiDraftService
      */
     public function send(array $item, array $in, array $user, string $owner): array
     {
+        // The server's own copy says whether this is a held message: whatever the browser sent, no reply goes to one from here.
+        if (!empty($item['hold'])) return ['ok' => false, 'message' => 'That message asks for something only a phone call can confirm. Call the number we have on file; nothing is sent from here.'];
         // Recorded in the agent activity ledger and subject to the kill switch / action policy (app/Modules/Agents).
         return AgentActivity::run($this->db, ['head' => 'yui', 'action' => 'yui.send_reply', 'skill' => 'send_reply', 'entity_type' => 'yui_item', 'entity_id' => (string)($item['key'] ?? ''), 'user_id' => (int)($user['id'] ?? 0), 'approved' => true, 'reversible' => false], fn() => $this->doSend($item, $in, $user, $owner));
     }

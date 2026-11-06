@@ -8,6 +8,7 @@ require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -155,6 +156,14 @@ $messageType = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
+    // The page needs billing.view to open; these three change the invoice's status or record money,
+    // so they need billing.edit on the server, not only a hidden button (Codex nightly 2026-10-24).
+    if (in_array($action, ['send', 'mark_sent', 'mark_paid'], true) && !userHasPermission('billing.edit')) {
+        $message     = 'You do not have permission to send invoices or record payments.';
+        $messageType = 'danger';
+        $action      = '';
+    }
+
     if ($action === 'delete_invoice') {
         if (!userHasPermission('billing.edit')) {
             $message = 'You do not have permission to delete invoices.';
@@ -165,9 +174,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         } else {
             try {
                 $db->beginTransaction();
+                $checkedStatus = $invoice['status'];
                 $db->prepare("DELETE FROM invoice_line_items WHERE invoice_id = ?")->execute([$invoiceId]);
                 $db->prepare("DELETE FROM invoice_contacts   WHERE invoice_id = ?")->execute([$invoiceId]);
-                $db->prepare("DELETE FROM invoices           WHERE id = ?")->execute([$invoiceId]);
+                $delete = $db->prepare("DELETE FROM invoices WHERE id = ? AND status = ?");
+                $delete->execute([$invoiceId, $checkedStatus]);
+                if ($delete->rowCount() !== 1) {
+                    $db->rollBack();
+                    $message = 'Invoice changed meanwhile. Please reload and try again.';
+                    $messageType = 'warning';
+                    goto end_delete_invoice;
+                }
                 $db->commit();
                 header('Location: index.php?deleted=1');
                 exit;
@@ -177,6 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message = 'Error deleting invoice. Please try again.';
                 $messageType = 'danger';
             }
+            end_delete_invoice:
         }
     }
 
@@ -198,8 +216,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             } else {
                 try {
                     $oldStatus = $invoice['status'];
-                    $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ?")
-                       ->execute([$invoiceId]);
+                    $cancel = $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ? AND status = ?");
+                    $cancel->execute([$invoiceId, $oldStatus]);
+                    if ($cancel->rowCount() !== 1) {
+                        $message = 'Invoice changed meanwhile. Please reload and try again.';
+                        $messageType = 'warning';
+                        goto end_cancel_invoice;
+                    }
                     trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'cancelled', $user['id']);
                     logActivityExtended($user['id'], 'Invoice cancelled',
                         "Cancelled (was {$oldStatus}). Reason: {$reason}",
@@ -212,6 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     $message     = 'Error cancelling invoice. Please try again.';
                     $messageType = 'danger';
                 }
+                end_cancel_invoice:
             }
         }
     }
@@ -672,18 +696,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 throw new RuntimeException('Invoice is already settled');
             }
             $newStatus  = $alloc['status'];
-            $newBalance = max(0, round((float)$invoice['balance_due'] - (float)$alloc['applied'], 2));
+            $appliedAmount = (float)$alloc['applied'];
+            $newBalance = max(0, round((float)$invoice['balance_due'] - $appliedAmount, 2));
             // Explicit method/reference from the form win over whatever was there
             $db->prepare("UPDATE invoices SET payment_method = ?, payment_reference = ? WHERE id = ?")
                ->execute([$paymentMethod, $paymentReference, $invoiceId]);
 
             // Track field changes for payment
             trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
-            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $paymentAmount), $user['id']);
+            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $appliedAmount), $user['id']);
             trackFieldChange('invoice', $invoiceId, 'balance_due', $invoice['balance_due'], (string)$newBalance, $user['id']);
 
             $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
-            $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
+            $detail = "Payment of " . formatCurrency($appliedAmount) . " via {$methodLabel}";
             if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
             logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
 
@@ -720,7 +745,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     '{{customer_first_name}}' => $receiptFirst,
                     '{{customer_name}}'       => $receiptName,
                     '{{invoice_number}}'      => $invoice['invoice_number'],
-                    '{{amount_paid}}'         => formatCurrency($paymentAmount),
+                    '{{amount_paid}}'         => formatCurrency($appliedAmount),
                     '{{payment_date}}'        => $paidOn,
                     '{{company_name}}'        => $receiptCompany['company_name'],
                     '{{company_phone}}'       => $receiptCompany['company_phone'],
@@ -742,7 +767,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
         $invoice['status']      = $newStatus;
         $invoice['balance_due'] = $newBalance;
-        $message     = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
+        $invoice['amount_paid'] = (float)$invoice['amount_paid'] + $appliedAmount;
+        $message     = "Payment of " . formatCurrency($appliedAmount) . " recorded successfully.";
         $messageType = 'success';
         end_mark_paid:
     }
@@ -944,16 +970,26 @@ $extraHead = $isPayable
                               <span class="mw-match-balance">Balance due <?php echo formatCurrency($invBalance); ?></span>
                           </div>
                           <?php foreach ($invoiceMatches as $m): ?>
-                          <div class="mw-match-item">
-                              <span class="mw-conf-badge mw-conf-<?php echo $m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low'); ?>" title="Match confidence"><?php echo (int)$m['confidence']; ?>%</span>
+                          <div class="mw-match-item<?php echo !empty($m['mismatch']) ? ' mw-match-item--bad' : ''; ?>">
+                              <span class="mw-conf-badge mw-conf-<?php echo !empty($m['mismatch']) ? 'bad' : ($m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low')); ?>" title="Match confidence"><?php echo !empty($m['mismatch']) ? 'Mismatch' : (int)$m['confidence'] . '%'; ?></span>
                               <div class="mw-match-info">
                                   <div class="mw-match-desc"><?php echo h($m['description'] ?: 'Bank deposit'); ?></div>
                                   <div class="mw-match-meta">
                                       <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
-                                      <?php foreach ($m['reasons'] as $reason): ?>
-                                          <span class="mw-match-reason"><?php echo h($reason); ?></span>
-                                      <?php endforeach; ?>
                                   </div>
+                                  <?php if (!empty($m['evidence'])): ?>
+                                      <div class="mw-ev-grid">
+                                          <?php foreach ($m['evidence'] as $ev): ?>
+                                              <div class="mw-ev mw-ev--<?php echo $ev['state'] === 'bad' ? 'bad' : 'ok'; ?><?php echo !empty($ev['strong']) ? ' mw-ev--strong' : ''; ?>">
+                                                  <i data-feather="<?php echo !empty($ev['strong']) ? ($ev['state'] === 'bad' ? 'mail' : 'mail') : ($ev['state'] === 'bad' ? 'x' : 'check'); ?>"></i>
+                                                  <div>
+                                                      <span class="mw-ev-label"><?php echo h($ev['label']); ?></span>
+                                                      <?php if (!empty($ev['detail'])): ?><small class="mw-ev-detail"><?php echo h($ev['detail']); ?></small><?php endif; ?>
+                                                  </div>
+                                              </div>
+                                          <?php endforeach; ?>
+                                      </div>
+                                  <?php endif; ?>
                                   <?php if (!empty($m['covers_more'])): ?>
                                       <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
                                   <?php endif; ?>
@@ -969,9 +1005,9 @@ $extraHead = $isPayable
                                              data-balance="<?php echo number_format($invBalance, 2, '.', ''); ?>"
                                              data-remaining="<?php echo number_format($m['amount'], 2, '.', ''); ?>">
                                   </div>
-                                  <button type="button" class="mw-action-btn mw-action-btn-paid"
+                                  <button type="button" class="mw-action-btn mw-action-btn-paid"<?php echo !empty($m['mismatch']) ? ' data-mismatch="1"' : ''; ?>
                                           onclick="mwAttachDeposit(this, <?php echo (int)$invoiceId; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($invoice['invoice_number'])); ?>)">
-                                      Attach
+                                      <?php echo !empty($m['mismatch']) ? 'Attach anyway' : 'Attach'; ?>
                                   </button>
                                   <button type="button" class="mw-match-dismiss" title="This deposit's money was already recorded by hand — stop suggesting it"
                                           onclick="mwMarkDepositRecorded(this, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($m['description'] ?: 'Bank deposit')); ?>)">Already recorded</button>
@@ -1201,7 +1237,7 @@ $extraHead = $isPayable
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['subtotal']); ?></span>
                               </div>
                               <div class="mw-total-row">
-                                  <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)</span>
+                                  <span>GST (<?php echo round((isset($invoice['tax_rate']) ? $invoice['tax_rate'] : 0.05) * 100); ?>%)</span>
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['tax_amount'] ?: 0); ?></span>
                               </div>
                               <div class="mw-total-row mw-grand">
@@ -1253,7 +1289,7 @@ $extraHead = $isPayable
                               <h5 class="card-title mb-0">Notes</h5>
                           </div>
                           <div class="card-body">
-                              <p class="mb-0" style="white-space: pre-line;"><?php echo htmlspecialchars($invoice['notes']); ?></p>
+                              <p class="mb-0" style="white-space: pre-line;"><?php echo InvoiceNoteFormatter::html($invoice['notes'], false); ?></p>
                           </div>
                       </div>
                   <?php endif; ?>
@@ -1281,6 +1317,37 @@ $extraHead = $isPayable
                                       <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['payment_reference']); ?></span>
                                   </div>
                               <?php endif; ?>
+                              <?php
+                              // Bank deposits this invoice was paid from — detach one that was attached to the wrong invoice.
+                              $bankAllocs = [];
+                              if (userHasPermission('billing.edit')) {
+                                  try {
+                                      $baStmt = $db->prepare("
+                                          SELECT a.transaction_id, a.amount, t.transaction_date, t.amount AS deposit_amount
+                                          FROM invoice_payment_allocations a
+                                          JOIN accounting_transactions t ON t.id = a.transaction_id
+                                          WHERE a.invoice_id = ? AND a.transaction_id IS NOT NULL
+                                          ORDER BY a.id");
+                                      $baStmt->execute([(int)$invoiceId]);
+                                      $bankAllocs = $baStmt->fetchAll(PDO::FETCH_ASSOC);
+                                  } catch (Throwable $e) {
+                                      error_log('invoice view bank allocations: ' . $e->getMessage());
+                                  }
+                              }
+                              ?>
+                              <?php foreach ($bankAllocs as $ba): ?>
+                                  <div class="mw-detail-row">
+                                      <span class="mw-detail-label">Bank deposit</span>
+                                      <span class="mw-detail-value">
+                                          <?php echo h(formatDate($ba['transaction_date'])); ?> &middot; $<?php echo number_format((float)$ba['deposit_amount'], 2); ?>
+                                          (this invoice: $<?php echo number_format((float)$ba['amount'], 2); ?>)
+                                          <button type="button" class="btn btn-sm btn-outline-danger ml-2 mw-detach-deposit-btn"
+                                                  data-tx="<?php echo (int)$ba['transaction_id']; ?>"
+                                                  data-amount="<?php echo h(number_format((float)$ba['amount'], 2)); ?>"
+                                                  title="Take this deposit off this invoice. The invoice goes back to unpaid; the deposit stays on the bank line.">Detach</button>
+                                      </span>
+                                  </div>
+                              <?php endforeach; ?>
                           </div>
                       </div>
                   <?php endif; ?>
@@ -1694,6 +1761,29 @@ $extraHead = $isPayable
           </div>
 
           <script>
+          // ── Detach a bank deposit from this invoice (existing reconciliation API) ──
+          document.addEventListener('DOMContentLoaded', function () {
+          document.querySelectorAll('.mw-detach-deposit-btn').forEach(function (btn) {
+              btn.addEventListener('click', function () {
+                  if (!confirm('Detach $' + btn.dataset.amount + ' from <?php echo h($invoice['invoice_number']); ?>? The invoice goes back to unpaid and its income entry is removed. The bank deposit stays and can be attached to another invoice.')) return;
+                  btn.disabled = true;
+                  fetch('/crm/api/accounting-reconciliation.php', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                      body: JSON.stringify({ action: 'detach', transaction_id: parseInt(btn.dataset.tx, 10), invoice_id: <?php echo (int)$invoiceId; ?>, csrf_token: <?php echo json_encode($csrfToken); ?> })
+                  })
+                  .then(function (r) { return r.json(); })
+                  .then(function (d) {
+                      if (d.ok) { window.location.reload(); }
+                      else { btn.disabled = false; alert('Could not detach: ' + (d.error || 'unknown error')); }
+                  })
+                  .catch(function () { btn.disabled = false; alert('Could not detach: network error.'); });
+              });
+          });
+          });
+          </script>
+
+          <script>
           // ── Inline bank-deposit matching (shared with /crm/invoices/index.php) ──
           (function () {
               var CSRF = <?php echo json_encode($csrfToken); ?>;
@@ -1725,6 +1815,7 @@ $extraHead = $isPayable
                   var balance   = parseFloat(input.dataset.balance);
                   var remaining = parseFloat(input.dataset.remaining);
                   if (!(amount > 0)) { mwToast('Enter a valid amount.', 'error'); return; }
+                  if (btn.dataset.mismatch === '1' && !confirm('The Yardi remittance for this deposit names a different invoice. Attach it to ' + invNum + ' anyway?')) return;
                   if (amount > remaining + 0.005) { mwToast('Amount exceeds the deposit (' + money(remaining) + ' available).', 'error'); return; }
                   if (amount > balance + 0.005 && !confirm('That is more than the invoice balance (' + money(balance) + '). It will be capped to the balance. Continue?')) { return; }
                   var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Attaching…';

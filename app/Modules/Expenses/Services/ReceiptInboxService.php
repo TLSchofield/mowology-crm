@@ -427,7 +427,11 @@ class ReceiptInboxService
             $gstNote = 'GST not printed on the receipt — no ITC claimed; add it if the receipt shows GST.';
         }
         $subtotal   = isset($parsed['subtotal']) && $parsed['subtotal'] !== null ? (float) $parsed['subtotal'] : null;
-        $amount     = $subtotal !== null ? $subtotal : max(0.0, $total - $gst - $pst);
+        require_once __DIR__ . '/ReceiptAmountRules.php';
+        $taxWasZeroed = !empty($suggestions['vendor_gst_exempt']) || !empty($parsed['gst_estimated']);
+        $amount     = $taxWasZeroed || $subtotal === null
+            ? ReceiptAmountRules::amountFromTotal($total, $gst, $pst)
+            : $subtotal;
         $expDate    = (!empty($parsed['date']) && self::isValidDate($parsed['date'])) ? $parsed['date'] : date('Y-m-d');
         $category   = $suggestions['accounting_category'] ?? $vendorCat;
         $confidence = (int) ($suggestions['vendor_confidence'] ?? 0);
@@ -748,11 +752,16 @@ class ReceiptInboxService
         $total    = isset($edits['total']) && $edits['total'] !== '' ? (float) $edits['total'] : (float) $exp['total'];
         $gst      = isset($edits['gst_amount']) && $edits['gst_amount'] !== '' ? (float) $edits['gst_amount'] : (float) $exp['gst_amount'];
         $pst      = isset($edits['pst_amount']) && $edits['pst_amount'] !== '' ? (float) $edits['pst_amount'] : (float) $exp['pst_amount'];
-        $amount   = max(0.0, $total - $gst - $pst);
+        require_once __DIR__ . '/ReceiptAmountRules.php';
+        $amount   = $total - $gst - $pst;
         $category = array_key_exists('accounting_category', $edits) && $edits['accounting_category'] !== '' ? $edits['accounting_category'] : $exp['accounting_category'];
 
         if ($total <= 0) {
             return ['ok' => false, 'message' => 'Total must be greater than zero'];
+        }
+        $amountError = ReceiptAmountRules::approvalError($amount, $gst, $pst, $total);
+        if ($amountError !== null) {
+            return ['ok' => false, 'message' => $amountError];
         }
 
         // Through the expense gate: the edits and the audited 'approve' transition in one change.

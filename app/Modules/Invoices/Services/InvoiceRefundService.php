@@ -21,6 +21,8 @@
  */
 declare(strict_types=1);
 
+require_once dirname(__DIR__, 2) . '/Accounting/Services/LedgerService.php';
+
 class InvoiceRefundService
 {
     /** A 'pending' row older than this no longer blocks a new refund attempt. */
@@ -147,11 +149,30 @@ class InvoiceRefundService
                 throw new RuntimeException('A refund for this invoice is already in progress. Wait a minute and check the invoice.');
             }
 
-            $this->db->prepare("
-                INSERT INTO invoice_refunds (invoice_id, amount, reason, status, created_by)
-                VALUES (?, ?, ?, 'pending', ?)
-            ")->execute([$invoiceId, $cents / 100, $reason, $userId ?: null]);
-            $refundRowId = (int) $this->db->lastInsertId();
+            $stale = $this->db->prepare("
+                SELECT id, amount, (created_at > (NOW() - INTERVAL 23 HOUR)) AS reusable FROM invoice_refunds
+                WHERE invoice_id = ? AND status = 'pending'
+                  AND created_at <= (NOW() - INTERVAL " . self::PENDING_WINDOW_MINUTES . " MINUTE)
+                ORDER BY id DESC LIMIT 1 FOR UPDATE
+            ");
+            $stale->execute([$invoiceId]);
+            $staleRow = $stale->fetch(PDO::FETCH_ASSOC);
+            if ($staleRow && isset($staleRow['id'], $staleRow['amount'])) {
+                // A refund Stripe may already have made: only the SAME amount, within Stripe's 24 h idempotency window, may reuse
+                // that row's key (Stripe then returns the same refund). Anything else could refund twice: look in Stripe first.
+                $staleCents = (int)round((float)$staleRow['amount'] * 100);
+                if ($staleCents !== $cents || empty($staleRow['reusable'])) {
+                    throw new RuntimeException('An earlier refund of $' . number_format($staleCents / 100, 2)
+                        . ' on this invoice was never confirmed. Check Stripe for it before refunding again.');
+                }
+                $refundRowId = (int)$staleRow['id'];
+            } else {
+                $this->db->prepare("
+                    INSERT INTO invoice_refunds (invoice_id, amount, reason, status, created_by)
+                    VALUES (?, ?, ?, 'pending', ?)
+                ")->execute([$invoiceId, $cents / 100, $reason, $userId ?: null]);
+                $refundRowId = (int) $this->db->lastInsertId();
+            }
 
             $this->db->commit();
         } catch (Throwable $e) {
@@ -174,9 +195,15 @@ class InvoiceRefundService
                 ['idempotency_key' => 'mw-refund-' . $refundRowId]
             );
         } catch (Throwable $e) {
-            $this->markFailed($refundRowId, $e->getMessage());
             error_log('invoice refund Stripe error, invoice ' . $invoiceId . ': ' . $e->getMessage());
-            throw new RuntimeException('Stripe could not process the refund: ' . $e->getMessage());
+            // Only an answer from Stripe that refuses the refund proves nothing was refunded. A timeout, a dropped connection
+            // or a 5xx may hide a refund that went through: the row stays pending, and a retry for the same amount re-uses its
+            // idempotency key so Stripe returns that refund instead of making another (Codex review 2026-11-04).
+            if (self::isDefiniteRefusal($e)) {
+                $this->markFailed($refundRowId, $e->getMessage());
+                throw new RuntimeException('Stripe could not process the refund: ' . $e->getMessage());
+            }
+            throw new RuntimeException('Stripe did not confirm the refund. Check the payment in Stripe, then try again for the same amount.');
         }
         $stripeRefundId = (string) ($stripeRefund->id ?? '');
 
@@ -189,7 +216,7 @@ class InvoiceRefundService
             $this->db->prepare("
                 UPDATE invoices SET amount_refunded = amount_refunded + ? WHERE id = ?
             ")->execute([$cents / 100, $invoiceId]);
-            $this->syncIncomeRow($invoiceId);
+            $this->syncIncomeRow($invoiceId, $cents / 100);
             $this->db->commit();
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
@@ -242,6 +269,15 @@ class InvoiceRefundService
         return $cents === false || $cents === null ? null : round(((int) $cents) / 100, 2);
     }
 
+    /** True when Stripe itself answered and refused (a 4xx): then no refund exists. */
+    public static function isDefiniteRefusal(Throwable $e): bool
+    {
+        if (!($e instanceof \Stripe\Exception\ApiErrorException)) return false;
+        if ($e instanceof \Stripe\Exception\ApiConnectionException) return false;
+        $status = $e->getHttpStatus();
+        return $status !== null && $status >= 400 && $status < 500;
+    }
+
     private function markFailed(int $refundRowId, string $message): void
     {
         try {
@@ -259,8 +295,19 @@ class InvoiceRefundService
      * Updates an existing row only: AccountingService::syncFromInvoices creates
      * missing rows using the same net figures.
      */
-    private function syncIncomeRow(int $invoiceId): void
+    private function syncIncomeRow(int $invoiceId, float $refundAmount): void
     {
+        $income = $this->db->prepare("
+            SELECT transaction_date FROM accounting_transactions
+            WHERE reference_type = 'invoice' AND reference_id = ? LIMIT 1
+        ");
+        $income->execute([$invoiceId]);
+        $incomeDate = $income->fetchColumn();
+        if ($incomeDate !== false && (new LedgerService($this->db))->isLocked((string)$incomeDate)) {
+            $this->db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'refund_in_locked_period', ?, ?, NOW())")
+                     ->execute([json_encode(['invoice_id' => $invoiceId, 'amount' => round($refundAmount, 2)]), $invoiceId]);
+            return;
+        }
         $stmt = $this->db->prepare("
             SELECT COALESCE(amount_paid, 0) AS paid, COALESCE(amount_refunded, 0) AS refunded,
                    COALESCE(tax_amount, 0) AS tax, COALESCE(total, 0) AS total

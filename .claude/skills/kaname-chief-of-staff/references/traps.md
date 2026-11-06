@@ -57,3 +57,16 @@ Rules now enforced in code:
 - `DeadlineService::brief()` writes nothing; the charlie_morning_brief cron runs `sync()`.
 - Urgent alert emails that fail retry at most hourly, 3 tries (count + time in `charlie_alerts.error`).
 - charlie-inbox.js "Do all" runs each item's `choice: apply` action or stops for Tim.
+
+## 2026-11-03 — 58 of 200 lines urgent, and a status that said RED while the one thing was a yes
+Live: Kaname receives 200 lines from 8 heads; 58 (29%) are priority 1 (Sam 25 of 31, Yui 9, Otto 8, Penny 7, Ada 5). A head's own priority is a claim, not a fact:
+`UrgencyGuard` ranks past the head's top 5 as priority 2 (the plugin's rule: about 5 needs-you is right, twenty means the threshold is wrong) and the card says which head.
+Do not demote what is STORED (`charlie_items`, learning) — only what is ranked. Also: the status (`BriefStatus`) reads the ORIGINAL priorities, or a head's real red
+would be guarded away. Open question for Tim: his own rule (2026-10-11) says penalty dates first, but the ranking is learned from what he opens, so an overdue statutory
+deadline can sit sixth under a quiet-client line; the status chip is where it shows today.
+A dry run of a desk class with renamed inline copies must also preload every class the real one lazily requires, or the desk swallows the load error and shows an empty list.
+
+### A date-only reminder is not evidence of non-payment (2026-11-03)
+The payroll remittance reminder (monthly on the 15th) stayed open until someone pressed Done, so `BriefStatus` called it overdue and turned the whole brief RED, while Wave had remitted to CRA by debiting the bank on pay day.
+Rule: a reminder for something a system pays on Tim's behalf must be checked against that system's own record before it alarms. Order: ask for the report (Penny's payroll import) → close on a match (`PayrollRemitMatch`: the report's CRA remittance equals Wave's bank debits, checked by `PayrollRemitCheck`, closed by the cron through `DeadlineService::autoClose()`) → alarm only when the report is in, the bank lines reach the due date and nothing matches.
+A request line ("upload the report") must NOT use a `charlie:deadline:` key: `BriefStatus` forces red on any overdue key of that form. Still date-only and so still able to force red on no evidence: WorkSafeBC (how it is paid is unknown, Tim to say) and the other calendar reminders.

@@ -1703,6 +1703,11 @@ async function submitReceiptExport() {
 
 
 <script>
+// Today's date in the visitor's own time zone (toISOString() gives UTC: tomorrow's date after about 4 pm in Vancouver).
+window.localDateYmd = function (date) {
+    var d = date || new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
 (function() {
     'use strict';
 
@@ -2589,7 +2594,7 @@ async function submitReceiptExport() {
         } else {
             // ── Check for duplicate receipts by amount/date ──
             var dupTotal = p.total ? parseFloat(p.total) : null;
-            var dupDate  = p.date || new Date().toISOString().slice(0, 10);
+            var dupDate  = p.date || localDateYmd();
             var dupVendorName = s.vendor_name || p.vendor_hint || null;
             var dupVendorId   = s.vendor_id || null;
             if (dupTotal && dupTotal > 0) {
@@ -5251,7 +5256,7 @@ async function submitReceiptExport() {
         // Set today's date
         var dateEl = document.getElementById('mobileRvDate');
         if (dateEl) {
-            dateEl.value = new Date().toISOString().slice(0, 10);
+            dateEl.value = localDateYmd();
             dateEl.dispatchEvent(new Event('input', { bubbles: true }));
             dateEl.dispatchEvent(new Event('change', { bubbles: true }));
         }
@@ -5461,7 +5466,7 @@ async function submitReceiptExport() {
         var data = {
             action: 'create',
             csrf_token: CSRF,
-            expense_date: document.getElementById('mobileRvDate').value || new Date().toISOString().slice(0, 10),
+            expense_date: document.getElementById('mobileRvDate').value || localDateYmd(),
             vendor_id: document.getElementById('mobileRvVendorId').value || null,
             vendor_name_raw: document.getElementById('mobileRvVendor').value,
             payment_method: document.getElementById('mobileRvPayment').value,
@@ -6970,8 +6975,10 @@ async function submitReceiptExport() {
         var total = parseFloat(document.getElementById(prefix + 'Total').value) || 0;
         var pstEl = document.getElementById(prefix + 'Pst');
         var pst = pstEl ? (parseFloat(pstEl.value) || 0) : 0;
-        // Recalculate GST as total - subtotal - pst
-        var gst = Math.max(0, total - amt - pst);
+        var recyclingEl = document.getElementById(prefix + 'RecyclingTax');
+        var recyclingTax = recyclingEl ? (parseFloat(recyclingEl.value) || 0) : 0;
+        // Recalculate GST as total - subtotal - pst - recycling tax
+        var gst = Math.max(0, total - amt - pst - recyclingTax);
         document.getElementById(prefix + 'Gst').value = gst.toFixed(2);
         var warn = document.getElementById(prefix + 'GstMathWarning');
         if (warn) warn.style.display = 'none';
@@ -7514,7 +7521,7 @@ async function submitReceiptExport() {
      * An invalid value on a date input triggers "did not match expected pattern".
      */
     function safeDate(raw) {
-        var today = new Date().toISOString().slice(0, 10);
+        var today = localDateYmd();
         if (!raw) return today;
         var s = String(raw).trim();
 

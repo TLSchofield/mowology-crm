@@ -718,6 +718,12 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var claimedStops = <?= json_encode($claimedStops) ?>;
     var currentVisitId = <?= (int)$visitId ?>;
 
+    function escHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
     // Safety nets — never let "Analyzing clusters…" persist silently.
     // (a) If the property has no coordinates, the analysis block below is skipped
     //     entirely. Resolve the widget right now so admins see actionable copy.
@@ -1024,7 +1030,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 })
             }).addTo(map).bindPopup(
                 '<strong>Stop #' + (ci + 1) + (isNearby ? ' (near property)' : '') + '</strong><br>'
-                + dc.truckName + '<br>'
+                + escHtml(dc.truckName) + '<br>'
                 + dc.firstTime + ' — ' + dc.lastTime + '<br>'
                 + dc.durMin + ' min, ' + dc.count + ' pings<br>'
                 + dc.distM + 'm from property'
@@ -1050,7 +1056,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     + srcBadge
                     + '<span class="badge badge-danger mr-1">' + d.durMin + ' min</span> '
                     + d.firstTime + ' — ' + d.lastTime
-                    + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm, ' + d.truckName + ')</span>'
+                    + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm, ' + escHtml(d.truckName) + ')</span>'
                     + (di === 0 ? ' <strong>&#9668; likely service</strong>' : '')
                     + '</div>';
             }
@@ -1087,7 +1093,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     + '<span>&middot;</span>'
                     + '<span>' + s.count + ' pings</span>'
                     + '<span>&middot;</span>'
-                    + '<span class="mw-cr-stop-truck">' + s.truckName + '</span>'
+                    + '<span class="mw-cr-stop-truck">' + escHtml(s.truckName) + '</span>'
                     + '</div>'
                     + '</div>'
                     + '</div>';

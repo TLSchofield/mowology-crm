@@ -208,3 +208,10 @@ fix the plan before reading the week.
 - What happened: `VisitCompletionService` (every finish), `DwellTimeService` (GPS backfill) and `backfill-duration-avg.php` each wrote `job_plans.estimated_duration_minutes` from plain averages. Forgotten timers left plans at 3,000 to 8,000 minutes; the iPhone timeline showed "9:00–8:13".
 - Signature: a plan length far from its GPS time on site; Otto's approved length changed again after the next finish.
 - Rule: only `VisitDurationService::apply()` writes a plan length, on Tim's tap. Time on site is measured inside the drawn lot border (the 150 m proof radius covers the neighbours) and on one day only.
+
+## 2026-11-03 — a lead's property was never a candidate for Otto's arrival border
+`OttoAutoPlaceService` placed only active properties and properties on a quote, every 6 hours, so a lead (a quote request
+with no quote yet) had a pin from the intake form but no border for days (#77 and #78 arrived pinned, unbordered; #74 had
+neither). Rule: open leads are candidates (`OttoAutoPlaceService::leadCandidates()`), and `OttoLeadService::placeOpenLeads()`
+runs every 15 minutes from the inbox poll. Also: `SalesDeskService::rankLeads()` is STATIC — the first deploy of the best-day
+block put `$this` in it, the guard swallowed the error and no lead got a day (found by reading the live log, not the page).

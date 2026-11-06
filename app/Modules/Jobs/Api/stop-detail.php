@@ -53,6 +53,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    $canSeeBilling = userHasPermission('billing.view') || userHasPermission('jobs.edit');
     session_write_close(); // read-only endpoint — release session lock early
 
     $stopId = isset($_GET['stop_id']) ? (int)$_GET['stop_id'] : 0;
@@ -238,11 +239,10 @@ try {
                 $cr['clock_in_time'] = null; $cr['accuracy_meters'] = null;
             }
 
-            $crewData[] = [
+            $crewItem = [
                 'user_id'         => (int)$cr['user_id'],
                 'full_name'       => $cr['full_name'],
                 'initials'        => $initials,
-                'is_clocked_in'   => (bool)(int)$cr['is_clocked_in'],
                 'clock_in_time'   => $cr['clock_in_time'],
                 'gps_lat'         => $gpsLat,
                 'gps_lng'         => $gpsLng,
@@ -250,6 +250,10 @@ try {
                 'gps_accuracy_m'  => $cr['accuracy_meters'] !== null ? (float)$cr['accuracy_meters'] : null,
                 'distance_km'     => $distKm,
             ];
+            if ($canSeeBilling || (int)$cr['user_id'] === $me) {
+                $crewItem['is_clocked_in'] = (bool)(int)$cr['is_clocked_in'];
+            }
+            $crewData[] = $crewItem;
         }
     }
 
@@ -273,7 +277,7 @@ try {
         $vid    = (int)$vr['visit_id'];
         $byType = $photoCounts[$vid] ?? [];
 
-        $visits[] = [
+        $visitItem = [
             'visit_id'           => $vid,
             'visit_number'       => $vr['visit_number'],
             'visit_status'       => $vr['visit_status'],
@@ -281,7 +285,6 @@ try {
             'plan_number'        => $vr['plan_number'],
             'plan_title'         => $vr['plan_title'],
             'service_type'       => $vr['service_type'],
-            'price_per_visit'    => $vr['price_per_visit'] !== null ? (float)$vr['price_per_visit'] : null,
             'estimated_duration' => $vr['estimated_duration'] !== null ? (int)$vr['estimated_duration'] : null,
             'checklist_total'    => 0,
             'checklist_complete' => 0,
@@ -292,6 +295,10 @@ try {
             'started_at'         => $vr['started_at'],
             'completed_at'       => $vr['completed_at'],
         ];
+        if ($canSeeBilling) {
+            $visitItem['price_per_visit'] = $vr['price_per_visit'] !== null ? (float)$vr['price_per_visit'] : null;
+        }
+        $visits[] = $visitItem;
     }
 
     // ── Final payload ─────────────────────────────────────────────────────
