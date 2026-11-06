@@ -194,6 +194,61 @@ function extractTextFromImage(string $filePath): array
 
 
 /**
+ * Text of a scanned PDF (no text layer) through Google Vision's files:annotate, which reads PDF pages directly
+ * (2026-11-06). The cron's PHP has no Imagick, so emailed scans could never be turned into an image: nine
+ * emailed receipts sat with no text. First $pages pages (Vision's inline limit is 5). Same result shape as
+ * extractTextFromImage(); raw_response holds the first page in images:annotate shape, so the parser can rebuild
+ * rows from its word boxes as it does for photos.
+ */
+function extractTextFromPdf(string $filePath, int $pages = 2): array
+{
+    $fail = static fn(string $why, $raw = null) => ['success' => false, 'text' => null, 'raw_response' => $raw, 'error' => $why];
+    if (!defined('GOOGLE_VISION_CREDENTIALS') || empty(GOOGLE_VISION_CREDENTIALS)) return $fail('Vision credentials not configured');
+    $credPath = GOOGLE_VISION_CREDENTIALS;
+    if (!file_exists($credPath) || !is_readable($credPath)) {
+        $alt = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : ($_SERVER['DOCUMENT_ROOT'] ?? '')) . '/app_config/' . basename($credPath);
+        if (!is_readable($alt)) return $fail('Vision credentials file not found');
+        $credPath = $alt;
+    }
+    if (!is_readable($filePath)) return $fail('PDF not found or not readable');
+    $bytes = file_get_contents($filePath);
+    if ($bytes === false || strncmp($bytes, '%PDF', 4) !== 0) return $fail('Not a PDF');
+    $tok = getVisionAccessToken($credPath);
+    if (!$tok['success']) return $fail('Auth failed: ' . $tok['error']);
+
+    $body = json_encode(['requests' => [[
+        'inputConfig' => ['content' => base64_encode($bytes), 'mimeType' => 'application/pdf'],
+        'features'    => [['type' => 'DOCUMENT_TEXT_DETECTION']],
+        'pages'       => range(1, max(1, min(5, $pages))),
+        'imageContext' => ['languageHints' => ['en']],
+    ]]]);
+    [$res, $err] = receiptOcrHttpPost('https://vision.googleapis.com/v1/files:annotate',
+        ['Content-Type: application/json', 'Authorization: Bearer ' . $tok['token']], (string)$body, 45);
+    if ($res === false) return $fail('Vision API request failed: ' . $err);
+    $d = json_decode((string)$res, true);
+    if (!is_array($d)) return $fail('Failed to decode Vision API response');
+    if (isset($d['error'])) return $fail('Vision API error: ' . ($d['error']['message'] ?? 'Unknown'), $d);
+    return visionPdfResponseText($d);
+}
+
+/** files:annotate's answer → the pages' text joined, and page 1 in images:annotate shape. PURE. */
+function visionPdfResponseText(array $d): array
+{
+    $pageResponses = $d['responses'][0]['responses'] ?? [];
+    $text = '';
+    $first = null;
+    foreach ($pageResponses as $pr) {
+        if (!is_array($pr) || isset($pr['error'])) continue;
+        $t = (string)($pr['fullTextAnnotation']['text'] ?? '');
+        if ($t === '') continue;
+        $first = $first ?? $pr;
+        $text .= ($text === '' ? '' : "\n") . $t;
+    }
+    return ['success' => true, 'text' => $text, 'raw_response' => $first ? ['responses' => [$first]] : null, 'error' => null];
+}
+
+
+/**
  * Get a Google Cloud OAuth2 access token using a service account JSON key.
  * Generates a JWT, signs it with the private key, exchanges it at Google's token endpoint.
  * Caches the token in-memory for the duration of the PHP request.
