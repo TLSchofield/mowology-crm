@@ -90,9 +90,13 @@ struct DayCarouselView: View {
     static let chipHeight: CGFloat = 80
     static let spacing: CGFloat = 6
     private static let span = -60...120           // days around today the strip reaches
+    private static let offsets = Array(span)
 
     @State private var centred: Int?
     @State private var known: [String: ScheduleDay] = [:]
+    /// The 181 chips, worked out once and again only when a week's dots arrive (Tim, 2026-11-07: "the calendar" is not
+    /// smooth). Before, every day that reached the centre during a swipe rebuilt all 181, each formatting its date.
+    @State private var chips: [ScheduleDay] = []
     @State private var commit: Task<Void, Never>?
     private let tick = UISelectionFeedbackGenerator()
     private let base = Calendar.current.startOfDay(for: .now)
@@ -109,11 +113,13 @@ struct DayCarouselView: View {
                     // Not lazy: on Tim's iPhone (1.3.101) the strip jumped to the chosen day before a lazy stack had made
                     // that chip, and showed blank space. 181 small chips are cheap.
                     HStack(spacing: Self.spacing) {
-                        ForEach(Array(Self.span), id: \.self) { offset in
-                            let day = summary(offset)
+                        ForEach(Self.offsets, id: \.self) { offset in
+                            let day = chip(offset)
+                            // Equatable: a swipe redraws only the chip leaving the centre and the one arriving.
                             DayChip(day: day, isSelected: offset == centred, ns: ns) {
                                 withAnimation(.snappy(duration: 0.35)) { centred = offset }
                             }
+                            .equatable()
                             .frame(width: Self.chipWidth, height: Self.chipHeight)
                             .id(offset)
                         }
@@ -187,7 +193,17 @@ struct DayCarouselView: View {
     }
 
     private func remember(_ days: [ScheduleDay]) {
-        for d in days { known[d.date] = d }
+        var changed = chips.isEmpty
+        for d in days where known[d.date].map({ !DayChip.same($0, d) }) ?? true {
+            known[d.date] = d
+            changed = true
+        }
+        if changed { chips = Self.offsets.map { summary($0) } }
+    }
+
+    private func chip(_ offset: Int) -> ScheduleDay {
+        let i = offset - Self.span.lowerBound
+        return chips.indices.contains(i) ? chips[i] : summary(offset)
     }
 
     private static let iso: DateFormatter = {
@@ -210,7 +226,7 @@ struct DayCarouselView: View {
 
 // MARK: - DayChip
 
-private struct DayChip: View {
+private struct DayChip: View, Equatable {
     @Environment(\.itAppStyle) private var appStyle
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -218,6 +234,14 @@ private struct DayChip: View {
     let isSelected: Bool
     let ns: Namespace.ID
     let action: () -> Void
+
+    /// What the chip draws; the action only carries its own offset, so it never makes two chips differ.
+    static func == (a: DayChip, b: DayChip) -> Bool { a.isSelected == b.isSelected && same(a.day, b.day) }
+
+    static func same(_ a: ScheduleDay, _ b: ScheduleDay) -> Bool {
+        a.date == b.date && a.dayName == b.dayName && a.dayNumber == b.dayNumber && a.isToday == b.isToday
+            && a.stopCount == b.stopCount && a.visitCount == b.visitCount && a.hasIncomplete == b.hasIncomplete
+    }
 
     var body: some View {
         Button(action: action) {

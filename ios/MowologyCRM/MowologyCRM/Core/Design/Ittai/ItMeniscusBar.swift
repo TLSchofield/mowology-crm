@@ -42,6 +42,8 @@ struct ItMeniscusBar: View {
     var onLongPress: ((Int) -> Void)? = nil
     /// Animated copy of `selected`, so the bead and notch can be drawn mid-slide.
     @State private var position: CGFloat = 0
+    /// How many slots the bead last travelled: Add's + spins more the further it came (Tim, 2026-11-07).
+    @State private var travel: CGFloat = 0
 
     /// Bar height below its top edge (labels sit here); the bead rises `rise` above it.
     static let barHeight: CGFloat = 58
@@ -50,7 +52,7 @@ struct ItMeniscusBar: View {
     static let iconTop: CGFloat = 14
 
     var body: some View {
-        ItMeniscusBarBody(items: items, selected: selected, position: position, style: style, onSelect: { index in
+        ItMeniscusBarBody(items: items, selected: selected, position: position, travel: travel, style: style, onSelect: { index in
             if index == selected { onReselect?(index) } else { selected = index }
         }, onLongPress: onLongPress, reduceMotion: reduceMotion)
         .frame(height: ItMeniscusGeometry.rise + Self.barHeight)
@@ -66,6 +68,7 @@ struct ItMeniscusBar: View {
         }
         .onAppear { position = CGFloat(selected) }
         .onChange(of: selected) { new in   // the one-value form: the Mac design render targets macOS 13
+            travel = abs(CGFloat(new) - position)
             if reduceMotion { position = CGFloat(new) }
             else { withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) { position = CGFloat(new) } }
         }
@@ -73,12 +76,15 @@ struct ItMeniscusBar: View {
     }
 }
 
-/// Drawn every animation frame with the interpolated `position` (Animatable), so the bead's icon is the tab
-/// it is over right now and that slot hides its own icon.
-private struct ItMeniscusBarBody: View, Animatable {
+/// The bar. Smoothness (Tim, 2026-11-07: "the main bottom navbar is still not smooth"): until now this whole view was
+/// Animatable, so every frame of the slide rebuilt all five buttons with their gestures and labels. Now the buttons are
+/// built once per selection; the notch (an animatable Shape) and the collar and bead (plain offsets) move on their
+/// own, and only the bead's glyph (ItBeadFace) is worked out per frame.
+private struct ItMeniscusBarBody: View {
     let items: [ItMeniscusItem]
     let selected: Int
-    var position: CGFloat
+    let position: CGFloat
+    let travel: CGFloat
     let style: ItAppStyle
     let onSelect: (Int) -> Void
     let onLongPress: ((Int) -> Void)?
@@ -86,20 +92,12 @@ private struct ItMeniscusBarBody: View, Animatable {
     /// The slot a long press just fired on: that slot's own tap, which follows the release, is dropped.
     @State private var longPressed: (id: Int, at: Date)?
 
-    var animatableData: CGFloat {
-        get { position }
-        set { position = newValue }
-    }
-
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
             let count = max(items.count, 1)
             let cx = ItMeniscusGeometry.beadX(position, count: count, width: width)
-            let under = ItMeniscusGeometry.nearest(position, count: count)
             let edgeY = ItMeniscusGeometry.rise
-            // Mid-slide the bead is passing over other slots: it takes no taps and shows no action until it lands.
-            let settled = abs(position - CGFloat(selected)) < 0.01
 
             ZStack(alignment: .topLeading) {
                 ItMeniscusSurface(cx: cx, edgeY: edgeY)
@@ -128,7 +126,10 @@ private struct ItMeniscusBarBody: View, Animatable {
                                     .frame(width: 22 * item.iconScale, height: 22 * item.iconScale)
                                     .frame(width: 22, height: 22, alignment: .bottom)
                                     .foregroundStyle(style.meta)
-                                    .opacity(item.id == under ? 0 : 1)
+                                    // The selected tab's icon lives in the bead. A slot the bead passes over is
+                                    // covered by the collar, so it no longer has to hide frame by frame.
+                                    .opacity(active ? 0 : 1)
+                                    .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: active)
                                 Text(item.title)
                                     .font(.system(size: 11, weight: active ? .semibold : .medium))
                                     .foregroundStyle(active ? style.tenant : style.meta)
@@ -169,46 +170,10 @@ private struct ItMeniscusBarBody: View, Animatable {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
 
-                // The bead.
-                Circle()
-                    .fill(style.tenant)
+                // The bead: its face (the glyph of the tab it is over) is the only part worked out per frame.
+                ItBeadFace(items: items, selected: selected, position: position, travel: travel, style: style,
+                           reduceMotion: reduceMotion, onSelect: onSelect)
                     .frame(width: ItMeniscusGeometry.bead, height: ItMeniscusGeometry.bead)
-                    .overlay {
-                        if items.indices.contains(under) {
-                            // Landing on the selected tab, a tab with an action turns into it (Receipts: the camera).
-                            // The two cross-fade over the last third of the slide instead of swapping when it lands
-                            // (Tim, 2026-11-06: "Receipts icon to camera jump"); `settle` comes from the animated
-                            // position, so it follows the spring. No `.animation` here: inside
-                            // this per-frame body it left the icon behind at the slot the bead came from.
-                            let item = items[under]
-                            if let turn = item.beadTurn {
-                                ItBeadSpin(open: settled && item.id == selected, turn: turn, reduceMotion: reduceMotion) {
-                                    beadGlyph(item.icon, scale: item.iconScale)
-                                }
-                            } else {
-                            let action = item.id == selected ? item.beadIcon : nil
-                            let settle = action == nil ? 0 : min(1, max(0, 1 - abs(position - CGFloat(selected)) / 0.33))
-                            ZStack {
-                                beadGlyph(item.icon, scale: item.iconScale)
-                                    .opacity(1 - settle)
-                                    .scaleEffect(1 - 0.35 * settle)
-                                // Always drawn (hidden when there is no action): inserted conditionally inside
-                                // this per-frame body it never appeared (simulator, 2026-11-06).
-                                beadGlyph(action ?? item.icon, scale: item.iconScale)
-                                    .opacity(settle)
-                                    .scaleEffect(0.65 + 0.35 * settle)
-                            }
-                            }
-                        }
-                    }
-                    // The bead itself is a target: tapping it is tapping its tab (the slot button carries the
-                    // accessibility label, so the bead stays hidden from VoiceOver). Shape and tap come BEFORE the
-                    // offset: `.offset` moves the drawing, not the layout frame, so a shape set after it stayed at the
-                    // bar's left edge and a tap on the bead's raised half fell through to the row behind (Tim's iPhone,
-                    // 2026-11-06: Receipts' camera bead opened Penny's "No receipt" sheet).
-                    .contentShape(Circle())
-                    .onTapGesture { if settled, items.indices.contains(selected) { onSelect(items[selected].id) } }
-                    .allowsHitTesting(settled)
                     .offset(x: cx - ItMeniscusGeometry.bead / 2, y: 0)
                     .accessibilityHidden(true)
             }
@@ -216,8 +181,70 @@ private struct ItMeniscusBarBody: View, Animatable {
     }
 }
 
-private extension ItMeniscusBarBody {
-    func beadGlyph(_ image: Image, scale: CGFloat) -> some View {
+/// The bead and its glyph, drawn every frame of the slide with the interpolated `position` (Animatable): the icon is
+/// the tab it is over right now, and on landing a tab with an action turns into it.
+private struct ItBeadFace: View, Animatable {
+    let items: [ItMeniscusItem]
+    let selected: Int
+    var position: CGFloat
+    let travel: CGFloat
+    let style: ItAppStyle
+    let reduceMotion: Bool
+    let onSelect: (Int) -> Void
+
+    var animatableData: CGFloat {
+        get { position }
+        set { position = newValue }
+    }
+
+    var body: some View {
+        let count = max(items.count, 1)
+        let under = ItMeniscusGeometry.nearest(position, count: count)
+        // Mid-slide the bead is passing over other slots: it takes no taps and shows no action until it lands.
+        let settled = abs(position - CGFloat(selected)) < 0.01
+        Circle()
+            .fill(style.tenant)
+            .overlay {
+                if items.indices.contains(under) {
+                    // Landing on the selected tab, a tab with an action turns into it (Receipts: the camera).
+                    // The two cross-fade over the last third of the slide instead of swapping when it lands
+                    // (Tim, 2026-11-06: "Receipts icon to camera jump"); `settle` comes from the animated
+                    // position, so it follows the spring. No `.animation` here: inside this per-frame body it
+                    // left the icon behind at the slot the bead came from.
+                    let item = items[under]
+                    if let turn = item.beadTurn {
+                        ItBeadSpin(open: settled && item.id == selected, turn: turn, turns: Self.turns(for: travel),
+                                   reduceMotion: reduceMotion) {
+                            beadGlyph(item.icon, scale: item.iconScale)
+                        }
+                    } else {
+                        let action = item.id == selected ? item.beadIcon : nil
+                        let settle = action == nil ? 0 : min(1, max(0, 1 - abs(position - CGFloat(selected)) / 0.33))
+                        ZStack {
+                            beadGlyph(item.icon, scale: item.iconScale)
+                                .opacity(1 - settle)
+                                .scaleEffect(1 - 0.35 * settle)
+                            // Always drawn (hidden when there is no action): inserted conditionally inside this
+                            // per-frame body it never appeared (simulator, 2026-11-06).
+                            beadGlyph(action ?? item.icon, scale: item.iconScale)
+                                .opacity(settle)
+                                .scaleEffect(0.65 + 0.35 * settle)
+                        }
+                    }
+                }
+            }
+            // The bead itself is a target: tapping it is tapping its tab (the slot button carries the accessibility
+            // label). Shape and tap stay on the bead's own frame; the offset is applied by the bar, outside.
+            .contentShape(Circle())
+            .onTapGesture { if settled, items.indices.contains(selected) { onSelect(items[selected].id) } }
+            .allowsHitTesting(settled)
+    }
+
+    /// Add's + spins one full turn per slot the bead travelled to reach it (Tim, 2026-11-07: Schedule is furthest away,
+    /// so it turns most): 1 from the next tab, 4 from Schedule. Always at least one.
+    static func turns(for travel: CGFloat) -> Int { max(1, min(6, Int(travel.rounded()))) }
+
+    private func beadGlyph(_ image: Image, scale: CGFloat) -> some View {
         image
             .renderingMode(.template)
             .resizable()
@@ -233,6 +260,8 @@ private extension ItMeniscusBarBody {
 private struct ItBeadSpin<Content: View>: View {
     let open: Bool
     let turn: Double
+    /// Whole turns to coast (from how far the bead came): more turns, and faster, from further away.
+    var turns: Int = 2
     let reduceMotion: Bool
     @ViewBuilder let content: Content
 
@@ -248,11 +277,14 @@ private struct ItBeadSpin<Content: View>: View {
                     // As if it had weight (Tim, 2026-11-06: the first cut was "jerky"): it gathers speed, coasts two
                     // turns to a stop 20° past the ×, and only then eases back onto it. The coast ends at rest, so
                     // the turn back starts from still instead of reversing mid-swing.
+                    // Turns scale with the distance and the coast only lengthens slowly, so a longer trip spins faster:
+                    // 1 turn in 0.95 s from the next tab, 4 turns in 1.7 s from Schedule (Tim, 2026-11-07).
+                    let whole = Double(max(1, turns)) * 360
                     MoveKeyframe(-turn)
-                    LinearKeyframe(720 + 20, duration: 1.4,
+                    LinearKeyframe(whole + 20, duration: 0.7 + 0.25 * Double(max(1, turns)),
                                    timingCurve: .bezier(startControlPoint: UnitPoint(x: 0.4, y: 0),
                                                         endControlPoint: UnitPoint(x: 0.2, y: 1)))
-                    SpringKeyframe(720, duration: 0.8, spring: .init(duration: 0.8, bounce: 0))
+                    SpringKeyframe(whole, duration: 0.8, spring: .init(duration: 0.8, bounce: 0))
                 } else {
                     MoveKeyframe(turn)
                     LinearKeyframe(0, duration: 0.4, timingCurve: .easeInOut)
