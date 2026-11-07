@@ -125,6 +125,9 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   12 o'clock: centred on Kaname (his bead is centred), down the left on Schedule, where the day's timeline rail sits on
   the Schedule bead's axis and carries on past the last stop into it (`ItTabSlot`, 1.3.99). Not centred by rule —
   connected by rule.
+- **Time view: the hours ride the same axis (Tim, 2026-11-07).** Each hour is a pill like the Clock in pill (tenant
+  outline, page fill, tenant numeral) threaded on the Schedule bead's axis; the axis runs up to meet the chosen day in the
+  strip and down to the bead, exactly as the numbered timeline does. The hour's grid line leaves from the pill's right.
 - **Only where something is in sequence or in pairs**: a timeline (Schedule) or a comparison (Penny's cheques and
   duplicates). Plain lists (Receipts, Search results) stay hairline rows with no line. One line per screen, never two.
 - **The money's path (Penny's payment cards, 7 Nov 2026).** Down the line: the number row (the shared Kaname row, as on

@@ -517,6 +517,7 @@ enum VisitQuickAction: String, Hashable {
 /// to open the stop, as on the cards.
 struct DayTimeGridView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.itTabSlot) private var tabSlot
     let stops: [Stop]
     let isLoading: Bool
     let isToday: Bool
@@ -524,7 +525,17 @@ struct DayTimeGridView: View {
     var onSelect: ((Stop) -> Void)? = nil
 
     static let hourHeight: CGFloat = 64
-    static let labelWidth: CGFloat = 44
+    /// The hours sit in pills like the Clock in pill, threaded on the time axis (Tim, 2026-11-07): the axis is the
+    /// Schedule bead's, so it runs up to meet the chosen day in the strip and down to the bead, as on the numbered view.
+    static let pillWidth: CGFloat = 48
+    static let pillHeight: CGFloat = 28
+    @State private var width: CGFloat = 0
+    private var axis: CGFloat {
+        guard let tabSlot, width > 0 else { return 16 + Self.pillWidth / 2 }
+        return max(Self.pillWidth / 2 + 4, tabSlot.axis(width: width))
+    }
+    /// Where the blocks begin: just past the pills.
+    private var labelWidth: CGFloat { axis + Self.pillWidth / 2 + 8 }
 
     private struct Block: Identifiable {
         let stop: Stop
@@ -585,6 +596,7 @@ struct DayTimeGridView: View {
                             .font(appStyle.font(.subheadline))
                             .foregroundStyle(appStyle.meta)
                             .frame(maxWidth: .infinity)
+                            .padding(.leading, labelWidth)          // off the axis
                             .padding(.top, 40)
                     }
                     if !l.untimed.isEmpty {
@@ -592,13 +604,27 @@ struct DayTimeGridView: View {
                             Text("No time set").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
                             ForEach(l.untimed) { stop in blockButton(stop, window: nil).frame(height: 44) }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.leading, labelWidth).padding(.trailing, 16)
                     }
                     grid(l).id("grid")
                 }
                 .padding(.vertical, 12)
             }
             .refreshable { await onRefresh() }
+            // The axis: from the top of the view (the chosen day's tick in the strip above) to the bottom (the Schedule
+            // bead's 12 o'clock). Behind everything; the page-filled pills sit on it.
+            .background(alignment: .topLeading) {
+                Rectangle().fill(appStyle.line)
+                    .frame(width: 1.5).frame(maxHeight: .infinity)
+                    .offset(x: axis - 0.75)
+                    .accessibilityHidden(true)
+            }
+            .background(appStyle.page)
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { width = g.size.width }
+                    .onChange(of: g.size.width) { _, w in width = w }
+            })
             .onAppear {
                 // Open on the first stop's hour (or now, on today).
                 let target = isToday ? Calendar.current.component(.hour, from: Date()) : (l.blocks.first?.start ?? l.firstHour * 60) / 60
@@ -611,25 +637,31 @@ struct DayTimeGridView: View {
         let hours = Array(l.firstHour...max(l.firstHour, l.lastHour))
         let height = CGFloat(hours.count - 1) * Self.hourHeight
         return GeometryReader { geo in
-            let laneWidth = geo.size.width - Self.labelWidth - 16
+            let labelWidth = self.labelWidth
+            let laneWidth = geo.size.width - labelWidth - 16
             ZStack(alignment: .topLeading) {
                 ForEach(hours, id: \.self) { h in
-                    HStack(alignment: .center, spacing: 6) {
+                    HStack(alignment: .center, spacing: 8) {
                         Text(ScheduleTimelineRules.clock(h * 60).replacingOccurrences(of: ":00", with: ""))
-                            .font(appStyle.font(.caption2, weight: .semibold))
-                            .foregroundStyle(appStyle.meta)
-                            .frame(width: Self.labelWidth - 8, alignment: .trailing)
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .foregroundStyle(appStyle.tenant)
+                            .frame(width: Self.pillWidth, height: Self.pillHeight)
+                            .background(Capsule().fill(appStyle.page))
+                            .overlay(Capsule().stroke(appStyle.tenant, lineWidth: 1.5))
                         Rectangle().fill(appStyle.line).frame(height: 1)
                     }
-                    .frame(height: 12)
-                    .offset(y: CGFloat(h - l.firstHour) * Self.hourHeight - 6)
+                    .frame(height: Self.pillHeight)
+                    .padding(.leading, axis - Self.pillWidth / 2)
+                    .offset(y: CGFloat(h - l.firstHour) * Self.hourHeight - Self.pillHeight / 2)
                     .id("hour-\(h)")
                 }
                 ForEach(l.blocks) { b in
                     let colWidth = laneWidth / CGFloat(b.columns)
                     blockButton(b.stop, window: ScheduleTimelineRules.windowText(b.stop))
                         .frame(width: colWidth - 4, height: max(28, CGFloat(b.length) / 60 * Self.hourHeight - 3))
-                        .offset(x: Self.labelWidth + CGFloat(b.column) * colWidth,
+                        .offset(x: labelWidth + CGFloat(b.column) * colWidth,
                                 y: CGFloat(b.start - l.firstHour * 60) / 60 * Self.hourHeight + 1)
                 }
                 if isToday {
@@ -638,13 +670,14 @@ struct DayTimeGridView: View {
                     if minutes >= l.firstHour * 60, minutes <= l.lastHour * 60 {
                         Rectangle().fill(appStyle.blocked)
                             .frame(width: laneWidth + 4, height: 1.5)
-                            .offset(x: Self.labelWidth - 4, y: CGFloat(minutes - l.firstHour * 60) / 60 * Self.hourHeight)
+                            .offset(x: labelWidth - 4, y: CGFloat(minutes - l.firstHour * 60) / 60 * Self.hourHeight)
                             .accessibilityLabel("Now")
                     }
                 }
             }
         }
-        .frame(height: height + 12)
+        .frame(height: height + Self.pillHeight)
+        .padding(.top, Self.pillHeight / 2)                // the first pill's top half
         .padding(.leading, 0)
         .padding(.trailing, 16)
     }

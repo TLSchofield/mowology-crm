@@ -98,7 +98,7 @@ struct ScheduleView: View {
                 // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
                 if horizontalSizeClass == .compact {
                     DayCarouselView(selectedDate: weekStripBinding, weekDays: viewModel.weekDays,
-                                    showsLine: views.kind == .numbered && viewModel.timelineInput != nil)
+                                    showsLine: (views.kind == .numbered && viewModel.timelineInput != nil) || views.kind == .time)
                 } else {
                 WeekStripView(
                     selectedDate: weekStripBinding,

@@ -605,10 +605,15 @@ private struct ScheduleTimelineDemo: View {
 
     var body: some View {
         if mode == "time" {   // `-mwTimelineDemo time`: the hour grid (the Schedule bead's Time view)
-            DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
-                                                      Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
-                            isLoading: false, isToday: false, onRefresh: {}, onSelect: { _ in })
-                .background(style.page)
+            // With the day strip above and the Schedule bead's slot, to see the axis meet the chosen day.
+            VStack(spacing: 0) {
+                DayCarouselView(selectedDate: .constant(Date()), weekDays: [], showsLine: true)
+                DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
+                                                          Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
+                                isLoading: false, isToday: true, onRefresh: {}, onSelect: { _ in })
+            }
+            .environment(\.itTabSlot, ItTabSlot(index: 0, count: 5))
+            .background(style.page)
         } else {
             DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
                         onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
