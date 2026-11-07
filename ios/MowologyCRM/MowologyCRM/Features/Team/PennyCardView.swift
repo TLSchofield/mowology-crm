@@ -401,7 +401,14 @@ struct PennyCardView: View {
         let compared = group.facts.filter { $0.state != "info" }
         // The table carries the facts; the headline only says what they add up to. Status and sender sit under the photos.
         let rows = compared   // every compared fact, auth number included (Tim, 2026-11-06: "auth should be in the table")
-        let info = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
+        let infoById = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
+        // Three or more: the receipt kept (in the books / most data) takes the middle column, on the axis (Tim, 2026-11-06:
+        // "the best one … should go in the middle"). Every per-column list is put in the same order.
+        let order = Self.displayOrder(members.map(\.id), keep: keep)
+        let shown = order.map { members[$0] }
+        let shownRows = rows.map { $0.reordered(order) }
+        let shownCompared = compared.map { $0.reordered(order) }
+        let info = infoById.mapValues { v in order.map { v[safe: $0] ?? nil } }
         return VStack(alignment: .leading, spacing: 10) {
             // One group: the copies icon below names the section, so no words above it (Tim, 2026-11-06).
             if vm.dupeSession.count > 1 {
@@ -410,6 +417,9 @@ struct PennyCardView: View {
             // Undo sits up here, under the numbers: at the bottom the tab bar's Kaname button covered it.
             undoOrMessage
 
+            // The axis starts at the copies icon (Tim, 2026-11-06: "the line would meet the copies icon") and runs down
+            // through the panel toward the Kaname button; the icon's ring and the text's page backing break it.
+            VStack(alignment: .leading, spacing: 10) {
             // 1. The section's icon, large, on the centre line in place of the words (Tim, 2026-11-06: "is there an
             //    icon for copies? … should be large to indicate a section"; SPEC §13), then how sure she is.
             VStack(alignment: .center, spacing: 8) {
@@ -429,19 +439,23 @@ struct PennyCardView: View {
             // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
             // the two buttons, on toward the Kaname button below. Two receipts only; three get the table's own lines.
             VStack(alignment: .leading, spacing: 10) {
-                // 2. The facts side by side (Tim: "fast to read"), minus what the verdict already says.
-                if !rows.isEmpty { factsTable(rows, members: members, keep: keep) }
+                // 2–3. The facts side by side, and each receipt's photo under its own column. Three or more: each column is
+                //      wrapped in a frame of the line's weight (Tim: "wrap each one"); the axis runs behind the middle one.
+                VStack(alignment: .leading, spacing: 10) {
+                if !shownRows.isEmpty { factsTable(shownRows, members: shown, keep: keep) }
 
                 // 3. Photos in the buttons' columns, same width (Tim, 2026-11-06); tap for full screen with Penny's read.
                 HStack(alignment: .top, spacing: Self.columnGap) {
-                    ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
-                        dupeThumb(m, index: i, members: members, keep: keep,
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, m in
+                        dupeThumb(m, index: i, members: shown, keep: keep,
                                   status: Self.statusAfter(outcome, member: m.id) ?? info["Status"]?[safe: i] ?? nil,
                               sender: info["Sent in by"]?[safe: i] ?? nil,
-                                  reads: members.indices.map { Self.pennyRead(compared, at: $0) })
+                                  reads: shown.indices.map { Self.pennyRead(shownCompared, at: $0) })
                     }
                 }
                 .frame(maxWidth: .infinity)
+                }
+                .background { if shown.count > 2 { columnFrames(shown.count) } }
 
                 // 4. The swap, small and away from the buttons. (Which one is kept is on its photo and on Merge.)
                 VStack(alignment: .leading, spacing: 6) {
@@ -479,17 +493,43 @@ struct PennyCardView: View {
             .padding(8)
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+            }
             .background(alignment: .top) {
-                if members.count == 2 {
-                    Rectangle().fill(appStyle.line)
-                        .frame(width: 1)
-                        .frame(maxHeight: .infinity)
-                        .padding(.bottom, -400)          // runs on past the card toward the Kaname button
-                        .frame(maxWidth: .infinity)
-                        .accessibilityHidden(true)
-                }
+                Rectangle().fill(appStyle.line)
+                    .frame(width: 1)
+                    .frame(maxHeight: .infinity)
+                    .padding(.top, 28)                // from the icon's centre
+                    .padding(.bottom, -400)          // runs on past the card toward the Kaname button
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
             }
         }
+    }
+
+    /// Three or more receipts: a page-filled frame of the line's weight round each column (facts + photo), so the axis
+    /// passes behind the middle one, and the tick rings sit in the gaps between frames.
+    private func columnFrames(_ n: Int) -> some View {
+        GeometryReader { geo in
+            let gap = Self.columnGap
+            let colW = (geo.size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+            ForEach(0..<n, id: \.self) { k in
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                    .fill(appStyle.page)
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.line, lineWidth: 1))
+                    .frame(width: colW + 10, height: geo.size.height + 10)
+                    .position(x: CGFloat(k) * (colW + gap) + colW / 2, y: geo.size.height / 2)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// Column order for a group: three or more → the kept receipt in the middle, the rest in id order round it.
+    static func displayOrder(_ ids: [Int], keep: Int) -> [Int] {
+        let idx = Array(ids.indices)
+        guard ids.count > 2, let k = ids.firstIndex(of: keep) else { return idx }
+        var rest = idx.filter { $0 != k }
+        rest.insert(k, at: ids.count / 2)
+        return rest
     }
 
     /// Progress through the duplicates, as numbered circles on a horizontal line (Tim, 2026-11-06: "this is Kaname at work"),
@@ -708,19 +748,7 @@ struct PennyCardView: View {
                 Divider().overlay(appStyle.line)
             }
         }
-        // A thin line down each gap, the nav bar's hairline colour, dividing the receipts; the checks sit on it.
-        .background {
-            if n > 2 { GeometryReader { geo in
-                let colW = (geo.size.width - gap * CGFloat(n - 1)) / CGFloat(n)
-                ForEach(1..<max(n, 2), id: \.self) { k in
-                    Rectangle()
-                        .fill(appStyle.line)
-                        .frame(width: 1, height: geo.size.height)
-                        .position(x: CGFloat(k) * colW + CGFloat(k - 1) * gap + gap / 2, y: geo.size.height / 2)
-                }
-            }
-            .accessibilityHidden(true) }
-        }
+        // Three or more: the column frames (columnFrames) divide the receipts; the checks sit in their gaps.
     }
 
     /// A cell in a row that doesn't match: its label goes first so "Card –" reads, unless the value already names itself
@@ -968,3 +996,10 @@ struct PennyDupeDemo: View {
     }
 }
 #endif
+
+extension BKDupeFactRow {
+    /// The same row with its values in the cards' column order (PennyCardView.displayOrder).
+    func reordered(_ order: [Int]) -> BKDupeFactRow {
+        BKDupeFactRow(label: label, values: order.map { values[safe: $0] ?? nil }, state: state)
+    }
+}

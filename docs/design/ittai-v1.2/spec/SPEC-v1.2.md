@@ -108,6 +108,9 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   gets its own side padding or width cap.
 - **Two square buttons**, the panel's two halves either side of the gap, same size whatever their text: the primary
   filled (`tenant`), the other outlined. With three columns they still take the two halves (two choices, not three).
+- **Three or more columns**: the best one (in the books / most data) takes the middle column, on the axis; each column
+  is wrapped in its own frame of the line's weight; the axis runs from the section icon behind the middle frame and on
+  between the buttons. Two columns: the axis runs from the icon down the gap between them.
 - **Setup headings go once learned.** A "getting to know you" heading shows only while the head is still learning;
   once confirmed, only the framed result stays (Tim: "unnecessary once learned").
 - **Desktop**: the same panel lies sideways from 768 px: the comparison on the left, the two squares on the right.
