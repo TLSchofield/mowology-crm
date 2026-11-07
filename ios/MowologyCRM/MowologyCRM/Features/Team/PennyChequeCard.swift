@@ -281,19 +281,24 @@ struct PaymentConfidenceTriangle: View {
         let r = Self.ring, t: CGFloat = 34
         // A square box, not a ring (Tim, 2026-11-07): the circles on the line are ticks and section heads; this is the one
         // judgement on the card, so it gets its own shape.
+        let box = RoundedRectangle(cornerRadius: appStyle.cornerRadius(6))
         ZStack {
-            Rectangle().fill(appStyle.page).frame(width: r + 6, height: r + 6)
-            RoundedRectangle(cornerRadius: appStyle.cornerRadius(6)).stroke(appStyle.line, lineWidth: 1).frame(width: r, height: r)
-            switch level {
-            case "high":   ItKnowledgeMark(stage: .mastered, size: t)
-            case "medium": ItKnowledgeMark(stage: .understood, size: t)
-            default:
-                ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
-                    .stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3.5, 3]))
-                    .frame(width: t, height: t * sqrt(3) / 2)
+            // Page-filled to its own outline, so the centre line and the panel's edge run right up to the box (Tim,
+            // 2026-11-07: a wider square fill hid 3 pt of line each side).
+            box.fill(appStyle.page).frame(width: r, height: r)
+            box.stroke(appStyle.line, lineWidth: 1).frame(width: r, height: r)
+            Group {
+                switch level {
+                case "high":   ItKnowledgeMark(stage: .mastered, size: t)
+                case "medium": ItKnowledgeMark(stage: .understood, size: t)
+                default:
+                    ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
+                        .stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3.5, 3]))
+                        .frame(width: t, height: t * sqrt(3) / 2)
+                }
             }
+            .offset(y: -2)                              // the triangle's weight sits low; lift it (not the box) to look centred
         }
-        .offset(y: -2)                                  // the triangle's weight sits low; lift it to look centred
         .accessibilityElement()
         .accessibilityLabel(level == "high" ? "Mastered: high confidence" : level.capitalized + " confidence")
     }
@@ -334,7 +339,7 @@ struct PaymentFraction: View {
             Text("\(joined)")
                 .font(appStyle.font(.title2, weight: .regular)).foregroundStyle(appStyle.meta)
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, -w * 0.18)            // tucked against the left side, up toward the apex
+                .padding(.trailing, -w * 0.34)            // tucked against the left side, up toward the apex, as near as the label
                 .offset(y: -h * 0.22)
             ZStack {
                 ItKnowledgeTriangleShape().fill(appStyle.page)
@@ -378,9 +383,10 @@ struct PennyPaymentCard: View {
     @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyCardViewModel
     let payment: BKPaymentMatch
-    /// Set when this card was linked / recorded this sitting: the two are one now — shown centred, with Next and Undo.
+    /// Set when this card was linked / recorded this sitting: the two are one now — one filled block, the ledger unlinks.
     var done: PennyCardViewModel.PaymentDone? = nil
     var extendsLine = true
+    @State private var confirmUnlink: PennyCardViewModel.PaymentDone?
 
     var body: some View {
         let count = vm.paySession.count
@@ -390,6 +396,7 @@ struct PennyPaymentCard: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityElement()
                 .accessibilityLabel("Likely payment, from the bank")
+                .modifier(PaymentCarouselActions(vm: vm))
             if count > 1 {
                 KanameNumberRow(count: count, current: vm.payPos,
                                 isDone: { i in vm.paySession.indices.contains(i) && vm.paymentOutcome(vm.paySession[i]) != nil },
@@ -471,49 +478,88 @@ struct PennyPaymentCard: View {
         linking ? payment.targetLine + " + payment" : payment.targetLine
     }
 
-    /// Linked / recorded: the deposit and its invoice(s) are one now — centred, one way on (Next), Undo underneath, the
-    /// ledger filled: counted once, in the books.
+    /// Linked / recorded: the deposit and its invoice(s) are one now — one filled block, the ledger filled: counted once, in
+    /// the books (Tim, 2026-11-07). No Next or Undo: the carousel is swiped, and the ledger itself unlinks (with a confirm).
+    /// The panel is page-filled, so the centre line stops at its top edge and comes back at the ledger.
     private func doneBody(_ d: PennyCardViewModel.PaymentDone) -> some View {
         let p = d.card
-        let next = !vm.openPayments.isEmpty ? "next payment" : (vm.dupes.isEmpty ? "on to receipts" : "on to duplicates")
-        return VStack(spacing: 10) {
-            VStack(spacing: 4) {
-                Label(p.button?.title == "Link" ? "Linked to the bank" : "Paid", systemImage: "checkmark.circle.fill")
-                    .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
-                ForEach(p.targets, id: \.self) { t in Text(t.number).font(appStyle.font(p.targets.count > 1 ? .headline : .title2, weight: .bold)) }
-                if let payer = p.targets.first?.payer, !payer.isEmpty {
-                    Text(payer).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+        let canUnlink = d.logId > 0 && !vm.isBusy
+        return linkedBlock(p)
+            .padding(8)
+            .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
+            .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+            .overlay(alignment: .bottom) {
+                Group {
+                    if d.logId > 0 {
+                        Button { confirmUnlink = d } label: {
+                            PennyCardView.ledgerIcon(filled: true, style: appStyle, tappable: true)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Circle())
+                        .disabled(!canUnlink)
+                        .accessibilityElement()
+                        .accessibilityLabel("In the books")
+                        .accessibilityHint("Double-tap to unlink.")
+                        .accessibilityAddTraits(.isButton)
+                    } else {
+                        PennyCardView.ledgerIcon(filled: true, style: appStyle)
+                    }
                 }
-                Text("\(PennyChequeCard.money(p.amount)) \(p.label.lowercased())").font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+                .offset(y: 31)
             }
-            .multilineTextAlignment(.center)
-            .padding(.vertical, 10).padding(.horizontal, 12)
-            .background(appStyle.page)
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
+            .padding(.bottom, 31)
+            .sheet(item: $confirmUnlink) { d in
+                PaymentUnlinkSheet(done: d) { Task { await vm.undoPayment(d) } }
+            }
+            #if DEBUG
+            .task {
+                // `-mwPayUnlink` with `-mwDupeDemo paymentdone|paymentmany`: open the unlink sheet, for screenshots.
+                if d.logId > 0, ProcessInfo.processInfo.arguments.contains("-mwPayUnlink") {
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    confirmUnlink = d
+                }
+            }
+            #endif
+    }
 
-            chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "arrow.right", title: "Next", detail: next, filled: true) {
-                withAnimation(.easeOut(duration: 0.22)) { vm.advancePayment() }
+    /// Over this many invoices the block shows the count and the first three; the unlink sheet lists them all.
+    static let longList = 10
+
+    /// The one filled block: link mark, the invoice number(s), the payer, the amount and how it came. Not a button.
+    private func linkedBlock(_ p: BKPaymentMatch) -> some View {
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        let many = p.targets.count > Self.longList
+        let shown = many ? Array(p.targets.prefix(3)) : p.targets
+        let amount = "\(PennyChequeCard.money(p.amount)) \(p.label.lowercased())"
+        return VStack(spacing: 6) {
+            Image(systemName: "link").font(appStyle.font(size: 30, weight: .semibold)).padding(.bottom, 4)
+            if many {
+                Text("\(p.targets.count) invoices").font(appStyle.font(.title3, weight: .bold))
             }
-            .frame(width: PennyCardView.singleColumn)
-            .frame(maxWidth: .infinity)
-            if d.logId > 0 {
-                Button("Undo") { Task { await vm.undoPayment(d) } }
-                    .font(appStyle.font(.footnote, weight: .semibold))
-                    .foregroundStyle(appStyle.tenant)
-                    .padding(.horizontal, 8).background(appStyle.page)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(vm.isBusy)
-                    .accessibilityHint("Takes the payment off the invoice again; the deposit goes back to waiting.")
+            ForEach(shown, id: \.self) { t in
+                Text(t.number).font(appStyle.font(p.targets.count > 1 ? .headline : .title2, weight: .bold))
             }
+            if many { Text("and \(p.targets.count - 3) more").font(appStyle.font(.subheadline)).opacity(0.85) }
+            if let payer = p.targets.first?.payer, !payer.isEmpty {
+                Text(payer).font(appStyle.font(.subheadline)).opacity(0.85).padding(.top, 2)
+            }
+            Text(amount).font(appStyle.font(.subheadline, weight: .semibold))
         }
-        .padding(8)
-        .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
-        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
-        // The ledger sits where the centre line crosses the panel's bottom edge (Tim, 2026-11-07), as the business icon sits
-        // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
-        .overlay(alignment: .bottom) { PennyCardView.ledgerIcon(filled: true, style: appStyle).offset(y: 31) }
-        .padding(.bottom, 31)
+        // The page colour, not white: indigo turns pale in dark mode, where white text on it would not read.
+        .foregroundStyle(appStyle.page)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 18).padding(.horizontal, 12)
+        .frame(maxWidth: .infinity)
+        .background(indigo, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            (p.button?.title == "Link" ? "Linked to the bank: " : "Paid: ")
+            + (many ? "\(p.targets.count) invoices, starting \(shown.map(\.number).joined(separator: ", "))"
+                    : p.targets.map(\.number).joined(separator: ", "))
+            + (p.targets.first.map { $0.payer.isEmpty ? "" : ", \($0.payer)" } ?? "") + ", \(amount)")
+        .modifier(PaymentCarouselActions(vm: vm))
     }
 
     @ViewBuilder private var messageLine: some View {
@@ -563,5 +609,151 @@ struct PennyPaymentCard: View {
                 Divider().overlay(appStyle.line)
             }
         }
+    }
+}
+
+/// The payments carousel is swiped (Tim, 2026-11-07: no Next button); VoiceOver gets the same moves as actions.
+struct PaymentCarouselActions: ViewModifier {
+    @ObservedObject var vm: PennyCardViewModel
+    func body(content: Content) -> some View {
+        content
+            .accessibilityAction(named: "Next payment") {
+                withAnimation(.easeOut(duration: 0.22)) { vm.showPayment(at: vm.payPos + 1) }
+            }
+            .accessibilityAction(named: "Previous payment") {
+                withAnimation(.easeOut(duration: 0.22)) { vm.showPayment(at: vm.payPos - 1) }
+            }
+    }
+}
+
+/// Tapping the filled ledger: take the payment out of the books again (the matcher's undo), after a plain confirm.
+struct PaymentUnlinkSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dismiss) private var dismiss
+    let done: PennyCardViewModel.PaymentDone
+    let unlink: () -> Void
+
+    var body: some View {
+        let p = done.card
+        let n = p.targets.count
+        let from = n == 1 ? (p.targets.first?.number ?? "its invoice") : "\(n) invoices"
+        VStack(spacing: 16) {
+            Text("Take \(PennyChequeCard.money(p.amount)) out of the books?")
+                .font(appStyle.font(.title3, weight: .bold)).multilineTextAlignment(.center)
+            Text("It unlinks from \(from) and goes back to waiting.")
+                .font(appStyle.font(.body)).foregroundStyle(appStyle.meta).multilineTextAlignment(.center)
+            if n > PennyPaymentCard.longList {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(p.targets, id: \.self) { t in
+                            HStack {
+                                Text(t.number).font(appStyle.font(.subheadline, weight: .semibold))
+                                Spacer()
+                                Text(PennyChequeCard.money(t.amount)).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .frame(maxHeight: 280)
+            }
+            VStack(spacing: 10) {
+                Button(role: .destructive) { dismiss(); unlink() } label: {
+                    Text("Unlink").font(appStyle.font(.headline)).frame(maxWidth: .infinity, minHeight: 50)
+                        .foregroundStyle(appStyle.page).background(appStyle.blocked, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+                }
+                Button { dismiss() } label: {
+                    Text("Keep").font(appStyle.font(.headline)).frame(maxWidth: .infinity, minHeight: 50)
+                        .foregroundStyle(appStyle.tenant)
+                        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).strokeBorder(appStyle.tenant, lineWidth: 2))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(20)
+        .padding(.top, 8)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+/// The payment cards as a carousel, swipe only (Tim, 2026-11-07): swipe left for the next card, whose left edge peeks in
+/// the right-hand margin; the current card and the centre line stay where they are. The neighbours are pictures only —
+/// not tappable, hidden from VoiceOver (which moves with the cards' "Next payment" action instead).
+struct PennyPaymentCarousel: View {
+    @ObservedObject var vm: PennyCardViewModel
+    let extendsLine: Bool
+    @State private var width: CGFloat = 0
+    @State private var dragX: CGFloat = 0
+
+    /// Between a card and the next: the screen's 16 pt margin less this is how much of the next card shows.
+    static let gap: CGFloat = 4
+
+    var body: some View {
+        if let payment = vm.currentPayment {
+            PennyPaymentCard(vm: vm, payment: payment, done: vm.currentPaymentDone, extendsLine: extendsLine)
+                .background(GeometryReader { g in
+                    Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { _, w in width = w }
+                })
+                .overlay(alignment: .topLeading) { neighbours }
+                .offset(x: dragX)
+                .id(payment.id)
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+                .gesture(swipe)
+        }
+    }
+
+    private func card(at i: Int) -> PennyPaymentCard? {
+        guard vm.paySession.indices.contains(i), let p = vm.paySnapshots[vm.paySession[i]] else { return nil }
+        var done: PennyCardViewModel.PaymentDone?
+        if case .booked(let d)? = vm.payOutcomes[p.txId] { done = d }
+        return PennyPaymentCard(vm: vm, payment: p, done: done, extendsLine: false)
+    }
+
+    /// Cut to the current card's height, so a taller neighbour never reaches past it into the margin below.
+    private var neighbours: some View {
+        GeometryReader { g in
+            ZStack(alignment: .topLeading) {
+                if let next = card(at: vm.payPos + 1) {
+                    next.frame(width: g.size.width, height: g.size.height, alignment: .top).clipped()
+                        .offset(x: g.size.width + Self.gap)
+                }
+                if dragX > 0, let prev = card(at: vm.payPos - 1) {
+                    prev.frame(width: g.size.width, height: g.size.height, alignment: .top).clipped()
+                        .offset(x: -(g.size.width + Self.gap))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var swipe: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { g in
+                guard abs(g.translation.width) > abs(g.translation.height) else { return }
+                let t = g.translation.width
+                let blocked = (t < 0 && vm.payPos + 1 >= vm.paySession.count) || (t > 0 && vm.payPos == 0)
+                dragX = blocked ? t / 4 : t                 // a little give at either end
+            }
+            .onEnded { g in
+                let t = g.translation.width
+                let dir = t < 0 ? 1 : -1                     // swipe left for the next card
+                let far = abs(t) > max(60, width * 0.25) || abs(g.predictedEndTranslation.width) > width * 0.5
+                guard far, abs(t) > abs(g.translation.height), vm.paySession.indices.contains(vm.payPos + dir), width > 0 else {
+                    withAnimation(.spring(duration: 0.3)) { dragX = 0 }
+                    return
+                }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    dragX = -CGFloat(dir) * (width + Self.gap)
+                } completion: {
+                    // The neighbour now sits exactly where the card was: swap them with no animation.
+                    var tr = Transaction()
+                    tr.disablesAnimations = true
+                    withTransaction(tr) { vm.showPayment(at: vm.payPos + dir); dragX = 0 }
+                }
+            }
     }
 }

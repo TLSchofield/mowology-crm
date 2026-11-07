@@ -30,18 +30,10 @@ struct PennyCardView: View {
                     .padding(.vertical, 40)
             } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.paySession.isEmpty {
                 errorState(err)
-            } else if vm.showsPayments, let payment = vm.currentPayment {
+            } else if vm.showsPayments, vm.currentPayment != nil {
                 // Every deposit the payments matcher proposes, first (the same list as "N deposits matched"); answered
-                // ones keep their number in the row and open in their answered state.
-                PennyPaymentCard(vm: vm, payment: payment, done: vm.currentPaymentDone,
-                                 extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-                    .id(payment.id)
-                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
-                    .gesture(DragGesture(minimumDistance: 30).onEnded { g in
-                        guard abs(g.translation.width) > abs(g.translation.height) * 1.5, abs(g.translation.width) > 60 else { return }
-                        // Right to left, as the numbers read: drag right for the next card.
-                        withAnimation(.easeOut(duration: 0.22)) { vm.showPayment(at: vm.payPos + (g.translation.width > 0 ? 1 : -1)) }
-                    })
+                // ones keep their number in the row and open in their answered state. Swiped, the next one peeking.
+                PennyPaymentCarousel(vm: vm, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
                 if vm.showsDupes, let group = vm.currentDupe {
                     dupeCard(group).id(group.id).padding(.top, 18)
                 }
@@ -685,11 +677,13 @@ struct PennyCardView: View {
     /// The end of the money's path on the centre line (Tim, 2026-11-07: "It starts with the bank icon indicating
     /// transactions it ends with in the books"): a ledger in the same gap and ring as the section icon. An outline while
     /// the deposit waits; filled brand indigo, white glyph, once it is linked or recorded — counted once, in the books.
-    static func ledgerIcon(filled: Bool, style: ItAppStyle, ring: CGFloat = 56) -> some View {
+    /// `tappable` (linked, undo available — Tim, 2026-11-07): the ring is drawn in indigo, not the line's shade, so only
+    /// then does it read as something to press.
+    static func ledgerIcon(filled: Bool, style: ItAppStyle, ring: CGFloat = 56, tappable: Bool = false) -> some View {
         let indigo = style.isEnabled ? style.palette.color(.brand) : Color.indigo
         return ZStack {
             Circle().fill(style.page).frame(width: ring + 6, height: ring + 6)
-            Circle().stroke(style.line, lineWidth: 1).frame(width: ring, height: ring)
+            Circle().stroke(tappable ? indigo : style.line, lineWidth: tappable ? 1.5 : 1).frame(width: ring, height: ring)
             if filled {
                 Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
                 Image(systemName: "text.book.closed.fill").font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
@@ -985,8 +979,12 @@ struct PennyDupeDemo: View {
             // `payment` / `paymentdone`: the payments matcher's cards — a cheque paying three invoices, an e-Transfer.
             let pay1 = #"{"tx_id":9101,"signature":"s1","amount":1370.52,"memo":"CHEQUEDEPOSIT-BRANCH","label":"Cheque deposit","payer":"Sample Strata","confidence":"medium","verdict":"$1,370.52 pays INV-2026-0431, INV-2026-0314, INV-2026-0372 (Sample Strata) — record it on the invoices.","evidence":[],"flags":[],"targets":[{"number":"INV-2026-0431","payer":"Sample Strata","amount":500},{"number":"INV-2026-0314","payer":"Sample Strata","amount":470.52},{"number":"INV-2026-0372","payer":"Sample Strata","amount":400}],"facts":[{"label":"Amount","deposit":"$1,370.52","invoice":"$1,370.52 on 3 invoices","state":"same"},{"label":"Name","deposit":"not on the memo","invoice":"Sample Strata","state":"missing"},{"label":"Date","deposit":"Banked Oct 22","invoice":"Issued Sep 1","state":"info"}]}"#
             let pay2 = #"{"tx_id":9102,"signature":"s2","amount":1890,"memo":"ETRANSFERCREDIT(SAMPLECLIENT)","label":"e-Transfer","payer":"SAMPLECLIENT","confidence":"high","button":{"title":"Link","detail":"bank line to the payment"},"verdict":"$1,890.00 is the payment already recorded on INV-2026-0465 (Sample Client) — link it so it counts once.","evidence":["Interac e-Transfer from Sample Client paid INV-2026-0465"],"flags":[],"targets":[{"number":"INV-2026-0465","payer":"Sample Client","amount":1890}],"facts":[{"label":"Amount","deposit":"$1,890.00","invoice":"$1,890.00","state":"same"},{"label":"Name","deposit":"SAMPLECLIENT","invoice":"Sample Client","state":"same"},{"label":"Date","deposit":"Banked Oct 23","invoice":"Issued Oct 1","state":"info"}]}"#
-            let payments = variant == "payment" ? pay1 + "," + pay2 : (variant == "paymentdone" ? (answered == 0 ? pay1 + "," + pay2 : pay2) : "")
-            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque" || variant == "chequedone" || variant == "payment" || variant == "paymentdone") ? champ : variant == "first" ? champ + "," + shell
+            // `paymentmany`: one deposit paying 12 invoices, recorded at launch (the block shows the count and the first three).
+            let manyTargets = (1...12).map { k in #"{"number":"INV-2026-05\#(String(format: "%02d", k))","payer":"Sample Strata","amount":34.13}"# }.joined(separator: ",")
+            let pay3 = #"{"tx_id":9103,"signature":"s3","amount":409.50,"memo":"ETRANSFERCREDIT(SAMPLESTRATA)","label":"e-Transfer","payer":"Sample Strata","confidence":"high","verdict":"$409.50 pays 12 invoices (Sample Strata).","evidence":[],"flags":[],"targets":["# + manyTargets + #"],"facts":[]}"#
+            let payments = variant == "payment" ? pay1 + "," + pay2 : (variant == "paymentdone" ? (answered == 0 ? pay1 + "," + pay2 : pay2)
+                : variant == "paymentmany" ? pay3 + "," + pay2 : "")
+            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque" || variant == "chequedone" || variant == "payment" || variant == "paymentdone" || variant == "paymentmany") ? champ : variant == "first" ? champ + "," + shell
                 : variant == "nine" ? ([shell] + (1...8).map { k in champ.replacingOccurrences(of: "48", with: "4\(k)") }).dropFirst(answered).joined(separator: ",")
                 : shell + "," + champ
             let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"payments":["# + payments + #"],"cheques":["# + cheques + #"],"dupes":["# + groups + "]}"
@@ -1031,7 +1029,7 @@ struct PennyDupeDemo: View {
         .task {
             await vm.load()
             if variant == "chequedone", let c = vm.currentCheque { await vm.recordCheque(c) }
-            if variant == "paymentdone", let p = vm.currentPayment { await vm.recordPayment(p) }
+            if variant == "paymentdone" || variant == "paymentmany", let p = vm.currentPayment { await vm.recordPayment(p) }
             // `-mwPayAnswered N`: skip the first N payment cards, to see ticked numbers in the row.
             let payArgs = ProcessInfo.processInfo.arguments
             if let i = payArgs.firstIndex(of: "-mwPayAnswered"), i + 1 < payArgs.count, let n = Int(payArgs[i + 1]) {

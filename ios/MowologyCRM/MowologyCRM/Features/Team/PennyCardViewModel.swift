@@ -41,7 +41,7 @@ final class PennyCardViewModel: ObservableObject {
     @Published private(set) var cheques: [BKChequeMatch] = []
     /// Every deposit the payments matcher proposes (1.3.108): replaces the cheque-only cards on this build.
     @Published private(set) var payments: [BKPaymentMatch] = []
-    struct PaymentDone: Equatable { let card: BKPaymentMatch; let logId: Int; let message: String }
+    struct PaymentDone: Equatable, Identifiable { let card: BKPaymentMatch; let logId: Int; let message: String; var id: Int { card.txId } }
     /// The sitting's payments, kept in order with a snapshot each, so answered ones keep their number in the row and stay
     /// reachable (Tim, 2026-11-07: "1 of 7 should follow the same carousel numbering style … for the receipt merge").
     enum PaymentOutcome: Equatable { case booked(PaymentDone), skipped }
