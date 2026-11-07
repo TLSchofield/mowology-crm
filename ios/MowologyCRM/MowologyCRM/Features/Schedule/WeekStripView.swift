@@ -94,12 +94,15 @@ struct DayCarouselView: View {
     private let tick = UISelectionFeedbackGenerator()
     private let base = Calendar.current.startOfDay(for: .now)
 
+    @State private var width: CGFloat = 0
+
     var body: some View {
-        GeometryReader { geo in
-            let axis = tabSlot?.axis(width: geo.size.width) ?? geo.size.width / 10
-            let lead = max(0, axis - Self.chipWidth / 2)
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
+        // Natural height (Tim's iPhone, 1.3.104: at his larger text size the chips outgrew a fixed 96 pt strip and spilled
+        // up over the Mine / All crews bar). The width is read in the background for the axis.
+        let axis = tabSlot?.axis(width: width) ?? width / 10
+        let lead = max(0, axis - Self.chipWidth / 2)
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     // Not lazy: on Tim's iPhone (1.3.101) the strip jumped to the chosen day before a lazy stack had made
                     // that chip, and showed blank space. 181 small chips are cheap.
@@ -116,30 +119,38 @@ struct DayCarouselView: View {
                     .scrollTargetLayout()
                 }
                 .contentMargins(.leading, lead, for: .scrollContent)
-                .contentMargins(.trailing, max(0, geo.size.width - lead - Self.chipWidth), for: .scrollContent)
+                .contentMargins(.trailing, max(0, width - lead - Self.chipWidth), for: .scrollContent)
                 .scrollTargetBehavior(.viewAligned)
                 .scrollPosition(id: $centred, anchor: .leading)
-                .frame(height: 76)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 10)
-                // Once laid out, put the chosen day on the line (the binding alone could fire before layout).
+                // Once laid out (and whenever the width changes the margins), put the chosen day on the line.
+                .onChange(of: width) { _, _ in
+                    let o = offset(of: selectedDate)
+                    proxy.scrollTo(o, anchor: .leading)
+                    centred = o
+                }
                 .task {
                     try? await Task.sleep(nanoseconds: 50_000_000)
                     let o = offset(of: selectedDate)
                     proxy.scrollTo(o, anchor: .leading)
                     centred = o
                 }
-                }
-
-                // The line leaves the chosen day and runs down to the first stop.
-                Rectangle()
-                    .fill(showsLine ? appStyle.line : Color.clear)
-                    .frame(width: 1.5, height: 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .offset(x: axis - 0.75)
-                    .accessibilityHidden(true)
             }
+
+            // The line leaves the chosen day and runs down to the first stop.
+            Rectangle()
+                .fill(showsLine ? appStyle.line : Color.clear)
+                .frame(width: 1.5, height: 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .offset(x: axis - 0.75)
+                .accessibilityHidden(true)
         }
-        .frame(height: 96)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { width = g.size.width }
+                .onChange(of: g.size.width) { _, w in width = w }
+        })
         .background(appStyle.page)
         .onAppear {
             remember(weekDays)
