@@ -345,8 +345,10 @@ struct PaymentFraction: View {
                     .offset(y: h * 0.16)
             }
             .frame(width: w, height: h)
+            // Quiet like the numbers: what it names is already decided (Tim, 2026-11-07). `meta`, not the line colour itself,
+            // which is too pale to read as text.
             Text(label.uppercased())
-                .font(appStyle.font(.caption, weight: .medium)).foregroundStyle(appStyle.text)
+                .font(appStyle.font(.caption, weight: .medium)).foregroundStyle(appStyle.meta)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
