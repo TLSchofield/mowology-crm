@@ -23,6 +23,8 @@ body.it-shell.it-shell .sidebar-brand {
 /* Ittai's symbol (frozen v1.2 asset, 24 px) beside the tenant's name — product mark + whose CRM it is (2026-10-19) */
 body.it-shell.it-shell .sidebar-brand { display: flex; align-items: center; gap: var(--it-space-2); }
 body.it-shell.it-shell .it-sb-symbol { width: 24px; height: 24px; flex: none; }
+/* The Ittai wordmark (navy, gold bar and dots) before the business name, top left (Tim, 2026-11-06). */
+body.it-shell.it-shell .it-sb-wordmark { height: 19px; width: auto; flex: none; margin-right: 10px; }
 
 body.it-shell.it-shell .it-sb-nav { padding: 0 var(--it-space-2) var(--it-space-8); }
 

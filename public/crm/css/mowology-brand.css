@@ -41715,3 +41715,36 @@ body.mw-books {
     .mw-ds-anatomy { grid-template-columns: 1fr; }
     .mw-ds-type-row { grid-template-columns: 1fr; }
 }
+
+/* Design System page — Brand & art (2026-11-06) */
+.mw-ds-chip { display: inline-block; font-size: 11px; font-weight: 600; line-height: 18px; padding: 0 8px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid currentColor; vertical-align: middle; }
+.mw-ds-chip--approved { color: var(--it-status-complete); }
+.mw-ds-chip--chosen { color: var(--it-status-progress); }
+.mw-ds-chip--candidate { color: var(--it-status-attention); }
+.mw-ds-chip--exploration { color: var(--it-meta); }
+.mw-ds-marks { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--it-space-6); margin-bottom: var(--it-space-4); }
+.mw-ds-mark { margin: 0; }
+.mw-ds-mark--wide { grid-column: span 2; }
+.mw-ds-mark-tile { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); padding: var(--it-space-6); }
+.mw-ds-mark-tile img, .mw-ds-mark-tile svg { max-width: 100%; max-height: 100%; }
+.mw-ds-mark-tile--dark { background: var(--it-brand); }
+.mw-ds-mark figcaption, .mw-ds-pattern figcaption { margin-top: var(--it-space-2); font-size: 13px; color: var(--it-meta); }
+.mw-ds-mark figcaption strong { color: var(--it-text); font-weight: 600; }
+.mw-ds-mark figcaption > span:not(.mw-ds-chip) { display: block; margin-top: 2px; }
+.mw-ds-frame { width: 100%; height: 300px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); background: var(--it-surface); }
+.mw-ds-frame--tall { height: 420px; }
+.mw-ds-board { width: 100%; height: auto; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); background: var(--it-surface); }
+.mw-ds-patterns { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--it-space-4); margin-bottom: var(--it-space-2); }
+.mw-ds-pattern { margin: 0; text-align: center; }
+.mw-ds-pattern .mw-ds-mark-tile { aspect-ratio: 1 / 1; padding: var(--it-space-3); }
+.mw-ds-retired { margin: 0; padding-left: var(--it-space-6); color: var(--it-text); font-size: 14px; line-height: 22px; }
+.mw-ds-knowledge { width: 120px; height: 120px; }
+.mw-ds-knowledge-tri { fill: none; stroke: var(--it-knowledge-mastered); stroke-width: 4; stroke-linejoin: round; stroke-dasharray: 230; stroke-dashoffset: 230; animation: mw-ds-draw 3.2s ease-in-out infinite; }
+@keyframes mw-ds-draw { 0% { stroke-dashoffset: 230; stroke: var(--it-knowledge-discovered); } 45% { stroke-dashoffset: 0; stroke: var(--it-knowledge-understood); } 70%, 100% { stroke-dashoffset: 0; stroke: var(--it-knowledge-mastered); } }
+@media (prefers-reduced-motion: reduce) { .mw-ds-knowledge-tri { animation: none; stroke-dashoffset: 0; stroke: var(--it-knowledge-mastered); } }
+.mw-ds-axis-mini { width: 110px; height: 110px; }
+.mw-ds-axis-mini line { stroke: var(--it-line); stroke-width: 1; }
+.mw-ds-axis-mini .g { fill: var(--it-surface); }
+.mw-ds-axis-mini .r { fill: none; stroke: var(--it-line); stroke-width: 1; }
+.mw-ds-axis-mini .b { fill: var(--it-brand); }
+@media (max-width: 767px) { .mw-ds-mark--wide { grid-column: auto; } }

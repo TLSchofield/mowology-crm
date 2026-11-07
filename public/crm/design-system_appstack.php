@@ -28,6 +28,35 @@ $scales = [
     'Size'    => $tokens['size']['tokens'] ?? [],
 ];
 $img = '/crm/assets/design-system/';
+// Unreleased brand art goes through the signed-in script (the folder denies direct requests).
+$brand = fn($f) => '/crm/design-asset.php?f=' . rawurlencode($f);
+$chip = fn($status) => '<span class="mw-ds-chip mw-ds-chip--' . strtolower($status) . '">' . htmlspecialchars($status) . '</span>';
+
+// Brand and art — from the vault's Ittai-Brand-and-Art index (status words: Approved · Chosen · Candidate · Exploration).
+$identity = [
+    ['ittai-wordmark-navy-gold.svg', 'Wordmark v1.3 — navy and gold', 'Approved', 'Lowercase "ittai", drawn never typed (in running text write "Ittai"). Navy brand, antique gold dots and crossbar; gold is a logo colour only.', 'light'],
+    ['ittai-wordmark-dark.svg', 'Wordmark v1.3 — on dark', 'Approved', 'Dark navy tile, lifted navy and gold for contrast.', 'dark'],
+    ['ittai-wordmark-navy-mono.svg', 'Wordmark v1.3 — navy mono', 'Approved', 'Below 24 px, and anywhere gold cannot print.', 'light'],
+    ['app-icon-1024.png', 'App icon — "two people"', 'Approved', 'Two t\'s as two people: gold heads, white bodies, one shared gold beam, navy tile. Live on iPhone. The identity outside the product (icon, avatars).', 'light'],
+    ['tt-light.svg', 'tt mark — light', 'Approved', 'Source geometry for the icon and avatars.', 'light'],
+    ['tt-dark.svg', 'tt mark — dark', 'Approved', 'On dark grounds.', 'dark'],
+    ['tt-mono.svg', 'tt mark — mono', 'Approved', 'One colour, small sizes, stamps.', 'light'],
+    ['tt-icon-gold.svg', 'tt icon — gold tile', 'Candidate', 'Alternate tile colour, not chosen.', 'light'],
+];
+$patterns = [
+    ['geometric-traced.svg', 'Geometric circles'], ['enso-brush.svg', 'Ensō brush'], ['brush.svg', 'Brush stroke'],
+    ['elements.svg', 'Elements'], ['leaf-traced.svg', 'Leaf'],
+];
+$spots = ['spot-lawn.svg' => 'Lawn', 'spot-hedge.svg' => 'Hedge', 'spot-tree.svg' => 'Tree', 'spot-garden.svg' => 'Garden',
+          'spot-planting.svg' => 'Planting', 'spot-seasonal.svg' => 'Seasonal', 'spot-residential.svg' => 'Residential', 'spot-strata.svg' => 'Strata'];
+$boards = [
+    ['ittai-brand-board-2026-10-26.jpg', 'Brand board A', 'Approved', 'Wordmark and golds match the approval. Sand and Forest on it are NOT tokens.'],
+    ['ittai-brand-board-2026-10-26-b.jpg', 'Brand board B', 'Approved', 'Same approval and the same caveat.'],
+    ['ittai-wordmark-gold-options-2026-10-17.jpg', 'Gold options', 'Approved', 'Antique Gold chosen; Pale Gold lost.'],
+    ['ittai-marketing-moodboard-2026-10-26.jpg', 'Marketing mood board', 'Exploration', 'Photo direction, ensō, Japanese motifs, ink botanicals. Marketing surfaces only.'],
+    ['tt-ladder.jpg', 'tt mark size ladder', 'Approved', 'The mark from 1024 px down to favicon.'],
+    ['traced-compare.jpg', 'Traced art — source vs trace', 'Approved', 'How the website patterns were traced (website only).'],
+];
 
 // §13, rule by rule: what it says, why, and where it can be seen.
 $rules = [
@@ -98,10 +127,90 @@ $questions = [
   </header>
 
   <nav class="mw-ds-toc" aria-label="Sections">
-    <a href="#principles">1 Principles</a><a href="#tokens">2 Tokens</a><a href="#type">3 Type</a><a href="#scales">4 Scales</a>
+    <a href="#brand">Brand &amp; art</a><a href="#principles">1 Principles</a><a href="#tokens">2 Tokens</a><a href="#type">3 Type</a><a href="#scales">4 Scales</a>
     <a href="#centre-line">5 The centre line</a><a href="#anatomy">6 Anatomy</a><a href="#examples">7 Examples</a>
     <a href="#donts">8 Do / don't</a><a href="#where">9 Where it lives</a><a href="#questions">10 Open questions</a>
   </nav>
+
+  <section id="brand" class="mw-ds-section">
+    <h2>Brand &amp; art</h2>
+    <p class="mw-ds-note">Every Ittai mark, the geometry, the motion and the boards, with status. Two identities: the <strong>hexagon symbol</strong> inside the product, the <strong>tt mark and wordmark</strong> outside it. Unreleased art is served only to signed-in staff.</p>
+
+    <h3 class="mw-ds-sub">Symbol (inside the product) <?= $chip('Approved') ?></h3>
+    <div class="mw-ds-marks">
+      <figure class="mw-ds-mark"><div class="mw-ds-mark-tile"><img src="<?= $img ?>ittai-symbol.svg" alt="Ittai symbol" width="96" height="96"></div>
+        <figcaption><strong>Hexagon symbol, v1.2 frozen</strong><span>Monochrome; never animated, never rotated, no state input. The in-app mark (sidebar, splash, favicon until the tt switch is approved).</span></figcaption></figure>
+      <figure class="mw-ds-mark mw-ds-mark--wide"><iframe class="mw-ds-frame" src="<?= $e($brand('ittai-symbol-preview.html')) ?>" title="Ittai symbol sizes"></iframe>
+        <figcaption><strong>Symbol across sizes</strong><span>Component preview from the v1.2 source.</span></figcaption></figure>
+    </div>
+
+    <h3 class="mw-ds-sub">Wordmark and app icon (outside the product)</h3>
+    <div class="mw-ds-marks">
+      <?php foreach ($identity as [$f, $title, $status, $text, $ground]): ?>
+        <figure class="mw-ds-mark"><div class="mw-ds-mark-tile mw-ds-mark-tile--<?= $e($ground) ?>"><img src="<?= $e($brand($f)) ?>" alt="<?= $e($title) ?>" loading="lazy"></div>
+          <figcaption><strong><?= $e($title) ?></strong> <?= $chip($status) ?><span><?= $e($text) ?></span></figcaption></figure>
+      <?php endforeach; ?>
+    </div>
+
+    <h3 class="mw-ds-sub">Geometry</h3>
+    <div class="mw-ds-marks">
+      <figure class="mw-ds-mark mw-ds-mark--wide"><iframe class="mw-ds-frame mw-ds-frame--tall" src="<?= $e($brand('ai-office-hexagon.html')) ?>" title="AI Office Hexagon"></iframe>
+        <figcaption><strong>AI Office Hexagon</strong> <?= $chip('Approved') ?><span>The heads around one office: state per head (working, approval, blocked, idle). 232 × 204 full, 32 px compact.</span></figcaption></figure>
+      <figure class="mw-ds-mark">
+        <div class="mw-ds-mark-tile">
+          <svg class="mw-ds-knowledge" viewBox="0 0 100 100" role="img" aria-label="Knowledge glyph: three lines become a triangle">
+            <polygon class="mw-ds-knowledge-tri" points="50,16 86,80 14,80"/>
+          </svg>
+        </div>
+        <figcaption><strong>Knowledge glyph</strong> <?= $chip('Approved') ?><span>Three lines become a triangle as a head learns the business (discovered → understood → mastered). A state, never decoration — the one place gold appears in working screens.</span></figcaption></figure>
+      <figure class="mw-ds-mark">
+        <div class="mw-ds-mark-tile"><?= '' ?><svg class="mw-ds-axis-mini" viewBox="0 0 100 100" role="img" aria-label="The Kaname centre line"><line x1="50" y1="4" x2="50" y2="96"/><circle class="g" cx="50" cy="30" r="11"/><circle class="r" cx="50" cy="30" r="9.5"/><circle class="b" cx="50" cy="30" r="7"/><circle class="g" cx="50" cy="66" r="11"/><circle class="r" cx="50" cy="66" r="9.5"/><circle class="b" cx="50" cy="66" r="7"/></svg></div>
+        <figcaption><strong>The Kaname centre line</strong> <?= $chip('Candidate') ?><span>Added 6 Nov 2026 for review — see §13 below.</span></figcaption></figure>
+    </div>
+
+    <h3 class="mw-ds-sub">Motion</h3>
+    <div class="mw-ds-marks">
+      <figure class="mw-ds-mark mw-ds-mark--wide"><iframe class="mw-ds-frame mw-ds-frame--tall" src="<?= $e($brand('logo-motion-v4-pinball.html')) ?>" title="Logo animation v4"></iframe>
+        <figcaption><strong>Logo animation v4 "pinball" — app icon becomes the wordmark</strong> <?= $chip('Chosen') ?><span>Letters build, the tt flicks up and strikes the dots, the right dot ricochets off the a. Splash 4.8 s (animation only); website 9.6 s. Not yet exported to Lottie / MP4.</span></figcaption></figure>
+      <figure class="mw-ds-mark mw-ds-mark--wide"><iframe class="mw-ds-frame mw-ds-frame--tall" src="<?= $e($brand('chaos-to-unity.html')) ?>" title="Chaos to Unity"></iframe>
+        <figcaption><strong>Chaos to Unity — six strokes gather into one ring</strong> <?= $chip('Approved') ?><span>Direction for the website hero and sign-in moments only; never in working screens.</span></figcaption></figure>
+      <?php foreach (['v4' => ['Chosen', 'v4 frames'], 'v3' => ['Exploration', 'v3 refined'], 'v1' => ['Exploration', 'v1 geometric']] as $v => [$st, $label]): ?>
+        <figure class="mw-ds-mark mw-ds-mark--wide"><img class="mw-ds-board" src="<?= $e($brand('logo-motion-' . $v . '-frames.jpg')) ?>" alt="Logo motion <?= $e($label) ?>" loading="lazy">
+          <figcaption><strong>Logo motion — <?= $e($label) ?></strong> <?= $chip($st) ?></figcaption></figure>
+      <?php endforeach; ?>
+    </div>
+    <p class="mw-ds-note">Rules: the symbol is never animated. Motion is for splash, website and sign-in; working screens move only to show state.</p>
+
+    <h3 class="mw-ds-sub">Patterns and traced art (website only) <?= $chip('Approved') ?></h3>
+    <div class="mw-ds-patterns">
+      <?php foreach ($patterns as [$f, $label]): ?>
+        <figure class="mw-ds-pattern"><div class="mw-ds-mark-tile"><img src="<?= $e($brand($f)) ?>" alt="<?= $e($label) ?>" loading="lazy"></div><figcaption><?= $e($label) ?></figcaption></figure>
+      <?php endforeach; ?>
+    </div>
+    <p class="mw-ds-note">One pattern per screen, 6–12 % behind copy. Never in the app.</p>
+    <div class="mw-ds-patterns">
+      <?php foreach ($spots as $f => $label): ?>
+        <figure class="mw-ds-pattern"><div class="mw-ds-mark-tile"><img src="<?= $e($brand($f)) ?>" alt="Spot illustration: <?= $e($label) ?>" loading="lazy"></div><figcaption><?= $e($label) ?></figcaption></figure>
+      <?php endforeach; ?>
+    </div>
+    <p class="mw-ds-note">Spot illustrations are landscaping tenant examples, labelled as such; other disciplines get their own.</p>
+
+    <h3 class="mw-ds-sub">Boards</h3>
+    <div class="mw-ds-marks">
+      <?php foreach ($boards as [$f, $title, $status, $text]): ?>
+        <figure class="mw-ds-mark mw-ds-mark--wide"><a href="<?= $e($brand($f)) ?>" target="_blank" rel="noopener"><img class="mw-ds-board" src="<?= $e($brand($f)) ?>" alt="<?= $e($title) ?>" loading="lazy"></a>
+          <figcaption><strong><?= $e($title) ?></strong> <?= $chip($status) ?><span><?= $e($text) ?></span></figcaption></figure>
+      <?php endforeach; ?>
+    </div>
+
+    <h3 class="mw-ds-sub">Retired — do not use</h3>
+    <ul class="mw-ds-retired">
+      <li>Bracketed text wordmark <code>[Ittai]</code> in corner brackets (corner brackets stay an interface motif only).</li>
+      <li>Uppercase "ITTAI" with vermilion dots, and the dark "AI Office for field businesses" icon sheet.</li>
+      <li>Ensō as the "a" in the logo animation (v2) — rejected.</li>
+      <li>Strapline "Every i dotted. Every t crossed." — candidate only; no taglines beyond "Ittai, one business, working as one" until the trade-mark filing.</li>
+    </ul>
+  </section>
 
   <section id="principles" class="mw-ds-section">
     <h2>1 &nbsp;Principles (v1.2)</h2>

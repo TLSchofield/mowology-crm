@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ittai Chaos to Unity</title>
+</head>
+<body>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Zen+Kaku+Gothic+New:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{--page:#F7F5F0;--ink:#233A5E;--spoke:#C9CDD2;--meta:#56635B;--line:#D9DFDA;color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--page:#0F1512;--ink:#A9B9DA;--spoke:#3A4440;--meta:#A3AFA8;--line:#2B3530;color-scheme:dark}}
+:root[data-theme="dark"]{--page:#0F1512;--ink:#A9B9DA;--spoke:#3A4440;--meta:#A3AFA8;--line:#2B3530;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;min-width:0;background:var(--page);color:var(--ink);font-family:Inter,system-ui,sans-serif;overflow-x:hidden}
+.ittai-page{min-height:100svh;display:grid;place-items:center;padding:32px 16px}.ittai-shell{width:min(100%,520px);text-align:center}
+ittai-unity{display:block;width:100%}.ittai-stage{height:min(420px,70vw);min-height:280px;display:grid;place-items:center}.ittai-stage svg{display:block;width:min(100%,410px);height:100%;color:var(--ink);overflow:visible}
+.ittai-kanji{font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN",sans-serif;font-size:11px;font-weight:500;fill:var(--ink)}
+.ittai-latin{font-family:Inter,system-ui,sans-serif;font-size:12px;font-weight:600;letter-spacing:.01em;fill:var(--ink)}
+.ittai-japanese{font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN",sans-serif;font-size:9px;font-weight:500;letter-spacing:0;fill:var(--meta)}
+.ittai-controls{margin-top:32px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:center}.ittai-controls button{min-height:48px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink);font:600 14px Inter,system-ui;cursor:pointer}.ittai-controls button:hover{background:color-mix(in srgb,var(--ink) 7%,transparent)}
+.ittai-controls :focus-visible{outline:3px solid var(--ink);outline-offset:3px}.ittai-controls input[type=range]{grid-column:1/-1;width:100%;height:48px;margin:0;accent-color:var(--ink);cursor:pointer}.ittai-time{font-variant-numeric:tabular-nums;color:var(--meta);font-size:13px;text-align:left}
+.ittai-speeds{border:0;padding:0;margin:0;display:flex;justify-content:flex-end;gap:3px;min-width:0}.ittai-speeds legend{position:absolute;clip:rect(0 0 0 0);clip-path:inset(50%)}.ittai-speeds label{position:relative;display:grid;place-items:center;min-width:48px;height:48px;border-radius:999px;color:var(--meta);font-size:12px;cursor:pointer}.ittai-speeds input{position:absolute;inset:0;opacity:0}.ittai-speeds label:has(input:checked){background:var(--ink);color:var(--page)}.ittai-speeds label:has(input:focus-visible){outline:3px solid var(--ink);outline-offset:2px}
+.ittai-copy{margin:24px 0 0;color:var(--meta);font-size:14px;letter-spacing:.02em}
+@media(max-width:420px){.ittai-page{padding-top:20px;padding-bottom:20px}.ittai-stage{height:300px}.ittai-speeds{grid-column:1/-1;justify-content:center}.ittai-time{text-align:center;grid-column:1/-1}.ittai-controls{gap:6px}}
+</style>
+<main class="ittai-page"><section class="ittai-shell" aria-labelledby="ittai-caption"><ittai-unity controls></ittai-unity><p class="ittai-copy" id="ittai-caption">Six specialists. One office.</p></section></main>
+<script>
+(() => {
+  const DURATION = 6500;
+  const NS = 'http://www.w3.org/2000/svg';
+  const normals = [-90, -30, 30, 90, 150, 210];
+  const chaos = [
+    [28.2, 28.0, 16, .42, 1.37], [36.2, 31.5, -48, .33, 2.41],
+    [29.4, 36.4, 72, .38, 4.02], [34.8, 25.8, 137, .27, 5.18],
+    [25.7, 32.8, -101, .31, .72], [38.7, 37.0, 29, .36, 3.15]
+  ];
+  const timing = [[1300,2500],[1420,2400],[1560,2300],[1700,2250],[1840,2200],[1980,2200]]; // staggered starts, all settle by 4.2 s
+  const point = (deg, r) => { const a = deg * Math.PI / 180; return [32 + r * Math.cos(a), 32 + r * Math.sin(a)]; };
+  const side = i => {
+    const [x1,y1] = point(normals[i]-30,27), [x2,y2] = point(normals[i]+30,27);
+    const tangent = 6 / Math.tan(Math.PI/3), halfArc = 6 * Math.PI/6;
+    const total = 27 - 2*tangent + 2*halfArc;
+    // Display weight (Tim 2026-10-17, ruled exception to the frozen ladder: 256 px and up): sides 2.25, ring 1.6, spokes 1.0.
+    // Each side is lengthened by the round-cap difference (3.5 - 2.25) / 2 per end, so the corner gaps match the frozen 64+ row.
+    const fromVertex = tangent + (total*(1-.7534)/2-halfArc) - (3.5-2.25)/2;
+    const dx=(x2-x1)/27, dy=(y2-y1)/27;
+    return [x1+dx*fromVertex,y1+dy*fromVertex,x2-dx*fromVertex,y2-dy*fromVertex];
+  };
+  const sides = normals.map((_,i)=>side(i));
+  const length = Math.hypot(sides[0][2]-sides[0][0],sides[0][3]-sides[0][1]);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const ease=t=>t*t*(3-2*t);
+  const angleDelta=(a,b)=>((b-a+540)%360)-180;
+  const el=(name,attrs={})=>{const n=document.createElementNS(NS,name); Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v)); return n;};
+
+  class IttaiUnity extends HTMLElement {
+    constructor(){
+      super();
+      this._time=0; this._speed=1; this._playing=false; this._raf=0; this._last=null; this._listeners=[];
+      this._tick=this._tick.bind(this);
+    }
+    connectedCallback(){
+      if(this._built) return; this._built=true;
+      this.classList.add('ittai-unity');
+      const stage=document.createElement('div'); stage.className='ittai-stage';
+      this.svg=el('svg',{viewBox:'-16 -5 96 108',role:'img','aria-label':'Ittai — chaos becomes unity'});
+      const sideGroup=el('g',{class:'ittai-sides',fill:'none',stroke:'currentColor','stroke-width':'2.25','stroke-linecap':'round'});
+      this.sticks=sides.map((_,i)=>{const l=el('line',{class:'ittai-stick',id:`ittai-side-${i}`}); sideGroup.append(l); return l;});
+      const story=el('g',{class:'ittai-story'});
+      this.spokes=normals.map((n,i)=>{const a=point(n,12),b=point(n,18),l=el('line',{id:`ittai-spoke-${i}`,x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'var(--spoke)','stroke-width':'1.0'}); story.append(l); return l;});
+      this.ring=el('circle',{id:'ittai-ring',cx:32,cy:32,r:9,fill:'none',stroke:'currentColor','stroke-width':'1.6'});
+      this.kanji=el('text',{class:'ittai-kanji',x:32,y:32,'text-anchor':'middle','dominant-baseline':'central'}); this.kanji.textContent='要';
+      story.append(this.ring,this.kanji);
+      this.word=el('g',{class:'ittai-wordmark'});
+      const latin=el('text',{x:32,y:79,'text-anchor':'middle',class:'ittai-latin'}); latin.textContent='Ittai';
+      const jp=el('text',{x:32,y:91,'text-anchor':'middle',class:'ittai-japanese'}); jp.textContent='一体';
+      this.word.append(latin,jp); this.svg.append(sideGroup,story,this.word); stage.append(this.svg); this.append(stage);
+      if(this.hasAttribute('controls')) this._buildControls();
+      const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches; this._reducedStart=reduced;
+      this.renderAtTime(reduced?DURATION:0);
+      if(!reduced) this.play();
+    }
+    disconnectedCallback(){this.pause(); this._listeners.forEach(([n,e,f])=>n.removeEventListener(e,f)); this._listeners=[];}
+    _on(n,e,f){n.addEventListener(e,f);this._listeners.push([n,e,f]);}
+    _buildControls(){
+      const c=document.createElement('div'); c.className='ittai-controls'; c.setAttribute('aria-label','Animation controls');
+      this.playButton=document.createElement('button'); this.playButton.type='button'; this.playButton.className='ittai-play';
+      this.replayButton=document.createElement('button'); this.replayButton.type='button'; this.replayButton.textContent='Replay'; this.replayButton.setAttribute('aria-label','Replay animation');
+      this.range=document.createElement('input'); this.range.type='range'; this.range.min='0';this.range.max=String(DURATION);this.range.step='1';this.range.setAttribute('aria-label','Animation timeline');
+      this.readout=document.createElement('output'); this.readout.className='ittai-time';
+      const speeds=document.createElement('fieldset'); speeds.className='ittai-speeds'; const legend=document.createElement('legend');legend.textContent='Speed';speeds.append(legend);
+      [0.5,1,1.5,2].forEach(v=>{const label=document.createElement('label'),r=document.createElement('input');r.type='radio';r.name=`speed-${this._uid||(this._uid=Math.random().toString(36).slice(2))}`;r.value=v;r.checked=v===1;label.append(r,`${v}×`);speeds.append(label);this._on(r,'change',()=>{if(r.checked)this.setSpeed(v)});});
+      c.append(this.playButton,this.replayButton,this.range,this.readout,speeds);this.append(c);
+      this._on(this.playButton,'click',()=>this._playing?this.pause():this.play());
+      this._on(this.replayButton,'click',()=>this.replay());
+      this._on(this.range,'pointerdown',()=>this.pause()); this._on(this.range,'input',()=>{this.pause();this.seek(+this.range.value)});
+      this._syncControls();
+    }
+    renderAtTime(ms){
+      const t=clamp(Number(ms)||0,0,DURATION); this._time=t;
+      this.sticks.forEach((line,i)=>{
+        const end=sides[i], ex=(end[0]+end[2])/2, ey=(end[1]+end[3])/2, ea=Math.atan2(end[3]-end[1],end[2]-end[0])*180/Math.PI;
+        const [sx,sy,sa,amp,phase]=chaos[i]; let x=sx,y=sy,a=sa;
+        if(t<1300){const q=t/1300; x+=Math.sin(q*Math.PI*1.35+phase)*amp; y+=Math.sin(q*Math.PI*1.08+phase*1.7)*amp*.72; a+=Math.sin(q*Math.PI+phase)*.7;}
+        else {const p=ease(clamp((t-timing[i][0])/timing[i][1],0,1));x=sx+(ex-sx)*p;y=sy+(ey-sy)*p;a=sa+angleDelta(sa,ea)*p;}
+        const rad=a*Math.PI/180,dx=Math.cos(rad)*length/2,dy=Math.sin(rad)*length/2;
+        line.setAttribute('x1',(x-dx).toFixed(5));line.setAttribute('y1',(y-dy).toFixed(5));line.setAttribute('x2',(x+dx).toFixed(5));line.setAttribute('y2',(y+dy).toFixed(5));
+        if(t>=4200){line.setAttribute('x1',end[0]);line.setAttribute('y1',end[1]);line.setAttribute('x2',end[2]);line.setAttribute('y2',end[3]);}
+      });
+      const unity=ease(clamp((t-4200)/800,0,1)); this.ring.setAttribute('opacity',unity);this.kanji.setAttribute('opacity',unity);this.spokes.forEach(s=>s.setAttribute('opacity',unity));
+      const identity=ease(clamp((t-5000)/900,0,1));this.word.setAttribute('opacity',identity);this.word.setAttribute('transform',`translate(0 ${(1-identity)*5})`);
+      this._syncControls(); return this;
+    }
+    _tick(ts){if(!this._playing)return;if(this._last==null)this._last=ts;else{this._time+=Math.max(0,ts-this._last)*this._speed;this._last=ts;if(this._time>=DURATION){this.renderAtTime(DURATION);this.pause();return;}this.renderAtTime(this._time);}this._raf=requestAnimationFrame(this._tick);}
+    play(){if(this._playing)return;if(this._reducedStart){this._reducedStart=false;this.renderAtTime(0);}if(this._time>=DURATION)return;this._playing=true;this._last=null;this._syncControls();this._raf=requestAnimationFrame(this._tick);}
+    pause(){this._playing=false;this._last=null;if(this._raf)cancelAnimationFrame(this._raf);this._raf=0;this._syncControls();}
+    replay(){this.renderAtTime(0);this.play();}
+    seek(ms){this.renderAtTime(ms);}
+    setSpeed(x){if([.5,1,1.5,2].includes(+x)){this._speed=+x;this._last=null;}this._syncControls();}
+    get currentTime(){return this._time} get duration(){return DURATION}
+    _syncControls(){if(!this.playButton)return;this.playButton.textContent=this._playing?'Pause':'Play';this.playButton.setAttribute('aria-pressed',String(this._playing));this.playButton.setAttribute('aria-label',this._playing?'Pause animation':'Play animation');this.range.value=String(Math.round(this._time));this.readout.textContent=`${(this._time/1000).toFixed(1)} s / 6.5 s`;}
+  }
+  if(!customElements.get('ittai-unity'))customElements.define('ittai-unity',IttaiUnity);
+})();
+
+</script>
+
+</body>
+</html>

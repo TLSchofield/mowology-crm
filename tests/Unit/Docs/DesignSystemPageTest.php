@@ -29,11 +29,14 @@ class DesignSystemPageTest extends TestCase
     public function testEveryAssetThePageNamesExists(): void
     {
         $page = (string)file_get_contents($this->root . '/public/crm/design-system_appstack.php');
-        preg_match_all("/'([a-z0-9-]+\\.(?:jpg|svg))'/", $page, $m);
+        preg_match_all("/'([a-z0-9][a-z0-9-]*\\.(?:jpg|svg|png|html))'/", $page, $m);
         $files = array_unique(array_merge($m[1], ['ittai-symbol.svg']));
         $this->assertNotEmpty($files);
+        $dir = $this->root . '/public/crm/assets/design-system/';
         foreach ($files as $f) {
-            $this->assertFileExists($this->root . '/public/crm/assets/design-system/' . $f);
+            // Demo screenshots sit in the folder; unreleased brand art in brand/ (served by design-asset.php only).
+            $this->assertTrue(is_file($dir . $f) || is_file($dir . 'brand/' . $f), "Missing design asset: {$f}");
         }
+        $this->assertFileExists($dir . 'brand/.htaccess', 'brand/ must deny direct requests');
     }
 }
