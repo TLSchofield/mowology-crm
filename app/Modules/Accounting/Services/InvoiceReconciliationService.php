@@ -184,9 +184,12 @@ class InvoiceReconciliationService
         }
         $cards = [];
         foreach ($byTx as $txId => $rows) {
-            // Best first; equal scores → the older invoice (it has waited longest).
-            usort($rows, fn($a, $b) => [$b['hit']['confidence'], (string)$a['inv']['invoice_date'], (int)$a['inv']['id']]
-                                   <=> [$a['hit']['confidence'], (string)$b['inv']['invoice_date'], (int)$b['inv']['id']]);
+            // Exact-amount invoices first, OLDEST first: a payment goes on the oldest open invoice it pays, and
+            // closeness to an issue date says nothing (Tim, 2026-11-06: VML's Nov 2 cheque was put on INV-0477,
+            // issued Nov 1, at 95% while INV-0415 for the same $1,195.36 sat overdue since October). Then best score.
+            $isExact = fn($r) => in_array('Exact amount', $r['hit']['reasons'], true) ? 0 : 1;
+            usort($rows, fn($a, $b) => [$isExact($a), $isExact($a) ? -$a['hit']['confidence'] : 0, (string)$a['inv']['invoice_date'], (int)$a['inv']['id']]
+                                   <=> [$isExact($b), $isExact($b) ? -$b['hit']['confidence'] : 0, (string)$b['inv']['invoice_date'], (int)$b['inv']['id']]);
             $best = $rows[0]; $h = $best['hit']; $inv = $best['inv'];
             $payer = $h['payer'] ?? null;
             $invPayer = self::invoicePayer($inv);
@@ -214,7 +217,7 @@ class InvoiceReconciliationService
                 'apply'          => (float)$h['suggested_amount'],
                 'verdict'        => 'This ' . $money . ' cheque' . ($payer ? ' from ' . $payer : '') . ' likely pays ' . $inv['invoice_number'] . '.',
                 'confidence_line'=> $h['confidence'] . '% · ' . strtolower(implode(' · ', $h['reasons']))
-                                    . ($alsoSame ? ' · ' . implode(', ', array_column($alsoSame, 'invoice_number')) . ' is the same amount — check which' : ''),
+                                    . ($alsoSame ? ' · ' . implode(', ', array_column($alsoSame, 'invoice_number')) . ' is the same amount — oldest first' : ''),
                 'facts'          => [
                     ['label' => 'Amount', 'cheque' => $money, 'invoice' => '$' . number_format($balance, 2) . ' owing',
                      'state' => abs((float)$h['amount'] - $balance) < 0.005 ? 'same' : 'differs'],

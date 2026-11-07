@@ -631,6 +631,7 @@ private struct ItWorkspaceView<Content: View>: View {
     let onRefresh: () async -> Void
     @ViewBuilder let content: Content
     @Environment(\.it) private var it
+    @Environment(\.itAppStyle) private var appStyle
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var knowledgeReloadID = 0
 
@@ -666,13 +667,51 @@ private struct ItWorkspaceView<Content: View>: View {
         .task { if member.id == "penny" { await businessIdentity.load() } }
     }
 
+    /// Penny knows the business: only the confirmed row shows (Tim, 2026-11-06: "getting to know your business is
+    /// unnecessary once learned").
+    private var businessLearned: Bool {
+        guard let cur = businessIdentity.current, cur.identity != nil, !businessIdentity.isEditing else { return false }
+        if case .confirmed = businessIdentity.state { return false }
+        return cur.knowledge.stage != .recognized
+    }
+
+    /// Penny's business section hangs on the same centre line as her cards (Tim, 2026-11-06): a thin frame around it,
+    /// the building icon centred on the line at its top (filled indigo in a page-coloured gap and a thin ring, like the
+    /// ticks), and the line carrying on from its bottom down to the Kaname button.
     @ViewBuilder private var onboardingSection: some View {
         if member.id == "penny" {
-        VStack(alignment: .leading, spacing: ItSpace.s3) {
-            Text("Getting to know your business").itText(.heading18).foregroundStyle(it.text)
+        let ring: CGFloat = 52
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        VStack(alignment: .center, spacing: ItSpace.s3) {
+            if !businessLearned {
+                Text("Getting to know your business").itText(.heading18).foregroundStyle(it.text)
+                    .multilineTextAlignment(.center)
+            }
             businessIdentitySection
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, ItSpace.s3)
+        .padding(.top, ring / 2 + ItSpace.s2)
+        .padding(.bottom, ItSpace.s3)
+        .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+        .overlay(alignment: .top) {
+            ZStack {
+                Circle().fill(appStyle.page).frame(width: ring + 4, height: ring + 4)
+                Circle().stroke(appStyle.line, lineWidth: 1).frame(width: ring, height: ring)
+                Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
+                Image(systemName: "building.2.fill").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+            }
+            .offset(y: -ring / 2)
+            .accessibilityHidden(true)
+        }
+        .background(alignment: .bottom) {
+            // On down past the end of the page to the Kaname button.
+            Rectangle().fill(appStyle.line).frame(width: 1, height: 1200).offset(y: 1200)
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
+        }
+        .padding(.top, ring / 2 + ItSpace.s2)
         }
     }
 

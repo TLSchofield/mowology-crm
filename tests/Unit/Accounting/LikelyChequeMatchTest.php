@@ -100,11 +100,12 @@ class LikelyChequeMatchTest extends TestCase
         $cards = InvoiceReconciliationService::chequeCards($map, $info);
         $this->assertCount(1, $cards);                       // the Stripe payout is not a cheque
         $c = $cards[0];
-        $this->assertSame('INV-2026-0477', $c['invoice']['number']);
-        $this->assertSame('This $1,195.36 cheque from VANCOUVER MANAGEMENT LTD likely pays INV-2026-0477.', $c['verdict']);
-        $this->assertStringContainsString('INV-2026-0415 is the same amount', $c['confidence_line']);
+        // Same amount twice: the oldest open invoice (Oct, overdue), not the one issued the day before the cheque.
+        $this->assertSame('INV-2026-0415', $c['invoice']['number']);
+        $this->assertSame('This $1,195.36 cheque from VANCOUVER MANAGEMENT LTD likely pays INV-2026-0415.', $c['verdict']);
+        $this->assertStringContainsString('INV-2026-0477 is the same amount — oldest first', $c['confidence_line']);
         $this->assertSame('same', $c['facts'][0]['state']);
         $this->assertSame('same', $c['facts'][1]['state']);
-        $this->assertSame(415, $c['others'][0]['invoice_id']);
+        $this->assertSame(477, $c['others'][0]['invoice_id']);
     }
 }

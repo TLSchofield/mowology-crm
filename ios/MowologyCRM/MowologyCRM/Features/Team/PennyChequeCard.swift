@@ -36,8 +36,12 @@ struct PennyChequeCard: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 factsTable
+                // The centre line stops at the facts and picks up again between the buttons: text never sits on it
+                // (Tim's 1.3.97 screenshot: the line ran through the memo and "Or INV-…").
                 Text("Bank memo: \(cheque.memo)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(appStyle.page)
 
                 // Another open invoice of the same amount or payer: pick it instead (small, away from the buttons).
                 if targets.count > 1 {
@@ -51,6 +55,8 @@ struct PennyChequeCard: View {
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(appStyle.page)
                 }
 
                 HStack(spacing: 16) {

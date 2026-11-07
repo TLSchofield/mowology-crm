@@ -85,3 +85,23 @@ store and words on screen. One table, used by both.
 A pending (offline) approval shows its pending words on ALL three surfaces: the decision, the Inbox communication and the owning employee's AI Office row
 ("Approval saved on phone"). The tenant check compares against the GENERATED value of each tenant role: a generated colour may equal the raw input
 (Brightline's dark primary IS its brand #F2C200) — what is forbidden is a raw input used in a role that was not generated for it.
+
+## 13. The Kaname centre line (Tim, 6 Nov 2026 — added to v1.2, shipped in iPhone 1.3.98)
+A head's decision screen (Penny's card first) hangs on one thin vertical line down the middle of the page, running
+into the Kaname button in the tab bar. It reads as "this is Kaname at work": every decision leads back to him.
+- **The line**: 1 pt, the `line` token (the nav bar hairline), centred. It runs from the first framed panel down to
+  the Kaname button and never stops short of it.
+- **Comparisons sit on it.** Two things being compared (a cheque and an invoice, two duplicate receipts) take the left
+  and right of the line, values hugging it: left column right-aligned, right column left-aligned.
+- **Agreement is a ringed tick on the line**: a page-coloured gap that cuts the line, a 1 pt `line` ring, and inside it
+  a filled check in `brand` (indigo). A row that differs gets no tick and an `attention` wash on the differing value.
+- **Text never sits on the line.** A full-width line of text (bank memo, "Or INV-…") gets a page-coloured background so
+  the line breaks around it.
+- **Panels are wrapped by a frame of the same weight**: 1 pt `line`, radius 14, page fill. The line passes behind it.
+- **A section's icon sits centred on the line** at the top of its frame: filled `brand` circle, white glyph, in the same
+  page-coloured gap and thin ring as the ticks (e.g. Penny's "Your business" building).
+- **Two square buttons**, side by side either side of the line, same size whatever their text: the primary filled
+  (`tenant`), the other outlined. Capped at 150 pt each so the panel fits one phone screen.
+- **Setup headings go once learned.** A "getting to know you" heading shows only while the head is still learning;
+  once confirmed, only the framed result stays (Tim: "unnecessary once learned").
+- **Desktop**: the same panel lies sideways from 768 px: the comparison on the left, the two squares on the right.
