@@ -337,6 +337,13 @@ final class PennyCardViewModel: ObservableObject {
             paymentsFinished = true
         }
     }
+    /// The carousel's swipe left (and VoiceOver's "Next payment"): the next card; past the last one, on as Next used to go —
+    /// the first unanswered card, else the section is done and receipts come up (there is no Next button since 2026-11-07).
+    func swipeToNextPayment() {
+        if paySession.indices.contains(payPos + 1) { payPos += 1 } else { advancePayment() }
+    }
+    /// Past the last card there is somewhere to go only once that card is answered (else it would skip it unseen).
+    var canSwipePastLastPayment: Bool { currentPaymentId.map { payOutcomes[$0] != nil } ?? false }
     func skipPayment(_ p: BKPaymentMatch) { payOutcomes[p.txId] = .skipped; advancePayment() }
 
     func recordPayment(_ p: BKPaymentMatch) async {

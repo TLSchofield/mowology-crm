@@ -149,4 +149,11 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   edge of the panel being matched, as the ledger sits on its bottom edge. Gold: Penny has mastered the parts she offers to
   join. Square, not round: circles on the line are ticks and section heads. The duplicates card has the mastery box only.
   The section icon (bank, copies) heads the section, above the number row.
+- **Linked (Tim, 2026-11-07).** The panel is page-filled: the line stops at its top edge and comes back at the ledger.
+  Inside, one filled brand-indigo block, wide (not the square-button shape), not tappable: link icon, invoice number(s),
+  payer, "$409.50 e-transfer", text in `page` (indigo turns pale in dark mode). Over 10 invoices: the count and the first
+  three. No Next, no Undo: the cards are a swipe-only carousel (swipe left for the next; its edge peeks in the right
+  margin; past the last, on to the first unanswered card or receipts; VoiceOver "Next payment"). The filled ledger is the
+  unlink: indigo ring once linked, a confirm sheet ("Take $X out of the books? It unlinks from N invoices and goes back to
+  waiting." Unlink in `status-blocked` / Keep, the full list when long).
 

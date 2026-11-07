@@ -386,6 +386,8 @@ struct PennyPaymentCard: View {
     /// Set when this card was linked / recorded this sitting: the two are one now — one filled block, the ledger unlinks.
     var done: PennyCardViewModel.PaymentDone? = nil
     var extendsLine = true
+    /// Drawn as the carousel's neighbour: a picture only — no sheet, no debug hooks.
+    var isPeek = false
     @State private var confirmUnlink: PennyCardViewModel.PaymentDone?
 
     var body: some View {
@@ -515,7 +517,7 @@ struct PennyPaymentCard: View {
             #if DEBUG
             .task {
                 // `-mwPayUnlink` with `-mwDupeDemo paymentdone|paymentmany`: open the unlink sheet, for screenshots.
-                if d.logId > 0, ProcessInfo.processInfo.arguments.contains("-mwPayUnlink") {
+                if !isPeek, d.logId > 0, ProcessInfo.processInfo.arguments.contains("-mwPayUnlink") {
                     try? await Task.sleep(nanoseconds: 600_000_000)
                     confirmUnlink = d
                 }
@@ -618,7 +620,9 @@ struct PaymentCarouselActions: ViewModifier {
     func body(content: Content) -> some View {
         content
             .accessibilityAction(named: "Next payment") {
-                withAnimation(.easeOut(duration: 0.22)) { vm.showPayment(at: vm.payPos + 1) }
+                withAnimation(.easeOut(duration: 0.22)) {
+                    if vm.payPos + 1 < vm.paySession.count || vm.canSwipePastLastPayment { vm.swipeToNextPayment() }
+                }
             }
             .accessibilityAction(named: "Previous payment") {
                 withAnimation(.easeOut(duration: 0.22)) { vm.showPayment(at: vm.payPos - 1) }
@@ -686,7 +690,10 @@ struct PennyPaymentCarousel: View {
     @ObservedObject var vm: PennyCardViewModel
     let extendsLine: Bool
     @State private var width: CGFloat = 0
-    @State private var dragX: CGFloat = 0
+    /// The finger's offset; a GestureState so a drag the scroll view takes over (onEnded never runs) springs back by itself.
+    @GestureState(resetTransaction: Transaction(animation: .spring(duration: 0.3))) private var dragX: CGFloat = 0
+    /// The committed slide to the neighbour, after the finger lifts.
+    @State private var slideX: CGFloat = 0
 
     /// Between a card and the next: the screen's 16 pt margin less this is how much of the next card shows.
     static let gap: CGFloat = 4
@@ -698,7 +705,7 @@ struct PennyPaymentCarousel: View {
                     Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { _, w in width = w }
                 })
                 .overlay(alignment: .topLeading) { neighbours }
-                .offset(x: dragX)
+                .offset(x: dragX + slideX)
                 .id(payment.id)
                 .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
                 .gesture(swipe)
@@ -709,7 +716,7 @@ struct PennyPaymentCarousel: View {
         guard vm.paySession.indices.contains(i), let p = vm.paySnapshots[vm.paySession[i]] else { return nil }
         var done: PennyCardViewModel.PaymentDone?
         if case .booked(let d)? = vm.payOutcomes[p.txId] { done = d }
-        return PennyPaymentCard(vm: vm, payment: p, done: done, extendsLine: false)
+        return PennyPaymentCard(vm: vm, payment: p, done: done, extendsLine: false, isPeek: true)
     }
 
     /// Cut to the current card's height, so a taller neighbour never reaches past it into the margin below.
@@ -720,7 +727,7 @@ struct PennyPaymentCarousel: View {
                     next.frame(width: g.size.width, height: g.size.height, alignment: .top).clipped()
                         .offset(x: g.size.width + Self.gap)
                 }
-                if dragX > 0, let prev = card(at: vm.payPos - 1) {
+                if dragX + slideX > 0, let prev = card(at: vm.payPos - 1) {
                     prev.frame(width: g.size.width, height: g.size.height, alignment: .top).clipped()
                         .offset(x: -(g.size.width + Self.gap))
                 }
@@ -732,28 +739,42 @@ struct PennyPaymentCarousel: View {
 
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 20)
-            .onChanged { g in
+            .updating($dragX) { g, state, _ in
                 guard abs(g.translation.width) > abs(g.translation.height) else { return }
                 let t = g.translation.width
-                let blocked = (t < 0 && vm.payPos + 1 >= vm.paySession.count) || (t > 0 && vm.payPos == 0)
-                dragX = blocked ? t / 4 : t                 // a little give at either end
+                state = blocked(t) ? t / 4 : t               // a little give at either end
             }
             .onEnded { g in
                 let t = g.translation.width
-                let dir = t < 0 ? 1 : -1                     // swipe left for the next card
                 let far = abs(t) > max(60, width * 0.25) || abs(g.predictedEndTranslation.width) > width * 0.5
-                guard far, abs(t) > abs(g.translation.height), vm.paySession.indices.contains(vm.payPos + dir), width > 0 else {
-                    withAnimation(.spring(duration: 0.3)) { dragX = 0 }
+                guard far, abs(t) > abs(g.translation.height), !blocked(t), width > 0 else { return }   // springs back
+                let from = vm.payPos
+                if t < 0 && !vm.paySession.indices.contains(from + 1) {
+                    // Past the last card: on to the first unanswered one, or receipts (the old Next button's job).
+                    withAnimation(.easeOut(duration: 0.22)) { vm.swipeToNextPayment() }
                     return
                 }
+                let target = t < 0 ? from + 1 : from - 1        // swipe left for the next card
+                var start = Transaction()
+                start.disablesAnimations = true
+                withTransaction(start) { slideX = t }        // carry on from where the finger let go
                 withAnimation(.easeOut(duration: 0.2)) {
-                    dragX = -CGFloat(dir) * (width + Self.gap)
+                    slideX = t < 0 ? -(width + Self.gap) : width + Self.gap
                 } completion: {
-                    // The neighbour now sits exactly where the card was: swap them with no animation.
+                    // The neighbour now sits exactly where the card was: swap them with no animation. Only if nothing
+                    // (a reload, an undo) moved the carousel meanwhile.
                     var tr = Transaction()
                     tr.disablesAnimations = true
-                    withTransaction(tr) { vm.showPayment(at: vm.payPos + dir); dragX = 0 }
+                    withTransaction(tr) {
+                        if vm.payPos == from { vm.showPayment(at: target) }
+                        slideX = 0
+                    }
                 }
             }
+    }
+
+    /// No card that way: the first card going back, or the last going on while it still waits for an answer.
+    private func blocked(_ t: CGFloat) -> Bool {
+        t > 0 ? vm.payPos == 0 : (vm.payPos + 1 >= vm.paySession.count && !vm.canSwipePastLastPayment)
     }
 }
