@@ -315,6 +315,7 @@ struct PaymentConfidenceTriangle: View {
 
 /// How far the money has come, as Tim drew it (2026-11-07): a plain triangle on the line, read as a fraction — the
 /// joined count above its left side, the whole (3: invoice, payment, bank line) inside, what is joined to the right.
+/// Only its left side and base are drawn.
 /// "If the vertical line wasn't there it would look like a fraction — it's inferred, 2 of three."
 struct PaymentFraction: View {
     @Environment(\.itAppStyle) private var appStyle
@@ -336,7 +337,7 @@ struct PaymentFraction: View {
                 .offset(y: -h * 0.22)
             ZStack {
                 ItKnowledgeTriangleShape().fill(appStyle.page)
-                ItKnowledgeTriangleShape().stroke(appStyle.text, lineWidth: 1.5)
+                FractionStroke().stroke(appStyle.text, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 Text("\(whole)")
                     .font(appStyle.font(.largeTitle, weight: .regular)).foregroundStyle(appStyle.text)
                     .minimumScaleFactor(0.6)
@@ -351,6 +352,18 @@ struct PaymentFraction: View {
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement()
         .accessibilityLabel([spoken, "\(joined) of \(whole) joined: \(label)"].compactMap { $0 }.joined(separator: ". "))
+    }
+}
+
+/// The fraction triangle's visible strokes: the left side (the fraction's bar) and the base; no right side (Tim, 2026-11-07:
+/// "the right line of the triangle shouldn't be seen").
+private struct FractionStroke: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        return p
     }
 }
 

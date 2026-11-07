@@ -141,8 +141,8 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   **Exception, 2026-11-07 (Tim):** the knowledge colours are otherwise "knowledge brain only; never an operational status
   colour" (`tokens.json`). This triangle on Penny's payment cards is the one other use; the rule stands for everything
   else. (`ItTokens.swift` is generated from `tokens.json`, so the note lives here and beside `PaymentConfidenceTriangle`.)
-- **Two marks on the line (Tim's drawing, 2026-11-07).** (1) *The fraction*: a plain outline triangle (text colour,
-  page fill) on the line; the joined count above its left side, the whole (3: invoice, payment, bank line) inside, what is
+- **Two marks on the line (Tim's drawing, 2026-11-07).** (1) *The fraction*: a triangle on the line, only its left side
+  and base drawn (text colour, page fill; no right side); the joined count above its left side, the whole (3: invoice, payment, bank line) inside, what is
   joined to its right in small caps — "2⁄3, INV-… + PAYMENT": two steps are done already. Inferred, never written as
   "2 of 3". (2) *Mastery*: the knowledge triangle (gold / blue / broken) in a square box where the line crosses the top
   edge of the panel being matched, as the ledger sits on its bottom edge. Gold: Penny has mastered the parts she offers to
