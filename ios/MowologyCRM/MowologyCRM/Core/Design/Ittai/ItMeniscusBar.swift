@@ -206,29 +206,26 @@ private struct ItBeadFace: View, Animatable {
             .fill(style.tenant)
             .overlay {
                 if items.indices.contains(under) {
-                    // Landing on the selected tab, a tab with an action turns into it (Receipts: the camera).
-                    // The two cross-fade over the last third of the slide instead of swapping when it lands
-                    // (Tim, 2026-11-06: "Receipts icon to camera jump"); `settle` comes from the animated
-                    // position, so it follows the spring. No `.animation` here: inside this per-frame body it
-                    // left the icon behind at the slot the bead came from.
-                    let item = items[under]
-                    if let turn = item.beadTurn {
-                        ItBeadSpin(open: settled && item.id == selected, turn: turn, turns: Self.turns(for: travel),
-                                   reduceMotion: reduceMotion) {
-                            beadGlyph(item.icon, scale: item.iconScale)
-                        }
-                    } else {
-                        let action = item.id == selected ? item.beadIcon : nil
-                        let settle = action == nil ? 0 : min(1, max(0, 1 - abs(position - CGFloat(selected)) / 0.33))
-                        ZStack {
-                            beadGlyph(item.icon, scale: item.iconScale)
-                                .opacity(1 - settle)
-                                .scaleEffect(1 - 0.35 * settle)
-                            // Always drawn (hidden when there is no action): inserted conditionally inside this
-                            // per-frame body it never appeared (simulator, 2026-11-06).
-                            beadGlyph(action ?? item.icon, scale: item.iconScale)
-                                .opacity(settle)
-                                .scaleEffect(0.65 + 0.35 * settle)
+                    // A tab whose icon turns into its action (Add: + into ×) rolls there with the bead (Tim, 2026-11-07:
+                    // "the plus sign animation isn't fluid ... it needs to be smooth and consistent"). Its angle is a
+                    // function of the bead's animated position, one turn per slot, so it moves on the same spring as
+                    // the slide: no pause before it starts, no separate clock, more turns and faster from further away
+                    // (exyte/AnimatedTabBar drives its ball the same way, from one animatable value).
+                    // The + is always in the bead, hidden until needed ("have the plus sign always loaded behind the
+                    // bead"): a glyph inserted mid-slide in this per-frame body has stuttered or not appeared before.
+                    let rollIndex = items.firstIndex { $0.beadTurn != nil }
+                    let roll = rollIndex.map { items[$0] }
+                    let headingToRoll = rollIndex == selected && !settled
+                    let fadeIn = travel < 0.01 || reduceMotion ? 1 : min(1, max(0, travel - abs(CGFloat(selected) - position)) / 0.25)
+                    let rollShown: Double = rollIndex == nil ? 0 : (under == rollIndex ? 1 : (headingToRoll ? Double(fadeIn) : 0))
+                    ZStack {
+                        baseGlyph(under)
+                            .opacity(1 - rollShown)
+                        if let roll, let rollIndex {
+                            beadGlyph(roll.icon, scale: roll.iconScale)
+                                .rotationEffect(.degrees(Self.rollAngle(turn: roll.beadTurn ?? 0, position: position,
+                                                                        at: rollIndex, reduceMotion: reduceMotion)))
+                                .opacity(rollShown)
                         }
                     }
                 }
@@ -240,9 +237,28 @@ private struct ItBeadFace: View, Animatable {
             .allowsHitTesting(settled)
     }
 
-    /// Add's + spins one full turn per slot the bead travelled to reach it (Tim, 2026-11-07: Schedule is furthest away,
-    /// so it turns most): 1 from the next tab, 4 from Schedule. Always at least one.
-    static func turns(for travel: CGFloat) -> Int { max(1, min(6, Int(travel.rounded()))) }
+    /// The rolling icon's angle: `turn` (the action, e.g. 45° for ×) when the bead sits on its tab, one full turn per
+    /// slot away from it, clockwise as the bead moves right. Pure, so the angle can never jump between frames.
+    static func rollAngle(turn: Double, position: CGFloat, at index: Int, reduceMotion: Bool) -> Double {
+        reduceMotion ? turn : turn + Double(position - CGFloat(index)) * 360
+    }
+
+    /// The bead's ordinary face over a slot. Landing on the selected tab, a tab with an action turns into it (Receipts:
+    /// the camera), cross-fading over the last third of the slide (Tim, 2026-11-06: "Receipts icon to camera jump").
+    /// Both glyphs are always drawn: one inserted conditionally inside this per-frame body never appeared (2026-11-06).
+    private func baseGlyph(_ under: Int) -> some View {
+        let item = items[under]
+        let action = item.id == selected ? item.beadIcon : nil
+        let settle = action == nil ? 0 : min(1, max(0, 1 - abs(position - CGFloat(selected)) / 0.33))
+        return ZStack {
+            beadGlyph(item.icon, scale: item.iconScale)
+                .opacity(1 - settle)
+                .scaleEffect(1 - 0.35 * settle)
+            beadGlyph(action ?? item.icon, scale: item.iconScale)
+                .opacity(settle)
+                .scaleEffect(0.65 + 0.35 * settle)
+        }
+    }
 
     private func beadGlyph(_ image: Image, scale: CGFloat) -> some View {
         image
@@ -251,46 +267,6 @@ private struct ItBeadFace: View, Animatable {
             .scaledToFit()
             .frame(width: 24 * scale, height: 24 * scale)
             .foregroundStyle(style.onTenant)
-    }
-}
-
-/// The bead icon that turns into its action once the bead has landed: fast clockwise spins, then a slow turn back
-/// that locks it in place. Closing unwinds it. The resting angle is `open ? turn : 0`; the keyframes add an offset
-/// that ends on a whole number of turns, so nothing jumps when the animator lets go.
-private struct ItBeadSpin<Content: View>: View {
-    let open: Bool
-    let turn: Double
-    /// Whole turns to coast (from how far the bead came): more turns, and faster, from further away.
-    var turns: Int = 2
-    let reduceMotion: Bool
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        let rest = open ? turn : 0
-        if reduceMotion {
-            content.rotationEffect(.degrees(rest))
-        } else {
-            content.keyframeAnimator(initialValue: 0.0, trigger: open) { view, offset in
-                view.rotationEffect(.degrees(rest + offset))
-            } keyframes: { _ in
-                if open {
-                    // As if it had weight (Tim, 2026-11-06: the first cut was "jerky"): it gathers speed, coasts two
-                    // turns to a stop 20° past the ×, and only then eases back onto it. The coast ends at rest, so
-                    // the turn back starts from still instead of reversing mid-swing.
-                    // Turns scale with the distance and the coast only lengthens slowly, so a longer trip spins faster:
-                    // 1 turn in 0.95 s from the next tab, 4 turns in 1.7 s from Schedule (Tim, 2026-11-07).
-                    let whole = Double(max(1, turns)) * 360
-                    MoveKeyframe(-turn)
-                    LinearKeyframe(whole + 20, duration: 0.7 + 0.25 * Double(max(1, turns)),
-                                   timingCurve: .bezier(startControlPoint: UnitPoint(x: 0.4, y: 0),
-                                                        endControlPoint: UnitPoint(x: 0.2, y: 1)))
-                    SpringKeyframe(whole, duration: 0.8, spring: .init(duration: 0.8, bounce: 0))
-                } else {
-                    MoveKeyframe(turn)
-                    LinearKeyframe(0, duration: 0.4, timingCurve: .easeInOut)
-                }
-            }
-        }
     }
 }
 

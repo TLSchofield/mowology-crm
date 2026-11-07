@@ -488,3 +488,8 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - **Calendar strip** (`WeekStripView.swift`): 181 non-lazy chips (kept non-lazy after the 1.3.101 blank-space bug) are all rebuilt whenever `centred` changes during a swipe, each re-formatting its date in `summary()`, plus a `matchedGeometryEffect` pill. Fix: compute the 181 chip models once (refresh when a week's dots arrive); make `DayChip` skip redraws when unchanged; replace the sliding pill with a fixed selection ring on the centre axis that the days scroll under (same idea as the duplicate number row on the Kaname line).
 - **Add's + rotation** (`ItBeadSpin`): Tim asked for more and faster turns the further the bead travels (Schedule furthest). Agreed form: the + rolls like a wheel along the bar, turn = distance travelled ÷ radius, in step with the slide, then settles into the × as now. Reduce Motion skips it.
 - iPhone only; render in the simulator before a build. Needs its own chat.
+
+## Clock-in on the Dynamic Island / Lock Screen (Tim, 2026-11-07: "Jobber shows itself clocked in at the very top even though the app is backgrounded. I like that")
+- A Live Activity while clocked in: the running timer in the Dynamic Island and on the Lock Screen (job name or "On break"), started on Clock in, ended on Clock out, updated on break start/end.
+- Needs a Widget Extension target with ActivityKit (iOS 16.1+; Xcode 15.2 can build it), `NSSupportsLiveActivities` in Info.plist, and push updates (APNs live-activity token) so it stays right when the server changes the clock (auto clock-out, office edits). Android: an ongoing notification with a chronometer.
+- Needs its own chat; Xcode Cloud signing for a second target (bundle id, capability) checked first.

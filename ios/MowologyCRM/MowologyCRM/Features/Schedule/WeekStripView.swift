@@ -266,7 +266,9 @@ private struct DayChip: View, Equatable {
                     )
                     .frame(width: 6, height: 6)
             }
-            .frame(minWidth: dynamicTypeSize.isAccessibilitySize ? 72 : nil, maxWidth: .infinity, minHeight: 72)
+            .frame(minWidth: dynamicTypeSize.isAccessibilitySize ? 72 : nil, maxWidth: .infinity, minHeight: 72, maxHeight: .infinity)
+            // The pill fills its 80 pt slot: at 72 pt it floated 4 pt above the line that runs down from the chosen day,
+            // so the line never met it (Tim's iPhone, 2026-11-07).
             .background {
                 ZStack {
                     // Base layer — fades out when selected

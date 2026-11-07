@@ -623,7 +623,7 @@ private struct MeniscusBarDemo: View {
 
     init(variant: String) {
         self.variant = variant
-        _selected = State(initialValue: variant == "receipts" ? 3 : 0)
+        _selected = State(initialValue: variant == "receipts" ? 3 : variant == "addbead" ? 4 : 0)   // addbead: the bead parked on Add (the ×)
         _addOpen = State(initialValue: variant == "add")
     }
 
