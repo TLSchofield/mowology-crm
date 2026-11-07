@@ -272,68 +272,85 @@ struct PaymentConfidenceTriangle: View {
     @Environment(\.itAppStyle) private var appStyle
     @Environment(\.it) private var it
     let level: String
-    /// How far the money's path has come, as Tim drew it (2026-11-07): the count of pieces already joined beside the
-    /// triangle, the whole (invoice, payment, bank line = 3) inside it, and what is joined to the right. Off the line.
-    var joined: Int? = nil
+
+    static let ring: CGFloat = 56
+
+    /// In a square box where the centre line crosses the top edge of the panel being matched (Tim, 2026-11-07, his drawing),
+    /// as the ledger sits on its bottom edge: gold there says Penny has mastered this one.
+    var body: some View {
+        let r = Self.ring, t: CGFloat = 34
+        // A square box, not a ring (Tim, 2026-11-07): the circles on the line are ticks and section heads; this is the one
+        // judgement on the card, so it gets its own shape.
+        ZStack {
+            Rectangle().fill(appStyle.page).frame(width: r + 6, height: r + 6)
+            RoundedRectangle(cornerRadius: appStyle.cornerRadius(6)).stroke(appStyle.line, lineWidth: 1).frame(width: r, height: r)
+            switch level {
+            case "high":   ItKnowledgeMark(stage: .mastered, size: t)
+            case "medium": ItKnowledgeMark(stage: .understood, size: t)
+            default:
+                ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
+                    .stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [3.5, 3]))
+                    .frame(width: t, height: t * sqrt(3) / 2)
+            }
+        }
+        .offset(y: -2)                                  // the triangle's weight sits low; lift it to look centred
+        .accessibilityElement()
+        .accessibilityLabel(level == "high" ? "Mastered: high confidence" : level.capitalized + " confidence")
+    }
+
+    /// Seat it on a panel's top edge: `panel.modifier(...)` adds room inside for its lower half and above for its upper.
+    struct Seat: ViewModifier {
+        let level: String?
+        func body(content: Content) -> some View {
+            if let level, ["high", "medium", "low"].contains(level) {
+                content
+                    .overlay(alignment: .top) { PaymentConfidenceTriangle(level: level).offset(y: -31) }
+                    .padding(.top, 31)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+/// How far the money has come, as Tim drew it (2026-11-07): a plain triangle on the line, read as a fraction — the
+/// joined count above its left side, the whole (3: invoice, payment, bank line) inside, what is joined to the right.
+/// "If the vertical line wasn't there it would look like a fraction — it's inferred, 2 of three."
+struct PaymentFraction: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let joined: Int
     var whole = 3
-    var label: String? = nil
+    let label: String
     /// Read out instead of Penny's sentence, which this replaces on screen.
     var spoken: String? = nil
 
-    static let width: CGFloat = 66
+    static let width: CGFloat = 56
 
     var body: some View {
-        HStack(spacing: 10) {
-            Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
-            mark
-            Text(label ?? "")
-                .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.text)
+        let w = Self.width, h = w * sqrt(3) / 2
+        HStack(spacing: 8) {
+            Text("\(joined)")
+                .font(appStyle.font(.largeTitle, weight: .regular)).foregroundStyle(appStyle.text)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, -w * 0.18)            // tucked against the left side, up toward the apex
+                .offset(y: -h * 0.22)
+            ZStack {
+                ItKnowledgeTriangleShape().fill(appStyle.page)
+                ItKnowledgeTriangleShape().stroke(appStyle.text, lineWidth: 1.5)
+                Text("\(whole)")
+                    .font(appStyle.font(.largeTitle, weight: .regular)).foregroundStyle(appStyle.text)
+                    .minimumScaleFactor(0.6)
+                    .offset(y: h * 0.16)
+            }
+            .frame(width: w, height: h)
+            Text(label.uppercased())
+                .font(appStyle.font(.caption, weight: .medium)).foregroundStyle(appStyle.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement()
-        .accessibilityLabel([spoken, level.capitalized + " confidence",
-                             joined.map { "\($0) of \(whole) joined" + (label.map { ": " + $0 } ?? "") }]
-                                .compactMap { $0 }.joined(separator: ". "))
-    }
-
-    /// The triangle sits on the centre line: the line meets its apex; its base lies on the top edge of the panel below
-    /// (the items it matches). Its left side is the fraction's bar (Tim, 2026-11-07: "if the vertical line wasn't there
-    /// it would look like a fraction"): the joined count above it on the left, the whole (3) under it inside — 2⁄3.
-    private var mark: some View {
-        let w = Self.width, h = w * sqrt(3) / 2
-        let shape = ItKnowledgeTriangleShape()
-        let filled = level == "high" || level == "medium"
-        return ZStack {
-            shape.fill(appStyle.page)
-            switch level {
-            case "high":
-                shape.fill(it.color(.knowledgeMastered))
-                ItKnowledgeTriangleShape(inset: 0.08).stroke(it.page, lineWidth: 1.2)
-            case "medium":
-                shape.fill(it.color(.knowledgeUnderstood))
-            default:
-                shape.stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 5]))
-            }
-            if joined != nil {
-                Text("\(whole)")
-                    .font(appStyle.font(.title2, weight: .bold))
-                    .foregroundStyle(filled ? it.page : it.color(.knowledgeDiscovered))
-                    .offset(x: w * 0.04, y: h * 0.2)    // low and a touch right: under the bar
-            }
-        }
-        .frame(width: w, height: h)
-        // The numerator: against the left side, up toward the apex (the left side at 40% down is 20% across).
-        .overlay(alignment: .topLeading) {
-            if let joined {
-                Text("\(joined)")
-                    .font(appStyle.font(.largeTitle, weight: .semibold)).foregroundStyle(appStyle.text)
-                    .fixedSize()
-                    .frame(width: 60, alignment: .trailing)
-                    .position(x: w * 0.3 - 8 - 30, y: h * 0.32)
-            }
-        }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .accessibilityElement()
+        .accessibilityLabel([spoken, "\(joined) of \(whole) joined: \(label)"].compactMap { $0 }.joined(separator: ". "))
     }
 }
 
@@ -378,9 +395,8 @@ struct PennyPaymentCard: View {
         // Penny's sentence is now the triangle (Tim, 2026-11-07, his sketch): how sure (its colour), how much of the
         // money's path is already joined (2 of 3 when the payment is on the invoice; 1 of 3 when only the invoice is),
         // and what that is, beside it. The name and its source are in the table below.
-        PaymentConfidenceTriangle(level: payment.confidence, joined: joinedCount, label: joinedLabel,
-                                  spoken: ([payment.verdict] + payment.evidence).joined(separator: ". "))
-            .padding(.bottom, -10)                // its base on the panel's top edge, where the items to match begin
+        PaymentFraction(joined: joinedCount, label: joinedLabel,
+                        spoken: ([payment.verdict] + payment.evidence).joined(separator: ". "))
 
         VStack(alignment: .leading, spacing: 10) {
             factsTable
@@ -420,12 +436,15 @@ struct PennyPaymentCard: View {
             .padding(.top, 2)
         }
         .padding(8)
+        .padding(.top, ["high", "medium", "low"].contains(payment.confidence) ? 30 : 0)   // the ring's lower half
         .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
         .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
         // The ledger sits where the centre line crosses the panel's bottom edge (Tim, 2026-11-07), as the business icon sits
         // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
         .overlay(alignment: .bottom) { PennyCardView.ledgerIcon(filled: false, style: appStyle).offset(y: 31) }
         .padding(.bottom, 31)
+        // How sure, in its ring where the line meets the panel's top edge (inside: room for its lower half).
+        .modifier(PaymentConfidenceTriangle.Seat(level: payment.confidence))
     }
 
     private var linking: Bool { payment.button?.title == "Link" }

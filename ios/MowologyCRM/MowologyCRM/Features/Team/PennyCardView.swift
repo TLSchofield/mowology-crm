@@ -451,10 +451,8 @@ struct PennyCardView: View {
             // How sure, as the knowledge triangle on the line (Tim, 2026-11-07: "The receipts merge feature should also make
             // use of the ledger icon and triangle"): a printed number or the same photo proves it (gold), the same printed
             // time (blue), only total and date (broken outline).
-            if let level = Self.dupeConfidence(group.evidence) {
-                PaymentConfidenceTriangle(level: level)
-                    .padding(.bottom, -10)        // its base on the panel's top edge (Tim, 2026-11-07)
-            }
+            // In its ring where the line meets the panel's top edge (Tim, 2026-11-07, his drawing): see the panel below.
+            let level = Self.dupeConfidence(group.evidence)
 
             // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
             // the two buttons, on toward the Kaname button below. Two receipts only; three get the table's own lines.
@@ -528,6 +526,7 @@ struct PennyCardView: View {
 
             }
             .padding(8)
+            .padding(.top, level == nil ? 0 : 30)  // the confidence ring's lower half sits inside the panel
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
             .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
@@ -536,6 +535,7 @@ struct PennyCardView: View {
             // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
             .overlay(alignment: .bottom) { Self.ledgerIcon(filled: outcome != nil, style: appStyle).offset(y: 31) }
             .padding(.bottom, 31)
+            .modifier(PaymentConfidenceTriangle.Seat(level: level))
         }
         .background(alignment: .top) {
                 Rectangle().fill(appStyle.line)

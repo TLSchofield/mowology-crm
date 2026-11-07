@@ -141,11 +141,11 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   **Exception, 2026-11-07 (Tim):** the knowledge colours are otherwise "knowledge brain only; never an operational status
   colour" (`tokens.json`). This triangle on Penny's payment cards is the one other use; the rule stands for everything
   else. (`ItTokens.swift` is generated from `tokens.json`, so the note lives here and beside `PaymentConfidenceTriangle`.)
-- **The triangle says how far the money has come (Tim's sketch, 2026-11-07).** It is large (66 pt) and sits on the line:
-  the line meets its apex; its base lies on the top edge of the panel of items being matched. Its left side is a
-  fraction bar: the joined count sits above it on the left, the whole (3) under it inside — read 2⁄3, never written.
-  The section icon (bank, copies) heads the section, above the number row. Inside, the whole: 3 (invoice, payment, bank line). To its left, in a
-  large numeral, how many are already joined: 2 when the payment is on the invoice (Link), 1 when only the invoice is
-  (Record). To its right, what is joined: "INV-… + payment" or "INV-…". No text on the line; Penny's sentence is read
-  out by VoiceOver only. The duplicates card uses the same large triangle without the numbers.
+- **Two marks on the line (Tim's drawing, 2026-11-07).** (1) *The fraction*: a plain outline triangle (text colour,
+  page fill) on the line; the joined count above its left side, the whole (3: invoice, payment, bank line) inside, what is
+  joined to its right in small caps — "2⁄3, INV-… + PAYMENT": two steps are done already. Inferred, never written as
+  "2 of 3". (2) *Mastery*: the knowledge triangle (gold / blue / broken) in a square box where the line crosses the top
+  edge of the panel being matched, as the ledger sits on its bottom edge. Gold: Penny has mastered the parts she offers to
+  join. Square, not round: circles on the line are ticks and section heads. The duplicates card has the mastery box only.
+  The section icon (bank, copies) heads the section, above the number row.
 
