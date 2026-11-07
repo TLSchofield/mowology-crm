@@ -434,11 +434,15 @@ struct BKPaymentMatch: Decodable, Identifiable, Equatable {
     let flags: [String]
     let targets: [Target]
     let facts: [Fact]
+    /// What the tap does, from the server: "Link · bank line to the payment" when the payment is already on the invoice,
+    /// "Record · $X on INV-…" when it records one (Tim, 2026-11-07).
+    struct Button: Decodable, Equatable { let title: String; let detail: String }
+    let button: Button?
 
     var id: Int { txId }
 
     private enum CodingKeys: String, CodingKey {
-        case txId = "tx_id", signature, amount, memo, label, payer, confidence, verdict, evidence, flags, targets, facts
+        case txId = "tx_id", signature, amount, memo, label, payer, confidence, verdict, evidence, flags, targets, facts, button
     }
 
     init(from decoder: Decoder) throws {
@@ -455,6 +459,7 @@ struct BKPaymentMatch: Decodable, Identifiable, Equatable {
         flags = (try? c.decodeIfPresent([String].self, forKey: .flags)) ?? []
         targets = (try? c.decodeIfPresent([Target].self, forKey: .targets)) ?? []
         facts = (try? c.decodeIfPresent([Fact].self, forKey: .facts)) ?? []
+        button = try? c.decodeIfPresent(Button.self, forKey: .button)
     }
 
     /// "INV-2026-0465", or "3 invoices".

@@ -319,11 +319,15 @@ struct PennyPaymentCard: View {
                         .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
                 }
                 HStack(spacing: PennyCardView.columnGap) {
-                    chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "checkmark", title: "Record",
-                                       detail: "\(PennyChequeCard.money(payment.amount)) on \(payment.targetLine)", filled: true) {
+                    let linking = payment.button?.title == "Link"
+                    chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: linking ? "link" : "checkmark",
+                                       title: payment.button?.title ?? "Record",
+                                       detail: payment.button?.detail ?? "\(PennyChequeCard.money(payment.amount)) on \(payment.targetLine)", filled: true) {
                         Task { await vm.recordPayment(payment) }
                     }
-                    .accessibilityHint("Records the deposit on \(payment.targetLine). It then counts once, on the invoice. You can undo it.")
+                    .accessibilityHint(linking
+                        ? "The payment is already on \(payment.targetLine). This ties the bank line to it, so it counts once. You can undo it."
+                        : "Records the deposit on \(payment.targetLine). It then counts once, on the invoice. You can undo it.")
                     chequeSquareButton(style: appStyle, busy: false, icon: "arrow.right", title: "Not now", detail: "leave it in the bank", filled: false) {
                         withAnimation(.easeOut(duration: 0.22)) { vm.skipPayment(payment) }
                     }
@@ -401,7 +405,8 @@ struct PennyPaymentDoneCard: View {
             PennyCardView.sectionIcon("building.columns.fill", style: appStyle).frame(maxWidth: .infinity)
             VStack(spacing: 10) {
                 VStack(spacing: 4) {
-                    Label("Paid", systemImage: "checkmark.circle.fill").font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
+                    Label(p.button?.title == "Link" ? "Linked to the bank" : "Paid", systemImage: "checkmark.circle.fill")
+                        .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
                     ForEach(p.targets, id: \.self) { t in Text(t.number).font(appStyle.font(p.targets.count > 1 ? .headline : .title2, weight: .bold)) }
                     if let payer = p.targets.first?.payer, !payer.isEmpty {
                         Text(payer).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)

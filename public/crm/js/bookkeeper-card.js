@@ -227,7 +227,10 @@
                 '<div class="mw-rc-chq-memo">Bank memo: ' + esc(c.memo) + '</div>' + lines + flags +
               '</div>' +
               '<div class="mw-rc-dup-btns mw-rc-chq-btns">' +
-                '<button type="button" class="mw-rc-dup-btn is-merge" data-pay-record="1"><span class="mw-rc-dup-ico" aria-hidden="true">✓</span><b>Record</b><small>' + esc(money(c.amount) + ' on ' + payTargets(c)) + '</small></button>' +
+                // The server says what the tap does: "Link · bank line to the payment" when the payment is already on the
+                // invoice, "Record · $X on INV-…" when it records one (Tim, 2026-11-07).
+                '<button type="button" class="mw-rc-dup-btn is-merge" data-pay-record="1"><span class="mw-rc-dup-ico" aria-hidden="true">' + (c.button && c.button.title === 'Link' ? '⛓' : '✓') + '</span><b>' +
+                  esc((c.button && c.button.title) || 'Record') + '</b><small>' + esc((c.button && c.button.detail) || (money(c.amount) + ' on ' + payTargets(c))) + '</small></button>' +
                 '<button type="button" class="mw-rc-dup-btn is-diff" data-pay-skip="1"><span class="mw-rc-dup-ico" aria-hidden="true">→</span><b>Not now</b><small>leave it in the bank</small></button>' +
               '</div>' +
             '</div>' +
@@ -239,7 +242,7 @@
         var next = openPayments().length ? 'next payment' : (dupes.length ? 'on to duplicates' : 'on to receipts');
         root.innerHTML = '<div class="mw-rc-top"><span><b>Likely payment</b></span></div>' +
             '<div class="mw-rc-paid">' +
-              '<div class="mw-rc-paid-word">✓ Paid</div>' +
+              '<div class="mw-rc-paid-word">✓ ' + (c.button && c.button.title === 'Link' ? 'Linked to the bank' : 'Paid') + '</div>' +
               c.targets.map(function (t) { return '<div class="mw-rc-paid-inv">' + esc(t.number) + '</div>'; }).join('') +
               '<div class="mw-rc-paid-sub">' + esc((c.targets[0] && c.targets[0].payer) || '') + '</div>' +
               '<div class="mw-rc-paid-sub">' + esc(money(c.amount) + ' ' + c.label.toLowerCase()) + '</div>' +

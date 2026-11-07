@@ -189,6 +189,13 @@ class PaymentMatchService
             sort($issued);
             $money = fn($v) => '$' . number_format((float)$v, 2);
             $day   = fn($d) => $d ? date('M j', strtotime((string)$d)) : '—';
+            // Who paid, and where that came from: the bank memo, else the Interac email the matcher read (Tim, 2026-11-07:
+            // a tick beside "not on the memo" was confusing). No name anywhere → no tick.
+            $fromEmail = (empty($payer) && preg_match('/Interac e-Transfer from (.+?) paid /i', (string)($l['named'] ?? ''), $m)) ? trim($m[1]) : null;
+            $who = $payer ?? ($fromEmail !== null ? $fromEmail . ' (Interac email)' : null);
+            // The button says what the tap does: a payment already on the invoice is only LINKED to its bank line.
+            $linking = in_array($l['action'], ['link_payments', 'already_recorded'], true);
+            $targetText = $n === 1 ? (string)($first['number'] ?? '') : $n . ' invoices';
             $cards[] = [
                 'tx_id'      => (int)$l['id'],
                 'signature'  => (string)$l['signature'],
@@ -197,7 +204,10 @@ class PaymentMatchService
                 'memo'       => $memo,
                 'kind'       => $kind,
                 'label'      => InvoiceReconciliationService::kindLabel($kind),
-                'payer'      => $payer ?? (($first['payer'] ?? '') !== '' ? (string)$first['payer'] : null),
+                'payer'      => $payer ?? $fromEmail ?? (($first['payer'] ?? '') !== '' ? (string)$first['payer'] : null),
+                'button'     => $linking
+                    ? ['title' => 'Link', 'detail' => 'bank line to the payment']
+                    : ['title' => 'Record', 'detail' => $money($l['amount']) . ' on ' . $targetText],
                 'confidence' => (string)$l['outcome'],
                 'action'     => (string)$l['action'],
                 'verdict'    => (string)$l['why'],
@@ -210,8 +220,8 @@ class PaymentMatchService
                     ['label' => 'Amount', 'deposit' => $money($l['amount']),
                      'invoice' => $n > 1 ? $money($sum) . ' on ' . $n . ' invoices' : $money($sum),
                      'state' => abs($sum - (float)$l['amount']) < self::CENT ? 'same' : 'differs'],
-                    ['label' => 'Name', 'deposit' => $payer ?? 'not on the memo', 'invoice' => (string)($first['payer'] ?? '—'),
-                     'state' => !empty($l['named']) ? 'same' : ($payer ? 'differs' : 'missing')],
+                    ['label' => 'Name', 'deposit' => $who ?? 'not on the memo', 'invoice' => (string)($first['payer'] ?? '—'),
+                     'state' => $who === null ? 'missing' : (!empty($l['named']) ? 'same' : 'differs')],
                     ['label' => 'Date', 'deposit' => 'Banked ' . $day($l['date']), 'invoice' => 'Issued ' . $day($issued[0] ?? null), 'state' => 'info'],
                 ],
             ];
@@ -278,7 +288,7 @@ class PaymentMatchService
         try {
             $q = $this->db->prepare("
                 SELECT a.id, a.invoice_id, a.amount, a.payment_date, a.method, a.reference,
-                       i.invoice_number, i.bill_to_name, co.company_name, ct.first_name, ct.last_name, p.property_name
+                       i.invoice_number, i.bill_to_name, COALESCE(i.issue_date, i.invoice_date) AS issued, co.company_name, ct.first_name, ct.last_name, p.property_name
                 FROM invoice_payment_allocations a
                 JOIN invoices i ON i.id = a.invoice_id
                 LEFT JOIN companies co ON co.id = i.company_id
@@ -292,7 +302,9 @@ class PaymentMatchService
                 if (in_array(strtolower((string)$r['method']), self::CARD_METHODS, true)) continue;   // card money arrives in a Stripe payout
                 $names = self::names([$r['bill_to_name'], $r['company_name'], trim($r['first_name'] . ' ' . $r['last_name']), $r['property_name']]);
                 $cands['crm_rec:' . $r['id']] = self::cand('crm_rec', (int)$r['id'], (string)$r['invoice_number'], $names, (float)$r['amount'],
-                    substr((string)$r['payment_date'], 0, 10), ['invoice_id' => (int)$r['invoice_id'], 'issued' => null, 'method' => (string)$r['method']]);
+                    substr((string)$r['payment_date'], 0, 10), ['invoice_id' => (int)$r['invoice_id'], 'method' => (string)$r['method'],
+                     // the invoice's own issue date (Tim, 2026-11-07: Penny's card read "Issued —" for INV-2026-0490)
+                     'issued' => ($r['issued'] ?? '') !== '' ? substr((string)$r['issued'], 0, 10) : null]);
             }
         } catch (Throwable $e) {
             error_log('[payment-match] recorded payments: ' . $e->getMessage());

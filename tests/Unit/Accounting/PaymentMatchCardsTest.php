@@ -62,7 +62,26 @@ class PaymentMatchCardsTest extends TestCase
         $c = PaymentMatchService::cardsFromLines([$l])[0];
         $this->assertSame('e_transfer', $c['kind']);
         $this->assertSame('same', $c['facts'][1]['state']);
+        $this->assertSame(['title' => 'Link', 'detail' => 'bank line to the payment'], $c['button']);   // already on the invoice
         $this->assertSame(['Interac e-Transfer from John Hughes paid INV-2026-0465'], $c['evidence']);
         $this->assertSame('$1,890.00', $c['facts'][0]['invoice']);
+    }
+
+    public function testNameFromTheInteracEmailIsSaidSoAndRecordSaysRecord(): void
+    {
+        // INV-2026-0490 (2026-11-07): the bank memo carries only OUR name; the payer came from the Interac email.
+        $l = $this->line(['id' => 11, 'amount' => 175.02, 'description' => 'e-Transfer credit Ref 20261105124220819021 MowologyLandscaping',
+            'action' => 'link_payments', 'named' => 'Interac e-Transfer from NICHOLAS ALLAN VAN IERSEL paid INV-2026-0490',
+            'targets' => [$this->target('INV-2026-0490', 175.02, 'Strata at 1935–1939 West 12th Avenue', '2026-11-01')]]);
+        $c = PaymentMatchService::cardsFromLines([$l])[0];
+        $this->assertSame('NICHOLAS ALLAN VAN IERSEL (Interac email)', $c['facts'][1]['deposit']);
+        $this->assertSame('same', $c['facts'][1]['state']);
+        $this->assertSame('Issued Nov 1', $c['facts'][2]['invoice']);
+
+        $r = $this->line(['id' => 12, 'action' => 'record_payment', 'named' => null, 'description' => 'CHEQUEDEPOSIT-BRANCH',
+            'targets' => [$this->target('INV-2026-0431', 100)]]);
+        $rc = PaymentMatchService::cardsFromLines([$r])[0];
+        $this->assertSame(['title' => 'Record', 'detail' => '$100.00 on INV-2026-0431'], $rc['button']);
+        $this->assertSame('missing', $rc['facts'][1]['state']);   // no name anywhere: no tick
     }
 }

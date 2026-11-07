@@ -225,6 +225,19 @@ final class PaymentMatchServiceTest extends TestCase
         $this->assertSame('high', $this->line($svc->scan(), 301)['outcome']);
     }
 
+    public function testARecordedPaymentCarriesItsInvoicesIssueDate(): void
+    {
+        // INV-2026-0490 (2026-11-07): a hand-recorded e-Transfer waiting for its bank line showed "Issued —" on Penny's card.
+        $db = self::db();
+        $db->exec("INSERT INTO invoices (id, invoice_number, status, total, amount_paid, balance_due, issue_date, invoice_date, bill_to_name)
+                   VALUES (507, 'INV-2026-0490', 'paid', 175.02, 175.02, 0, '2026-11-01', NULL, 'Strata Sample')");
+        $db->exec("INSERT INTO invoice_payment_allocations (id, invoice_id, transaction_id, amount, payment_date, method)
+                   VALUES (165, 507, NULL, 175.02, '2026-11-05', 'e_transfer')");
+        $c = array_values(array_filter((new PaymentMatchService($db))->scan()['candidates'], fn($c) => $c['key'] === 'crm_rec:165'));
+        $this->assertCount(1, $c);
+        $this->assertSame('2026-11-01', $c[0]['issued']);
+    }
+
     public function testManualPickMustAddUpAndSkipIsRemembered(): void
     {
         $db = self::db();
