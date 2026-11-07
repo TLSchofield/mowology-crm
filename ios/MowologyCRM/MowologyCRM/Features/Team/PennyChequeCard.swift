@@ -262,90 +262,180 @@ fileprivate func chequeSquareButton(style: ItAppStyle, busy: Bool, icon: String,
         }
 }
 
-// MARK: - Likely payment (the payments matcher, 1.3.108)
+// MARK: - Likely payment (the payments matcher, 1.3.108; the money's path, 1.3.110)
 
-/// A deposit the payments matcher proposes — any kind, one or more invoices — on the centre line: the bank icon, Penny's
-/// sentence, the deposit and the invoice(s) side by side, Record / Not now (Tim, 2026-11-06: the cards and the
-/// "N deposits matched" line must be the same list).
+/// How sure the matcher is, as the knowledge brain's triangle on the centre line instead of words (Tim, 2026-11-07:
+/// "Its either broken, solid blue or gold. Instead of text"): low = broken outline (discovered), medium = solid blue
+/// (understood), high = gold with the mastered keyline. EXCEPTION, 2026-11-07, Tim: the knowledge colours are otherwise
+/// "knowledge brain only; never an operational status colour" (tokens.json) — this triangle is the one other use.
+struct PaymentConfidenceTriangle: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
+    let level: String
+
+    var body: some View {
+        ZStack {
+            Circle().fill(appStyle.page).frame(width: 31, height: 31)
+            Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 29, height: 29)
+            switch level {
+            case "high":   ItKnowledgeMark(stage: .mastered, size: 17)
+            case "medium": ItKnowledgeMark(stage: .understood, size: 17)
+            default:
+                ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
+                    .stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [2.6, 2.2]))
+                    .frame(width: 17, height: 17 * sqrt(3) / 2)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement()
+        .accessibilityLabel(level.capitalized + " confidence")
+    }
+}
+
+/// A deposit the payments matcher proposes, on the centre line — the money's path from the bank to the books (Tim,
+/// 2026-11-07): the number row, the bank icon, Penny's sentence, the confidence triangle, the deposit and its invoice(s)
+/// side by side, Link / Record and Not now, and the ledger at the bottom, which fills once it is in the books.
 struct PennyPaymentCard: View {
     @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyCardViewModel
     let payment: BKPaymentMatch
+    /// Set when this card was linked / recorded this sitting: the two are one now — shown centred, with Next and Undo.
+    var done: PennyCardViewModel.PaymentDone? = nil
     var extendsLine = true
 
     var body: some View {
-        let count = vm.openPayments.count
+        let count = vm.paySession.count
         VStack(alignment: .leading, spacing: 10) {
-            VStack(spacing: 6) {
-                PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
-                if count > 1 {
-                    Text("1 of \(count)").font(appStyle.font(.footnote, weight: .semibold)).foregroundStyle(appStyle.meta)
-                        .padding(.horizontal, 6).background(appStyle.page)
-                }
+            if count > 1 {
+                KanameNumberRow(count: count, current: vm.payPos,
+                                isDone: { i in vm.paySession.indices.contains(i) && vm.paymentOutcome(vm.paySession[i]) != nil },
+                                noun: "Payment", onTap: { i in vm.showPayment(at: i) })
             }
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(count > 1 ? "Likely payment, 1 of \(count)" : "Likely payment")
-
-            VStack(spacing: 4) {
-                Text(payment.verdict).font(appStyle.font(.title3, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-                Text(([payment.confidence.capitalized + " confidence"] + payment.evidence).joined(separator: " · "))
-                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta).fixedSize(horizontal: false, vertical: true)
-            }
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 6)
-            .background(appStyle.page)
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-
-            VStack(alignment: .leading, spacing: 10) {
-                factsTable
-                // The memo is the deposit's (its column); the invoices it pays are theirs (the other column).
-                HStack(alignment: .top, spacing: PennyCardView.columnGap) {
-                    Text("Bank memo: \(payment.memo)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-                        .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: 2) {
-                        if payment.targets.count > 1 {
-                            ForEach(payment.targets, id: \.self) { t in
-                                Text("\(t.number) · \(PennyChequeCard.money(t.amount))").font(appStyle.font(.caption)).foregroundStyle(appStyle.text)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                ForEach(payment.flags, id: \.self) { f in
-                    Label(f, systemImage: "exclamationmark.triangle").font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
-                        .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
-                }
-                HStack(spacing: PennyCardView.columnGap) {
-                    let linking = payment.button?.title == "Link"
-                    chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: linking ? "link" : "checkmark",
-                                       title: payment.button?.title ?? "Record",
-                                       detail: payment.button?.detail ?? "\(PennyChequeCard.money(payment.amount)) on \(payment.targetLine)", filled: true) {
-                        Task { await vm.recordPayment(payment) }
-                    }
-                    .accessibilityHint(linking
-                        ? "The payment is already on \(payment.targetLine). This ties the bank line to it, so it counts once. You can undo it."
-                        : "Records the deposit on \(payment.targetLine). It then counts once, on the invoice. You can undo it.")
-                    chequeSquareButton(style: appStyle, busy: false, icon: "arrow.right", title: "Not now", detail: "leave it in the bank", filled: false) {
-                        withAnimation(.easeOut(duration: 0.22)) { vm.skipPayment(payment) }
-                    }
-                }
-                .disabled(vm.isBusy)
+            PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 2)
-            }
-            .padding(8)
-            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+                .accessibilityElement()
+                .accessibilityLabel("Likely payment, from the bank")
+            messageLine
+            if let done { doneBody(done) } else { openBody }
         }
         .background(alignment: .top) {
             Rectangle().fill(appStyle.line)
                 .frame(width: 1).frame(maxHeight: .infinity)
-                .padding(.top, 31)
+                .padding(.top, count > 1 ? 26 : 31)            // from the current number, else the bank icon
                 .padding(.bottom, extendsLine ? -400 : -32)
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder private var openBody: some View {
+        VStack(spacing: 4) {
+            Text(payment.verdict).font(appStyle.font(.title3, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+            if !payment.evidence.isEmpty {
+                Text(payment.evidence.joined(separator: " · "))
+                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 6)
+        .background(appStyle.page)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+
+        if ["high", "medium", "low"].contains(payment.confidence) {
+            PaymentConfidenceTriangle(level: payment.confidence)
+        }
+
+        VStack(alignment: .leading, spacing: 10) {
+            factsTable
+            // The memo is the deposit's (its column); the invoices it pays are theirs (the other column).
+            HStack(alignment: .top, spacing: PennyCardView.columnGap) {
+                Text("Bank memo: \(payment.memo)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 2) {
+                    if payment.targets.count > 1 {
+                        ForEach(payment.targets, id: \.self) { t in
+                            Text("\(t.number) · \(PennyChequeCard.money(t.amount))").font(appStyle.font(.caption)).foregroundStyle(appStyle.text)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            ForEach(payment.flags, id: \.self) { f in
+                Label(f, systemImage: "exclamationmark.triangle").font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
+                    .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
+            }
+            let linking = payment.button?.title == "Link"
+            HStack(spacing: PennyCardView.columnGap) {
+                chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: linking ? "link" : "checkmark",
+                                   title: payment.button?.title ?? "Record",
+                                   detail: payment.button?.detail ?? "\(PennyChequeCard.money(payment.amount)) on \(payment.targetLine)", filled: true) {
+                    Task { await vm.recordPayment(payment) }
+                }
+                .accessibilityHint(linking
+                    ? "The payment is already on \(payment.targetLine). This ties the bank line to it, so it counts once. You can undo it."
+                    : "Records the deposit on \(payment.targetLine). It then counts once, on the invoice. You can undo it.")
+                chequeSquareButton(style: appStyle, busy: false, icon: "arrow.right", title: "Not now", detail: "leave it in the bank", filled: false) {
+                    withAnimation(.easeOut(duration: 0.22)) { vm.skipPayment(payment) }
+                }
+            }
+            .disabled(vm.isBusy)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 2)
+            // The money's path ends here: in the books (outline until it is linked or recorded).
+            PennyCardView.ledgerIcon(filled: false, style: appStyle).frame(maxWidth: .infinity)
+        }
+        .padding(8)
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+    }
+
+    /// Linked / recorded: the deposit and its invoice(s) are one now — centred, one way on (Next), Undo underneath, the
+    /// ledger filled: counted once, in the books.
+    private func doneBody(_ d: PennyCardViewModel.PaymentDone) -> some View {
+        let p = d.card
+        let next = !vm.openPayments.isEmpty ? "next payment" : (vm.dupes.isEmpty ? "on to receipts" : "on to duplicates")
+        return VStack(spacing: 10) {
+            VStack(spacing: 4) {
+                Label(p.button?.title == "Link" ? "Linked to the bank" : "Paid", systemImage: "checkmark.circle.fill")
+                    .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
+                ForEach(p.targets, id: \.self) { t in Text(t.number).font(appStyle.font(p.targets.count > 1 ? .headline : .title2, weight: .bold)) }
+                if let payer = p.targets.first?.payer, !payer.isEmpty {
+                    Text(payer).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                }
+                Text("\(PennyChequeCard.money(p.amount)) \(p.label.lowercased())").font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.vertical, 10).padding(.horizontal, 12)
+            .background(appStyle.page)
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+
+            chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "arrow.right", title: "Next", detail: next, filled: true) {
+                withAnimation(.easeOut(duration: 0.22)) { vm.advancePayment() }
+            }
+            .frame(width: PennyCardView.singleColumn)
+            .frame(maxWidth: .infinity)
+            if d.logId > 0 {
+                Button("Undo") { Task { await vm.undoPayment(d) } }
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .foregroundStyle(appStyle.tenant)
+                    .padding(.horizontal, 8).background(appStyle.page)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(vm.isBusy)
+                    .accessibilityHint("Takes the payment off the invoice again; the deposit goes back to waiting.")
+            }
+            PennyCardView.ledgerIcon(filled: true, style: appStyle).frame(maxWidth: .infinity)
+        }
+        .padding(8)
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+    }
+
+    @ViewBuilder private var messageLine: some View {
+        if let m = vm.message {
+            Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
         }
     }
 
@@ -387,63 +477,6 @@ struct PennyPaymentCard: View {
                 .accessibilityLabel(f.state == "same" ? "\(f.label) matches: \(f.deposit), \(f.invoice)" : "\(f.label): deposit \(f.deposit), invoice \(f.invoice)")
                 Divider().overlay(appStyle.line)
             }
-        }
-    }
-}
-
-/// A recorded payment: the deposit and its invoice(s) are one now — centred, one way on (Next), Undo underneath.
-struct PennyPaymentDoneCard: View {
-    @Environment(\.itAppStyle) private var appStyle
-    @ObservedObject var vm: PennyCardViewModel
-    let done: PennyCardViewModel.PaymentDone
-    var extendsLine = true
-
-    var body: some View {
-        let p = done.card
-        let next = !vm.openPayments.isEmpty ? "next payment" : (vm.showsDupes ? "on to duplicates" : "all done")
-        VStack(spacing: 10) {
-            PennyCardView.sectionIcon("building.columns.fill", style: appStyle).frame(maxWidth: .infinity)
-            VStack(spacing: 10) {
-                VStack(spacing: 4) {
-                    Label(p.button?.title == "Link" ? "Linked to the bank" : "Paid", systemImage: "checkmark.circle.fill")
-                        .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
-                    ForEach(p.targets, id: \.self) { t in Text(t.number).font(appStyle.font(p.targets.count > 1 ? .headline : .title2, weight: .bold)) }
-                    if let payer = p.targets.first?.payer, !payer.isEmpty {
-                        Text(payer).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
-                    }
-                    Text("\(PennyChequeCard.money(p.amount)) \(p.label.lowercased())").font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.vertical, 10).padding(.horizontal, 12)
-                .background(appStyle.page)
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-
-                chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "arrow.right", title: "Next", detail: next, filled: true) {
-                    withAnimation(.easeOut(duration: 0.22)) { vm.dismissPaymentDone() }
-                }
-                .frame(width: PennyCardView.singleColumn)
-                .frame(maxWidth: .infinity)
-                if done.logId > 0 {
-                    Button("Undo") { Task { await vm.undoPayment() } }
-                        .font(appStyle.font(.footnote, weight: .semibold))
-                        .foregroundStyle(appStyle.tenant)
-                        .padding(.horizontal, 8).background(appStyle.page)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .disabled(vm.isBusy)
-                        .accessibilityHint("Takes the payment off the invoice again; the deposit goes back to waiting.")
-                }
-            }
-            .padding(8)
-            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
-        }
-        .background(alignment: .top) {
-            Rectangle().fill(appStyle.line)
-                .frame(width: 1).frame(maxHeight: .infinity)
-                .padding(.top, 31)
-                .padding(.bottom, extendsLine ? -400 : -32)
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
         }
     }
 }

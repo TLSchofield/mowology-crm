@@ -127,3 +127,14 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   connected by rule.
 - **Only where something is in sequence or in pairs**: a timeline (Schedule) or a comparison (Penny's cheques and
   duplicates). Plain lists (Receipts, Search results) stay hairline rows with no line. One line per screen, never two.
+- **The money's path (Penny's payment cards, 7 Nov 2026).** Down the line: the number row (the shared Kaname row, as on
+  the duplicates), the bank icon (`building.columns.fill`, the money starts on the bank statement), Penny's sentence,
+  the confidence triangle, the panel, the two squares, and the ledger (`text.book.closed`) at the bottom — an outline
+  while the deposit waits, filled brand indigo once it is linked or recorded (in the books, counted once).
+- **Confidence is the knowledge triangle, not words.** Low = broken (dashed) outline in `knowledge-discovered`; medium
+  = solid `knowledge-understood`; high = `knowledge-mastered` gold with the mastered inner page-colour keyline (so gold
+  differs from blue by more than colour). VoiceOver says "High / Medium / Low confidence".
+  **Exception, 2026-11-07 (Tim):** the knowledge colours are otherwise "knowledge brain only; never an operational status
+  colour" (`tokens.json`). This triangle on Penny's payment cards is the one other use; the rule stands for everything
+  else. (`ItTokens.swift` is generated from `tokens.json`, so the note lives here and beside `PaymentConfidenceTriangle`.)
+

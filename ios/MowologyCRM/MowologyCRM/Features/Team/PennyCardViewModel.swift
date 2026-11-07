@@ -41,9 +41,15 @@ final class PennyCardViewModel: ObservableObject {
     @Published private(set) var cheques: [BKChequeMatch] = []
     /// Every deposit the payments matcher proposes (1.3.108): replaces the cheque-only cards on this build.
     @Published private(set) var payments: [BKPaymentMatch] = []
-    @Published private(set) var paymentSkipped: Set<Int> = []
     struct PaymentDone: Equatable { let card: BKPaymentMatch; let logId: Int; let message: String }
-    @Published private(set) var paymentDone: PaymentDone?
+    /// The sitting's payments, kept in order with a snapshot each, so answered ones keep their number in the row and stay
+    /// reachable (Tim, 2026-11-07: "1 of 7 should follow the same carousel numbering style … for the receipt merge").
+    enum PaymentOutcome: Equatable { case booked(PaymentDone), skipped }
+    @Published private(set) var paySession: [Int] = []
+    @Published private(set) var paySnapshots: [Int: BKPaymentMatch] = [:]
+    @Published private(set) var payOutcomes: [Int: PaymentOutcome] = [:]
+    @Published private(set) var payPos = 0
+    @Published private(set) var paymentsFinished = false
     @Published private(set) var chequeSkipped: Set<Int> = []
     @Published private(set) var chequePick: [Int: Int] = [:]
     // MARK: Duplicates carousel (Tim, 2026-11-06: "I should be able to swipe back to 1 and view the merged bill and
@@ -185,6 +191,7 @@ final class PennyCardViewModel: ObservableObject {
         lines = r.lines
         queue = r.queue
         payments = r.payments
+        trackPayments()
         cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
         dupes = r.dupes
         trackDupes()
@@ -298,25 +305,52 @@ final class PennyCardViewModel: ObservableObject {
         keepChoice[group.id] = id
     }
 
-    // MARK: - Likely payments (the payments matcher; suggest only — Record is the person's tap)
+    // MARK: - Likely payments (the payments matcher; suggest only — Record / Link is the person's tap)
 
-    var openPayments: [BKPaymentMatch] { payments.filter { !paymentSkipped.contains($0.txId) } }
-    var currentPayment: BKPaymentMatch? { openPayments.first }
-    func skipPayment(_ p: BKPaymentMatch) { paymentSkipped.insert(p.txId) }
-    func dismissPaymentDone() { paymentDone = nil }
+    /// New proposals join the end of the sitting; ones the server dropped keep their snapshot (answered, or booked elsewhere).
+    private func trackPayments() {
+        for p in payments {
+            paySnapshots[p.txId] = p
+            if !paySession.contains(p.txId) { paySession.append(p.txId); paymentsFinished = false }
+        }
+        if payPos >= paySession.count { payPos = max(0, paySession.count - 1) }
+    }
+
+    var showsPayments: Bool { !paySession.isEmpty && !paymentsFinished }
+    var currentPaymentId: Int? { paySession.indices.contains(payPos) ? paySession[payPos] : nil }
+    var currentPayment: BKPaymentMatch? { currentPaymentId.flatMap { paySnapshots[$0] } }
+    func paymentOutcome(_ id: Int) -> PaymentOutcome? { payOutcomes[id] }
+    var currentPaymentDone: PaymentDone? {
+        if let id = currentPaymentId, case .booked(let d)? = payOutcomes[id] { return d }
+        return nil
+    }
+    /// Still waiting on Penny's card (not answered this sitting).
+    var openPayments: [Int] { paySession.filter { payOutcomes[$0] == nil } }
+
+    func showPayment(at i: Int) { if paySession.indices.contains(i) { payPos = i } }
+    /// After an answer: the next unanswered one (right to left), else the section is done and the duplicates come up.
+    func advancePayment() {
+        if let next = paySession.indices.first(where: { $0 > payPos && payOutcomes[paySession[$0]] == nil })
+            ?? paySession.indices.first(where: { payOutcomes[paySession[$0]] == nil }) {
+            payPos = next
+        } else {
+            paymentsFinished = true
+        }
+    }
+    func skipPayment(_ p: BKPaymentMatch) { payOutcomes[p.txId] = .skipped; advancePayment() }
 
     func recordPayment(_ p: BKPaymentMatch) async {
         guard !isBusy else { return }
         guard let r = await perform(["mode": "payment_book", "transaction_id": p.txId, "signature": p.signature]) else { return }
-        paymentDone = PaymentDone(card: p, logId: r.logId ?? 0, message: r.message ?? "Recorded.")
+        payOutcomes[p.txId] = .booked(PaymentDone(card: p, logId: r.logId ?? 0, message: r.message ?? "Recorded."))
         await load()
     }
 
-    /// Undo straight after recording: the matcher reverses it through the path that booked it.
-    func undoPayment() async {
-        guard !isBusy, let d = paymentDone, d.logId > 0 else { return }
+    /// Undo from the answered card: the matcher reverses it through the path that booked it; the card opens again.
+    func undoPayment(_ d: PaymentDone) async {
+        guard !isBusy, d.logId > 0 else { return }
         guard let r = await perform(["mode": "payment_undo", "log_id": d.logId]) else { return }
-        paymentDone = nil
+        payOutcomes[d.card.txId] = nil
         await load()
         show(r.message ?? "Undone — the deposit is back as it was.", error: false)
     }
@@ -550,6 +584,7 @@ final class PennyCardViewModel: ObservableObject {
         let savedIsError = messageIsError
         queue = r.queue
         payments = r.payments
+        trackPayments()
         cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
         dupes = r.dupes
         trackDupes()
