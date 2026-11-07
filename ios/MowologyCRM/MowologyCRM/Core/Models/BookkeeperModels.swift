@@ -408,8 +408,63 @@ struct BKChequeMatch: Decodable, Identifiable, Equatable {
     }
 }
 
+/// A deposit the payments matcher proposes (PaymentMatchService::pennyCards()): cheque, e-Transfer, EFT … paying one or
+/// more invoices. Record posts payment_book with the signature (refused if the line changed); Undo posts payment_undo.
+struct BKPaymentMatch: Decodable, Identifiable, Equatable {
+    struct Target: Decodable, Equatable, Hashable {
+        let number: String
+        let payer: String
+        let amount: Double
+    }
+    struct Fact: Decodable, Equatable, Hashable {
+        let label: String
+        let deposit: String
+        let invoice: String
+        let state: String
+    }
+    let txId: Int
+    let signature: String
+    let amount: Double
+    let memo: String
+    let label: String
+    let payer: String?
+    let confidence: String
+    let verdict: String
+    let evidence: [String]
+    let flags: [String]
+    let targets: [Target]
+    let facts: [Fact]
+
+    var id: Int { txId }
+
+    private enum CodingKeys: String, CodingKey {
+        case txId = "tx_id", signature, amount, memo, label, payer, confidence, verdict, evidence, flags, targets, facts
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        txId = try c.decode(Int.self, forKey: .txId)
+        signature = c.bkString(.signature) ?? ""
+        amount = (try? c.decode(Double.self, forKey: .amount)) ?? 0
+        memo = c.bkString(.memo) ?? ""
+        label = c.bkString(.label) ?? "Bank deposit"
+        payer = c.bkString(.payer)
+        confidence = c.bkString(.confidence) ?? ""
+        verdict = c.bkString(.verdict) ?? ""
+        evidence = (try? c.decodeIfPresent([String].self, forKey: .evidence)) ?? []
+        flags = (try? c.decodeIfPresent([String].self, forKey: .flags)) ?? []
+        targets = (try? c.decodeIfPresent([Target].self, forKey: .targets)) ?? []
+        facts = (try? c.decodeIfPresent([Fact].self, forKey: .facts)) ?? []
+    }
+
+    /// "INV-2026-0465", or "3 invoices".
+    var targetLine: String { targets.count == 1 ? targets[0].number : "\(targets.count) invoices" }
+}
+
 struct BookkeeperQueueResponse: Decodable {
     let ok: Bool
+    /// Every deposit the payments matcher proposes — first on the card (1.3.108). Older servers send none.
+    let payments: [BKPaymentMatch]
     /// Likely cheques for open invoices — first on the card (Tim, 2026-11-06). Older servers send none.
     let cheques: [BKChequeMatch]
     let dupes: [BKDupeGroup]
@@ -422,11 +477,12 @@ struct BookkeeperQueueResponse: Decodable {
     let lines: PennyLines?
     let error: String?
 
-    private enum CodingKeys: String, CodingKey { case ok, cheques, dupes, queue, categories, assetTags = "asset_tags", messages, lines, error }
+    private enum CodingKeys: String, CodingKey { case ok, payments, cheques, dupes, queue, categories, assetTags = "asset_tags", messages, lines, error }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         ok = c.bkBool(.ok) ?? false
+        payments = (try? c.decodeIfPresent([BKPaymentMatch].self, forKey: .payments)) ?? []
         cheques = (try? c.decodeIfPresent([BKChequeMatch].self, forKey: .cheques)) ?? []
         dupes = (try? c.decodeIfPresent([BKDupeGroup].self, forKey: .dupes)) ?? []
         queue = (try? c.decodeIfPresent([BookkeeperItem].self, forKey: .queue)) ?? []
@@ -574,9 +630,11 @@ struct BookkeeperActionResponse: Decodable {
     let error: String?
     /// merge: the server recorded each copy (expense_merges), so Undo / Split off can bring it back.
     let undo: Bool?
+    /// payment_book: the payments matcher's log row, for Undo.
+    let logId: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, message, approved, savedDraft = "saved_draft", blocked, error, undo
+        case ok, message, approved, savedDraft = "saved_draft", blocked, error, undo, logId = "log_id"
     }
 
     init(from decoder: Decoder) throws {
@@ -588,6 +646,7 @@ struct BookkeeperActionResponse: Decodable {
         blocked = c.bkBool(.blocked)
         error = c.bkString(.error)
         undo = c.bkBool(.undo)
+        logId = try? c.decodeIfPresent(Int.self, forKey: .logId)
     }
 }
 

@@ -261,3 +261,184 @@ fileprivate func chequeSquareButton(style: ItAppStyle, busy: Bool, icon: String,
             .accessibilityLabel("\(title), \(detail)")
         }
 }
+
+// MARK: - Likely payment (the payments matcher, 1.3.108)
+
+/// A deposit the payments matcher proposes — any kind, one or more invoices — on the centre line: the bank icon, Penny's
+/// sentence, the deposit and the invoice(s) side by side, Record / Not now (Tim, 2026-11-06: the cards and the
+/// "N deposits matched" line must be the same list).
+struct PennyPaymentCard: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var vm: PennyCardViewModel
+    let payment: BKPaymentMatch
+    var extendsLine = true
+
+    var body: some View {
+        let count = vm.openPayments.count
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(spacing: 6) {
+                PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
+                if count > 1 {
+                    Text("1 of \(count)").font(appStyle.font(.footnote, weight: .semibold)).foregroundStyle(appStyle.meta)
+                        .padding(.horizontal, 6).background(appStyle.page)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(count > 1 ? "Likely payment, 1 of \(count)" : "Likely payment")
+
+            VStack(spacing: 4) {
+                Text(payment.verdict).font(appStyle.font(.title3, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                Text(([payment.confidence.capitalized + " confidence"] + payment.evidence).joined(separator: " · "))
+                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta).fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 6)
+            .background(appStyle.page)
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+
+            VStack(alignment: .leading, spacing: 10) {
+                factsTable
+                // The memo is the deposit's (its column); the invoices it pays are theirs (the other column).
+                HStack(alignment: .top, spacing: PennyCardView.columnGap) {
+                    Text("Bank memo: \(payment.memo)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                        .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if payment.targets.count > 1 {
+                            ForEach(payment.targets, id: \.self) { t in
+                                Text("\(t.number) · \(PennyChequeCard.money(t.amount))").font(appStyle.font(.caption)).foregroundStyle(appStyle.text)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ForEach(payment.flags, id: \.self) { f in
+                    Label(f, systemImage: "exclamationmark.triangle").font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
+                        .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
+                }
+                HStack(spacing: PennyCardView.columnGap) {
+                    chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "checkmark", title: "Record",
+                                       detail: "\(PennyChequeCard.money(payment.amount)) on \(payment.targetLine)", filled: true) {
+                        Task { await vm.recordPayment(payment) }
+                    }
+                    .accessibilityHint("Records the deposit on \(payment.targetLine). It then counts once, on the invoice. You can undo it.")
+                    chequeSquareButton(style: appStyle, busy: false, icon: "arrow.right", title: "Not now", detail: "leave it in the bank", filled: false) {
+                        withAnimation(.easeOut(duration: 0.22)) { vm.skipPayment(payment) }
+                    }
+                }
+                .disabled(vm.isBusy)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 2)
+            }
+            .padding(8)
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+        }
+        .background(alignment: .top) {
+            Rectangle().fill(appStyle.line)
+                .frame(width: 1).frame(maxHeight: .infinity)
+                .padding(.top, 31)
+                .padding(.bottom, extendsLine ? -400 : -32)
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var factsTable: some View {
+        let gap = PennyCardView.columnGap
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text(payment.label).font(appStyle.font(.caption, weight: .bold)).foregroundStyle(appStyle.meta)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Color.clear.frame(width: gap, height: 1)
+                Text(payment.targetLine).font(appStyle.font(.caption, weight: .bold)).foregroundStyle(appStyle.tenant)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.bottom, 4)
+            ForEach(payment.facts, id: \.self) { f in
+                HStack(alignment: .center, spacing: 0) {
+                    Text(f.deposit).font(appStyle.font(.footnote, weight: f.state == "differs" ? .semibold : .regular))
+                        .foregroundStyle(f.state == "missing" ? appStyle.meta : appStyle.text)
+                        .multilineTextAlignment(.trailing).lineLimit(2).minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Group {
+                        if f.state == "same" {
+                            ZStack {
+                                Circle().fill(appStyle.page).frame(width: 27, height: 27)
+                                Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 25, height: 25)
+                                Image(systemName: "checkmark.circle.fill").font(appStyle.font(size: 16, weight: .semibold)).foregroundStyle(indigo)
+                            }
+                            .accessibilityHidden(true)
+                        } else { Color.clear }
+                    }
+                    .frame(width: gap)
+                    Text(f.invoice).font(appStyle.font(.footnote, weight: f.state == "differs" ? .semibold : .regular))
+                        .foregroundStyle(appStyle.text).lineLimit(2).minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 3)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(f.state == "same" ? "\(f.label) matches: \(f.deposit), \(f.invoice)" : "\(f.label): deposit \(f.deposit), invoice \(f.invoice)")
+                Divider().overlay(appStyle.line)
+            }
+        }
+    }
+}
+
+/// A recorded payment: the deposit and its invoice(s) are one now — centred, one way on (Next), Undo underneath.
+struct PennyPaymentDoneCard: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var vm: PennyCardViewModel
+    let done: PennyCardViewModel.PaymentDone
+    var extendsLine = true
+
+    var body: some View {
+        let p = done.card
+        let next = !vm.openPayments.isEmpty ? "next payment" : (vm.showsDupes ? "on to duplicates" : "all done")
+        VStack(spacing: 10) {
+            PennyCardView.sectionIcon("building.columns.fill", style: appStyle).frame(maxWidth: .infinity)
+            VStack(spacing: 10) {
+                VStack(spacing: 4) {
+                    Label("Paid", systemImage: "checkmark.circle.fill").font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
+                    ForEach(p.targets, id: \.self) { t in Text(t.number).font(appStyle.font(p.targets.count > 1 ? .headline : .title2, weight: .bold)) }
+                    if let payer = p.targets.first?.payer, !payer.isEmpty {
+                        Text(payer).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                    }
+                    Text("\(PennyChequeCard.money(p.amount)) \(p.label.lowercased())").font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.vertical, 10).padding(.horizontal, 12)
+                .background(appStyle.page)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+
+                chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "arrow.right", title: "Next", detail: next, filled: true) {
+                    withAnimation(.easeOut(duration: 0.22)) { vm.dismissPaymentDone() }
+                }
+                .frame(width: PennyCardView.singleColumn)
+                .frame(maxWidth: .infinity)
+                if done.logId > 0 {
+                    Button("Undo") { Task { await vm.undoPayment() } }
+                        .font(appStyle.font(.footnote, weight: .semibold))
+                        .foregroundStyle(appStyle.tenant)
+                        .padding(.horizontal, 8).background(appStyle.page)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .disabled(vm.isBusy)
+                        .accessibilityHint("Takes the payment off the invoice again; the deposit goes back to waiting.")
+                }
+            }
+            .padding(8)
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+        }
+        .background(alignment: .top) {
+            Rectangle().fill(appStyle.line)
+                .frame(width: 1).frame(maxHeight: .infinity)
+                .padding(.top, 31)
+                .padding(.bottom, extendsLine ? -400 : -32)
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
+        }
+    }
+}

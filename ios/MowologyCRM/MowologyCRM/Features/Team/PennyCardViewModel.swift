@@ -39,6 +39,11 @@ final class PennyCardViewModel: ObservableObject {
     /// Likely cheques for open invoices, shown before the duplicates (Tim, 2026-11-06). "Not now" hides one until the
     /// next open of the card; "Or …" picks another invoice for it (index into [best] + others).
     @Published private(set) var cheques: [BKChequeMatch] = []
+    /// Every deposit the payments matcher proposes (1.3.108): replaces the cheque-only cards on this build.
+    @Published private(set) var payments: [BKPaymentMatch] = []
+    @Published private(set) var paymentSkipped: Set<Int> = []
+    struct PaymentDone: Equatable { let card: BKPaymentMatch; let logId: Int; let message: String }
+    @Published private(set) var paymentDone: PaymentDone?
     @Published private(set) var chequeSkipped: Set<Int> = []
     @Published private(set) var chequePick: [Int: Int] = [:]
     // MARK: Duplicates carousel (Tim, 2026-11-06: "I should be able to swipe back to 1 and view the merged bill and
@@ -179,7 +184,8 @@ final class PennyCardViewModel: ObservableObject {
         messages = r.messages
         lines = r.lines
         queue = r.queue
-        cheques = r.cheques
+        payments = r.payments
+        cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
         dupes = r.dupes
         trackDupes()
         categories = r.categories
@@ -290,6 +296,29 @@ final class PennyCardViewModel: ObservableObject {
     func chooseKeep(_ id: Int, in group: BKDupeGroup) {
         guard Self.swapOptions(keeping: keepId(for: group), in: group).contains(id) else { return }
         keepChoice[group.id] = id
+    }
+
+    // MARK: - Likely payments (the payments matcher; suggest only — Record is the person's tap)
+
+    var openPayments: [BKPaymentMatch] { payments.filter { !paymentSkipped.contains($0.txId) } }
+    var currentPayment: BKPaymentMatch? { openPayments.first }
+    func skipPayment(_ p: BKPaymentMatch) { paymentSkipped.insert(p.txId) }
+    func dismissPaymentDone() { paymentDone = nil }
+
+    func recordPayment(_ p: BKPaymentMatch) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "payment_book", "transaction_id": p.txId, "signature": p.signature]) else { return }
+        paymentDone = PaymentDone(card: p, logId: r.logId ?? 0, message: r.message ?? "Recorded.")
+        await load()
+    }
+
+    /// Undo straight after recording: the matcher reverses it through the path that booked it.
+    func undoPayment() async {
+        guard !isBusy, let d = paymentDone, d.logId > 0 else { return }
+        guard let r = await perform(["mode": "payment_undo", "log_id": d.logId]) else { return }
+        paymentDone = nil
+        await load()
+        show(r.message ?? "Undone — the deposit is back as it was.", error: false)
     }
 
     // MARK: - Likely cheques (suggest only — Record is the person's tap)
@@ -520,7 +549,8 @@ final class PennyCardViewModel: ObservableObject {
         let saved = message
         let savedIsError = messageIsError
         queue = r.queue
-        cheques = r.cheques
+        payments = r.payments
+        cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
         dupes = r.dupes
         trackDupes()
         if !r.categories.isEmpty { categories = r.categories }

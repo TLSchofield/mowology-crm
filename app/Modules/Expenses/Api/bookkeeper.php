@@ -26,6 +26,8 @@
  * GET  ?mode=bank_invoice&transaction_id=N  A credit: already-recorded payments, its Interac email, ranked open invoices.
  * GET  ?mode=bank_invoice_report  Read-only: unmatched deposits whose money is already on invoices (counted twice).
  * POST {mode: 'bank_invoice_record', transaction_id, allocations: [{invoice_id|invoice_number, amount}], sender?, force?, csrf_token}
+ * POST {mode: 'payment_book', transaction_id, signature, csrf_token}  Record a likely payment (PaymentMatchService::book()).
+ * POST {mode: 'payment_undo', log_id, csrf_token}  Undo it (PaymentMatchService::undo()). Queue: 'payments' (pennyCards()).
  * POST {mode: 'bank_invoice_link', transaction_id, allocation_ids?: [], legacy?: bool, csrf_token}  "Already recorded — link".
  * POST {mode: 'bank_teach_payer', sender, invoice_id, csrf_token}  This sender pays that invoice's payer (learned).
  * GET  ?mode=stripe_read&transaction_id=N  Which invoices + fee a Stripe payout line holds (Stripe GETs only).
@@ -216,16 +218,18 @@ try {
                 $dupes = $dupSvc->pairsInLine(60);
                 // Likely cheques come first on the card (Tim, 2026-11-06); "Record" posts bank_invoice_record.
                 ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
-                $cheques = [];
+                // Every deposit the payments matcher proposes, first on the card (Tim, 2026-11-06: one matcher, so
+                // the "N deposits matched" line and the cards agree). Record → payment_book; Undo → payment_undo.
+                $payments = [];
                 if (userHasPermission('billing.view')) {
                     try {
-                        require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
-                        $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);
+                        require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+                        $payments = (new PaymentMatchService($db))->pennyCards(12);
                     } catch (Throwable $e) {
-                        error_log('[bookkeeper] cheques: ' . $e->getMessage());
+                        error_log('[bookkeeper] payments: ' . $e->getMessage());
                     }
                 }
-                echo json_encode(['ok' => true, 'cheques' => $cheques, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
+                echo json_encode(['ok' => true, 'payments' => $payments, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
                                   'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
@@ -348,6 +352,25 @@ try {
                 }
                 echo json_encode($res);
             }
+            break;
+        }
+
+        case 'payment_book':
+        case 'payment_undo': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!userHasPermission('billing.edit')) throw new RuntimeException('Permission denied: billing.edit required');
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $pm = new PaymentMatchService($db);
+            if ($mode === 'payment_undo') {
+                echo json_encode($pm->undo((int)($input['log_id'] ?? 0), (int)$user['id']));
+                break;
+            }
+            $tx = (int)($input['transaction_id'] ?? 0);
+            $r = $pm->book([$tx => (string)($input['signature'] ?? '')], (int)$user['id']);
+            $done = $r['booked'][0] ?? null;
+            echo json_encode($done
+                ? ['ok' => true, 'message' => (string)($done['message'] ?? 'Recorded.'), 'log_id' => (int)($done['log_id'] ?? 0)]
+                : ['ok' => false, 'message' => (string)($r['failed'][0]['message'] ?? 'Not recorded.')]);
             break;
         }
 

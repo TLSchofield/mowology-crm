@@ -158,6 +158,67 @@ class PaymentMatchService
                 'url' => '/crm/accounting/payment-match.php'];
     }
 
+    /**
+     * Penny's likely-payment cards (iPhone + web, 2026-11-06): every deposit this matcher proposes, best first, in the
+     * centre-line card shape. Refreshes the cached count too, so "N deposits matched" and the cards always agree.
+     * Suggest only: recording is the person's tap (book() with the line's signature), undone by undo().
+     */
+    public function pennyCards(int $limit = 12): array
+    {
+        if (!$this->ready()) return [];
+        $scan = $this->scan();
+        try { $this->snapshot($scan['summary']); } catch (Throwable $e) { /* the count is a cache */ }
+        return self::cardsFromLines($scan['lines'], $limit);
+    }
+
+    /** Pure: scan lines → cards. Only bookable proposals; high, then medium, then low; newest first within each. */
+    public static function cardsFromLines(array $lines, int $limit = 12): array
+    {
+        $rank = ['high' => 0, 'medium' => 1, 'low' => 2];
+        $lines = array_values(array_filter($lines, [self::class, 'bookable']));
+        usort($lines, fn($a, $b) => [$rank[$a['outcome']] ?? 9, $b['date'], $b['id']] <=> [$rank[$b['outcome']] ?? 9, $a['date'], $a['id']]);
+        $cards = [];
+        foreach (array_slice($lines, 0, $limit) as $l) {
+            $memo  = (string)$l['description'];
+            $kind  = InvoiceReconciliationService::depositKind($memo);
+            $first = $l['targets'][0] ?? [];
+            $payer = InvoiceReconciliationService::memoPayer($memo);
+            $sum   = round(array_sum(array_column($l['targets'], 'amount')), 2);
+            $n     = count($l['targets']);
+            $issued = array_filter(array_column($l['targets'], 'issued'));
+            sort($issued);
+            $money = fn($v) => '$' . number_format((float)$v, 2);
+            $day   = fn($d) => $d ? date('M j', strtotime((string)$d)) : '—';
+            $cards[] = [
+                'tx_id'      => (int)$l['id'],
+                'signature'  => (string)$l['signature'],
+                'date'       => (string)$l['date'],
+                'amount'     => (float)$l['amount'],
+                'memo'       => $memo,
+                'kind'       => $kind,
+                'label'      => InvoiceReconciliationService::kindLabel($kind),
+                'payer'      => $payer ?? (($first['payer'] ?? '') !== '' ? (string)$first['payer'] : null),
+                'confidence' => (string)$l['outcome'],
+                'action'     => (string)$l['action'],
+                'verdict'    => (string)$l['why'],
+                'evidence'   => array_values(array_filter([$l['named'] ?? null, $l['note'] ?? null])),
+                'flags'      => array_values($l['flags'] ?? []),
+                'targets'    => array_map(fn($t) => ['number' => (string)$t['number'], 'payer' => (string)($t['payer'] ?? ''),
+                                                    'amount' => (float)$t['amount'], 'owing' => (float)($t['owing'] ?? $t['amount']),
+                                                    'issued' => $t['issued'] ?? null], $l['targets']),
+                'facts'      => [
+                    ['label' => 'Amount', 'deposit' => $money($l['amount']),
+                     'invoice' => $n > 1 ? $money($sum) . ' on ' . $n . ' invoices' : $money($sum),
+                     'state' => abs($sum - (float)$l['amount']) < self::CENT ? 'same' : 'differs'],
+                    ['label' => 'Name', 'deposit' => $payer ?? 'not on the memo', 'invoice' => (string)($first['payer'] ?? '—'),
+                     'state' => !empty($l['named']) ? 'same' : ($payer ? 'differs' : 'missing')],
+                    ['label' => 'Date', 'deposit' => 'Banked ' . $day($l['date']), 'invoice' => 'Issued ' . $day($issued[0] ?? null), 'state' => 'info'],
+                ],
+            ];
+        }
+        return $cards;
+    }
+
     /** Store the card counts (a cache — the page and the card refresh it). */
     public function snapshot(array $summary): array
     {
@@ -166,8 +227,8 @@ class PaymentMatchService
                 'high' => (int)$summary['by_outcome']['high']['count'], 'high_total' => (float)$summary['by_outcome']['high']['total'],
                 'needs_you' => (int)$summary['by_outcome']['needs_you']['count'], 'needs_you_total' => (float)$summary['by_outcome']['needs_you']['total']];
         try {
-            $this->db->prepare("DELETE FROM payment_match_snapshot WHERE id = 1")->execute();
-            $this->db->prepare("INSERT INTO payment_match_snapshot (id, computed_at, waiting, waiting_total, high, high_total, needs_you, needs_you_total)
+            // One statement: Penny's card now refreshes this on every queue load, and two loads at once collided.
+            $this->db->prepare("REPLACE INTO payment_match_snapshot (id, computed_at, waiting, waiting_total, high, high_total, needs_you, needs_you_total)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)")->execute(array_values($row));
         } catch (Throwable $e) { /* before migration 1260 */ }
         return $row;

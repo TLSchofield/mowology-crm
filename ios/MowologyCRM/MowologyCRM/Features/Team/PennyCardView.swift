@@ -28,8 +28,22 @@ struct PennyCardView: View {
             if vm.isLoading && !vm.hasLoaded {
                 HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
                     .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty {
+            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.payments.isEmpty {
                 errorState(err)
+            } else if let done = vm.paymentDone {
+                // Recorded: the deposit and its invoice(s) are one (Tim, 2026-11-06); duplicates under it as before.
+                PennyPaymentDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+                if vm.showsDupes, let group = vm.currentDupe {
+                    dupeCard(group).id(group.id).padding(.top, 18)
+                }
+            } else if let payment = vm.currentPayment {
+                // Every deposit the payments matcher proposes, first (the same list as "N deposits matched").
+                PennyPaymentCard(vm: vm, payment: payment, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+                    .id(payment.id)
+                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
+                if vm.showsDupes, let group = vm.currentDupe {
+                    dupeCard(group).id(group.id).padding(.top, 18)
+                }
             } else if let done = vm.chequeDone {
                 // Recorded: the cheque and its invoice are one (Tim, 2026-11-06), duplicates under it as before.
                 PennyChequeDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
@@ -968,17 +982,22 @@ struct PennyDupeDemo: View {
             // `cheque`: a likely cheque with a three-receipt group under it (the line must stop at the group).
             let cheque = #"{"tx_id":9001,"amount":1195.36,"payer":"Sample Property Mgmt","memo":"Cheque deposit-branch SAMPLE PROPERTY MGMT","label":"Cheque deposit","confidence":89,"invoice":{"id":1,"number":"INV-2026-0001","payer":"Sample Property Mgmt","balance_due":1195.36},"apply":1195.36,"verdict":"This $1,195.36 cheque from Sample Property Mgmt likely pays INV-2026-0001.","confidence_line":"89% · exact amount · memo names sample property mgmt","facts":[{"label":"Amount","cheque":"$1,195.36","invoice":"$1,195.36 owing","state":"same"},{"label":"Name","cheque":"Sample Property Mgmt","invoice":"Sample Property Mgmt","state":"same"},{"label":"Date","cheque":"Banked Nov 2","invoice":"Issued Oct 1","state":"info"}],"others":[]}"#
             let cheques = (variant == "cheque" || (variant == "chequedone" && answered == 0)) ? cheque : ""
-            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque" || variant == "chequedone") ? champ : variant == "first" ? champ + "," + shell
+            // `payment` / `paymentdone`: the payments matcher's cards — a cheque paying three invoices, an e-Transfer.
+            let pay1 = #"{"tx_id":9101,"signature":"s1","amount":1370.52,"memo":"CHEQUEDEPOSIT-BRANCH","label":"Cheque deposit","payer":"Sample Strata","confidence":"medium","verdict":"$1,370.52 pays INV-2026-0431, INV-2026-0314, INV-2026-0372 (Sample Strata) — record it on the invoices.","evidence":[],"flags":[],"targets":[{"number":"INV-2026-0431","payer":"Sample Strata","amount":500},{"number":"INV-2026-0314","payer":"Sample Strata","amount":470.52},{"number":"INV-2026-0372","payer":"Sample Strata","amount":400}],"facts":[{"label":"Amount","deposit":"$1,370.52","invoice":"$1,370.52 on 3 invoices","state":"same"},{"label":"Name","deposit":"not on the memo","invoice":"Sample Strata","state":"missing"},{"label":"Date","deposit":"Banked Oct 22","invoice":"Issued Sep 1","state":"info"}]}"#
+            let pay2 = #"{"tx_id":9102,"signature":"s2","amount":1890,"memo":"ETRANSFERCREDIT(SAMPLECLIENT)","label":"e-Transfer","payer":"SAMPLECLIENT","confidence":"high","verdict":"$1,890.00 is the payment already recorded on INV-2026-0465 (Sample Client) — link it so it counts once.","evidence":["Interac e-Transfer from Sample Client paid INV-2026-0465"],"flags":[],"targets":[{"number":"INV-2026-0465","payer":"Sample Client","amount":1890}],"facts":[{"label":"Amount","deposit":"$1,890.00","invoice":"$1,890.00","state":"same"},{"label":"Name","deposit":"SAMPLECLIENT","invoice":"Sample Client","state":"same"},{"label":"Date","deposit":"Banked Oct 23","invoice":"Issued Oct 1","state":"info"}]}"#
+            let payments = variant == "payment" ? pay1 + "," + pay2 : (variant == "paymentdone" ? (answered == 0 ? pay1 + "," + pay2 : pay2) : "")
+            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque" || variant == "chequedone" || variant == "payment" || variant == "paymentdone") ? champ : variant == "first" ? champ + "," + shell
                 : variant == "nine" ? ([shell] + (1...8).map { k in champ.replacingOccurrences(of: "48", with: "4\(k)") }).dropFirst(answered).joined(separator: ",")
                 : shell + "," + champ
-            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"cheques":["# + cheques + #"],"dupes":["# + groups + "]}"
+            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"payments":["# + payments + #"],"cheques":["# + cheques + #"],"dupes":["# + groups + "]}"
             return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
         }
         func send(_ body: [String: Any]) async throws -> BookkeeperActionResponse {
             let mode = body["mode"] as? String ?? ""
-            if mode == "merge" || mode == "not_dupe" || mode == "cheque_record" { answered += 1 }
+            if mode == "merge" || mode == "not_dupe" || mode == "cheque_record" || mode == "payment_book" { answered += 1 }
             if mode == "unmerge" || mode == "undismiss" { answered = max(0, answered - 1) }
-            let json = mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
+            let json = mode == "payment_book" ? #"{"ok":true,"log_id":77,"message":"1 deposit(s) booked."}"#
+                     : mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
                      : #"{"ok":true,"message":"Got it — not a duplicate. Both go on for approval."}"#
             return try JSONDecoder().decode(BookkeeperActionResponse.self, from: Data(json.utf8))
         }
@@ -1012,6 +1031,7 @@ struct PennyDupeDemo: View {
         .task {
             await vm.load()
             if variant == "chequedone", let c = vm.currentCheque { await vm.recordCheque(c) }
+            if variant == "paymentdone", let p = vm.currentPayment { await vm.recordPayment(p) }
             // `-mwDupeAnswered N` (+ `-mwDupeBack`): merge the first N groups at launch, then go back to the first,
             // to see the filled numbers and an answered card.
             let args = ProcessInfo.processInfo.arguments

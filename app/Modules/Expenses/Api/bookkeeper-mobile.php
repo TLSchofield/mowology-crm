@@ -19,6 +19,10 @@
  *        same call for app builds before 1.3.89.
  * POST {mode: 'unmerge', copy_id, kind: undo|split}     Undo straight after a merge (asked again) or Split off later
  *        (two purchases: remembered, Penny learns) — DuplicateReceiptService::unmerge().
+ * POST {mode: 'payment_book', transaction_id, signature}  "Record" on a likely payment (billing.edit) →
+ *      PaymentMatchService::book() — refused if the line changed since it was shown → {ok, message, log_id}
+ * POST {mode: 'payment_undo', log_id}  Undo that booking through the path that made it (PaymentMatchService::undo()).
+ *      The queue's 'payments' come from PaymentMatchService::pennyCards() (every proposed deposit, any kind).
  * POST {mode: 'cheque_record', transaction_id, invoice_id, amount}  "Record" on a likely cheque (billing.edit) →
  *      BankInvoiceMatchService::record() (refuses money that looks already recorded). The queue's 'cheques'
  *      come from InvoiceReconciliationService::likelyCheques(), the same matcher as the web invoices list.
@@ -161,7 +165,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done', 'cheque_record']);
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done', 'cheque_record', 'payment_book', 'payment_undo']);
 
     if ($mode === 'risk') {
         // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
@@ -222,17 +226,26 @@ try {
             // Likely cheques come first on the card (Tim, 2026-11-06). Suggest only; never breaks the card.
             ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
             $cheques = [];
+            $payments = [];
             if (jwtUserHasPermission($jwtUser, 'billing.view')) {
                 try {
                     require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
-                    $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);
+                    $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);   // builds ≤ 1.3.107
                 } catch (Throwable $e) {
                     error_log('[bookkeeper-mobile] cheques: ' . $e->getMessage());
+                }
+                try {
+                    // Every deposit the payments matcher proposes (cheques, e-Transfers, EFTs …): 1.3.108 on.
+                    require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+                    $payments = (new PaymentMatchService($db))->pennyCards(12);
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] payments: ' . $e->getMessage());
                 }
             }
             echo json_encode([
                 'ok'         => true,
                 'cheques'    => $cheques,
+                'payments'   => $payments,
                 'dupes'      => $dupes,
                 'queue'      => $queue,
                 'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
@@ -240,6 +253,29 @@ try {
                 'messages'   => $messages,
                 'lines'      => jwtUserHasPermission($jwtUser, 'expenses.approve') ? bkmPennyLines($db) : null,
             ]);
+            break;
+        }
+
+        case 'payment_book':
+        case 'payment_undo': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Recording a payment needs billing.edit.']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $pm = new PaymentMatchService($db);
+            if ($mode === 'payment_undo') {
+                echo json_encode($pm->undo((int)($input['log_id'] ?? 0), (int)$user['id']));
+                break;
+            }
+            $tx = (int)($input['transaction_id'] ?? 0);
+            $r = $pm->book([$tx => (string)($input['signature'] ?? '')], (int)$user['id']);
+            $done = $r['booked'][0] ?? null;
+            echo json_encode($done
+                ? ['ok' => true, 'message' => (string)($done['message'] ?? 'Recorded.'), 'log_id' => (int)($done['log_id'] ?? 0)]
+                : ['ok' => false, 'message' => (string)($r['failed'][0]['message'] ?? 'Not recorded.')]);
             break;
         }
 
