@@ -86,9 +86,9 @@ A pending (offline) approval shows its pending words on ALL three surfaces: the 
 ("Approval saved on phone"). The tenant check compares against the GENERATED value of each tenant role: a generated colour may equal the raw input
 (Brightline's dark primary IS its brand #F2C200) — what is forbidden is a raw input used in a role that was not generated for it.
 
-## 13. The Kaname centre line (Tim, 6 Nov 2026 — added to v1.2, shipped in iPhone 1.3.98)
+## 13. The Kaname centre line (Tim, 6 Nov 2026 — added to v1.2, shipped in iPhone 1.3.98–1.3.99)
 A head's decision screen (Penny's card first) hangs on one thin vertical line down the middle of the page, running
-into the Kaname button in the tab bar. It reads as "this is Kaname at work": every decision leads back to him.
+into the active tab's button (Kaname's on his screens). It reads as "this is Kaname at work": every decision leads back to him.
 - **The line**: 1 pt, the `line` token (the nav bar hairline), centred. It runs from the first framed panel down to
   the Kaname button and never stops short of it.
 - **Comparisons sit on it.** Two things being compared (a cheque and an invoice, two duplicate receipts) take the left
@@ -105,3 +105,9 @@ into the Kaname button in the tab bar. It reads as "this is Kaname at work": eve
 - **Setup headings go once learned.** A "getting to know you" heading shows only while the head is still learning;
   once confirmed, only the framed result stays (Tim: "unnecessary once learned").
 - **Desktop**: the same panel lies sideways from 768 px: the comparison on the left, the two squares on the right.
+- **The line belongs to the active tab.** It sits on the axis of the tab you are on and runs into that tab's bead at
+  12 o'clock: centred on Kaname (his bead is centred), down the left on Schedule, where the day's timeline rail sits on
+  the Schedule bead's axis and carries on past the last stop into it (`ItTabSlot`, 1.3.99). Not centred by rule —
+  connected by rule.
+- **Only where something is in sequence or in pairs**: a timeline (Schedule) or a comparison (Penny's cheques and
+  duplicates). Plain lists (Receipts, Search results) stay hairline rows with no line. One line per screen, never two.

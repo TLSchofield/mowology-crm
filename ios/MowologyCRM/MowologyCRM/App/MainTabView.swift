@@ -134,6 +134,8 @@ struct MainTabView: View {
                     .toolbar(.hidden, for: .tabBar)
                     // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
                     .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
+                    // Where this tab's bead sits: its screen's centre line runs into it (SPEC §13).
+                    .environment(\.itTabSlot, ItTabSlot(index: barTabs.firstIndex(of: tab) ?? 0, count: barTabs.count))
                     .environment(\.openTimeClock, { addOpen = false; selectedTab = .time })
                     // The veil blocks touches; this keeps VoiceOver out of the screen behind the Add dial too.
                     .accessibilityHidden(addOpen)
@@ -429,6 +431,24 @@ extension EnvironmentValues {
     var itBarClearance: CGFloat {
         get { self[ItBarClearanceKey.self] }
         set { self[ItBarClearanceKey.self] = newValue }
+    }
+}
+
+/// The bar slot of the tab a screen belongs to. The Kaname centre line belongs to the active tab (SPEC §13): a screen's
+/// line sits on its own bead's axis and runs into the bead at 12 o'clock (Schedule's timeline, Tim 2026-11-06).
+struct ItTabSlot: Equatable {
+    let index: Int
+    let count: Int
+    /// The bead's centre across a screen this wide (the bar spans the screen).
+    func axis(width: CGFloat) -> CGFloat { ItMeniscusGeometry.slotCentre(index, count: max(count, 1), width: width) }
+}
+
+private struct ItTabSlotKey: EnvironmentKey { static let defaultValue: ItTabSlot? = nil }
+
+extension EnvironmentValues {
+    var itTabSlot: ItTabSlot? {
+        get { self[ItTabSlotKey.self] }
+        set { self[ItTabSlotKey.self] = newValue }
     }
 }
 

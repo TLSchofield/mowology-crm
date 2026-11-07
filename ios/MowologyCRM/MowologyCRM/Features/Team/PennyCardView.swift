@@ -31,10 +31,16 @@ struct PennyCardView: View {
             } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty {
                 errorState(err)
             } else if let cheque = vm.currentCheque {
-                // Likely cheques first (Tim, 2026-11-06), then the duplicates, then receipts.
+                // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
+                // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
                 PennyChequeCard(vm: vm, cheque: cheque)
                     .id(cheque.id)
                     .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
+                if vm.showsDupes, let group = vm.currentDupe {
+                    dupeCard(group)
+                        .id(group.id)
+                        .padding(.top, 18)
+                }
             } else if vm.showsDupes, let group = vm.currentDupe {
                 dupeCard(group)
                     .id(group.id)

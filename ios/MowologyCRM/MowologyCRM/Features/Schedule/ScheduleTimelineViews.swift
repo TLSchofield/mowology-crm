@@ -42,8 +42,10 @@ struct TimelineStopRow: View {
     let onSelect: () -> Void
     let onAction: (VisitQuickAction) -> Void
 
-    private let railWidth: CGFloat = 1.5
-    private let markerSize: CGFloat = 28
+    static let railWidth: CGFloat = 1.5
+    static let markerSize: CGFloat = 28
+    private var railWidth: CGFloat { Self.railWidth }
+    private var markerSize: CGFloat { Self.markerSize }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -66,7 +68,8 @@ struct TimelineStopRow: View {
                 .frame(width: railWidth, height: 4)
             marker
             Rectangle()
-                .fill(isLast ? Color.clear : (tenantBelow ? style.tenant : style.line))
+                // The last stop's rail carries on toward the Schedule bead (DayListView draws the rest; SPEC §13).
+                .fill(tenantBelow ? style.tenant : style.line)
                 .frame(width: railWidth)
                 .frame(maxHeight: .infinity)
         }
@@ -641,6 +644,7 @@ private struct MeniscusBarDemo: View {
     var body: some View {
         NavigationStack {
             ScheduleTimelineDemo(mode: "day")
+                .environment(\.itTabSlot, ItTabSlot(index: 0, count: items.count))
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }

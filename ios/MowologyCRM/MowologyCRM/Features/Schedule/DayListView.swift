@@ -34,6 +34,9 @@ struct DayListView: View {
     @State private var hasAutoScrolled = false
     /// Timeline auto-scroll: the stop it last scrolled to (see timelineList).
     @State private var lastAutoScrollTarget: Int?
+    /// The timeline's rail sits on the Schedule bead's axis and runs into it (SPEC §13, Tim 2026-11-06).
+    @Environment(\.itTabSlot) private var tabSlot
+    @State private var listWidth: CGFloat = 0
 
     /// 0 = default for the role (admins on), 1 = on, 2 = off (ScheduleTimelineSwitch).
     @AppStorage(ScheduleTimelineSwitch.defaultsKey) private var timelineSetting = 0
@@ -68,6 +71,31 @@ struct DayListView: View {
     }
 
     // MARK: - Timeline (Tim, 2026-11-05; behind ScheduleTimelineSwitch)
+
+    /// The rail's x: the Schedule bead's centre (16 pt row inset + half a marker until the width is known).
+    private var railAxis: CGFloat {
+        guard let tabSlot, listWidth > 0 else { return 16 + TimelineStopRow.markerSize / 2 }
+        return max(TimelineStopRow.markerSize / 2 + 4, tabSlot.axis(width: listWidth))
+    }
+    private var railLeading: CGFloat { railAxis - TimelineStopRow.markerSize / 2 }
+
+    @ViewBuilder private func railTail(show: Bool) -> some View {
+        if show {
+            Rectangle().fill(appStyle.line)
+                .frame(width: TimelineStopRow.railWidth)
+                .frame(maxHeight: .infinity)
+                .offset(x: railAxis - TimelineStopRow.railWidth / 2)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { g in
+            Color.clear
+                .onAppear { listWidth = g.size.width }
+                .onChange(of: g.size.width) { _, w in listWidth = w }
+        }
+    }
 
     private func timelineList(_ input: ScheduleTimelineInput) -> some View {
         let ordered = ScheduleTimelineRules.ordered(stops)
@@ -117,7 +145,7 @@ struct DayListView: View {
                     )
                     .listRowBackground(appStyle.page)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 0, leading: railLeading, bottom: 0, trailing: 16))
                     .id(stop.id)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if isAdmin, stop.canBeMoved, let onMove {
@@ -136,7 +164,11 @@ struct DayListView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            // Below the last stop the rail carries on down to the Schedule bead's 12 o'clock. Behind the rows: each
+            // stop row is page-filled and draws its own rail, so this shows only in the empty space under them.
+            .background(alignment: .topLeading) { railTail(show: !ordered.isEmpty) }
             .background(appStyle.page)
+            .background(widthReader)
             .refreshable { await onRefresh() }
             // The job I am on, else my next stop, at the top. Runs when the list appears with its stops
             // (onChange alone never fired then), and once more if the on-site job becomes known later
