@@ -218,6 +218,10 @@ struct TeamView: View {
                 }
             }
             // A head push while the app is open: refresh that card if it's the one showing.
+            // The Kaname bead tapped again: back to this screen from any head's.
+            .onReceive(NotificationCenter.default.publisher(for: .mwKanameHome)) { _ in
+                if !path.isEmpty { path = [] }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .mwHeadPushReceived)) { note in
                 guard let slug = note.object as? String, slug == selected else { return }
                 Task { await reload() }
@@ -238,6 +242,8 @@ struct TeamView: View {
                     cardContent(for: slug, showsTitle: false)
                 }
                 .ittaiTheme(field: ittaiFieldEnabled)
+                // No back button: the Kaname bead in the bar is the way back (it pops here when tapped again).
+                .navigationBarBackButtonHidden(true)
                 .background(ItPageBackground().ittaiTheme(field: ittaiFieldEnabled))
                 .task { await loadHeadIfNeeded(slug) }
                 .navigationTitle(TeamHead.all.first { $0.slug == slug }?.name ?? slug.capitalized)

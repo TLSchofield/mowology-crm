@@ -184,6 +184,11 @@ struct MainTabView: View {
                         else if tab == .receipts {
                             NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
                         }
+                        // Kaname again: back to his main screen from a head's (Tim, 2026-11-07: "no back bar needed if
+                        // pressing Kaname on the nav bar returns me to Kaname main screen").
+                        else if tab == .kaname {
+                            NotificationCenter.default.post(name: .mwKanameHome, object: nil)
+                        }
                         else if tab == .schedule {
                             UISelectionFeedbackGenerator().selectionChanged()
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { scheduleViews.cycle() }
@@ -478,6 +483,7 @@ extension EnvironmentValues {
 extension Notification.Name {
     /// The Receipts bead was tapped while Receipts is showing: open the receipt camera (ReceiptsView).
     static let mwSnapReceipt = Notification.Name("ca.mowology.snapReceipt")
+    static let mwKanameHome = Notification.Name("ca.mowology.kanameHome")
     /// Job or Client was picked from the bar's Add dial: Schedule opens "Add a job" (userInfo `startWithNewClient`).
     static let mwAddFromBar = Notification.Name("ca.mowology.addFromBar")
 }

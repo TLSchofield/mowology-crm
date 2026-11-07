@@ -325,21 +325,22 @@ struct PaymentFraction: View {
     /// Read out instead of Penny's sentence, which this replaces on screen.
     var spoken: String? = nil
 
-    static let width: CGFloat = 56
+    static let width: CGFloat = 48
 
     var body: some View {
         let w = Self.width, h = w * sqrt(3) / 2
         HStack(spacing: 8) {
+            // The line's shade and weight throughout (Tim, 2026-11-07: bolder, it stole the focus from the card).
             Text("\(joined)")
-                .font(appStyle.font(.largeTitle, weight: .regular)).foregroundStyle(appStyle.text)
+                .font(appStyle.font(.title2, weight: .regular)).foregroundStyle(appStyle.meta)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, -w * 0.18)            // tucked against the left side, up toward the apex
                 .offset(y: -h * 0.22)
             ZStack {
                 ItKnowledgeTriangleShape().fill(appStyle.page)
-                FractionStroke().stroke(appStyle.text, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                FractionStroke().stroke(appStyle.line, style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
                 Text("\(whole)")
-                    .font(appStyle.font(.largeTitle, weight: .regular)).foregroundStyle(appStyle.text)
+                    .font(appStyle.font(.title2, weight: .regular)).foregroundStyle(appStyle.meta)
                     .minimumScaleFactor(0.6)
                     .offset(y: h * 0.16)
             }
@@ -355,14 +356,15 @@ struct PaymentFraction: View {
     }
 }
 
-/// The fraction triangle's visible strokes: the left side (the fraction's bar) and the base; no right side (Tim, 2026-11-07:
-/// "the right line of the triangle shouldn't be seen").
+/// The fraction triangle's visible strokes: the left side (the fraction's bar) and the base from its corner to the centre
+/// line, where the line carries on down; no right side (Tim, 2026-11-07: "the right line of the triangle shouldn't be
+/// seen"; "base of the triangle was meant to meet the vertical axis").
 private struct FractionStroke: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         p.move(to: CGPoint(x: rect.midX, y: rect.minY))
         p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
         return p
     }
 }
