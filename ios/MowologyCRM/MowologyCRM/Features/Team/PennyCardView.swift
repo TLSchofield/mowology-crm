@@ -448,6 +448,12 @@ struct PennyCardView: View {
             undoOrMessage
             // No "I've been right N of N times" line: superfluous, and it crossed the axis (Tim, 2026-11-06). VoiceOver
             // still hears it on the icon.
+            // How sure, as the knowledge triangle on the line (Tim, 2026-11-07: "The receipts merge feature should also make
+            // use of the ledger icon and triangle"): a printed number or the same photo proves it (gold), the same printed
+            // time (blue), only total and date (broken outline).
+            if let level = Self.dupeConfidence(group.evidence) {
+                PaymentConfidenceTriangle(level: level)
+            }
 
             // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
             // the two buttons, on toward the Kaname button below. Two receipts only; three get the table's own lines.
@@ -519,6 +525,8 @@ struct PennyCardView: View {
                     .padding(.top, 2)
                 }
 
+                // The end of the line: the books carry one receipt once it is answered (Merged, or Different — both kept).
+                Self.ledgerIcon(filled: outcome != nil, style: appStyle).frame(maxWidth: .infinity)
             }
             .padding(8)
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
@@ -657,6 +665,16 @@ struct PennyCardView: View {
             Image(systemName: symbol).font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
         }
         .accessibilityHidden(true)
+    }
+
+    /// A duplicate group's evidence (DuplicateReceiptService::verdictFor) → the knowledge triangle's level.
+    static func dupeConfidence(_ evidence: String?) -> String? {
+        switch evidence {
+        case "number", "photo": return "high"
+        case "time": return "medium"
+        case "total_date": return "low"
+        default: return nil
+        }
     }
 
     /// The end of the money's path on the centre line (Tim, 2026-11-07: "It starts with the bank icon indicating
