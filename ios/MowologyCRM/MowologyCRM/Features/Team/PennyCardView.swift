@@ -30,6 +30,12 @@ struct PennyCardView: View {
                     .padding(.vertical, 40)
             } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty {
                 errorState(err)
+            } else if let done = vm.chequeDone {
+                // Recorded: the cheque and its invoice are one (Tim, 2026-11-06), duplicates under it as before.
+                PennyChequeDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+                if vm.showsDupes, let group = vm.currentDupe {
+                    dupeCard(group).id(group.id).padding(.top, 18)
+                }
             } else if let cheque = vm.currentCheque {
                 // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
                 // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
@@ -311,7 +317,11 @@ struct PennyCardView: View {
             Text(m)
                 .font(appStyle.font(.footnote))
                 .foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 6)
+                .background(appStyle.page)          // centred on page colour: the axis breaks round it
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -410,37 +420,41 @@ struct PennyCardView: View {
         let shownCompared = compared.map { $0.reordered(order) }
         let info = infoById.mapValues { v in order.map { v[safe: $0] ?? nil } }
         return VStack(alignment: .leading, spacing: 10) {
-            // One group: the copies icon below names the section, so no words above it (Tim, 2026-11-06).
+            // The section starts with its icon on the axis, above the numbers (Tim, 2026-11-06: "the copies icon should be
+            // above the numbering axis"); the axis runs from it down through the numbers and the panel toward Kaname.
+            Self.sectionIcon("doc.on.doc.fill", style: appStyle)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement()
+                .accessibilityLabel(Self.headline(group) + (group.confidence.map { ". " + $0 } ?? ""))
             if vm.dupeSession.count > 1 {
                 dupePager
             }
             // Undo sits up here, under the numbers: at the bottom the tab bar's Kaname button covered it.
             undoOrMessage
-
-            // The axis starts at the copies icon (Tim, 2026-11-06: "the line would meet the copies icon") and runs down
-            // through the panel toward the Kaname button; the icon's ring and the text's page backing break it.
-            VStack(alignment: .leading, spacing: 10) {
-            // 1. The section's icon, large, on the centre line in place of the words (Tim, 2026-11-06: "is there an
-            //    icon for copies? … should be large to indicate a section"; SPEC §13), then how sure she is.
-            VStack(alignment: .center, spacing: 8) {
-                Self.sectionIcon("doc.on.doc.fill", style: appStyle)
-                if let c = group.confidence, !c.isEmpty {
-                    Text(c).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 6)
-                        .background(appStyle.page)          // text never sits on the line
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Self.headline(group) + (group.confidence.map { ". " + $0 } ?? ""))
+            // No "I've been right N of N times" line: superfluous, and it crossed the axis (Tim, 2026-11-06). VoiceOver
+            // still hears it on the icon.
 
             // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
             // the two buttons, on toward the Kaname button below. Two receipts only; three get the table's own lines.
             VStack(alignment: .leading, spacing: 10) {
                 // 2–3. The facts side by side, and each receipt's photo under its own column. Three or more: each column is
                 //      wrapped in a frame of the line's weight (Tim: "wrap each one"); the axis runs behind the middle one.
+                if case .merged(let kept, let copiesDone)? = outcome, let ki = members.firstIndex(where: { $0.id == kept }) {
+                    // Merged: they are one now (Tim, 2026-11-06: "once merged it should become one") — the kept receipt
+                    // alone, centred on the axis, and what went into it.
+                    let m = members[ki]
+                    VStack(spacing: 6) {
+                        dupeThumb(m, index: 0, members: [m], keep: kept,
+                                  status: infoById["Status"]?[safe: ki] ?? nil,
+                                  sender: infoById["Sent in by"]?[safe: ki] ?? nil,
+                                  reads: [Self.pennyRead(compared, at: ki)])
+                            .frame(width: Self.singleColumn)
+                        Text("#" + copiesDone.map(String.init).joined(separator: ", #") + " merged into it")
+                            .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+                            .padding(.horizontal, 6).background(appStyle.page)
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
                 VStack(alignment: .leading, spacing: 10) {
                 if !shownRows.isEmpty { factsTable(shownRows, members: shown, keep: keep) }
 
@@ -456,6 +470,7 @@ struct PennyCardView: View {
                 .frame(maxWidth: .infinity)
                 }
                 .background { if shown.count > 2 { columnFrames(shown.count) } }
+                }
 
                 // 4. The swap, small and away from the buttons. (Which one is kept is on its photo and on Merge.)
                 VStack(alignment: .leading, spacing: 6) {
@@ -493,31 +508,39 @@ struct PennyCardView: View {
             .padding(8)
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
-            }
-            .background(alignment: .top) {
+        }
+        .background(alignment: .top) {
                 Rectangle().fill(appStyle.line)
                     .frame(width: 1)
                     .frame(maxHeight: .infinity)
-                    .padding(.top, 28)                // from the icon's centre
+                    .padding(.top, 31)                // from the icon's centre
                     .padding(.bottom, -400)          // runs on past the card toward the Kaname button
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
-            }
         }
     }
 
-    /// Three or more receipts: a page-filled frame of the line's weight round each column (facts + photo), so the axis
-    /// passes behind the middle one, and the tick rings sit in the gaps between frames.
+    /// Three or more receipts: the axis splits round the middle (kept) receipt and rejoins below it — one page-filled frame
+    /// whose two sides run down the gaps, so the tick rings sit ON the line (Tim, 2026-11-06: "the tick circles are on the
+    /// line so you've drawn too many frames"). Any other gap (four or more receipts) gets a plain divider line.
     private func columnFrames(_ n: Int) -> some View {
         GeometryReader { geo in
             let gap = Self.columnGap
             let colW = (geo.size.width - gap * CGFloat(n - 1)) / CGFloat(n)
-            ForEach(0..<n, id: \.self) { k in
+            let mid = n % 2 == 1 ? n / 2 : nil
+            ForEach(1..<n, id: \.self) { k in                       // gap k sits between columns k-1 and k
+                if mid == nil || (k != mid! && k != mid! + 1) {
+                    Rectangle().fill(appStyle.line)
+                        .frame(width: 1, height: geo.size.height)
+                        .position(x: CGFloat(k) * (colW + gap) - gap / 2, y: geo.size.height / 2)
+                }
+            }
+            if let m = mid {
                 RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                     .fill(appStyle.page)
                     .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.line, lineWidth: 1))
-                    .frame(width: colW + 10, height: geo.size.height + 10)
-                    .position(x: CGFloat(k) * (colW + gap) + colW / 2, y: geo.size.height / 2)
+                    .frame(width: colW + gap, height: geo.size.height + 12)
+                    .position(x: CGFloat(m) * (colW + gap) + colW / 2, y: geo.size.height / 2)
             }
         }
         .accessibilityHidden(true)
@@ -589,12 +612,13 @@ struct PennyCardView: View {
         VStack(spacing: 10) {
             HStack(spacing: Self.columnGap) {
                 switch outcome {
-                case .merged(let keep, let copies):
-                    statusSquare(icon: "arrow.triangle.merge", title: "Merged",
-                                 detail: "#" + copies.map(String.init).joined(separator: ", #") + " into #\(keep)")
+                case .merged:
+                    // One receipt, one way back: Unmerge alone, centred on the axis (Tim, 2026-11-06).
                     squareButton(icon: "arrow.uturn.backward", title: "Unmerge", detail: "decide again", filled: false) {
                         Task { await vm.reopen(group.id) }
                     }
+                    .frame(width: Self.singleColumn)
+                    .frame(maxWidth: .infinity)
                     .accessibilityHint("Brings the copy back to waiting and asks about this pair again.")
                 case .different:
                     statusSquare(icon: "doc.on.doc", title: "Different", detail: "both kept")
@@ -648,6 +672,8 @@ struct PennyCardView: View {
     /// design"): the facts, the photos and the buttons share the panel's edges and this gap, so the centre line (two
     /// receipts) or the column dividers (three) pass through every row in the same place. The tick ring sits in it.
     static let columnGap: CGFloat = 46
+    /// One column of the two-column grid on a phone: the merged receipt and its Unmerge button, centred on the axis.
+    static let singleColumn: CGFloat = 150
 
     /// A section's icon on the centre line: a filled `brand` circle with a white glyph, in a page-coloured gap and a thin
     /// ring of the line's weight (the ticks' and Kaname button's look). Large: it names the section (SPEC §13).
@@ -682,7 +708,7 @@ struct PennyCardView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .foregroundStyle(filled ? appStyle.onTenant : appStyle.tenant)
-                    .background(filled ? appStyle.tenant : Color.clear, in: shape)
+                    .background(filled ? appStyle.tenant : appStyle.page, in: shape)   // the axis passes behind, never through
                     .overlay(shape.strokeBorder(appStyle.tenant, lineWidth: filled ? 0 : 2))
                     .contentShape(shape)
                 }
@@ -941,8 +967,8 @@ struct PennyDupeDemo: View {
             let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
             // `cheque`: a likely cheque with a three-receipt group under it (the line must stop at the group).
             let cheque = #"{"tx_id":9001,"amount":1195.36,"payer":"Sample Property Mgmt","memo":"Cheque deposit-branch SAMPLE PROPERTY MGMT","label":"Cheque deposit","confidence":89,"invoice":{"id":1,"number":"INV-2026-0001","payer":"Sample Property Mgmt","balance_due":1195.36},"apply":1195.36,"verdict":"This $1,195.36 cheque from Sample Property Mgmt likely pays INV-2026-0001.","confidence_line":"89% · exact amount · memo names sample property mgmt","facts":[{"label":"Amount","cheque":"$1,195.36","invoice":"$1,195.36 owing","state":"same"},{"label":"Name","cheque":"Sample Property Mgmt","invoice":"Sample Property Mgmt","state":"same"},{"label":"Date","cheque":"Banked Nov 2","invoice":"Issued Oct 1","state":"info"}],"others":[]}"#
-            let cheques = variant == "cheque" ? cheque : ""
-            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque") ? champ : variant == "first" ? champ + "," + shell
+            let cheques = (variant == "cheque" || (variant == "chequedone" && answered == 0)) ? cheque : ""
+            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque" || variant == "chequedone") ? champ : variant == "first" ? champ + "," + shell
                 : variant == "nine" ? ([shell] + (1...8).map { k in champ.replacingOccurrences(of: "48", with: "4\(k)") }).dropFirst(answered).joined(separator: ",")
                 : shell + "," + champ
             let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"cheques":["# + cheques + #"],"dupes":["# + groups + "]}"
@@ -950,7 +976,7 @@ struct PennyDupeDemo: View {
         }
         func send(_ body: [String: Any]) async throws -> BookkeeperActionResponse {
             let mode = body["mode"] as? String ?? ""
-            if mode == "merge" || mode == "not_dupe" { answered += 1 }
+            if mode == "merge" || mode == "not_dupe" || mode == "cheque_record" { answered += 1 }
             if mode == "unmerge" || mode == "undismiss" { answered = max(0, answered - 1) }
             let json = mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
                      : #"{"ok":true,"message":"Got it — not a duplicate. Both go on for approval."}"#
@@ -985,6 +1011,7 @@ struct PennyDupeDemo: View {
         }
         .task {
             await vm.load()
+            if variant == "chequedone", let c = vm.currentCheque { await vm.recordCheque(c) }
             // `-mwDupeAnswered N` (+ `-mwDupeBack`): merge the first N groups at launch, then go back to the first,
             // to see the filled numbers and an answered card.
             let args = ProcessInfo.processInfo.arguments

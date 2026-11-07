@@ -307,16 +307,22 @@ final class PennyCardViewModel: ObservableObject {
         let all = chequeTargets(c)
         return all[min(chequePick[c.txId] ?? 0, all.count - 1)]
     }
+    /// The cheque just recorded: the card shows the paid invoice (one, not two) until "Next".
+    struct ChequeDone: Equatable { let cheque: BKChequeMatch; let target: ChequeTarget; let banked: String }
+    @Published private(set) var chequeDone: ChequeDone?
+    func dismissChequeDone() { chequeDone = nil }
+
     func pickCheque(_ c: BKChequeMatch, index: Int) { chequePick[c.txId] = index }
     func skipCheque(_ c: BKChequeMatch) { chequeSkipped.insert(c.txId) }
 
     func recordCheque(_ c: BKChequeMatch) async {
         guard !isBusy else { return }
         let t = chequeTarget(c)
-        guard let r = await perform(["mode": "cheque_record", "transaction_id": c.txId, "invoice_id": t.invoiceId, "amount": t.apply]) else { return }
+        guard await perform(["mode": "cheque_record", "transaction_id": c.txId, "invoice_id": t.invoiceId, "amount": t.apply]) != nil else { return }
         chequePick[c.txId] = nil
+        let banked = c.facts.first { $0.label == "Date" }?.cheque.replacingOccurrences(of: "Banked ", with: "") ?? ""
+        chequeDone = ChequeDone(cheque: c, target: t, banked: banked)
         await load()
-        show(r.message ?? "Recorded on \(t.number).", error: false)
     }
 
     func merge(_ group: BKDupeGroup) async {

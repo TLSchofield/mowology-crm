@@ -86,7 +86,7 @@ struct DayCarouselView: View {
 
     static let chipWidth: CGFloat = 52
     static let spacing: CGFloat = 6
-    private static let span = -120...240          // days around today the strip reaches
+    private static let span = -60...120           // days around today the strip reaches
 
     @State private var centred: Int?
     @State private var known: [String: ScheduleDay] = [:]
@@ -99,8 +99,11 @@ struct DayCarouselView: View {
             let axis = tabSlot?.axis(width: geo.size.width) ?? geo.size.width / 10
             let lead = max(0, axis - Self.chipWidth / 2)
             VStack(spacing: 0) {
+                ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: Self.spacing) {
+                    // Not lazy: on Tim's iPhone (1.3.101) the strip jumped to the chosen day before a lazy stack had made
+                    // that chip, and showed blank space. 181 small chips are cheap.
+                    HStack(spacing: Self.spacing) {
                         ForEach(Array(Self.span), id: \.self) { offset in
                             let day = summary(offset)
                             DayChip(day: day, isSelected: offset == centred, ns: ns) {
@@ -118,6 +121,14 @@ struct DayCarouselView: View {
                 .scrollPosition(id: $centred, anchor: .leading)
                 .frame(height: 76)
                 .padding(.top, 10)
+                // Once laid out, put the chosen day on the line (the binding alone could fire before layout).
+                .task {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    let o = offset(of: selectedDate)
+                    proxy.scrollTo(o, anchor: .leading)
+                    centred = o
+                }
+                }
 
                 // The line leaves the chosen day and runs down to the first stop.
                 Rectangle()

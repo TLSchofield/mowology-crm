@@ -108,9 +108,16 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   gets its own side padding or width cap.
 - **Two square buttons**, the panel's two halves either side of the gap, same size whatever their text: the primary
   filled (`tenant`), the other outlined. With three columns they still take the two halves (two choices, not three).
-- **Three or more columns**: the best one (in the books / most data) takes the middle column, on the axis; each column
-  is wrapped in its own frame of the line's weight; the axis runs from the section icon behind the middle frame and on
-  between the buttons. Two columns: the axis runs from the icon down the gap between them.
+- **Three or more columns**: the best one (in the books / most data) takes the middle column, on the axis. The axis
+  splits round that one receipt — one frame whose two sides run down the gaps, so the ticks sit on it — and rejoins
+  below. The side receipts are not framed (ticks always sit on a line, never between frames). Two columns: the axis runs
+  from the icon down the gap between them.
+- **Two become one.** Once a decision joins things — duplicates merged, a cheque recorded on its invoice — the card
+  shows one thing, centred on the axis (the kept receipt; the paid invoice with its cheque), and one way on, centred
+  (Unmerge; Next). Unity, not two columns with a status.
+- **Order**: the section icon first, then the numbers (a carousel of groups) hanging on the axis below it, then the
+  panel. No self-congratulating lines ("I've been right N of N") — they add nothing and cross the axis.
+- **Outlined buttons are page-filled**, so the axis passes behind them, never through.
 - **Setup headings go once learned.** A "getting to know you" heading shows only while the head is still learning;
   once confirmed, only the framed result stays (Tim: "unnecessary once learned").
 - **Desktop**: the same panel lies sideways from 768 px: the comparison on the left, the two squares on the right.

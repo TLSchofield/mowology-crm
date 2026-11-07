@@ -619,7 +619,7 @@ private struct MeniscusBarDemo: View {
     let variant: String
     @State private var selected: Int
     @State private var addOpen: Bool
-    @State private var demoDate = Date()
+    @State private var demoDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
 
     init(variant: String) {
         self.variant = variant

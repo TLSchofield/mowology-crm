@@ -23,11 +23,22 @@ struct PennyChequeCard: View {
         let targets = vm.chequeTargets(cheque)
         let picked = (vm.chequePick[cheque.txId] ?? 0) > 0
         let count = vm.openCheques.count
+        // The section starts with its icon on the axis (a bank, Tim 2026-11-06: "similar to the copies icon"); the axis
+        // runs from it down through the panel. Words that span the width sit on page colour so the line breaks round them.
         VStack(alignment: .leading, spacing: 10) {
-            Text(count > 1 ? "Likely cheque · 1 of \(count)" : "Likely cheque").font(appStyle.font(.headline))
-            messageLine
+            VStack(spacing: 6) {
+                PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
+                if count > 1 {
+                    Text("1 of \(count)").font(appStyle.font(.footnote, weight: .semibold)).foregroundStyle(appStyle.meta)
+                        .padding(.horizontal, 6).background(appStyle.page)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(count > 1 ? "Likely cheque, 1 of \(count)" : "Likely cheque")
+            messageLine.frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .center, spacing: 4) {
                 Text(picked ? "This \(Self.money(cheque.amount)) cheque\(cheque.payer.map { " from \($0)" } ?? "") pays \(target.number)?"
                             : cheque.verdict)
                     .font(appStyle.font(.title3, weight: .semibold))
@@ -35,31 +46,33 @@ struct PennyChequeCard: View {
                 Text(cheque.confidenceLine).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 6)
+            .background(appStyle.page)
+            .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
 
             VStack(alignment: .leading, spacing: 10) {
                 factsTable
-                // The centre line stops at the facts and picks up again between the buttons: text never sits on it
-                // (Tim's 1.3.97 screenshot: the line ran through the memo and "Or INV-…").
-                Text("Bank memo: \(cheque.memo)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(appStyle.page)
-
-                // Another open invoice of the same amount or payer: pick it instead (small, away from the buttons).
-                if targets.count > 1 {
+                // The memo is the cheque's, so it sits in the cheque's column; another invoice to pick sits in the
+                // invoice's. Nothing crosses the axis (Tim, 2026-11-06: "bank memo text should not cross the vertical axis").
+                HStack(alignment: .top, spacing: PennyCardView.columnGap) {
+                    Text("Bank memo: \(cheque.memo)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(targets.enumerated()), id: \.offset) { i, t in
                             if t != target {
                                 Button("Or \(t.number) (\(Self.money(t.balanceDue)))") { vm.pickCheque(cheque, index: i) }
                                     .font(appStyle.font(.footnote))
                                     .foregroundStyle(appStyle.tenant)
+                                    .multilineTextAlignment(.leading)
                                     .disabled(vm.isBusy)
                             }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(appStyle.page)
                 }
 
                 HStack(spacing: PennyCardView.columnGap) {
@@ -78,14 +91,15 @@ struct PennyChequeCard: View {
             }
             .padding(8)
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
-            .background(alignment: .top) {
-                Rectangle().fill(appStyle.line)
-                    .frame(width: 1)
-                    .frame(maxHeight: .infinity)
-                    .padding(.bottom, extendsLine ? -400 : -32)   // toward Kaname, or just down to the duplicates (14 spacing + 18 padding)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityHidden(true)
-            }
+        }
+        .background(alignment: .top) {
+            Rectangle().fill(appStyle.line)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .padding(.top, 31)                                 // from the icon's centre
+                .padding(.bottom, extendsLine ? -400 : -32)        // toward Kaname, or down to the duplicates' icon
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
         }
     }
 
@@ -144,36 +158,16 @@ struct PennyChequeCard: View {
             Text(m)
                 .font(appStyle.font(.footnote))
                 .foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 6)
+                .background(appStyle.page)
         }
     }
 
     /// The duplicates' square button (same size whatever the text).
     private func squareButton(icon: String, title: String, detail: String, filled: Bool, action: @escaping () -> Void) -> some View {
-        let shape = RoundedRectangle(cornerRadius: appStyle.cornerRadius(16))
-        return Color.clear
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                Button(action: action) {
-                    VStack(spacing: 8) {
-                        if vm.isBusy && filled { ProgressView().tint(appStyle.onTenant).frame(height: 42) }
-                        else { Image(systemName: icon).font(appStyle.font(size: 34, weight: .semibold)).frame(height: 42) }
-                        Text(title).font(appStyle.font(.title3, weight: .bold))
-                        Text(detail).font(appStyle.font(.footnote)).opacity(0.85)
-                    }
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .foregroundStyle(filled ? appStyle.onTenant : appStyle.tenant)
-                    .background(filled ? appStyle.tenant : Color.clear, in: shape)
-                    .overlay(shape.strokeBorder(appStyle.tenant, lineWidth: filled ? 0 : 2))
-                    .contentShape(shape)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(title), \(detail)")
-            }
+        chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: icon, title: title, detail: detail, filled: filled, action: action)
     }
 
     static func money(_ v: Double) -> String {
@@ -183,4 +177,87 @@ struct PennyChequeCard: View {
         f.currencySymbol = "$"
         return f.string(from: NSNumber(value: v)) ?? String(format: "$%.2f", v)
     }
+}
+
+/// A recorded cheque: the cheque and the invoice are one now (Tim, 2026-11-06: "when a cheque is attached to an invoice
+/// the two become one. unity"). The bank icon on the axis, the paid invoice alone in the middle with the cheque inside
+/// it, and one way on — centred, like a merged duplicate.
+struct PennyChequeDoneCard: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var vm: PennyCardViewModel
+    let done: PennyCardViewModel.ChequeDone
+    var extendsLine = true
+
+    var body: some View {
+        let nextLabel = !vm.openCheques.isEmpty ? "next cheque" : (vm.showsDupes ? "on to duplicates" : "all done")
+        VStack(spacing: 10) {
+            PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
+                .frame(maxWidth: .infinity)
+            VStack(spacing: 10) {
+                VStack(spacing: 4) {
+                    Label("Paid", systemImage: "checkmark.circle.fill")
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .foregroundStyle(appStyle.tenant)
+                    Text(done.target.number).font(appStyle.font(.title2, weight: .bold))
+                    if !done.cheque.invoice.payer.isEmpty {
+                        Text(done.cheque.invoice.payer).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                    }
+                    Text("\(PennyChequeCard.money(done.target.apply)) cheque · banked \(done.banked)")
+                        .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.vertical, 10).padding(.horizontal, 12)
+                .background(appStyle.page)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+
+                chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: "arrow.right", title: "Next", detail: nextLabel, filled: true) {
+                    withAnimation(.easeOut(duration: 0.22)) { vm.dismissChequeDone() }
+                }
+                    .frame(width: PennyCardView.singleColumn)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(8)
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+        }
+        .background(alignment: .top) {
+            Rectangle().fill(appStyle.line)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .padding(.top, 31)
+                .padding(.bottom, extendsLine ? -400 : -32)
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Penny's square button, as on the duplicates: same size whatever the text, outlined ones page-filled so the axis passes
+/// behind them.
+fileprivate func chequeSquareButton(style: ItAppStyle, busy: Bool, icon: String, title: String, detail: String, filled: Bool,
+                                    action: @escaping () -> Void) -> some View {
+    let shape = RoundedRectangle(cornerRadius: style.cornerRadius(16))
+    return Color.clear
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .overlay {
+            Button(action: action) {
+                VStack(spacing: 8) {
+                    if busy && filled { ProgressView().tint(style.onTenant).frame(height: 42) }
+                    else { Image(systemName: icon).font(style.font(size: 34, weight: .semibold)).frame(height: 42) }
+                    Text(title).font(style.font(.title3, weight: .bold))
+                    Text(detail).font(style.font(.footnote)).opacity(0.85)
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(filled ? style.onTenant : style.tenant)
+                .background(filled ? style.tenant : style.page, in: shape)
+                .overlay(shape.strokeBorder(style.tenant, lineWidth: filled ? 0 : 2))
+                .contentShape(shape)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(title), \(detail)")
+        }
 }
