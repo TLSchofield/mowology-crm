@@ -272,23 +272,58 @@ struct PaymentConfidenceTriangle: View {
     @Environment(\.itAppStyle) private var appStyle
     @Environment(\.it) private var it
     let level: String
+    /// How far the money's path has come, as Tim drew it (2026-11-07): the count of pieces already joined beside the
+    /// triangle, the whole (invoice, payment, bank line = 3) inside it, and what is joined to the right. Off the line.
+    var joined: Int? = nil
+    var whole = 3
+    var label: String? = nil
+    /// Read out instead of Penny's sentence, which this replaces on screen.
+    var spoken: String? = nil
+
+    static let width: CGFloat = 66
 
     var body: some View {
-        ZStack {
-            Circle().fill(appStyle.page).frame(width: 31, height: 31)
-            Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 29, height: 29)
+        HStack(spacing: 10) {
+            Text(joined.map(String.init) ?? "")
+                .font(appStyle.font(.largeTitle, weight: .semibold)).foregroundStyle(appStyle.text)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            mark
+            Text(label ?? "")
+                .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement()
+        .accessibilityLabel([spoken, level.capitalized + " confidence",
+                             joined.map { "\($0) of \(whole) joined" + (label.map { ": " + $0 } ?? "") }]
+                                .compactMap { $0 }.joined(separator: ". "))
+    }
+
+    /// The triangle sits on the centre line: the line meets its apex and leaves from its base; nothing shows through it.
+    private var mark: some View {
+        let w = Self.width, h = w * sqrt(3) / 2
+        let shape = ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
+        let filled = level == "high" || level == "medium"
+        return ZStack {
+            shape.fill(appStyle.page)
             switch level {
-            case "high":   ItKnowledgeMark(stage: .mastered, size: 17)
-            case "medium": ItKnowledgeMark(stage: .understood, size: 17)
+            case "high":
+                shape.fill(it.color(.knowledgeMastered))
+                ItKnowledgeTriangleShape(inset: 0.16).stroke(it.page, lineWidth: 1.2)
+            case "medium":
+                shape.fill(it.color(.knowledgeUnderstood))
             default:
-                ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
-                    .stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [2.6, 2.2]))
-                    .frame(width: 17, height: 17 * sqrt(3) / 2)
+                shape.stroke(it.color(.knowledgeDiscovered), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 5]))
+            }
+            if joined != nil {
+                Text("\(whole)")
+                    .font(appStyle.font(.title2, weight: .bold))
+                    .foregroundStyle(filled ? it.page : it.color(.knowledgeDiscovered))
+                    .offset(y: h * 0.14)                 // the triangle's centre sits low, toward its base
             }
         }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement()
-        .accessibilityLabel(level.capitalized + " confidence")
+        .frame(width: w, height: h)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 }
 
@@ -329,22 +364,11 @@ struct PennyPaymentCard: View {
     }
 
     @ViewBuilder private var openBody: some View {
-        VStack(spacing: 4) {
-            Text(payment.verdict).font(appStyle.font(.title3, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-            if !payment.evidence.isEmpty {
-                Text(payment.evidence.joined(separator: " · "))
-                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 6)
-        .background(appStyle.page)
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-
-        if ["high", "medium", "low"].contains(payment.confidence) {
-            PaymentConfidenceTriangle(level: payment.confidence)
-        }
+        // Penny's sentence is now the triangle (Tim, 2026-11-07, his sketch): how sure (its colour), how much of the
+        // money's path is already joined (2 of 3 when the payment is on the invoice; 1 of 3 when only the invoice is),
+        // and what that is, beside it. The name and its source are in the table below.
+        PaymentConfidenceTriangle(level: payment.confidence, joined: joinedCount, label: joinedLabel,
+                                  spoken: ([payment.verdict] + payment.evidence).joined(separator: ". "))
 
         VStack(alignment: .leading, spacing: 10) {
             factsTable
@@ -366,7 +390,6 @@ struct PennyPaymentCard: View {
                 Label(f, systemImage: "exclamationmark.triangle").font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
                     .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
             }
-            let linking = payment.button?.title == "Link"
             HStack(spacing: PennyCardView.columnGap) {
                 chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: linking ? "link" : "checkmark",
                                    title: payment.button?.title ?? "Record",
@@ -388,6 +411,13 @@ struct PennyPaymentCard: View {
         }
         .padding(8)
         .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+    }
+
+    private var linking: Bool { payment.button?.title == "Link" }
+    /// Invoice, payment, bank line: the payment already on the invoice makes 2; an invoice alone makes 1.
+    private var joinedCount: Int { linking ? 2 : 1 }
+    private var joinedLabel: String {
+        linking ? payment.targetLine + " + payment" : payment.targetLine
     }
 
     /// Linked / recorded: the deposit and its invoice(s) are one now — centred, one way on (Next), Undo underneath, the
