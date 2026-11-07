@@ -19,7 +19,8 @@ struct ScheduleView: View {
     @State private var ottoSuggestion: OttoSuggestion?
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
-    @State private var viewMode       = ViewMode.list
+    /// Which view the day shows: chosen on the Schedule bead (tap = next, long press = pick), remembered.
+    @ObservedObject private var views = ScheduleViewStore.shared
     @State private var isOttoExpanded = false
 
     /// Navigation path — owned here so a tapped notification can open a stop directly.
@@ -36,8 +37,6 @@ struct ScheduleView: View {
 
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
     private let impactMedium = UIImpactFeedbackGenerator(style: .medium)
-
-    private enum ViewMode { case list, map }
 
     /// Kept inside the navigation content so the calendar toolbar owns its safe area.
     private func ottoPrompt(_ suggestion: OttoSuggestion) -> some View {
@@ -99,7 +98,7 @@ struct ScheduleView: View {
                 // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
                 if horizontalSizeClass == .compact {
                     DayCarouselView(selectedDate: weekStripBinding, weekDays: viewModel.weekDays,
-                                    showsLine: viewMode == .list && viewModel.timelineInput != nil)
+                                    showsLine: views.kind == .numbered && viewModel.timelineInput != nil)
                 } else {
                 WeekStripView(
                     selectedDate: weekStripBinding,
@@ -119,7 +118,15 @@ struct ScheduleView: View {
 
 
                 // MARK: Content
-                if viewMode == .list {
+                if views.kind == .time {
+                    DayTimeGridView(
+                        stops:     viewModel.stops,
+                        isLoading: viewModel.isLoading,
+                        isToday:   Calendar.current.isDateInToday(viewModel.selectedDate),
+                        onRefresh: { await viewModel.refresh() },
+                        onSelect:  { pendingActions[$0.id] = nil; path.append($0) }
+                    )
+                } else if views.kind != .map {
                     DayListView(
                         stops:        viewModel.stops,
                         appointments: viewModel.appointments,
@@ -132,7 +139,8 @@ struct ScheduleView: View {
                         onMove:       { movingStop = $0 },
                         onSelect:     { pendingActions[$0.id] = nil; path.append($0) },
                         onAction:     { stop, action in pendingActions[stop.id] = action; path.append(stop) },
-                        timeline:     viewModel.timelineInput
+                        timeline:     viewModel.timelineInput,
+                        layout:       views.kind
                     )
                 } else {
                     DayMapView(
@@ -249,7 +257,6 @@ struct ScheduleView: View {
         guard let route, !viewModel.quizRequired else { return }
         notificationRouter.pendingRoute = nil
         showDatePicker = false
-        viewMode       = .list
         pendingActions = [:]          // a notification only opens the visit; no card action rides along
         if let stop = await viewModel.resolve(route) {
             path = [stop]
@@ -372,15 +379,7 @@ struct ScheduleView: View {
         // Add moved to the bar's Add slot (Tim, 2026-11-05); the top right shows the shift instead.
         ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
 
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                impactLight.impactOccurred()
-                viewMode = viewMode == .list ? .map : .list
-            } label: {
-                Image(systemName: viewMode == .list ? "map" : "list.bullet")
-                    .foregroundStyle(appStyle.tenant)
-            }
-        }
+        // The map / list switch moved onto the Schedule bead (Tim, 2026-11-07), which now cycles all four views.
 
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {
