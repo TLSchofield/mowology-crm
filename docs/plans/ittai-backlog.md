@@ -476,3 +476,8 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - iPad / desktop (≥ 768 pt) keep the week grid (the week at a glance matters for office planning).
 - Trade-off: past days sit off the left edge (one swipe; "Today" returns). Mine / All crews already moved above the
   days in 1.3.100 for this. Simulator check before TestFlight (snapping, selection sync).
+
+## Schedule bead cycles its views (Tim, 2026-11-07: "What if the schedule button can switch the view from map to numbered to cards?")
+- Tapping the raised Schedule bead while on Schedule cycles numbered timeline → map → cards; the first tap scrolls to the top when the list is scrolled down.
+- The bead's icon shows the current view; a long press opens a menu of the three; the top-bar map button goes; the last view is remembered per person; VoiceOver says the view and what a tap does.
+- Same pattern as Receipts (tap the selected bead = camera, iOS 1.3.81). Android to match later. Needs its own chat (iPhone `ios/` only).
