@@ -604,9 +604,16 @@ private struct ScheduleTimelineDemo: View {
     }
 
     var body: some View {
-        DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
-                    onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
-            .background(style.page)
+        if mode == "time" {   // `-mwTimelineDemo time`: the hour grid (the Schedule bead's Time view)
+            DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
+                                                      Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
+                            isLoading: false, isToday: false, onRefresh: {}, onSelect: { _ in })
+                .background(style.page)
+        } else {
+            DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
+                        onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
+                .background(style.page)
+        }
     }
 }
 #endif

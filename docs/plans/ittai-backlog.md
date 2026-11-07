@@ -478,6 +478,7 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
   days in 1.3.100 for this. Simulator check before TestFlight (snapping, selection sync).
 
 ## Schedule bead cycles its views (Tim, 2026-11-07: "What if the schedule button can switch the view from map to numbered to cards?")
+- **BUILT 2026-11-07 (iPhone):** tap the Schedule bead = next view (numbered → cards → time → map), long press = pick, bead shows the current view, top-bar map button gone, remembered per phone; new hour-grid Time view (`DayTimeGridView`). **Left:** first tap scrolls to top when the list is scrolled; Android to match.
 - Tapping the raised Schedule bead while on Schedule cycles numbered timeline → map → cards; the first tap scrolls to the top when the list is scrolled down.
 - The bead's icon shows the current view; a long press opens a menu of the three; the top-bar map button goes; the last view is remembered per person; VoiceOver says the view and what a tap does.
 - Same pattern as Receipts (tap the selected bead = camera, iOS 1.3.81). Android to match later. Needs its own chat (iPhone `ios/` only).

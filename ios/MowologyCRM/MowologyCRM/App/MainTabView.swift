@@ -57,6 +57,9 @@ struct MainTabView: View {
     @State private var selectedTab = Tab.schedule
     /// The AddDial is open: the bead sits on Add (showing ×) while the screen underneath stays as it was.
     @State private var addOpen = false
+    /// The Schedule bead's view, and its long-press picker (Tim, 2026-11-07).
+    @ObservedObject private var scheduleViews = ScheduleViewStore.shared
+    @State private var showScheduleViews = false
     /// The bar tab the bead returns to from Time Clock, which has no slot of its own.
     @State private var lastBarTab = Tab.schedule
     @State private var keyboardUp = false
@@ -82,7 +85,15 @@ struct MainTabView: View {
     private var meniscusItems: [ItMeniscusItem] {
         barTabs.enumerated().map { index, tab in
             switch tab {
-            case .schedule: return ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
+            // The Schedule bead shows the day's view; a tap moves to the next (numbered → cards → time → map), a long
+            // press picks one (Tim, 2026-11-07). Not while Time Clock is showing: a tap there only goes back.
+            case .schedule:
+                return selectedTab == .time
+                    ? ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
+                    : ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"),
+                                     beadIcon: Image(systemName: scheduleViews.kind.icon),
+                                     beadLabel: "Show \(scheduleViews.kind.next.title.lowercased()) view",
+                                     longPressLabel: "Choose a view")
             case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: Image(uiImage: KanameTabIcon.image), iconScale: 1.35)
             case .search:   return ItMeniscusItem(id: index, title: "Search", icon: Image(systemName: "magnifyingglass"))
             // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05). Not while Time Clock
@@ -173,9 +184,16 @@ struct MainTabView: View {
                         else if tab == .receipts {
                             NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
                         }
+                        else if tab == .schedule {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { scheduleViews.cycle() }
+                        }
                     },
                     onLongPress: { index in
                         if barTabs.indices.contains(index), barTabs[index] == .add { add(.job) }
+                        if barTabs.indices.contains(index), barTabs[index] == .schedule, selectedTab == .schedule {
+                            showScheduleViews = true
+                        }
                     })
             }
         }
@@ -187,6 +205,11 @@ struct MainTabView: View {
             await ClockChipStore.shared.refresh(authSession: authSession)
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 await readyBriefStore.refresh(authSession: authSession)
+            }
+        }
+        .confirmationDialog("Show the day as", isPresented: $showScheduleViews, titleVisibility: .visible) {
+            ForEach(ScheduleViewKind.allCases) { kind in
+                Button(kind == scheduleViews.kind ? "\(kind.title) (showing)" : kind.title) { scheduleViews.kind = kind }
             }
         }
         .sheet(item: $pullForward.offer, onDismiss: { pullForward.sheetDismissed() }) { offer in
