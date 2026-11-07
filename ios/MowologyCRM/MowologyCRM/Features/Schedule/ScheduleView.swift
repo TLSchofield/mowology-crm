@@ -88,6 +88,12 @@ struct ScheduleView: View {
                     ottoPrompt(suggestion)
                 }
 
+                // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14). Above the days since 1.3.100 (Tim,
+                // 2026-11-06): the days sit straight on the list, so the centre line meets them with nothing between.
+                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
+                    scopeBar
+                }
+
                 // MARK: Week Strip
                 WeekStripView(
                     selectedDate: weekStripBinding,
@@ -104,10 +110,6 @@ struct ScheduleView: View {
                         }
                 )
 
-                // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14)
-                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
-                    scopeBar
-                }
 
                 // MARK: Content
                 if viewMode == .list {
