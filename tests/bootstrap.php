@@ -336,6 +336,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDuplicateCleanup
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StripePayoutService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineMoveService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/IncomeCleanupService.php';
+// Payments reconciled against invoices — CRM + Jobber, one matcher (migration 1260)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PaymentMatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CreditCardPayableAuditService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankTransferDirectionRepair.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitService.php';
