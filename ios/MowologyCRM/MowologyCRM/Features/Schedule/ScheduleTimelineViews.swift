@@ -659,6 +659,8 @@ private struct MeniscusBarDemo: View {
                 AddDial(slot: items.count - 1, slotCount: items.count, onPick: { _ in addOpen = false }, onClose: { addOpen = false })
             }
         }
+        // As MainTabView does: every scroll view below gets the bar's bottom margin (the day strip must ignore it).
+        .contentMargins(.bottom, MainTabView.barReserve, for: .scrollContent)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ItMeniscusBar(items: items, selected: Binding(
                 get: { addOpen ? items.count - 1 : selected },

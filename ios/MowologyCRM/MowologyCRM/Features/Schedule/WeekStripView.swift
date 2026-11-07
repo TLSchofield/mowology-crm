@@ -105,8 +105,7 @@ struct DayCarouselView: View {
         let axis = tabSlot?.axis(width: width) ?? width / 10
         let lead = max(0, axis - Self.chipWidth / 2)
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal, showsIndicators: false) {
                     // Not lazy: on Tim's iPhone (1.3.101) the strip jumped to the chosen day before a lazy stack had made
                     // that chip, and showed blank space. 181 small chips are cheap.
                     HStack(spacing: Self.spacing) {
@@ -121,25 +120,24 @@ struct DayCarouselView: View {
                     }
                     .scrollTargetLayout()
                 }
+                // MainTabView gives every scroll view the tab bar's bottom margin; inherited here it made the strip
+                // scroll vertically and centring a day pushed the chips up over the Mine bar (Tim's iPhone, build 416).
+                .contentMargins(.vertical, 0, for: .scrollContent)
                 .contentMargins(.leading, lead, for: .scrollContent)
                 .contentMargins(.trailing, max(0, width - lead - Self.chipWidth), for: .scrollContent)
+                .scrollBounceBehavior(.basedOnSize, axes: .vertical)
                 .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: $centred, anchor: .leading)
+                // Positioned only through its own scroll position: a ScrollViewReader.scrollTo also moved the scroll
+                // containers around it and slid the whole schedule sideways (build 416).
+                .scrollPosition(id: $centred, anchor: .topLeading)
                 .frame(height: Self.chipHeight)
                 .padding(.top, 10)
-                // Once laid out (and whenever the width changes the margins), put the chosen day on the line.
+                // Once the width is known the margins change: put the chosen day back on the line.
                 .onChange(of: width) { _, _ in
-                    let o = offset(of: selectedDate)
-                    proxy.scrollTo(o, anchor: .leading)
-                    centred = o
+                    var t = Transaction(); t.disablesAnimations = true
+                    withTransaction(t) { centred = nil }
+                    DispatchQueue.main.async { centred = offset(of: selectedDate) }
                 }
-                .task {
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    let o = offset(of: selectedDate)
-                    proxy.scrollTo(o, anchor: .leading)
-                    centred = o
-                }
-            }
 
             // The line leaves the chosen day and runs down to the first stop.
             Rectangle()
