@@ -284,9 +284,7 @@ struct PaymentConfidenceTriangle: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(joined.map(String.init) ?? "")
-                .font(appStyle.font(.largeTitle, weight: .semibold)).foregroundStyle(appStyle.text)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
             mark
             Text(label ?? "")
                 .font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.text)
@@ -299,17 +297,19 @@ struct PaymentConfidenceTriangle: View {
                                 .compactMap { $0 }.joined(separator: ". "))
     }
 
-    /// The triangle sits on the centre line: the line meets its apex and leaves from its base; nothing shows through it.
+    /// The triangle sits on the centre line: the line meets its apex; its base lies on the top edge of the panel below
+    /// (the items it matches). Its left side is the fraction's bar (Tim, 2026-11-07: "if the vertical line wasn't there
+    /// it would look like a fraction"): the joined count above it on the left, the whole (3) under it inside — 2⁄3.
     private var mark: some View {
         let w = Self.width, h = w * sqrt(3) / 2
-        let shape = ItKnowledgeTriangleShape(inset: ItKnowledgeGeometry.triangleInset)
+        let shape = ItKnowledgeTriangleShape()
         let filled = level == "high" || level == "medium"
         return ZStack {
             shape.fill(appStyle.page)
             switch level {
             case "high":
                 shape.fill(it.color(.knowledgeMastered))
-                ItKnowledgeTriangleShape(inset: 0.16).stroke(it.page, lineWidth: 1.2)
+                ItKnowledgeTriangleShape(inset: 0.08).stroke(it.page, lineWidth: 1.2)
             case "medium":
                 shape.fill(it.color(.knowledgeUnderstood))
             default:
@@ -319,10 +319,20 @@ struct PaymentConfidenceTriangle: View {
                 Text("\(whole)")
                     .font(appStyle.font(.title2, weight: .bold))
                     .foregroundStyle(filled ? it.page : it.color(.knowledgeDiscovered))
-                    .offset(y: h * 0.14)                 // the triangle's centre sits low, toward its base
+                    .offset(x: w * 0.04, y: h * 0.2)    // low and a touch right: under the bar
             }
         }
         .frame(width: w, height: h)
+        // The numerator: against the left side, up toward the apex (the left side at 40% down is 20% across).
+        .overlay(alignment: .topLeading) {
+            if let joined {
+                Text("\(joined)")
+                    .font(appStyle.font(.largeTitle, weight: .semibold)).foregroundStyle(appStyle.text)
+                    .fixedSize()
+                    .frame(width: 60, alignment: .trailing)
+                    .position(x: w * 0.3 - 8 - 30, y: h * 0.32)
+            }
+        }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 }
@@ -341,22 +351,23 @@ struct PennyPaymentCard: View {
     var body: some View {
         let count = vm.paySession.count
         VStack(alignment: .leading, spacing: 10) {
+            // The bank icon heads the section, above the numbers (Tim, 2026-11-07), as the copies icon heads duplicates.
+            PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement()
+                .accessibilityLabel("Likely payment, from the bank")
             if count > 1 {
                 KanameNumberRow(count: count, current: vm.payPos,
                                 isDone: { i in vm.paySession.indices.contains(i) && vm.paymentOutcome(vm.paySession[i]) != nil },
                                 noun: "Payment", onTap: { i in vm.showPayment(at: i) })
             }
-            PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
-                .frame(maxWidth: .infinity)
-                .accessibilityElement()
-                .accessibilityLabel("Likely payment, from the bank")
             messageLine
             if let done { doneBody(done) } else { openBody }
         }
         .background(alignment: .top) {
             Rectangle().fill(appStyle.line)
                 .frame(width: 1).frame(maxHeight: .infinity)
-                .padding(.top, count > 1 ? 26 : 31)            // from the current number, else the bank icon
+                .padding(.top, 31)                              // from the bank icon's centre
                 .padding(.bottom, extendsLine ? -400 : -32)
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
@@ -369,6 +380,7 @@ struct PennyPaymentCard: View {
         // and what that is, beside it. The name and its source are in the table below.
         PaymentConfidenceTriangle(level: payment.confidence, joined: joinedCount, label: joinedLabel,
                                   spoken: ([payment.verdict] + payment.evidence).joined(separator: ". "))
+            .padding(.bottom, -10)                // its base on the panel's top edge, where the items to match begin
 
         VStack(alignment: .leading, spacing: 10) {
             factsTable

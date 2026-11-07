@@ -142,7 +142,9 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   colour" (`tokens.json`). This triangle on Penny's payment cards is the one other use; the rule stands for everything
   else. (`ItTokens.swift` is generated from `tokens.json`, so the note lives here and beside `PaymentConfidenceTriangle`.)
 - **The triangle says how far the money has come (Tim's sketch, 2026-11-07).** It is large (66 pt) and sits on the line:
-  the line meets its apex and leaves from its base. Inside, the whole: 3 (invoice, payment, bank line). To its left, in a
+  the line meets its apex; its base lies on the top edge of the panel of items being matched. Its left side is a
+  fraction bar: the joined count sits above it on the left, the whole (3) under it inside — read 2⁄3, never written.
+  The section icon (bank, copies) heads the section, above the number row. Inside, the whole: 3 (invoice, payment, bank line). To its left, in a
   large numeral, how many are already joined: 2 when the payment is on the invoice (Link), 1 when only the invoice is
   (Record). To its right, what is joined: "INV-… + payment" or "INV-…". No text on the line; Penny's sentence is read
   out by VoiceOver only. The duplicates card uses the same large triangle without the numbers.

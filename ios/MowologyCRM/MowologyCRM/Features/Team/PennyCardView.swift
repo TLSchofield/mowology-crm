@@ -453,6 +453,7 @@ struct PennyCardView: View {
             // time (blue), only total and date (broken outline).
             if let level = Self.dupeConfidence(group.evidence) {
                 PaymentConfidenceTriangle(level: level)
+                    .padding(.bottom, -10)        // its base on the panel's top edge (Tim, 2026-11-07)
             }
 
             // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
