@@ -411,17 +411,21 @@ struct PennyCardView: View {
             // Undo sits up here, under the numbers: at the bottom the tab bar's Kaname button covered it.
             undoOrMessage
 
-            // 1. Penny's verdict, large, and how sure she is with this vendor.
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Self.headline(group))
-                    .font(appStyle.font(.title3, weight: .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
+            // 1. The section's icon, large, on the centre line in place of the words (Tim, 2026-11-06: "is there an
+            //    icon for copies? … should be large to indicate a section"; SPEC §13), then how sure she is.
+            VStack(alignment: .center, spacing: 8) {
+                Self.sectionIcon("doc.on.doc.fill", style: appStyle)
                 if let c = group.confidence, !c.isEmpty {
                     Text(c).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                        .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 6)
+                        .background(appStyle.page)          // text never sits on the line
                 }
             }
+            .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
+            .accessibilityLabel(Self.headline(group) + (group.confidence.map { ". " + $0 } ?? ""))
 
             // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
             // the two buttons, on toward the Kaname button below. Two receipts only; three get the table's own lines.
@@ -463,7 +467,7 @@ struct PennyCardView: View {
                         }
                         .disabled(copies.isEmpty)
                         .accessibilityHint("Sets #\(copies.map(String.init).joined(separator: ", #")) aside as a copy of #\(keep). You can undo it.")
-                        squareButton(icon: "doc.on.doc", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
+                        squareButton(icon: "rectangle.split.2x1", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
                             Task { await vm.different(group) }
                         }
                         .accessibilityHint("They are separate purchases. Both go on for approval.")
@@ -602,6 +606,19 @@ struct PennyCardView: View {
     /// 6. Penny's message line, under the numbers.
     @ViewBuilder private var undoOrMessage: some View {
         messageLine        // Undo lives on the answered card itself now: swipe back, Unmerge (Tim, 2026-11-06)
+    }
+
+    /// A section's icon on the centre line: a filled `brand` circle with a white glyph, in a page-coloured gap and a thin
+    /// ring of the line's weight (the ticks' and Kaname button's look). Large: it names the section (SPEC §13).
+    static func sectionIcon(_ symbol: String, style: ItAppStyle, ring: CGFloat = 56) -> some View {
+        let indigo = style.isEnabled ? style.palette.color(.brand) : Color.indigo
+        return ZStack {
+            Circle().fill(style.page).frame(width: ring + 6, height: ring + 6)
+            Circle().stroke(style.line, lineWidth: 1).frame(width: ring, height: ring)
+            Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
+            Image(systemName: symbol).font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
+        }
+        .accessibilityHidden(true)
     }
 
     /// A square button: a width-filling clear base made square (half the row each, about 160 pt on a 393 pt phone,

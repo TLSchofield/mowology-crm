@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ScheduleView: View {
+    /// Phones get the day carousel (1.3.101); iPad keeps the week strip.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
@@ -94,7 +96,11 @@ struct ScheduleView: View {
                     scopeBar
                 }
 
-                // MARK: Week Strip
+                // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
+                if horizontalSizeClass == .compact {
+                    DayCarouselView(selectedDate: weekStripBinding, weekDays: viewModel.weekDays,
+                                    showsLine: viewMode == .list && viewModel.timelineInput != nil)
+                } else {
                 WeekStripView(
                     selectedDate: weekStripBinding,
                     weekDays: viewModel.weekDays
@@ -109,6 +115,7 @@ struct ScheduleView: View {
                             Task { await viewModel.advanceWeek(by: dx < 0 ? 1 : -1) }
                         }
                 )
+                }
 
 
                 // MARK: Content

@@ -99,7 +99,10 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   the line breaks around it.
 - **Panels are wrapped by a frame of the same weight**: 1 pt `line`, radius 14, page fill. The line passes behind it.
 - **A section's icon sits centred on the line** at the top of its frame: filled `brand` circle, white glyph, in the same
-  page-coloured gap and thin ring as the ticks (e.g. Penny's "Your business" building).
+  page-coloured gap and thin ring as the ticks, large (56 pt ring), in place of a words heading: Penny's "Your
+  business" (building), duplicates (`doc.on.doc.fill`, copies). The heading's words move to the accessibility label.
+- **Schedule (phones, 1.3.101)**: the days are one smooth strip that snaps the chosen day onto the Schedule bead's
+  axis; the line leaves that day and runs through the stops into the bead. iPad keeps the week grid.
 - **Two square buttons**, side by side either side of the line, same size whatever their text: the primary filled
   (`tenant`), the other outlined. Capped at 150 pt each so the panel fits one phone screen.
 - **Setup headings go once learned.** A "getting to know you" heading shows only while the head is still learning;

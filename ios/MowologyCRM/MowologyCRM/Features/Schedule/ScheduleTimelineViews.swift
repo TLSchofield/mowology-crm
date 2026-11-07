@@ -64,7 +64,8 @@ struct TimelineStopRow: View {
     private var rail: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(isFirst ? Color.clear : (tenantAbove ? style.tenant : style.line))
+                // The first stop's line comes down from the chosen day (DayCarouselView, SPEC §13).
+                .fill(tenantAbove ? style.tenant : style.line)
                 .frame(width: railWidth, height: 4)
             marker
             Rectangle()
@@ -618,6 +619,7 @@ private struct MeniscusBarDemo: View {
     let variant: String
     @State private var selected: Int
     @State private var addOpen: Bool
+    @State private var demoDate = Date()
 
     init(variant: String) {
         self.variant = variant
@@ -643,7 +645,10 @@ private struct MeniscusBarDemo: View {
 
     var body: some View {
         NavigationStack {
-            ScheduleTimelineDemo(mode: "day")
+            VStack(spacing: 0) {
+                DayCarouselView(selectedDate: $demoDate, weekDays: [], showsLine: true)
+                ScheduleTimelineDemo(mode: "day")
+            }
                 .environment(\.itTabSlot, ItTabSlot(index: 0, count: items.count))
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
