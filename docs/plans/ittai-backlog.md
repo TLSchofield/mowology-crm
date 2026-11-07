@@ -468,3 +468,11 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - **Word positions:** the iPhone (Vision `VNRecognizeTextRequest`) and Android (ML Kit) send each recognised line with its bounding box beside the plain text; the server builds rows from them the way `reconstructLinesFromVisionResponse()` does for Google Vision. Why: phone plain text puts Chevron item names in one block and prices in another (most of Chevron's 71 unread receipts, replay 2026-11-06). Keep the upload backwards compatible.
 - **Camera hints:** edge detection with crop or straighten (iOS `VNDetectDocumentSegmentationRequest` / VisionKit; Android ML Kit Document Scanner) and a "hold flat, fill the frame" hint on blurry or skewed photos. Capture-only stays.
 - Needs its own chat started from the desktop app (owns `ios/` + the Android repo + one server row-builder). Could not be started over Remote Control.
+
+## Phone day carousel: the line chooses the day (Tim, 2026-11-06)
+- On phones, swap the working-week strip for a continuous day carousel that snaps the chosen day onto the Schedule
+  bead's axis (`ItTabSlot`), so the centre line runs straight from the day → its stops → the Schedule bead (SPEC §13).
+  The day on the line is the day shown; swipe or tap snaps a day onto it; "Nov" follows it. No week walls.
+- iPad / desktop (≥ 768 pt) keep the week grid (the week at a glance matters for office planning).
+- Trade-off: past days sit off the left edge (one swipe; "Today" returns). Mine / All crews already moved above the
+  days in 1.3.100 for this. Simulator check before TestFlight (snapping, selection sync).
