@@ -85,6 +85,9 @@ struct DayCarouselView: View {
     let showsLine: Bool
 
     static let chipWidth: CGFloat = 52
+    /// One exact height for the strip (Tim's iPhone, 1.3.105: the scroll area measured taller than its chips and left a
+    /// blank band, so the line never met the day). Text in the strip is capped at extra-large so a chip never outgrows it.
+    static let chipHeight: CGFloat = 80
     static let spacing: CGFloat = 6
     private static let span = -60...120           // days around today the strip reaches
 
@@ -112,7 +115,7 @@ struct DayCarouselView: View {
                             DayChip(day: day, isSelected: offset == centred, ns: ns) {
                                 withAnimation(.snappy(duration: 0.35)) { centred = offset }
                             }
-                            .frame(width: Self.chipWidth)
+                            .frame(width: Self.chipWidth, height: Self.chipHeight)
                             .id(offset)
                         }
                     }
@@ -122,7 +125,7 @@ struct DayCarouselView: View {
                 .contentMargins(.trailing, max(0, width - lead - Self.chipWidth), for: .scrollContent)
                 .scrollTargetBehavior(.viewAligned)
                 .scrollPosition(id: $centred, anchor: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(height: Self.chipHeight)
                 .padding(.top, 10)
                 // Once laid out (and whenever the width changes the margins), put the chosen day on the line.
                 .onChange(of: width) { _, _ in
@@ -146,6 +149,7 @@ struct DayCarouselView: View {
                 .offset(x: axis - 0.75)
                 .accessibilityHidden(true)
         }
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .background(GeometryReader { g in
             Color.clear
                 .onAppear { width = g.size.width }
