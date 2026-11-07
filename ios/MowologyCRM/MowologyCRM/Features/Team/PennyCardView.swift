@@ -33,7 +33,7 @@ struct PennyCardView: View {
             } else if let cheque = vm.currentCheque {
                 // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
                 // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
-                PennyChequeCard(vm: vm, cheque: cheque)
+                PennyChequeCard(vm: vm, cheque: cheque, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
                     .id(cheque.id)
                     .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
                 if vm.showsDupes, let group = vm.currentDupe {
@@ -403,10 +403,9 @@ struct PennyCardView: View {
         let rows = compared   // every compared fact, auth number included (Tim, 2026-11-06: "auth should be in the table")
         let info = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
         return VStack(alignment: .leading, spacing: 10) {
+            // One group: the copies icon below names the section, so no words above it (Tim, 2026-11-06).
             if vm.dupeSession.count > 1 {
                 dupePager
-            } else {
-                Text(members.count > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
             }
             // Undo sits up here, under the numbers: at the bottom the tab bar's Kaname button covered it.
             undoOrMessage
@@ -434,7 +433,7 @@ struct PennyCardView: View {
                 if !rows.isEmpty { factsTable(rows, members: members, keep: keep) }
 
                 // 3. Photos in the buttons' columns, same width (Tim, 2026-11-06); tap for full screen with Penny's read.
-                HStack(alignment: .top, spacing: members.count > 2 ? 10 : 16) {
+                HStack(alignment: .top, spacing: Self.columnGap) {
                     ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
                         dupeThumb(m, index: i, members: members, keep: keep,
                                   status: Self.statusAfter(outcome, member: m.id) ?? info["Status"]?[safe: i] ?? nil,
@@ -442,7 +441,6 @@ struct PennyCardView: View {
                                   reads: members.indices.map { Self.pennyRead(compared, at: $0) })
                     }
                 }
-                .frame(maxWidth: 2 * 150 + 16)
                 .frame(maxWidth: .infinity)
 
                 // 4. The swap, small and away from the buttons. (Which one is kept is on its photo and on Merge.)
@@ -460,7 +458,7 @@ struct PennyCardView: View {
                     answeredButtons(outcome, group: group)
                 } else {
                     // 5. Two square buttons, side by side, nothing else near them (capped so the card fits one screen).
-                    HStack(spacing: 16) {
+                    HStack(spacing: Self.columnGap) {
                         squareButton(icon: "arrow.triangle.merge", title: "Merge",
                                      detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
                             Task { await vm.merge(group) }
@@ -473,7 +471,6 @@ struct PennyCardView: View {
                         .accessibilityHint("They are separate purchases. Both go on for approval.")
                     }
                     .disabled(vm.isBusy)
-                    .frame(maxWidth: 2 * 150 + 16)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 2)
                 }
@@ -550,7 +547,7 @@ struct PennyCardView: View {
     /// An answered group: a status square beside the way back, in the same two columns as Merge / Different.
     @ViewBuilder private func answeredButtons(_ outcome: PennyCardViewModel.DupeOutcome, group: BKDupeGroup) -> some View {
         VStack(spacing: 10) {
-            HStack(spacing: 16) {
+            HStack(spacing: Self.columnGap) {
                 switch outcome {
                 case .merged(let keep, let copies):
                     statusSquare(icon: "arrow.triangle.merge", title: "Merged",
@@ -570,7 +567,6 @@ struct PennyCardView: View {
                 }
             }
             .disabled(vm.isBusy)
-            .frame(maxWidth: 2 * 150 + 16)
             .frame(maxWidth: .infinity)
             if vm.dupesAllAnswered {
                 Button("All sorted. On to the receipts") { withAnimation { vm.finishDupes() } }
@@ -607,6 +603,11 @@ struct PennyCardView: View {
     @ViewBuilder private var undoOrMessage: some View {
         messageLine        // Undo lives on the answered card itself now: swipe back, Unmerge (Tim, 2026-11-06)
     }
+
+    /// One column grid per panel (Tim, 2026-11-06: "the buttons left and right padding along with images throws off the
+    /// design"): the facts, the photos and the buttons share the panel's edges and this gap, so the centre line (two
+    /// receipts) or the column dividers (three) pass through every row in the same place. The tick ring sits in it.
+    static let columnGap: CGFloat = 46
 
     /// A section's icon on the centre line: a filled `brand` circle with a white glyph, in a page-coloured gap and a thin
     /// ring of the line's weight (the ticks' and Kaname button's look). Large: it names the section (SPEC §13).
@@ -653,7 +654,7 @@ struct PennyCardView: View {
     /// The facts side by side. A row that matches shows only the values, with a filled indigo check between them
     /// (Tim, 2026-11-06); a row that differs or wasn't read keeps its label, and a difference is highlighted.
     private func factsTable(_ rows: [BKDupeFactRow], members: [BKDupeMember], keep: Int) -> some View {
-        let gap: CGFloat = 46   // the values sit a few points clear of the tick's ring
+        let gap = Self.columnGap   // the values sit a few points clear of the tick's ring
         let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
         let n = members.count
         return VStack(spacing: 0) {
@@ -910,10 +911,13 @@ struct PennyDupeDemo: View {
         func loadQueue() async throws -> BookkeeperQueueResponse {
             let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Southlands Nursery","Southlands Nursery"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
             let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
-            let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell
+            // `cheque`: a likely cheque with a three-receipt group under it (the line must stop at the group).
+            let cheque = #"{"tx_id":9001,"amount":1195.36,"payer":"Sample Property Mgmt","memo":"Cheque deposit-branch SAMPLE PROPERTY MGMT","label":"Cheque deposit","confidence":89,"invoice":{"id":1,"number":"INV-2026-0001","payer":"Sample Property Mgmt","balance_due":1195.36},"apply":1195.36,"verdict":"This $1,195.36 cheque from Sample Property Mgmt likely pays INV-2026-0001.","confidence_line":"89% · exact amount · memo names sample property mgmt","facts":[{"label":"Amount","cheque":"$1,195.36","invoice":"$1,195.36 owing","state":"same"},{"label":"Name","cheque":"Sample Property Mgmt","invoice":"Sample Property Mgmt","state":"same"},{"label":"Date","cheque":"Banked Nov 2","invoice":"Issued Oct 1","state":"info"}],"others":[]}"#
+            let cheques = variant == "cheque" ? cheque : ""
+            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque") ? champ : variant == "first" ? champ + "," + shell
                 : variant == "nine" ? ([shell] + (1...8).map { k in champ.replacingOccurrences(of: "48", with: "4\(k)") }).dropFirst(answered).joined(separator: ",")
                 : shell + "," + champ
-            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"dupes":["# + groups + "]}"
+            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"cheques":["# + cheques + #"],"dupes":["# + groups + "]}"
             return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
         }
         func send(_ body: [String: Any]) async throws -> BookkeeperActionResponse {

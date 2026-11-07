@@ -14,6 +14,9 @@ struct PennyChequeCard: View {
     @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyCardViewModel
     let cheque: BKChequeMatch
+    /// Run the line on past the card toward the Kaname button. Off when another panel follows (the duplicates): the line
+    /// then stops at that panel's frame — 400 pt on, it cut through a three-receipt comparison (Tim, 2026-11-06).
+    var extendsLine = true
 
     var body: some View {
         let target = vm.chequeTarget(cheque)
@@ -59,7 +62,7 @@ struct PennyChequeCard: View {
                     .background(appStyle.page)
                 }
 
-                HStack(spacing: 16) {
+                HStack(spacing: PennyCardView.columnGap) {
                     squareButton(icon: "checkmark", title: "Record", detail: "\(Self.money(target.apply)) on \(target.number)", filled: true) {
                         Task { await vm.recordCheque(cheque) }
                     }
@@ -70,7 +73,6 @@ struct PennyChequeCard: View {
                     .accessibilityHint("Hides this cheque until the card opens again.")
                 }
                 .disabled(vm.isBusy)
-                .frame(maxWidth: 2 * 150 + 16)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 2)
             }
@@ -80,7 +82,7 @@ struct PennyChequeCard: View {
                 Rectangle().fill(appStyle.line)
                     .frame(width: 1)
                     .frame(maxHeight: .infinity)
-                    .padding(.bottom, -400)          // on past the card toward the Kaname button, as on the duplicates
+                    .padding(.bottom, extendsLine ? -400 : -32)   // toward Kaname, or just down to the duplicates (14 spacing + 18 padding)
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
             }
@@ -89,7 +91,7 @@ struct PennyChequeCard: View {
 
     /// The cheque (left) and the invoice (right), a ringed tick between them where they agree.
     private var factsTable: some View {
-        let gap: CGFloat = 46
+        let gap = PennyCardView.columnGap
         let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
