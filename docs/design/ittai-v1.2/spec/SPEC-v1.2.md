@@ -129,7 +129,8 @@ into the active tab's button (Kaname's on his screens). It reads as "this is Kan
   duplicates). Plain lists (Receipts, Search results) stay hairline rows with no line. One line per screen, never two.
 - **The money's path (Penny's payment cards, 7 Nov 2026).** Down the line: the number row (the shared Kaname row, as on
   the duplicates), the bank icon (`building.columns.fill`, the money starts on the bank statement), the confidence
-  triangle (which replaced Penny's sentence), the panel, the two squares, and the ledger (`text.book.closed`) at the bottom — an outline
+  triangle (which replaced Penny's sentence), the panel, the two squares, and the ledger (`text.book.closed`) at the bottom, seated on the panel's bottom edge where the centre line
+  crosses it (as the business icon sits on its card's top edge; Tim, 2026-11-07) — an outline
   while the deposit waits, filled brand indigo once it is linked or recorded (in the books, counted once).
 - **Confidence is the knowledge triangle, not words.** Low = broken (dashed) outline in `knowledge-discovered`; medium
   = solid `knowledge-understood`; high = `knowledge-mastered` gold with the mastered inner page-colour keyline (so gold

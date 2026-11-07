@@ -406,11 +406,14 @@ struct PennyPaymentCard: View {
             .disabled(vm.isBusy)
             .frame(maxWidth: .infinity)
             .padding(.top, 2)
-            // The money's path ends here: in the books (outline until it is linked or recorded).
-            PennyCardView.ledgerIcon(filled: false, style: appStyle).frame(maxWidth: .infinity)
         }
         .padding(8)
+        .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
         .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+        // The ledger sits where the centre line crosses the panel's bottom edge (Tim, 2026-11-07), as the business icon sits
+        // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
+        .overlay(alignment: .bottom) { PennyCardView.ledgerIcon(filled: false, style: appStyle).offset(y: 31) }
+        .padding(.bottom, 31)
     }
 
     private var linking: Bool { payment.button?.title == "Link" }
@@ -455,10 +458,14 @@ struct PennyPaymentCard: View {
                     .disabled(vm.isBusy)
                     .accessibilityHint("Takes the payment off the invoice again; the deposit goes back to waiting.")
             }
-            PennyCardView.ledgerIcon(filled: true, style: appStyle).frame(maxWidth: .infinity)
         }
         .padding(8)
+        .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
         .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+        // The ledger sits where the centre line crosses the panel's bottom edge (Tim, 2026-11-07), as the business icon sits
+        // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
+        .overlay(alignment: .bottom) { PennyCardView.ledgerIcon(filled: true, style: appStyle).offset(y: 31) }
+        .padding(.bottom, 31)
     }
 
     @ViewBuilder private var messageLine: some View {

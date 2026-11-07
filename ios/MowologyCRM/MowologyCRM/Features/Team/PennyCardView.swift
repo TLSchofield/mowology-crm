@@ -525,12 +525,16 @@ struct PennyCardView: View {
                     .padding(.top, 2)
                 }
 
-                // The end of the line: the books carry one receipt once it is answered (Merged, or Different — both kept).
-                Self.ledgerIcon(filled: outcome != nil, style: appStyle).frame(maxWidth: .infinity)
             }
             .padding(8)
             // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
+            .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+            // The end of the line: the books carry one receipt once it is answered (Merged, or Different — both kept).
+            // The ledger sits where the centre line crosses the panel's bottom edge (Tim, 2026-11-07), as the business icon sits
+            // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
+            .overlay(alignment: .bottom) { Self.ledgerIcon(filled: outcome != nil, style: appStyle).offset(y: 31) }
+            .padding(.bottom, 31)
         }
         .background(alignment: .top) {
                 Rectangle().fill(appStyle.line)
