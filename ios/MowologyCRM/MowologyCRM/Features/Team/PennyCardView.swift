@@ -28,19 +28,20 @@ struct PennyCardView: View {
             if vm.isLoading && !vm.hasLoaded {
                 HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
                     .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.payments.isEmpty {
+            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.paySession.isEmpty {
                 errorState(err)
-            } else if let done = vm.paymentDone {
-                // Recorded: the deposit and its invoice(s) are one (Tim, 2026-11-06); duplicates under it as before.
-                PennyPaymentDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-                if vm.showsDupes, let group = vm.currentDupe {
-                    dupeCard(group).id(group.id).padding(.top, 18)
-                }
-            } else if let payment = vm.currentPayment {
-                // Every deposit the payments matcher proposes, first (the same list as "N deposits matched").
-                PennyPaymentCard(vm: vm, payment: payment, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+            } else if vm.showsPayments, let payment = vm.currentPayment {
+                // Every deposit the payments matcher proposes, first (the same list as "N deposits matched"); answered
+                // ones keep their number in the row and open in their answered state.
+                PennyPaymentCard(vm: vm, payment: payment, done: vm.currentPaymentDone,
+                                 extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
                     .id(payment.id)
                     .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
+                    .gesture(DragGesture(minimumDistance: 30).onEnded { g in
+                        guard abs(g.translation.width) > abs(g.translation.height) * 1.5, abs(g.translation.width) > 60 else { return }
+                        // Right to left, as the numbers read: drag right for the next card.
+                        withAnimation(.easeOut(duration: 0.22)) { vm.showPayment(at: vm.payPos + (g.translation.width > 0 ? 1 : -1)) }
+                    })
                 if vm.showsDupes, let group = vm.currentDupe {
                     dupeCard(group).id(group.id).padding(.top, 18)
                 }
@@ -569,56 +570,12 @@ struct PennyCardView: View {
         return rest
     }
 
-    /// Progress through the duplicates, as numbered circles on a horizontal line (Tim, 2026-11-06: "this is Kaname at work"),
-    /// each in a Kaname-style ring: answered = filled indigo with a tick, current = indigo ring and number, the rest open.
-    /// Tap an open one to go to it.
+    /// Progress through the duplicates: the shared Kaname number row (also on the payment cards).
     private var dupePager: some View {
-        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
-        let done = Set(vm.dupeSession.filter { vm.dupeOutcome($0) != nil })
-        let current = vm.currentDupe?.id
-        let pos = vm.dupePos
-        let step: CGFloat = 44
-        // Read right to left (Tim, 2026-11-06: "the Japanese reads design easter egg"): the current number sits enlarged
-        // on the vertical Kaname line at the centre, the ones still to do wait on its left, answered ones go off to the
-        // right. Each step slides the row right, so the next number arrives at the centre.
-        return GeometryReader { geo in
-            let mid = geo.size.width / 2
-            ZStack {
-                Rectangle().fill(appStyle.line).frame(height: 1).accessibilityHidden(true)
-                ForEach(Array(vm.dupeSession.enumerated()), id: \.element) { i, id in
-                    let isDone = done.contains(id)
-                    let on = id == current
-                    let x = mid - CGFloat(i - pos) * step
-                    Button {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { vm.showDupe(id: id) }
-                    } label: {
-                        ZStack {
-                            Circle().fill(appStyle.page).frame(width: 30, height: 30)
-                            Circle().stroke(on ? indigo : appStyle.line, lineWidth: on ? 1.5 : 1).frame(width: 28, height: 28)
-                            Circle().fill(isDone ? indigo : appStyle.page).frame(width: 22, height: 22)
-                            if isDone {
-                                Image(systemName: "checkmark").font(appStyle.font(size: 11, weight: .heavy)).foregroundStyle(Color.white)
-                            } else {
-                                Text("\(i + 1)")
-                                    .font(appStyle.font(.footnote, weight: .bold))
-                                    .foregroundStyle(on ? indigo : appStyle.meta)
-                            }
-                        }
-                        .scaleEffect(on ? 1.4 : 1)
-                        .frame(width: step, height: 52)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)                    // answered ones stay tappable: go back, Unmerge / Undo
-                    .position(x: x, y: 26)
-                    .opacity(x < -step || x > geo.size.width + step ? 0 : 1)
-                    .accessibilityLabel("Group \(i + 1) of \(vm.dupeSession.count)" + (isDone ? ", done" : on ? ", showing" : ""))
-                }
-            }
-            .frame(width: geo.size.width, height: 52)
-            .clipped()
-        }
-        .frame(height: 52)
-        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: pos)
+        KanameNumberRow(count: vm.dupeSession.count, current: vm.dupePos,
+                        isDone: { i in vm.dupeSession.indices.contains(i) && vm.dupeOutcome(vm.dupeSession[i]) != nil },
+                        noun: "Group",
+                        onTap: { i in if vm.dupeSession.indices.contains(i) { vm.showDupe(id: vm.dupeSession[i]) } })
     }
 
     /// An answered group: a status square beside the way back, in the same two columns as Merge / Different.
@@ -700,6 +657,26 @@ struct PennyCardView: View {
             Image(systemName: symbol).font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
         }
         .accessibilityHidden(true)
+    }
+
+    /// The end of the money's path on the centre line (Tim, 2026-11-07: "It starts with the bank icon indicating
+    /// transactions it ends with in the books"): a ledger in the same gap and ring as the section icon. An outline while
+    /// the deposit waits; filled brand indigo, white glyph, once it is linked or recorded — counted once, in the books.
+    static func ledgerIcon(filled: Bool, style: ItAppStyle, ring: CGFloat = 56) -> some View {
+        let indigo = style.isEnabled ? style.palette.color(.brand) : Color.indigo
+        return ZStack {
+            Circle().fill(style.page).frame(width: ring + 6, height: ring + 6)
+            Circle().stroke(style.line, lineWidth: 1).frame(width: ring, height: ring)
+            if filled {
+                Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
+                Image(systemName: "text.book.closed.fill").font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
+            } else {
+                Circle().stroke(indigo.opacity(0.55), lineWidth: 1.5).frame(width: ring - 10, height: ring - 10)
+                Image(systemName: "text.book.closed").font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(indigo)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel(filled ? "In the books" : "Not in the books yet")
     }
 
     /// A square button: a width-filling clear base made square (half the row each, about 160 pt on a 393 pt phone,
@@ -1032,6 +1009,11 @@ struct PennyDupeDemo: View {
             await vm.load()
             if variant == "chequedone", let c = vm.currentCheque { await vm.recordCheque(c) }
             if variant == "paymentdone", let p = vm.currentPayment { await vm.recordPayment(p) }
+            // `-mwPayAnswered N`: skip the first N payment cards, to see ticked numbers in the row.
+            let payArgs = ProcessInfo.processInfo.arguments
+            if let i = payArgs.firstIndex(of: "-mwPayAnswered"), i + 1 < payArgs.count, let n = Int(payArgs[i + 1]) {
+                for _ in 0..<n { if let p = vm.currentPayment { vm.skipPayment(p) } }
+            }
             // `-mwDupeAnswered N` (+ `-mwDupeBack`): merge the first N groups at launch, then go back to the first,
             // to see the filled numbers and an answered card.
             let args = ProcessInfo.processInfo.arguments
@@ -1048,5 +1030,62 @@ extension BKDupeFactRow {
     /// The same row with its values in the cards' column order (PennyCardView.displayOrder).
     func reordered(_ order: [Int]) -> BKDupeFactRow {
         BKDupeFactRow(label: label, values: order.map { values[safe: $0] ?? nil }, state: state)
+    }
+}
+
+/// Numbered circles on a horizontal line, each in a Kaname-style ring (Tim, 2026-11-06: "this is Kaname at work"):
+/// answered = filled indigo with a tick, current = enlarged indigo ring and number on the vertical Kaname line at the
+/// centre, the rest open. Reads right to left (the ones still to do wait on the left, answered ones go off to the right);
+/// each step slides the row right. Tap any number to go to it. Shared by the duplicate groups and the payment cards
+/// (2026-11-07) — one row, so both look and behave the same.
+struct KanameNumberRow: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let count: Int
+    let current: Int
+    let isDone: (Int) -> Bool
+    var noun: String = "Item"
+    let onTap: (Int) -> Void
+
+    var body: some View {
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        let step: CGFloat = 44
+        return GeometryReader { geo in
+            let mid = geo.size.width / 2
+            ZStack {
+                Rectangle().fill(appStyle.line).frame(height: 1).accessibilityHidden(true)
+                ForEach(0..<count, id: \.self) { i in
+                    let done = isDone(i)
+                    let on = i == current
+                    let x = mid - CGFloat(i - current) * step
+                    Button {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { onTap(i) }
+                    } label: {
+                        ZStack {
+                            Circle().fill(appStyle.page).frame(width: 30, height: 30)
+                            Circle().stroke(on ? indigo : appStyle.line, lineWidth: on ? 1.5 : 1).frame(width: 28, height: 28)
+                            Circle().fill(done ? indigo : appStyle.page).frame(width: 22, height: 22)
+                            if done {
+                                Image(systemName: "checkmark").font(appStyle.font(size: 11, weight: .heavy)).foregroundStyle(Color.white)
+                            } else {
+                                Text("\(i + 1)")
+                                    .font(appStyle.font(.footnote, weight: .bold))
+                                    .foregroundStyle(on ? indigo : appStyle.meta)
+                            }
+                        }
+                        .scaleEffect(on ? 1.4 : 1)
+                        .frame(width: step, height: 52)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)                    // answered ones stay tappable: go back, Unmerge / Undo
+                    .position(x: x, y: 26)
+                    .opacity(x < -step || x > geo.size.width + step ? 0 : 1)
+                    .accessibilityLabel("\(noun) \(i + 1) of \(count)" + (done ? ", done" : on ? ", showing" : ""))
+                }
+            }
+            .frame(width: geo.size.width, height: 52)
+            .clipped()
+        }
+        .frame(height: 52)
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: current)
     }
 }
