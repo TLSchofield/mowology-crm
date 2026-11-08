@@ -43,6 +43,40 @@ class CrewViewScope
         return ['crew' => $crewPicked && $crewPicked > 0 ? $crewPicked : null, 'scope' => 'all', 'can_switch' => true];
     }
 
+    /**
+     * The "All crews" checklist (Tim, 2026-11-08: "same for all crews"): several people at once.
+     * On the wire one comma string of user ids, like the job-type filter. Keeps only people who can
+     * be on a job, in the order asked, without repeats. Empty = everyone. Pure.
+     *
+     * @param string[] $validIds user ids as strings (crewOptions' values)
+     * @return int[]
+     */
+    public static function crewList(string $raw, array $validIds): array
+    {
+        $keep = [];
+        foreach (explode(',', $raw) as $id) {
+            $id = trim($id);
+            if ($id !== '' && in_array($id, $validIds, true) && !in_array((int)$id, $keep, true)) {
+                $keep[] = (int)$id;
+            }
+        }
+        return $keep;
+    }
+
+    /**
+     * The people the checklist offers: the same people people() counts.
+     * @return list<array{value: string, label: string}>
+     */
+    public static function crewOptions(PDO $db): array
+    {
+        try {
+            $rows = $db->query("SELECT id, full_name FROM users WHERE is_active = 1 AND role <> 'accountant' ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        return array_map(fn($r) => ['value' => (string)$r['id'], 'label' => trim((string)$r['full_name']) ?: ('#' . $r['id'])], $rows);
+    }
+
     /** May this person see other crews' jobs at all (my-schedule's "near another crew's job" prompt)? Pure. */
     public static function seesOtherCrews(string $role, string $setting): bool
     {

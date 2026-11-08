@@ -124,15 +124,19 @@ class AppointmentService
 
     /**
      * Booked appointments from $from to $to (inclusive), each shaped for the schedule, keyed by date.
-     * @param ?int $crewFilter only this person's (crew), null = everyone's (office)
+     * @param int|int[]|null $crewFilter only this person's (crew), these people's (the phone's crew checklist), null = everyone's
      * @return array<string, list<array>>
      */
-    public function forRange(string $from, string $to, ?int $crewFilter = null): array
+    public function forRange(string $from, string $to, $crewFilter = null): array
     {
         if (!$this->ready()) return [];
         $where = "a.status = 'booked' AND a.appt_date BETWEEN ? AND ?";
         $args = [$from, $to];
-        if ($crewFilter) { $where .= ' AND a.assigned_to = ?'; $args[] = $crewFilter; }
+        $ids = is_array($crewFilter) ? array_values(array_filter(array_map('intval', $crewFilter))) : ($crewFilter ? [(int)$crewFilter] : []);
+        if ($ids) {
+            $where .= ' AND a.assigned_to IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+            foreach ($ids as $id) $args[] = $id;
+        }
         $out = [];
         foreach ($this->rows($where, $args) as $r) $out[$r['date']][] = $r;
         return $out;

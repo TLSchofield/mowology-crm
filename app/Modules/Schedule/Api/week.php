@@ -90,6 +90,15 @@ require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
 $viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()),
                                     in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null, null, CrewViewScope::people(getDB()));
 $crewFilter = $viewScope['crew'];
+// On All crews, ?crews=<id,id> narrows to the people ticked on the phone (2026-11-08).
+$crewOptions = [];
+if ($viewScope['can_switch']) {
+    $crewOptions = CrewViewScope::crewOptions(getDB());
+    if ($viewScope['scope'] === 'all') {
+        $pickedCrews = CrewViewScope::crewList((string)($_GET['crews'] ?? ''), array_column($crewOptions, 'value'));
+        if ($pickedCrews) $crewFilter = $pickedCrews;
+    }
+}
 $weekService = null;
 try {
     $want = (string)($_GET['service'] ?? '');

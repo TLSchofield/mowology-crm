@@ -19,10 +19,11 @@ enum APIEndpoint {
 
     /// GET /api/schedule/day?date=YYYY-MM-DD[&scope=mine|all][&service=slug] — stops for a specific date.
     /// scope/service: whose jobs and which job type (CrewViewScope on the server, 2026-10-14).
-    case scheduleDay(date: String, scope: String? = nil, service: String? = nil)
+    /// crews: on All crews, the people ticked on the phone (comma user ids, 2026-11-08); nil/"" = everyone.
+    case scheduleDay(date: String, scope: String? = nil, service: String? = nil, crews: String? = nil)
 
     /// GET /api/schedule/week?start=YYYY-MM-DD — weekly summary strip.
-    case scheduleWeek(start: String, scope: String? = nil, service: String? = nil)
+    case scheduleWeek(start: String, scope: String? = nil, service: String? = nil, crews: String? = nil)
 
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
@@ -293,19 +294,21 @@ enum APIEndpoint {
         case .tokenAuth:
             return URL(string: "\(baseURLString)/auth/token.php")
 
-        case .scheduleDay(let date, let scope, let service):
+        case .scheduleDay(let date, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/day")
             var items = [URLQueryItem(name: "date", value: date)]
             if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
             if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            if let crews, !crews.isEmpty { items.append(URLQueryItem(name: "crews", value: crews)) }
             components?.queryItems = items
             return components?.url
 
-        case .scheduleWeek(let start, let scope, let service):
+        case .scheduleWeek(let start, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/week")
             var items = [URLQueryItem(name: "start", value: start)]
             if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
             if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            if let crews, !crews.isEmpty { items.append(URLQueryItem(name: "crews", value: crews)) }
             components?.queryItems = items
             return components?.url
 
