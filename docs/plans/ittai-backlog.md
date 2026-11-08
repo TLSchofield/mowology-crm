@@ -17,7 +17,7 @@ trades first. The AI back office is the edge.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
 ## Queued from Tim, 2026-11-05 (after Sam step 2)
-- **Who is the contact now — one roster every head uses, kept true by payments and mail** (fundamental, Tim 2026-11-07) (Tim, 2026-11-07: Mia thanked Erin, who had
+- **Who is the contact now — one roster every head uses, kept true by payments and mail** (fundamental, Tim 2026-11-07) (Tim, 2026-11-07: Mia thanked a strata rep who had
   left the strata; someone else paid). Payer on the payment record ≠ the invoice recipient, or a bounce / "no longer
   with" reply → Mia holds the thank-you and Yui asks "Make <payer> the contact?". Plan, waiting for Tim's OK:
   `docs/plans/2026-11-07-contact-left-the-building.md`.
