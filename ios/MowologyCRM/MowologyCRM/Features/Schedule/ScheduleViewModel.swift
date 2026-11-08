@@ -21,6 +21,8 @@ private struct DayResponse: Decodable {
     let scope: String?
     let canSwitchScope: Bool?
     let serviceTypes: [ScheduleJobType]?
+    /// The people the crew checklist offers (2026-11-08); an older server sends none.
+    let crews: [ScheduleJobType]?
     /// Quote visits for the day (2026-10-15); an older server sends none.
     let appointments: [Appointment]?
 
@@ -34,11 +36,12 @@ private struct DayResponse: Decodable {
         case scope
         case canSwitchScope = "can_switch_scope"
         case serviceTypes = "service_types"
+        case crews
         case appointments
     }
 }
 
-/// A job type the schedule can be narrowed to (the company's service types).
+/// A job type (or a person, for the crew checklist) the schedule can be narrowed to.
 struct ScheduleJobType: Decodable, Hashable, Identifiable {
     let value: String
     let label: String
@@ -95,6 +98,9 @@ final class ScheduleViewModel: ObservableObject {
     @Published private(set) var jobType: String = UserDefaults.standard.string(forKey: "mw_sched_service") ?? ""
     @Published private(set) var canSwitchScope: Bool = false
     @Published private(set) var jobTypes: [ScheduleJobType] = []
+    /// On All crews: the people ticked (comma user ids), "" = every crew. Remembered on the phone.
+    @Published private(set) var crewFilter: String = UserDefaults.standard.string(forKey: "mw_sched_crews") ?? ""
+    @Published private(set) var crews: [ScheduleJobType] = []
 
     // MARK: - Private
 
@@ -393,7 +399,7 @@ final class ScheduleViewModel: ObservableObject {
         let dateString = isoDateString(from: selectedDate)
         var changed = false
         do {
-            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType))
+            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType, crews: crewsParam))
             guard !Task.isCancelled else { return false }
             // The day may have changed while this poll was out: never show Monday's stops under Tuesday.
             guard dateString == isoDateString(from: selectedDate) else { return false }
@@ -482,6 +488,7 @@ final class ScheduleViewModel: ObservableObject {
     private func applyScope(_ r: DayResponse) {
         canSwitchScope = r.canSwitchScope ?? false
         jobTypes = r.serviceTypes ?? []
+        crews = r.crews ?? []
         if let s = r.scope, s != scope {
             scope = s
             UserDefaults.standard.set(s, forKey: "mw_sched_scope")
@@ -491,7 +498,7 @@ final class ScheduleViewModel: ObservableObject {
     /// The offline copy is kept per filter (Codex review 2026-10-14): an "All crews" copy must never
     /// be shown as "Mine", or after the company limits crew to their own jobs.
     private func diskKey(_ dateString: String) -> String {
-        "\(dateString)_\(scope)_\(jobType.isEmpty ? "any" : jobType)"
+        "\(dateString)_\(scope)_\(jobType.isEmpty ? "any" : jobType)" + (crewsParam.isEmpty ? "" : "_c\(crewsParam)")
     }
 
     /// Mine / All crews.
@@ -499,6 +506,40 @@ final class ScheduleViewModel: ObservableObject {
         guard value != scope else { return }
         scope = value
         UserDefaults.standard.set(value, forKey: "mw_sched_scope")
+        await reloadForFilter()
+    }
+
+    /// The ticked people on All crews; empty means every crew. Ids no longer offered drop out.
+    var selectedCrews: [String] {
+        let raw = crewFilter.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !crews.isEmpty else { return raw }
+        let live = Set(crews.map(\.value))
+        return raw.filter { live.contains($0) }
+    }
+
+    /// Sent only on All crews; Mine is the person's own jobs whatever was ticked.
+    private var crewsParam: String { scope == "all" ? selectedCrews.joined(separator: ",") : "" }
+
+    /// Tick or untick one person (Tim, 2026-11-08: "same for all crews"). Ticking anyone means All crews.
+    func toggleCrew(_ value: String) async {
+        var picked = selectedCrews
+        if scope != "all" { picked = [] }
+        if let i = picked.firstIndex(of: value) { picked.remove(at: i) } else { picked.append(value) }
+        let order = crews.map(\.value)
+        picked.sort { a, b in
+            let ia = order.firstIndex(of: a) ?? .max, ib = order.firstIndex(of: b) ?? .max
+            return ia != ib ? ia < ib : a < b
+        }
+        await setCrews(picked.joined(separator: ","), scope: "all")
+    }
+
+    /// Mine, or All crews with nobody ticked.
+    func setCrews(_ value: String, scope newScope: String) async {
+        guard value != crewFilter || newScope != scope else { return }
+        crewFilter = value
+        UserDefaults.standard.set(value, forKey: "mw_sched_crews")
+        scope = newScope
+        UserDefaults.standard.set(newScope, forKey: "mw_sched_scope")
         await reloadForFilter()
     }
 
@@ -545,7 +586,7 @@ final class ScheduleViewModel: ObservableObject {
         let startString = isoDateString(from: mondayOf(week: date))
         do {
             let response: WeekResponse = try await apiClient.request(
-                .scheduleWeek(start: startString, scope: scope, service: jobType)
+                .scheduleWeek(start: startString, scope: scope, service: jobType, crews: crewsParam)
             )
             guard !Task.isCancelled else { return }
             isOffline = false
@@ -578,7 +619,7 @@ final class ScheduleViewModel: ObservableObject {
 
         do {
             let response: DayResponse = try await apiClient.request(
-                .scheduleDay(date: dateString, scope: scope, service: jobType)
+                .scheduleDay(date: dateString, scope: scope, service: jobType, crews: crewsParam)
             )
             guard !Task.isCancelled else { return }
             AppExtrasConfig.shared.update(ratePer5Min: response.extrasRatePer5Min)

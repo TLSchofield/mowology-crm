@@ -91,9 +91,7 @@ struct ScheduleView: View {
 
                 // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14). Above the days since 1.3.100 (Tim,
                 // 2026-11-06): the days sit straight on the list, so the centre line meets them with nothing between.
-                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
-                    scopeBar
-                }
+                scopeBar   // always: Today lives here now
 
                 // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
                 if horizontalSizeClass == .compact {
@@ -304,16 +302,47 @@ struct ScheduleView: View {
     /// Mine / All crews (when allowed) and the job type — remembered on the phone.
     private var scopeBar: some View {
         HStack(spacing: 8) {
+            // Today moved down from the top bar (Tim, 2026-11-08): it sits with the filters it resets beside.
+            Button {
+                impactLight.impactOccurred()
+                Task { await viewModel.selectDate(.now) }
+            } label: {
+                Text("Today")
+                    .font(appStyle.font(.subheadline, weight: .medium))
+                    .foregroundStyle(appStyle.tenant)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            // Whose jobs: a checklist like the job types (Tim, 2026-11-08: "same for all crews").
+            // Mine, All crews, or any set of people; the menu stays open while ticking.
             if viewModel.canSwitchScope {
-                Picker("Whose jobs", selection: Binding(
-                    get: { viewModel.scope },
-                    set: { v in Task { await viewModel.setScope(v) } }
-                )) {
-                    Text("Mine").tag("mine")
-                    Text("All crews").tag("all")
+                Menu {
+                    Toggle("Mine", isOn: Binding(
+                        get: { viewModel.scope == "mine" },
+                        set: { on in if on { Task { await viewModel.setCrews("", scope: "mine") } } }
+                    ))
+                    Toggle("All crews", isOn: Binding(
+                        get: { viewModel.scope == "all" && viewModel.selectedCrews.isEmpty },
+                        set: { on in if on { Task { await viewModel.setCrews("", scope: "all") } } }
+                    ))
+                    if !viewModel.crews.isEmpty {
+                        Divider()
+                        ForEach(viewModel.crews) { c in
+                            Toggle(c.label, isOn: Binding(
+                                get: { viewModel.scope == "all" && viewModel.selectedCrews.contains(c.value) },
+                                set: { _ in Task { await viewModel.toggleCrew(c.value) } }
+                            ))
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(crewFilterLabel).lineLimit(1)
+                        Image(systemName: "chevron.down").font(appStyle.font(.caption2))
+                    }
+                    .font(appStyle.font(.subheadline))
+                    .frame(minHeight: 44)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 200)
+                .menuActionDismissBehavior(.disabled)
             }
             if !viewModel.jobTypes.isEmpty {
                 // A checklist: tick as many job types as you like; the menu stays open while you tick.
@@ -346,6 +375,14 @@ struct ScheduleView: View {
         .padding(.vertical, 4)
     }
 
+    /// "Mine", "All crews", the one person picked, or "Trevor James +1".
+    private var crewFilterLabel: String {
+        if viewModel.scope == "mine" { return "Mine" }
+        let labels = viewModel.selectedCrews.compactMap { v in viewModel.crews.first(where: { $0.value == v })?.label }
+        guard let first = labels.first else { return "All crews" }
+        return labels.count == 1 ? first : "\(first) +\(labels.count - 1)"
+    }
+
     /// "All job types", the one picked, or "Lawn Care +2".
     private var jobTypeFilterLabel: String {
         let picked = viewModel.selectedJobTypes
@@ -370,16 +407,6 @@ struct ScheduleView: View {
     private var toolbarContent: some ToolbarContent {
         // Otto owns Schedule (Kaname spec §2). His attention banner is already on this screen, so no line.
         ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "otto") }
-        ToolbarItem(placement: .navigationBarLeading) {
-            Button {
-                impactLight.impactOccurred()
-                Task { await viewModel.selectDate(.now) }
-            } label: {
-                Text("Today")
-                    .font(appStyle.font(.subheadline, weight: .medium))
-                    .foregroundStyle(appStyle.tenant)
-            }
-        }
 
         ToolbarItem(placement: .principal) {
             Button {
