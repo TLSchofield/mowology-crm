@@ -316,25 +316,42 @@ struct ScheduleView: View {
                 .frame(maxWidth: 200)
             }
             if !viewModel.jobTypes.isEmpty {
+                // A checklist: tick as many job types as you like; the menu stays open while you tick.
                 Menu {
-                    Button("All job types") { Task { await viewModel.setJobType("") } }
+                    Toggle("All job types", isOn: Binding(
+                        get: { viewModel.selectedJobTypes.isEmpty },
+                        set: { on in if on { Task { await viewModel.setJobType("") } } }
+                    ))
+                    Divider()
                     ForEach(viewModel.jobTypes) { t in
-                        Button(t.label) { Task { await viewModel.setJobType(t.value) } }
+                        Toggle(t.label, isOn: Binding(
+                            get: { viewModel.selectedJobTypes.contains(t.value) },
+                            set: { _ in Task { await viewModel.toggleJobType(t.value) } }
+                        ))
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(viewModel.jobTypes.first(where: { $0.value == viewModel.jobType })?.label ?? "All job types")
+                        Text(jobTypeFilterLabel)
                             .lineLimit(1)
                         Image(systemName: "chevron.down").font(appStyle.font(.caption2))
                     }
                     .font(appStyle.font(.subheadline))
                     .frame(minHeight: 44)
                 }
+                .menuActionDismissBehavior(.disabled)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
+    }
+
+    /// "All job types", the one picked, or "Lawn Care +2".
+    private var jobTypeFilterLabel: String {
+        let picked = viewModel.selectedJobTypes
+        let labels = picked.compactMap { v in viewModel.jobTypes.first(where: { $0.value == v })?.label }
+        guard let first = labels.first else { return "All job types" }
+        return labels.count == 1 ? first : "\(first) +\(labels.count - 1)"
     }
 
     private var weekStripBinding: Binding<Date> {

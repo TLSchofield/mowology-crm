@@ -502,7 +502,31 @@ final class ScheduleViewModel: ObservableObject {
         await reloadForFilter()
     }
 
-    /// One job type, or "" for all.
+    /// The ticked job types. Empty means all. On the wire this is one comma string
+    /// (ServiceTypeFilter on the server), so an old single value still reads back.
+    var selectedJobTypes: [String] {
+        let raw = jobType.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        // A type that was switched off since it was remembered no longer counts (the server drops it too).
+        guard !jobTypes.isEmpty else { return raw }
+        let live = Set(jobTypes.map(\.value))
+        return raw.filter { live.contains($0) }
+    }
+
+    /// Several job types at once (Tim, 2026-11-07: "these need to be selectable filters").
+    /// Ticking one adds it, ticking it again takes it off; "" clears back to all.
+    func toggleJobType(_ value: String) async {
+        var picked = selectedJobTypes
+        if let i = picked.firstIndex(of: value) { picked.remove(at: i) } else { picked.append(value) }
+        // Keep the server's order so the same set always makes the same cache key.
+        let order = jobTypes.map(\.value)
+        picked.sort { a, b in
+            let ia = order.firstIndex(of: a) ?? .max, ib = order.firstIndex(of: b) ?? .max
+            return ia != ib ? ia < ib : a < b
+        }
+        await setJobType(picked.joined(separator: ","))
+    }
+
+    /// The whole filter as a comma string, or "" for all.
     func setJobType(_ value: String) async {
         guard value != jobType else { return }
         jobType = value
