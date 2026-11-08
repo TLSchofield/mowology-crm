@@ -191,8 +191,6 @@ struct HeadCardView: View {
 
     private func itemsSection(_ card: HeadCardResponse) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            let more = max(0, card.waiting - vm.items.count)
-            if more > 0 { Text("+\(more) more on the dashboard").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
             if vm.items.isEmpty {
                 Text("Nothing from \(card.name) needs you right now.")
                     .font(appStyle.font(.subheadline))
@@ -202,6 +200,9 @@ struct HeadCardView: View {
                 itemRow(it, first: it.id == vm.items.first?.id)
                 if it.id != vm.items.last?.id { Divider() }
             }
+            // Under the items it counts (Tim, 2026-11-07: it sat above them).
+            let more = max(0, card.waiting - vm.items.count)
+            if more > 0 { Text("+\(more) more on the dashboard").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
         }
     }
 

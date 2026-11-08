@@ -195,6 +195,35 @@ class MiaDeskTest extends TestCase
         $this->assertStringStartsWith('Hey — ', MiaDeskService::headline($none, ''));
     }
 
+    public function test_headline_agrees_with_the_items_under_it(): void
+    {
+        $quiet = ['by_kind' => ['reconnect' => 0, 'seasonal' => 0, 'pm_quiet' => 0, 'referral' => 0, 'consent_ask' => 0], 'questions' => 0];
+        $this->assertSame('Hey Tim — no messages to send today, but 2 things need you.',
+            MiaDeskService::headline($quiet, 'Tim', [['key' => 'a'], ['key' => 'b']]));
+        $this->assertSame('Hey Tim — no messages to send today, but 1 thing needs you.',
+            MiaDeskService::headline($quiet, 'Tim', [['key' => 'a']]));
+        $this->assertSame("Hey Tim — nobody needs a message from you today. I'll keep watching.", MiaDeskService::headline($quiet, 'Tim'));
+    }
+
+    public function test_owner_name_is_shown_in_normal_case(): void
+    {
+        $this->assertSame('Tim', MiaDeskService::firstName(['first_name' => 'TIM']));
+        $this->assertSame('Tim', MiaDeskService::firstName(['first_name' => 'tim']));
+        $this->assertSame('McKay', MiaDeskService::firstName(['first_name' => 'McKay']));
+        $this->assertSame('Tim', MiaDeskService::firstName(['full_name' => 'TIM SCHOFIELD']));
+    }
+
+    public function test_google_errors_reach_the_owner_as_one_plain_line(): void
+    {
+        require_once dirname(__DIR__, 3) . '/app/Modules/Marketing/Services/MiaChannelsService.php';
+        $raw = 'Google Business Profile: Google My Business API has not been used in project 526825690041 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/mybusiness.googleapis.com/overview?project=526825690041 then retry.';
+        $plain = MiaChannelsService::plainGoogleError($raw);
+        $this->assertStringStartsWith('Google posts are paused', $plain);
+        foreach ([$plain, MiaChannelsService::plainGoogleError('Google Business Profile: HTTP 500')] as $line) {
+            $this->assertDoesNotMatchRegularExpression('/https?:|\d{6,}|googleapis/', $line);
+        }
+    }
+
     public function test_badges_come_only_from_real_results(): void
     {
         $sent = fn(string $kind, ?string $outcome, int $edited = 0) => ['kind' => $kind, 'status' => 'sent', 'edited' => $edited, 'outcome' => $outcome];

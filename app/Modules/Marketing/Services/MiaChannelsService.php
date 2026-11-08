@@ -484,7 +484,9 @@ class MiaChannelsService
                 $res = (new GbpService($this->db))->createLocalPost((string)$d['body'], $d['cta_type'] ?: null, $d['cta_url'] ?: null, $photo);
                 $external = (string)($res['name'] ?? '');
             } catch (Throwable $e) {
-                return ['ok' => false, 'error' => $e->getMessage()];
+                // The raw Google text (project numbers, console links) goes to the log for Ada; the owner gets one plain line.
+                error_log('[ada:gbp] post_decide publish failed: ' . $e->getMessage());
+                return ['ok' => false, 'error' => self::plainGoogleError($e->getMessage())];
             }
         } elseif (!in_array($action, ['copied', 'dismiss'], true)) {
             return ['ok' => false, 'error' => 'Unknown action'];
@@ -587,5 +589,20 @@ class MiaChannelsService
                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
             ")->execute([$key, $value]);
         } catch (Throwable $e) {}
+    }
+
+    /** What the owner reads when Google refuses a post: no URLs, project numbers or API names (Tim, 2026-11-07). */
+    public static function plainGoogleError(string $raw): string
+    {
+        if (preg_match('/has not been used in project|API (has been|is) disabled|SERVICE_DISABLED|accessNotConfigured/i', $raw)) {
+            return 'Google posts are paused: the Business Profile connection is switched off in Google. Copy the post for now.';
+        }
+        if (preg_match('/\bquota\b|\b429\b|RESOURCE_EXHAUSTED/i', $raw)) {
+            return 'Google is not taking posts from Ittai yet (waiting on Google\'s approval). Copy the post for now.';
+        }
+        if (preg_match('/unreachable|timed? ?out|could not resolve/i', $raw)) {
+            return 'Google could not be reached. Try again in a few minutes, or copy the post.';
+        }
+        return 'Google didn\'t take the post. Copy it for now.';
     }
 }
