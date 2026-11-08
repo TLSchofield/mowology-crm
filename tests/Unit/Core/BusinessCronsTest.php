@@ -37,13 +37,14 @@ class BusinessCronsTest extends TestCase
         $this->assertContains('stop_orphaned_job_timers', BusinessCrons::due($from, mktime(23, 30, 0, 11, 2, 2026)));
     }
 
-    /** The allow-list is exactly the phase-1 set (Tim, 2026-11-04): adding a cron here is a decision, not a side effect. */
+    /** The allow-list is exactly the phase-1 set (Tim, 2026-11-04): adding a cron here is a decision, not a side effect.
+     *  + contact_roster_sync (Tim approved the contact roster plan, 2026-11-07): adds missing roster rows only, sends nothing. */
     public function test_the_allow_list_is_exactly_phase_one(): void
     {
         $this->assertSame([
             'auto_rollover', 'purchase_history', 'expense_baselines', 'invoice_overdue', 'contract_renewal',
             'estimating_feedback', 'closer_recalibrate', 'pipeline_sweep', 'receipt_archive', 'data_retention',
-            'stop_orphaned_job_timers', 'expire_certs', 'clues_daily', 'trip_runs_daily', 'charlie_morning_brief',
+            'stop_orphaned_job_timers', 'expire_certs', 'contact_roster_sync', 'clues_daily', 'trip_runs_daily', 'charlie_morning_brief',
             'seo_recommendations', 'qbo_sync_business', 'contract_billing', 'contract_billing_retry', 'generate_visits',
         ], array_keys(BusinessCrons::REGISTRY));
     }
