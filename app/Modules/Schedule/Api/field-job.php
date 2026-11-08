@@ -100,7 +100,7 @@ try {
 
     $json = json_encode($result);
     if ($idempKey !== '') {
-        idempotencyStore($db, $idempKey, $userId, 'field-job', $action, $json);
+        idempotencyStore($db, $idempKey, $userId, 'field-job', $action, $json, 720);   // 30 days: CreateOutbox can resend late
     }
     echo $json;
 

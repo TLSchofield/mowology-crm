@@ -284,7 +284,7 @@ struct MainTabView: View {
         // After the switch lands, so the sheet presents from a Schedule that is on screen.
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .mwAddFromBar, object: nil,
-                                            userInfo: ["startWithNewClient": item == .client])
+                                            userInfo: ["startWithNewClient": item == .client, "task": item == .task])
         }
     }
 
@@ -433,7 +433,7 @@ struct SignOutButton: View {
             Button("Sign out anyway", role: .destructive) { vm.signOutOnly() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(vm.unsentCount) clock or job action(s) made without signal haven't reached the office. They stay on this phone and send next time you sign in with signal. Better: stay signed in until you have signal.")
+            Text("\(vm.unsentCount) item(s) made without signal haven't reached the office. They stay on this phone and send next time you sign in with signal. Better: stay signed in until you have signal.")
         }
         .alert("Couldn't sign out",
                isPresented: Binding(get: { vm.errorMessage != nil },

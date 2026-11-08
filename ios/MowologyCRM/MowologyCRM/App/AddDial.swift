@@ -11,7 +11,7 @@
 import SwiftUI
 
 enum AddDialItem: CaseIterable, Identifiable {
-    case job, client
+    case job, client, task
 
     var id: Self { self }
 
@@ -19,6 +19,7 @@ enum AddDialItem: CaseIterable, Identifiable {
         switch self {
         case .job:    return "Job"
         case .client: return "Client"
+        case .task:   return "Task"
         }
     }
 
@@ -26,11 +27,12 @@ enum AddDialItem: CaseIterable, Identifiable {
         switch self {
         case .job:    return "calendar.badge.plus"
         case .client: return "person.crop.circle.badge.plus"
+        case .task:   return "checklist"
         }
     }
 
     /// Bottom of the column (nearest the thumb) first.
-    static let column: [AddDialItem] = [.job, .client]
+    static let column: [AddDialItem] = [.job, .client, .task]
 }
 
 struct AddDial: View {

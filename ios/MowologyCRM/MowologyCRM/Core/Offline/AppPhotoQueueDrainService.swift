@@ -72,6 +72,11 @@ final class AppPhotoQueueDrainService {
             await RecommendationQueue.shared.drain(using: apiClient)
         }
 
+        // Jobs and clients (and later tasks, quotes, invoices) made with no signal.
+        if CreateOutbox.shared.hasPending {
+            await CreateOutbox.shared.drain(using: apiClient)
+        }
+
         // Special-request "Got it" taps and answers made with no signal.
         if SpecialRequestOutbox.shared.hasPending {
             await SpecialRequestOutbox.shared.drain(using: apiClient)

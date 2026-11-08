@@ -170,6 +170,12 @@
 		7844C5DDD70AE890DDA8E1BC /* HeadSpine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585B8CC87031C9A67635F6EE /* HeadSpine.swift */; };
 		025471A0824DB9AAAA214C39 /* HeadSpineLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED0B07B54AD7A5116F79DB0 /* HeadSpineLogic.swift */; };
 		D2E438CD1AADD7AC20FDC926 /* HeadSpineDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E4BED54D8AB95AE564880F /* HeadSpineDemo.swift */; };
+		99450643CE978DBE7DF6F0CC /* CreateOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39CF703CAC977B35CD57A3F5 /* CreateOutbox.swift */; };
+		E99E74C44D20F6CFD4E35AD5 /* CreateOutboxLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75EED827CE0FAB32D41D7584 /* CreateOutboxLogic.swift */; };
+		329820E2FD12A096CB1D742C /* OutboxStatusLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728D480CB2639D001E358D1 /* OutboxStatusLine.swift */; };
+		51F70CA920EEDBF65F6267BF /* TaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117A4FD03D24B6E7D73B9346 /* TaskModels.swift */; };
+		7E862082257911853A7F6290 /* OfflineDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFBF79F68E73643CD620F5B /* OfflineDirectory.swift */; };
+		6F998C0AFE887920E0B95797 /* AddTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5B41D928F20C6D37D32E03 /* AddTaskView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -338,6 +344,12 @@
 		585B8CC87031C9A67635F6EE /* HeadSpine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadSpine.swift; sourceTree = "<group>"; };
 		6ED0B07B54AD7A5116F79DB0 /* HeadSpineLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadSpineLogic.swift; sourceTree = "<group>"; };
 		E2E4BED54D8AB95AE564880F /* HeadSpineDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadSpineDemo.swift; sourceTree = "<group>"; };
+		39CF703CAC977B35CD57A3F5 /* CreateOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateOutbox.swift; sourceTree = "<group>"; };
+		75EED827CE0FAB32D41D7584 /* CreateOutboxLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateOutboxLogic.swift; sourceTree = "<group>"; };
+		8728D480CB2639D001E358D1 /* OutboxStatusLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxStatusLine.swift; sourceTree = "<group>"; };
+		117A4FD03D24B6E7D73B9346 /* TaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskModels.swift; sourceTree = "<group>"; };
+		AAFBF79F68E73643CD620F5B /* OfflineDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineDirectory.swift; sourceTree = "<group>"; };
+		6C5B41D928F20C6D37D32E03 /* AddTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTaskView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -357,6 +369,9 @@
 				3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */,
 				245438D48DD3B44093FF2524 /* TripReportQueue.swift */,
 				ECC06FDF42C6B5CBC063F7BD /* ConnectivityMonitor.swift */,
+				39CF703CAC977B35CD57A3F5 /* CreateOutbox.swift */,
+				75EED827CE0FAB32D41D7584 /* CreateOutboxLogic.swift */,
+				AAFBF79F68E73643CD620F5B /* OfflineDirectory.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -506,6 +521,7 @@
 				55942AE87B499DBBEB50E1CC /* AppointmentCardView.swift */,
 				AB2D39E52E9C6197F0526883 /* ScheduleTimelineRules.swift */,
 				BB8E9DD2B2B3113991FD299B /* ScheduleTimelineViews.swift */,
+				8728D480CB2639D001E358D1 /* OutboxStatusLine.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -531,6 +547,7 @@
 				A42B52CF649FC198923F0595 /* Team */,
 				853482F52B48392EC1E13DE6 /* Camera */,
 				CC4D45C30CDF9C89F76E1D3E /* Splash */,
+				5ACFA0D8D54243C1A6BAF718 /* Tasks */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -568,6 +585,7 @@
 				1122F2D8AE5D0A13CA387F76 /* EquipmentModels.swift */,
 				B5177F1C8674CC7A5FEEDCBA /* KnowledgeModels.swift */,
 				6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */,
+				117A4FD03D24B6E7D73B9346 /* TaskModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -694,6 +712,14 @@
 				C95F2DB5E0EE0C3D1513983D /* DiagnosticsView.swift */,
 			);
 			path = Diagnostics;
+			sourceTree = "<group>";
+		};
+		5ACFA0D8D54243C1A6BAF718 /* Tasks */ = {
+			isa = PBXGroup;
+			children = (
+				6C5B41D928F20C6D37D32E03 /* AddTaskView.swift */,
+			);
+			path = Tasks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -924,6 +950,12 @@
 				7844C5DDD70AE890DDA8E1BC /* HeadSpine.swift in Sources */,
 				025471A0824DB9AAAA214C39 /* HeadSpineLogic.swift in Sources */,
 				D2E438CD1AADD7AC20FDC926 /* HeadSpineDemo.swift in Sources */,
+				99450643CE978DBE7DF6F0CC /* CreateOutbox.swift in Sources */,
+				E99E74C44D20F6CFD4E35AD5 /* CreateOutboxLogic.swift in Sources */,
+				329820E2FD12A096CB1D742C /* OutboxStatusLine.swift in Sources */,
+				51F70CA920EEDBF65F6267BF /* TaskModels.swift in Sources */,
+				7E862082257911853A7F6290 /* OfflineDirectory.swift in Sources */,
+				6F998C0AFE887920E0B95797 /* AddTaskView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -997,7 +1029,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.127;
+				MARKETING_VERSION = 1.3.128;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1083,7 +1115,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.127;
+				MARKETING_VERSION = 1.3.128;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

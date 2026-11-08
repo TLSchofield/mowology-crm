@@ -29,6 +29,7 @@ struct ScheduleView: View {
     @State private var showingFieldJob = false
     /// Client picked from the Add dial: "Add a job" opens straight on its new-client step.
     @State private var fieldJobStartsWithNewClient = false
+    @State private var showingAddTask = false
     /// The stop being moved to another date — drives the Move Stop sheet.
     @State private var movingStop: Stop?
     /// A quick action picked on a card, run once by the visit screen it opens (keyed by stop id).
@@ -114,6 +115,8 @@ struct ScheduleView: View {
                 )
                 }
 
+                // Anything made with no signal and still on the phone (CreateOutbox).
+                OutboxStatusLine()
 
                 // MARK: Content
                 if views.kind == .time {
@@ -219,10 +222,18 @@ struct ScheduleView: View {
             }
         }
         // Job or Client from the bar's Add dial (MainTabView).
+        // A job made offline just reached the server: show it.
+        .onReceive(NotificationCenter.default.publisher(for: .mwOutboxSent)) { _ in
+            Task { await viewModel.invalidateAndRefresh() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .mwAddFromBar)) { note in
             impactMedium.impactOccurred()
+            if note.userInfo?["task"] as? Bool == true { showingAddTask = true; return }
             fieldJobStartsWithNewClient = note.userInfo?["startWithNewClient"] as? Bool ?? false
             showingFieldJob = true
+        }
+        .sheet(isPresented: $showingAddTask) {
+            AddTaskView(authSession: authSession)
         }
         .sheet(isPresented: $showingFieldJob) {
             FieldJobView(authSession: authSession, startWithNewClient: fieldJobStartsWithNewClient) {

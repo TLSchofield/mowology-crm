@@ -248,6 +248,11 @@ enum APIEndpoint {
     /// POST /api/schedule/field-job — add_visit | create_job | create_client_job.
     case fieldJobAction
 
+    /// GET /api/tasks/tasks-mobile — who a task can go to, and the clients kept on the phone for no-signal use.
+    case tasksMobile
+    /// POST /api/tasks/tasks-mobile — create a task (Add → Task; sent through CreateOutbox).
+    case tasksMobileCreate
+
     case scheduleJobPhoto
 
     /// POST /api/schedule/plant-id — "What is this plant?": {mode: identify | confirm, …} (2026-10-15).
@@ -625,6 +630,9 @@ enum APIEndpoint {
         case .fieldJobAction:
             return URL(string: "\(baseURLString)/schedule/field-job")
 
+        case .tasksMobile, .tasksMobileCreate:
+            return URL(string: "\(baseURLString)/tasks/tasks-mobile")
+
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
@@ -761,6 +769,8 @@ enum APIEndpoint {
              .scheduleVisitPhotoHistory,
              .fieldJobNearby,
              .fieldJobAction,
+             .tasksMobile,
+             .tasksMobileCreate,
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
@@ -780,7 +790,9 @@ enum APIEndpoint {
     var httpMethod: String {
         switch self {
         case .tokenAuth:    return "POST"
-        case .scheduleDay,
+        case .tasksMobileCreate: return "POST"
+        case .tasksMobile,
+             .scheduleDay,
              .scheduleWeek,
              .scheduleCrewTrails,
              .teamMembers,

@@ -30,6 +30,9 @@ final class FieldJobViewModel: ObservableObject {
     @Published var isSaving = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
+    /// No signal when the screen opened: nearby clients couldn't be looked up, but a new client and job can still be
+    /// made here and wait on the phone (CreateOutbox).
+    @Published var isOffline = false
 
     /// Best guess at the street address here — pre-fills the new-client form.
     @Published var addressHere = ""
@@ -58,6 +61,7 @@ final class FieldJobViewModel: ObservableObject {
     func load() async {
         phase = .locating
         errorMessage = nil
+        isOffline = false
         do {
             let location = try await locationManager.currentLocation()
             fix = location
@@ -70,6 +74,13 @@ final class FieldJobViewModel: ObservableObject {
             _ = await lookup
             phase = .ready
         } catch let err as APIError {
+            if case .networkError = err, fix != nil {
+                // GPS works without signal; only the lookup failed. Carry on with "new client here".
+                nearby = []
+                isOffline = true
+                phase = .ready
+                return
+            }
             phase = .failed(err.localizedDescription)
         } catch {
             AppDiagnostics.shared.record(category: "FieldJobView", message: ErrorDetails.describe(error))
@@ -88,7 +99,7 @@ final class FieldJobViewModel: ObservableObject {
     // MARK: - Actions
 
     func addVisit(to plan: FieldJobPlan) async -> Bool {
-        await send(["action": "add_visit", "plan_id": plan.id]) { response in
+        await send(["action": "add_visit", "plan_id": plan.id], title: "Visit added to \(plan.title)") { response in
             "Added to today's schedule" + (response.visitNumber.map { " — \($0)" } ?? "")
         }
     }
@@ -97,7 +108,7 @@ final class FieldJobViewModel: ObservableObject {
         var body = job.payload
         body["action"]      = "create_job"
         body["property_id"] = propertyId
-        return await send(body) { response in
+        return await send(body, title: "New \(job.serviceType) job") { response in
             "Job created" + (response.planNumber.map { " — \($0)" } ?? "")
         }
     }
@@ -115,7 +126,8 @@ final class FieldJobViewModel: ObservableObject {
             body["lat"] = fix.coordinate.latitude
             body["lng"] = fix.coordinate.longitude
         }
-        return await send(body) { response in
+        let who = [client.firstName, client.lastName].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+        return await send(body, title: "New client \(who) and job") { response in
             "Client and job created" + (response.planNumber.map { " — \($0)" } ?? "")
         }
     }
@@ -123,7 +135,7 @@ final class FieldJobViewModel: ObservableObject {
     /// One id per attempt: a retry after a dropped response must not create a second job.
     private var requestId = UUID().uuidString
 
-    private func send(_ body: [String: Any], success: (FieldJobActionResponse) -> String) async -> Bool {
+    private func send(_ body: [String: Any], title: String, success: (FieldJobActionResponse) -> String) async -> Bool {
         isSaving     = true
         errorMessage = nil
         defer { isSaving = false }
@@ -142,7 +154,16 @@ final class FieldJobViewModel: ObservableObject {
             return true
         } catch let err as APIError {
             if case .networkError = err {
-                errorMessage = "No connection — nothing was saved. Try again when you have signal."
+                // No signal (or a busy server): keep it on the phone with the same client_request_id; it goes when
+                // the phone is back online, and the server dedupes if this attempt did in fact land.
+                if CreateOutbox.shared.enqueue(kind: .fieldJob, userId: apiClient.currentUserId, title: title, body: body) {
+                    requestId      = UUID().uuidString
+                    successMessage = "No signal — saved on this phone. It's added when you're back online."
+                    // A timeout or a busy server fires no reconnect, so try again now rather than at the next open.
+                    Task { await CreateOutbox.shared.drain(using: apiClient) }
+                    return true
+                }
+                errorMessage = "No connection, and it couldn't be kept on this phone either. Nothing was saved."
             } else {
                 errorMessage = err.localizedDescription
             }
@@ -314,7 +335,13 @@ struct FieldJobView: View {
                 }
             }
 
-            if vm.nearby.isEmpty {
+            if vm.isOffline {
+                Section {
+                    Text("No signal, so nearby clients can't be looked up. A new client and job made here is saved on this phone and sent when you're back online.")
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
+                }
+            } else if vm.nearby.isEmpty {
                 Section {
                     Text("No client properties within 250 m of you.")
                         .font(appStyle.font(.subheadline))
