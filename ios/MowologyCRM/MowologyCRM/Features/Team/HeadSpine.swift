@@ -140,7 +140,7 @@ struct SpineNode<Content: View>: View {
             .accessibilityLabel(waiting.map { "\(title), \($0)" } ?? title)
             .accessibilityValue(isOpen ? "Open" : "Closed")
             .accessibilityHint(isOpen ? "Closes this section" : "Opens this section here")
-            .accessibilityAddTraits(.isHeader)
+            .accessibilityAddTraits([.isHeader, .isButton])
             if isOpen {
                 hung(content())
                     .padding(.top, ItSpace.s2)

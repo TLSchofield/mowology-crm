@@ -342,20 +342,35 @@ struct HeadCardView: View {
     }
 }
 
-/// Otto's missed visits on his spine: shown while any wait, loaded even while closed so the count is right.
+/// Otto's missed visits on his spine: shown while any wait (or while the review sheet is up, so deciding the last one
+/// doesn't close it), loaded even while closed so the count is right.
 private struct OttoMissedNode: View {
     @ObservedObject var model: OttoMissedReviewModel
+    @ObservedObject private var router = NotificationRouter.shared
+    @State private var presented = false
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.waiting > 0 {
+            if model.waiting > 0 || presented {
                 SpineNode(slug: "otto", id: "missed", title: "Missed visits", symbol: "calendar.badge.exclamationmark",
                           waiting: HeadSpineLogic.count(model.waiting, "not done"), defaultOpen: true) {
-                    OttoMissedEntry(model: model)
+                    OttoMissedEntry(model: model, presented: $presented)
                 }
             }
         }
-        .task { if model.data == nil { await model.load() } }
+        .task {
+            if model.data == nil { await model.load() }
+            dropStalePush()
+        }
+        .onChange(of: router.pendingOttoReview) { _, pending in
+            if pending { Task { await model.load(); dropStalePush() } }
+        }
+    }
+
+    /// A "visits not done" push whose visits were already decided elsewhere: nothing will show to consume it, so clear
+    /// it here, or a later missed visit would open the sheet unasked.
+    private func dropStalePush() {
+        if router.pendingOttoReview && model.data != nil && model.waiting == 0 { router.pendingOttoReview = false }
     }
 }
 
