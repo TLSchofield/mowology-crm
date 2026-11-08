@@ -17,6 +17,7 @@ trades first. The AI back office is the edge.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
 ## Queued from Tim, 2026-11-05 (after Sam step 2)
+- **Competitor checklist, reviewed quarterly** (Tim, 2026-11-08: "BuildOps has some strong features"): `docs/marketing/competitor-checklist.md` — BuildOps, ServiceTitan/Aspire, Jobber, Housecall Pro, LeanScaper, Hootsuite. Ideas from the first pass: Sam finds work noted on a visit but never quoted (BuildOps Revenue Agent), a stalled-jobs list in Kaname's brief, job costing, an AI receptionist for Yui, morning-huddle capture for Otto.
 - **Who is the contact now — one roster every head uses, kept true by payments and mail** (fundamental, Tim 2026-11-07) (Tim, 2026-11-07: Mia thanked a strata rep who had
   left the strata; someone else paid). Payer on the payment record ≠ the invoice recipient, or a bounce / "no longer
   with" reply → Mia holds the thank-you and Yui asks "Make <payer> the contact?". Plan, waiting for Tim's OK:
