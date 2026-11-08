@@ -17,6 +17,10 @@ trades first. The AI back office is the edge.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
 ## Queued from Tim, 2026-11-05 (after Sam step 2)
+- **A building's contact left — spot it from who paid and from the mail** (Tim, 2026-11-07: Mia thanked Erin, who had
+  left the strata; someone else paid). Payer on the payment record ≠ the invoice recipient, or a bounce / "no longer
+  with" reply → Mia holds the thank-you and Yui asks "Make <payer> the contact?". Plan, waiting for Tim's OK:
+  `docs/plans/2026-11-07-contact-left-the-building.md`.
 - **One search box for the owner — phase 1 BUILT 2026-11-06** (iPhone Search tab + web global search on
   `UniversalSearchService`; `ClientFactAnswerer` answers quote sent? / owes? / next visit? / last message? with
   Open/Call/Text/Email; Ask Kaname row; client page; picks learned in `search_picks`, migration 1441). Phase 2: tap a
