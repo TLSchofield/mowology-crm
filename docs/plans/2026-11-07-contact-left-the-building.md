@@ -1,58 +1,88 @@
-# When a building's contact leaves — spot it from who paid and from the mail (plan, 2026-11-07)
+# Who is the contact now — one answer every head uses, kept true by payments and mail (plan, 2026-11-07)
 
 **Why (Tim, 2026-11-07, Mia's thank-you to Erin Hope-Goldsmith for $175.02):** "Erin left the strata, another
-person has paid the bills, we should be able to figure this out as it happens with the agents." And: "There are
-email communications and payment records that inform this." Property managers and strata reps change often. Today
-nothing notices: Mia thanks the old person, Penny's reminders and new invoices keep going to her, and Tim finds out
-by reading the draft.
+person has paid the bills, we should be able to figure this out as it happens with the agents." "There are email
+communications and payment records that inform this." "Getting this right is fundamental to automating the
+business." Property managers, strata reps and accounts clerks change all the time. Every automated message —
+invoice, reminder, thank-you, quote, crew call — is only as good as knowing who the person is *today*.
 
 **Status:** plan only, waiting for Tim's OK. Nothing built.
 
 ## What the code does today (checked 2026-11-07 on feature/language a3fa164ee)
-- `MiaThanksService::create()` picks the thank-you recipient from `resolveReminderRecipients()` — the invoice's
-  send snapshot, then property-manager routing, then the invoice's contact. **Who actually paid is never looked at.**
-- The payer is recorded but unused here: `etransfer_notifications.sender_name` / the sender's address on the
-  Interac email, the bank memo on `transaction_id` rows, Stripe's payer email.
-- `property_contacts` has a role (`manager`, `billing`, …) and `is_primary`, but no way to say "was the contact,
-  left on <date>".
-- The Comms inbox readers have no auto-reply / bounce / "no longer with" handling (grep finds none).
+**Nine places each pick the person their own way, and none can tell a current contact from a former one.**
 
-## Signals (both are evidence Tim says already exists)
-1. **Payment record — a different payer.** A payment on a property-managed or strata invoice whose payer (e-Transfer
-   sender name and address, Stripe email, bank memo name) matches neither the invoice recipient nor anyone linked to
-   that property/company. Strong when the payer's address is on the same firm's domain as the old contact.
-2. **Email — the old contact is gone.** On office@ / iCloud: an auto-reply or bounce to something we sent her
-   ("no longer with", "has left", "mailbox is not monitored", 550 user unknown), or a new person at the same firm or
-   strata writing about the same building ("I've taken over from Erin").
+| Who sends | Picks the person from | Knows "left"? |
+|---|---|---|
+| Invoices (create, visit, contract billing, move) | `companies` routing + `properties.property_manager_id` (`InvoiceRouting.php`) | only `contacts.is_active`, in `determineInvoiceRecipients` alone |
+| Invoice recipients picker | `client_contacts` + `clients.managed_by_client_id` | no |
+| Penny's reminders | invoice send snapshot (`invoice_contacts`, drops `bounced`), then PM routing, then `invoices.contact_id` | bounce on that one invoice only |
+| Mia's thank-you | reuses Penny's reminder recipient | no |
+| Sam's quotes + CC | `properties.quote_contact_id`, `companies.quote_contact_id`, `property_contacts` manager/site | no |
+| Yui's desk | `property_contacts` manager, then company primary/billing | no |
+| Building manager on file | `property_contacts` manager | no |
+| Crew on-site contact | `property_contacts` site_supervisor | no |
+| Autopay | `invoices.contact_id` | no |
 
-One signal makes a question, never a change. Two agreeing signals (new payer + bounce) make it a confident question.
+Two people-with-roles tables exist (`client_contacts`, `property_contacts`), neither has a "left" date, and the
+client-account migration that made `client_contacts` the roster is only part-way (phase 2.3 of 4).
 
-## What happens (proposes, Tim confirms — the "confirmation teaches" rule)
-- **Mia holds the thank-you** instead of offering it to Erin: "Paid by <payer>, not Erin. Has the contact changed?"
-  Buttons: **Thank <payer> instead** · **Erin is still right** · Skip.
-- **One question, owned by Yui** (people and mail) and shown wherever that building appears: "Erin may have left
-  <strata>. <payer> paid the last invoice and Erin's mail bounced. Make <payer> the contact?" On **Yes**: <payer>
-  becomes the `manager`/`billing` contact for that building (created if new), Erin is marked as having left (kept for
-  history, never deleted), future invoices, reminders and thank-yous go to the new person. Sent invoices are not
-  re-sent. On **No**: remembered for that payer + building, so it is not asked again.
-- "Erin is still right" also teaches: that payer is an accepted second payer for the building.
+**The payer is recorded and never compared:** `etransfer_notifications.sender_name` + the Interac sender address,
+Stripe's payer email, the bank memo. **No inbox reader handles bounces, auto-replies or "no longer with".**
+
+## The design
+### 1. One roster, with history
+- `client_contacts` is the roster (the client-account model already says so). Add `started_on DATE NULL`,
+  `ended_on DATE NULL`, `ended_reason VARCHAR(40) NULL` (`left`, `bounced`, `replaced`, `owner_said`). One migration,
+  MySQL 5.7 safe. Former contacts are kept, never deleted: history, old invoices and "who did we deal with in 2025"
+  stay true.
+- `property_contacts` (crew/on-site) gets the same two date columns so the crew never calls someone who left.
+
+### 2. One resolver every head calls
+`ContactRoster::current($propertyId, $purpose)` in `app/Modules/Clients/Services/` — purpose is `invoice`,
+`reminder`, `thanks`, `quote`, `quote_cc`, `onsite`, `autopay`. It returns today's people for that purpose, skipping
+anyone with `ended_on` in the past, and says *why* each was picked. The nine places above switch to it one at a time
+(each behind the same switch, each with a test that the old and new answers match for every current contact).
+This is the seam the client-account model's phase 2.4 needed anyway.
+
+### 3. Evidence keeps it true (Yui owns it: people and mail)
+`ContactChangeService` collects signals per building and per person:
+- **Payment:** the payer matches nobody on the roster for that building (strong when the payer's address shares the
+  old contact's firm domain, or the payer is already a contact of the managing firm).
+- **Mail out:** a bounce (550 user unknown) or an auto-reply to something we sent ("no longer with", "has left",
+  "mailbox not monitored", "please contact … instead") — and the replacement address it names, if any.
+- **Mail in:** a new person at the same firm or strata writing about the same building ("I've taken over from Erin").
+- **Already recorded:** `invoice_contacts.bounced`, a contact marked inactive.
+
+### 4. Proposes, Tim confirms, the answer teaches
+- One signal = a question. Two agreeing signals (new payer + bounce) = a confident question with the answer
+  pre-filled. Nothing changes the roster without a tap.
+- **The question (Yui, shown on the building and on the head that tripped it):** "Erin may have left <strata>.
+  <payer> paid the last invoice and Erin's mail bounced. Make <payer> the contact?" **Yes** → `ended_on` for Erin,
+  <payer> added to the roster with Erin's roles (created if new). **No** → <payer> recorded as an accepted second
+  payer for that building; not asked again.
+- **While the question is open, every head holds what would go to Erin:** Mia's thank-you shows "Paid by <payer>,
+  not Erin. Has the contact changed?" (Thank <payer> instead · Erin is still right · Skip); Penny's next reminder and
+  Sam's next quote wait for the answer. Already-sent invoices are never re-sent.
+- After N confirmations of the same pattern for a managing firm (e.g. VML's accounts clerks), Yui may update that
+  firm's roster herself and tell Tim after — the same "autonomy earned per vendor" rule as Penny.
 
 ## Unknowns and how each is settled, cheapest first
-1. **What Erin's payment row actually holds** (method, sender name/address, which invoice). Read-only prod lookup
-   (`scripts/prod-run.sh`) — blocked this session by the permission check; needs Tim's permission once.
-2. **What the "left" emails look like** — search office@ / iCloud mail already stored (inbound tables) for Erin's
-   address and for the payer's name. Same read-only lookup.
-3. **Where "left" is stored:** add `ended_at DATE NULL` to `property_contacts` (one migration, MySQL 5.7 safe), or
-   reuse an existing contact status. Check `contacts` columns on prod first (prod schema differs from repo).
-4. **How often payers legitimately differ** (a strata treasurer paying for the manager, a firm's accounts clerk).
-   Count, over the last year of payments, how many payers don't match the recipient — sets whether signal 1 alone is
-   worth asking, or only with a same-domain or email signal.
+1. **What Erin's case looks like in the data** — her payment row (method, sender, invoice), her contact and roster
+   rows, any bounce or reply mail. Read-only prod lookup (`scripts/prod-run.sh`); blocked this session by the
+   permission check, needs Tim's permission once.
+2. **How often payers legitimately differ** — over the last 12 months, payments whose payer is not on the roster for
+   the building. Same lookup. Decides whether a payment alone asks, or only with a second signal.
+3. **What the bounces and auto-replies look like** — stored inbound mail on office@ / iCloud. Same lookup; gives the
+   real phrase list for the matcher's tests.
+4. **How full `client_contacts` is on prod** (phase 1 created 1510 rows in June) and whether new contacts since then
+   reach it. Same lookup. If it has drifted, step 2 starts by filling it.
+5. **Prod schema differs from repo** for contacts/companies (known) — check columns before the migration.
 
 ## Steps and proof
-1. Read-only prod lookups for unknowns 1, 2 and 4; write the counts here.
-2. `ContactChangeService` (app/Modules/Comms/Services) — pure matcher: payer vs linked people, and the mail-phrase
-   list; unit tests from Erin's real case (names anonymised) and the counts' false-positive examples.
-3. Mia: hold + three buttons on the thank-you card (web + iPhone parity, Android later).
-4. Yui question card + the Yes/No writes (migration if `ended_at` is chosen); routing honours `ended_at`.
-5. Mail signal in the inbox pollers (auto-reply / bounce / takeover phrases) — feeds the same service.
-6. phpunit, Codex review, deploy behind `ops_settings.contact_change_enabled`, check on Erin's building live.
+1. Prod lookups for unknowns 1–5; write the counts and Erin's case here (anonymised).
+2. Migration: dates on `client_contacts` and `property_contacts`.
+3. `ContactRoster::current()` + tests; switch Mia's thank-you first (smallest, where the fault showed), then Penny's
+   reminders, invoices, quotes, Yui, crew, autopay — one per commit, old-vs-new answer test each.
+4. `ContactChangeService` payment signal + Yui's question card (web + iPhone) + the holds on Mia/Penny/Sam.
+5. Mail signals in the inbox pollers (bounce, auto-reply, takeover) feeding the same service.
+6. phpunit, Codex review per step, deploy behind `ops_settings.contact_roster_enabled`, check on Erin's building live.
