@@ -467,6 +467,9 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwSpineDemo") {
+            HeadSpineDemo(head: i + 1 < args.count ? args[i + 1] : "penny")
+                .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwChaseDemo") {
             PennyChaseDemo().itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwDupeDemo") {

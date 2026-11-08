@@ -21,29 +21,64 @@ struct HeadCardView: View {
     var showsBrain = true
     /// Kaname's Ask box; off when his tab shows it at the top instead (Kaname spec §1: one door).
     var showsAsk = true
+    /// Opens the "Waiting now" section on the head's spine (the workspace's numbered guide).
+    var lead: AnyView = AnyView(EmptyView())
     @Environment(\.openURL) private var openURL
+    @ObservedObject private var router = NotificationRouter.shared
     @State private var confirmPublish = false
 
+    /// The head's spine sections (2026-11-07): Waiting now first, then the head's own sections, each shown only
+    /// while it has something, as before.
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if vm.isLoading && !vm.hasLoaded {
-                HStack { Spacer(); ProgressView("Loading…"); Spacer() }
-                    .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.card == nil {
-                errorState(err)
-            } else if let card = vm.card {
-                header(card)
-                if vm.head == "charlie" && showsAsk { KanameAskBox(vm: vm) }
-                note
-                itemsSection(card)
-                if vm.head == "otto" {
-                    OttoMissedEntry(model: vm.missedReview)
-                    OttoDeskSection(vm: vm)
-                    unpinnedSection
+        VStack(alignment: .leading, spacing: 0) {
+            SpineNode(slug: vm.head, id: "now", title: "Waiting now", symbol: "tray.full.fill",
+                      waiting: vm.card.flatMap { HeadSpineLogic.count(max($0.waiting, vm.items.count), "waiting") },
+                      defaultOpen: true) {
+                VStack(alignment: .leading, spacing: 18) {
+                    lead
+                    if vm.isLoading && !vm.hasLoaded {
+                        HStack { Spacer(); ProgressView("Loading…"); Spacer() }
+                            .padding(.vertical, 40)
+                    } else if let err = vm.loadError, vm.card == nil {
+                        errorState(err)
+                    } else if let card = vm.card {
+                        header(card)
+                        if vm.head == "charlie" && showsAsk { KanameAskBox(vm: vm) }
+                        note
+                        itemsSection(card)
+                    }
                 }
-                if vm.head == "mia" { MiaSuggestionsSection(vm: vm); postSection }
+            }
+            if vm.card != nil {
+                if vm.head == "otto" {
+                    OttoMissedNode(model: vm.missedReview)
+                    if !vm.ottoItems.isEmpty || vm.autolog != nil {
+                        SpineNode(slug: "otto", id: "suggestions", title: "Suggestions", symbol: "sparkles",
+                                  waiting: HeadSpineLogic.count(vm.ottoTotal, "to review")) { OttoDeskSection(vm: vm) }
+                    }
+                    if !vm.unpinned.isEmpty {
+                        SpineNode(slug: "otto", id: "unpinned", title: "No map pin", symbol: "mappin.slash",
+                                  waiting: HeadSpineLogic.count(vm.unpinned.count, "to pin")) { unpinnedSection }
+                    }
+                }
+                if vm.head == "mia" {
+                    if vm.card?.canApprove == true, !vm.miaSuggestions.isEmpty {
+                        SpineNode(slug: "mia", id: "suggestions", title: "Suggestions", symbol: "envelope.fill",
+                                  waiting: HeadSpineLogic.count(vm.miaSuggestions.count, "to approve")) { MiaSuggestionsSection(vm: vm) }
+                    }
+                    if vm.post != nil {
+                        SpineNode(slug: "mia", id: "post", title: "Post draft", symbol: "photo.fill", waiting: "1 ready") { postSection }
+                    }
+                }
             }
         }
+        // A "visits not done" push lands in Otto's section even when it was closed.
+        .onAppear { openMissedIfPushed() }
+        .onChange(of: router.pendingOttoReview) { _, _ in openMissedIfPushed() }
+    }
+
+    private func openMissedIfPushed() {
+        if vm.head == "otto" && router.pendingOttoReview { SpineNode<EmptyView>.open(slug: "otto", id: "missed") }
     }
 
     // MARK: - States
@@ -157,7 +192,7 @@ struct HeadCardView: View {
     private func itemsSection(_ card: HeadCardResponse) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             let more = max(0, card.waiting - vm.items.count)
-            sectionHead("Needs you now", more > 0 ? "+\(more) more on the dashboard" : nil)
+            if more > 0 { Text("+\(more) more on the dashboard").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
             if vm.items.isEmpty {
                 Text("Nothing from \(card.name) needs you right now.")
                     .font(appStyle.font(.subheadline))
@@ -304,6 +339,23 @@ struct HeadCardView: View {
                 Button("Cancel", role: .cancel) {}
             }
         }
+    }
+}
+
+/// Otto's missed visits on his spine: shown while any wait, loaded even while closed so the count is right.
+private struct OttoMissedNode: View {
+    @ObservedObject var model: OttoMissedReviewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if model.waiting > 0 {
+                SpineNode(slug: "otto", id: "missed", title: "Missed visits", symbol: "calendar.badge.exclamationmark",
+                          waiting: HeadSpineLogic.count(model.waiting, "not done"), defaultOpen: true) {
+                    OttoMissedEntry(model: model)
+                }
+            }
+        }
+        .task { if model.data == nil { await model.load() } }
     }
 }
 

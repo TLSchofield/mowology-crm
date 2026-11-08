@@ -14,6 +14,8 @@ struct PennyCardView: View {
     @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var vm: PennyCardViewModel
+    /// Opens the "Waiting now" section on Penny's spine (the workspace's guide and her lines).
+    var lead: AnyView = AnyView(EmptyView())
 
     @State private var zoomTarget: ZoomTarget?
     @State private var showReject = false
@@ -22,54 +24,19 @@ struct PennyCardView: View {
 
     @Environment(\.openURL) private var openURL
 
+    /// Penny's spine sections (2026-11-07): Waiting now holds her cards, which run on the same centre line (bank →
+    /// panel → ledger), so it has no frame of its own; then mail from customers.
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            mailSection
-            if vm.isLoading && !vm.hasLoaded {
-                HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
-                    .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.paySession.isEmpty {
-                errorState(err)
-            } else if vm.showsPayments, vm.currentPayment != nil {
-                // Every deposit the payments matcher proposes, first (the same list as "N deposits matched"); answered
-                // ones keep their number in the row and open in their answered state. Swiped, the next one peeking.
-                PennyPaymentCarousel(vm: vm, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-                if vm.showsDupes, let group = vm.currentDupe {
-                    dupeCard(group).id(group.id).padding(.top, 18)
+        VStack(alignment: .leading, spacing: 0) {
+            SpineNode(slug: "penny", id: "now", title: "Waiting now", symbol: "tray.full.fill",
+                      waiting: HeadSpineLogic.count(vm.payments.count + vm.cheques.count + vm.dupes.count + vm.queue.count, "waiting"),
+                      defaultOpen: true, framed: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    lead
+                    waitingCards
                 }
-            } else if let done = vm.chequeDone {
-                // Recorded: the cheque and its invoice are one (Tim, 2026-11-06), duplicates under it as before.
-                PennyChequeDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-                if vm.showsDupes, let group = vm.currentDupe {
-                    dupeCard(group).id(group.id).padding(.top, 18)
-                }
-            } else if let cheque = vm.currentCheque {
-                // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
-                // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
-                PennyChequeCard(vm: vm, cheque: cheque, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-                    .id(cheque.id)
-                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
-                if vm.showsDupes, let group = vm.currentDupe {
-                    dupeCard(group)
-                        .id(group.id)
-                        .padding(.top, 18)
-                }
-            } else if vm.showsDupes, let group = vm.currentDupe {
-                dupeCard(group)
-                    .id(group.id)
-                    .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .leading : .trailing).combined(with: .opacity),
-                                            removal: .opacity))
-                    // A carousel: swipe sideways to the next / previous group (the photos open full screen on a tap).
-                    .gesture(DragGesture(minimumDistance: 30).onEnded { g in
-                        guard abs(g.translation.width) > abs(g.translation.height) * 1.5, abs(g.translation.width) > 60 else { return }
-                        // Right to left, as the numbers read: drag right to bring the next group in from the left.
-                        withAnimation(.easeOut(duration: 0.22)) { g.translation.width > 0 ? vm.nextDupe() : vm.previousDupe() }
-                    })
-            } else if let item = vm.current {
-                receiptCard(item)
-            } else if vm.hasLoaded {
-                emptyState
             }
+            mailSection
         }
         .fullScreenCover(item: $zoomTarget) { target in
             ZoomableReceiptView(url: target.url)
@@ -86,6 +53,54 @@ struct PennyCardView: View {
         }
         .fullScreenCover(item: $pagerTarget) { t in
             DupePhotoPager(urls: t.urls, labels: t.labels, reads: t.reads, start: t.start)
+        }
+    }
+
+    @ViewBuilder private var waitingCards: some View {
+        if vm.isLoading && !vm.hasLoaded {
+            HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
+                .padding(.vertical, 40)
+        } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.paySession.isEmpty {
+            errorState(err)
+        } else if vm.showsPayments, vm.currentPayment != nil {
+            // Every deposit the payments matcher proposes, first (the same list as "N deposits matched"); answered
+            // ones keep their number in the row and open in their answered state. Swiped, the next one peeking.
+            PennyPaymentCarousel(vm: vm, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+            if vm.showsDupes, let group = vm.currentDupe {
+                dupeCard(group).id(group.id).padding(.top, 18)
+            }
+        } else if let done = vm.chequeDone {
+            // Recorded: the cheque and its invoice are one (Tim, 2026-11-06), duplicates under it as before.
+            PennyChequeDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+            if vm.showsDupes, let group = vm.currentDupe {
+                dupeCard(group).id(group.id).padding(.top, 18)
+            }
+        } else if let cheque = vm.currentCheque {
+            // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
+            // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
+            PennyChequeCard(vm: vm, cheque: cheque, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+                .id(cheque.id)
+                .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
+            if vm.showsDupes, let group = vm.currentDupe {
+                dupeCard(group)
+                    .id(group.id)
+                    .padding(.top, 18)
+            }
+        } else if vm.showsDupes, let group = vm.currentDupe {
+            dupeCard(group)
+                .id(group.id)
+                .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .leading : .trailing).combined(with: .opacity),
+                                        removal: .opacity))
+                // A carousel: swipe sideways to the next / previous group (the photos open full screen on a tap).
+                .gesture(DragGesture(minimumDistance: 30).onEnded { g in
+                    guard abs(g.translation.width) > abs(g.translation.height) * 1.5, abs(g.translation.width) > 60 else { return }
+                    // Right to left, as the numbers read: drag right to bring the next group in from the left.
+                    withAnimation(.easeOut(duration: 0.22)) { g.translation.width > 0 ? vm.nextDupe() : vm.previousDupe() }
+                })
+        } else if let item = vm.current {
+            receiptCard(item)
+        } else if vm.hasLoaded {
+            emptyState
         }
     }
 
@@ -337,22 +352,21 @@ struct PennyCardView: View {
     @ViewBuilder
     private var mailSection: some View {
         if !vm.messages.isEmpty || vm.mailNote != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("From customers")
-                    .font(appStyle.font(.subheadline, weight: .semibold))
-                ForEach(vm.messages) { m in
-                    mailRow(m)
-                    if m.id != vm.messages.last?.id { Divider() }
-                }
-                if let n = vm.mailNote {
-                    Text(n)
-                        .font(appStyle.font(.footnote))
-                        .foregroundStyle(vm.mailNoteIsError ? appStyle.blocked : appStyle.tenant)
-                        .fixedSize(horizontal: false, vertical: true)
+            SpineNode(slug: "penny", id: "mail", title: "From customers", symbol: "envelope.fill",
+                      waiting: HeadSpineLogic.count(vm.messages.count, "message", plural: "messages")) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(vm.messages) { m in
+                        mailRow(m)
+                        if m.id != vm.messages.last?.id { Divider() }
+                    }
+                    if let n = vm.mailNote {
+                        Text(n)
+                            .font(appStyle.font(.footnote))
+                            .foregroundStyle(vm.mailNoteIsError ? appStyle.blocked : appStyle.tenant)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
-            .padding(12)
-            .background(appStyle.tenant.opacity(0.06), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
@@ -966,7 +980,7 @@ private struct ZoomTarget: Identifiable {
 struct PennyDupeDemo: View {
     let variant: String
 
-    @MainActor private final class DemoAPI: BookkeeperDeskAPI {
+    @MainActor final class DemoAPI: BookkeeperDeskAPI {
         let variant: String
         var answered = 0          // groups merged / said different: the server drops them from the list
         init(variant: String) { self.variant = variant }

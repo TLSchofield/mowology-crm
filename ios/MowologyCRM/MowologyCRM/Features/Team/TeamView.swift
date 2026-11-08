@@ -231,15 +231,14 @@ struct TeamView: View {
                     authSession: authSession,
                     businessIdentity: businessIdentity,
                     member: officeMemberForWorkspace(slug),
-                    archetype: archetype(slug),
                     intro: intro(slug),
                     item: workspaceItem(slug),
                     recommendation: workspaceItem(slug).map { recommendation(for: $0, head: slug) },
                     brain: brain(for: slug),
                     loadState: workspaceLoadState(slug),
                     onRefresh: { await reload(slug: slug) }
-                ) {
-                    cardContent(for: slug, showsTitle: false)
+                ) { lead in
+                    cardContent(for: slug, showsTitle: false, lead: lead)
                 }
                 .ittaiTheme(field: ittaiFieldEnabled)
                 // No back button: the Kaname bead in the bar is the way back (it pops here when tapped again).
@@ -253,8 +252,9 @@ struct TeamView: View {
         }
     }
 
+    /// `lead` opens the "Waiting now" section on the head's spine (the workspace's numbered guide).
     @ViewBuilder
-    private func cardContent(for slug: String, showsTitle: Bool) -> some View {
+    private func cardContent(for slug: String, showsTitle: Bool, lead: AnyView = AnyView(EmptyView())) -> some View {
         if let head = headVM(for: slug) {
             if showsTitle {
                 HStack(spacing: 8) {
@@ -264,10 +264,12 @@ struct TeamView: View {
                 }
             }
             HeadCardView(vm: head, onBrainTap: { flip(slug) }, showsBrain: !ittaiDesignEnabled,
-                         showsAsk: !ittaiDesignEnabled)
+                         showsAsk: !ittaiDesignEnabled, lead: lead)
             if slug == "otto" && showsAccount {
                 // Otto → Add equipment: snap the plate (EquipmentAddView, /api/team/equipment-mobile).
-                OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
+                SpineNode(slug: "otto", id: "equipment", title: "Equipment", symbol: "wrench.and.screwdriver.fill") {
+                    OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: authSession)))
+                }
             }
         } else if slug == "sam" {
             if showsTitle {
@@ -286,9 +288,16 @@ struct TeamView: View {
                     if penny.isLoading && penny.hasLoaded { ProgressView() }
                 }
             }
-            PennyLinesView(lines: penny.lines, hideMissing: !chase.adminItems.isEmpty)
-            PennyChaseAdminSection(vm: chase)
-            PennyCardView(vm: penny)
+            PennyCardView(vm: penny, lead: AnyView(VStack(alignment: .leading, spacing: 14) {
+                lead
+                PennyLinesView(lines: penny.lines, hideMissing: !chase.adminItems.isEmpty)
+            }))
+            if !chase.adminItems.isEmpty {
+                SpineNode(slug: "penny", id: "missing", title: "Missing receipts", symbol: "doc.badge.clock",
+                          waiting: HeadSpineLogic.count(chase.adminItems.count, "to chase")) {
+                    PennyChaseAdminSection(vm: chase, inSpine: true)
+                }
+            }
         }
     }
 
@@ -492,13 +501,6 @@ struct TeamView: View {
                               loaded: loaded, loadFailed: workspaceLoadState(slug) == .error)
     }
 
-    private func archetype(_ slug: String) -> String {
-        ["charlie": "Kaname · 要 — the linchpin", "yui": "Musubi · 結び — the connector",
-         "sam": "Kaitaku · 開拓 — the pathfinder", "penny": "Kanjō · 勘定 — the steward",
-         "otto": "Dandori · 段取り — the orchestrator", "mia": "Hasshin · 発信 — the voice",
-         "ada": "Kiban · 基盤 — the foundation"][slug] ?? ""
-    }
-
     private func intro(_ slug: String) -> String {
         ["charlie": "I keep the office aligned and bring you the decision that matters most. I'll explain each step before you act.",
          "yui": "I look after customer messages. When a reply needs you, I'll show you what happened and where it will open.",
@@ -628,38 +630,36 @@ private struct ItWorkspaceView<Content: View>: View {
     let authSession: AuthSession
     @ObservedObject var businessIdentity: BusinessIdentityViewModel
     let member: ItOfficeMember
-    let archetype: String
     let intro: String
     let item: HeadItem?
     let recommendation: String?
     let brain: HeadBrainSummary?
     let loadState: ItLoadState?
     let onRefresh: () async -> Void
-    @ViewBuilder let content: Content
+    /// Builds the head's spine sections; given the numbered guide, which opens its "Waiting now" section.
+    let content: (AnyView) -> Content
     @Environment(\.it) private var it
     @Environment(\.itAppStyle) private var appStyle
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var knowledgeReloadID = 0
 
+    /// The head's spine (2026-11-07): face, name and role line, then every section as a circle on one centred line.
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: ItSpace.s6) {
-                header
+            VStack(alignment: .leading, spacing: 0) {
+                SpineHead(slug: member.id, name: member.name, state: member.state)
                 if let loadState {
-                    ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s5)
-                } else if member.id == "sam" {
+                    SpineNode(slug: member.id, id: "now", title: "Waiting now", symbol: "tray.full.fill", defaultOpen: true) {
+                        ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s3)
+                    }
+                } else {
                     // Sam leads with his own sentence and one Next row (SamCardView), so the numbered
                     // guide would only repeat the first customer (Tim, 2026-11-04: too wordy).
-                    content
-                    learning
-                } else {
-                    guide
-                    if member.id == "penny" { PennyKnowledgeLiveView(api: LiveKnowledgeAPI(client: APIClient(authSession: authSession)))
-                            .id(knowledgeReloadID) }
-                    else { learning }
-                    content
-                    onboardingSection
+                    content(member.id == "sam" ? AnyView(EmptyView()) : AnyView(guide))
+                    if member.id == "penny" { pennySections }
                 }
+                learning
+                SpineTail()
             }
             .padding(16)
         }
@@ -681,43 +681,24 @@ private struct ItWorkspaceView<Content: View>: View {
         return cur.knowledge.stage != .recognized
     }
 
-    /// Penny's business section hangs on the same centre line as her cards (Tim, 2026-11-06): a thin frame around it,
-    /// the building icon centred on the line at its top (filled indigo in a page-coloured gap and a thin ring, like the
-    /// ticks), and the line carrying on from its bottom down to the Kaname button.
-    @ViewBuilder private var onboardingSection: some View {
-        if member.id == "penny" {
-        let ring: CGFloat = 52
-        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
-        VStack(alignment: .center, spacing: ItSpace.s3) {
-            if !businessLearned {
-                Text("Getting to know your business").itText(.heading18).foregroundStyle(it.text)
-                    .multilineTextAlignment(.center)
+    /// What Penny knows, then the business she works for (Tim, 2026-11-06: the business row is all that shows once
+    /// she knows it; the section stays open until then).
+    @ViewBuilder private var pennySections: some View {
+        SpineNode(slug: "penny", id: "knows", title: "What Penny knows", symbol: "lightbulb.fill") {
+            PennyKnowledgeLiveView(api: LiveKnowledgeAPI(client: APIClient(authSession: authSession)))
+                .id(knowledgeReloadID)
+        }
+        let known = businessIdentity.current == nil || businessLearned
+        SpineNode(slug: "penny", id: "business", title: "Your business", symbol: "building.2.fill",
+                  waiting: known ? nil : "to confirm", defaultOpen: !known) {
+            VStack(alignment: .center, spacing: ItSpace.s3) {
+                if !businessLearned {
+                    Text("Getting to know your business").itText(.heading18).foregroundStyle(it.text)
+                        .multilineTextAlignment(.center)
+                }
+                businessIdentitySection
             }
-            businessIdentitySection
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, ItSpace.s3)
-        .padding(.top, ring / 2 + ItSpace.s2)
-        .padding(.bottom, ItSpace.s3)
-        .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
-        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
-        .overlay(alignment: .top) {
-            ZStack {
-                Circle().fill(appStyle.page).frame(width: ring + 4, height: ring + 4)
-                Circle().stroke(appStyle.line, lineWidth: 1).frame(width: ring, height: ring)
-                Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
-                Image(systemName: "building.2.fill").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
-            }
-            .offset(y: -ring / 2)
-            .accessibilityHidden(true)
-        }
-        .background(alignment: .bottom) {
-            // On down past the end of the page to the Kaname button.
-            Rectangle().fill(appStyle.line).frame(width: 1, height: 1200).offset(y: 1200)
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
-        }
-        .padding(.top, ring / 2 + ItSpace.s2)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -766,46 +747,6 @@ private struct ItWorkspaceView<Content: View>: View {
                                                                        legalStructure: structure, jurisdiction: jurisdiction) }
                               })
         }
-    }
-
-    private var header: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: ItSpace.s3) {
-                    workspacePortrait
-                    workspaceIdentity
-                }
-            } else {
-                HStack(spacing: ItSpace.s3) {
-                    workspacePortrait
-                    workspaceIdentity
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundStyle(it.text)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var workspacePortrait: some View {
-        ItPortrait(name: member.name,
-                   url: TeamHead.all.first { $0.slug == member.id }?.faceURL,
-                   state: member.state, size: 56)
-    }
-
-    private var workspaceIdentity: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(member.name).itText(.title22, weight: 600)
-                    .fixedSize(horizontal: false, vertical: true)
-                ItAITag()
-            }
-            Text(member.department).itText(.meta13).foregroundStyle(it.meta)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(archetype).itText(.meta13).foregroundStyle(it.meta)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var guide: some View {
@@ -857,13 +798,19 @@ private struct ItWorkspaceView<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The last section on every head: what they have learned about how you work.
     @ViewBuilder private var learning: some View {
         if let brain {
             let strongest = brain.parts.max { lhs, rhs in
                 (brain.tiers.first { $0.slug == lhs.tier }?.n ?? 0) < (brain.tiers.first { $0.slug == rhs.tier }?.n ?? 0)
             }?.label.lowercased() ?? "the work you do most"
-            DisclosureGroup {
+            SpineNode(slug: member.id, id: "learned", title: "What \(member.name) has learned", symbol: "brain",
+                      waiting: HeadSpineLogic.count(brain.units, "learned")) {
                 VStack(alignment: .leading, spacing: ItSpace.s3) {
+                    Text(brain.units == 0 ? "Nothing learned yet."
+                         : "\(member.name) has learned \(brain.units) things about how you work — mostly \(strongest).")
+                        .itText(.body14).foregroundStyle(it.text)
+                        .fixedSize(horizontal: false, vertical: true)
                     BrainView(units: brain.units,
                               tiers: Dictionary(brain.tiers.map { ($0.slug, $0.n) }, uniquingKeysWith: +),
                               label: "\(member.name)'s brain", onLight: it.mode != .dark)
@@ -872,10 +819,7 @@ private struct ItWorkspaceView<Content: View>: View {
                     ForEach(brain.tiers, id: \.self) { tier in
                         Text("\(tier.name): \(tier.n)").itText(.body14).foregroundStyle(it.meta)
                     }
-                }.padding(.top, ItSpace.s3)
-            } label: {
-                Text("\(member.name) has learned \(brain.units) things about how you work — mostly \(strongest).  See details")
-                    .itText(.body14).foregroundStyle(it.text)
+                }
             }
         }
     }

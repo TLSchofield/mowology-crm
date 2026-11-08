@@ -501,12 +501,20 @@ struct PennyAlreadyInSheet: View {
 struct PennyChaseAdminSection: View {
     @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyChaseViewModel
+    /// On Penny's spine the section circle names it and opens it, so the list shows without its own header.
+    var inSpine = false
     @Environment(\.openURL) private var openURL
     @State private var expanded = false
 
     var body: some View {
         if !vm.adminItems.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
+                if inSpine {
+                    if !vm.adminSummary.isEmpty {
+                        Text(vm.adminSummary).font(appStyle.font(.subheadline, weight: .semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
                 Button {
                     withAnimation { expanded.toggle() }
                 } label: {
@@ -520,7 +528,8 @@ struct PennyChaseAdminSection: View {
                     }
                 }
                 .buttonStyle(.plain)
-                if expanded {
+                }
+                if expanded || inSpine {
                     ForEach(vm.adminItems.prefix(15)) { item in
                         HStack(alignment: .top, spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -553,9 +562,9 @@ struct PennyChaseAdminSection: View {
                     Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? .red : appStyle.tenant)
                 }
             }
-            .padding(12)
+            .padding(inSpine ? 0 : 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+            .background(inSpine ? Color.clear : appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 }
