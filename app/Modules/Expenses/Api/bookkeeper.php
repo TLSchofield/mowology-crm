@@ -26,12 +26,18 @@
  * GET  ?mode=bank_invoice&transaction_id=N  A credit: already-recorded payments, its Interac email, ranked open invoices.
  * GET  ?mode=bank_invoice_report  Read-only: unmatched deposits whose money is already on invoices (counted twice).
  * POST {mode: 'bank_invoice_record', transaction_id, allocations: [{invoice_id|invoice_number, amount}], sender?, force?, csrf_token}
+ * POST {mode: 'payment_book', transaction_id, signature, csrf_token}  Record a likely payment (PaymentMatchService::book()).
+ * POST {mode: 'payment_undo', log_id, csrf_token}  Undo it (PaymentMatchService::undo()). Queue: 'payments' (pennyCards()).
  * POST {mode: 'bank_invoice_link', transaction_id, allocation_ids?: [], legacy?: bool, csrf_token}  "Already recorded — link".
  * POST {mode: 'bank_teach_payer', sender, invoice_id, csrf_token}  This sender pays that invoice's payer (learned).
  * GET  ?mode=stripe_read&transaction_id=N  Which invoices + fee a Stripe payout line holds (Stripe GETs only).
  * POST {mode: 'stripe_book', transaction_id, csrf_token}  Book it: transfer + fee line (StripePayoutService).
  * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
  * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
+ * POST {mode: 'dupe_merge', keep_id, copy_ids: [..], csrf_token}  Merge into the kept one (removeCopies, expense_merges 1442).
+ *      'dupe_remove' {copy_id, keep_id} is the same call for one copy (now group-checked: it used removeCopy alone).
+ * POST {mode: 'unmerge', copy_id, kind: undo|split, csrf_token}  Undo / Split off (DuplicateReceiptService::unmerge).
+ * GET  ?mode=merged&expense_id=N  Copies merged into this receipt ("Also on this purchase").
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
  * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable|billed|account|seen|use_bank_line, csrf_token}
  *
@@ -210,7 +216,20 @@ try {
             } elseif ($mode === 'queue') {
                 // Possible duplicates are sorted first and never offered for approval.
                 $dupes = $dupSvc->pairsInLine(60);
-                echo json_encode(['ok' => true, 'dupes' => DuplicateReceiptService::groups($dupes),
+                // Likely cheques come first on the card (Tim, 2026-11-06); "Record" posts bank_invoice_record.
+                ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
+                // Every deposit the payments matcher proposes, first on the card (Tim, 2026-11-06: one matcher, so
+                // the "N deposits matched" line and the cards agree). Record → payment_book; Undo → payment_undo.
+                $payments = [];
+                if (userHasPermission('billing.view')) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+                        $payments = (new PaymentMatchService($db))->pennyCards(12);
+                    } catch (Throwable $e) {
+                        error_log('[bookkeeper] payments: ' . $e->getMessage());
+                    }
+                }
+                echo json_encode(['ok' => true, 'payments' => $payments, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
                                   'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
@@ -336,6 +355,25 @@ try {
             break;
         }
 
+        case 'payment_book':
+        case 'payment_undo': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!userHasPermission('billing.edit')) throw new RuntimeException('Permission denied: billing.edit required');
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $pm = new PaymentMatchService($db);
+            if ($mode === 'payment_undo') {
+                echo json_encode($pm->undo((int)($input['log_id'] ?? 0), (int)$user['id']));
+                break;
+            }
+            $tx = (int)($input['transaction_id'] ?? 0);
+            $r = $pm->book([$tx => (string)($input['signature'] ?? '')], (int)$user['id']);
+            $done = $r['booked'][0] ?? null;
+            echo json_encode($done
+                ? ['ok' => true, 'message' => (string)($done['message'] ?? 'Recorded.'), 'log_id' => (int)($done['log_id'] ?? 0)]
+                : ['ok' => false, 'message' => (string)($r['failed'][0]['message'] ?? 'Not recorded.')]);
+            break;
+        }
+
         case 'bank_invoice':
         case 'bank_invoice_report':
         case 'bank_invoice_record':
@@ -397,10 +435,27 @@ try {
             break;
         }
 
-        case 'dupe_remove': {
+        case 'dupe_remove':
+        case 'dupe_merge': {
+            // Both go through removeCopies(): one duplicate group, waiting copies only, all-or-nothing, an
+            // expense_merges row each (Undo / Split off). dupe_remove used to call removeCopy() with no group check.
             if ($method !== 'POST') throw new RuntimeException('POST required');
             require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
-            echo json_encode((new DuplicateReceiptService($db))->removeCopy((int)($input['copy_id'] ?? 0), (int)($input['keep_id'] ?? 0), $user));
+            $copies = $mode === 'dupe_merge' ? (array)($input['copy_ids'] ?? []) : [$input['copy_id'] ?? 0];
+            echo json_encode((new DuplicateReceiptService($db))->removeCopies((int)($input['keep_id'] ?? 0), array_map('intval', $copies), $user));
+            break;
+        }
+
+        case 'unmerge': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode((new DuplicateReceiptService($db))->unmerge((int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')));
+            break;
+        }
+
+        case 'merged': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode(['ok' => true, 'merged' => (new DuplicateReceiptService($db))->mergedInto((int)($_GET['expense_id'] ?? 0))]);
             break;
         }
 

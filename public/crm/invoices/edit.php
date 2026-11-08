@@ -129,8 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $servicePostalCode  !== $billingPostalCode
         ) ? 1 : 0;
 
-        $taxRate = floatval($invoice['tax_rate'] ?? 0.05);
-        if ($taxRate <= 0) $taxRate = 0.05;
+        // 0.05 only when the invoice has no rate at all (NULL); a 0% invoice stays 0%, and a business not registered for GST charges none.
+        require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+        $taxRate = TaxEngine::chargedRate($db, $invoice['tax_rate'] === null ? 0.05 : floatval($invoice['tax_rate']));
 
         // Status is restricted to non-paid values — "paid" must come from
         // record-payment.php which also updates amount_paid + paid_at.
@@ -616,6 +617,12 @@ $activePage = 'invoices';
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title mb-3">Line Items</h3>
+                        <?php if (round((float)($invoice['amount_paid'] ?? 0), 2) <= 0 && in_array($invoice['status'], ['draft', 'sent', 'viewed', 'overdue'], true)): ?>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
+                            </div>
+                        <?php endif; ?>
+                        <?php $crewTimeVisitId = (int)($invoice['visit_id'] ?? 0); include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
 
                         <table class="table table-sm table-bordered mb-0" id="lineItemsTable">
                             <thead class="table-light">
@@ -712,6 +719,7 @@ $activePage = 'invoices';
                         <div class="mw-form-group">
                             <label class="form-label">Invoice Notes <span class="text-muted">(shown to customer)</span></label>
                             <textarea name="notes" class="form-control" rows="3"><?php echo htmlspecialchars($invoice['notes'] ?? ''); ?></textarea>
+                            <div id="miaNoteHost" class="mw-mia-host"></div>
                         </div>
 
                         <div class="mw-form-group">
@@ -731,7 +739,9 @@ $activePage = 'invoices';
                 </p>
             </form>
 
-<script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
+<script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
+<script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
+<script src="/crm/js/mw-invoice-move.js?v=20261106a"></script>
 <script>
 (function () {
     'use strict';
@@ -831,11 +841,33 @@ $activePage = 'invoices';
     addBtn.addEventListener('click', function () { addRow(); });
 
     if (window.MwServicePicker) {
-        MwServicePicker.attach(document.getElementById('invServicePicker'),
+        var invPicker = MwServicePicker.attach(document.getElementById('invServicePicker'),
             <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>,
             function (svc) {
                 addRow({ title: svc.name, description: svc.description || svc.name, unit_price: svc.base_price });
             });
+        // Mia's note suggestion (/crm/api/mia-invoice-suggestion.php)
+        var miaNote = document.querySelector('textarea[name="notes"]');
+        if (window.MwMiaInvoiceNote && miaNote) {
+            MwMiaInvoiceNote.attach({
+                note: miaNote, host: document.getElementById('miaNoteHost'), invoiceId: <?php echo (int)$invoiceId; ?>,
+                getContext: function () {
+                    var seen = {};
+                    var services = Array.prototype.map.call(document.querySelectorAll('input[name="li_title[]"], input[name="li_description[]"]'),
+                        function (i) { return i.value.trim(); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = 1; return true; });
+                    return { property_id: <?php echo (int)($invoice['property_id'] ?? 0); ?>, contact_id: <?php echo (int)($invoice['contact_id'] ?? 0); ?>,
+                             company_id: <?php echo (int)($invoice['company_id'] ?? 0); ?>, services: services };
+                }
+            });
+        }
+        // The client's agreed price first (/crm/api/agreed-prices.php), same as invoices/create.php.
+        var agreedPid = <?php echo (int)($invoice['property_id'] ?? 0); ?>, agreedCid = <?php echo (int)($invoice['company_id'] ?? 0); ?>;
+        if (agreedPid) {
+            fetch('/crm/api/agreed-prices.php?property_id=' + agreedPid + (agreedCid ? '&company_id=' + agreedCid : ''), { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (d && d.success) invPicker.setAgreed(d.items); })
+                .catch(function () {});
+        }
     }
 
     // ── Recipients editor ──────────────────────────────

@@ -106,6 +106,8 @@ final class PennyKnowledgeService
                     'classification_accuracy' => null, 'classification_decided' => 0,
                     'unchanged_streak' => 0, 'last_verified' => null, 'exceptions' => [],
                     'items_unconfirmed' => 0,
+                    // Duplicates she called with this vendor and how a person answered (DuplicateReceiptService::vendorRecords()).
+                    'duplicates' => ['called' => 0, 'agreed' => 0, 'said_different' => 0, 'split_off' => 0],
                 ],
                 'next' => [],
             ];
@@ -182,6 +184,19 @@ final class PennyKnowledgeService
                 $vid = (int)$r['vendor_id'];
                 if (isset($out[$vid])) $out[$vid]['evidence']['exceptions'][] = ['kind' => 'question', 'text' => trim((string)$r['question'])];
             }
+        }
+
+        try {
+            require_once __DIR__ . '/DuplicateReceiptService.php';
+            $records = (new DuplicateReceiptService($this->db))->vendorRecords();
+            foreach ($out as &$v) {
+                $r = $records[HeadLessons::normaliseKey($v['label'])] ?? null;
+                if ($r) $v['evidence']['duplicates'] = ['called' => $r['called'], 'agreed' => $r['agreed'],
+                                                         'said_different' => $r['said_different'], 'split_off' => $r['split_off']];
+            }
+            unset($v);
+        } catch (Throwable $e) {
+            error_log('Penny knowledge duplicates: ' . $e->getMessage());
         }
 
         foreach ($out as &$v) {

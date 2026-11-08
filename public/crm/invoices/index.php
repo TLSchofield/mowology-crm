@@ -642,9 +642,9 @@ $activePage = 'invoices';
                                         <?php if (!empty($matches)): ?>
                                             <button type="button" class="mw-match-pill"
                                                     onclick="event.stopPropagation(); mwToggleMatch(<?php echo (int)$invoice['id']; ?>)"
-                                                    title="A bank deposit likely matches this invoice">
+                                                    title="<?php echo ($matches[0]['kind'] ?? '') === 'cheque' ? 'A cheque deposit likely pays this invoice' : 'A bank deposit likely matches this invoice'; ?>">
                                                 <i data-feather="link-2"></i>
-                                                <?php echo count($matches); ?> likely match<?php echo count($matches) > 1 ? 'es' : ''; ?>
+                                                <?php echo htmlspecialchars(InvoiceReconciliationService::chipText($matches)); ?>
                                             </button>
                                         <?php endif; ?>
                                         <?php if ($invoice['status'] !== 'draft'): ?>
@@ -689,7 +689,7 @@ $activePage = 'invoices';
                                             <div class="mw-match-item<?php echo !empty($m['mismatch']) ? ' mw-match-item--bad' : ''; ?>">
                                                 <span class="mw-conf-badge mw-conf-<?php echo !empty($m['mismatch']) ? 'bad' : ($m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low')); ?>" title="Match confidence"><?php echo !empty($m['mismatch']) ? 'Mismatch' : (int)$m['confidence'] . '%'; ?></span>
                                                 <div class="mw-match-info">
-                                                    <div class="mw-match-desc"><?php echo htmlspecialchars($m['description'] ?: 'Bank deposit'); ?></div>
+                                                    <div class="mw-match-desc"><?php if (($m['kind'] ?? '') === 'cheque'): ?><strong>Cheque</strong> · <?php endif; ?><?php echo htmlspecialchars($m['description'] ?: 'Bank deposit'); ?></div>
                                                     <div class="mw-match-meta">
                                                         <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
                                                     </div>

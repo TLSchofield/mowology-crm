@@ -347,6 +347,19 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
         return ['success' => false, 'items' => [], 'error' => null, 'rejected_reason' => 'no_items', 'usage' => $usage, 'with_image' => $fileBlock !== null];
     }
 
+    // Bottle deposits: the prompt leaves them out, the printed subtotal counts them (Chevron). When the rows fall short by
+    // exactly the deposits the receipt prints, they become one "Deposit" row, so the items add up as the paper does.
+    if ($subtotal !== null && $subtotal > 0) {
+        $sumRows = array_sum(array_map(static fn($it) => (float)$it['line_total'], $items));
+        $deposits = receiptLlmPrintedDeposits($ocrText);
+        $tol = max(0.05, $subtotal * 0.01);
+        if ($deposits > 0 && abs($sumRows - $subtotal) > $tol && abs($sumRows + $deposits - $subtotal) <= $tol) {
+            $d = number_format($deposits, 2, '.', '');
+            $items[] = ['name' => 'Deposit', 'amount' => $d, 'line_total' => $d, 'quantity' => 1.0, 'unit_price' => null,
+                        'sku_raw' => null, 'source' => 'llm'];
+        }
+    }
+
     // ── Acceptance gates ────────────────────────────────────────────────
     $reason = validateLlmLineItems($items, $ocrText, $subtotal);
     if ($reason !== null) {
@@ -357,6 +370,54 @@ function extractLineItemsWithLlm(string $ocrText, array $dictionary, ?float $sub
 
     $logUsage(true, count($items) . ' items');
     return ['success' => true, 'items' => $items, 'error' => null, 'rejected_reason' => null, 'usage' => $usage, 'with_image' => $fileBlock !== null];
+}
+
+/**
+ * Pure: is this sum printed on the receipt as its subtotal (under a SUBTOTAL-type label), or — on a receipt that names
+ * no tax at all — as its total? Then the rows match the paper even when the rules misread the subtotal (2026-11-06
+ * backtest: Shell 36.99 read as 35.23, Vital Auto 1,528.30 as 1.52).
+ */
+function receiptLlmSumPrinted(float $sum, string $ocrText): bool
+{
+    if ($sum <= 0) return false;
+    $amount = number_format($sum, 2, '.', '');
+    // Only a real SUBTOTAL label: a department line ("FUEL SALES 36.99", "MERCHANDISE") would let a partial set of
+    // rows through on a receipt that sells more than one kind of thing (review 2026-11-06).
+    if (receiptLlmAmountUnderLabel($amount, $ocrText, '/SUB[\s-]*TOTAL/i')) return true;
+    return function_exists('receiptPrintsNoTax') && receiptPrintsNoTax(preg_split('/\R/', $ocrText))
+        && receiptHeaderAmountLabelled('total', $amount, $ocrText);
+}
+
+/** Pure: is $amount printed on a line with $label, or on one of the two lines under a label line that has no amount? */
+function receiptLlmAmountUnderLabel(string $amount, string $ocrText, string $label): bool
+{
+    if (!receiptAmountPrintedInText($amount, $ocrText)) return false;
+    $pattern = '/(?<![\d.])' . preg_quote($amount, '/') . '(?!\d)/';
+    $lines = preg_split('/\R/', (string)preg_replace('/(?<=\d),(?=\d{2}(?!\d))/', '.', (string)preg_replace('/(?<=\d),(?=\d{3}(?!\d))/', '', $ocrText)));
+    $n = count($lines);
+    for ($i = 0; $i < $n; $i++) {
+        if (!preg_match($label, $lines[$i])) continue;
+        if (preg_match($pattern, $lines[$i])) return true;
+        if (!preg_match('/\d+\.\d{2}/', $lines[$i])) {
+            for ($j = $i + 1; $j <= $i + 2 && $j < $n; $j++) {
+                if (preg_match($pattern, $lines[$j]) && !preg_match('/[A-Za-z]{4,}/', preg_replace('/\b(CAD|CDN)\b/i', '', $lines[$j]))) return true;
+            }
+        }
+    }
+    return false;
+}
+
+/** Pure: the deposits printed on a receipt ("2 Deposit 0.20", "DEPOSIT $0.10"), summed; 0 when none. */
+function receiptLlmPrintedDeposits(string $ocrText): float
+{
+    $sum = 0.0;
+    foreach (preg_split('/\R/', $ocrText) as $line) {
+        if (!preg_match('/\bDEPOSIT\b/i', $line) || preg_match('/TOTAL|REFUND|BOTTLE\s+RETURN/i', $line)) continue;
+        if (preg_match_all('/(?<![\d.])(\d{1,4}[.,]\d{2})(?!\d)/', $line, $m)) {
+            $sum += (float)str_replace(',', '.', end($m[1]));   // the line's last amount is its extension
+        }
+    }
+    return round($sum, 2);
 }
 
 /**
@@ -380,7 +441,7 @@ function validateLlmLineItems(array $items, string $ocrText, ?float $subtotal): 
     if ($subtotal !== null && $subtotal > 0) {
         $sum = 0.0;
         foreach ($items as $it) $sum += (float)$it['line_total'];
-        if (abs($sum - $subtotal) > max(0.05, $subtotal * 0.01)) {
+        if (abs($sum - $subtotal) > max(0.05, $subtotal * 0.01) && !receiptLlmSumPrinted($sum, $ocrText)) {
             return 'sum_mismatch';
         }
     }
@@ -457,7 +518,7 @@ function receiptHeaderAmountLabelled(string $field, string $amount, string $ocrT
     if (!receiptAmountPrintedInText($amount, $ocrText)) return false;
     $labels = [
         'total'    => '/(?<!SUB)(?<!SUB-)TOTAL|AMOUNT\s*DUE|BALANCE\s*DUE|AMOUNT\s*CHARGED|CHARGED/i',
-        'subtotal' => '/SUB[\s-]*TOTAL|MERCHANDISE|FUEL\s*SALES?|NET\s*(AMOUNT|SALES?)/i',
+        'subtotal' => '/SUB[\s-]*TOTAL|MERCHANDISE|FUEL\s*SALES?|NET\s*(AMOUNT|SALES?)|GOODS\s*TOTAL/i',
         'gst'      => '/\b(GST|HST|TAX)\b|G\.S\.T/i',
         'pst'      => '/\b(PST|RST|QST)\b|P\.S\.T/i',
     ];

@@ -37,13 +37,22 @@ struct KnowledgeCounts: Decodable { let recognized, identified, understood, mast
     enum CodingKeys:String,CodingKey{case recognized,identified,understood,mastered}; init(from d:Decoder)throws{let c=try d.container(keyedBy:CodingKeys.self);self.init(recognized:c.kbInt(.recognized),identified:c.kbInt(.identified),understood:c.kbInt(.understood),mastered:c.kbInt(.mastered))}
 }
 struct KnowledgeException: Decodable, Hashable { let kind, text:String; enum CodingKeys:String,CodingKey{case kind,text}; init(from d:Decoder)throws{let c=try d.container(keyedBy:CodingKeys.self);kind=c.kbString(.kind);text=c.kbString(.text)} }
+/// Duplicates Penny called with a vendor and how a person answered (DuplicateReceiptService::vendorRecords).
+struct KnowledgeDuplicates: Decodable { let called, agreed, saidDifferent, splitOff: Int; static let empty=Self(called:0,agreed:0,saidDifferent:0,splitOff:0)
+    init(called:Int,agreed:Int,saidDifferent:Int,splitOff:Int){self.called=called;self.agreed=agreed;self.saidDifferent=saidDifferent;self.splitOff=splitOff}
+    enum CodingKeys:String,CodingKey{case called,agreed,saidDifferent="said_different",splitOff="split_off"}
+    init(from d:Decoder)throws{let c=try d.container(keyedBy:CodingKeys.self);self.init(called:c.kbInt(.called),agreed:c.kbInt(.agreed),saidDifferent:c.kbInt(.saidDifferent),splitOff:c.kbInt(.splitOff))}
+    /// "Duplicates: right 3 of 4 (1 split off later)" — nil when she has called none.
+    var line:String?{ called==0 ? nil : "Duplicates: right \(agreed) of \(called)" + (splitOff>0 ? " (\(splitOff) split off later)" : "") }
+}
 struct KnowledgeEvidence: Decodable {
     let receiptsApproved, transactionsMatched, itemsRecognized, itemsNew, classificationDecided, unchangedStreak:Int
     let classificationAccuracy:Double?; let lastVerified:String?; let exceptions:[KnowledgeException]
-    enum CodingKeys:String,CodingKey{case receiptsApproved="receipts_approved",transactionsMatched="transactions_matched",itemsRecognized="items_recognized",itemsNew="items_new",classificationAccuracy="classification_accuracy",classificationDecided="classification_decided",unchangedStreak="unchanged_streak",lastVerified="last_verified",exceptions}
+    var duplicates:KnowledgeDuplicates = .empty
+    enum CodingKeys:String,CodingKey{case receiptsApproved="receipts_approved",transactionsMatched="transactions_matched",itemsRecognized="items_recognized",itemsNew="items_new",classificationAccuracy="classification_accuracy",classificationDecided="classification_decided",unchangedStreak="unchanged_streak",lastVerified="last_verified",exceptions,duplicates}
     static let empty=Self(receiptsApproved:0,transactionsMatched:0,itemsRecognized:0,itemsNew:0,classificationDecided:0,unchangedStreak:0,classificationAccuracy:nil,lastVerified:nil,exceptions:[])
     init(receiptsApproved:Int,transactionsMatched:Int,itemsRecognized:Int,itemsNew:Int,classificationDecided:Int,unchangedStreak:Int,classificationAccuracy:Double?,lastVerified:String?,exceptions:[KnowledgeException]){self.receiptsApproved=receiptsApproved;self.transactionsMatched=transactionsMatched;self.itemsRecognized=itemsRecognized;self.itemsNew=itemsNew;self.classificationDecided=classificationDecided;self.unchangedStreak=unchangedStreak;self.classificationAccuracy=classificationAccuracy;self.lastVerified=lastVerified;self.exceptions=exceptions}
-    init(from d:Decoder)throws{let c=try d.container(keyedBy:CodingKeys.self);self.init(receiptsApproved:c.kbInt(.receiptsApproved),transactionsMatched:c.kbInt(.transactionsMatched),itemsRecognized:c.kbInt(.itemsRecognized),itemsNew:c.kbInt(.itemsNew),classificationDecided:c.kbInt(.classificationDecided),unchangedStreak:c.kbInt(.unchangedStreak),classificationAccuracy:c.kbDouble(.classificationAccuracy),lastVerified:c.kbOptionalString(.lastVerified),exceptions:(try?c.decode([KnowledgeException].self,forKey:.exceptions)) ?? [])}
+    init(from d:Decoder)throws{let c=try d.container(keyedBy:CodingKeys.self);self.init(receiptsApproved:c.kbInt(.receiptsApproved),transactionsMatched:c.kbInt(.transactionsMatched),itemsRecognized:c.kbInt(.itemsRecognized),itemsNew:c.kbInt(.itemsNew),classificationDecided:c.kbInt(.classificationDecided),unchangedStreak:c.kbInt(.unchangedStreak),classificationAccuracy:c.kbDouble(.classificationAccuracy),lastVerified:c.kbOptionalString(.lastVerified),exceptions:(try?c.decode([KnowledgeException].self,forKey:.exceptions)) ?? []);duplicates=(try?c.decode(KnowledgeDuplicates.self,forKey:.duplicates)) ?? .empty}
 }
 struct KnowledgeVendor: Decodable, Identifiable {
     let key:String; let slot:Int; let label:String; let stage:KnowledgeStage; let discoveredAt:String?; let evidence:KnowledgeEvidence; let next:[String]

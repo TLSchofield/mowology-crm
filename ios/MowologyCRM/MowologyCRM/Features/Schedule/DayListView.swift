@@ -29,17 +29,24 @@ struct DayListView: View {
 
     /// The timeline layout's extra state (timer, offline finishes, left-site). nil = always the card list.
     var timeline: ScheduleTimelineInput? = nil
+    /// The view chosen on the Schedule bead: .numbered = the timeline (when its input is there), .cards = the card list.
+    /// nil = the old per-role timeline switch.
+    var layout: ScheduleViewKind? = nil
 
     /// Tracks whether the one-time initial scroll has already fired.
     @State private var hasAutoScrolled = false
     /// Timeline auto-scroll: the stop it last scrolled to (see timelineList).
     @State private var lastAutoScrollTarget: Int?
+    /// The timeline's rail sits on the Schedule bead's axis and runs into it (SPEC §13, Tim 2026-11-06).
+    @Environment(\.itTabSlot) private var tabSlot
+    @State private var listWidth: CGFloat = 0
 
     /// 0 = default for the role (admins on), 1 = on, 2 = off (ScheduleTimelineSwitch).
     @AppStorage(ScheduleTimelineSwitch.defaultsKey) private var timelineSetting = 0
 
     private var useTimeline: Bool {
         guard timeline != nil else { return false }
+        if let layout { return layout == .numbered }
         return timelineSetting == 1 || (timelineSetting == 0 && isAdmin)
     }
 
@@ -68,6 +75,31 @@ struct DayListView: View {
     }
 
     // MARK: - Timeline (Tim, 2026-11-05; behind ScheduleTimelineSwitch)
+
+    /// The rail's x: the Schedule bead's centre (16 pt row inset + half a marker until the width is known).
+    private var railAxis: CGFloat {
+        guard let tabSlot, listWidth > 0 else { return 16 + TimelineStopRow.markerSize / 2 }
+        return max(TimelineStopRow.markerSize / 2 + 4, tabSlot.axis(width: listWidth))
+    }
+    private var railLeading: CGFloat { railAxis - TimelineStopRow.markerSize / 2 }
+
+    @ViewBuilder private func railTail(show: Bool) -> some View {
+        if show {
+            Rectangle().fill(appStyle.line)
+                .frame(width: TimelineStopRow.railWidth)
+                .frame(maxHeight: .infinity)
+                .offset(x: railAxis - TimelineStopRow.railWidth / 2)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { g in
+            Color.clear
+                .onAppear { listWidth = g.size.width }
+                .onChange(of: g.size.width) { _, w in listWidth = w }
+        }
+    }
 
     private func timelineList(_ input: ScheduleTimelineInput) -> some View {
         let ordered = ScheduleTimelineRules.ordered(stops)
@@ -117,7 +149,7 @@ struct DayListView: View {
                     )
                     .listRowBackground(appStyle.page)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 0, leading: railLeading, bottom: 0, trailing: 16))
                     .id(stop.id)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if isAdmin, stop.canBeMoved, let onMove {
@@ -136,7 +168,11 @@ struct DayListView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            // Below the last stop the rail carries on down to the Schedule bead's 12 o'clock. Behind the rows: each
+            // stop row is page-filled and draws its own rail, so this shows only in the empty space under them.
+            .background(alignment: .topLeading) { railTail(show: !ordered.isEmpty) }
             .background(appStyle.page)
+            .background(widthReader)
             .refreshable { await onRefresh() }
             // The job I am on, else my next stop, at the top. Runs when the list appears with its stops
             // (onChange alone never fired then), and once more if the on-site job becomes known later
@@ -470,5 +506,207 @@ enum VisitQuickAction: String, Hashable {
         default:
             return canMove ? [.move] : []
         }
+    }
+}
+
+
+// MARK: - Time view (Tim, 2026-11-07: the Schedule bead switches map / cards / time / numbered)
+
+/// The day as an hour grid: each stop a block at its booked time, as long as its booked length (at least 30 min),
+/// side by side where two overlap; a line for now on today. Stops with no time are listed above the grid. Tap a block
+/// to open the stop, as on the cards.
+struct DayTimeGridView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.itTabSlot) private var tabSlot
+    let stops: [Stop]
+    let isLoading: Bool
+    let isToday: Bool
+    let onRefresh: () async -> Void
+    var onSelect: ((Stop) -> Void)? = nil
+
+    static let hourHeight: CGFloat = 64
+    /// The hours sit in pills like the Clock in pill, threaded on the time axis (Tim, 2026-11-07): the axis is the
+    /// Schedule bead's, so it runs up to meet the chosen day in the strip and down to the bead, as on the numbered view.
+    static let pillWidth: CGFloat = 48
+    static let pillHeight: CGFloat = 28
+    @State private var width: CGFloat = 0
+    private var axis: CGFloat {
+        guard let tabSlot, width > 0 else { return 16 + Self.pillWidth / 2 }
+        return max(Self.pillWidth / 2 + 4, tabSlot.axis(width: width))
+    }
+    /// Where the blocks begin: just past the pills.
+    private var labelWidth: CGFloat { axis + Self.pillWidth / 2 + 8 }
+
+    private struct Block: Identifiable {
+        let stop: Stop
+        let start: Int
+        let length: Int
+        var column = 0
+        var columns = 1
+        var id: Int { stop.id }
+    }
+
+    /// Blocks with overlap columns: greedy, each block in the first column free at its start; a cluster of
+    /// overlapping blocks shares one column count.
+    private var layout: (blocks: [Block], untimed: [Stop], firstHour: Int, lastHour: Int) {
+        var blocks: [Block] = []
+        var untimed: [Stop] = []
+        for stop in stops {
+            if let start = ScheduleTimelineRules.startMinutes(stop) {
+                blocks.append(Block(stop: stop, start: start, length: max(30, ScheduleTimelineRules.bookedMinutes(stop) ?? 30)))
+            } else {
+                untimed.append(stop)
+            }
+        }
+        blocks.sort { ($0.start, $0.stop.routeOrder) < ($1.start, $1.stop.routeOrder) }
+        var columnEnds: [Int] = []
+        var cluster: [Int] = []
+        var clusterEnd = -1
+        func closeCluster() {
+            let n = cluster.map { blocks[$0].column }.max().map { $0 + 1 } ?? 1
+            for i in cluster { blocks[i].columns = n }
+            cluster = []
+            columnEnds = []
+        }
+        for i in blocks.indices {
+            if blocks[i].start >= clusterEnd { closeCluster() }
+            if let free = columnEnds.firstIndex(where: { $0 <= blocks[i].start }) {
+                blocks[i].column = free
+                columnEnds[free] = blocks[i].start + blocks[i].length
+            } else {
+                blocks[i].column = columnEnds.count
+                columnEnds.append(blocks[i].start + blocks[i].length)
+            }
+            cluster.append(i)
+            clusterEnd = max(clusterEnd, blocks[i].start + blocks[i].length)
+        }
+        closeCluster()
+        let first = min(7, (blocks.map(\.start).min() ?? 7 * 60) / 60)
+        let last = max(17, ((blocks.map { $0.start + $0.length }.max() ?? 17 * 60) + 59) / 60)
+        return (blocks, untimed, first, min(24, last))
+    }
+
+    var body: some View {
+        let l = layout
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if stops.isEmpty && !isLoading {
+                        Text("No stops this day.")
+                            .font(appStyle.font(.subheadline))
+                            .foregroundStyle(appStyle.meta)
+                            .frame(maxWidth: .infinity)
+                            .padding(.leading, labelWidth)          // off the axis
+                            .padding(.top, 40)
+                    }
+                    if !l.untimed.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("No time set").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
+                            ForEach(l.untimed) { stop in blockButton(stop, window: nil).frame(height: 44) }
+                        }
+                        .padding(.leading, labelWidth).padding(.trailing, 16)
+                    }
+                    grid(l).id("grid")
+                }
+                .padding(.vertical, 12)
+            }
+            .refreshable { await onRefresh() }
+            // The axis: from the top of the view (the chosen day's tick in the strip above) to the bottom (the Schedule
+            // bead's 12 o'clock). Behind everything; the page-filled pills sit on it.
+            .background(alignment: .topLeading) {
+                Rectangle().fill(appStyle.line)
+                    .frame(width: 1.5).frame(maxHeight: .infinity)
+                    .offset(x: axis - 0.75)
+                    .accessibilityHidden(true)
+            }
+            .background(appStyle.page)
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { width = g.size.width }
+                    .onChange(of: g.size.width) { _, w in width = w }
+            })
+            .onAppear {
+                // Open on the first stop's hour (or now, on today).
+                let target = isToday ? Calendar.current.component(.hour, from: Date()) : (l.blocks.first?.start ?? l.firstHour * 60) / 60
+                proxy.scrollTo("hour-\(max(l.firstHour, target - 1))", anchor: .top)
+            }
+        }
+    }
+
+    private func grid(_ l: (blocks: [Block], untimed: [Stop], firstHour: Int, lastHour: Int)) -> some View {
+        let hours = Array(l.firstHour...max(l.firstHour, l.lastHour))
+        let height = CGFloat(hours.count - 1) * Self.hourHeight
+        return GeometryReader { geo in
+            let labelWidth = self.labelWidth
+            let laneWidth = geo.size.width - labelWidth - 16
+            ZStack(alignment: .topLeading) {
+                ForEach(hours, id: \.self) { h in
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(ScheduleTimelineRules.clock(h * 60).replacingOccurrences(of: ":00", with: ""))
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .foregroundStyle(appStyle.tenant)
+                            .frame(width: Self.pillWidth, height: Self.pillHeight)
+                            .background(Capsule().fill(appStyle.page))
+                            .overlay(Capsule().stroke(appStyle.tenant, lineWidth: 1.5))
+                        Rectangle().fill(appStyle.line).frame(height: 1)
+                    }
+                    .frame(height: Self.pillHeight)
+                    .padding(.leading, axis - Self.pillWidth / 2)
+                    .offset(y: CGFloat(h - l.firstHour) * Self.hourHeight - Self.pillHeight / 2)
+                    .id("hour-\(h)")
+                }
+                ForEach(l.blocks) { b in
+                    let colWidth = laneWidth / CGFloat(b.columns)
+                    blockButton(b.stop, window: ScheduleTimelineRules.windowText(b.stop))
+                        .frame(width: colWidth - 4, height: max(28, CGFloat(b.length) / 60 * Self.hourHeight - 3))
+                        .offset(x: labelWidth + CGFloat(b.column) * colWidth,
+                                y: CGFloat(b.start - l.firstHour * 60) / 60 * Self.hourHeight + 1)
+                }
+                if isToday {
+                    let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
+                    let minutes = (now.hour ?? 0) * 60 + (now.minute ?? 0)
+                    if minutes >= l.firstHour * 60, minutes <= l.lastHour * 60 {
+                        Rectangle().fill(appStyle.blocked)
+                            .frame(width: laneWidth + 4, height: 1.5)
+                            .offset(x: labelWidth - 4, y: CGFloat(minutes - l.firstHour * 60) / 60 * Self.hourHeight)
+                            .accessibilityLabel("Now")
+                    }
+                }
+            }
+        }
+        .frame(height: height + Self.pillHeight)
+        .padding(.top, Self.pillHeight / 2)                // the first pill's top half
+        .padding(.leading, 0)
+        .padding(.trailing, 16)
+    }
+
+    private func blockButton(_ stop: Stop, window: String?) -> some View {
+        let done = stop.isResolved
+        let active = stop.isInProgress
+        let name = stop.propertyName ?? stop.contactName ?? stop.propertyAddress
+        return Button { onSelect?(stop) } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .lineLimit(1)
+                if let window {
+                    Text(window).font(appStyle.font(.caption2)).lineLimit(1)
+                }
+            }
+            .foregroundStyle(active ? appStyle.onTenant : (done ? appStyle.meta : appStyle.text))
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(active ? appStyle.tenant : appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+            .overlay(alignment: .leading) {
+                Rectangle().fill(done ? appStyle.line : appStyle.tenant).frame(width: 3)
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
+            }
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)).stroke(appStyle.line, lineWidth: 1))
+            .opacity(done ? 0.7 : 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(name)\(window.map { ", \($0)" } ?? ""), \(done ? "done" : active ? "in progress" : "to do")")
     }
 }

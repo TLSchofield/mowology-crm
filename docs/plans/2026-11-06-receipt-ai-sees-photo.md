@@ -45,3 +45,20 @@ name must be printed in the OCR text. Anything that fails is thrown away as toda
 
 ## Not in this change
 Reading header fields from the photo (`enhanceHeaders`), column-aware Vision rows (receipt-layout chat), the API bake-off.
+
+## Backtest result (2026-11-06) — FAILED the bar; switch stays off
+21 stored receipts whose rule-read items don't add up (2025 + 2026: Chevron, Shell, Esso, City of Vancouver landfill,
+COE, Eagle Disposal, Kerrisdale, Southlands, Home Depot, Hunters, Vital Auto, London Drugs, University Landscapers PDF,
+Anthropic PDF, Amazon PDF, cab, Choices), each sent text-only and with the photo, read-only on production.
+- Same verdict on every receipt: 9 accepted both ways, 12 rejected both ways for the same reason. Items identical
+  apart from name spelling. Photo calls: 2–5× the input tokens (≈2,400–5,800 vs ≈350–2,300), similar time (2–7 s).
+- So the photo adds cost and no reads. The code stays deployed (dormant) behind `receipt_llm_image` = off.
+
+**What actually blocks the AI step:** the reference subtotal, not the reading. On 6 of the 12 rejections the AI's items
+sum exactly to the amount the owner approved, but the gate compares them with the rules' subtotal, which was misread:
+Shell #518 (rules 35.23, AI and owner 36.99), Southlands #481 (99.92 vs 104.92), Vital Auto #384 (1.52 vs 1,528.30),
+London Drugs #382 (610.55 vs 581.48), Amazon #428 (17.06 vs 15.99), Choices #483 (10.49 vs 9.99). Chevron #528/#524/#513
+fail by exactly the bottle deposits (the prompt excludes deposits; the printed subtotal includes them). The rest are
+real misses (City of Vancouver weight tickets, a cab receipt with no items, an Anthropic invoice).
+Next step to decide: let the gate accept items that add up to a subtotal *printed under its own label* in the OCR text
+(`receiptHeaderAmountLabelled()` already exists for headers), and count Chevron deposits as lines — a plan of its own.

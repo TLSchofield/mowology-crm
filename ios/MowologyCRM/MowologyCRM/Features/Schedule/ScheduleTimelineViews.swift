@@ -42,8 +42,10 @@ struct TimelineStopRow: View {
     let onSelect: () -> Void
     let onAction: (VisitQuickAction) -> Void
 
-    private let railWidth: CGFloat = 1.5
-    private let markerSize: CGFloat = 28
+    static let railWidth: CGFloat = 1.5
+    static let markerSize: CGFloat = 28
+    private var railWidth: CGFloat { Self.railWidth }
+    private var markerSize: CGFloat { Self.markerSize }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -62,11 +64,13 @@ struct TimelineStopRow: View {
     private var rail: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(isFirst ? Color.clear : (tenantAbove ? style.tenant : style.line))
+                // The first stop's line comes down from the chosen day (DayCarouselView, SPEC §13).
+                .fill(tenantAbove ? style.tenant : style.line)
                 .frame(width: railWidth, height: 4)
             marker
             Rectangle()
-                .fill(isLast ? Color.clear : (tenantBelow ? style.tenant : style.line))
+                // The last stop's rail carries on toward the Schedule bead (DayListView draws the rest; SPEC §13).
+                .fill(tenantBelow ? style.tenant : style.line)
                 .frame(width: railWidth)
                 .frame(maxHeight: .infinity)
         }
@@ -463,6 +467,16 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwSpineDemo") {
+            HeadSpineDemo(head: i + 1 < args.count ? args[i + 1] : "penny")
+                .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
+        } else if args.contains("-mwChaseDemo") {
+            PennyChaseDemo().itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwDupeDemo") {
+            PennyDupeDemo(variant: i + 1 < args.count ? args[i + 1] : "two")
+                .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
+        } else if args.contains("-mwReceiptZoomDemo") {
+            ReceiptZoomDemo().itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwTimelineDemo") {
             let mode = i + 1 < args.count ? args[i + 1] : "day"
             let field = args.contains("-mwTimelineField")
@@ -473,6 +487,74 @@ struct ScheduleTimelineDemoOverlay: View {
         #endif
     }
 }
+
+#if DEBUG
+/// `-mwChaseDemo`: Penny's missing-receipt carousel with invented charges (no sign-in, no client data).
+private struct PennyChaseDemo: View {
+    private struct DemoAPI: PennyChaseAPI {
+        func mine() async throws -> PennyChaseMineResponse {
+            let json = #"{"ok":true,"ready":true,"count":4,"total":222.19,"items":[ {"id":3,"ask":"Hi Tim — CHV43073 Marine charged $7.01 on Oct 7. Do you have the receipt?","amount":7.01,"date":"2026-10-07","vendor":"Chevron"}, {"id":1,"ask":"Hi Tim — Pointofsale(sqchampionlawnmowe) charged $147.84 on Oct 22. Do you have the receipt?","amount":147.84,"date":"2026-10-22","vendor":"Champion"}, {"id":4,"ask":"Hi Tim — Choices West 16TH charged $8.99 on Sep 30. Do you have the receipt?","amount":8.99,"date":"2026-09-30","vendor":"Choices"}, {"id":2,"ask":"Hi Tim — Preauthorizedpayment(ifspremiumfin) charged $58.35 on Oct 19. Do you have the receipt?","amount":58.35,"date":"2026-10-19","vendor":"IFS"}]}"#
+            return try JSONDecoder().decode(PennyChaseMineResponse.self, from: Data(json.utf8))
+        }
+        func recent(itemId: Int) async throws -> PennyChaseRecentResponse { throw URLError(.notConnectedToInternet) }
+        func admin() async throws -> PennyChaseAdminResponse { throw URLError(.notConnectedToInternet) }
+        func send(_ body: [String: Any]) async throws -> PennyChaseActionResponse { throw URLError(.notConnectedToInternet) }
+    }
+    @StateObject private var vm = PennyChaseViewModel(api: DemoAPI())
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section { PennyCrewChaseCard(vm: vm, onSnap: {}) }
+            }
+            .navigationTitle("Receipts")
+            .task { await vm.loadMine() }
+        }
+    }
+}
+#endif
+
+#if DEBUG
+/// `-mwReceiptZoomDemo`: an invented receipt pinned as on the review sheet, over sample fields (no sign-in, no client data).
+private struct ReceiptZoomDemo: View {
+    private static let receipt: UIImage = {
+        let size = CGSize(width: 900, height: 2400)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            UIColor(white: 0.97, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            let font = UIFont.monospacedSystemFont(ofSize: 34, weight: .regular)
+            let rows = ["CHEVRON #20145", "3250 MACDONALD ST", "2026-11-02 14:31", "", "COFFEE LG           2.61",
+                        "EGG SANDWICH        6.49", "WASHER FLUID 4L     7.99", "2 Deposit           0.20", "",
+                        "SUBTOTAL           17.29", "GST 5%              0.86", "TOTAL              18.15", "",
+                        "DEBIT              18.15", "APPROVED 239870"]
+            for (i, row) in rows.enumerated() {
+                (row as NSString).draw(at: CGPoint(x: 60, y: 80 + CGFloat(i) * 56),
+                                       withAttributes: [.font: font, .foregroundColor: UIColor(white: 0.12, alpha: 1)])
+            }
+        }
+    }()
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ReceiptZoomView(image: Self.receipt)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: UIScreen.main.bounds.height * 0.4)
+                    .background(Color(white: 0.9))
+                    .overlay(alignment: .bottom) { Divider() }
+                Form {
+                    Section { LabeledContent("Total", value: "$18.15"); LabeledContent("Subtotal", value: "$17.29"); LabeledContent("GST", value: "$0.86") }
+                    Section { LabeledContent("Vendor", value: "Chevron"); LabeledContent("Date", value: "Nov 2, 2026") }
+                }
+            }
+            .navigationTitle("Review Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+#endif
 
 #if DEBUG
 private struct ScheduleTimelineDemo: View {
@@ -525,9 +607,21 @@ private struct ScheduleTimelineDemo: View {
     }
 
     var body: some View {
-        DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
-                    onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
+        if mode == "time" {   // `-mwTimelineDemo time`: the hour grid (the Schedule bead's Time view)
+            // With the day strip above and the Schedule bead's slot, to see the axis meet the chosen day.
+            VStack(spacing: 0) {
+                DayCarouselView(selectedDate: .constant(Date()), weekDays: [], showsLine: true)
+                DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
+                                                          Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
+                                isLoading: false, isToday: true, onRefresh: {}, onSelect: { _ in })
+            }
+            .environment(\.itTabSlot, ItTabSlot(index: 0, count: 5))
             .background(style.page)
+        } else {
+            DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
+                        onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
+                .background(style.page)
+        }
     }
 }
 #endif
@@ -540,10 +634,11 @@ private struct MeniscusBarDemo: View {
     let variant: String
     @State private var selected: Int
     @State private var addOpen: Bool
+    @State private var demoDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
 
     init(variant: String) {
         self.variant = variant
-        _selected = State(initialValue: variant == "receipts" ? 3 : 0)
+        _selected = State(initialValue: variant == "receipts" ? 3 : variant == "addbead" ? 4 : 0)   // addbead: the bead parked on Add (the ×)
         _addOpen = State(initialValue: variant == "add")
     }
 
@@ -565,7 +660,11 @@ private struct MeniscusBarDemo: View {
 
     var body: some View {
         NavigationStack {
-            ScheduleTimelineDemo(mode: "day")
+            VStack(spacing: 0) {
+                DayCarouselView(selectedDate: $demoDate, weekDays: [], showsLine: true)
+                ScheduleTimelineDemo(mode: "day")
+            }
+                .environment(\.itTabSlot, ItTabSlot(index: 0, count: items.count))
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
@@ -575,6 +674,8 @@ private struct MeniscusBarDemo: View {
                 AddDial(slot: items.count - 1, slotCount: items.count, onPick: { _ in addOpen = false }, onClose: { addOpen = false })
             }
         }
+        // As MainTabView does: every scroll view below gets the bar's bottom margin (the day strip must ignore it).
+        .contentMargins(.bottom, MainTabView.barReserve, for: .scrollContent)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ItMeniscusBar(items: items, selected: Binding(
                 get: { addOpen ? items.count - 1 : selected },

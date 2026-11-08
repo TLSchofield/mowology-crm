@@ -20,7 +20,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Receipts/*
   - database/migrations/*
 metadata:
-  version: 1.3.3
+  version: 1.3.8
   created: 2026-10-11
   owner: Tim Schofield (Mowology) — tax facts to be confirmed by Steve Lim CPA (Sit Lim CPA)
 ---
@@ -104,6 +104,7 @@ Change the rule there and every screen and app gets it. The ones touched most of
 | Every expense change (create, edit, approve, lines, flags) | `ExpenseGate::apply()` in `app/Modules/Expenses/Services/ExpenseGate.php` | all writers |
 | Re-reading a saved receipt photo | `ExpenseRescanService::rescan()` | web + iPhone |
 | Recording a customer payment | `InvoiceReconciliationService::applyAllocation()` | bank, e-Transfer, Yardi, invoice screens |
+| Likely cheques (cheque deposit → open invoice; chip "Likely cheque"; first on Penny's card) | `InvoiceReconciliationService::likelyCheques()` / `chipText()` / `mayCarryFee()` | invoices list, Penny's card web + iPhone |
 | Tying a deposit to payments already recorded | `InvoiceReconciliationService::linkAllocationsToDeposit()` | Penny's bank card, backfill |
 | Stripe payout → invoices + fee (fee on 6800, never 6850 Meals) | `StripePayoutService` (Stripe is read-only) | import, income clean-up |
 | Could a card have been charged? (forget an intent / retry a charge) | `StripeErrorRules::canForgetIntent()` / `chargeOutcomeUnknown()` | customer pay page, CRM pay page, autopay |

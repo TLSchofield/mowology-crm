@@ -166,12 +166,16 @@ struct OttoMissedEntry: View {
     @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var model: OttoMissedReviewModel
     @ObservedObject private var router = NotificationRouter.shared
-    @State private var showing = false
+    @State private var ownShowing = false
+    /// Held by the parent when this entry can disappear (Otto's spine section hides at 0 waiting), so deciding the last
+    /// visit doesn't take the sheet with it.
+    var presented: Binding<Bool>? = nil
+    private var showing: Binding<Bool> { presented ?? $ownShowing }
 
     var body: some View {
         Group {
             if model.waiting > 0 {
-                Button { showing = true } label: {
+                Button { showing.wrappedValue = true } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "calendar.badge.exclamationmark")
                             .font(appStyle.font(.title3))
@@ -195,7 +199,7 @@ struct OttoMissedEntry: View {
         .task { if model.data == nil { await model.load() } }
         .onAppear { consumePush() }
         .onChange(of: router.pendingOttoReview) { _, _ in consumePush() }
-        .sheet(isPresented: $showing, onDismiss: { Task { await model.load() } }) {
+        .sheet(isPresented: showing, onDismiss: { Task { await model.load() } }) {
             OttoMissedReviewSheet(model: model)
         }
     }
@@ -203,7 +207,7 @@ struct OttoMissedEntry: View {
     private func consumePush() {
         guard router.pendingOttoReview else { return }
         router.pendingOttoReview = false
-        showing = true
+        showing.wrappedValue = true
         Task { await model.load() }
     }
 }

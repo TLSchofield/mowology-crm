@@ -1320,6 +1320,16 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                                 </div>
                             </div>
                         </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="pen-tool" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Design System</h6>
+                                    <p class="text-muted small mb-3">Ittai v1.2 and the Kaname centre line — tokens, rules, examples, for review.</p>
+                                    <a href="/crm/design-system_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

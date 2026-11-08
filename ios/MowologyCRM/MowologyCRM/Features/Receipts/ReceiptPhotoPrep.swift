@@ -39,10 +39,14 @@ enum ReceiptPhotoPrep {
     private static let workingMaxDim: CGFloat = 2600
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
-    static func prepare(_ photo: UIImage) -> Outcome {
+    /// `alreadyCropped`: a page from the document camera — its edges and angle are done; only sharpness is checked.
+    static func prepare(_ photo: UIImage, alreadyCropped: Bool = false) -> Outcome {
         let upright = uprightCopy(photo)
         guard let cg = upright.cgImage else {
             return Outcome(image: photo, cropped: false, fill: 1, skewDegrees: 0, sharpness: .greatestFiniteMagnitude)
+        }
+        if alreadyCropped {
+            return Outcome(image: upright, cropped: true, fill: 1, skewDegrees: 0, sharpness: sharpness(of: cg))
         }
         let w = CGFloat(cg.width), h = CGFloat(cg.height)
 

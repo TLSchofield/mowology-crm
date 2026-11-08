@@ -57,6 +57,9 @@ struct MainTabView: View {
     @State private var selectedTab = Tab.schedule
     /// The AddDial is open: the bead sits on Add (showing ×) while the screen underneath stays as it was.
     @State private var addOpen = false
+    /// The Schedule bead's view, and its long-press picker (Tim, 2026-11-07).
+    @ObservedObject private var scheduleViews = ScheduleViewStore.shared
+    @State private var showScheduleViews = false
     /// The bar tab the bead returns to from Time Clock, which has no slot of its own.
     @State private var lastBarTab = Tab.schedule
     @State private var keyboardUp = false
@@ -82,7 +85,15 @@ struct MainTabView: View {
     private var meniscusItems: [ItMeniscusItem] {
         barTabs.enumerated().map { index, tab in
             switch tab {
-            case .schedule: return ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
+            // The Schedule bead shows the day's view; a tap moves to the next (numbered → cards → time → map), a long
+            // press picks one (Tim, 2026-11-07). Not while Time Clock is showing: a tap there only goes back.
+            case .schedule:
+                return selectedTab == .time
+                    ? ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
+                    : ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"),
+                                     beadIcon: Image(systemName: scheduleViews.kind.icon),
+                                     beadLabel: "Show \(scheduleViews.kind.next.title.lowercased()) view",
+                                     longPressLabel: "Choose a view")
             case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: Image(uiImage: KanameTabIcon.image), iconScale: 1.35)
             case .search:   return ItMeniscusItem(id: index, title: "Search", icon: Image(systemName: "magnifyingglass"))
             // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05). Not while Time Clock
@@ -134,6 +145,8 @@ struct MainTabView: View {
                     .toolbar(.hidden, for: .tabBar)
                     // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
                     .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
+                    // Where this tab's bead sits: its screen's centre line runs into it (SPEC §13).
+                    .environment(\.itTabSlot, ItTabSlot(index: barTabs.firstIndex(of: tab) ?? 0, count: barTabs.count))
                     .environment(\.openTimeClock, { addOpen = false; selectedTab = .time })
                     // The veil blocks touches; this keeps VoiceOver out of the screen behind the Add dial too.
                     .accessibilityHidden(addOpen)
@@ -171,9 +184,21 @@ struct MainTabView: View {
                         else if tab == .receipts {
                             NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
                         }
+                        // Kaname again: back to his main screen from a head's (Tim, 2026-11-07: "no back bar needed if
+                        // pressing Kaname on the nav bar returns me to Kaname main screen").
+                        else if tab == .kaname {
+                            NotificationCenter.default.post(name: .mwKanameHome, object: nil)
+                        }
+                        else if tab == .schedule {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { scheduleViews.cycle() }
+                        }
                     },
                     onLongPress: { index in
                         if barTabs.indices.contains(index), barTabs[index] == .add { add(.job) }
+                        if barTabs.indices.contains(index), barTabs[index] == .schedule, selectedTab == .schedule {
+                            showScheduleViews = true
+                        }
                     })
             }
         }
@@ -185,6 +210,11 @@ struct MainTabView: View {
             await ClockChipStore.shared.refresh(authSession: authSession)
             if authSession.user?.isAdmin == true && ittaiDesignEnabled {
                 await readyBriefStore.refresh(authSession: authSession)
+            }
+        }
+        .confirmationDialog("Show the day as", isPresented: $showScheduleViews, titleVisibility: .visible) {
+            ForEach(ScheduleViewKind.allCases) { kind in
+                Button(kind == scheduleViews.kind ? "\(kind.title) (showing)" : kind.title) { scheduleViews.kind = kind }
             }
         }
         .sheet(item: $pullForward.offer, onDismiss: { pullForward.sheetDismissed() }) { offer in
@@ -432,9 +462,28 @@ extension EnvironmentValues {
     }
 }
 
+/// The bar slot of the tab a screen belongs to. The Kaname centre line belongs to the active tab (SPEC §13): a screen's
+/// line sits on its own bead's axis and runs into the bead at 12 o'clock (Schedule's timeline, Tim 2026-11-06).
+struct ItTabSlot: Equatable {
+    let index: Int
+    let count: Int
+    /// The bead's centre across a screen this wide (the bar spans the screen).
+    func axis(width: CGFloat) -> CGFloat { ItMeniscusGeometry.slotCentre(index, count: max(count, 1), width: width) }
+}
+
+private struct ItTabSlotKey: EnvironmentKey { static let defaultValue: ItTabSlot? = nil }
+
+extension EnvironmentValues {
+    var itTabSlot: ItTabSlot? {
+        get { self[ItTabSlotKey.self] }
+        set { self[ItTabSlotKey.self] = newValue }
+    }
+}
+
 extension Notification.Name {
     /// The Receipts bead was tapped while Receipts is showing: open the receipt camera (ReceiptsView).
     static let mwSnapReceipt = Notification.Name("ca.mowology.snapReceipt")
+    static let mwKanameHome = Notification.Name("ca.mowology.kanameHome")
     /// Job or Client was picked from the bar's Add dial: Schedule opens "Add a job" (userInfo `startWithNewClient`).
     static let mwAddFromBar = Notification.Name("ca.mowology.addFromBar")
 }

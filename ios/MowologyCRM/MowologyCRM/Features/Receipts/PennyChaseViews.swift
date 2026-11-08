@@ -309,6 +309,58 @@ struct PennyCrewChaseCard: View {
 
     @State private var alreadyFor: PennyChaseItem?
     @State private var noReceiptFor: PennyChaseItem?
+    /// The card in view (the carousel's scroll position); nil before the first swipe = the first card.
+    @State private var shownId: Int?
+    /// Where the card in view sat, so an answered charge hands over to the one now in its place.
+    @State private var shownIndex = 0
+
+    /// Oldest charge first: the one closest to being forgotten (and to the paper being lost).
+    private var oldestFirst: [PennyChaseItem] {
+        vm.items.sorted { ($0.date, $0.time ?? "", $0.id) < ($1.date, $1.time ?? "", $1.id) }
+    }
+
+    private var position: Int {
+        guard let id = shownId, let i = oldestFirst.firstIndex(where: { $0.id == id }) else { return 1 }
+        return i + 1
+    }
+
+    private func chaseCard(_ item: PennyChaseItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(PennyChaseViewModel.money(item.amount))
+                    .font(appStyle.font(.title3, weight: .semibold).monospacedDigit())
+                Spacer()
+                Text(PennyChaseViewModel.shortDate(item.date))
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+            }
+            Text(item.ask.isEmpty ? "\(item.vendor) · \(PennyChaseViewModel.money(item.amount))" : item.ask)
+                .font(appStyle.font(.subheadline))
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                Button("Snap it") { onSnap() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(appStyle.tenant)
+                Button("It's already in") {
+                    alreadyFor = item
+                    Task { await vm.loadRecent(for: item) }
+                }
+                .buttonStyle(.bordered)
+                Button("No receipt") { noReceiptFor = item }
+                    .buttonStyle(.borderless)
+                    .tint(appStyle.meta)
+            }
+            .font(appStyle.font(.caption, weight: .semibold))
+            .controlSize(appStyle.isEnabled ? .large : .small)
+            .disabled(vm.busy != nil)
+        }
+        .padding(12)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        .accessibilityElement(children: .contain)
+    }
 
     var body: some View {
         if !vm.items.isEmpty || vm.message != nil {
@@ -328,29 +380,37 @@ struct PennyCrewChaseCard: View {
                         }
                     }
                 }
-                ForEach(vm.items) { item in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(item.ask.isEmpty ? "\(item.vendor) · \(PennyChaseViewModel.money(item.amount))" : item.ask)
-                            .font(appStyle.font(.subheadline))
-                            .fixedSize(horizontal: false, vertical: true)
-                        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
-                            Button("Snap it") { onSnap() }
-                                .buttonStyle(.borderedProminent)
-                                .tint(appStyle.tenant)
-                            Button("It's already in") {
-                                alreadyFor = item
-                                Task { await vm.loadRecent(for: item) }
+                // One charge at a time, oldest first, swiped sideways (Tim, 2026-11-06: 30 stacked cards were a wall).
+                if !vm.items.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        // Not lazy: every card is laid out, so the row takes the tallest card's height and does not
+                        // jump while swiping (30 cards is cheap).
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(Array(oldestFirst.enumerated()), id: \.element.id) { index, item in
+                                chaseCard(item)
+                                    .accessibilityLabel("Charge \(index + 1) of \(vm.items.count)")
+                                    .containerRelativeFrame(.horizontal)
+                                    .id(item.id)
                             }
-                            .buttonStyle(.bordered)
-                            Button("No receipt") { noReceiptFor = item }
-                                .buttonStyle(.borderless)
-                                .tint(appStyle.meta)
                         }
-                        .font(appStyle.font(.caption, weight: .semibold))
-                        .controlSize(appStyle.isEnabled ? .large : .small)
-                        .disabled(vm.busy != nil)
+                        .scrollTargetLayout()
                     }
-                    if item.id != vm.items.last?.id { Divider() }
+                    .scrollTargetBehavior(.viewAligned)
+                    .scrollPosition(id: $shownId)
+                    // An answered charge leaves the list: show its neighbour, so the counter stays true.
+                    .onChange(of: shownId) { _, id in
+                        if let id, let i = oldestFirst.firstIndex(where: { $0.id == id }) { shownIndex = i }
+                    }
+                    .onChange(of: vm.items.map(\.id)) { _, ids in
+                        guard let id = shownId, !ids.contains(id) else { return }
+                        let ordered = oldestFirst
+                        shownId = ordered.isEmpty ? nil : ordered[min(shownIndex, ordered.count - 1)].id
+                    }
+                    Text("\(position) of \(vm.items.count) · oldest first · swipe for the next")
+                        .font(appStyle.font(.caption2))
+                        .foregroundStyle(appStyle.meta)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityHidden(true)
                 }
                 if let m = vm.message {
                     Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? .red : appStyle.tenant)
@@ -441,12 +501,20 @@ struct PennyAlreadyInSheet: View {
 struct PennyChaseAdminSection: View {
     @Environment(\.itAppStyle) private var appStyle
     @ObservedObject var vm: PennyChaseViewModel
+    /// On Penny's spine the section circle names it and opens it, so the list shows without its own header.
+    var inSpine = false
     @Environment(\.openURL) private var openURL
     @State private var expanded = false
 
     var body: some View {
         if !vm.adminItems.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
+                if inSpine {
+                    if !vm.adminSummary.isEmpty {
+                        Text(vm.adminSummary).font(appStyle.font(.subheadline, weight: .semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
                 Button {
                     withAnimation { expanded.toggle() }
                 } label: {
@@ -460,7 +528,8 @@ struct PennyChaseAdminSection: View {
                     }
                 }
                 .buttonStyle(.plain)
-                if expanded {
+                }
+                if expanded || inSpine {
                     ForEach(vm.adminItems.prefix(15)) { item in
                         HStack(alignment: .top, spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -493,9 +562,9 @@ struct PennyChaseAdminSection: View {
                     Text(m).font(appStyle.font(.footnote)).foregroundStyle(vm.messageIsError ? .red : appStyle.tenant)
                 }
             }
-            .padding(12)
+            .padding(inSpine ? 0 : 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+            .background(inSpine ? Color.clear : appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 }

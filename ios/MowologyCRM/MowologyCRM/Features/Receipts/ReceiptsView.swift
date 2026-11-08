@@ -41,6 +41,10 @@ struct ReceiptsView: View {
     @State private var retakePending = false
     /// A receipt photo that failed the edge/sharpness check, held while the crew picks Retake or Use this photo.
     @State private var weakCapture: Data?
+    /// The text read already made of the held photo, so "Use this photo" does not read it again.
+    @State private var weakCaptureRead: DeviceTextScanner.Prefetched?
+    /// Between the shot and the upload (crop + the phone's text read, up to ~6 s): the overlay shows, a second snap waits.
+    @State private var isPreparingCapture = false
     @State private var weakCaptureReason = ""
     @State private var showWeakCaptureHint = false
     /// True from the camera opening until its cover has fully gone: an alert raised while it is still leaving is dropped.
@@ -121,40 +125,15 @@ struct ReceiptsView: View {
             cameraOnScreen = false
             if weakCapture != nil { showWeakCaptureHint = true }
         }) {
-            CameraPicker(
-                onCapture: { image in
-                    showCamera = false
-                    retakePending = false
-                    let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
-                    Task {
-                        // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread.
-                        // A receipt is cropped to its edges and straightened first (labels are left as shot).
-                        let (compressed, prep): (Data, ReceiptPhotoPrep.Outcome?) = await Task.detached(priority: .userInitiated) {
-                            guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
-                            let prep = ReceiptPhotoPrep.prepare(image)
-                            return (ReceiptsView.resizeAndCompress(prep.image), prep)
-                        }.value
-                        guard !compressed.isEmpty else { return }
-                        if let prep, prep.needsHint {
-                            weakCaptureReason = Self.weakCaptureMessage(prep)
-                            weakCapture = compressed
-                            // Shown now if the camera has gone, otherwise from the cover's onDismiss.
-                            if !cameraOnScreen { showWeakCaptureHint = true }
-                            return
-                        }
-                        await handleCapture(compressed, asLabel: asLabel)
-                    }
-                },
-                onCancel: {
-                    showCamera = false
-                    // Retake abandoned: the uploaded receipt (intake + photo) was kept, so reopen it.
-                    if retakePending {
-                        retakePending = false
-                        if viewModel.intakeResponse != nil { showReview = true }
-                    }
-                }
-            )
-            .ignoresSafeArea()
+            // Receipts: Apple's document camera with live edge guides and auto-capture (it hands back the page
+            // already cropped). Labels, and phones without it (the simulator too), keep the system camera.
+            if !labelMode && DocumentCameraPicker.isSupported {
+                DocumentCameraPicker(onCapture: { cameraCaptured($0, scanned: true) }, onCancel: cameraCancelled)
+                    .ignoresSafeArea()
+            } else {
+                CameraPicker(onCapture: { cameraCaptured($0, scanned: false) }, onCancel: cameraCancelled)
+                    .ignoresSafeArea()
+            }
         }
         // Library fallback (PhotosPicker sheet)
         .sheet(isPresented: $showLibrary) {
@@ -198,7 +177,7 @@ struct ReceiptsView: View {
         }
         // Upload spinner overlay
         .overlay {
-            if viewModel.isUploading {
+            if viewModel.isUploading || isPreparingCapture {
                 uploadOverlay
             }
         }
@@ -209,6 +188,7 @@ struct ReceiptsView: View {
         .alert(ReceiptPhotoPrep.hintText, isPresented: $showWeakCaptureHint) {
             Button("Retake") {
                 weakCapture = nil
+                weakCaptureRead = nil
                 impact.impactOccurred()
                 // Let the alert finish leaving before the camera cover is presented.
                 Task {
@@ -218,8 +198,10 @@ struct ReceiptsView: View {
             }
             Button("Use this photo") {
                 guard let data = weakCapture else { return }
+                let read = weakCaptureRead
                 weakCapture = nil
-                Task { await handleCapture(data, asLabel: false) }
+                weakCaptureRead = nil
+                Task { await handleCapture(data, asLabel: false, deviceRead: read) }
             }
         } message: {
             Text(weakCaptureReason)
@@ -278,6 +260,73 @@ struct ReceiptsView: View {
         }
     }
 
+    // MARK: - Camera result
+
+    /// A photo from either camera. `scanned`: the document camera already cropped and straightened it.
+    private func cameraCaptured(_ image: UIImage, scanned: Bool) {
+        showCamera = false
+        retakePending = false
+        let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
+        isPreparingCapture = true
+        Task {
+            defer { isPreparingCapture = false }
+            // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread.
+            // A receipt is cropped to its edges and straightened first (labels are left as shot; a scan is already cropped).
+            let (compressed, prep): (Data, ReceiptPhotoPrep.Outcome?) = await Task.detached(priority: .userInitiated) {
+                guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
+                let prep = ReceiptPhotoPrep.prepare(image, alreadyCropped: scanned)
+                return (ReceiptsView.resizeAndCompress(prep.image), prep)
+            }.value
+            guard !compressed.isEmpty else { return }
+            if let prep, prep.needsHint {
+                raiseWeakCapture(compressed, reason: Self.weakCaptureMessage(prep))
+                return
+            }
+            // Can the print be read? The phone's own text read (needed for the upload anyway) decides: a motion-blurred
+            // auto-shot scored as sharp as a good photo on every pixel measure, but read 30 garbled characters where good
+            // photos read ~550 (Tim's iPhone, 2026-11-06, media 1622). The same read then goes with the upload.
+            var deviceRead: DeviceTextScanner.Prefetched? = nil
+            if !asLabel {
+                let read = DeviceTextScanner.Prefetched(compressed)
+                if let result = await read.task.value, !Self.readLooksLikeAReceipt(result.text) {
+                    weakCaptureRead = read
+                    raiseWeakCapture(compressed, reason: "The phone couldn't read the print — it looks blurred. Hold the phone steady "
+                                     + "over the receipt until it takes the picture (or tap Auto at the top to take it yourself).")
+                    return
+                }
+                deviceRead = read
+            }
+            await handleCapture(compressed, asLabel: asLabel, deviceRead: deviceRead)
+        }
+    }
+
+    /// A weak photo: held while the crew picks Retake or Use this photo.
+    private func raiseWeakCapture(_ data: Data, reason: String) {
+        weakCaptureReason = reason
+        weakCapture = data
+        // Shown now if the camera has gone, otherwise from the cover's onDismiss.
+        if !cameraOnScreen { showWeakCaptureHint = true }
+    }
+
+    /// The phone read enough of the photo to be a receipt: some text and at least one money amount. Pure.
+    /// Plenty of print read = a readable photo, even with no printed price: handwritten receipts (Champion's repair-order
+    /// pads) print only the form and the amounts are in ink (Tim, 2026-11-06: "because it's handwritten"). The blurred
+    /// shot this guards against read ~30 characters; good photos ~550, a handwritten Champion form ~400.
+    nonisolated static func readLooksLikeAReceipt(_ text: String) -> Bool {
+        let chars = text.filter { !$0.isWhitespace }.count
+        if chars >= 150 { return true }
+        return chars >= 60 && text.range(of: #"\d[.,]\d{2}\b"#, options: .regularExpression) != nil
+    }
+
+    private func cameraCancelled() {
+        showCamera = false
+        // Retake abandoned: the uploaded receipt (intake + photo) was kept, so reopen it.
+        if retakePending {
+            retakePending = false
+            if viewModel.intakeResponse != nil { showReview = true }
+        }
+    }
+
     // MARK: - Capture handler
 
     private static func captureFix() async -> CLLocation? {
@@ -296,12 +345,13 @@ struct ReceiptsView: View {
 
     /// `asLabel` is fixed when the photo is taken (not read from `labelMode` later): a second snap started while
     /// this one compresses must not turn this receipt into a label or the other way round.
-    private func handleCapture(_ compressed: Data, asLabel: Bool) async {
+    /// `deviceRead`: a text read already made of this photo (the readability check), reused for the upload.
+    private func handleCapture(_ compressed: Data, asLabel: Bool, deviceRead prefetched: DeviceTextScanner.Prefetched? = nil) async {
         // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
         // The phone's own text read starts now and runs while the fix settles; upload waits for both.
-        let deviceRead: DeviceTextScanner.Prefetched? = asLabel ? nil : DeviceTextScanner.Prefetched(compressed)
+        let deviceRead: DeviceTextScanner.Prefetched? = asLabel ? nil : (prefetched ?? DeviceTextScanner.Prefetched(compressed))
         defer { deviceRead?.cancel() }   // owned by this capture; harmless once the upload has used it
         let loc = await Self.captureFix() ?? locationManager.location
         if asLabel {
@@ -415,6 +465,7 @@ struct ReceiptsView: View {
 
     /// Opens the camera for a receipt, or for a label (a product bag or a machine's nameplate; never an expense).
     private func snap(label: Bool) {
+        guard !isPreparingCapture else { return }   // the last shot is still being read
         isSelectMode = false
         selectedIds.removeAll()
         labelMode = label
@@ -637,7 +688,11 @@ struct ReceiptsView: View {
         let target = scale < 1.0
             ? CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
             : size
-        let renderer = UIGraphicsImageRenderer(size: target)
+        // Scale 1: the default format draws at the screen's scale (3× on an iPhone), so a "1920" photo went up as
+        // 5760 px squeezed under 1.5 MB — harder JPEG compression, softer print for the reader (2026-11-06, #533).
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
         let resized  = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
         // Try 78% first (Capacitor default), fall back if still over 1.5 MB
         if let d = resized.jpegData(compressionQuality: 0.78), d.count <= 1_500_000 { return d }

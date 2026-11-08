@@ -26,7 +26,7 @@ final class AgentRegistry
             'yui' => [
                 'name' => 'Yui', 'role' => 'Head of Customer Relations',
                 'responsibilities' => ['Incoming mail and message routing', 'Customer history and follow-ups', 'Reply drafts', 'Overdue-account contact'],
-                'crons' => ['icloud_inbox_poll', 'icloud_tidy_keep', 'clues_daily'],
+                'crons' => ['icloud_inbox_poll', 'icloud_tidy_keep', 'clues_daily', 'contact_roster_sync'],
             ],
             'penny' => [
                 'name' => 'Penny', 'role' => 'Head of Finance',

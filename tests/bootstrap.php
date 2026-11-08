@@ -336,6 +336,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDuplicateCleanup
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StripePayoutService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineMoveService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/IncomeCleanupService.php';
+// Payments reconciled against invoices — CRM + Jobber, one matcher (migration 1260)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PaymentMatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CreditCardPayableAuditService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankTransferDirectionRepair.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitService.php';
@@ -368,6 +370,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ClosedYearReceiptTrace.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseCreateGuard.php';
@@ -401,6 +404,7 @@ require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRosterSync.php';
 
 // Contracts
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractService.php';
@@ -415,6 +419,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledWorkFinder.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceCrewTime.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRefundService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceMoveService.php';
 
 // CMS
 require_once __DIR__ . '/../app/Modules/CMS/Services/ArticleService.php';

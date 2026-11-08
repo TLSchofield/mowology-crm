@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ScheduleView: View {
+    /// Phones get the day carousel (1.3.101); iPad keeps the week strip.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.itAppStyle) private var appStyle
 
     @EnvironmentObject private var authSession: AuthSession
@@ -17,7 +19,8 @@ struct ScheduleView: View {
     @State private var ottoSuggestion: OttoSuggestion?
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
-    @State private var viewMode       = ViewMode.list
+    /// Which view the day shows: chosen on the Schedule bead (tap = next, long press = pick), remembered.
+    @ObservedObject private var views = ScheduleViewStore.shared
     @State private var isOttoExpanded = false
 
     /// Navigation path — owned here so a tapped notification can open a stop directly.
@@ -34,8 +37,6 @@ struct ScheduleView: View {
 
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
     private let impactMedium = UIImpactFeedbackGenerator(style: .medium)
-
-    private enum ViewMode { case list, map }
 
     /// Kept inside the navigation content so the calendar toolbar owns its safe area.
     private func ottoPrompt(_ suggestion: OttoSuggestion) -> some View {
@@ -88,7 +89,17 @@ struct ScheduleView: View {
                     ottoPrompt(suggestion)
                 }
 
-                // MARK: Week Strip
+                // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14). Above the days since 1.3.100 (Tim,
+                // 2026-11-06): the days sit straight on the list, so the centre line meets them with nothing between.
+                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
+                    scopeBar
+                }
+
+                // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
+                if horizontalSizeClass == .compact {
+                    DayCarouselView(selectedDate: weekStripBinding, weekDays: viewModel.weekDays,
+                                    showsLine: (views.kind == .numbered && viewModel.timelineInput != nil) || views.kind == .time)
+                } else {
                 WeekStripView(
                     selectedDate: weekStripBinding,
                     weekDays: viewModel.weekDays
@@ -103,14 +114,19 @@ struct ScheduleView: View {
                             Task { await viewModel.advanceWeek(by: dx < 0 ? 1 : -1) }
                         }
                 )
-
-                // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14)
-                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
-                    scopeBar
                 }
 
+
                 // MARK: Content
-                if viewMode == .list {
+                if views.kind == .time {
+                    DayTimeGridView(
+                        stops:     viewModel.stops,
+                        isLoading: viewModel.isLoading,
+                        isToday:   Calendar.current.isDateInToday(viewModel.selectedDate),
+                        onRefresh: { await viewModel.refresh() },
+                        onSelect:  { pendingActions[$0.id] = nil; path.append($0) }
+                    )
+                } else if views.kind != .map {
                     DayListView(
                         stops:        viewModel.stops,
                         appointments: viewModel.appointments,
@@ -123,7 +139,8 @@ struct ScheduleView: View {
                         onMove:       { movingStop = $0 },
                         onSelect:     { pendingActions[$0.id] = nil; path.append($0) },
                         onAction:     { stop, action in pendingActions[stop.id] = action; path.append(stop) },
-                        timeline:     viewModel.timelineInput
+                        timeline:     viewModel.timelineInput,
+                        layout:       views.kind
                     )
                 } else {
                     DayMapView(
@@ -240,7 +257,6 @@ struct ScheduleView: View {
         guard let route, !viewModel.quizRequired else { return }
         notificationRouter.pendingRoute = nil
         showDatePicker = false
-        viewMode       = .list
         pendingActions = [:]          // a notification only opens the visit; no card action rides along
         if let stop = await viewModel.resolve(route) {
             path = [stop]
@@ -300,25 +316,42 @@ struct ScheduleView: View {
                 .frame(maxWidth: 200)
             }
             if !viewModel.jobTypes.isEmpty {
+                // A checklist: tick as many job types as you like; the menu stays open while you tick.
                 Menu {
-                    Button("All job types") { Task { await viewModel.setJobType("") } }
+                    Toggle("All job types", isOn: Binding(
+                        get: { viewModel.selectedJobTypes.isEmpty },
+                        set: { on in if on { Task { await viewModel.setJobType("") } } }
+                    ))
+                    Divider()
                     ForEach(viewModel.jobTypes) { t in
-                        Button(t.label) { Task { await viewModel.setJobType(t.value) } }
+                        Toggle(t.label, isOn: Binding(
+                            get: { viewModel.selectedJobTypes.contains(t.value) },
+                            set: { _ in Task { await viewModel.toggleJobType(t.value) } }
+                        ))
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(viewModel.jobTypes.first(where: { $0.value == viewModel.jobType })?.label ?? "All job types")
+                        Text(jobTypeFilterLabel)
                             .lineLimit(1)
                         Image(systemName: "chevron.down").font(appStyle.font(.caption2))
                     }
                     .font(appStyle.font(.subheadline))
                     .frame(minHeight: 44)
                 }
+                .menuActionDismissBehavior(.disabled)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
+    }
+
+    /// "All job types", the one picked, or "Lawn Care +2".
+    private var jobTypeFilterLabel: String {
+        let picked = viewModel.selectedJobTypes
+        let labels = picked.compactMap { v in viewModel.jobTypes.first(where: { $0.value == v })?.label }
+        guard let first = labels.first else { return "All job types" }
+        return labels.count == 1 ? first : "\(first) +\(labels.count - 1)"
     }
 
     private var weekStripBinding: Binding<Date> {
@@ -363,15 +396,7 @@ struct ScheduleView: View {
         // Add moved to the bar's Add slot (Tim, 2026-11-05); the top right shows the shift instead.
         ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
 
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                impactLight.impactOccurred()
-                viewMode = viewMode == .list ? .map : .list
-            } label: {
-                Image(systemName: viewMode == .list ? "map" : "list.bullet")
-                    .foregroundStyle(appStyle.tenant)
-            }
-        }
+        // The map / list switch moved onto the Schedule bead (Tim, 2026-11-07), which now cycles all four views.
 
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {

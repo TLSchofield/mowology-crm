@@ -69,6 +69,9 @@ struct ReceiptReviewView: View {
     @State private var showSavedDialog = false
     @State private var savedMessage = ""
     @State private var showImageFull = false
+    @State private var decodedImage: UIImage?
+    /// The keyboard is up: the pinned receipt shrinks so the field being typed stays in view on a small phone.
+    @State private var keyboardUp = false
     @State private var showRetakeConfirm = false
 
     private enum Field: Hashable { case vendor, amount, gst, pst, total, jobSearch, description }
@@ -132,10 +135,19 @@ struct ReceiptReviewView: View {
     }
 
     private var totalValue: Double { ReceiptNumber.parse(total) ?? 0 }
-    private var canSave: Bool { totalValue > 0 && !viewModel.isSaving }
+    // Submit stays tappable; with no total it says why and goes to the field (Tim, 2026-11-06: "it wouldn't let me but
+    // didn't tell me why"). The total stays required: drafts with no total would all pair up as duplicates (same $0.00).
+    private var canSave: Bool { !viewModel.isSaving }
+    @State private var totalMissing = false
 
     var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            // The receipt stays in view while the fields scroll beneath it, so each amount can be checked against the
+            // paper (Tim, 2026-11-06). Opens zoomed to the receipt's width; pinch, drag, double-tap.
+            if let ui = capturedImage {
+                pinnedReceipt(ui)
+            }
             Form {
                 unreadSection
                 receiptImageSection
@@ -154,6 +166,7 @@ struct ReceiptReviewView: View {
                     }
                     .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
+            }
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
@@ -180,7 +193,12 @@ struct ReceiptReviewView: View {
             }
         }
         .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(viewModel.isSaving)
+        // Never by a swipe: a downward drag on the pinned receipt (at its top when it opens) could close the sheet and
+        // lose the review. Cancel stays.
+        .interactiveDismissDisabled(true)
+        .task(id: imageData) { decodedImage = imageData.flatMap { UIImage(data: $0) } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         .task {
             await viewModel.loadCategories()
             await runDuplicateCheck()
@@ -192,7 +210,7 @@ struct ReceiptReviewView: View {
         .onChange(of: vendorName) { _, new in handleVendorTyped(new) }
         .onChange(of: jobSearch)  { _, new in handleJobTyped(new) }
         .fullScreenCover(isPresented: $showImageFull) {
-            if let data = imageData, let ui = UIImage(data: data) {
+            if let ui = capturedImage {
                 ZoomableCapturedImageView(image: ui)
             }
         }
@@ -248,30 +266,16 @@ struct ReceiptReviewView: View {
 
     private var receiptImageSection: some View {
         Section {
-            HStack {
-                Spacer()
-                if let data = imageData, let ui = UIImage(data: data) {
-                    Image(uiImage: ui)
-                        .resizable().scaledToFit()
-                        .frame(maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-                        .overlay(alignment: .bottomTrailing) {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(appStyle.font(.caption, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(6)
-                                .background(.black.opacity(0.55), in: Circle())
-                                .padding(8)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { showImageFull = true }
-                } else {
+            // The photo itself is pinned above the form (pinnedReceipt); only the no-photo placeholder sits here.
+            if capturedImage == nil {
+                HStack {
+                    Spacer()
                     RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .fill(appStyle.sunk)
                         .frame(height: 120)
                         .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
+                    Spacer()
                 }
-                Spacer()
             }
             HStack(spacing: 8) {
                 ocrBadge
@@ -283,6 +287,33 @@ struct ReceiptReviewView: View {
             }
         }
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    /// The captured photo, decoded once (`.task(id: imageData)`): a fresh UIImage on every render made the zoom view
+    /// re-fit and lose the user's place on each keystroke (review 2026-11-06).
+    private var capturedImage: UIImage? { decodedImage }
+
+    /// The receipt pinned above the form: about 40% of the screen, zoomed to its width; the corner button opens it full screen.
+    private func pinnedReceipt(_ ui: UIImage) -> some View {
+        ReceiptZoomView(image: ui)
+            .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
+            .frame(maxWidth: .infinity)
+            .frame(height: UIScreen.main.bounds.height * (keyboardUp ? 0.2 : 0.4))
+            .animation(.easeOut(duration: 0.2), value: keyboardUp)
+            .background(appStyle.sunk)
+            .overlay(alignment: .bottomTrailing) {
+                Button { showImageFull = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(appStyle.font(.caption, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .padding(10)
+                .accessibilityLabel("Show the receipt full screen")
+            }
+            .overlay(alignment: .bottom) { Divider() }
+            .accessibilityElement(children: .contain)   // keeps the full-screen button its own element
     }
 
     private var readBadgeText: String {
@@ -454,6 +485,13 @@ struct ReceiptReviewView: View {
             amountRow(label: "Subtotal", value: $amount, field: .amount)
             amountRow(label: "GST",      value: $gst,    field: .gst)
             amountRow(label: "PST",      value: $pst,    field: .pst)
+        } header: {
+            if totalMissing && totalValue <= 0 {
+                Label("Type the total from the receipt to submit. The phone couldn't read it.", systemImage: "exclamationmark.circle.fill")
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.blocked)
+                    .textCase(nil)
+            }
         } footer: {
             Text("Editing subtotal or tax recalculates the total; editing the total recalculates the subtotal.")
         }
@@ -785,6 +823,12 @@ struct ReceiptReviewView: View {
     // MARK: - Save
 
     private func attemptSave(andSend: Bool) async {
+        guard totalValue > 0 else {
+            withAnimation { totalMissing = true }
+            focus = .total
+            return
+        }
+        totalMissing = false
         focus = nil
         if !duplicatesAcknowledged {
             await runDuplicateCheck()
@@ -876,39 +920,24 @@ struct ReceiptReviewView: View {
 // MARK: - Full-screen captured image
 
 /// Pinch/pan viewer for the just-captured photo (a local UIImage, not a URL —
-/// ReceiptDetailView's ZoomableReceiptView handles the server-hosted case).
+/// ReceiptDetailView's ReceiptZoomView handles the server-hosted case).
 private struct ZoomableCapturedImageView: View {
     @Environment(\.itAppStyle) private var appStyle
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
-    @State private var scale: CGFloat = 1
-    @State private var lastScale: CGFloat = 1
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .frame(width: UIScreen.main.bounds.width * scale,
-                           height: UIScreen.main.bounds.height * scale)
-            }
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { v in scale = max(1, min(5, lastScale * v)) }
-                    .onEnded { _ in lastScale = scale }
-            )
-            .onTapGesture(count: 2) {
-                withAnimation { scale = scale > 1 ? 1 : 2.5; lastScale = scale }
-            }
+            // Same view as the pinned receipt: opens at the receipt's width, pinch / drag / double-tap.
+            ReceiptZoomView(image: image).ignoresSafeArea(edges: .bottom)
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(appStyle.font(.title))
                     .foregroundStyle(.white.opacity(0.9))
                     .padding()
             }
+            .accessibilityLabel("Close")
         }
     }
 }

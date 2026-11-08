@@ -15,6 +15,8 @@ happened, the signature, the rule. Start with the one-line rules below; open the
 - **2026-10-13 — Penny read the receipt right, but only her desktop card showed it (Chevron #424)** — Whatever Penny knows about a receipt is shown wherever it is opened; an accepted correction teaches the reader too.
 - **2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)** — An amount that cannot be true is a failed read, never a value; a re-read must be able to replace it.
 
+- **Champion's invoice number was never read (2026-11-06)** — its numbered REPAIR ORDER pads print the number beside the shop's name and OCR glues it on ("CHAMPION LAWN MOWER SALES AND SERVICE 15826"), with no label; `ReceiptFactsService::parse()` now takes it on repair-order forms only (a trailing number elsewhere is a store number). Three "nothing printed proves it" pairs became "same invoice".
+- **A duplicate merge taught Penny things nobody said (2026-11-06)** — carrying a copy's job/category into the kept receipt went through the gate as a person's override (`expense_gate:duplicates` lessons), and an Undo left the merge's "she was right" lesson behind; `duplicates` is now a `LESSON_SKIP_SOURCES` source and `unmerge()` retracts the agreement.
 - **Approved twin receipts were never re-checked (2026-10-29)** — `TwinFinder::find()` plus a daily `TwinCheckService` now ask about approved receipts that copy a purchase already linked to a bank line; Penny's own "different" call from printed facts is not final.
 ## Bank statements and balancing
 
@@ -844,3 +846,41 @@ bottle-deposit items the reader names "Deposit" on four Chevron receipts; treati
 dropped a taxi's fare line ("Amount 21.75"). **Signature:** a replay where a change fixes many receipts and quietly
 breaks a few. **Rule:** every reader change is replayed on the stored receipts (gains AND breaks) before it ships;
 labels match only with their colon (`Deposit:`), and a heading word is dropped only when it can't be an item name.
+
+### 2026-11-06 — The AI read the items right and was thrown away: the gate's subtotal was the rules' misread
+Backtest of the line-item AI step on 21 receipts whose items don't add up: on 6 of the 12 rejections the AI's items summed
+exactly to the amount Tim approved (Shell #518 36.99, Vital Auto #384 1,528.30, London Drugs #382 581.48…), but
+`validateLlmLineItems()` compares them with `parseReceiptText()`'s subtotal, which was wrong (35.23, 1.52, 610.55). Chevron
+fails by exactly its bottle deposits (excluded by the prompt, included in the printed subtotal). Sending the photo changed
+no verdict. **Rule:** before blaming the reader for a `sum_mismatch`, check the reference subtotal against the printed one.
+
+### 2026-11-06 — GST invented on GST-free receipts (City of Vancouver landfill)
+The parser guessed "5% GST inside the total" for any receipt with no GST line: Tim's $41.00 landfill ticket read $39.05 + $1.95
+GST, and approved entry #63 claims $2.38 GST on a $50 ticket. Landfill tipping fees carry no GST. **Rule:** a receipt that
+names no tax anywhere charged none (`receiptPrintsNoTax()`); the 5% guess runs only when the receipt names a tax.
+
+
+## 2026-11-06 — day/month order: a Home Depot 12/02/25 read as 2 December
+`extractDate()` assumed month first for any a/b/yy with both ≤ 12. Home Depot (Canada) prints day first (26/02/26,
+19/02/26); receipt #535 "12/02/25" was 12 Feb 2025, and #260 "06/05/25" (6 May) had been approved as 5 June.
+**Rule now:** `receiptDateOrder()` takes the order from any other real date on the receipt (a return-by date with a
+13–31; product codes like 10-20-10 never vote); else the vendor's learned `date_order` lesson; else month first. An
+approved date teaches the vendor's order only when the person changed it — keeping the reader's guess is not proof.
+
+### 2026-11-06 — 2025 receipts called "duplicates" without checking; the rule is file + trace
+Tim photographed 2025 receipts and Claude called them duplicate drafts. None had been booked; four matched 2025 bank
+lines exactly. **Rule (Tim):** a receipt dated in a closed year is stored and traced to its 2025 bank line —
+`ExpenseApprovalService::fileAsBooked()` then `BankImportService::attachExpenseMatch()` (correct a misread total first;
+the link refuses unequal amounts). Never approved as a new expense; never called a duplicate until both expenses and
+bank lines were searched. A 2025 receipt with no bank line (#535 Home Depot $10.04) is a question for Tim.
+
+### 2026-11-06 — "G.S.T." / "P.S.T." with dots were not tax lines to the reader
+Northwest Landscape #537 printed G.S.T. 4.53 and P.S.T. 6.34; the reader saw no GST line and guessed 5% of the total
+(4.83, no PST). `parseReceiptText()` now reads dotted labels as GST/PST/HST (replay: 6 fixed, none worse).
+
+
+## 2026-11-06 — "net of fee" given to cheques and e-Transfers on the invoices list
+`scoreDeposit()` allowed a 0–6.5% shortfall as a card fee on any deposit. Only processors keep a fee: VML's $1,195.36 cheque
+was offered for VCHA's $1,235.44 invoices and a $378.16 e-Transfer for Obsidian's $399. Now only Stripe/unnamed payouts
+(`InvoiceReconciliationService::mayCarryFee()`). Also: production's copy of this service carried Yardi remittance evidence
+(`mismatch`, `evidence`) that was in no branch — pull and `cmp` before editing it.

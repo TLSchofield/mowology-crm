@@ -154,7 +154,13 @@ final class VendorKnowledgeService
 
             $ocr = '';
             if (!empty($e['raw_ocr_json']) && function_exists('ocrTextFromStored')) $ocr = ocrTextFromStored($e['raw_ocr_json']);
-            $identity = VendorIdentity::fromReceipt($ocr !== '' ? $ocr : null, $e['name'] ?: $e['vendor_name_raw'], ['phone' => $e['phone'], 'website' => $e['website']]);
+            // The paper's phone / website / GST number are this vendor's only when the paper names this vendor; otherwise
+            // (a receipt filed under the wrong vendor) only the vendor's own record speaks for it.
+            $vendorName = (string)($e['name'] ?: $e['vendor_name_raw']);
+            $aliasRow = $this->db->prepare("SELECT aliases FROM vendors WHERE id = ?");
+            $aliasRow->execute([$vendorId]);
+            $paperIsThisVendor = $ocr !== '' && VendorIdentity::namedOnPaper(mb_strtolower($ocr), $vendorName, $aliasRow->fetchColumn() ?: null);
+            $identity = VendorIdentity::fromReceipt($paperIsThisVendor ? $ocr : null, $vendorName, ['phone' => $e['phone'], 'website' => $e['website']]);
             if (!empty($e['gst_number'])) $identity['gst_number'] = $e['gst_number'];
 
             $facts = [];

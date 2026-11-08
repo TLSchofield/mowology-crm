@@ -165,6 +165,11 @@
 		FB151688BFE829A5370D1402 /* AddDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0408D5646F4F158965E9C16 /* AddDial.swift */; };
 		3D7C3A0816924F01062B2862 /* OwnerSearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A05855A3AAAC73B076E63E /* OwnerSearchViews.swift */; };
 		FF86E08395C2321E355B52E6 /* ReceiptPhotoPrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF82C1629AF1DDD3DB383ED /* ReceiptPhotoPrep.swift */; };
+		C7944B9A7747A7D5A2A8C771 /* ReceiptZoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5ECFE56CA829F4EC0E4908 /* ReceiptZoomView.swift */; };
+		F9EC857CEF7ADC612656F274 /* PennyChequeCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFFC136946A84668903968A /* PennyChequeCard.swift */; };
+		7844C5DDD70AE890DDA8E1BC /* HeadSpine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 585B8CC87031C9A67635F6EE /* HeadSpine.swift */; };
+		025471A0824DB9AAAA214C39 /* HeadSpineLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED0B07B54AD7A5116F79DB0 /* HeadSpineLogic.swift */; };
+		D2E438CD1AADD7AC20FDC926 /* HeadSpineDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E4BED54D8AB95AE564880F /* HeadSpineDemo.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -328,6 +333,11 @@
 		C0408D5646F4F158965E9C16 /* AddDial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddDial.swift; sourceTree = "<group>"; };
 		07A05855A3AAAC73B076E63E /* OwnerSearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnerSearchViews.swift; sourceTree = "<group>"; };
 		EDF82C1629AF1DDD3DB383ED /* ReceiptPhotoPrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPhotoPrep.swift; sourceTree = "<group>"; };
+		DF5ECFE56CA829F4EC0E4908 /* ReceiptZoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptZoomView.swift; sourceTree = "<group>"; };
+		FDFFC136946A84668903968A /* PennyChequeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PennyChequeCard.swift; sourceTree = "<group>"; };
+		585B8CC87031C9A67635F6EE /* HeadSpine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadSpine.swift; sourceTree = "<group>"; };
+		6ED0B07B54AD7A5116F79DB0 /* HeadSpineLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadSpineLogic.swift; sourceTree = "<group>"; };
+		E2E4BED54D8AB95AE564880F /* HeadSpineDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadSpineDemo.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -592,6 +602,7 @@
 				7AABA7B22CF8198FA556F1E8 /* PennyChaseViews.swift */,
 				F08535844B024088105A096C /* DeviceTextScanner.swift */,
 				EDF82C1629AF1DDD3DB383ED /* ReceiptPhotoPrep.swift */,
+				DF5ECFE56CA829F4EC0E4908 /* ReceiptZoomView.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
@@ -622,6 +633,10 @@
 				F0B035ECD75BBAA0831DB800 /* ScreenHead.swift */,
 				98A94EFB0516087BAF508000 /* MiaSuggestionsSection.swift */,
 				67D1DE4E3BCFD242AF2BD222 /* MiaWhen.swift */,
+				FDFFC136946A84668903968A /* PennyChequeCard.swift */,
+				585B8CC87031C9A67635F6EE /* HeadSpine.swift */,
+				6ED0B07B54AD7A5116F79DB0 /* HeadSpineLogic.swift */,
+				E2E4BED54D8AB95AE564880F /* HeadSpineDemo.swift */,
 			);
 			path = Team;
 			sourceTree = "<group>";
@@ -904,6 +919,11 @@
 				FB151688BFE829A5370D1402 /* AddDial.swift in Sources */,
 				3D7C3A0816924F01062B2862 /* OwnerSearchViews.swift in Sources */,
 				FF86E08395C2321E355B52E6 /* ReceiptPhotoPrep.swift in Sources */,
+				C7944B9A7747A7D5A2A8C771 /* ReceiptZoomView.swift in Sources */,
+				F9EC857CEF7ADC612656F274 /* PennyChequeCard.swift in Sources */,
+				7844C5DDD70AE890DDA8E1BC /* HeadSpine.swift in Sources */,
+				025471A0824DB9AAAA214C39 /* HeadSpineLogic.swift in Sources */,
+				D2E438CD1AADD7AC20FDC926 /* HeadSpineDemo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -977,7 +997,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.85;
+				MARKETING_VERSION = 1.3.126;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1063,7 +1083,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.85;
+				MARKETING_VERSION = 1.3.126;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

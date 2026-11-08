@@ -17,7 +17,7 @@ class ReceiptGstSourceTest extends TestCase
 
     public function testEstimatedGstKeepsItsNumberButIsFlagged(): void
     {
-        $r = parseReceiptText("Hardware\n2026-10-01\nTOTAL 105.00");
+        $r = parseReceiptText("Hardware\n2026-10-01\nGST incl.\nTOTAL 105.00");
         $this->assertSame('5.00', $r['gst'], 'existing callers still get the number');
         $this->assertTrue($r['gst_estimated']);
         $this->assertSame('estimated', $r['gst_source']);

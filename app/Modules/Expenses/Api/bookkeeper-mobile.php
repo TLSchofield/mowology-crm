@@ -14,6 +14,22 @@
  *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
  * POST {mode: 'reject', suggestion_id, reason}
  * POST {mode: 'not_dupe', pairs: [[a, b], ...]}
+ * POST {mode: 'merge', keep_id, copy_ids: [..]}       Merge the copies into the kept receipt → {ok, message, merges:{copy:id}, undo}
+ *        (removeCopies + an expense_merges row each, migration 1442). 'remove_dupes' {keep_id, remove_ids} is the
+ *        same call for app builds before 1.3.89.
+ * POST {mode: 'unmerge', copy_id, kind: undo|split}     Undo straight after a merge (asked again) or Split off later
+ *        (two purchases: remembered, Penny learns) — DuplicateReceiptService::unmerge().
+ * POST {mode: 'payment_book', transaction_id, signature}  "Record" on a likely payment (billing.edit) →
+ *      PaymentMatchService::book() — refused if the line changed since it was shown → {ok, message, log_id}
+ * POST {mode: 'payment_undo', log_id}  Undo that booking through the path that made it (PaymentMatchService::undo()).
+ *      The queue's 'payments' come from PaymentMatchService::pennyCards() (every proposed deposit, any kind).
+ * POST {mode: 'cheque_record', transaction_id, invoice_id, amount}  "Record" on a likely cheque (billing.edit) →
+ *      BankInvoiceMatchService::record() (refuses money that looks already recorded). The queue's 'cheques'
+ *      come from InvoiceReconciliationService::likelyCheques(), the same matcher as the web invoices list.
+ * POST {mode: 'undismiss', pairs: [[a, b], ...]}   Undo "Different" on an answered group (DuplicateReceiptService::undismiss).
+ * GET  ?mode=merged&expense_id=N   Copies merged into this receipt ("Also on this purchase"), photos signed for the app.
+ * Each dupes group also carries Penny's verdict, keep_id / keep_line / copy_ids / merge_label / can_swap,
+ * confidence (her record with the vendor) and facts [{label, values[], state: same|differs|missing|info}].
  * POST {mode: 'remove_dupes', keep_id, remove_ids: [..]}
  *      → {ok, message, kept, removed[], carried[]}  "Keep this one" — the other copies are
  *        rejected "Duplicate of receipt #keep" (DuplicateReceiptService::removeCopies; added
@@ -149,7 +165,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'remove_dupes', 'move', 'message_done']);
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done', 'cheque_record', 'payment_book', 'payment_undo']);
 
     if ($mode === 'risk') {
         // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
@@ -190,7 +206,7 @@ try {
             $pairs  = $dupSvc->pairsInLine(60);
             $queue  = $desk->queue((int)($_GET['limit'] ?? 15), DuplicateReceiptService::heldIds($pairs));
             [$queue, $dupes] = ReceiptImageLinks::resignDesk(
-                $queue, DuplicateReceiptService::groups($pairs), time() + ReceiptImageLinks::TTL, ReceiptImageLinks::key(jwtSecret())
+                $queue, $dupSvc->presentGroups(DuplicateReceiptService::groups($pairs)), time() + ReceiptImageLinks::TTL, ReceiptImageLinks::key(jwtSecret())
             );
             $tagLabels = ['truck' => 'Truck', 'equipment' => 'Equipment', 'stock' => 'Shop stock'];
             $tags = [['value' => 'none', 'label' => 'None']];
@@ -207,8 +223,29 @@ try {
                     error_log('[bookkeeper-mobile] messages: ' . $e->getMessage());
                 }
             }
+            // Likely cheques come first on the card (Tim, 2026-11-06). Suggest only; never breaks the card.
+            ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
+            $cheques = [];
+            $payments = [];
+            if (jwtUserHasPermission($jwtUser, 'billing.view')) {
+                try {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+                    $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);   // builds ≤ 1.3.107
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] cheques: ' . $e->getMessage());
+                }
+                try {
+                    // Every deposit the payments matcher proposes (cheques, e-Transfers, EFTs …): 1.3.108 on.
+                    require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+                    $payments = (new PaymentMatchService($db))->pennyCards(12);
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] payments: ' . $e->getMessage());
+                }
+            }
             echo json_encode([
                 'ok'         => true,
+                'cheques'    => $cheques,
+                'payments'   => $payments,
                 'dupes'      => $dupes,
                 'queue'      => $queue,
                 'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
@@ -216,6 +253,45 @@ try {
                 'messages'   => $messages,
                 'lines'      => jwtUserHasPermission($jwtUser, 'expenses.approve') ? bkmPennyLines($db) : null,
             ]);
+            break;
+        }
+
+        case 'payment_book':
+        case 'payment_undo': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Recording a payment needs billing.edit.']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $pm = new PaymentMatchService($db);
+            if ($mode === 'payment_undo') {
+                echo json_encode($pm->undo((int)($input['log_id'] ?? 0), (int)$user['id']));
+                break;
+            }
+            $tx = (int)($input['transaction_id'] ?? 0);
+            $r = $pm->book([$tx => (string)($input['signature'] ?? '')], (int)$user['id']);
+            $done = $r['booked'][0] ?? null;
+            echo json_encode($done
+                ? ['ok' => true, 'message' => (string)($done['message'] ?? 'Recorded.'), 'log_id' => (int)($done['log_id'] ?? 0)]
+                : ['ok' => false, 'message' => (string)($r['failed'][0]['message'] ?? 'Not recorded.')]);
+            break;
+        }
+
+        case 'cheque_record': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Recording a payment needs billing.edit.']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankInvoiceMatchService.php';
+            echo json_encode((new BankInvoiceMatchService($db))->record(
+                (int)($input['transaction_id'] ?? 0),
+                [['invoice_id' => (int)($input['invoice_id'] ?? 0), 'amount' => round((float)($input['amount'] ?? 0), 2)]],
+                $user
+            ));
             break;
         }
 
@@ -280,6 +356,50 @@ try {
                 if (!$res['ok']) break;
             }
             echo json_encode($res);
+            break;
+        }
+
+        case 'merge': {
+            // "Merge" on Penny's duplicate card: the copies are set aside into the kept receipt (removeCopies:
+            // one group, waiting copies only, all-or-nothing), each with an expense_merges row for Undo / Split off.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode((new DuplicateReceiptService($db))->removeCopies(
+                (int)($input['keep_id'] ?? 0), array_map('intval', (array)($input['copy_ids'] ?? [])), $user
+            ));
+            break;
+        }
+
+        case 'unmerge': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode((new DuplicateReceiptService($db))->unmerge(
+                (int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')
+            ));
+            break;
+        }
+
+        case 'undismiss': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $dup = new DuplicateReceiptService($db);
+            $res = ['ok' => false, 'message' => 'Nothing to undo'];
+            $db->beginTransaction();
+            foreach ((array)($input['pairs'] ?? []) as $pr) {
+                $res = $dup->undismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
+                if (!$res['ok']) break;
+            }
+            $res['ok'] ? $db->commit() : $db->rollBack();
+            echo json_encode($res);
+            break;
+        }
+
+        case 'merged': {
+            $rows = (new DuplicateReceiptService($db))->mergedInto((int)($_GET['expense_id'] ?? 0));
+            $exp = time() + ReceiptImageLinks::TTL;
+            $key = ReceiptImageLinks::key(jwtSecret());
+            foreach ($rows as &$r) {
+                $r['receipt_path'] = $r['receipt_media_id'] ? ReceiptImageLinks::appUrl((int)$r['receipt_media_id'], $exp, $key) : null;
+            }
+            unset($r);
+            echo json_encode(['ok' => true, 'merged' => $rows]);
             break;
         }
 

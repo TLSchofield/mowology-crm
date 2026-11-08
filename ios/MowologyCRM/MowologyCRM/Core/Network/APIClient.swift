@@ -176,7 +176,7 @@ final class APIClient: ObservableObject {
 
         var body = Data()
         body.appendField(name: "receipt_photo", filename: "receipt.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)
-        if let device = device {
+        if let device = device, !device.text.isEmpty {
             body.appendField(name: "client_ocr_text", value: device.text, boundary: boundary)
             body.appendField(name: "client_ocr_engine", value: device.engine, boundary: boundary)
             body.appendField(name: "client_ocr_version", value: device.version, boundary: boundary)

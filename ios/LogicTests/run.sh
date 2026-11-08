@@ -24,6 +24,10 @@ run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
 cp "$ROOT/ios/LogicTests/MiaWhenTests.swift" "$OUT/main.swift"
 run miawhen "$SRC/Features/Team/MiaWhen.swift" "$OUT/main.swift"
 
+# The head's spine (2026-11-07): right-hand counts, open state, role lines.
+cp "$ROOT/ios/LogicTests/HeadSpineTests.swift" "$OUT/main.swift"
+run headspine "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
+
 cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
 run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$OUT/main.swift"
 

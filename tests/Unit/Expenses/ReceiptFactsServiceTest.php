@@ -329,5 +329,56 @@ class ReceiptFactsServiceTest extends TestCase
         $cad = ['parsed_raw_text' => 'Canadian Web Hosting Total $25.71', 'parsed_total' => 25.71];
         $this->assertSame(25.71, ReceiptFactsService::fillFromOcr($draft, $cad)['total']);
     }
-}
 
+    // Champion's numbered REPAIR ORDER pads (2026-11-06): the pad number is glued onto the shop's name line.
+    private const CHAMPION = "QUANTITY\nPARTS & MATERIALS\nCHAMPION LAWN MOWER SALES AND SERVICE 15826\n654 KINGSWAY, VANCOUVER, BC V5T 3K4\n"
+        . "PH: 604-324-4602\nGST# 845486521 RT\nCUSTOMER\nMAR 326\nDATE\nORDER NO.\nTOTAL\nLABOUR\nGST\n180\nPST\n750\nREPAIR ORDER\nTOTAL 3360";
+
+    public function test_champion_repair_order_pad_number_is_the_invoice_number(): void
+    {
+        $f = ReceiptFactsService::parse(self::CHAMPION);
+        $this->assertSame('15826', $f['doc_number']);
+        $this->assertSame('invoice', $f['doc_kind']);
+    }
+
+    public function test_two_scans_of_one_champion_pad_are_the_same_receipt(): void
+    {
+        $a = ReceiptFactsService::parse(self::CHAMPION);
+        $b = ReceiptFactsService::parse(str_replace('MAR 326', 'Mavalary', self::CHAMPION));
+        $this->assertSame('same', ReceiptFactsService::duplicateVerdict($a, $b)['verdict']);
+        $c = ReceiptFactsService::parse(str_replace('15826', '16251', self::CHAMPION));
+        $this->assertSame('different', ReceiptFactsService::duplicateVerdict($a, $c)['verdict']);
+    }
+
+    public function test_a_number_after_the_name_on_an_ordinary_receipt_is_a_store_number_not_an_invoice(): void
+    {
+        $f = ReceiptFactsService::parse("CHEVRON STATION 207341\n1234 MAIN ST\nDIESEL 40.00L\nTOTAL 72.00");
+        $this->assertNull($f['doc_number']);
+    }
+
+    public function test_a_labelled_number_still_wins_on_a_repair_order(): void
+    {
+        $f = ReceiptFactsService::parse(str_replace("TOTAL 3360", "TOTAL 3360\nInvoice # 99887", self::CHAMPION));
+        $this->assertSame('99887', $f['doc_number']);
+    }
+
+    public function test_a_repair_order_whose_heading_was_not_read_is_still_known_by_its_form(): void
+    {
+        $f = ReceiptFactsService::parse("CHAMPION LAWN MOWER SALES AND SERVICE 16905\nWORK DONE\n2X HEDGE TRIMMER\nSERVICED BY\nTOTAL 14789");
+        $this->assertSame('16905', $f['doc_number']);
+    }
+
+    public function test_a_ticket_number_read_in_the_second_column_still_belongs_to_its_label(): void
+    {
+        // Landfill #142 (2026-11-06): the same ticket as #226, but read in two columns.
+        $f = ReceiptFactsService::parse("Time In: 09:02 AM\nTime Out: 09:14 AM\nTicket #:\nTruck ID\nPF8865\nTruck Iac. Plate:\nTrailer ID:\ncount:9996\n43198823\nResidential Cash");
+        $this->assertSame('43198823', $f['doc_number']);
+        $this->assertSame('ticket', $f['doc_kind']);
+    }
+
+    public function test_a_short_number_after_a_lone_ticket_label_is_not_taken(): void
+    {
+        $f = ReceiptFactsService::parse("Ticket #:\nTruck ID\n9996\nTOTAL 12.00");
+        $this->assertNull($f['doc_number']);
+    }
+}
