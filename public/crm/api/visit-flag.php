@@ -99,7 +99,9 @@ try {
     ];
 
     // The first endorsement of a completed visit auto-generates a social draft
-    if ($endorsement['newly_endorsed'] && strtolower((string)($visit['status'] ?? '')) === 'completed') {
+    require_once APP_ROOT . '/Modules/Marketing/Services/MiaHeartFlow.php';
+    $bundleReplacesOldDraft = MiaHeartFlow::skipsOldDraft($db);          // the one-decision bundle replaces the older template post
+    if (!$bundleReplacesOldDraft && $endorsement['newly_endorsed'] && strtolower((string)($visit['status'] ?? '')) === 'completed') {
         require_once APP_ROOT . '/Modules/Social/Services/SocialHashtagEngine.php';
         require_once APP_ROOT . '/Modules/Social/Services/SocialCardGenerator.php';
         require_once APP_ROOT . '/Modules/Social/Services/SocialDraftPipeline.php';
@@ -117,6 +119,7 @@ try {
     if ($newFlag === 1) {
         require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
         VisitLifecycleService::queueForPortfolio($visitId, (int)$user['id']);
+        MiaHeartFlow::schedule($visitId, (int)$user['id']);                // owner's heart in single-operator mode: approve the pair, tell Mia (after the reply is sent)
     }
 
     echo json_encode(array_merge(

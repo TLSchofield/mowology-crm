@@ -38,6 +38,9 @@ class GbpService
 
     private PDO $db;
 
+    /** @var callable|null returns [['name' => 'accounts/1', 'locations' => ['locations/2', ...]], ...]; tests swap it. */
+    private $accountLookup = null;
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -90,6 +93,77 @@ class GbpService
     public static function infoName(string $locationName): string
     {
         return preg_match('#(locations/[^/]+)$#', $locationName, $m) ? $m[1] : $locationName;
+    }
+
+    /**
+     * The v4 resource name Google wants for reviews, media and posts: "accounts/1/locations/2".
+     * The connect screen stores only "locations/2" (the Business Information v1 form), which v4 answers with 404.
+     */
+    public static function v4Name(string $stored, ?string $accountResource): string
+    {
+        $stored = trim($stored, '/');
+        if (strpos($stored, 'accounts/') === 0) return $stored;
+        $acct = trim((string)$accountResource, '/');
+        if ($acct === '') return $stored;
+        if (strpos($acct, 'accounts/') !== 0) $acct = 'accounts/' . $acct;
+        return $acct . '/' . self::infoName($stored);
+    }
+
+    public function useAccountLookup(callable $fn): void
+    {
+        $this->accountLookup = $fn;
+    }
+
+    /** The saved location in v4 form. Finds the account once, then remembers it in account_id_external. */
+    private function v4Location(array $acct): string
+    {
+        $stored = (string)$acct['location_id_external'];
+        if (strpos(trim($stored, '/'), 'accounts/') === 0) return trim($stored, '/');
+        $known = (string)($acct['account_id_external'] ?? '');
+        if ($known !== '') return self::v4Name($stored, $known);
+
+        $loc = self::infoName($stored);
+        $found = null;
+        foreach ($this->lookupAccounts($acct) as $a) {
+            $name = (string)($a['name'] ?? '');
+            if ($name === '') continue;
+            // locations === null: not listed because this is the only account. [] means listed and empty.
+            if (!array_key_exists('locations', $a) || $a['locations'] === null) {
+                $found = $name;
+                continue;
+            }
+            if (in_array($loc, array_map([self::class, 'infoName'], (array)$a['locations']), true)) {
+                $found = $name;
+                break;
+            }
+        }
+        if ($found === null) {
+            throw new RuntimeException('Google Business Profile: could not find the Google account that owns ' . $loc . '. Reconnect Google Business Profile.');
+        }
+        try {
+            $this->db->prepare("UPDATE social_accounts SET account_id_external = ? WHERE id = ?")->execute([$found, $acct['id']]);
+        } catch (Throwable $e) {
+            error_log('GbpService: could not save account_id_external for social_accounts #' . $acct['id'] . ': ' . $e->getMessage());
+        }
+        return self::v4Name($stored, $found);
+    }
+
+    /** @return array<int, array{name: string, locations: string[]}> */
+    private function lookupAccounts(array $acct): array
+    {
+        if ($this->accountLookup !== null) return (array)call_user_func($this->accountLookup, $acct);
+        $token = GoogleBusinessService::ensureFreshToken($acct);
+        $accounts = GoogleBusinessService::listAccounts($token);
+        $out = [];
+        foreach ($accounts as $a) {
+            $locs = null;
+            if (count($accounts) > 1) {
+                $locs = [];
+                foreach (GoogleBusinessService::listLocations($token, $a['name']) as $l) $locs[] = (string)$l['name'];
+            }
+            $out[] = ['name' => (string)$a['name'], 'locations' => $locs];
+        }
+        return $out;
     }
 
     public static function reviewsUrl(string $locationName): string
@@ -154,20 +228,23 @@ class GbpService
     public function listReviews(): array
     {
         $acct = $this->requireLive();
-        $res = $this->call('GET', self::reviewsUrl((string)$acct['location_id_external']), $acct);
+        $res = $this->call('GET', self::reviewsUrl($this->v4Location($acct)), $acct);
         return array_map([self::class, 'reviewRow'], $res['reviews'] ?? []);
     }
 
     public function replyToReview(string $reviewName, string $text): array
     {
         $acct = $this->requireLive();
+        if (strpos(trim($reviewName, '/'), $this->v4Location($acct) . '/reviews/') !== 0) {
+            throw new RuntimeException('Google Business Profile: that review belongs to a different location than the one connected now.');
+        }
         return $this->call('PUT', self::replyUrl($reviewName), $acct, ['comment' => $text]);
     }
 
     public function createLocalPost(string $summary, ?string $ctaType, ?string $ctaUrl, ?string $photoUrl = null): array
     {
         $acct = $this->requireLive();
-        return $this->call('POST', self::V4 . trim((string)$acct['location_id_external'], '/') . '/localPosts', $acct,
+        return $this->call('POST', self::V4 . $this->v4Location($acct) . '/localPosts', $acct,
             self::postBody($summary, $ctaType, $ctaUrl, $photoUrl));
     }
 
@@ -175,7 +252,7 @@ class GbpService
     public function uploadPhoto(string $publicUrl, string $category = 'AT_WORK'): array
     {
         $acct = $this->requireLive();
-        return $this->call('POST', self::mediaUrl((string)$acct['location_id_external']), $acct,
+        return $this->call('POST', self::mediaUrl($this->v4Location($acct)), $acct,
             ['mediaFormat' => 'PHOTO', 'locationAssociation' => ['category' => $category], 'sourceUrl' => $publicUrl]);
     }
 
