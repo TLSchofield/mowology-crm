@@ -280,7 +280,7 @@ class MiaDeskService
                     $h = $r['history'];
                     $text .= 'Fall cleanup ' . date('M Y', strtotime($h['date'])) . ' (' . ucfirst((string)$h['source']) . ' #' . $h['ref'] . ', $' . number_format((float)$h['amount'], 2) . '), nothing booked this year.';
                 } else {
-                    $why = ['no_history'=>'no fall cleanup around this time before','done_this_season'=>'a fall cleanup is already booked','overdue'=>'an invoice is over 60 days late','sam'=>'Sam has an open quote','no_consent'=>'no marketing consent','pm'=>'property manager','late'=>'too late for the ask','not_season'=>'outside fall','muted'=>'customer is muted','other_address'=>'the invoice goes to another address than the contact\'s own'];
+                    $why = ['new_contact'=>'someone new has taken over this account','no_history'=>'no fall cleanup around this time before','done_this_season'=>'a fall cleanup is already booked','overdue'=>'an invoice is over 60 days late','sam'=>'Sam has an open quote','no_consent'=>'no marketing consent','pm'=>'property manager','late'=>'too late for the ask','not_season'=>'outside fall','muted'=>'customer is muted','other_address'=>'the invoice goes to another address than the contact\'s own'];
                     $text .= 'Plain thank-you: ' . ($why[$r['why_no_ask'] ?? ''] ?? 'no seasonal ask') . '.';
                 }
                 if (!empty($r['nudge_notification_id'])) $text .= ' Also asks them to use the auto-deposit address.';

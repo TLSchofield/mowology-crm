@@ -24,7 +24,7 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'extra_work', 'visit_date', 'duration', 'no_pin', 'pin_off', 'default_border', 'border_overlap', 'supplier_form', 'supplier_chase', 'supplier_receipt'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'extra_work', 'visit_date', 'duration', 'visit_window', 'visit_window_done', 'no_pin', 'pin_off', 'default_border', 'border_overlap', 'supplier_form', 'supplier_chase', 'supplier_receipt'];
     /** Pins and borders (migration 1285, PropertyBorderService). */
     public const BORDER_KINDS = ['no_pin', 'pin_off', 'default_border', 'border_overlap'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
@@ -132,7 +132,7 @@ class OpsDeskService
     public function current(bool $persist = false): array
     {
         $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems(),
-            $this->unscheduledItems($persist && !$this->neverFill), $this->durationItems(), $this->borderItems(), $this->supplierItems());
+            $this->unscheduledItems($persist && !$this->neverFill), $this->durationItems(), $this->windowItems(), $this->borderItems(), $this->supplierItems());
         $known = $this->known();
         $open = [];
         foreach ($items as $it) {
@@ -564,6 +564,18 @@ class OpsDeskService
             return (new VisitDurationService($this->db, $this->today))->items();
         } catch (Throwable $e) {
             error_log('Otto durations: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Booked end times against real finishes, per weekday (VisitWindowService, migration 1444). */
+    private function windowItems(): array
+    {
+        try {
+            require_once __DIR__ . '/VisitWindowService.php';
+            return (new VisitWindowService($this->db, $this->today))->items();
+        } catch (Throwable $e) {
+            error_log('Otto visit windows: ' . $e->getMessage());
             return [];
         }
     }

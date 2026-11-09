@@ -108,6 +108,16 @@ every new contact land on it (the client-account model's phase 2.4). Otherwise t
 3. A contact's other addresses belong to the same person, so a reply from any of them counts.
 4. Also fix the e-Transfer parser leaving the sender name blank for one management firm.
 
+## Step 3 started — 2026-11-09
+`ContactRoster` (client-level: `current($clientId, $purpose, $today)`, `isFormer()`, `firstCurrent()`) is built, and
+Mia's thank-you is the first sender switched. Decided while building:
+- Keyed by account (`client_id`), not property: the roster is per account and invoices now all carry a client.
+- `resolveReminderRecipients()` is unchanged. An invoice's recipient list stays final for invoices and reminders
+  (Decision-Log); the roster only decides who Mia thanks. Other senders switch one at a time.
+- No `contact_roster_enabled` switch: the lookup changes nothing until a left date exists, and only a person or the
+  step 4 question can set one. Production preview: 60 recent payments, same answer every time.
+- If the only person on an account has left, Mia drafts nothing until someone new is added.
+
 ## Unknowns and how each is settled, cheapest first
 1. **What the old contact's case looks like in the data** — her payment row (method, sender, invoice), her contact and roster
    rows, any bounce or reply mail. Read-only prod lookup (`scripts/prod-run.sh`); blocked this session by the
