@@ -252,6 +252,12 @@ enum APIEndpoint {
     case tasksMobile
     /// POST /api/tasks/tasks-mobile — create a task (Add → Task; sent through CreateOutbox).
     case tasksMobileCreate
+    /// GET /api/quotes/quote-mobile — the price list, kept on the phone. POST — a draft quote (via CreateOutbox).
+    case quoteMobile
+    case quoteMobileCreate
+    /// GET /api/invoices/invoices-mobile — visits waiting on an invoice + drafts. POST — create (via CreateOutbox) / send.
+    case invoicesMobile
+    case invoicesMobileAction
 
     case scheduleJobPhoto
 
@@ -633,6 +639,12 @@ enum APIEndpoint {
         case .tasksMobile, .tasksMobileCreate:
             return URL(string: "\(baseURLString)/tasks/tasks-mobile")
 
+        case .quoteMobile, .quoteMobileCreate:
+            return URL(string: "\(baseURLString)/quotes/quote-mobile")
+
+        case .invoicesMobile, .invoicesMobileAction:
+            return URL(string: "\(baseURLString)/invoices/invoices-mobile")
+
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
@@ -771,6 +783,10 @@ enum APIEndpoint {
              .fieldJobAction,
              .tasksMobile,
              .tasksMobileCreate,
+             .quoteMobile,
+             .quoteMobileCreate,
+             .invoicesMobile,
+             .invoicesMobileAction,
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
@@ -790,8 +806,10 @@ enum APIEndpoint {
     var httpMethod: String {
         switch self {
         case .tokenAuth:    return "POST"
-        case .tasksMobileCreate: return "POST"
+        case .tasksMobileCreate, .quoteMobileCreate, .invoicesMobileAction: return "POST"
         case .tasksMobile,
+             .quoteMobile,
+             .invoicesMobile,
              .scheduleDay,
              .scheduleWeek,
              .scheduleCrewTrails,

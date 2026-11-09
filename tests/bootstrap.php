@@ -438,6 +438,9 @@ require_once __DIR__ . '/../app/Modules/Agents/Services/AgentEvals.php';
 require_once __DIR__ . '/../app/Services/Copy/DraftSafety.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/TaskService.php';
 require_once __DIR__ . '/../app/Modules/Tasks/Services/TaskCreateService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledVisitService.php';
+require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteFromPhoneService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromPhoneService.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentDetectors.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
 

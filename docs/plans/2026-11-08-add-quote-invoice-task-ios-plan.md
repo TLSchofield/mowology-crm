@@ -50,3 +50,12 @@ Android and web parity: follow-ups.
 - **A.** An invoice starts from: a done visit (recommended: it fills the lines from the visit's work) / a blank invoice for
   a client / both.
 - **B.** Made offline: a draft that you send once online (recommended) / sends by itself when the phone reconnects.
+
+## As built (2026-11-08)
+
+Built with the two recommendations above (Tim said go without picking): an invoice starts from a finished visit; anything made offline is a draft sent later by a tap. Shipped in
+1.3.128 (outbox, Task) and 1.3.129 (Quote, Invoice). Not yet proved on a phone in airplane mode.
+- Quote and Invoice are office-only (admin/manager) in the Add menu. Crew get Job, Client, Task and invoice from the visit.
+- A phone quote goes to whoever QuoteRecipientService picks; it is sent from Sam's Quotes to send.
+- Add a job with no signal can only make a new client and job; a cached nearby list is still to do.
+- Android and web: follow-ups.
