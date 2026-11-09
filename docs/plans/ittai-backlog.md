@@ -564,3 +564,8 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - `TrackimoService` signs in with Mowology's own TRACKIMO_* constants for every business. Files are now per business (#8), but a
   second business turning tracking on would read Mowology's trucks. Before then: per-business Trackimo credentials (encrypted,
   like the QuickBooks keys) and refuse tracking where none are set.
+
+## Found when live code came back into git (security audit fix 3, 2026-11-09)
+- **LookbackService calls the model directly** (`app/Modules/Accounting/Services/LookbackService.php:977`), skipping LlmGateway's retry, kill switch and cost log. `NoDirectAnthropicCallsTest` carries a dated exception for it; route the call through `LlmGateway::send()` and remove the exception.
+- **Old tests not adopted:** `EtransferNudgeServiceTest` and `InvoiceServiceTest` on the old branches are older than the live services and fail against them (nudge copy now reads the address from settings; `ensurePaymentIntent` has a lock). Both services have no current test.
+- **Left server-only, for the delete list:** `/customer/invoice-v2.php`, `/crm/api/test-invoice-create.php`, `/crm/api/salt-manual-trigger.php` (the last echoes a raw exception message; `invoice-v2.php` sends no CSP).
