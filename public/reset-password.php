@@ -22,6 +22,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/Auth/TwoStepService.php';   // password change revokes trusted devices
 
 // ── Token validation helper ───────────────────────────────────────────────
 function lookupToken(PDO $db, string $rawToken): ?array
@@ -86,6 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tokenValid && $tokenRow) {
                ->execute([(int)$tokenRow['user_id']]);
 
             $db->commit();
+            // A password change also ends every "trusted device" for two-step sign-in (migration 1440; no-op without it).
+            try { (new TwoStepService($db, null))->revokeAllDevices((int)$tokenRow['user_id']); } catch (Throwable $e) { error_log('two-step devices not revoked: ' . $e->getMessage()); }
             $done = true;
         } catch (Throwable $e) {
             $db->rollBack();

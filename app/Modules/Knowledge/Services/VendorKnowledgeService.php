@@ -161,7 +161,6 @@ final class VendorKnowledgeService
             $aliasRow->execute([$vendorId]);
             $paperIsThisVendor = $ocr !== '' && VendorIdentity::namedOnPaper(mb_strtolower($ocr), $vendorName, $aliasRow->fetchColumn() ?: null);
             $identity = VendorIdentity::fromReceipt($paperIsThisVendor ? $ocr : null, $vendorName, ['phone' => $e['phone'], 'website' => $e['website']]);
-            if (!empty($e['gst_number'])) $identity['gst_number'] = $e['gst_number'];
 
             $facts = [];
             // Layout: the vendor's paper, from the local parse profile.

@@ -89,26 +89,26 @@ struct MainTabView: View {
             // press picks one (Tim, 2026-11-07). Not while Time Clock is showing: a tap there only goes back.
             case .schedule:
                 return selectedTab == .time
-                    ? ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"))
-                    : ItMeniscusItem(id: index, title: "Schedule", icon: Image(systemName: "calendar"),
-                                     beadIcon: Image(systemName: scheduleViews.kind.icon),
+                    ? ItMeniscusItem(id: index, title: "Schedule", icon: .system("calendar"))
+                    : ItMeniscusItem(id: index, title: "Schedule", icon: .system("calendar"),
+                                     beadIcon: .system(scheduleViews.kind.icon),
                                      beadLabel: "Show \(scheduleViews.kind.next.title.lowercased()) view",
                                      longPressLabel: "Choose a view")
-            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: Image(uiImage: KanameTabIcon.image), iconScale: 1.35)
-            case .search:   return ItMeniscusItem(id: index, title: "Search", icon: Image(systemName: "magnifyingglass"))
+            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35)
+            case .search:   return ItMeniscusItem(id: index, title: "Search", icon: .system("magnifyingglass"))
             // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05). Not while Time Clock
             // is showing: the bead is resting there and a tap only goes back (Codex 2026-11-05).
             case .receipts:
                 return selectedTab == .time
-                    ? ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"))
-                    : ItMeniscusItem(id: index, title: "Receipts", icon: Image(systemName: "doc.text.image"),
-                                     beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
-            case .account:  return ItMeniscusItem(id: index, title: "Account", icon: Image(systemName: "person.fill"))
+                    ? ItMeniscusItem(id: index, title: "Receipts", icon: .system("doc.text.image"))
+                    : ItMeniscusItem(id: index, title: "Receipts", icon: .system("doc.text.image"),
+                                     beadIcon: .system("camera.fill"), beadLabel: "Snap a receipt")
+            case .account:  return ItMeniscusItem(id: index, title: "Account", icon: .system("person.fill"))
             // Add is an action, not a page: open, the bead's + spins into × and a tap on it closes the dial.
-            case .add:      return ItMeniscusItem(id: index, title: "Add", icon: Image(systemName: "plus"),
+            case .add:      return ItMeniscusItem(id: index, title: "Add", icon: .system("plus"),
                                                   beadTurn: 45, beadLabel: "Close",
                                                   longPressLabel: "Add a job")
-            case .time:     return ItMeniscusItem(id: index, title: "Time", icon: Image(systemName: "clock.fill"))
+            case .time:     return ItMeniscusItem(id: index, title: "Time", icon: .system("clock.fill"))
             }
         }
     }
@@ -155,7 +155,7 @@ struct MainTabView: View {
         // Over the screen, under the bar (the bar is the safe-area inset below), so the bead and its × stay live.
         .overlay {
             if addOpen, let slot = barTabs.firstIndex(of: .add) {
-                AddDial(slot: slot, slotCount: barTabs.count, onPick: add, onClose: { addOpen = false })
+                AddDial(slot: slot, slotCount: barTabs.count, office: authSession.user?.isAdmin == true, onPick: add, onClose: { addOpen = false })
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
             }
         }
@@ -169,13 +169,12 @@ struct MainTabView: View {
         // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
-                ItMeniscusBar(items: meniscusItems, selected: Binding(
-                    get: { barIndex },
-                    set: { index in
+                ItMeniscusBar(items: meniscusItems, selected: barIndex,
+                    onSelect: { index in
                         guard barTabs.indices.contains(index) else { return }
                         if barTabs[index] == .add { addOpen = true }
                         else { addOpen = false; selectedTab = barTabs[index] }
-                    }),
+                    },
                     onReselect: { index in
                         guard barTabs.indices.contains(index) else { return }
                         let tab = barTabs[index]
@@ -240,9 +239,9 @@ struct MainTabView: View {
         }
         .onChange(of: selectedTab) { _, now in
             if barTabs.contains(now) { lastBarTab = now }
+            // A push, the driver question or a sign-in change moves the page: the dial never stays open over it.
+            addOpen = false
         }
-        // A push, the driver question or a sign-in change moves the page: the dial never stays open over it.
-        .onChange(of: selectedTab) { _, _ in addOpen = false }
         // Every notification route today lands on the schedule; ScheduleView
         // consumes the route itself and opens the stop.
         .onChange(of: notificationRouter.pendingRoute) { _, route in
@@ -284,7 +283,7 @@ struct MainTabView: View {
         // After the switch lands, so the sheet presents from a Schedule that is on screen.
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .mwAddFromBar, object: nil,
-                                            userInfo: ["startWithNewClient": item == .client])
+                                            userInfo: ["startWithNewClient": item == .client, "item": item.title])
         }
     }
 
@@ -433,7 +432,7 @@ struct SignOutButton: View {
             Button("Sign out anyway", role: .destructive) { vm.signOutOnly() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(vm.unsentCount) clock or job action(s) made without signal haven't reached the office. They stay on this phone and send next time you sign in with signal. Better: stay signed in until you have signal.")
+            Text("\(vm.unsentCount) item(s) made without signal haven't reached the office. They stay on this phone and send next time you sign in with signal. Better: stay signed in until you have signal.")
         }
         .alert("Couldn't sign out",
                isPresented: Binding(get: { vm.errorMessage != nil },

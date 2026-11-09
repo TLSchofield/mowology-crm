@@ -17,6 +17,7 @@ trades first. The AI back office is the edge.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
 ## Queued from Tim, 2026-11-05 (after Sam step 2)
+- **Competitor checklist, reviewed quarterly** (Tim, 2026-11-08: "BuildOps has some strong features"): `docs/marketing/competitor-checklist.md` — BuildOps, ServiceTitan/Aspire, Jobber, Housecall Pro, LeanScaper, Hootsuite. Ideas from the first pass: Sam finds work noted on a visit but never quoted (BuildOps Revenue Agent), a stalled-jobs list in Kaname's brief, job costing, an AI receptionist for Yui, morning-huddle capture for Otto.
 - **Who is the contact now — one roster every head uses, kept true by payments and mail** (fundamental, Tim 2026-11-07) (Tim, 2026-11-07: Mia thanked a strata rep who had
   left the strata; someone else paid). Payer on the payment record ≠ the invoice recipient, or a bounce / "no longer
   with" reply → Mia holds the thank-you and Yui asks "Make <payer> the contact?". Plan, waiting for Tim's OK:
@@ -490,13 +491,78 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - Same pattern as Receipts (tap the selected bead = camera, iOS 1.3.81). Android to match later. Needs its own chat (iPhone `ios/` only).
 
 ## iPhone smoothness: bottom bar, calendar strip, rolling + (Tim, 2026-11-07: "The main bottom navbar is still not smooth. Also the calendar.")
+- **BUILT 2026-11-08 (iPhone), bar moved to Core Animation** (Tim: "ensure smoothness of movement of the bar is AAA, perhaps page load should happen after the bead lands?"). Measured in the simulator with the app blocked for 150 ms just after each slide starts (`-mwBarDemo stall` + `ios/tools/bar-smoothness.py`): the old bar froze for up to 150 ms, the new one never more than two frames. The bead leaves on the tap and the screen changes one turn later (not after the landing: that would add 0.4 s to every tab change). Also: 120 Hz key in Info.plist, long-press-then-hold no longer opens the dial too, a tap on the bead mid-slide no longer falls through to the page, VoiceOver reads "Tab n of 5", Large Content Viewer on the labels, Reduce Motion cross-fades. **To check on Tim's iPhone:** the feel at 120 Hz; a long touch at the large accessibility text sizes (Large Content Viewer beside the long press on Add and Schedule).
+- **Android native to match (Tim, 2026-11-08: "once completed do same for android native").** Same review and the same pass on the Compose bar (`ui/ittai/MeniscusGeometry.kt` and its bar): one sampled spring, motion off the main thread's critical path, bead first then the screen, the long-press and mid-slide tap fixes, TalkBack tab position. Codex writes Android and is out until 2026-11-11.
+- **Navigation, next (from the 2026-11-08 review, none built):** a light haptic tick on every tab change; tapping the selected tab returns to its top (pop to root, scroll to top, Search focuses its field; Kaname already does); warm each tab's first render shortly after launch so the first visit is not the slow one; the bar leaves with the keyboard's own curve instead of vanishing.
 - **BUILT 2026-11-07, iOS 1.3.112:** bar split into still buttons + moving notch/collar/bead (only the bead's glyph per frame); Add's + spins one turn per slot travelled (1 from Receipts, 4 from Schedule), faster the further; calendar chips built once and Equatable. **Left:** the fixed selection ring on the centre axis (a design change), deferring the new tab's first render.
 - **Bottom bar** (`ItMeniscusBar.swift`): `ItMeniscusBarBody` is Animatable, so the whole bar (five Buttons with gestures, labels, icon fades) is rebuilt every frame of the bead's slide. Split it: the buttons/labels a static layer, only the bead + collar + notch animated (offset + the notch Shape's `animatableData`). Start the new tab's heavy first render as the bead lands, not mid-slide.
 - **Calendar strip** (`WeekStripView.swift`): 181 non-lazy chips (kept non-lazy after the 1.3.101 blank-space bug) are all rebuilt whenever `centred` changes during a swipe, each re-formatting its date in `summary()`, plus a `matchedGeometryEffect` pill. Fix: compute the 181 chip models once (refresh when a week's dots arrive); make `DayChip` skip redraws when unchanged; replace the sliding pill with a fixed selection ring on the centre axis that the days scroll under (same idea as the duplicate number row on the Kaname line).
 - **Add's + rotation** (`ItBeadSpin`): Tim asked for more and faster turns the further the bead travels (Schedule furthest). Agreed form: the + rolls like a wheel along the bar, turn = distance travelled ÷ radius, in step with the slide, then settles into the × as now. Reduce Motion skips it.
 - iPhone only; render in the simulator before a build. Needs its own chat.
+- **Day carousel rebuilt 2026-11-08, iOS 1.3.132** (`DayCarouselView.swift`, rules in `DayCarouselRules.swift`): the pill is fixed on the line and the days pass under it (text turns white exactly at the pill's edge); the day loads only once the strip has come to rest on it, then the list fades in; the day either side is preloaded; fixed stale dots after Mine / All crews, dates beyond the strip's window, "today" after midnight, "Nov" lagging the line. **Left:** how far a flick carries (judge on the phone; one line, `scrollTargetBehavior`); a pause of a tenth of a second exactly on a day mid-drag loads that day early; VoiceOver focus moving along the strip still changes the day (as before).
+- **Android to match (Tim, 2026-11-08):** the native branch (`codex/native`, `SchedulePlusScreens.kt`) has no day carousel: three week strips (`NewWeekStrip`, `CrewWeekStrip`, `WeekStrip`) that swipe a whole week and are disabled while a day loads. Build the iPhone's carousel there (fixed pill on the Schedule axis, land-then-load, neighbour preload) from `DayCarouselRules`. Needs its own plan; Codex writes Android and is out until 2026-11-11.
 
 ## Clock-in on the Dynamic Island / Lock Screen (Tim, 2026-11-07: "Jobber shows itself clocked in at the very top even though the app is backgrounded. I like that")
 - A Live Activity while clocked in: the running timer in the Dynamic Island and on the Lock Screen (job name or "On break"), started on Clock in, ended on Clock out, updated on break start/end.
 - Needs a Widget Extension target with ActivityKit (iOS 16.1+; Xcode 15.2 can build it), `NSSupportsLiveActivities` in Info.plist, and push updates (APNs live-activity token) so it stays right when the server changes the clock (auto clock-out, office edits). Android: an ongoing notification with a chronometer.
 - Needs its own chat; Xcode Cloud signing for a second target (bundle id, capability) checked first.
+## Penny's onboarding asks the book questions, one by one (Tim 2026-11-06)
+- **Terms near the start:** right after "About you", Penny shows the terms and privacy policy and the owner accepts (records the version in `terms_versions`/acceptance — the sign-in gate, migration 1381, is off today).
+- **GST:** registered? number, and how often they file. Not registered → GST rate 0, so contract billing and invoices add none (Claudia, G9–G11).
+- **Year-end:** who does it — an accountant (→ the existing invite step) or "I do it myself" (Penny says plainly the terms ask for a review before filing, and offers the accountant login).
+- **Payroll:** how they run it today (e.g. Wave) — Ittai doesn't, so Penny knows not to expect it.
+- One question per screen on web, iPhone and Android; iPhone hard-codes the company step (`ItPennyOnboarding.swift`), Android to check — parity is part of the job.
+
+## iPhone receipt capture takes blurred photos (Tim 2026-11-06) — being handled in another session
+- The edge-detect scanner on iPhone auto-captured while the phone was moving: a motion-blurred receipt, "No text found".
+  Wanted: auto-capture only when the frame is steady and sharp (or turn auto-capture off / add a manual shutter), and a
+  "too blurry — retake" check before upload. Screenshot in the 2026-11-06 Claudia chat. iPhone receipts area.
+
+## Timesheets to payroll — QuickBooks and Wave (Tim 2026-11-06) — Tim: the QuickBooks TimeActivity part "is useful" (wanted)
+- **QuickBooks:** the Accounting API's `TimeActivity` (hours per employee, per customer/job) fits the connection Ittai already has.
+  Hours tied to a pay type (regular/overtime) for QuickBooks Payroll need Intuit's Premium "Payroll Compensation" API, which has no
+  sandbox. Unsettled: whether QuickBooks Payroll **Canada** turns TimeActivity into paycheques — ask Intuit / test on Tim's company.
+- **Wave:** no payroll or hours in Wave's public API (third-party report, unconfirmed by Wave docs). Realistic path: a weekly hours
+  export in whatever file Wave Payroll imports (check Wave's import format first), or Wave's own timesheet entry by hand.
+- Start: the onboarding payroll answer (`onboarding_payroll`, `onboarding_payroll_app`) says which one a business needs.
+
+## Penny warns a non-registered business nearing the $30,000 GST limit (Tim 2026-11-06)
+- For a business that answered "not registered" (`ops_settings.gst_registered = 'no'`), Penny sums taxable sales (invoices) over
+  each rolling four calendar quarters and warns as it nears the small-supplier limit ($30,000 in Canada) — e.g. at 80% and on
+  crossing, saying it must register and charge GST from the supply that takes it over (check the exact CRA timing rule in the
+  `regions` skill / with Sit Lim before wording it). Shows on Penny's card and the brief; never changes the setting itself.
+
+## Intuit's official "Connect to QuickBooks" button (Tim 2026-11-06)
+- Ours is plain text "Connect QuickBooks" (`public/crm/accounting/quickbooks.php:179`, `public/crm/onboarding/step.php:261`, and the
+  phone apps). Intuit's technical requirements ask for their supplied button (text-only since 2021, refreshed artwork 2024; English and
+  French, png/svg, base + hover), shown only while not connected, replaced by Disconnect once connected. Download the current pack
+  from developer.intuit.com (sign in) and swap on web, iPhone and Android before the app assessment / Marketplace listing.
+- Brand rules to keep: never "QuickBooks"/"QB"/"Intuit" in Ittai's name, app card or logo; Ittai's name/logo bigger than any Intuit mark
+  and at the top of ittai.ca; plain factual text ("connects to QuickBooks Online") is fine; no QuickBooks logo elsewhere without approval.
+
+## One shared QuickBooks return address for every business (2026-11-06)
+- Today each business returns from Intuit to its own `https://<business>.ittai.ca/crm/accounting/quickbooks-callback.php`
+  (`QboConnectionService::redirectForThisBusiness()`), and every one must be listed in the Intuit app's Redirect URIs. Fine for a
+  handful; before many businesses join, use one address (e.g. `https://ittai.ca/quickbooks/callback/`) that reads the signed `state`
+  to find the business and hands the code to it. Check Intuit's limit on how many redirect URIs one app may list.
+- Intuit listing URLs in use: launch + connect/reconnect `https://ittai.ca/quickbooks/`, disconnect `https://ittai.ca/quickbooks/disconnected/`,
+  EULA `https://ittai.ca/terms/`, privacy `https://ittai.ca/privacy/`.
+
+## Save Intuit's `intuit_tid` with every QuickBooks error (Intuit app review, 2026-11-06)
+- `QboClient` keeps the error message but not the `intuit_tid` response header Intuit support asks for. Store it with each failed
+  call (qbo_links message / connection last_error) and show it in the held-item reason. Also: read the OAuth endpoints from Intuit's
+  discovery document instead of the fixed URLs in `QboOAuth` (the review asked about both; answered No).
+
+## Two-step sign-in (MFA) for owners and office staff (Intuit app review, 2026-11-06)
+- Ittai sign-in is email + password (web) or PIN (crew phones), no second step. Intuit's assessment asks (answered No). Owners and
+  anyone with books/QuickBooks access should get a second step (authenticator app or emailed code) before Ittai holds many
+  businesses' QuickBooks data. Third-party notes say store-level security applies past 500 connections — check Intuit's current rule.
+
+## Business keys: enforce lowercase letters, digits, dashes (security review follow-up, 2026-11-06)
+- `PdfStore`/`StoredPdfPath` require `[a-z0-9-]+` business keys; `Tenant::valid()` doesn't enforce it. A key with `_` or a capital
+  would make every PDF write fail. Add the check to `Tenant::valid()` (or a registry test). All current keys pass.
+
+## Trackimo per business (security review follow-up, 2026-11-06)
+- `TrackimoService` signs in with Mowology's own TRACKIMO_* constants for every business. Files are now per business (#8), but a
+  second business turning tracking on would read Mowology's trucks. Before then: per-business Trackimo credentials (encrypted,
+  like the QuickBooks keys) and refuse tracking where none are set.

@@ -52,11 +52,12 @@ struct CameraPicker: UIViewControllerRepresentable {
 
 /// Apple's document camera (VisionKit, as in Notes) for receipt photos: it outlines the receipt's edges live, says
 /// "move closer" / "hold still", shoots by itself once the receipt is steady, and returns the page cropped and
-/// straightened (Tim, 2026-11-06: "I didn't see any guides for good angle"). The first page is the receipt; a crew
-/// member who scans several gets the first. Not available in the simulator or on unsupported devices: callers check
+/// straightened (Tim, 2026-11-06: "I didn't see any guides for good angle"). The camera stays open for more pages until
+/// Save, so one session can hold several receipts, or a blurred auto-shot and its better retake: every page is handed
+/// back (the first-only rule silently lost the others, review 2026-11-08). Not available in the simulator or on unsupported devices: callers check
 /// `isSupported` and fall back to CameraPicker.
 struct DocumentCameraPicker: UIViewControllerRepresentable {
-    var onCapture: (UIImage) -> Void
+    var onCapture: ([UIImage]) -> Void
     var onCancel:  () -> Void
 
     static var isSupported: Bool { VNDocumentCameraViewController.isSupported }
@@ -77,7 +78,7 @@ struct DocumentCameraPicker: UIViewControllerRepresentable {
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
             if scan.pageCount > 0 {
-                parent.onCapture(scan.imageOfPage(at: 0))
+                parent.onCapture((0..<scan.pageCount).map { scan.imageOfPage(at: $0) })
             } else {
                 parent.onCancel()
             }

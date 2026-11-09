@@ -131,6 +131,7 @@ final class AuthSession: ObservableObject {
         if let jwt = token { DeviceTokenService.unregister(jwt: jwt) }
         KeychainStore.delete(key: KeychainKey.jwt)
         KeychainStore.delete(key: KeychainKey.user)
+        OfflineDirectory.shared.clear()
         token           = nil
         user            = nil
         isAuthenticated = false

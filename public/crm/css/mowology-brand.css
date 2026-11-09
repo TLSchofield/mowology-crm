@@ -41756,3 +41756,12 @@ body.mw-books {
 .mw-ds-axis-mini .r { fill: none; stroke: var(--it-line); stroke-width: 1; }
 .mw-ds-axis-mini .b { fill: var(--it-brand); }
 @media (max-width: 767px) { .mw-ds-mark--wide { grid-column: auto; } }
+
+/* ============================================================
+   Two-step sign-in settings (public/crm/account/two-step.php)
+   ============================================================ */
+.mw-two-step-qr { display: inline-block; padding: .75rem; background: var(--mw-white, #fff); border: 1px solid var(--mw-light); border-radius: 6px; line-height: 0; }
+.mw-two-step-qr svg { width: 200px; height: 200px; }
+.mw-two-step-field { max-width: 22rem; }
+.mw-two-step-key { font-family: var(--mw-font-mono, monospace); font-size: 1.05rem; letter-spacing: .08em; word-break: break-all; }
+.mw-backup-codes { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem 1.5rem; max-width: 22rem; margin: .75rem 0; padding: .75rem 1rem; list-style: none; background: var(--mw-light); border-radius: 6px; font-family: var(--mw-font-mono, monospace); font-size: 1rem; }

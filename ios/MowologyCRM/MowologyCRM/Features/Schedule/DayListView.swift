@@ -355,6 +355,9 @@ struct DayListView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
+        // An empty day keeps the axis line from the chosen day down to the Schedule bead (Tim, 2026-11-08).
+        .background(alignment: .topLeading) { railTail(show: useTimeline && timeline != nil) }
+        .background(widthReader)
         .background(appStyle.page)
         // Allow pull-to-refresh on empty state.
         .refreshable { await onRefresh() }

@@ -369,6 +369,10 @@ try {
                 // Permissions come from RBAC once a user has roles — keep the matching role in step.
                 EmployeeAccountService::syncRbacRoleOnChange($db, $id, (string)$target['role'], (string)$audited['role']);
             }
+            if ($newHash !== null) {
+                // A password change also ends every "trusted device" for two-step sign-in (migration 1440; no-op without it).
+                try { (new TwoStepService($db, null))->revokeAllDevices($id); } catch (Throwable $e) { error_log('two-step devices not revoked: ' . $e->getMessage()); }
+            }
             if ($newHash !== null && $id === (int)$user['id']) {
                 // Own password: keep this session (others end on their next check — #12).
                 $_SESSION['pwd_v'] = AuthFreshness::passwordVersion($newHash);
@@ -557,9 +561,22 @@ try {
             echo json_encode(['success' => true, 'message' => 'Roles updated']);
             break;
 
+        // ── POST: turn off someone's two-step sign-in (lost phone) ─────────
+        case 'disable_two_step':
+            if (!userHasPermission('users.manage')) throw new Exception('Access denied — requires users.manage permission');
+            if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+            $targetId = (int)($input['id'] ?? 0);
+            if (!$targetId) throw new Exception('Employee ID required');
+            if ($targetId === (int)$user['id']) throw new Exception('Turn off your own two-step sign-in from your account menu, with a code.');
+            // An admin's second step only by an admin, like their password (review 2026-11-06).
+            if (EmployeeAccountService::isAdminTarget($db, $targetId) && !RoleRules::isAdmin($user['role'] ?? '')) throw new Exception("Only an admin can turn off an admin's two-step sign-in.");
+            (new TwoStepService($db, null))->disable($targetId, (int)$user['id']);
+            echo json_encode(['success' => true, 'message' => 'Two-step sign-in turned off']);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, get_dl, create, update, update_hr, update_payroll, update_td1, update_roles']);
+            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, get_dl, create, update, update_hr, update_payroll, update_td1, update_roles, disable_two_step']);
     }
 
 } catch (PDOException $e) {

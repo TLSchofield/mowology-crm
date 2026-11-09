@@ -66,6 +66,7 @@ $moduleMap = [
     'expenses'  => 'Expenses',    // Mobile iOS receipts/expenses API (JWT-authenticated)
     'device'    => 'Device',      // Mobile iOS push-notification device token registration (JWT-authenticated)
     'sales'     => 'Sales',       // Mobile iOS Sam (sales head) card: sales-head-mobile (JWT-authenticated)
+    'tasks'     => 'Tasks',       // Mobile iOS Add → Task: tasks-mobile (JWT-authenticated)
 ];
 
 if (!isset($moduleMap[$module])) {

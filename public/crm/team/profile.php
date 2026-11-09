@@ -1472,6 +1472,22 @@ if ($apiKey) {
             </div>
             <?php endif; ?>
 
+            <!-- Two-step sign-in reset (lost phone) -->
+            <?php
+            $twoStepOn = false;
+            if ($canManageUsers && $empId !== (int)$user['id']) {
+                try { $twoStepOn = (new TwoStepService($db, null))->isEnrolled($empId); } catch (Throwable $e) { error_log('profile two-step status: ' . $e->getMessage()); }
+            }
+            if ($twoStepOn): ?>
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">Two-step sign-in</h6></div>
+                <div class="card-body">
+                    <p class="text-muted">Two-step sign-in is on for this person. If they lost their phone and backup codes, turn it off; they can turn it on again from their account menu.</p>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="acc-two-step-off">Turn off two-step sign-in</button>
+                </div>
+            </div>
+            <?php endif; ?>
+
         </div><!-- /col right -->
 
     </div>
@@ -1483,6 +1499,25 @@ if ($apiKey) {
 
 <script>
 var profileCsrf = '<?php echo h(generateCSRFToken()); ?>';
+(function () {
+    var offBtn = document.getElementById('acc-two-step-off');
+    if (!offBtn) return;
+    offBtn.addEventListener('click', function () {
+        if (!confirm('Turn off two-step sign-in for this person?')) return;
+        offBtn.disabled = true;
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'disable_two_step', id: profileEmpId, csrf_token: profileCsrf})
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (json) {
+            if (json.success) { offBtn.textContent = 'Turned off'; }
+            else { offBtn.disabled = false; alert(json.error || 'Could not turn it off'); }
+        })
+        .catch(function () { offBtn.disabled = false; alert('Network error'); });
+    });
+})();
 var profileEmpId = <?php echo $empId; ?>;
 
 // ── Toggle edit panels ─────────────────────────────────────────────────────

@@ -245,7 +245,8 @@ struct TeamView: View {
                 .navigationBarBackButtonHidden(true)
                 .background(ItPageBackground().ittaiTheme(field: ittaiFieldEnabled))
                 .task { await loadHeadIfNeeded(slug) }
-                .navigationTitle(TeamHead.all.first { $0.slug == slug }?.name ?? slug.capitalized)
+                // The name sits beside the face on the spine, so the bar stays empty (Tim, 2026-11-07: "Mia is said twice").
+                .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
             }
             }
@@ -655,7 +656,7 @@ private struct ItWorkspaceView<Content: View>: View {
                 } else {
                     // Sam leads with his own sentence and one Next row (SamCardView), so the numbered
                     // guide would only repeat the first customer (Tim, 2026-11-04: too wordy).
-                    content(member.id == "sam" ? AnyView(EmptyView()) : AnyView(guide))
+                    content(member.id == "sam" ? AnyView(EmptyView()) : AnyView(GuideFold(slug: member.id) { guide }))
                     if member.id == "penny" { pennySections }
                 }
                 learning
@@ -837,6 +838,51 @@ private struct ItWorkspaceView<Content: View>: View {
         default:
             let noun = item?.url?.lowercased().contains("invoice") == true ? "invoice" : "item"
             return "It opens the \(noun) in the CRM. Nothing is sent to the customer."
+        }
+    }
+}
+
+/// The workspace's four "how it works" steps: in full on the first visit to each head, then folded into one
+/// "How this works" row so the items come first (Tim, 2026-11-07). Remembered per head.
+private struct GuideFold<Content: View>: View {
+    @AppStorage private var seen: Bool
+    /// Whether this visit is the first: read once on appear, so the full guide stays for the whole first visit.
+    @State private var firstVisit: Bool?
+    @State private var open = false
+    @ViewBuilder let content: () -> Content
+    @Environment(\.it) private var it
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(slug: String, @ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+        _seen = AppStorage(wrappedValue: false, "workspace.guideSeen.\(slug)")
+    }
+
+    var body: some View {
+        let full = firstVisit ?? !seen
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            if !full {
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { open.toggle() }
+                } label: {
+                    HStack(spacing: ItSpace.s2) {
+                        Text("How this works").itText(.body14, weight: 500).foregroundStyle(it.meta)
+                        Image(systemName: "chevron.down").itText(.meta13, weight: 600).foregroundStyle(it.meta)
+                            .rotationEffect(.degrees(open ? 180 : 0))
+                            .accessibilityHidden(true)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(minHeight: ItSize.targetPhone)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(open ? "Open" : "Closed")
+            }
+            if full || open { content() }
+        }
+        .onAppear {
+            if firstVisit == nil { firstVisit = !seen }
+            seen = true
         }
     }
 }

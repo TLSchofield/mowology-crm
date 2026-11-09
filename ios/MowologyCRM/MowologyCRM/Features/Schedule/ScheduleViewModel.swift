@@ -21,6 +21,8 @@ private struct DayResponse: Decodable {
     let scope: String?
     let canSwitchScope: Bool?
     let serviceTypes: [ScheduleJobType]?
+    /// The people the crew checklist offers (2026-11-08); an older server sends none.
+    let crews: [ScheduleJobType]?
     /// Quote visits for the day (2026-10-15); an older server sends none.
     let appointments: [Appointment]?
 
@@ -34,11 +36,12 @@ private struct DayResponse: Decodable {
         case scope
         case canSwitchScope = "can_switch_scope"
         case serviceTypes = "service_types"
+        case crews
         case appointments
     }
 }
 
-/// A job type the schedule can be narrowed to (the company's service types).
+/// A job type (or a person, for the crew checklist) the schedule can be narrowed to.
 struct ScheduleJobType: Decodable, Hashable, Identifiable {
     let value: String
     let label: String
@@ -95,6 +98,9 @@ final class ScheduleViewModel: ObservableObject {
     @Published private(set) var jobType: String = UserDefaults.standard.string(forKey: "mw_sched_service") ?? ""
     @Published private(set) var canSwitchScope: Bool = false
     @Published private(set) var jobTypes: [ScheduleJobType] = []
+    /// On All crews: the people ticked (comma user ids), "" = every crew. Remembered on the phone.
+    @Published private(set) var crewFilter: String = UserDefaults.standard.string(forKey: "mw_sched_crews") ?? ""
+    @Published private(set) var crews: [ScheduleJobType] = []
 
     // MARK: - Private
 
@@ -119,6 +125,13 @@ final class ScheduleViewModel: ObservableObject {
     /// Handles for in-flight tasks — cancelled when a new load supersedes them.
     private var scheduleTask: Task<Void, Never>?
     private var trailsTask:   Task<Void, Never>?
+    /// Preloads the day either side of the one on screen (day carousel, 2026-11-08).
+    private var neighbourTask: Task<Void, Never>?
+    /// Goes up whenever a cached day is thrown away because it changed; a preload that was out at the time
+    /// must not put its old answer back.
+    private var cacheEpoch = 0
+    /// When each cached day was fetched.
+    private var cachedAt: [String: Date] = [:]
 
     /// Background poll loop — re-fetches the selected day silently so completions
     /// made on another device/platform show up without a manual refresh.
@@ -287,6 +300,7 @@ final class ScheduleViewModel: ObservableObject {
         quizRequired = !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))
+        cacheEpoch += 1
         updateUserLocation()
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }
@@ -302,8 +316,17 @@ final class ScheduleViewModel: ObservableObject {
     /// also refreshes the week strip.
     func selectDate(_ date: Date) async {
         let weekChanged = !isSameDay(mondayOf(week: selectedDate), mondayOf(week: date))
+        let dayChanged = !isSameDay(selectedDate, date)
         selectedDate = date
         selectedOnDay = Calendar.current.startOfDay(for: .now)
+        // In the same update as the date: the day already held shows at once, any other day shows as loading.
+        // Before, the old day's stops stayed under the new date until the server answered (2026-11-08).
+        if dayChanged {
+            let key = isoDateString(from: date)
+            let held = stopCache[key]
+            rawStops = held ?? []
+            appointments = held == nil ? [] : (apptCache[key] ?? [])
+        }
         await loadSchedule(for: date, reloadWeek: weekChanged)
     }
 
@@ -326,8 +349,11 @@ final class ScheduleViewModel: ObservableObject {
     /// disk-backed load path) and reload the day on screen plus the week strip.
     func stopMoved(from: String, to: String) async {
         stopCache.removeValue(forKey: from)
+        cacheEpoch += 1
         stopCache.removeValue(forKey: to)
+        cacheEpoch += 1
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))
+        cacheEpoch += 1
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }
 
@@ -337,6 +363,7 @@ final class ScheduleViewModel: ObservableObject {
     /// Invalidates the cache for the current day and reloads.
     func invalidateAndRefresh() async {
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))
+        cacheEpoch += 1
         await refresh()
     }
 
@@ -346,6 +373,7 @@ final class ScheduleViewModel: ObservableObject {
     func resolve(_ route: NotificationRoute) async -> Stop? {
         let target = route.date.flatMap { isoFormatter.date(from: $0) } ?? .now
         stopCache.removeValue(forKey: isoDateString(from: target))
+        cacheEpoch += 1
         await selectDate(target)
 
         return stops.first { stop in
@@ -393,7 +421,7 @@ final class ScheduleViewModel: ObservableObject {
         let dateString = isoDateString(from: selectedDate)
         var changed = false
         do {
-            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType))
+            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString, scope: scope, service: jobType, crews: crewsParam))
             guard !Task.isCancelled else { return false }
             // The day may have changed while this poll was out: never show Monday's stops under Tuesday.
             guard dateString == isoDateString(from: selectedDate) else { return false }
@@ -454,6 +482,7 @@ final class ScheduleViewModel: ObservableObject {
     private func loadSchedule(for date: Date, reloadWeek: Bool) async {
         scheduleTask?.cancel()
         trailsTask?.cancel()
+        neighbourTask?.cancel()
 
         isLoading    = true
         errorMessage = nil
@@ -475,13 +504,44 @@ final class ScheduleViewModel: ObservableObject {
 
         let trailHandle = Task { await self.loadCrewTrails(for: date) }
         trailsTask = trailHandle
+
+        // Once the day is up and the phone is idle, hold the day either side so a one-day swipe shows at once.
+        neighbourTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            for step in [1, -1] {
+                guard !Task.isCancelled, let self,
+                      let neighbour = self.calendar.date(byAdding: .day, value: step, to: date) else { return }
+                await self.preloadDay(neighbour)
+            }
+        }
     }
+
+    /// Fetches a day into the cache without showing it. Silent: it is a convenience, and the day loads in the
+    /// ordinary way (with its exact error) if it is ever chosen.
+    private func preloadDay(_ date: Date) async {
+        let dateString = isoDateString(from: date)
+        guard !isOffline, stopCache[dateString] == nil else { return }
+        let filter = dotsKey
+        let epoch = cacheEpoch
+        guard let response: DayResponse = try? await apiClient.request(
+            .scheduleDay(date: dateString, scope: scope, service: jobType, crews: crewsParam)
+        ) else { return }
+        // A filter changed, or another day was chosen, while this was out: what came back may be for the old filter.
+        guard !Task.isCancelled, filter == dotsKey, epoch == cacheEpoch, stopCache[dateString] == nil else { return }
+        applyAppointments(response.appointments, forDate: dateString)
+        cacheStops(response.stops, forDate: dateString)
+        ScheduleCache.shared.save(response.stops, forDate: diskKey(dateString))
+    }
+
+    /// Whose jobs and which job types the day strip's dots count.
+    var dotsKey: String { "\(scope)|\(jobType)|\(crewsParam)" }
 
     /// What the server says this person may do (an older server sends none of it). The scope it
     /// actually applied is kept, so a refused "All crews" isn't asked for again after a restart.
     private func applyScope(_ r: DayResponse) {
         canSwitchScope = r.canSwitchScope ?? false
         jobTypes = r.serviceTypes ?? []
+        crews = r.crews ?? []
         if let s = r.scope, s != scope {
             scope = s
             UserDefaults.standard.set(s, forKey: "mw_sched_scope")
@@ -491,7 +551,7 @@ final class ScheduleViewModel: ObservableObject {
     /// The offline copy is kept per filter (Codex review 2026-10-14): an "All crews" copy must never
     /// be shown as "Mine", or after the company limits crew to their own jobs.
     private func diskKey(_ dateString: String) -> String {
-        "\(dateString)_\(scope)_\(jobType.isEmpty ? "any" : jobType)"
+        "\(dateString)_\(scope)_\(jobType.isEmpty ? "any" : jobType)" + (crewsParam.isEmpty ? "" : "_c\(crewsParam)")
     }
 
     /// Mine / All crews.
@@ -499,6 +559,40 @@ final class ScheduleViewModel: ObservableObject {
         guard value != scope else { return }
         scope = value
         UserDefaults.standard.set(value, forKey: "mw_sched_scope")
+        await reloadForFilter()
+    }
+
+    /// The ticked people on All crews; empty means every crew. Ids no longer offered drop out.
+    var selectedCrews: [String] {
+        let raw = crewFilter.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !crews.isEmpty else { return raw }
+        let live = Set(crews.map(\.value))
+        return raw.filter { live.contains($0) }
+    }
+
+    /// Sent only on All crews; Mine is the person's own jobs whatever was ticked.
+    private var crewsParam: String { scope == "all" ? selectedCrews.joined(separator: ",") : "" }
+
+    /// Tick or untick one person (Tim, 2026-11-08: "same for all crews"). Ticking anyone means All crews.
+    func toggleCrew(_ value: String) async {
+        var picked = selectedCrews
+        if scope != "all" { picked = [] }
+        if let i = picked.firstIndex(of: value) { picked.remove(at: i) } else { picked.append(value) }
+        let order = crews.map(\.value)
+        picked.sort { a, b in
+            let ia = order.firstIndex(of: a) ?? .max, ib = order.firstIndex(of: b) ?? .max
+            return ia != ib ? ia < ib : a < b
+        }
+        await setCrews(picked.joined(separator: ","), scope: "all")
+    }
+
+    /// Mine, or All crews with nobody ticked.
+    func setCrews(_ value: String, scope newScope: String) async {
+        guard value != crewFilter || newScope != scope else { return }
+        crewFilter = value
+        UserDefaults.standard.set(value, forKey: "mw_sched_crews")
+        scope = newScope
+        UserDefaults.standard.set(newScope, forKey: "mw_sched_scope")
         await reloadForFilter()
     }
 
@@ -537,6 +631,7 @@ final class ScheduleViewModel: ObservableObject {
     /// A filter change: what was cached was for the old filter.
     private func reloadForFilter() async {
         stopCache.removeAll()
+        cacheEpoch += 1
         await refresh()
     }
 
@@ -545,7 +640,7 @@ final class ScheduleViewModel: ObservableObject {
         let startString = isoDateString(from: mondayOf(week: date))
         do {
             let response: WeekResponse = try await apiClient.request(
-                .scheduleWeek(start: startString, scope: scope, service: jobType)
+                .scheduleWeek(start: startString, scope: scope, service: jobType, crews: crewsParam)
             )
             guard !Task.isCancelled else { return }
             isOffline = false
@@ -573,12 +668,16 @@ final class ScheduleViewModel: ObservableObject {
             rawStops    = cached
             appointments = apptCache[dateString] ?? []
             lastFetched = .now
+            // Held for a while (a preloaded neighbour, a day seen earlier): show it now, check it quietly.
+            if Date().timeIntervalSince(cachedAt[dateString] ?? .distantPast) > 15 {
+                Task { await self.silentRefresh() }
+            }
             return
         }
 
         do {
             let response: DayResponse = try await apiClient.request(
-                .scheduleDay(date: dateString, scope: scope, service: jobType)
+                .scheduleDay(date: dateString, scope: scope, service: jobType, crews: crewsParam)
             )
             guard !Task.isCancelled else { return }
             AppExtrasConfig.shared.update(ratePer5Min: response.extrasRatePer5Min)
@@ -734,10 +833,20 @@ final class ScheduleViewModel: ObservableObject {
 
     private func cacheStops(_ fetched: [Stop], forDate dateString: String) {
         stopCache[dateString] = fetched
-        // Evict oldest entry when cap is exceeded. ISO date strings sort lexically.
-        if stopCache.count > Self.maxCachedDays,
-           let oldest = stopCache.keys.sorted().first {
-            stopCache.removeValue(forKey: oldest)
+        cachedAt[dateString] = .now
+        // Over the cap: drop the day furthest from the one on screen (the earliest date used to go, which threw
+        // away the day just loaded whenever someone browsed back in time).
+        if stopCache.count > Self.maxCachedDays {
+            let shown = selectedDate
+            let furthest = stopCache.keys.max { a, b in
+                let da = isoFormatter.date(from: a).map { abs($0.timeIntervalSince(shown)) } ?? .infinity
+                let db = isoFormatter.date(from: b).map { abs($0.timeIntervalSince(shown)) } ?? .infinity
+                return da < db
+            }
+            if let furthest {
+                stopCache.removeValue(forKey: furthest)
+                cachedAt.removeValue(forKey: furthest)
+            }
         }
     }
 

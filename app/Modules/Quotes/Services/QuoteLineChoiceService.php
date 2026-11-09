@@ -176,7 +176,8 @@ class QuoteLineChoiceService
     /** Recalculate and store the quote's totals from its billable lines. */
     public function recalc(int $quoteId): array
     {
-        $t = self::totals($this->lines($quoteId));
+        if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
+        $t = self::totals($this->lines($quoteId), TaxEngine::chargedRate($this->db, self::TAX_RATE));   // no GST for a business not registered
         $this->db->prepare("UPDATE quotes SET subtotal = ?, tax_amount = ?, amount = ?, total_amount = ? WHERE id = ?")
                  ->execute([$t['subtotal'], $t['tax_amount'], $t['total'], $t['total'], $quoteId]);
         return $t;

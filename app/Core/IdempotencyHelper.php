@@ -42,7 +42,8 @@ function idempotencyCheck(PDO $db, string $rawKey, int $userId): ?string
 }
 
 /**
- * Persist a key → response mapping with a 24-hour TTL.
+ * Persist a key → response mapping, 24 hours unless the caller needs longer (the phone's offline outbox can resend
+ * after days without signal, so what it creates is remembered for 30).
  * Uses INSERT IGNORE so concurrent duplicate requests race safely.
  */
 function idempotencyStore(
@@ -51,7 +52,8 @@ function idempotencyStore(
     int    $userId,
     string $endpoint,
     string $action,
-    string $responseJson
+    string $responseJson,
+    int    $ttlHours = 24
 ): void {
     if ($rawKey === '' || strlen($rawKey) > 128) {
         return;
@@ -60,8 +62,8 @@ function idempotencyStore(
     $db->prepare(
         "INSERT IGNORE INTO idempotency_keys
          (key_hash, user_id, endpoint, action, response_json, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 24 HOUR))"
-    )->execute([$hash, $userId, $endpoint, $action, $responseJson]);
+         VALUES (?, ?, ?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? HOUR))"
+    )->execute([$hash, $userId, $endpoint, $action, $responseJson, $ttlHours]);
 
     // Prune expired rows ~5% of the time to keep the table lean.
     if (mt_rand(1, 20) === 1) {

@@ -159,7 +159,7 @@ class ReceiptReviewService
         $gstRate = 0.05;
         try {
             require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
-            $gstRate = TaxEngine::gstRate($this->db);
+            $gstRate = TaxEngine::configuredGstRate($this->db);   // the rate on the paper, registered or not
         } catch (Throwable $e) { /* 5% */ }
 
         $byVendor = [];

@@ -467,6 +467,12 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwAddTaskDemo") {
+            AddTaskView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwAddQuoteDemo") {
+            AddQuoteView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwAddInvoiceDemo") {
+            AddInvoiceView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwSpineDemo") {
             HeadSpineDemo(head: i + 1 < args.count ? args[i + 1] : "penny")
                 .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
@@ -610,7 +616,7 @@ private struct ScheduleTimelineDemo: View {
         if mode == "time" {   // `-mwTimelineDemo time`: the hour grid (the Schedule bead's Time view)
             // With the day strip above and the Schedule bead's slot, to see the axis meet the chosen day.
             VStack(spacing: 0) {
-                DayCarouselView(selectedDate: .constant(Date()), weekDays: [], showsLine: true)
+                DayCarouselView(selectedDate: Date(), weekDays: [], dotsKey: "", showsLine: true, onLand: { _ in })
                 DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
                                                           Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
                                 isLoading: false, isToday: true, onRefresh: {}, onSelect: { _ in })
@@ -627,7 +633,7 @@ private struct ScheduleTimelineDemo: View {
 #endif
 
 #if DEBUG
-/// `-mwBarDemo admin|add|crew|receipts|out|break` (`-mwBeadDemo` = receipts): the tab bar and the Time chip over the
+/// `-mwBarDemo admin|add|crew|receipts|out|break|stall` (`-mwBeadDemo` = receipts): the tab bar and the Time chip over the
 /// synthetic day — admin or crew slots, the Add dial open, Receipts' camera bead, or the chip clocked out.
 private struct MeniscusBarDemo: View {
     @Environment(\.itAppStyle) private var style
@@ -635,6 +641,7 @@ private struct MeniscusBarDemo: View {
     @State private var selected: Int
     @State private var addOpen: Bool
     @State private var demoDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
+    @State private var landings = 0
 
     init(variant: String) {
         self.variant = variant
@@ -649,11 +656,11 @@ private struct MeniscusBarDemo: View {
             : [("Schedule", "calendar"), ("Search", "magnifyingglass"), ("Kaname", "hexagon"), ("Receipts", "doc.text.image"), ("Add", "plus")]
         return titles.enumerated().map { i, t in
             switch t.0 {
-            case "Receipts": return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
-                                                   beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
-            case "Add":      return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
+            case "Receipts": return ItMeniscusItem(id: i, title: t.0, icon: .system(t.1),
+                                                   beadIcon: .system("camera.fill"), beadLabel: "Snap a receipt")
+            case "Add":      return ItMeniscusItem(id: i, title: t.0, icon: .system(t.1),
                                                    beadTurn: 45, beadLabel: "Close", longPressLabel: "Add a job")
-            default:         return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1))
+            default:         return ItMeniscusItem(id: i, title: t.0, icon: .system(t.1))
             }
         }
     }
@@ -661,7 +668,20 @@ private struct MeniscusBarDemo: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                DayCarouselView(selectedDate: $demoDate, weekDays: [], showsLine: true)
+                DayCarouselView(selectedDate: demoDate, weekDays: [], dotsKey: "", showsLine: true,
+                                onLand: { demoDate = $0; landings += 1 })
+                // `-mwCarouselProbe`: shows the landed day and the number of landings, then changes the day from
+                // outside: a glide three days on (add `-mwCarouselSlow` to photograph it), then a date beyond the window.
+                if ProcessInfo.processInfo.arguments.contains("-mwCarouselProbe") {
+                    Text("\(demoDate.formatted(.dateTime.weekday().day().month().year())) · landings \(landings)")
+                        .font(.caption.monospaced())
+                        .task {
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                            demoDate = Calendar.current.date(byAdding: .day, value: 3, to: demoDate) ?? demoDate
+                            try? await Task.sleep(nanoseconds: 9_000_000_000)
+                            demoDate = Calendar.current.date(byAdding: .day, value: 300, to: Date()) ?? demoDate
+                        }
+                }
                 ScheduleTimelineDemo(mode: "day")
             }
                 .environment(\.itTabSlot, ItTabSlot(index: 0, count: items.count))
@@ -677,14 +697,24 @@ private struct MeniscusBarDemo: View {
         // As MainTabView does: every scroll view below gets the bar's bottom margin (the day strip must ignore it).
         .contentMargins(.bottom, MainTabView.barReserve, for: .scrollContent)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ItMeniscusBar(items: items, selected: Binding(
-                get: { addOpen ? items.count - 1 : selected },
-                set: { if $0 == items.count - 1 { addOpen = true } else { addOpen = false; selected = $0 } }),
+            ItMeniscusBar(items: items, selected: addOpen ? items.count - 1 : selected,
+                onSelect: { if $0 == items.count - 1 { addOpen = true } else { addOpen = false; selected = $0 } },
                 onReselect: { if $0 == items.count - 1 { addOpen = false } })
         }
         .onAppear {
             ClockChipStore.shared.set(clockedIn: variant != "out", elapsedSeconds: 42 * 60)
             if variant == "break" { BreakController.shared.demoStartBreak(minutesAgo: 12) }
+        }
+        // `-mwBarDemo stall`: the smoothness proof. The bead is sent across the bar on a timer and the app is blocked
+        // for 150 ms just after each slide starts, as a heavy screen would block it. Record the simulator's screen and
+        // run ios/tools/bar-smoothness.py on the video: the bead must keep moving through every block.
+        .task {
+            guard variant == "stall" else { return }
+            for next in [3, 0, 2, 1, 3, 0, 3, 1] {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                selected = next
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Thread.sleep(forTimeInterval: 0.15) }
+            }
         }
     }
 }

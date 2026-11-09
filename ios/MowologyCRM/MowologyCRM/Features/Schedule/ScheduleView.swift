@@ -22,6 +22,11 @@ struct ScheduleView: View {
     /// Which view the day shows: chosen on the Schedule bead (tap = next, long press = pick), remembered.
     @ObservedObject private var views = ScheduleViewStore.shared
     @State private var isOttoExpanded = false
+    /// The month of the day on the carousel's line while it differs from the loaded day's.
+    @State private var lineMonth: Date?
+    /// The day's content fades in when another day lands (2026-11-08).
+    @State private var dayOpacity = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Navigation path — owned here so a tapped notification can open a stop directly.
     @State private var path: [Stop] = []
@@ -29,6 +34,7 @@ struct ScheduleView: View {
     @State private var showingFieldJob = false
     /// Client picked from the Add dial: "Add a job" opens straight on its new-client step.
     @State private var fieldJobStartsWithNewClient = false
+    @State private var addForm: AddForm?
     /// The stop being moved to another date — drives the Move Stop sheet.
     @State private var movingStop: Stop?
     /// A quick action picked on a card, run once by the visit screen it opens (keyed by stop id).
@@ -91,14 +97,20 @@ struct ScheduleView: View {
 
                 // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14). Above the days since 1.3.100 (Tim,
                 // 2026-11-06): the days sit straight on the list, so the centre line meets them with nothing between.
-                if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
-                    scopeBar
-                }
+                scopeBar   // always: Today lives here now
 
                 // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
                 if horizontalSizeClass == .compact {
-                    DayCarouselView(selectedDate: weekStripBinding, weekDays: viewModel.weekDays,
-                                    showsLine: (views.kind == .numbered && viewModel.timelineInput != nil) || views.kind == .time)
+                    DayCarouselView(selectedDate: viewModel.selectedDate, weekDays: viewModel.weekDays,
+                                    dotsKey: viewModel.dotsKey,
+                                    showsLine: (views.kind == .numbered && viewModel.timelineInput != nil) || views.kind == .time,
+                                    onLand: { weekStripBinding.wrappedValue = $0 },
+                                    onLine: { day in
+                                        // "Nov" follows the day on the line, not only the day loaded.
+                                        let shown = lineMonth ?? viewModel.selectedDate
+                                        if !Calendar.current.isDate(day, equalTo: shown, toGranularity: .month) { lineMonth = day }
+                                    })
+                        .equatable()
                 } else {
                 WeekStripView(
                     selectedDate: weekStripBinding,
@@ -116,8 +128,11 @@ struct ScheduleView: View {
                 )
                 }
 
+                // Anything made with no signal and still on the phone (CreateOutbox).
+                OutboxStatusLine()
 
                 // MARK: Content
+                Group {
                 if views.kind == .time {
                     DayTimeGridView(
                         stops:     viewModel.stops,
@@ -154,6 +169,16 @@ struct ScheduleView: View {
                         onMove:        { movingStop = $0 }
                     )
                 }
+                }
+                .opacity(dayOpacity)
+            }
+            // Another day landed: its content (already swapped in with the date) fades in.
+            .onChange(of: viewModel.selectedDate) { old, new in
+                lineMonth = nil
+                guard !reduceMotion, !Calendar.current.isDate(old, inSameDayAs: new) else { return }
+                var still = Transaction(); still.disablesAnimations = true
+                withTransaction(still) { dayOpacity = 0 }
+                DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.22)) { dayOpacity = 1 } }
             }
             // Single navigationDestination covers both list and map modes.
             .navigationDestination(for: Stop.self) { stop in
@@ -221,10 +246,27 @@ struct ScheduleView: View {
             }
         }
         // Job or Client from the bar's Add dial (MainTabView).
+        // A job made offline just reached the server: show it.
+        .onReceive(NotificationCenter.default.publisher(for: .mwOutboxSent)) { _ in
+            Task { await viewModel.invalidateAndRefresh() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .mwAddFromBar)) { note in
             impactMedium.impactOccurred()
+            switch note.userInfo?["item"] as? String {
+            case "Task":    addForm = .task;    return
+            case "Quote":   addForm = .quote;   return
+            case "Invoice": addForm = .invoice; return
+            default: break
+            }
             fieldJobStartsWithNewClient = note.userInfo?["startWithNewClient"] as? Bool ?? false
             showingFieldJob = true
+        }
+        .sheet(item: $addForm) { form in
+            switch form {
+            case .task:    AddTaskView(authSession: authSession)
+            case .quote:   AddQuoteView(authSession: authSession)
+            case .invoice: AddInvoiceView(authSession: authSession)
+            }
         }
         .sheet(isPresented: $showingFieldJob) {
             FieldJobView(authSession: authSession, startWithNewClient: fieldJobStartsWithNewClient) {
@@ -304,16 +346,47 @@ struct ScheduleView: View {
     /// Mine / All crews (when allowed) and the job type — remembered on the phone.
     private var scopeBar: some View {
         HStack(spacing: 8) {
+            // Today moved down from the top bar (Tim, 2026-11-08): it sits with the filters it resets beside.
+            Button {
+                impactLight.impactOccurred()
+                Task { await viewModel.selectDate(.now) }
+            } label: {
+                Text("Today")
+                    .font(appStyle.font(.subheadline, weight: .medium))
+                    .foregroundStyle(appStyle.tenant)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            // Whose jobs: a checklist like the job types (Tim, 2026-11-08: "same for all crews").
+            // Mine, All crews, or any set of people; the menu stays open while ticking.
             if viewModel.canSwitchScope {
-                Picker("Whose jobs", selection: Binding(
-                    get: { viewModel.scope },
-                    set: { v in Task { await viewModel.setScope(v) } }
-                )) {
-                    Text("Mine").tag("mine")
-                    Text("All crews").tag("all")
+                Menu {
+                    Toggle("Mine", isOn: Binding(
+                        get: { viewModel.scope == "mine" },
+                        set: { on in if on { Task { await viewModel.setCrews("", scope: "mine") } } }
+                    ))
+                    Toggle("All crews", isOn: Binding(
+                        get: { viewModel.scope == "all" && viewModel.selectedCrews.isEmpty },
+                        set: { on in if on { Task { await viewModel.setCrews("", scope: "all") } } }
+                    ))
+                    if !viewModel.crews.isEmpty {
+                        Divider()
+                        ForEach(viewModel.crews) { c in
+                            Toggle(c.label, isOn: Binding(
+                                get: { viewModel.scope == "all" && viewModel.selectedCrews.contains(c.value) },
+                                set: { _ in Task { await viewModel.toggleCrew(c.value) } }
+                            ))
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(crewFilterLabel).lineLimit(1)
+                        Image(systemName: "chevron.down").font(appStyle.font(.caption2))
+                    }
+                    .font(appStyle.font(.subheadline))
+                    .frame(minHeight: 44)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 200)
+                .menuActionDismissBehavior(.disabled)
             }
             if !viewModel.jobTypes.isEmpty {
                 // A checklist: tick as many job types as you like; the menu stays open while you tick.
@@ -346,6 +419,14 @@ struct ScheduleView: View {
         .padding(.vertical, 4)
     }
 
+    /// "Mine", "All crews", the one person picked, or "Trevor James +1".
+    private var crewFilterLabel: String {
+        if viewModel.scope == "mine" { return "Mine" }
+        let labels = viewModel.selectedCrews.compactMap { v in viewModel.crews.first(where: { $0.value == v })?.label }
+        guard let first = labels.first else { return "All crews" }
+        return labels.count == 1 ? first : "\(first) +\(labels.count - 1)"
+    }
+
     /// "All job types", the one picked, or "Lawn Care +2".
     private var jobTypeFilterLabel: String {
         let picked = viewModel.selectedJobTypes
@@ -370,23 +451,13 @@ struct ScheduleView: View {
     private var toolbarContent: some ToolbarContent {
         // Otto owns Schedule (Kaname spec §2). His attention banner is already on this screen, so no line.
         ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "otto") }
-        ToolbarItem(placement: .navigationBarLeading) {
-            Button {
-                impactLight.impactOccurred()
-                Task { await viewModel.selectDate(.now) }
-            } label: {
-                Text("Today")
-                    .font(appStyle.font(.subheadline, weight: .medium))
-                    .foregroundStyle(appStyle.tenant)
-            }
-        }
 
         ToolbarItem(placement: .principal) {
             Button {
                 pickerDate = viewModel.selectedDate
                 showDatePicker = true
             } label: {
-                Text(viewModel.selectedDate.formatted(.dateTime.month(.abbreviated)))   // "Nov": "November" wrapped beside the Clock in chip (Tim, 2026-11-06)
+                Text((lineMonth ?? viewModel.selectedDate).formatted(.dateTime.month(.abbreviated)))   // "Nov": "November" wrapped beside the Clock in chip (Tim, 2026-11-06)
                     .font(appStyle.font(.headline, weight: .semibold))
                     .foregroundStyle(appStyle.text)
             }
@@ -414,4 +485,10 @@ struct ScheduleView: View {
     ScheduleView()
         .environmentObject(AuthSession())
         .environmentObject(ReadyBriefStore())
+}
+
+/// The Add menu's forms that open over the schedule.
+private enum AddForm: String, Identifiable {
+    case task, quote, invoice
+    var id: String { rawValue }
 }

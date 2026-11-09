@@ -117,7 +117,7 @@ class UnclaimedReplyService
 
         $routed = $this->routingReady();
         $s = $this->db->prepare("
-            SELECT m.message_key, m.contact_id, m.channel, m.from_addr, m.subject, m.snippet, m.sent_at, c.first_name"
+            SELECT m.message_key, m.contact_id, m.channel, m.from_addr, m.subject, m.snippet, m.sent_at, c.first_name, c.last_name"
             . ($routed ? ", m.head, m.handled_at" : "") . "
             FROM sales_messages m
             JOIN contacts c ON c.id = m.contact_id
@@ -157,7 +157,29 @@ class UnclaimedReplyService
             'outbound' => $outbound,
             'quotes'   => $quotes,
             'hidden'   => array_merge($this->hiddenKeys($now), $extraHidden),
+            'staff'    => $this->staff(),
         ], $now);
+    }
+
+    /**
+     * The business's own people: their emails (mail they sent is never a customer's reply) and first names (a customer
+     * who shares one gets a last initial, so "Tim replied …" can't read as the owner answering himself; 2026-11-08).
+     * @return array{emails: string[], first_names: string[]}
+     */
+    private function staff(): array
+    {
+        try {
+            $rows = $this->db->query("SELECT email, full_name FROM users WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return ['emails' => [], 'first_names' => []];   // no users table (tests, a fresh install): nothing to compare
+        }
+        $emails = $names = [];
+        foreach ($rows as $u) {
+            if (!empty($u['email'])) $emails[] = mb_strtolower(trim((string)$u['email']));
+            $n = (string)strtok(trim((string)($u['full_name'] ?? '')), ' ');
+            if ($n !== '') $names[] = mb_strtolower($n);
+        }
+        return ['emails' => $emails, 'first_names' => $names];
     }
 
     /**
@@ -312,6 +334,8 @@ class UnclaimedReplyService
             $t = strtotime((string)($r['sent_at'] ?? ''));
             if ($cid <= 0 || $t === false || $t < $from) continue;
             if (!empty($r['handled_at'])) continue;
+            // Mail from the business's own people is not a customer's reply (e.g. the owner's sent mail read back in).
+            if (in_array(mb_strtolower(trim((string)($r['from_addr'] ?? ''))), $ctx['staff']['emails'] ?? [], true)) continue;
             if (self::isAutomated((string)($r['from_addr'] ?? ''), (string)($r['subject'] ?? ''), (string)($r['snippet'] ?? ''))) continue;
             $lane = self::laneOf($r);
             if ($lane === 'quote' || $lane === 'client') {
@@ -335,7 +359,7 @@ class UnclaimedReplyService
             $pay = self::paymentState($cid, $r, $ctx['invoices'] ?? [], $ctx['out_msgs'][$cid] ?? []);
             if ($pay !== null && $pay['state'] === 'resolved') continue;
             $lane = $r['_lane'];
-            $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane, $pay);
+            $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane, $pay, $ctx['staff']['first_names'] ?? []);
         }
         usort($items, function ($a, $b) {
             if ($a['priority'] !== $b['priority']) return $a['priority'] <=> $b['priority'];
@@ -674,9 +698,15 @@ class UnclaimedReplyService
         return mb_strlen($s) > 80 ? rtrim(mb_substr($s, 0, 79)) . '…' : $s;
     }
 
-    private static function item(int $cid, array $r, string $key, string $lane = 'quote', ?array $pay = null): array
+    private static function item(int $cid, array $r, string $key, string $lane = 'quote', ?array $pay = null, array $staffFirstNames = []): array
     {
         $name = self::firstName((string)($r['first_name'] ?? ''));
+        // A customer who shares a staff member's first name gets their last initial ("Tim R."), so the line never reads
+        // as one of the business's own people writing.
+        $initial = mb_substr(self::firstName((string)($r['last_name'] ?? '')), 0, 1);
+        if ($name !== '' && $initial !== '' && in_array(mb_strtolower($name), $staffFirstNames, true)) {
+            $name .= ' ' . mb_strtoupper($initial) . '.';
+        }
         $who = $name !== '' ? $name : 'A customer';
         $quote = self::quote((string)($r['snippet'] ?? ''));
         $subject = self::cleanSubject((string)($r['subject'] ?? ''));

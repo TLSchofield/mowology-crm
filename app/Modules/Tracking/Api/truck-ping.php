@@ -58,7 +58,7 @@ if ($deviceId === '') {
 // Rate-limit via a touch file. 60s window matches the cron cadence — no
 // point asking faster than we read.
 $throttlePath = (defined('STORAGE_ROOT') ? STORAGE_ROOT : sys_get_temp_dir())
-              . '/cache/trackimo_ping_throttle';
+              . '/cache/trackimo_ping_throttle' . (class_exists('Tenant') && !Tenant::isDefault() ? '_' . Tenant::key() : '');   // per business (security review 2026-11-06, #8)
 if (is_file($throttlePath)) {
     $lastPing = (int)@filemtime($throttlePath);
     if ($lastPing > 0 && (time() - $lastPing) < 60) {

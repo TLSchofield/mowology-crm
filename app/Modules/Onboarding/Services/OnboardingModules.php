@@ -140,6 +140,249 @@ class OnboardingNameModule extends OnboardingModule
     }
 }
 
+/**
+ * "Before we start": Ittai's terms and privacy policy, accepted once. The version is the one in
+ * public/includes/legal/ittai-legal.php (a unit test keeps the two equal — app/ cannot rely on a path to public/).
+ */
+class OnboardingTermsModule extends OnboardingModule
+{
+    public const TERMS_VERSION = '2026-11-06';
+    public const TERMS_URL = 'https://ittai.ca/terms/';
+    public const PRIVACY_URL = 'https://ittai.ca/privacy/';
+    public const SETTING = 'onboarding_terms_accepted';
+
+    public function key(): string { return 'terms'; }
+    public function title(): string { return 'Terms'; }
+    public function owner(): string { return 'penny'; }
+    public function skippable(): bool { return false; }
+    public function question(OnboardingContext $c): string { return "Before we start: here are Ittai's terms and privacy policy. Please read them and accept to carry on."; }
+
+    public function state(OnboardingContext $c): string
+    {
+        return $c->setting(self::SETTING) === self::TERMS_VERSION ? self::DONE : self::TODO;
+    }
+
+    public function summary(OnboardingContext $c): string
+    {
+        return $this->state($c) === self::DONE ? 'Accepted the terms (version ' . self::TERMS_VERSION . ').' : '';
+    }
+
+    public function accept(OnboardingContext $c): void
+    {
+        $c->saveSetting(self::SETTING, self::TERMS_VERSION, 'Onboarding: the terms version the owner accepted (OnboardingTermsModule)');
+    }
+}
+
+/**
+ * What a read QuickBooks already says about the book questions (GST, year-end, payroll), from the onboarding
+ * snapshot. Pure from(); read() is null until QuickBooks has been read, and then every step asks as before.
+ */
+class OnboardingQboFacts
+{
+    public const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    /** @return array{gst_registered:?bool, gst_number:?string, gst_number_raw:?string, gst_last_filed:?string, fiscal_start:?string, fiscal_end:?string, payroll_in_qbo:?bool}|null */
+    public static function read(OnboardingContext $c): ?array
+    {
+        try {
+            $s = $c->db->prepare("SELECT kind, data FROM qbo_onboarding_snapshot WHERE site_id = 1 AND kind IN ('agency', 'company') ORDER BY id");
+            $s->execute();
+            $all = $s->fetchAll(PDO::FETCH_ASSOC);
+            if (!(int)$c->one('SELECT COUNT(*) FROM qbo_onboarding_snapshot WHERE site_id = 1')) return null;
+        } catch (Throwable $e) {
+            return null;
+        }
+        $agencies = []; $company = [];
+        foreach ($all as $r) {
+            $d = json_decode((string)$r['data'], true);
+            if (!is_array($d)) continue;
+            if ($r['kind'] === 'agency') $agencies[] = $d; elseif (!$company) $company = $d;
+        }
+        return self::from($agencies, $company);
+    }
+
+    /** Pure: the facts from the 'agency' rows and the 'company' row. */
+    public static function from(array $agencies, array $company): array
+    {
+        $gst = null; $tax = null;
+        foreach ($agencies as $a) {
+            if (strtoupper((string)($a['TaxAgencyConfig'] ?? '')) === 'HIDDEN_AGENCY') continue;
+            $gst = $gst ?? false;
+            $name = (string)($a['DisplayName'] ?? ''); $reg = trim((string)($a['TaxRegistrationNumber'] ?? ''));
+            if (!empty($a['TaxTrackedOnSales']) && ($reg !== '' || preg_match('/revenue|\bCRA\b/i', $name))) { $gst = true; $tax = $a; break; }
+        }
+        $raw = $tax !== null && trim((string)($tax['TaxRegistrationNumber'] ?? '')) !== '' ? trim((string)$tax['TaxRegistrationNumber']) : null;
+        $start = trim((string)($company['FiscalYearStartMonth'] ?? ''));
+        $start = in_array($start, self::MONTHS, true) ? $start : null;
+        $payroll = null;
+        foreach ((array)($company['NameValue'] ?? []) as $nv) {
+            if (is_array($nv) && ($nv['Name'] ?? '') === 'PayrollFeature') $payroll = strtolower((string)($nv['Value'] ?? '')) === 'true' ? true : (strtolower((string)($nv['Value'] ?? '')) === 'false' ? false : null);
+        }
+        $last = $tax !== null ? trim((string)($tax['LastFileDate'] ?? '')) : '';
+        return ['gst_registered' => $gst, 'gst_number' => $raw !== null ? OnboardingGstModule::gstNumber($raw) : null, 'gst_number_raw' => $raw,
+                'gst_last_filed' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $last) ? $last : null,
+                'fiscal_start' => $start, 'fiscal_end' => $start !== null ? self::MONTHS[(array_search($start, self::MONTHS, true) + 11) % 12] : null, 'payroll_in_qbo' => $payroll];
+    }
+}
+
+/** "Is your business registered for GST?" — 'no' switches GST off (TaxEngine::gstRegistered). */
+class OnboardingGstModule extends OnboardingModule
+{
+    public const FILING = ['monthly' => 'Monthly', 'quarterly' => 'Quarterly', 'annual' => 'Annually'];
+
+    public function key(): string { return 'gst'; }
+    public function title(): string { return 'GST'; }
+    public function owner(): string { return 'penny'; }
+    public function question(OnboardingContext $c): string
+    {
+        $f = OnboardingQboFacts::read($c);
+        if ($f !== null && $f['gst_registered'] === true) {
+            $n = $f['gst_number'] ?? $f['gst_number_raw'];
+            return "QuickBooks says you're registered for GST" . ($n !== null ? ', number ' . $n : '') . '. Is that right — and how often do you file?';
+        }
+        if ($f !== null && $f['gst_registered'] === false) return 'QuickBooks shows no GST registration. Is that right?';
+        return 'Is your business registered for GST?';
+    }
+
+    public function answer(OnboardingContext $c): ?string
+    {
+        $a = $c->setting('gst_registered');
+        return in_array($a, ['yes', 'no', 'unsure'], true) ? $a : null;
+    }
+
+    public function state(OnboardingContext $c): string { return $this->answer($c) !== null ? self::DONE : self::TODO; }
+
+    public function summary(OnboardingContext $c): string
+    {
+        $a = $this->answer($c);
+        if ($a === 'no') return 'Not registered for GST — no GST is charged or claimed.';
+        if ($a === 'unsure') return 'Not sure about GST yet — it stays on until you say.';
+        if ($a !== 'yes') return '';
+        $f = (string)$c->setting('gst_filing');
+        return 'Registered for GST' . (isset(self::FILING[$f]) ? ' · files ' . strtolower(self::FILING[$f]) : '') . '.';
+    }
+
+    /** Pure: "123456789" / "123456789RT0001" (spaces and dashes ignored) as "123456789RT0001"-style upper case, or null. */
+    public static function gstNumber(string $raw): ?string
+    {
+        $n = strtoupper(preg_replace('/[\s-]+/', '', $raw));
+        return preg_match('/^\d{9}(RT0001)?$/', $n) ? $n : null;
+    }
+
+    /** @return array{ok:bool, message:string} */
+    public function save(OnboardingContext $c, string $registered, string $number = '', string $filing = ''): array
+    {
+        if (!in_array($registered, ['yes', 'no', 'unsure'], true)) return ['ok' => false, 'message' => 'Pick yes, no or not sure.'];
+        $gst = null;
+        if ($registered === 'yes') {
+            // No number sent: the one QuickBooks has, when it is a valid GST number.
+            if (trim($number) === '') $number = (string)((OnboardingQboFacts::read($c)['gst_number'] ?? null));
+            if (trim($number) !== '' && ($gst = self::gstNumber($number)) === null) return ['ok' => false, 'message' => 'A GST number is 9 digits (then RT0001). Check it, or leave it blank for now.'];
+            if ($filing !== '' && !isset(self::FILING[$filing])) return ['ok' => false, 'message' => 'Pick monthly, quarterly or annually.'];
+        }
+        $c->saveSetting('gst_registered', $registered, 'Onboarding: is the business registered for GST — only "no" switches GST off (OnboardingGstModule)');
+        if ($registered === 'yes' && $filing !== '') $c->saveSetting('gst_filing', $filing, 'Onboarding: how often GST is filed (OnboardingGstModule)');
+        if ($gst !== null) $c->db->prepare('UPDATE business_settings SET gst_registration = ? WHERE id = 1')->execute([$gst]);
+        return ['ok' => true, 'message' => $registered === 'no' ? 'Got it — no GST will be charged or claimed.' : 'Got it.'];
+    }
+}
+
+/** "Who does your year-end?" — an accountant or the owner. */
+class OnboardingYearEndModule extends OnboardingModule
+{
+    public function key(): string { return 'yearend'; }
+    public function title(): string { return 'Year-end'; }
+    public function owner(): string { return 'penny'; }
+
+    public function answer(OnboardingContext $c): ?string
+    {
+        $a = $c->setting('onboarding_yearend');
+        return in_array($a, ['accountant', 'self'], true) ? $a : null;
+    }
+
+    public function question(OnboardingContext $c): string
+    {
+        $q = 'Who does your year-end — an accountant, or you?';
+        $f = OnboardingQboFacts::read($c);
+        if ($f !== null && $f['fiscal_start'] !== null) $q = 'Your books run ' . $f['fiscal_start'] . ' to ' . $f['fiscal_end'] . ' (from QuickBooks). ' . $q;
+        if ($this->answer($c) === 'self') $q .= ' The terms ask that an accountant or bookkeeper reviews your books before you file. You can still invite one on the next step.';
+        return $q;
+    }
+
+    public function state(OnboardingContext $c): string { return $this->answer($c) !== null ? self::DONE : self::TODO; }
+
+    public function summary(OnboardingContext $c): string
+    {
+        $a = $this->answer($c);
+        return $a === 'accountant' ? 'Year-end: your accountant.' : ($a === 'self' ? 'Year-end: you.' : '');
+    }
+
+    /** @return array{ok:bool, message:string} */
+    public function save(OnboardingContext $c, string $who): array
+    {
+        if (!in_array($who, ['accountant', 'self'], true)) return ['ok' => false, 'message' => 'Pick an accountant or yourself.'];
+        $c->saveSetting('onboarding_yearend', $who, 'Onboarding: who does the year-end (OnboardingYearEndModule)');
+        $start = OnboardingQboFacts::read($c)['fiscal_start'] ?? null;
+        if ($start !== null) $c->saveSetting('onboarding_fiscal_start', $start, 'Onboarding: the month the books start, from QuickBooks (OnboardingYearEndModule)');
+        return ['ok' => true, 'message' => 'Got it.'];
+    }
+}
+
+/** "How do you run payroll today?" — nobody, another app (named), or the accountant. */
+class OnboardingPayrollModule extends OnboardingModule
+{
+    public const APP_MAX = 60;
+
+    public function key(): string { return 'payroll'; }
+    public function title(): string { return 'Payroll'; }
+    public function owner(): string { return 'penny'; }
+    public const QBO_APP = 'QuickBooks Payroll';
+
+    public function question(OnboardingContext $c): string
+    {
+        $f = OnboardingQboFacts::read($c);
+        return $f !== null && $f['payroll_in_qbo'] === true ? 'You run payroll in QuickBooks — is that right?' : 'How do you run payroll today?';
+    }
+
+    public function answer(OnboardingContext $c): ?string
+    {
+        $a = $c->setting('onboarding_payroll');
+        return in_array($a, ['none', 'app', 'accountant'], true) ? $a : null;
+    }
+
+    public function state(OnboardingContext $c): string { return $this->answer($c) !== null ? self::DONE : self::TODO; }
+
+    public function summary(OnboardingContext $c): string
+    {
+        $a = $this->answer($c);
+        if ($a === 'none') return 'Payroll: no staff on payroll.';
+        if ($a === 'accountant') return 'Payroll: your accountant.';
+        if ($a !== 'app') return '';
+        $n = trim((string)$c->setting('onboarding_payroll_app'));
+        return 'Payroll: ' . ($n !== '' ? $n : 'another app') . '.';
+    }
+
+    /** Pure: the app name trimmed and length-checked, or null when empty or too long. */
+    public static function appName(string $raw): ?string
+    {
+        $n = trim(preg_replace('/\s+/u', ' ', strip_tags($raw)));
+        return $n !== '' && mb_strlen($n) <= self::APP_MAX ? $n : null;
+    }
+
+    /** @return array{ok:bool, message:string} */
+    public function save(OnboardingContext $c, string $how, string $app = ''): array
+    {
+        if (!in_array($how, ['none', 'app', 'accountant'], true)) return ['ok' => false, 'message' => 'Pick one of the three, please.'];
+        $name = '';
+        if ($how === 'app') {
+            if (trim($app) !== '' && ($name = (string)self::appName($app)) === '') return ['ok' => false, 'message' => 'A shorter app name, please (' . self::APP_MAX . ' letters at most).'];
+        }
+        $c->saveSetting('onboarding_payroll', $how, 'Onboarding: how payroll is run today (OnboardingPayrollModule)');
+        $c->saveSetting('onboarding_payroll_app', $how === 'app' ? $name : '', 'Onboarding: the payroll app named by the owner (OnboardingPayrollModule)');
+        return ['ok' => true, 'message' => 'Got it.'];
+    }
+}
+
 /** "What's your business called?" — the registry lookup that fills Business Settings (penny-onboarding). */
 class OnboardingCompanyModule extends OnboardingModule
 {

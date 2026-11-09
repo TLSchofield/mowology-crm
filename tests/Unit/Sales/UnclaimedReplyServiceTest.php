@@ -150,6 +150,24 @@ class UnclaimedReplyServiceTest extends TestCase
         $this->assertSame('Ron replied "When are you coming?" to "Cambridge Apartments: fall cleanup". Answer them.', $items[1]['text']);
     }
 
+    public function test_a_customer_sharing_a_staff_first_name_gets_a_last_initial(): void
+    {
+        $staff = ['staff' => ['emails' => ['owner@business.example'], 'first_names' => ['tim']]];
+        $items = UnclaimedReplyService::unclaimed([
+            self::reply(5, '2026-10-05 16:20:00', 'Penny and I would like to thank you', ['first_name' => 'Tim', 'last_name' => 'Rivers']),
+        ], $staff, self::NOW);
+        $this->assertStringStartsWith('Tim R. replied', $items[0]['text']);
+    }
+
+    public function test_mail_from_the_business_own_people_is_not_a_reply(): void
+    {
+        $staff = ['staff' => ['emails' => ['owner@business.example'], 'first_names' => ['tim']]];
+        $items = UnclaimedReplyService::unclaimed([
+            self::reply(5, '2026-10-05 16:20:00', 'Thanks for everything', ['from_addr' => 'Owner@Business.example']),
+        ], $staff, self::NOW);
+        $this->assertSame([], $items);
+    }
+
     public function test_text_never_shows_an_email_address_or_phone_number(): void
     {
         $items = UnclaimedReplyService::unclaimed([

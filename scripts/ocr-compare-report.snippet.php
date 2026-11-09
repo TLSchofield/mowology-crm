@@ -17,6 +17,7 @@ $out['worst_vendors'] = $vend;
 $fields = [];
 foreach ($db->query("SELECT engine, detail_json FROM receipt_ocr_compare")->fetchAll(PDO::FETCH_ASSOC) as $r) {
     foreach ((json_decode($r['detail_json'], true) ?: []) as $f => $c) {
+        if ($f === 'capture') continue;   // how the phone judged the shot, not a compared field
         $k = $r['engine'] . '.' . $f;
         $fields[$k][0] = ($fields[$k][0] ?? 0) + 1;
         $fields[$k][1] = ($fields[$k][1] ?? 0) + (!empty($c['match']) ? 1 : 0);

@@ -154,7 +154,7 @@ Companion to `CLAUDE.md` (rules). This file documents what exists and where.
     │   │   ├── bootstrap.php          ← Alt bootstrap (loads session + config + auth, sets $user, $db)
     │   │   ├── functions.php          ← Helpers: generateQuoteNumber(), formatCurrency(), etc.
     │   │   ├── messaging.php          ← Unified email + SMS delivery (PHPMailer SMTP email, native mail() SMS)
-    │   │   ├── email_logger.php       ← Writes email send attempts to /crm/email-logs/ for debugging
+    │   │   ├── email_logger.php       ← Shim for EmailLogger: one line per send attempt in app/Storage/logs/email/ (no email text)
     │   │   ├── smtp_mailer.php        ← DEPRECATED — superseded by messaging.php
     │   │   ├── email_helper.php       ← DEPRECATED — superseded by messaging.php
     │   │   ├── notifications.php      ← Alert display
@@ -486,7 +486,7 @@ $result = sendSms($phone, $message, $senderName);
 - From: `no-reply@mowology.ca`, Reply-To: `office@mowology.ca`
 - Supports HTML body + optional PDF attachment
 - Falls back to native `mail()` if PHPMailer unavailable or throws exception
-- Logs all attempts via `email_logger.php` to `/crm/email-logs/`
+- Logs every attempt via `EmailLog` to `app/Storage/logs/email/` (per business, 30 days; time, result, recipient, subject, transport — never the email's text)
 
 ### Backward Compatibility Aliases
 

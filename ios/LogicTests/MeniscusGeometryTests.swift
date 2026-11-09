@@ -1,4 +1,4 @@
-// Logic checks for the meniscus tab bar geometry (Core/Design/Ittai/ItMeniscusGeometry.swift) — run by ios/LogicTests/run.sh.
+// Logic checks for the meniscus tab bar geometry and motion (Core/Design/Ittai/ItMeniscusGeometry.swift) — run by ios/LogicTests/run.sh.
 import Foundation
 import CoreGraphics
 
@@ -40,5 +40,42 @@ for p in pts {
     check(p.y >= -0.001, "never above the edge \(p)")
     check(pts.contains { near($0.x, 2 * cx - p.x) && near($0.y, p.y) }, "mirror of \(p)")
 }
+
+// The slide's spring: starts where and as fast as it is told, lands exactly, overshoots a little, never runs away.
+let slide = G.Spring(from: 0, to: 4, velocity: 0)
+check(near(slide.state(at: 0).position, 0) && near(slide.state(at: 0).velocity, 0), "spring starts at rest on its slot")
+check(slide.settleTime > 0.3 && slide.settleTime < 1, "four slots settle in under a second (\(slide.settleTime))")
+check(slide.state(at: slide.settleTime).position == 4 && slide.state(at: 9).velocity == 0, "spring lands exactly")
+let run = G.track(slide)
+check(run.first == 0 && run.last == 4, "track runs from the start to the target")
+check(run.max()! > 4 && run.max()! < 4.12, "overshoot under 3% of the travel (\(run.max()!))")
+check(zip(run, run.dropFirst()).allSatisfy { abs($1 - $0) < 0.3 }, "no jump between frames (top speed is about a quarter slot a frame)")
+check(abs(run[run.count - 2] - 4) <= 0.003, "the last step is not a visible snap")
+check(G.Spring(from: 2, to: 2, velocity: 0).settleTime == 0 && G.track(G.Spring(from: 2, to: 2, velocity: 0)).allSatisfy { $0 == 2 },
+      "a bead that is not going anywhere stays put")
+// The spring's speed is the slope of its position (so a tap mid-slide can hand the speed on).
+let h = 0.0001, at = 0.12
+let slope = (slide.state(at: at + h).position - slide.state(at: at - h).position) / CGFloat(2 * h)
+check(near(slide.state(at: at).velocity, slope, 0.01), "velocity is the slope (\(slide.state(at: at).velocity) vs \(slope))")
+// A second tap mid-slide: the new slide starts where the bead is, at the speed it has.
+let mid = slide.state(at: at)
+let back = G.Spring(from: mid.position, to: 1, velocity: mid.velocity)
+check(near(back.state(at: 0).position, mid.position), "retarget starts where the bead is")
+check(back.state(at: 0.004).position > mid.position, "and keeps moving the way it was going at first")
+check(G.track(back).last == 1, "then lands on the new tab")
+
+// The bead's face. Slots: 0 Schedule, 3 Receipts (turns into the camera), 4 Add (its + rolls 45° into ×).
+func face(_ p: CGFloat, to: Int, travel: CGFloat = 1, still: Bool = false) -> G.Face {
+    G.face(position: p, selected: to, travel: travel, count: 5, actions: [3], rollAt: 4, turn: 45, reduceMotion: still)
+}
+check(face(0, to: 0, travel: 0) == G.Face(under: 0, settle: 0, roll: 0, angle: 45 - 4 * 360), "resting on a plain tab")
+check(face(3, to: 3).settle == 1 && face(2.9, to: 3).settle > 0.6 && face(2.6, to: 3).settle == 0, "Receipts turns into the camera as it lands")
+check(face(3, to: 2).settle == 0, "passing over Receipts shows its own icon")
+check(face(4, to: 4).roll == 1 && near(CGFloat(face(4, to: 4).angle), 45), "on Add the + shows as ×")
+check(near(CGFloat(face(3, to: 4).angle), 45 - 360), "one slot away the + is one turn back")
+check(face(0, to: 4, travel: 4).roll == 0 && face(0.125, to: 4, travel: 4).roll == 0.5 && face(0.3, to: 4, travel: 4).roll == 1,
+      "the + fades in over the first quarter slot on the way to Add")
+check(face(3.4, to: 0, travel: 4).roll == 0 && face(3.6, to: 0, travel: 4).roll == 1, "leaving Add the + goes at the half slot")
+check(face(2, to: 4, travel: 2, still: true).angle == 45 && face(2, to: 4, travel: 2, still: true).roll == 1, "Reduce Motion: no roll, no fade")
 
 if fails == 0 { print("meniscus geometry: all checks passed") } else { print("meniscus geometry: \(fails) failed"); exit(1) }

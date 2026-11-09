@@ -4,7 +4,8 @@ declare(strict_types=1);
 final class OnboardingApiPresenter
 {
     /** Gather canonical service values, then hand them to the pure shape builders below. */
-    public static function data(PDO $db, int $userId, string $dbName): array
+    /** @param list<string>|null $knows  the step keys the phone declared (null = all), so 'ready' matches its map */
+    public static function data(PDO $db, int $userId, string $dbName, ?array $knows = null): array
     {
         require_once __DIR__ . '/OnboardingService.php';
         require_once dirname(__DIR__, 2) . '/Settings/Services/BusinessIdentityService.php';
@@ -22,14 +23,20 @@ final class OnboardingApiPresenter
         $qbo = new QboOnboardingService($db, $connected ? $conn : null);
         $invited = $ctx->setting('onboarding_accountant_invited');
         try { $logins = (int)$ctx->one("SELECT COUNT(*) FROM users WHERE role = 'accountant'"); } catch (Throwable $e) { $logins = 0; }
+        $qf = OnboardingQboFacts::read($ctx);   // what a read QuickBooks already says, or null
         return [
             'name' => self::nameData($name->me($ctx), $name->known($ctx), $name->nextPart($ctx)),
             'company' => self::companyData($identity->current()),
             'quickbooks' => self::quickBooksData($qmod->answer($ctx), (bool)$connected, $qbo->hasSnapshot(), $qbo->partSummaries(), $qbo->canWrite(),
                                                   $qbo->partPreviews(), $connected ? (new QboSyncService($conn))->auto() : ['on' => false, 'from' => null]),
+            'terms' => ['accepted' => $ctx->setting(OnboardingTermsModule::SETTING) === OnboardingTermsModule::TERMS_VERSION, 'version' => OnboardingTermsModule::TERMS_VERSION,
+                        'terms_url' => OnboardingTermsModule::TERMS_URL, 'privacy_url' => OnboardingTermsModule::PRIVACY_URL],
+            'gst' => ['qbo' => $qf, 'answer' => (new OnboardingGstModule())->answer($ctx), 'number' => (string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1'), 'filing' => (string)$ctx->setting('gst_filing')],
+            'yearend' => ['qbo' => $qf, 'answer' => (new OnboardingYearEndModule())->answer($ctx)],
+            'payroll' => ['qbo' => $qf, 'answer' => (new OnboardingPayrollModule())->answer($ctx), 'app' => (string)$ctx->setting('onboarding_payroll_app')],
             'books' => ['acknowledged' => $ctx->setting('onboarding_books_ack') === '1'],
             'accountant' => ['invited_name' => $invited !== null && $invited !== '' ? $invited : null, 'logins' => $logins],
-            'done' => ['ready' => (new OnboardingService($ctx))->readyToFinish(), 'complete' => $ctx->setting('onboarding_complete') === '1'],
+            'done' => ['ready' => (new OnboardingService($ctx, null, $knows))->readyToFinish(), 'complete' => $ctx->setting('onboarding_complete') === '1'],
         ];
     }
     /** Build the phone map without leaking web-only row fields. */

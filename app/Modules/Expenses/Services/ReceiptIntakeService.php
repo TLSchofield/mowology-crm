@@ -437,34 +437,6 @@ class ReceiptIntakeService
                         $suggestions['category_from_line_items'] = true;
                     }
                 }
-
-                // Back-fill vendor location/phone/website if missing
-                try {
-                    $locData = extractVendorLocationFromOcr($ocrText);
-                    if ($locData['phone'] || $locData['website']) {
-                        $vRow = $this->db->prepare("SELECT phone, website FROM vendors WHERE id = ?");
-                        $vRow->execute([(int)$suggestions['vendor_id']]);
-                        $vCurrent = $vRow->fetch(PDO::FETCH_ASSOC);
-                        if ($vCurrent) {
-                            if ($locData['phone'] && empty($vCurrent['phone'])) {
-                                $this->db->prepare("UPDATE vendors SET phone = ? WHERE id = ?")
-                                    ->execute([$locData['phone'], (int)$suggestions['vendor_id']]);
-                            }
-                            if ($locData['website'] && empty($vCurrent['website'])) {
-                                $this->db->prepare("UPDATE vendors SET website = ? WHERE id = ?")
-                                    ->execute([$locData['website'], (int)$suggestions['vendor_id']]);
-                            }
-                        }
-                    }
-                    $locCount = $this->db->prepare("SELECT COUNT(*) FROM vendor_locations WHERE vendor_id = ?");
-                    $locCount->execute([(int)$suggestions['vendor_id']]);
-                    if ((int)$locCount->fetchColumn() === 0 && ($locData['address'] || $locData['city'] || $locData['phone'])) {
-                        $locIns = $this->db->prepare("INSERT INTO vendor_locations (vendor_id, label, address, city, phone, is_preferred) VALUES (?, 'Main', ?, ?, ?, 1)");
-                        $locIns->execute([(int)$suggestions['vendor_id'], $locData['address'], $locData['city'], $locData['phone']]);
-                    }
-                } catch (Throwable $le) {
-                    error_log('Vendor location back-fill failed: ' . $le->getMessage());
-                }
             }
 
             // Apply GST-exempt override: if matched vendor doesn't charge GST, zero it out

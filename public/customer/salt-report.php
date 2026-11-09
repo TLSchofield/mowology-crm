@@ -67,10 +67,10 @@ if ($error) {
 
 // Resolve absolute PDF path
 $pdfRelative = $row['pdf_path']; // e.g. storage/pdfs/salt-reports/salt_42_v1.pdf
-$pdfAbs = (defined('STORAGE_ROOT') ? STORAGE_ROOT : dirname(__DIR__) . '/app/Storage')
-    . '/pdfs/salt-reports/' . basename($pdfRelative);
+require_once APP_ROOT . '/Core/PdfStore.php';
+$pdfAbs = PdfStore::absoluteFromStored((string)$pdfRelative); // this business's own folder only
 
-if (!file_exists($pdfAbs)) {
+if ($pdfAbs === null || !file_exists($pdfAbs)) {
     http_response_code(404);
     echo '<p>PDF not found on disk. Please contact Mowology to regenerate the document.</p>';
     exit;

@@ -151,6 +151,8 @@ try {
     $bsStmt  = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
     $bs      = $bsStmt->fetch(PDO::FETCH_ASSOC);
     $taxRate = round(floatval($bs['gst_rate'] ?? 5.00) / 100, 4);
+    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+    if (!TaxEngine::gstRegistered($db)) $taxRate = 0.0;
     $gstNum  = $bs['gst_registration'] ?? null;
 
     // ── Recalculate totals from posted line_items (don't trust client total) ──

@@ -64,7 +64,26 @@ function cleanDeviceOcr(array $post): ?array
         $out['lines'] = $boxes['lines'];
         $out['image'] = $boxes['image'];
     }
+    $capture = cleanDeviceCapture($post['client_capture'] ?? null);
+    if ($capture !== null) $out['capture'] = $capture;
     return $out;
+}
+
+/**
+ * Pure: how the phone judged the shot — characters read, sharpness, and whether the person chose "Use this photo" over the
+ * hint. The readability thresholds rest on nine reads; these let real captures tune them. Unknown fields are dropped.
+ * @return array{chars?: int, sharpness?: float, used_anyway?: bool}|null
+ */
+function cleanDeviceCapture($raw): ?array
+{
+    if (!is_string($raw) || $raw === '' || strlen($raw) > 500) return null;
+    $j = json_decode($raw, true);
+    if (!is_array($j)) return null;
+    $out = [];
+    if (isset($j['chars']) && is_numeric($j['chars']) && (int)$j['chars'] >= 0) $out['chars'] = (int)$j['chars'];
+    if (isset($j['sharpness']) && is_numeric($j['sharpness']) && is_finite((float)$j['sharpness']) && (float)$j['sharpness'] >= 0) $out['sharpness'] = round((float)$j['sharpness'], 1);
+    if (isset($j['used_anyway'])) $out['used_anyway'] = (bool)$j['used_anyway'];
+    return $out ?: null;
 }
 
 /**
@@ -191,7 +210,7 @@ function logDeviceOcrCompare(PDO $db, int $mediaId, ?int $vendorId, array $devic
         $fields = count($cmp);
         $agree = count(array_filter($cmp, static fn($c) => $c['match']));
         $params = [$mediaId, $vendorId, $device['engine'], $device['version'], $serverSource, $fields, $agree,
-                   json_encode($cmp), strlen($device['text'])];
+                   json_encode($cmp + (isset($device['capture']) ? ['capture' => $device['capture']] : [])), strlen($device['text'])];
         // The text itself feeds the parser replay corpus (migration 1433). Before 1433 runs, store the length only.
         if (deviceOcrHasTextColumn($db)) {
             $db->prepare("

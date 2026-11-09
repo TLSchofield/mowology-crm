@@ -47,6 +47,7 @@ final class SignOutViewModel: ObservableObject {
 
         unsentCount = ClockQueue.shared.pendingCount(for: authSession.user?.id)
                     + TransitionQueue().pendingCount()
+                    + CreateOutbox.shared.pendingCount(me: authSession.user?.id)
         if clockedIn {
             showClockedInPrompt = true
         } else if unsentCount > 0 {

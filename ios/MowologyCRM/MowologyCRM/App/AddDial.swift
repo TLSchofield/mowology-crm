@@ -11,7 +11,7 @@
 import SwiftUI
 
 enum AddDialItem: CaseIterable, Identifiable {
-    case job, client
+    case job, client, task, quote, invoice
 
     var id: Self { self }
 
@@ -19,6 +19,9 @@ enum AddDialItem: CaseIterable, Identifiable {
         switch self {
         case .job:    return "Job"
         case .client: return "Client"
+        case .task:   return "Task"
+        case .quote:  return "Quote"
+        case .invoice: return "Invoice"
         }
     }
 
@@ -26,11 +29,17 @@ enum AddDialItem: CaseIterable, Identifiable {
         switch self {
         case .job:    return "calendar.badge.plus"
         case .client: return "person.crop.circle.badge.plus"
+        case .task:   return "checklist"
+        case .quote:  return "doc.text"
+        case .invoice: return "dollarsign.circle"
         }
     }
 
     /// Bottom of the column (nearest the thumb) first.
-    static let column: [AddDialItem] = [.job, .client]
+    /// Quote and Invoice are the office's; crew invoice their own visits from the visit.
+    static func column(office: Bool) -> [AddDialItem] {
+        office ? [.job, .client, .task, .quote, .invoice] : [.job, .client, .task]
+    }
 }
 
 struct AddDial: View {
@@ -39,6 +48,7 @@ struct AddDial: View {
     /// The Add slot and how many slots the bar has, so the column rises straight above the bead.
     let slot: Int
     let slotCount: Int
+    var office = false
     let onPick: (AddDialItem) -> Void
     let onClose: () -> Void
 
@@ -57,7 +67,7 @@ struct AddDial: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .trailing, spacing: 12) {
-                    ForEach(AddDialItem.column.reversed()) { item in
+                    ForEach(AddDialItem.column(office: office).reversed()) { item in
                         Button { onPick(item) } label: {
                             HStack(spacing: 14) {
                                 Text(item.title)

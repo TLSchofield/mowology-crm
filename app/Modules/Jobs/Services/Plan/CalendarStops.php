@@ -64,10 +64,10 @@ function ensureCalendarStop(int $propertyId, string $date, ?int $crewId,
  *
  * @param string $startDate YYYY-MM-DD
  * @param string $endDate   YYYY-MM-DD
- * @param int|null $crewId  Filter by crew, or null for all
+ * @param int|int[]|null $crewId  One crew, several (the phone's crew checklist, 2026-11-08), or null / [] for all
  * @return array
  */
-function getCalendarStops(string $startDate, string $endDate, ?int $crewId = null, ?string $serviceType = null): array {
+function getCalendarStops(string $startDate, string $endDate, $crewId = null, ?string $serviceType = null): array {
     $db = getDB();
 
     // Check if Obsidian Root enrollment column exists (migration 920)
@@ -172,11 +172,14 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     ";
     $params = [$startDate, $endDate];
 
-    if ($crewId !== null) {
-        // Filter: show stops where this crew is assigned (lead or additional)
-        $sql .= " AND (cs.crew_id = ? OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?))";
-        $params[] = $crewId;
-        $params[] = $crewId;
+    $crewIds = is_array($crewId) ? array_values(array_unique(array_map('intval', $crewId)))
+        : ($crewId !== null ? [(int)$crewId] : []);
+    if ($crewIds) {
+        // Filter: show stops where any of these crew are assigned (lead or additional)
+        $ph = implode(',', array_fill(0, count($crewIds), '?'));
+        $sql .= " AND (cs.crew_id IN ({$ph}) OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id IN ({$ph})))";
+        foreach ($crewIds as $id) { $params[] = $id; }
+        foreach ($crewIds as $id) { $params[] = $id; }
     }
 
     // $serviceType may hold several types, comma-separated (ServiceTypeFilter).

@@ -150,6 +150,10 @@ body.it-signin button:focus-visible { outline: var(--it-stroke-focus) solid var(
 .it-signin-msg--error { border-left-color: var(--it-status-blocked); }
 .it-signin-msg--success { border-left-color: var(--it-status-complete); }
 
+.it-signin-check { display: flex; align-items: center; gap: var(--it-space-3); min-height: var(--it-target-phone); font-size: 15px; }
+.it-signin-check input { width: 22px; height: 22px; flex: none; }
+.it-signin-code { letter-spacing: 0.12em; }
+
 .it-signin-note {
   margin-bottom: var(--it-space-5);
   padding: 12px 14px;

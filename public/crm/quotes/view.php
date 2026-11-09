@@ -1039,7 +1039,7 @@ $activePage = 'quotes';
                                   <span class="mw-totals-value"><?php echo formatCurrency($quote['subtotal'] ?: $quote['amount']); ?></span>
                               </div>
                               <div class="mw-total-row">
-                                  <span>GST (<?php echo ($quote['tax_rate'] ?: 0.05) * 100; ?>%)</span>
+                                  <span>GST (<?php echo ($quote['tax_rate'] ?? 0.05) * 100; ?>%)</span>
                                   <span class="mw-totals-value"><?php echo formatCurrency($quote['tax_amount'] ?: 0); ?></span>
                               </div>
                               <div class="mw-total-row mw-grand">
