@@ -320,8 +320,11 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
         if (!empty($vendor['phone'])) {
             $cleanPhone = preg_replace('/\D/', '', $vendor['phone']);
             $last10     = strlen($cleanPhone) >= 10 ? substr($cleanPhone, -10) : null;
-            if (($last10 !== null && in_array($last10, $ocrPhones, true))
-                || (strlen($cleanPhone) >= 7 && strpos($ocrLower, $cleanPhone) !== false)) {
+            // Only when the paper names this vendor: a phone learned from a misfiled receipt sent every Lordco receipt to
+            // Costco through the commons (2026-11-06); this is the same door on the local vendor list.
+            if ((($last10 !== null && in_array($last10, $ocrPhones, true))
+                || (strlen($cleanPhone) >= 7 && strpos($ocrLower, $cleanPhone) !== false))
+                && VendorIdentity::namedOnPaper($ocrLower, (string)$vendor['name'], $vendor['aliases'] ?? null)) {
                 $score = max($score, 80);
                 $reason = 'Phone match: ' . $vendor['phone'];
             }

@@ -80,6 +80,8 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
     // Date
     $vendorOrder = $vendorProfile['date_order'] ?? null;
     $result['date'] = extractDate($ocrText, $vendorOrder);
+    // Two different years on the paper: which one is the sale is a guess (order date, return-by, a misread digit).
+    if (count(receiptPaperYears($ocrText)) > 1) $result['date_two_years'] = true;
     $result['date_order'] = receiptDateOrder($ocrText);
     if ($result['date'] !== null && receiptAmbiguousDate($ocrText) !== null) {
         $result['date_order_source'] = $result['date_order'] !== null ? 'receipt'
@@ -2240,6 +2242,36 @@ function receiptAmbiguousDate(string $text): ?array
 }
 
 /**
+ * Pure: every year printed in a real date on the receipt, ascending. Product codes (10-20-10) and impossible dates don't count.
+ * @return list<int>
+ */
+function receiptPaperYears(string $text): array
+{
+    $maxYear = (int)date('Y') + 1;
+    $years = [];
+    $take = static function (int $y, int $mo, int $d) use (&$years, $maxYear): void {
+        if ($y >= 2015 && $y <= $maxYear && checkdate($mo, $d, $y)) $years[$y] = true;
+    };
+    if (preg_match_all('/(?<![\d\/\-.])(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})(?![\d\/\-])/', $text, $all, PREG_SET_ORDER)) {
+        foreach ($all as $m) $take((int)$m[1], (int)$m[2], (int)$m[3]);
+    }
+    if (preg_match_all('/(?<![\d\/\-.])(\d{1,2})([\/\-.])(\d{1,2})\2(\d{4}|\d{2})(?![\d\/\-]|\.\d)/', $text, $all, PREG_SET_ORDER)) {
+        foreach ($all as $m) {
+            $y = strlen($m[4]) === 2 ? 2000 + (int)$m[4] : (int)$m[4];
+            $a = (int)$m[1]; $b = (int)$m[3];
+            if ($a <= 12 && checkdate($a, $b, 2024)) $take($y, $a, $b);
+            elseif ($b <= 12 && checkdate($b, $a, 2024)) $take($y, $b, $a);
+        }
+    }
+    if (preg_match_all('/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+(\d{4})\b/i', $text, $all)) {
+        foreach ($all[1] as $y) $take((int)$y, 1, 1);
+    }
+    $out = array_keys($years);
+    sort($out);
+    return $out;
+}
+
+/**
  * Extract date from receipt text.
  * Supports: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, MMM DD YYYY, etc.
  * An ambiguous a/b/yy date (both 1-12) is read by the order the receipt itself proves,
@@ -2290,14 +2322,22 @@ function extractDate(string $text, ?string $order = null): ?string
         },
     ];
 
-    foreach ($patterns as $regex => $formatter) {
-        if (preg_match($regex, $text, $matches)) {
-            $date = $formatter($matches);
-            if ($date) {
-                // Basic validation
-                $parts = explode('-', $date);
-                if (count($parts) === 3 && checkdate((int)$parts[1], (int)$parts[2], (int)$parts[0])) {
-                    return $date;
+    // The sale's date first: a line labelled as it, then the paper without the dates that are never the sale (return-by,
+    // warranty, member since). Patterns run in a fixed order, so a return-by with a 4-digit year used to beat the sale's
+    // 2-digit date (Fable review 2026-11-08). The whole text stays the last resort.
+    $notSale = '/^.*\b(?:returns?\s+(?:by|until|before)|exchange\s+by|valid\s+(?:until|thru|through)|expir\w*|exp\.?\s*date|warranty|member\s+since|due\s+(?:date|by)|best\s+before|(?:order|ship|shipped|delivery)\s+date)\b.*$/im';
+    $withoutOthers = (string)preg_replace($notSale, '', $text);
+    $labelled = preg_match_all('/^.*\b(?:(?:invoice|sale|sales|transaction|trans|purchase|receipt)\s+date|date\s*:).*$/im', $withoutOthers, $found) ? implode("\n", $found[0]) : '';
+    foreach (array_unique(array_filter([$labelled, $withoutOthers, $text], 'strlen')) as $source) {
+        foreach ($patterns as $regex => $formatter) {
+            if (preg_match($regex, $source, $matches)) {
+                $date = $formatter($matches);
+                if ($date) {
+                    // Basic validation
+                    $parts = explode('-', $date);
+                    if (count($parts) === 3 && checkdate((int)$parts[1], (int)$parts[2], (int)$parts[0])) {
+                        return $date;
+                    }
                 }
             }
         }

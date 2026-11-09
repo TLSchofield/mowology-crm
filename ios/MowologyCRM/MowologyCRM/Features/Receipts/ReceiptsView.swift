@@ -46,6 +46,16 @@ struct ReceiptsView: View {
     /// Between the shot and the upload (crop + the phone's text read, up to ~6 s): the overlay shows, a second snap waits.
     @State private var isPreparingCapture = false
     @State private var weakCaptureReason = ""
+    /// The queue entry for the photo held at the hint, and for the receipt in the review sheet.
+    @State private var weakCaptureId: String?
+    @State private var reviewQueueId: String?
+    /// What the phone made of the held photo, sent with it if the person uses it anyway.
+    @State private var weakCaptureChars: Int?
+    @State private var weakCaptureSharpness: Double?
+    /// Further pages of one document-camera session, each its own receipt, already on the phone. They wait their turn.
+    @State private var nextPages: [CapturedPage] = []
+    @State private var captureFixTask: Task<CLLocation?, Never>?
+    @State private var showWaiting = false
     @State private var showWeakCaptureHint = false
     /// True from the camera opening until its cover has fully gone: an alert raised while it is still leaving is dropped.
     @State private var cameraOnScreen = false
@@ -131,7 +141,7 @@ struct ReceiptsView: View {
                 DocumentCameraPicker(onCapture: { cameraCaptured($0, scanned: true) }, onCancel: cameraCancelled)
                     .ignoresSafeArea()
             } else {
-                CameraPicker(onCapture: { cameraCaptured($0, scanned: false) }, onCancel: cameraCancelled)
+                CameraPicker(onCapture: { cameraCaptured([$0], scanned: false) }, onCancel: cameraCancelled)
                     .ignoresSafeArea()
             }
         }
@@ -145,7 +155,15 @@ struct ReceiptsView: View {
         .sheet(isPresented: $showReview, onDismiss: {
             // A saved receipt may have answered one of Penny's missing charges (server-side match).
             Task { await chase.loadMine() }
-            if snapAnotherPending {
+            if retakePending {
+                // Retake comes first, even mid-scan: the other pages wait, held, for the new shot to finish.
+                snapAnotherPending = false
+                impact.impactOccurred()
+                showCamera = true
+            } else if !nextPages.isEmpty {
+                snapAnotherPending = false
+                Task { await processNextPage() }
+            } else if snapAnotherPending {
                 snapAnotherPending = false
                 impact.impactOccurred()
                 showCamera = true
@@ -164,8 +182,14 @@ struct ReceiptsView: View {
                         snapAnotherPending = true
                         retakePending = true
                         showReview = false
+                    },
+                    onDiscard: {
+                        if let id = reviewQueueId { ReceiptQueue.shared.finish(id) }
+                        reviewQueueId = nil
+                        viewModel.activeQueueId = nil
                     }
                 ) { followUp in
+                    reviewQueueId = nil   // saved: its queue entry is finished, and a later capture must not touch the id
                     snapAnotherPending = (followUp == .snapAnother)
                 }
             }
@@ -186,10 +210,14 @@ struct ReceiptsView: View {
         }
         // The capture hint: a blurry, skewed or distant receipt photo reads badly on the server.
         .alert(ReceiptPhotoPrep.hintText, isPresented: $showWeakCaptureHint) {
-            Button("Retake") {
-                weakCapture = nil
-                weakCaptureRead = nil
+            Button(nextPages.isEmpty ? "Retake" : "Discard") {
+                if let id = weakCaptureId { ReceiptQueue.shared.finish(id) }
+                clearWeakCapture()
                 impact.impactOccurred()
+                if !nextPages.isEmpty {
+                    Task { await processNextPage() }
+                    return
+                }
                 // Let the alert finish leaving before the camera cover is presented.
                 Task {
                     try? await Task.sleep(nanoseconds: 350_000_000)
@@ -199,14 +227,19 @@ struct ReceiptsView: View {
             Button("Use this photo") {
                 guard let data = weakCapture else { return }
                 let read = weakCaptureRead
-                weakCapture = nil
-                weakCaptureRead = nil
-                Task { await handleCapture(data, asLabel: false, deviceRead: read) }
+                let id = weakCaptureId
+                let capture = Self.captureJSON(chars: weakCaptureChars, sharpness: weakCaptureSharpness, usedAnyway: true)
+                clearWeakCapture()
+                isPreparingCapture = true
+                Task {
+                    defer { isPreparingCapture = false }
+                    await handleCapture(data, asLabel: false, queueId: id, deviceRead: read, captureJSON: capture)
+                }
             }
         } message: {
             Text(weakCaptureReason)
         }
-        .alert("Upload Failed", isPresented: $showErrorAlert) {
+        .alert(viewModel.uploadSavedForLater ? "Saved, will send" : "Upload Failed", isPresented: $showErrorAlert) {
             Button("OK") { viewModel.uploadError = nil }
         } message: {
             Text(viewModel.uploadError ?? "")
@@ -238,10 +271,15 @@ struct ReceiptsView: View {
             viewModel.actionError = problem
             actionQueue.clearProblem()
         }
+        .sheet(isPresented: $showWaiting) {
+            WaitingReceiptsView(queue: receiptQueue, onRetry: { Task { await viewModel.drainPendingQueue() } })
+        }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
             showLibrary = false
+            isPreparingCapture = true
             Task {
+                defer { isPreparingCapture = false }
                 guard let raw = try? await newItem.loadTransferable(type: Data.self),
                       let picked = UIImage(data: raw) else {
                     viewModel.uploadError = "Couldn't open that photo — try another, or take a picture of the receipt."
@@ -262,50 +300,104 @@ struct ReceiptsView: View {
 
     // MARK: - Camera result
 
-    /// A photo from either camera. `scanned`: the document camera already cropped and straightened it.
-    private func cameraCaptured(_ image: UIImage, scanned: Bool) {
+    /// One photo, already written to the phone (no queue entry for labels, or when the phone had no room to write it).
+    private struct CapturedPage {
+        let data: Data
+        let prep: ReceiptPhotoPrep.Outcome?
+        let queueId: String?
+        let asLabel: Bool
+    }
+
+    /// Photos from either camera. `scanned`: the document camera already cropped and straightened them.
+    private func cameraCaptured(_ images: [UIImage], scanned: Bool) {
         showCamera = false
+        // A retake replaces the receipt under review: only now, so a cancelled retake still has it.
+        if retakePending, let old = reviewQueueId { ReceiptQueue.shared.finish(old); reviewQueueId = nil; viewModel.activeQueueId = nil }
         retakePending = false
         let asLabel = labelMode   // fixed now: another snap may change labelMode before this uploads
         isPreparingCapture = true
+        captureFixTask = Task { @MainActor in await Self.captureFix() }   // from the shot, alongside the rest
         Task {
-            defer { isPreparingCapture = false }
             // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread.
             // A receipt is cropped to its edges and straightened first (labels are left as shot; a scan is already cropped).
-            let (compressed, prep): (Data, ReceiptPhotoPrep.Outcome?) = await Task.detached(priority: .userInitiated) {
-                guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
-                let prep = ReceiptPhotoPrep.prepare(image, alreadyCropped: scanned)
-                return (ReceiptsView.resizeAndCompress(prep.image), prep)
+            let done: [(Data, ReceiptPhotoPrep.Outcome?)] = await Task.detached(priority: .userInitiated) {
+                images.map { image in
+                    guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
+                    let prep = ReceiptPhotoPrep.prepare(image, alreadyCropped: scanned)
+                    return (ReceiptsView.resizeAndCompress(prep.image), prep)
+                }
             }.value
-            guard !compressed.isEmpty else { return }
-            if let prep, prep.needsHint {
-                raiseWeakCapture(compressed, reason: Self.weakCaptureMessage(prep))
+            let usable = done.filter { !$0.0.isEmpty }
+            guard !usable.isEmpty else {
+                isPreparingCapture = false
+                viewModel.uploadError = "Couldn't read that photo — please take it again."
                 return
             }
-            // Can the print be read? The phone's own text read (needed for the upload anyway) decides: a motion-blurred
-            // auto-shot scored as sharp as a good photo on every pixel measure, but read 30 garbled characters where good
-            // photos read ~550 (Tim's iPhone, 2026-11-06, media 1622). The same read then goes with the upload.
-            var deviceRead: DeviceTextScanner.Prefetched? = nil
-            if !asLabel {
-                let read = DeviceTextScanner.Prefetched(compressed)
-                if let result = await read.task.value, !Self.readLooksLikeAReceipt(result.text) {
-                    weakCaptureRead = read
-                    raiseWeakCapture(compressed, reason: "The phone couldn't read the print — it looks blurred. Hold the phone steady "
-                                     + "over the receipt until it takes the picture (or tap Auto at the top to take it yourself).")
-                    return
-                }
-                deviceRead = read
-            }
-            await handleCapture(compressed, asLabel: asLabel, deviceRead: deviceRead)
+            // In front of any pages still waiting from a scan that a retake interrupted.
+            nextPages = usable.map { CapturedPage(data: $0.0, prep: $0.1, queueId: asLabel ? nil : viewModel.reservePhoto($0.0), asLabel: asLabel) } + nextPages
+            await processNextPage()
         }
     }
 
+    /// The next waiting page: the same check as any photo, then upload and review.
+    private func processNextPage() async {
+        guard !nextPages.isEmpty else { isPreparingCapture = false; return }
+        let page = nextPages.removeFirst()
+        isPreparingCapture = true
+        defer { isPreparingCapture = false }
+        if let prep = page.prep, prep.needsHint {
+            raiseWeakCapture(page, reason: Self.weakCaptureMessage(prep), read: nil, chars: nil)
+            return
+        }
+        // Can the print be read? The phone's own text read (needed for the upload anyway) decides: a motion-blurred
+        // auto-shot scored as sharp as a good photo on every pixel measure, but read 30 garbled characters where good
+        // photos read ~550 (Tim's iPhone, 2026-11-06, media 1622). The same read then goes with the upload.
+        var deviceRead: DeviceTextScanner.Prefetched? = nil
+        var chars: Int? = nil
+        if !page.asLabel {
+            let read = DeviceTextScanner.Prefetched(page.data)
+            if let result = await read.task.value {
+                chars = result.text.filter { !$0.isWhitespace }.count
+                if !Self.readLooksLikeAReceipt(result.text) {
+                    raiseWeakCapture(page, reason: "The phone couldn't read the print — it looks blurred. Hold the phone steady "
+                                     + "over the receipt until it takes the picture (or tap Auto at the top to take it yourself).",
+                                     read: read, chars: chars)
+                    return
+                }
+            }
+            deviceRead = read
+        }
+        await handleCapture(page.data, asLabel: page.asLabel, queueId: page.queueId, deviceRead: deviceRead,
+                            captureJSON: Self.captureJSON(chars: chars, sharpness: page.prep?.sharpness, usedAnyway: false))
+    }
+
     /// A weak photo: held while the crew picks Retake or Use this photo.
-    private func raiseWeakCapture(_ data: Data, reason: String) {
+    private func raiseWeakCapture(_ page: CapturedPage, reason: String, read: DeviceTextScanner.Prefetched?, chars: Int?) {
         weakCaptureReason = reason
-        weakCapture = data
+        weakCapture = page.data
+        weakCaptureId = page.queueId
+        weakCaptureRead = read
+        weakCaptureChars = chars
+        weakCaptureSharpness = page.prep?.sharpness
         // Shown now if the camera has gone, otherwise from the cover's onDismiss.
         if !cameraOnScreen { showWeakCaptureHint = true }
+    }
+
+    private func clearWeakCapture() {
+        weakCapture = nil
+        weakCaptureRead = nil
+        weakCaptureId = nil
+        weakCaptureChars = nil
+        weakCaptureSharpness = nil
+    }
+
+    /// `client_capture`: how the phone judged the shot, so the thresholds can be set from real photos. Pure.
+    nonisolated static func captureJSON(chars: Int?, sharpness: Double?, usedAnyway: Bool) -> String? {
+        var fields: [String: Any] = ["used_anyway": usedAnyway]
+        if let chars { fields["chars"] = chars }
+        if let sharpness, sharpness.isFinite { fields["sharpness"] = (sharpness * 10).rounded() / 10 }
+        guard let data = try? JSONSerialization.data(withJSONObject: fields) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// The phone read enough of the photo to be a receipt: some text and at least one money amount. Pure.
@@ -346,29 +438,44 @@ struct ReceiptsView: View {
     /// `asLabel` is fixed when the photo is taken (not read from `labelMode` later): a second snap started while
     /// this one compresses must not turn this receipt into a label or the other way round.
     /// `deviceRead`: a text read already made of this photo (the readability check), reused for the upload.
-    private func handleCapture(_ compressed: Data, asLabel: Bool, deviceRead prefetched: DeviceTextScanner.Prefetched? = nil) async {
+    /// `queueId`: the photo's place on the phone. Nil from the library, written here before anything else.
+    private func handleCapture(_ compressed: Data, asLabel: Bool, queueId: String? = nil,
+                               deviceRead prefetched: DeviceTextScanner.Prefetched? = nil, captureJSON: String? = nil) async {
+        let queueId = asLabel ? nil : (queueId ?? viewModel.reservePhoto(compressed))
         // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
         // teaches the vendor's store location and matches the job. The cached
         // CLLocationManager value alone was often nil on a cold start.
-        // The phone's own text read starts now and runs while the fix settles; upload waits for both.
+        // The fix started at the shot where there was one; the phone's own text read runs alongside it.
         let deviceRead: DeviceTextScanner.Prefetched? = asLabel ? nil : (prefetched ?? DeviceTextScanner.Prefetched(compressed))
         defer { deviceRead?.cancel() }   // owned by this capture; harmless once the upload has used it
-        let loc = await Self.captureFix() ?? locationManager.location
+        let fix: CLLocation?
+        if let captureFixTask { fix = await captureFixTask.value } else { fix = await Self.captureFix() }
+        let loc = fix ?? locationManager.location
         if asLabel {
             await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
             if viewModel.labelResult != nil { showLabelResult = true }
             return
         }
-        capturedImageData = compressed
-        captureLat = loc?.coordinate.latitude
-        captureLng = loc?.coordinate.longitude
         await viewModel.uploadImage(
             compressed,
-            lat: captureLat,
-            lng: captureLng,
-            deviceRead: deviceRead
+            queueId: queueId,
+            lat: loc?.coordinate.latitude,
+            lng: loc?.coordinate.longitude,
+            deviceRead: deviceRead,
+            captureJSON: captureJSON
         )
-        if viewModel.intakeResponse != nil { showReview = true }
+        if viewModel.intakeResponse != nil {
+            // Paired here, after this photo's own answer: nothing started meanwhile can swap the picture beside the numbers.
+            capturedImageData = compressed
+            captureLat = loc?.coordinate.latitude
+            captureLng = loc?.coordinate.longitude
+            reviewQueueId = queueId
+            showReview = true
+        } else {
+            // It didn't go through now, so the other pages won't either: they send by themselves with it.
+            for page in nextPages { if let id = page.queueId { ReceiptQueue.shared.release(id) } }
+            nextPages = []
+        }
     }
 
     // MARK: - List
@@ -465,7 +572,7 @@ struct ReceiptsView: View {
 
     /// Opens the camera for a receipt, or for a label (a product bag or a machine's nameplate; never an expense).
     private func snap(label: Bool) {
-        guard !isPreparingCapture else { return }   // the last shot is still being read
+        guard !isPreparingCapture, !viewModel.isUploading, nextPages.isEmpty, weakCapture == nil else { return }   // the last shot isn't finished
         isSelectMode = false
         selectedIds.removeAll()
         labelMode = label
@@ -612,12 +719,15 @@ struct ReceiptsView: View {
             HStack(spacing: 6) {
                 Text("Receipts").font(appStyle.font(.headline, weight: .semibold))
                 if receiptQueue.pendingCount + actionQueue.pendingCount > 0 {
-                    Text("\(receiptQueue.pendingCount + actionQueue.pendingCount) pending")
-                        .font(appStyle.font(.caption2, weight: .semibold))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(appStyle.attention.opacity(0.15))
-                        .foregroundStyle(appStyle.attention)
-                        .clipShape(Capsule())
+                    Button { showWaiting = true } label: {
+                        Text("\(receiptQueue.pendingCount + actionQueue.pendingCount) pending")
+                            .font(appStyle.font(.caption2, weight: .semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(appStyle.attention.opacity(0.15))
+                            .foregroundStyle(appStyle.attention)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -700,6 +810,58 @@ struct ReceiptsView: View {
             if let d = resized.jpegData(compressionQuality: q), d.count <= 1_500_000 { return d }
         }
         return resized.jpegData(compressionQuality: 0.15) ?? Data()
+    }
+}
+
+// MARK: - Waiting receipts
+
+/// Every receipt still on this phone, with why it hasn't gone: from the "N pending" badge.
+private struct WaitingReceiptsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var queue: ReceiptQueue
+    var onRetry: () -> Void
+    @State private var confirmDiscard: ReceiptQueue.PendingItem?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if queue.waiting.isEmpty {
+                    Text("Nothing waiting.").foregroundStyle(appStyle.meta)
+                }
+                ForEach(queue.waiting, id: \.id) { item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.queuedAt, format: .dateTime.month().day().hour().minute())
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                        Text(item.refused.map { "Not accepted: \($0)" } ?? ((item.attempts ?? 0) > 0 ? "Will try again by itself" : "Waiting to send"))
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(item.refused == nil ? appStyle.meta : appStyle.blocked)
+                        HStack(spacing: 16) {
+                            Button("Try again") { queue.retry(item.id); onRetry() }
+                            Button("Discard", role: .destructive) { confirmDiscard = item }
+                        }
+                        .font(appStyle.font(.subheadline))
+                        .buttonStyle(.borderless)
+                    }
+                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+                }
+            }
+            .itAppForm()
+            .itAppScreen()
+            .navigationTitle("Waiting receipts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }.foregroundStyle(appStyle.tenant)
+                }
+            }
+            .alert("Discard this receipt?", isPresented: Binding(get: { confirmDiscard != nil }, set: { if !$0 { confirmDiscard = nil } })) {
+                Button("Discard", role: .destructive) { if let i = confirmDiscard { queue.finish(i.id) }; confirmDiscard = nil }
+                Button("Keep", role: .cancel) { confirmDiscard = nil }
+            } message: {
+                Text("The photo will be removed from this phone and can't be sent afterwards.")
+            }
+        }
     }
 }
 

@@ -153,7 +153,7 @@ final class APIClient: ObservableObject {
     // MARK: - Multipart Upload
 
     /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
-       func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?, deviceRead: DeviceTextScanner.Prefetched? = nil) async throws -> ReceiptIntakeResponse {
+       func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?, deviceRead: DeviceTextScanner.Prefetched? = nil, captureJSON: String? = nil) async throws -> ReceiptIntakeResponse {
         guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
 
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -184,6 +184,7 @@ final class APIClient: ObservableObject {
                 body.appendField(name: "client_ocr_lines", value: lines, boundary: boundary)
             }
         }
+        if let captureJSON { body.appendField(name: "client_capture", value: captureJSON, boundary: boundary) }
         if let lat = lat { body.appendField(name: "lat", value: "\(lat)", boundary: boundary) }
         if let lng = lng { body.appendField(name: "lng", value: "\(lng)", boundary: boundary) }
         if let jobId = jobId { body.appendField(name: "job_id", value: "\(jobId)", boundary: boundary) }
@@ -199,12 +200,10 @@ final class APIClient: ObservableObject {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = ErrorDetails.response(data, status: http.statusCode)
-                // 5xx / timeout / rate limit: the server didn't decide — retry later (queued).
-                // Any other 4xx is the server's answer about this photo — retrying won't help.
-                if UploadFault.isTransient(http.statusCode) {
-                    throw APIError.networkError(UploadFault(status: http.statusCode, detail: msg))
-                }
-                throw APIError.serverError(msg)
+                // Only the app's own "this photo can't be taken" is the server's answer about the photo. A 403 or 404 can
+                // be the hosting during a deploy, and a full disk answers 400: those are retried, never given up on.
+                if UploadFault.isPhotoRefusal(http.statusCode, body: data) { throw APIError.serverError(msg) }
+                throw APIError.networkError(UploadFault(status: http.statusCode, detail: msg))
             }
         }
 
@@ -441,6 +440,13 @@ struct UploadFault: LocalizedError {
 
     static func isTransient(_ status: Int) -> Bool {
         status >= 500 || status == 408 || status == 425 || status == 429
+    }
+
+    /// 413 / 415 with the app's own JSON error: the photo itself can't be taken. Pure.
+    static func isPhotoRefusal(_ status: Int, body: Data) -> Bool {
+        guard status == 413 || status == 415 else { return false }
+        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        return json?["error"] != nil
     }
 
     /// True when `error` is a server fault rather than no signal.

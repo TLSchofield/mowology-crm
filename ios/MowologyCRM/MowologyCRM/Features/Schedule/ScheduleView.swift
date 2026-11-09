@@ -34,7 +34,7 @@ struct ScheduleView: View {
     @State private var showingFieldJob = false
     /// Client picked from the Add dial: "Add a job" opens straight on its new-client step.
     @State private var fieldJobStartsWithNewClient = false
-    @State private var showingAddTask = false
+    @State private var addForm: AddForm?
     /// The stop being moved to another date — drives the Move Stop sheet.
     @State private var movingStop: Stop?
     /// A quick action picked on a card, run once by the visit screen it opens (keyed by stop id).
@@ -252,12 +252,21 @@ struct ScheduleView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .mwAddFromBar)) { note in
             impactMedium.impactOccurred()
-            if note.userInfo?["task"] as? Bool == true { showingAddTask = true; return }
+            switch note.userInfo?["item"] as? String {
+            case "Task":    addForm = .task;    return
+            case "Quote":   addForm = .quote;   return
+            case "Invoice": addForm = .invoice; return
+            default: break
+            }
             fieldJobStartsWithNewClient = note.userInfo?["startWithNewClient"] as? Bool ?? false
             showingFieldJob = true
         }
-        .sheet(isPresented: $showingAddTask) {
-            AddTaskView(authSession: authSession)
+        .sheet(item: $addForm) { form in
+            switch form {
+            case .task:    AddTaskView(authSession: authSession)
+            case .quote:   AddQuoteView(authSession: authSession)
+            case .invoice: AddInvoiceView(authSession: authSession)
+            }
         }
         .sheet(isPresented: $showingFieldJob) {
             FieldJobView(authSession: authSession, startWithNewClient: fieldJobStartsWithNewClient) {
@@ -476,4 +485,10 @@ struct ScheduleView: View {
     ScheduleView()
         .environmentObject(AuthSession())
         .environmentObject(ReadyBriefStore())
+}
+
+/// The Add menu's forms that open over the schedule.
+private enum AddForm: String, Identifiable {
+    case task, quote, invoice
+    var id: String { rawValue }
 }

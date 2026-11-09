@@ -29,6 +29,7 @@ struct ReceiptReviewView: View {
     let lng: Double?
     @Binding var isPresented: Bool
     var onRetake: (() -> Void)? = nil
+    var onDiscard: (() -> Void)? = nil
     var onSaved: (SaveFollowUp) -> Void
 
     // Form state — pre-filled from OCR
@@ -62,6 +63,7 @@ struct ReceiptReviewView: View {
     @State private var jobSearchTask:  Task<Void, Never>?
     @State private var duplicates:     [DuplicateExpense] = []
     @State private var duplicatesAcknowledged = false
+    @State private var showDiscardConfirm = false
     @State private var showDuplicateConfirm = false
     @State private var pendingAndSend = false
 
@@ -91,6 +93,7 @@ struct ReceiptReviewView: View {
          lng: Double?,
          isPresented: Binding<Bool>,
          onRetake: (() -> Void)? = nil,
+         onDiscard: (() -> Void)? = nil,
          onSaved: @escaping (SaveFollowUp) -> Void) {
         self.viewModel    = viewModel
         self.intake       = intake
@@ -99,6 +102,7 @@ struct ReceiptReviewView: View {
         self.lng          = lng
         self._isPresented = isPresented
         self.onRetake     = onRetake
+        self.onDiscard    = onDiscard
         self.onSaved      = onSaved
 
         let p = intake.parsed
@@ -174,7 +178,7 @@ struct ReceiptReviewView: View {
             .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { isPresented = false }
+                    Button("Cancel") { showDiscardConfirm = true }
                         .foregroundStyle(appStyle.tenant)
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -216,6 +220,12 @@ struct ReceiptReviewView: View {
         }
         // Save-time duplicate confirm — desktop web uses confirm(); Android toasts and
         // allows. This is the explicit version: one tap to proceed, one to go back.
+        .alert("Discard this receipt?", isPresented: $showDiscardConfirm) {
+            Button("Discard", role: .destructive) { onDiscard?(); isPresented = false }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("It won't be saved. Only discard it if you don't need this receipt.")
+        }
         .alert("Discard this receipt and retake?", isPresented: $showRetakeConfirm) {
             Button("Retake", role: .destructive) { onRetake?() }
             Button("Keep", role: .cancel) {}
@@ -877,7 +887,7 @@ struct ReceiptReviewView: View {
             }
         } else {
             haptic.notificationOccurred(.success)
-            savedMessage = "Submitted for review"
+            savedMessage = response.filed == true ? "Filed: already in the closed books, linked to its bank line" : "Submitted for review"
         }
         showSavedDialog = true
     }

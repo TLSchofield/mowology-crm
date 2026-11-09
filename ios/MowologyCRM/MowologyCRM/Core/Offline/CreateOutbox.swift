@@ -25,6 +25,8 @@ final class CreateOutbox: ObservableObject {
     enum Kind: String, Codable {
         case fieldJob   // POST field-job: add_visit / create_job / create_client_job
         case task       // POST tasks-mobile
+        case quote      // POST quote-mobile: a draft; sent from Sam's "Quotes to send"
+        case invoice    // POST invoices-mobile action=create: a draft; sent from Add → Invoice
     }
 
     struct Entry: Codable, Identifiable, Equatable {
@@ -87,6 +89,31 @@ final class CreateOutbox: ObservableObject {
 
     func mine(me: Int?) -> [Entry] { entries.filter { me != nil && $0.userId == me } }
 
+    enum Outcome: Equatable {
+        case sent, waiting, refused(String), notKept
+    }
+
+    /// From a form that is still open: queue it, try to send it, and say what happened. A refusal comes back to the form
+    /// (and leaves the outbox), so the person fixes it there rather than in the sync list.
+    func submit(kind: Kind, title: String, body: [String: Any], using apiClient: APIClient) async -> Outcome {
+        guard enqueue(kind: kind, userId: apiClient.currentUserId, title: title, body: body),
+              let id = body["client_request_id"] as? String else { return .notKept }
+        await drain(using: apiClient)
+        guard let entry = entries.first(where: { $0.id == id }) else { return .sent }
+        if let reason = entry.refused {
+            discard(id)
+            return .refused(reason)
+        }
+        return .waiting
+    }
+
+    /// Visits with an invoice still on the phone, so Add → Invoice doesn't offer them twice.
+    func queuedInvoiceVisitIds(me: Int?) -> Set<Int> {
+        Set(mine(me: me).filter { $0.kind == .invoice }.compactMap {
+            ((try? JSONSerialization.jsonObject(with: $0.bodyJSON)) as? [String: Any])?["visit_id"] as? Int
+        })
+    }
+
     // MARK: - Drain
 
     /// One run at a time. A caller arriving mid-run waits for it and then runs its own pass, because that run chose
@@ -136,6 +163,12 @@ final class CreateOutbox: ObservableObject {
         case .task:
             let r: TaskCreateResponse = try await apiClient.request(.tasksMobileCreate, body: body, faultsAreTransient: true)
             return r.success ? nil : (r.error ?? "Task response success=false; server returned no error field.")
+        case .quote:
+            let r: QuoteCreateResponse = try await apiClient.request(.quoteMobileCreate, body: body, faultsAreTransient: true)
+            return r.success ? nil : (r.error ?? "Quote response success=false; server returned no error field.")
+        case .invoice:
+            let r: InvoiceActionResponse = try await apiClient.request(.invoicesMobileAction, body: body, faultsAreTransient: true)
+            return r.success ? nil : (r.error ?? "Invoice response success=false; server returned no error field.")
         }
     }
 

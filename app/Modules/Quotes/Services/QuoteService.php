@@ -249,7 +249,8 @@ class QuoteService
     public function create(array $data, array $lineItems, int $userId, ?int $quoteRequestId = null): int
     {
         $propertyId = (int)$data['property_id'];
-        $totals     = $this->calculateTotals($lineItems);
+        // A caller that knows the business's own rate passes it as a fraction (the phone: TaxEngine); others get the default.
+        $totals     = $this->calculateTotals($lineItems, isset($data['tax_fraction']) ? (float)$data['tax_fraction'] : null);
 
         [$companyId, $siteContactId] = $this->lookupPropertyRelations($propertyId);
 
@@ -721,11 +722,21 @@ class QuoteService
      * @param array $lineItems  Each item must have 'line_total', optionally 'tax_rate'.
      * @return array [subtotal, tax_rate, tax_amount, total]
      */
-    public function calculateTotals(array $lineItems): array
+    public function calculateTotals(array $lineItems, ?float $taxFraction = null): array
     {
         // If the legacy helper is loaded, delegate to it for consistency
+        // Not registered for GST: no tax on any line, whatever the lines or the legacy default say.
+        if (!$this->gstRegistered()) {
+            $totals = function_exists('calculateQuoteTotals') ? calculateQuoteTotals($lineItems, 0.0) : null;
+            if ($totals === null) {
+                $sub = 0.0;
+                foreach ($lineItems as $item) $sub += (float)($item['line_total'] ?? 0);
+                $totals = ['subtotal' => round($sub, 2), 'total' => round($sub, 2)];
+            }
+            return ['subtotal' => $totals['subtotal'], 'tax_rate' => 0.0, 'tax_amount' => 0.0, 'total' => $totals['total']];
+        }
         if (function_exists('calculateQuoteTotals')) {
-            return calculateQuoteTotals($lineItems);
+            return $taxFraction === null ? calculateQuoteTotals($lineItems) : calculateQuoteTotals($lineItems, $taxFraction);
         }
 
         $subtotal = 0.0;
@@ -745,6 +756,17 @@ class QuoteService
             'tax_amount' => $taxAmount,
             'total'      => $total,
         ];
+    }
+
+    /** False only for a business that said in onboarding it is not registered for GST. */
+    private function gstRegistered(): bool
+    {
+        try {
+            if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
+            return TaxEngine::gstRegistered($this->db);
+        } catch (Throwable $e) {
+            return true;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════

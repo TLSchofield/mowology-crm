@@ -137,6 +137,13 @@ recipients are set or any send fails, **nothing is deleted**.
 2. Set the recipient emails in `ops_settings` (above). With none set, nothing is deleted.
 3. (Optional) add the monthly cPanel cron above to automate.
 
+## Receipts from a filed year
+
+A receipt dated before `ExpenseGate::CLOSED_BEFORE` is never booked again; it is filed with its photo and linked to its bank line
+(`ClosedYearReceiptTrace`). The line must be the only one at the exact amount, dated in the closed year, within 3 days; cash and
+owner-paid receipts never qualify. `ops_settings closed_year_autofile`: `propose` (default) asks "File it there?" on Penny's card;
+`auto` files when nothing casts doubt (crew photo, supplier stop on the upload day, another year on the paper) and leaves a notice with Undo.
+
 ## Approval
 
 `ExpenseApprovalService::approve()` blocks self-approval (the creator of an
@@ -620,6 +627,7 @@ unreadable handwritten date is visible as a cluster: ten Lawnboy receipts dated 
 - **AI line-item step with the photo (2026-11-06, switch `ops_settings.receipt_llm_image`, OFF):** `extractLineItemsWithLlm()` can attach the receipt photo/PDF (`receiptLlmFileBlock()`: upright, ≤1568 px, memory-guarded; a 4xx retries text-only). Backtest on 21 failing receipts: identical verdicts with and without the photo at 2–5× the tokens, so it stays off. The real blocker is the gate's reference subtotal (misread by the rules on 6 of 12 rejections, where the AI's items match the approved amount) — see `docs/plans/2026-11-06-receipt-ai-sees-photo.md`.
 - **Round 2 (2026-11-06, live):** a receipt that names no tax anywhere reads GST 0.00, subtotal = total, `gst_source` 'exempt' (`receiptPrintsNoTax()`; was a 5% guess — City of Vancouver landfill). The AI line-item step also accepts items whose sum is printed under a SUBTOTAL label (`receiptLlmSumPrinted()`) and turns printed bottle deposits into one Deposit row (`receiptLlmPrintedDeposits()`). Replay: GST 61% → 70%; AI backtest 10 → 15 of 22. Plan: `docs/plans/2026-11-06-receipt-reading-fixes-round-2.md`.
 - **iPhone 1.3.87 (2026-11-06):** receipts use Apple's document camera (`DocumentCameraPicker`: live edge outline, move-closer / hold-still, auto-capture, cropped page; labels and unsupported phones keep the system camera). Review pins the receipt at the top (`ReceiptZoomView`: opens at the receipt's width, pinch / drag / double-tap; shrinks while the keyboard is up); swipe-to-dismiss is off on Review (Cancel only). Plan: `docs/plans/2026-11-06-receipt-camera-live-guides-and-viewer.md`.
+- **The system does what was fixed by hand (2026-11-06, live):** (1) a receipt dated in a closed year files itself and traces to its one exact-amount bank line (`ClosedYearReceiptTrace`, run by the gate after a save or new text read; link + file in one transaction; Penny's filing teaches nothing; no line or several → waits). (2) A guessed GST on a receipt that prints a PST line the rules missed → the AI header step reads subtotal/GST/PST under their labels, kept only if they add up; the AI item step then re-reads against that subtotal. "Goods Total" is a subtotal label. (3) A commons phone / web-domain match counts only when the paper names the vendor (`VendorIdentity::namedOnPaper`: name, alias, or its first two real words); `publishLesson` learns phone / domain / GST number only from a paper that names the vendor. Proof: #533–#538 re-read by the system match the hand fixes. Plan: `docs/plans/2026-11-06-receipts-system-handles-what-was-fixed-by-hand.md`.
 ## Receipt lines ↔ the shared catalogue — 2026-10-19
 Each saved line of a Materials / Tools/Equipment / Repairs receipt is matched to the SHARED product catalogue by
 itself (`ReceiptCatalogService`, migration 1378, runs after every save via `ExpenseGateHooks::catalog`):

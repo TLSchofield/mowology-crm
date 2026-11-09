@@ -178,6 +178,10 @@
 		6F998C0AFE887920E0B95797 /* AddTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5B41D928F20C6D37D32E03 /* AddTaskView.swift */; };
 		7604B1A90C041DE08D618F47 /* DayCarouselRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F407692A30F808FD0F43EC /* DayCarouselRules.swift */; };
 		1A320A64B5CBC5C6BBE0B55D /* DayCarouselView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFFF3E815832DD170F0527EB /* DayCarouselView.swift */; };
+		79BEBEA9327E4850D69BDA44 /* ItMeniscusMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2535CD860F219960D85ECB23 /* ItMeniscusMotion.swift */; };
+		912B63D47E07089F58EE09D8 /* QuoteMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC6AEE957C566B6CBC8FF69 /* QuoteMath.swift */; };
+		B92516DEFB482227326FE7CE /* AddQuoteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8346E4CFA981ADFB0EAB084 /* AddQuoteView.swift */; };
+		30BAFDD47D77E76AD590AB92 /* AddInvoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1303D0755EC72E72182B115B /* AddInvoiceView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -354,6 +358,10 @@
 		6C5B41D928F20C6D37D32E03 /* AddTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTaskView.swift; sourceTree = "<group>"; };
 		B8F407692A30F808FD0F43EC /* DayCarouselRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayCarouselRules.swift; sourceTree = "<group>"; };
 		AFFF3E815832DD170F0527EB /* DayCarouselView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayCarouselView.swift; sourceTree = "<group>"; };
+		2535CD860F219960D85ECB23 /* ItMeniscusMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItMeniscusMotion.swift; sourceTree = "<group>"; };
+		6DC6AEE957C566B6CBC8FF69 /* QuoteMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteMath.swift; sourceTree = "<group>"; };
+		B8346E4CFA981ADFB0EAB084 /* AddQuoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddQuoteView.swift; sourceTree = "<group>"; };
+		1303D0755EC72E72182B115B /* AddInvoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddInvoiceView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -705,6 +713,7 @@
 				8CB82E928047F3B941ED2F3A /* ItAppStyle.swift */,
 				C4914118B08D22925FEEFD9A /* ItMeniscusGeometry.swift */,
 				F94BAAB31AC20858A44F7CD4 /* ItMeniscusBar.swift */,
+				2535CD860F219960D85ECB23 /* ItMeniscusMotion.swift */,
 			);
 			path = Ittai;
 			sourceTree = "<group>";
@@ -724,6 +733,9 @@
 			isa = PBXGroup;
 			children = (
 				6C5B41D928F20C6D37D32E03 /* AddTaskView.swift */,
+				6DC6AEE957C566B6CBC8FF69 /* QuoteMath.swift */,
+				B8346E4CFA981ADFB0EAB084 /* AddQuoteView.swift */,
+				1303D0755EC72E72182B115B /* AddInvoiceView.swift */,
 			);
 			path = Tasks;
 			sourceTree = "<group>";
@@ -964,6 +976,10 @@
 				6F998C0AFE887920E0B95797 /* AddTaskView.swift in Sources */,
 				7604B1A90C041DE08D618F47 /* DayCarouselRules.swift in Sources */,
 				1A320A64B5CBC5C6BBE0B55D /* DayCarouselView.swift in Sources */,
+				79BEBEA9327E4850D69BDA44 /* ItMeniscusMotion.swift in Sources */,
+				912B63D47E07089F58EE09D8 /* QuoteMath.swift in Sources */,
+				B92516DEFB482227326FE7CE /* AddQuoteView.swift in Sources */,
+				30BAFDD47D77E76AD590AB92 /* AddInvoiceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1037,7 +1053,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.129;
+				MARKETING_VERSION = 1.3.132;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1123,7 +1139,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.129;
+				MARKETING_VERSION = 1.3.132;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

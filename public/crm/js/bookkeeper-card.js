@@ -1055,6 +1055,17 @@
                                   '<button type="button" data-ans="seen">Got it</button>' +
                                 '</div></div>';
                         }
+                        if (q.kind === 'file_closed_year') {
+                            // A receipt from a filed year and its one bank line (ClosedYearReceiptTrace).
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns">' +
+                                  '<a href="/crm/expenses_appstack.php?edit=' + esc(q.expense_id) + '" target="_blank" rel="noopener">Open #' + esc(q.expense_id) + '</a>' +
+                                  (q.ask ? '<button type="button" data-ans="file">✓ File it</button>' +
+                                           '<button type="button" data-ans="keep">Keep waiting</button>'
+                                         : '<button type="button" data-ans="seen">✓ Got it</button>' +
+                                           '<button type="button" data-ans="undo">Undo</button>') +
+                                '</div></div>';
+                        }
                         if (q.kind === 'payment_source') {
                             // The bank line said where the money came from (ReceiptFundingCheck).
                             return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
