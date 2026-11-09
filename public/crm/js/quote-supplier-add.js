@@ -60,8 +60,8 @@
             else if (g.install_family) act = '<button type="button" class="btn btn-sm btn-outline-success" data-sa-install="' + i + '">Price it installed</button>';
             else act = '<button type="button" class="btn btn-sm btn-outline-secondary" data-sa-cost="' + i + '">Add at cost — set your price</button>';
             return '<li class="list-group-item" data-sa-row="' + i + '"><div class="d-flex justify-content-between align-items-start flex-wrap" style="gap:8px">'
-                + '<div><strong>' + esc(label) + '</strong> · ' + esc(g.size || 'per yard') + (g.common ? ' <span class="text-muted small">' + esc(b.item) + '</span>' : '')
-                + '<div class="small text-muted">' + meta + '</div>' + (g.bulk ? marketLine(g.market) : '') + '<div data-sa-note></div></div>'
+                + '<div class="d-flex" style="gap:10px">' + (g.photo ? '<img class="mw-plantpic" src="' + esc(g.photo) + '" alt="" loading="lazy" title="' + esc(g.photo_credit || '') + '">' : '') + '<div><strong>' + esc(label) + '</strong> · ' + esc(g.size || 'per yard') + (g.common ? ' <span class="text-muted small">' + esc(b.item) + '</span>' : '')
+                + '<div class="small text-muted">' + meta + '</div>' + (g.bulk ? marketLine(g.market) : '') + '<div data-sa-note></div></div></div>'
                 + '<div>' + act + '</div></div></li>';
         }).join('') + '</ul>';
         out._results = d.results;
