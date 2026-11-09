@@ -64,7 +64,7 @@ class InvoiceFromPhoneService
     public function drafts(int $userId): array
     {
         $s = $this->db->prepare("
-            SELECT i.id, i.invoice_number, i.total_amount, COALESCE(c.full_name, c.first_name, '') AS client
+            SELECT i.id, i.invoice_number, i.total_amount, TRIM(CONCAT_WS(' ', c.first_name, c.last_name)) AS client
             FROM invoices i LEFT JOIN contacts c ON c.id = i.contact_id
             WHERE i.status = 'draft' AND i.visit_id IS NOT NULL AND i.created_by = ?
             ORDER BY i.created_at DESC
