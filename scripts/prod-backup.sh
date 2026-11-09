@@ -88,7 +88,9 @@ PART="$FILE.part"
 ( umask 077; : > "$PART" )
 http="$(curl -sS -m 1800 -H "X-Once-Token: $TOK" -o "$PART" -w '%{http_code}' "https://mowology.ca/crm/api/$NAME" || echo "curl-failed")"
 code="$(curl -s -o /dev/null -w '%{http_code}' "https://mowology.ca/crm/api/$NAME")"
-[ "$code" = "404" ] || echo "WARNING: /crm/api/$NAME still answers ($code) — delete it" >&2
+# Remove it over FTP as well: a request that never reached PHP leaves the file behind (2026-11-09).
+mw_lftp "rm -f /crm/api/$NAME; bye" >/dev/null 2>&1 || true
+[ "$code" = "404" ] || echo "note: /crm/api/$NAME still answered ($code) after the run; removed over FTP" >&2
 [ "$http" = "200" ] || { rm -f "$PART"; echo "backup failed: HTTP $http" >&2; exit 1; }
 
 if ! gzip -t "$PART" 2>/dev/null || ! gunzip -c "$PART" | tail -c 300 | grep -q -- '^-- end$'; then

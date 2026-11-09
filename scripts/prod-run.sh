@@ -85,6 +85,9 @@ php -l "$TMP/$NAME" >/dev/null || { echo "snippet does not parse" >&2; php -l "$
 mw_lftp "put $TMP/$NAME -o /crm/api/$NAME; bye" >/dev/null 2>&1
 curl -s -m 290 "https://mowology.ca/crm/api/$NAME?t=$TOK"
 echo
-# The file deletes itself on first request; make sure it is gone.
+# The file deletes itself on first request; make sure it is gone. A request that never reached PHP (a
+# timeout, a cached 404 right after the upload) leaves it behind — seven such once-*.php files were
+# found in /crm/api/ on 2026-11-09 — so remove it over FTP as well, whatever the answer.
 code="$(curl -s -o /dev/null -w '%{http_code}' "https://mowology.ca/crm/api/$NAME")"
-[ "$code" = "404" ] || echo "WARNING: /crm/api/$NAME still answers ($code) — delete it" >&2
+mw_lftp "rm -f /crm/api/$NAME; bye" >/dev/null 2>&1 || true
+[ "$code" = "404" ] || echo "note: /crm/api/$NAME still answered ($code) after the run; removed over FTP" >&2
