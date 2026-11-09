@@ -138,6 +138,7 @@ final class CameraController: NSObject, ObservableObject {
     /// Main thread only.
     private func makeRotationCoordinator(for device: AVCaptureDevice) {
         rotationObservation?.invalidate()
+        if receiptFrames != nil { applyPreviewAngle(receiptCaptureAngle()); return }
         guard let layer = previewLayer else { return }
         let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: layer)
         rotationCoordinator = coordinator
@@ -146,6 +147,22 @@ final class CameraController: NSObject, ObservableObject {
             let angle = c.videoRotationAngleForHorizonLevelPreview
             DispatchQueue.main.async { self?.applyPreviewAngle(angle) }
         }
+    }
+
+    /// Receipt camera only: the top of the screen is the top of the photo. Apple's angles follow gravity, which says
+    /// nothing with the phone flat over a receipt (2026-11-09: a shot taken in portrait saved sideways). Main thread only.
+    func receiptCaptureAngle() -> CGFloat {
+        switch (previewLayer?.delegate as? UIView)?.window?.windowScene?.interfaceOrientation {
+        case .landscapeRight: return 0
+        case .landscapeLeft: return 180
+        case .portraitUpsideDown: return 270
+        default: return 90
+        }
+    }
+
+    /// The preview has its place on screen, or the screen turned. Main thread only.
+    func previewDidLayout() {
+        if receiptFrames != nil { applyPreviewAngle(receiptCaptureAngle()) }
     }
 
     /// Main thread only.
@@ -271,10 +288,9 @@ final class CameraController: NSObject, ObservableObject {
     /// Take one photo. `completion` runs on main with the JPEG file data (EXIF kept,
     /// GPS added when a fix is available) or nil on failure.
     @MainActor
-    /// `matchPreview`: turn the photo the way the screen shows it. A receipt is shot with the phone lying flat, where
-    /// "level with the horizon" is whichever way the phone last leaned.
+    /// `matchPreview`: turn the photo the way the screen shows it (receipt camera only; see `receiptCaptureAngle`).
     func capturePhoto(location: CLLocation?, matchPreview: Bool = false, completion: @escaping (Data?) -> Void) {
-        let captureAngle = matchPreview ? rotationCoordinator?.videoRotationAngleForHorizonLevelPreview
+        let captureAngle = matchPreview ? receiptCaptureAngle()
                                         : rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
         let flashMode = flash.avMode
         sessionQueue.async { [weak self] in

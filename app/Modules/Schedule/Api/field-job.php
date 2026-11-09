@@ -60,6 +60,14 @@ try {
     $db      = getDB();
     $service = new FieldJobService($db);
 
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['mode'] ?? '') === 'last_price') {
+        // A client's past prices are for people who can edit jobs, not everyone who can add one from the field.
+        echo json_encode(jwtUserHasPermission($jwtUser, 'jobs.edit')
+            ? $service->lastPrice((int)($_GET['property_id'] ?? 0), (string)($_GET['service_type'] ?? ''))
+            : ['success' => true, 'found' => false]);
+        exit;
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $lat = isset($_GET['lat']) && $_GET['lat'] !== '' ? (float)$_GET['lat'] : null;
         $lng = isset($_GET['lng']) && $_GET['lng'] !== '' ? (float)$_GET['lng'] : null;

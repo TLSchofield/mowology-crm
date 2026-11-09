@@ -548,6 +548,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/ClusterService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitWorkService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitPhotoService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/FieldJobService.php';
+require_once __DIR__ . '/../app/Modules/Schedule/Services/ServiceTypeFilter.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CalendarStopTidyService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitPullForwardService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/ServiceHistoryService.php';

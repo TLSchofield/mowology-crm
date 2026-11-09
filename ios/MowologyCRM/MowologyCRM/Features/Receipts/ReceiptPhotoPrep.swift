@@ -40,7 +40,42 @@ enum ReceiptPhotoPrep {
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     /// `alreadyCropped`: a page from the document camera — its edges and angle are done; only sharpness is checked.
-    static func prepare(_ photo: UIImage, alreadyCropped: Bool = false) -> Outcome {
+    /// `turnByPrinting`: also turn the result so the printing reads normally (the shot can fire before the receipt is lined up).
+    static func prepare(_ photo: UIImage, alreadyCropped: Bool = false, turnByPrinting: Bool = false) -> Outcome {
+        let done = prepareAsShot(photo, alreadyCropped: alreadyCropped)
+        guard turnByPrinting, let cg = done.image.cgImage,
+              let turned = turn(cg, quarterTurns: ReceiptPrintTurn.quarterTurns(votes: printingVotes(cg))) else { return done }
+        return Outcome(image: turned, cropped: done.cropped, fill: done.fill, skewDegrees: done.skewDegrees, sharpness: done.sharpness)
+    }
+
+    /// Characters in printed lines running right, down, left and up in the photo. Apple's reader finds sideways text
+    /// without being told, and each line's corners say which way it runs.
+    private static func printingVotes(_ image: CGImage) -> [Int] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+        var votes = [0, 0, 0, 0]
+        let w = Double(image.width), h = Double(image.height)
+        for line in request.results ?? [] {
+            guard let text = line.topCandidates(1).first?.string else { continue }
+            let dx = Double(line.topRight.x - line.topLeft.x) * w, dy = Double(line.topRight.y - line.topLeft.y) * h
+            let way = abs(dx) >= abs(dy) ? (dx >= 0 ? 0 : 2) : (dy < 0 ? 1 : 3)
+            votes[way] += text.filter { $0.isLetter || $0.isNumber }.count
+        }
+        return votes
+    }
+
+    /// The photo with the turn drawn into its pixels (the server strips orientation flags). Nil when no turn is needed.
+    private static func turn(_ image: CGImage, quarterTurns: Int) -> UIImage? {
+        let ways: [Int: CGImagePropertyOrientation] = [1: .left, 2: .down, 3: .right]
+        guard let way = ways[quarterTurns] else { return nil }
+        let turned = CIImage(cgImage: image).oriented(way)
+        guard let cg = ciContext.createCGImage(turned, from: turned.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    private static func prepareAsShot(_ photo: UIImage, alreadyCropped: Bool) -> Outcome {
         let upright = uprightCopy(photo)
         guard let cg = upright.cgImage else {
             return Outcome(image: photo, cropped: false, fill: 1, skewDegrees: 0, sharpness: .greatestFiniteMagnitude)

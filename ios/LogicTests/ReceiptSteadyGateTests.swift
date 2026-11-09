@@ -109,6 +109,15 @@ check(ReceiptRetake.shouldRetake(sharpness: 60, retakesSoFar: 0), "soft retakes"
 check(!ReceiptRetake.shouldRetake(sharpness: 60, retakesSoFar: 2), "stops after two")
 check(!ReceiptRetake.shouldRetake(sharpness: 500, retakesSoFar: 0), "sharp keeps")
 
+// Turning by the printing: only on a clear result.
+check(ReceiptPrintTurn.quarterTurns(votes: [0, 0, 0, 307]) == 3, "reads upward")
+check(ReceiptPrintTurn.quarterTurns(votes: [0, 300, 0, 0]) == 1, "reads downward")
+check(ReceiptPrintTurn.quarterTurns(votes: [0, 0, 304, 0]) == 2, "upside down")
+check(ReceiptPrintTurn.quarterTurns(votes: [309, 0, 0, 0]) == 0, "already right")
+check(ReceiptPrintTurn.quarterTurns(votes: [0, 12, 0, 0]) == 0, "too little printing")
+check(ReceiptPrintTurn.quarterTurns(votes: [100, 90, 0, 0]) == 0, "mixed")
+check(ReceiptPrintTurn.quarterTurns(votes: []) == 0, "nothing read")
+
 // Geometry
 check(abs(ReceiptSteadyGate.area(receipt) - 0.48) < 0.0001, "area")
 check(abs(ReceiptSteadyGate.drift(receipt, next) - 0.15) < 0.0001, "drift")

@@ -156,6 +156,69 @@ class FieldJobService
         return $results;
     }
 
+    // ── Last known price ─────────────────────────────────────────────────────
+
+    /** The words a past charge must contain to count as this job: lower case, plurals dropped. "Other" matches nothing. */
+    public static function priceWords(string $text): array
+    {
+        $words = [];
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($text)) ?: [] as $w) {
+            if (strlen($w) < 3) { continue; }
+            $words[] = strlen($w) > 3 ? rtrim($w, 's') : $w;
+        }
+        return array_values(array_unique($words));
+    }
+
+    /**
+     * The newest thing charged here for this kind of job: invoice lines first (what was really billed, newest first),
+     * then a plan's per-visit price. Every word of the job type must appear, so "Lawn Cut" is not a "Lawn & Garden" month.
+     * PURE.
+     *
+     * @param array<int,array{text:string,price:float|string,date:string}> $lines
+     * @param array<int,array{text:string,price:float|string,date:string}> $plans
+     * @return ?array{price:float,label:string,date:string,source:string}
+     */
+    public static function pickLastPrice(array $lines, array $plans, string $service): ?array
+    {
+        $want = self::priceWords($service);
+        if (!$want || $want === ['other']) {
+            return null;
+        }
+        foreach (['invoice' => $lines, 'plan' => $plans] as $source => $rows) {
+            foreach ($rows as $r) {
+                $words = self::priceWords($r['text']);
+                if ((float)$r['price'] > 0 && !array_diff($want, $words) && !array_intersect(['deposit', 'discount', 'credit', 'refund'], $words)) {
+                    return ['price' => round((float)$r['price'], 2), 'label' => trim($r['text']), 'date' => $r['date'], 'source' => $source];
+                }
+            }
+        }
+        return null;
+    }
+
+    /** What this property was last charged for this kind of job, before GST. @return array{success:bool,found:bool} */
+    public function lastPrice(int $propertyId, string $service): array
+    {
+        $q = $this->db->prepare("
+            SELECT TRIM(CONCAT(COALESCE(l.title, ''), ' ', COALESCE(l.description, ''))) AS text, l.unit_price AS price, i.created_at AS date
+            FROM invoice_line_items l JOIN invoices i ON i.id = l.invoice_id
+            WHERE i.property_id = ? AND i.status NOT IN ('draft', 'cancelled', 'void') AND l.unit_price > 0
+            ORDER BY i.id DESC, l.id DESC LIMIT 200");
+        $q->execute([$propertyId]);
+        $lines = $q->fetchAll(PDO::FETCH_ASSOC);
+
+        $q = $this->db->prepare("
+            SELECT TRIM(CONCAT(COALESCE(title, ''), ' ', COALESCE(service_type, ''))) AS text, price_per_visit AS price, created_at AS date
+            FROM job_plans WHERE property_id = ? AND price_per_visit > 0 ORDER BY id DESC LIMIT 50");
+        $q->execute([$propertyId]);
+
+        $hit = self::pickLastPrice($lines, $q->fetchAll(PDO::FETCH_ASSOC), $service);
+        if ($hit === null) {
+            return ['success' => true, 'found' => false];
+        }
+        return ['success' => true, 'found' => true, 'price' => $hit['price'], 'label' => $hit['label'],
+                'when' => date('M Y', strtotime($hit['date'])), 'source' => $hit['source']];
+    }
+
     // ── Actions ──────────────────────────────────────────────────────────────
 
     /** @return array{success:bool, error?:string, visit_id?:int, visit_number?:string} */

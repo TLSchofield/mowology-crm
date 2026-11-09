@@ -108,7 +108,7 @@ final class ReceiptCameraModel: ObservableObject {
         guard canShoot else { return }
         isChecking = true
         let shotOutline = outline
-        let measured = String(format: "rot %.3f acc %.3f", rotationRate, acceleration)
+        let measured = String(format: "rot %.3f acc %.3f angle %.0f", rotationRate, acceleration, camera.receiptCaptureAngle())
         camera.capturePhoto(location: nil, matchPreview: true) { [weak self] data in
             Task { @MainActor in await self?.judge(data, outline: shotOutline, auto: auto, measured: measured) }
         }

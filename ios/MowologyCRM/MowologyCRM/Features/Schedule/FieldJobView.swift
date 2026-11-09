@@ -33,6 +33,8 @@ final class FieldJobViewModel: ObservableObject {
     /// No signal when the screen opened: nearby clients couldn't be looked up, but a new client and job can still be
     /// made here and wait on the phone (CreateOutbox).
     @Published var isOffline = false
+    /// The last-charged offer for the job being added; nil when there is none or it can't be looked up.
+    @Published var lastPrice: FieldJobLastPrice?
 
     /// Best guess at the street address here — pre-fills the new-client form.
     @Published var addressHere = ""
@@ -97,6 +99,14 @@ final class FieldJobViewModel: ObservableObject {
     }
 
     // MARK: - Actions
+
+    func loadLastPrice(propertyId: Int, serviceType: String) async {
+        lastPrice = nil
+        guard !serviceType.isEmpty else { return }
+        let found: FieldJobLastPrice? = try? await apiClient.request(.fieldJobLastPrice(propertyId: propertyId, serviceType: serviceType))
+        guard !Task.isCancelled, found?.found == true else { return }
+        lastPrice = found
+    }
 
     func addVisit(to plan: FieldJobPlan) async -> Bool {
         await send(["action": "add_visit", "plan_id": plan.id], title: "Visit added to \(plan.title)") { response in
@@ -447,7 +457,8 @@ struct FieldJobPropertyView: View {
             }
 
             FieldJobFormSections(draft: $draft, serviceTypes: vm.serviceTypes,
-                                 header: property.plans.isEmpty ? "Create a job here" : "Or create a new job")
+                                 header: property.plans.isEmpty ? "Create a job here" : "Or create a new job",
+                                 lastPrice: vm.lastPrice)
 
             Section {
                 Button {
@@ -461,6 +472,8 @@ struct FieldJobPropertyView: View {
         }
         .itAppForm()
         .itAppScreen()
+        .task(id: draft.serviceType) { await vm.loadLastPrice(propertyId: property.id, serviceType: draft.serviceType) }
+        .onDisappear { vm.lastPrice = nil }
         .navigationTitle("This property")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(confirmingPlan.map { "Add a visit to “\($0.title)” for today?" } ?? "",
@@ -546,6 +559,7 @@ private struct FieldJobFormSections: View {
     @Binding var draft: FieldJobDraft
     let serviceTypes: [String]
     let header: String
+    var lastPrice: FieldJobLastPrice? = nil
 
     var body: some View {
         Section(header) {
@@ -556,6 +570,24 @@ private struct FieldJobFormSections: View {
             TextField("Title (optional)", text: $draft.title)
             TextField("Price per visit, before GST (optional)", text: $draft.price)
                 .keyboardType(.decimalPad)
+            if let price = lastPrice?.price {
+                Button {
+                    draft.price = String(format: "%.2f", price)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Last charged $" + String(format: "%.2f", price) + (lastPrice?.when.map { ", \($0)" } ?? ""))
+                                .font(appStyle.font(.subheadline, weight: .semibold))
+                            if let label = lastPrice?.label {
+                                Text(label).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta).lineLimit(2)
+                            }
+                        }
+                        Spacer()
+                        Text("Use").font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
             TextField("Notes for the office (optional)", text: $draft.notes, axis: .vertical)
                 .lineLimit(2...4)
         }
