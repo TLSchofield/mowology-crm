@@ -96,6 +96,11 @@ Ada's checks are pairs, not single readings.
 Fixed: `public/crm/email-logs/.htaccess` (deny all) and a FilesMatch block in `public/.htaccess`
 (md, log, sql, bak, orig, swp, .DS_Store, .gitignore, .git-ftp.log). Whether anyone fetched them
 is unknown — cPanel → Metrics → Raw Access needs Tim's login.
+2026-11-08 (security audit): the folder block was not enough — two viewer pages (`/crm/email-logs-viewer.php`,
+`/crm/view-email-logs.php`, sign-in only) showed the log, sign-up codes included, to any user of any business.
+Both pages are deleted and in Ada's blocked-paths check; the log is now `app/Storage/logs/email/` (`EmailLog`):
+per business, 30 days, one line per attempt, never the email's text or headers. A blocked folder does not
+protect a file that a PHP page reads for the visitor — look for readers, not only for the folder.
 **Check to build (security):** a weekly request from the server to a fixed list of paths that must
 answer 403/404 (the files above, `/app_config/config.php`, `/.git/HEAD`, `crm/api/once-*.php`
 leftovers); red on any 200.

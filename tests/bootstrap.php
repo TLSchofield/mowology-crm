@@ -33,6 +33,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferClaimAlertS
 require_once __DIR__ . '/../app/Modules/Accounting/Services/YardiEftInboxService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ClientCreditService.php';
 require_once __DIR__ . '/../app/Services/Messaging/EmailWrapper.php';
+require_once __DIR__ . '/../app/Services/Messaging/EmailLog.php';
 
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';

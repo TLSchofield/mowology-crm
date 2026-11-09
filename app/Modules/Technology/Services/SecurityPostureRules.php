@@ -23,6 +23,7 @@ class SecurityPostureRules
         '/crm/tmp/', '/crm/tmp/jobber1.csv', '/crm/backup/', '/app/', '/app/Storage/', '/storage/',
         '/vendor/', '/sessions/', '/app_config/secrets.php', '/composer.lock', '/composer.json',
         '/php.ini', '/.user.ini', '/database/migrations/', '/crm/email-logs/',
+        '/crm/email-logs-viewer.php', '/crm/view-email-logs.php',           // removed 2026-11-08 (showed every business's email log)
         '/LANDING_PAGE_MARKETING_INTEGRATION.md',                          // an *.md sample that exists
         '/database/migrations/1340_payment_mail_sender_verified.sql',      // an *.sql sample that exists
         '/talkinghands.ca/database/fox_content.sql',                       // a sub-site's own database/ (exempt from check 2 because of this)
