@@ -259,7 +259,7 @@ struct OttoMissedReviewSheet: View {
         Section {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
-                    AsyncImage(url: URL(string: "https://mowology.ca/crm/img/heads/otto.jpg")) { img in
+                    AsyncImage(url: Server.url("/crm/img/heads/otto.jpg")) { img in
                         img.resizable().scaledToFill()
                     } placeholder: {
                         Circle().fill(appStyle.color(.tenantSoft, legacy: Color.MW.light))

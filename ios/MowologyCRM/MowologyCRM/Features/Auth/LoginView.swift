@@ -113,7 +113,7 @@ struct LoginView: View {
                     .font(appStyle.font(.footnote, weight: .semibold))
                     .foregroundStyle(appStyle.meta)
 
-                TextField("you@mowology.ca", text: $viewModel.email)
+                TextField("Email address", text: $viewModel.email)
                     .keyboardType(.emailAddress)
                     .textContentType(.emailAddress)
                     .autocapitalization(.none)

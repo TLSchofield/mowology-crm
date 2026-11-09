@@ -57,7 +57,7 @@ final class AuthSession: ObservableObject {
     /// On success the JWT and user record are persisted to Keychain and the
     /// published state is updated so RootView switches to ScheduleView.
     func login(email: String, password: String) async throws {
-        guard let url = URL(string: "https://mowology.ca/api/auth/token.php") else {
+        guard let url = Server.url("/api/auth/token.php") else {
             throw APIError.invalidURL
         }
 

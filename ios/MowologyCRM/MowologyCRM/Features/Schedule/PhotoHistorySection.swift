@@ -41,8 +41,7 @@ struct PhotoHistoryResponse: Decodable {
 extension VisitPhoto {
     /// Full-size photo. Paths come back web-root relative.
     var fullURL: URL? {
-        if photoUrl.hasPrefix("http") { return URL(string: photoUrl) }
-        return URL(string: "https://mowology.ca" + photoUrl)
+        Server.url(photoUrl)
     }
 }
 

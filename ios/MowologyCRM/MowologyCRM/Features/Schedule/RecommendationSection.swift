@@ -243,7 +243,7 @@ struct AskDraftSheet: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(draft.photos, id: \.self) { photo in
-                                    AsyncImage(url: URL(string: photo.url.hasPrefix("http") ? photo.url : "https://mowology.ca" + photo.url)) { img in
+                                    AsyncImage(url: Server.url(photo.url)) { img in
                                         img.resizable().scaledToFill()
                                     } placeholder: {
                                         (appStyle.isEnabled ? appStyle.line : Color(.systemGray5))

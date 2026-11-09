@@ -45,7 +45,7 @@ final class DeviceTokenService {
     nonisolated static func unregister(jwt: String) {
         guard let token = UserDefaults.standard.string(forKey: lastTokenKey), !token.isEmpty,
               !jwt.isEmpty,
-              let url = URL(string: "https://mowology.ca/api/device/token") else { return }
+              let url = Server.url("/api/device/token") else { return }
         var request = URLRequest(url: url, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

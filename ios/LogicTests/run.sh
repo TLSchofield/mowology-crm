@@ -55,7 +55,7 @@ run ittaidesign -DKNOWLEDGE_GEOMETRY_ONLY "$SRC/Core/Design/Ittai/ItTokens.swift
 
 # Business setup: real models, URLs and view model against a fake transport, in TestFlight Release mode.
 run businessidentity -O -parse-as-library "$SRC/Core/Models/KnowledgeModels.swift" \
-  "$SRC/Core/Models/BusinessIdentityModels.swift" "$SRC/Core/Network/APIEndpoints.swift" \
+  "$SRC/Core/Models/BusinessIdentityModels.swift" "$SRC/Core/Network/APIEndpoints.swift" "$SRC/Core/Network/Server.swift" \
   "$SRC/Core/Network/APIError.swift" "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
   "$SRC/Core/Diagnostics/ErrorDetails.swift" "$SRC/Core/Network/KnowledgeAPI.swift" \
   "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"
@@ -84,3 +84,7 @@ run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/Serv
 # Day carousel (2026-11-08): the strip's window, the day on the line, when it has landed, today after midnight.
 cp "$ROOT/ios/LogicTests/DayCarouselTests.swift" "$OUT/main.swift"
 run daycarousel "$SRC/Core/Models/ScheduleDay.swift" "$SRC/Features/Schedule/DayCarouselRules.swift" "$OUT/main.swift"
+
+# Server address (2026-11-09): the one place the app's server lives; paths become absolute URLs.
+cp "$ROOT/ios/LogicTests/ServerTests.swift" "$OUT/main.swift"
+run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"

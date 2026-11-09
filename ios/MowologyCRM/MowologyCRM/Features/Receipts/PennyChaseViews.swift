@@ -366,7 +366,7 @@ struct PennyCrewChaseCard: View {
         if !vm.items.isEmpty || vm.message != nil {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    AsyncImage(url: URL(string: "https://mowology.ca/crm/img/heads/penny.jpg")) { phase in
+                    AsyncImage(url: Server.url("/crm/img/heads/penny.jpg")) { phase in
                         if let img = phase.image { img.resizable().scaledToFill() } else { appStyle.sunk }
                     }
                     .frame(width: 36, height: 36)

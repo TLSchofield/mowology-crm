@@ -7,7 +7,7 @@
 
 import Foundation
 
-private let baseURLString = "https://mowology.ca/api"
+private let baseURLString = Server.api.absoluteString
 
 /// Enumeration of every API endpoint the app communicates with.
 /// Each case resolves to a `URL` and declares whether it requires an
@@ -406,10 +406,10 @@ enum APIEndpoint {
             return components?.url
 
         case .powActions:
-            return URL(string: "https://mowology.ca/crm/api/pow-actions.php")
+            return Server.url("/crm/api/pow-actions.php")
 
         case .powGpsSync:
-            return URL(string: "https://mowology.ca/crm/api/pow-gps-sync.php")
+            return Server.url("/crm/api/pow-gps-sync.php")
 
         case .scheduleJobs(let status, let limit, let offset):
             var components = URLComponents(string: "\(baseURLString)/schedule/jobs")

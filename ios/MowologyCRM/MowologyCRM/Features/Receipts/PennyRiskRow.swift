@@ -31,7 +31,7 @@ struct PennyRiskRow: View {
 
     var body: some View {
         (appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(alignment: .top, spacing: 12))) {
-            AsyncImage(url: URL(string: "https://mowology.ca/crm/img/heads/penny.jpg")) { phase in
+            AsyncImage(url: Server.url("/crm/img/heads/penny.jpg")) { phase in
                 if let img = phase.image {
                     img.resizable().scaledToFill()
                 } else {

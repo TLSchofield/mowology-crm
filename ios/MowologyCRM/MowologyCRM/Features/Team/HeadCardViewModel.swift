@@ -412,8 +412,7 @@ final class HeadCardViewModel: ObservableObject {
 
     /// A CRM path ("/crm/…") as a full URL for Safari.
     nonisolated static func webURL(_ path: String) -> URL? {
-        if path.hasPrefix("http") { return URL(string: path) }
-        return URL(string: "https://mowology.ca" + (path.hasPrefix("/") ? path : "/" + path))
+        Server.url(path)
     }
 
     /// As the board's waited(): "today", "3 days", "2 weeks", "4 months".
