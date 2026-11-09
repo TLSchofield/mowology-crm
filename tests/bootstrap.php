@@ -8,6 +8,14 @@ date_default_timezone_set('UTC');
 // Composer autoloader (PHPUnit + smalot/pdfparser)
 require_once __DIR__ . '/../vendor/autoload.php';
 
+// Production-only deps live under public/vendor (mpdf, stripe-php, etc.).
+// Pull that autoload in too so service classes that typehint Stripe types can
+// be loaded by tests. Loaded conditionally so a missing public/vendor doesn't
+// hard-break the suite — tests that don't need Stripe still run.
+if (file_exists(__DIR__ . '/../public/vendor/autoload.php')) {
+    require_once __DIR__ . '/../public/vendor/autoload.php';
+}
+
 // Load service classes under test
 // No namespace — plain PHP classes, loaded directly
 
