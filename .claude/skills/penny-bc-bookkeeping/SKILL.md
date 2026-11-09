@@ -20,7 +20,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Receipts/*
   - database/migrations/*
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology) — tax facts to be confirmed by Steve Lim CPA (Sit Lim CPA)
 ---
@@ -144,6 +144,8 @@ Change the rule there and every screen and app gets it. The ones touched most of
 | An overpayment kept as the client's credit (DR Bank / CR 2160; settles its bank deposit) | `EtransferInboxService::creditRest()` → `ClientCreditService::addOverpayment()` | Penny's e-Transfer card (web/Android); iPhone has no e-Transfer card yet |
 | Don't chase an invoice whose payment is on the way (pending e-Transfer matched to it or named in its memo) | `PaymentOnTheWay::sql()` | invoice_reminders, invoice_overdue, automation_runner, autopay_charge |
 | Recording a person's override of Penny (one lesson row) | `HeadLessons::record()` in `app/Services/HeadLessons.php` (Penny calls it through `PennyLessons`) | receipt gate, Penny's card, bank desk / line moves, receipt link, reconciliation, deposit card, questions, Jobber links |
+
+**Not registered for GST (2026-11-06):** `TaxEngine::gstRegistered()` (`ops_settings.gst_registered = 'no'`, asked in onboarding) makes `gstRate()` and `chargedRate()` 0: no GST charged or quoted, and receipt GST stays in the cost with no 2210 line. A `gst_rate` of 0 does NOT do this (0 means unset, falls back to 5%). `configuredGstRate()` is for checking a supplier's GST line.
 
 **GST rate — one source since 2026-10-11:** `TaxEngine::gstRate()` reads the Settings value
 (`business_settings.gst_rate`); `TaxEngine::getRates()` (ledger, GST report) and the two on-screen
