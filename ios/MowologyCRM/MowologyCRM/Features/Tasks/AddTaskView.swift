@@ -121,27 +121,22 @@ struct AddTaskView: View {
             body["property_id"] = client.propertyId
         }
         let label = title.trimmingCharacters(in: .whitespaces)
-        guard outbox.enqueue(kind: .task, userId: api.currentUserId, title: "Task: \(label)", body: body) else {
-            errorMessage = "It couldn't be kept on this phone. Nothing was saved."
-            return
-        }
-        await outbox.drain(using: api)
-        guard let entry = outbox.entries.first(where: { $0.id == requestId }) else {
-            dismiss()   // sent
-            return
-        }
-        if let reason = entry.refused {
-            // The form is still open, so the fix happens here, not in the sync list.
-            outbox.discard(entry.id)
+        switch await outbox.submit(kind: .task, title: "Task: \(label)", body: body, using: api) {
+        case .sent:
+            dismiss()
+        case .waiting:
+            waitingMessage = true
+        case .refused(let reason):
             requestId = UUID().uuidString
             errorMessage = reason
-        } else {
-            waitingMessage = true
+        case .notKept:
+            errorMessage = "It couldn't be kept on this phone. Nothing was saved."
         }
     }
 }
 
-private struct ClientPicker: View {
+/// Chooses a client from the phone's copy of the list (Add → Task, Add → Quote).
+struct ClientPicker: View {
     @Binding var selection: DirectoryClient?
     @ObservedObject private var directory = OfflineDirectory.shared
     @Environment(\.dismiss) private var dismiss

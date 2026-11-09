@@ -24,6 +24,10 @@ run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
 cp "$ROOT/ios/LogicTests/MiaWhenTests.swift" "$OUT/main.swift"
 run miawhen "$SRC/Features/Team/MiaWhen.swift" "$OUT/main.swift"
 
+# Add → Quote totals (2026-11-08).
+cp "$ROOT/ios/LogicTests/QuoteMathTests.swift" "$OUT/main.swift"
+run quotemath "$SRC/Features/Tasks/QuoteMath.swift" "$OUT/main.swift"
+
 # Offline outbox for what the phone creates (2026-11-08): whose entries, what to send, the status line.
 cp "$ROOT/ios/LogicTests/CreateOutboxTests.swift" "$OUT/main.swift"
 run createoutbox "$SRC/Core/Offline/CreateOutboxLogic.swift" "$OUT/main.swift"

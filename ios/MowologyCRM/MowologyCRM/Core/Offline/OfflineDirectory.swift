@@ -20,10 +20,19 @@ final class OfflineDirectory: ObservableObject {
         let people: [TaskPerson]
         let clients: [DirectoryClient]
         let savedAt: Date
+        // Office accounts only (Add → Quote, Add → Invoice). Optional so a file from an earlier version still reads.
+        var products: [QuoteProduct]?
+        var gstPercent: Double?
+        var unbilled: [UnbilledVisit]?
+        var drafts: [DraftInvoice]?
     }
 
     @Published private(set) var people: [TaskPerson] = []
     @Published private(set) var clients: [DirectoryClient] = []
+    @Published private(set) var products: [QuoteProduct] = []
+    @Published private(set) var gstPercent: Double = 5
+    @Published private(set) var unbilled: [UnbilledVisit] = []
+    @Published private(set) var drafts: [DraftInvoice] = []
     /// When the copy on the phone was last fetched; nil when there is none for this login.
     @Published private(set) var savedAt: Date?
 
@@ -31,32 +40,61 @@ final class OfflineDirectory: ObservableObject {
 
     private init() {}
 
-    /// Shows the phone's copy at once, then replaces it from the server if there is signal.
-    func load(using apiClient: APIClient) async {
+    /// Shows the phone's copy at once, then replaces each part from the server if there is signal. A part that fails
+    /// keeps what the phone had. Each form asks only for what it uses (the invoice list is slow to build).
+    func load(using apiClient: APIClient, prices: Bool = false, invoices: Bool = false) async {
         guard let me = apiClient.currentUserId else { return }
+        var saved: Saved
         if let data = try? Data(contentsOf: Self.fileURL),
-           let saved = try? JSONDecoder().decode(Saved.self, from: data), saved.userId == me {
-            people = saved.people; clients = saved.clients; savedAt = saved.savedAt
+           let read = try? JSONDecoder().decode(Saved.self, from: data), read.userId == me {
+            saved = read
         } else {
-            people = []; clients = []; savedAt = nil
+            saved = Saved(userId: me, people: [], clients: [], savedAt: .distantPast)
         }
+        show(saved)
+        var fetched = false
+
+        if let r: TaskDirectoryResponse = await fetch(.tasksMobile, using: apiClient), r.success {
+            saved = Saved(userId: me, people: r.people ?? [], clients: r.clients ?? [], savedAt: Date(),
+                          products: saved.products, gstPercent: saved.gstPercent, unbilled: saved.unbilled, drafts: saved.drafts)
+            fetched = true
+        }
+        if prices, let r: QuotePriceListResponse = await fetch(.quoteMobile, using: apiClient), r.success {
+            saved.products = r.products ?? []; saved.gstPercent = r.gstPercent
+            fetched = true
+        }
+        if invoices, let r: InvoicesMobileResponse = await fetch(.invoicesMobile, using: apiClient), r.success {
+            saved.unbilled = r.unbilled ?? []; saved.drafts = r.drafts ?? []
+            fetched = true
+        }
+        guard fetched else { return }
+        show(saved)
+        if let data = try? JSONEncoder().encode(saved) {
+            try? data.write(to: Self.fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+    }
+
+    /// nil with no signal or a refusal: the phone's copy stands. Recorded so an unexpected failure is still findable.
+    private func fetch<T: Decodable>(_ endpoint: APIEndpoint, using apiClient: APIClient) async -> T? {
         do {
-            let r: TaskDirectoryResponse = try await apiClient.request(.tasksMobile)
-            guard r.success else { return }
-            let fresh = Saved(userId: me, people: r.people ?? [], clients: r.clients ?? [], savedAt: Date())
-            people = fresh.people; clients = fresh.clients; savedAt = fresh.savedAt
-            if let data = try? JSONEncoder().encode(fresh) {
-                try? data.write(to: Self.fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            }
+            return try await apiClient.request(endpoint)
         } catch {
-            // No signal: the phone's copy stands. Recorded so an unexpected failure is still findable.
             AppDiagnostics.shared.record(category: "OfflineDirectory", message: ErrorDetails.describe(error))
+            return nil
         }
+    }
+
+    private func show(_ s: Saved) {
+        people = s.people; clients = s.clients
+        savedAt = s.savedAt == .distantPast ? nil : s.savedAt
+        products = s.products ?? []; gstPercent = s.gstPercent ?? 5
+        unbilled = s.unbilled ?? []; drafts = s.drafts ?? []
     }
 
     /// Sign-out: nothing of the client list stays on the phone.
     func clear() {
         people = []; clients = []; savedAt = nil
+        products = []; unbilled = []; drafts = []
         try? FileManager.default.removeItem(at: Self.fileURL)
     }
 

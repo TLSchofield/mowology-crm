@@ -155,7 +155,7 @@ struct MainTabView: View {
         // Over the screen, under the bar (the bar is the safe-area inset below), so the bead and its × stay live.
         .overlay {
             if addOpen, let slot = barTabs.firstIndex(of: .add) {
-                AddDial(slot: slot, slotCount: barTabs.count, onPick: add, onClose: { addOpen = false })
+                AddDial(slot: slot, slotCount: barTabs.count, office: authSession.user?.isAdmin == true, onPick: add, onClose: { addOpen = false })
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
             }
         }
@@ -284,7 +284,7 @@ struct MainTabView: View {
         // After the switch lands, so the sheet presents from a Schedule that is on screen.
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .mwAddFromBar, object: nil,
-                                            userInfo: ["startWithNewClient": item == .client, "task": item == .task])
+                                            userInfo: ["startWithNewClient": item == .client, "item": item.title])
         }
     }
 
