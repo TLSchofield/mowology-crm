@@ -18,6 +18,8 @@ final class ReceiptsViewModel: ObservableObject {
     // MARK: - Upload state
     @Published var isUploading   = false
     @Published var uploadError:   String?
+    /// The message in `uploadError` says the receipt is safe on the phone, not that it failed.
+    @Published var uploadSavedForLater = false
     @Published var intakeResponse: ReceiptIntakeResponse?
     /// Result of a "Label" capture (product bag / nameplate) — read-only on the phone.
     @Published var labelResult: LabelCaptureResponse?
@@ -31,6 +33,8 @@ final class ReceiptsViewModel: ObservableObject {
     @Published var actionError: String?
 
     private let apiClient: APIClient
+    /// The queue entry behind the receipt on screen: finished when its expense is saved.
+    var activeQueueId: String?
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
@@ -104,6 +108,11 @@ final class ReceiptsViewModel: ObservableObject {
     /// item used to be removed and its photo deleted when the save failed (review round 2).
     private func replayUpload(_ data: Data, lat: Double?, lng: Double?, jobId: Int?, takenAt: Date) async throws -> ReceiptQueue.OwedDraft {
         let intake = try await apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
+        return Self.owedDraft(from: intake, takenAt: takenAt)
+    }
+
+    /// What a save needs from an upload's answer.
+    private static func owedDraft(from intake: ReceiptIntakeResponse, takenAt: Date) -> ReceiptQueue.OwedDraft {
         let p = intake.parsed
         let s = intake.suggestions
         let total = p?.totalDouble ?? 0
@@ -360,39 +369,67 @@ final class ReceiptsViewModel: ObservableObject {
 
     // MARK: - Upload
 
-    func uploadImage(_ imageData: Data, lat: Double?, lng: Double?, deviceRead: DeviceTextScanner.Prefetched? = nil) async {
+    /// Writes the photo to the phone before anything else can go wrong. Nil = no room to write it.
+    func reservePhoto(_ imageData: Data) -> String? {
+        ReceiptQueue.shared.activeUserId = apiClient.currentUserId
+        return ReceiptQueue.shared.reserve(imageData: imageData, userId: apiClient.currentUserId)
+    }
+
+    func uploadImage(_ imageData: Data, queueId: String?, lat: Double?, lng: Double?,
+                     deviceRead: DeviceTextScanner.Prefetched? = nil, captureJSON: String? = nil) async {
         isUploading   = true
         uploadError   = nil
+        uploadSavedForLater = false
         intakeResponse = nil
+        activeQueueId = queueId
+        if let queueId { ReceiptQueue.shared.setFix(queueId, lat: lat, lng: lng) }
         do {
-            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil, deviceRead: deviceRead)
+            let intake = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil,
+                                                           deviceRead: deviceRead, captureJSON: captureJSON)
+            if let queueId { ReceiptQueue.shared.setOwed(queueId, owed: Self.owedDraft(from: intake, takenAt: ReceiptQueue.shared.takenAt(queueId) ?? Date())) }
+            intakeResponse = intake
         } catch let err as APIError {
-            // Queue the receipt only when the server didn't decide (review round 2):
-            // - .networkError: offline, our 45s cap, 5xx / PHP kill, a truncated answer (UploadFault)
-            // - .decodingError: kept as transient for safety
-            // A .serverError is the server's answer about this photo (a 4xx) — show it, don't queue
-            // it (it would fail the same way forever and block the queue).
+            // The photo is already on the phone. The server didn't decide, or nobody is signed in: it sends later by itself.
+            // A .serverError is the server's answer about this photo: kept, with its reason, for Retry / Discard.
             switch err {
-            case .networkError, .decodingError:
-                if ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil, userId: apiClient.currentUserId) {
-                    if case .networkError(let inner) = err, !(inner is UploadFault) {
-                        uploadError = "No connection — receipt queued and will upload automatically."
-                    } else {
-                        uploadError = "Upload took too long — receipt saved and will retry automatically."
-                    }
-                } else {
-                    uploadError = "Couldn't save the receipt photo on this phone (storage full?) — please try again."
-                }
+            case .networkError, .decodingError, .unauthorized:
+                if let queueId { ReceiptQueue.shared.release(queueId) }
+                uploadError = queueId == nil ? "Couldn't save the receipt photo on this phone (storage full?) — please try again."
+                                             : Self.savedForLaterMessage(err)
+                uploadSavedForLater = queueId != nil
             case .serverError(let msg):
+                if let queueId { ReceiptQueue.shared.refuse(queueId, reason: msg) }
                 uploadError = msg
-            case .unauthorized, .invalidURL:
+            case .invalidURL:
+                if let queueId { ReceiptQueue.shared.release(queueId) }
                 uploadError = err.errorDescription
             }
+            activeQueueId = nil
         } catch {
+            if let queueId { ReceiptQueue.shared.release(queueId) }
+            activeQueueId = nil
             AppDiagnostics.shared.record(category: "ReceiptsViewModel", message: ErrorDetails.describe(error))
             uploadError = ErrorDetails.describe(error)
         }
         isUploading = false
+    }
+
+    /// Why it didn't go now, for a receipt that is safe on the phone. Pure.
+    nonisolated static func savedForLaterMessage(_ err: APIError) -> String {
+        let later = "It's saved on this phone and will send by itself."
+        switch err {
+        case .unauthorized:
+            return "You've been signed out. \(later.replacingOccurrences(of: "will send by itself", with: "will send after you sign in"))"
+        case .networkError(let inner):
+            if let fault = inner as? UploadFault {
+                if fault.status == 429 { return "Too many uploads this hour. \(later)" }
+                return "The server had a problem (\(fault.status)). \(later)"
+            }
+            if (inner as? URLError)?.code == .timedOut { return "The server took too long to answer. \(later)" }
+            return "No connection. \(later)"
+        default:
+            return "The server's answer couldn't be read. \(later)"
+        }
     }
 
     /// "Label" mode: a product bag or a machine's nameplate. Never an expense and never
@@ -494,6 +531,7 @@ final class ReceiptsViewModel: ObservableObject {
         saveError  = nil
         do {
             let response = try await postExpense(d)
+            if let id = activeQueueId { ReceiptQueue.shared.finish(id); activeQueueId = nil }
             await loadExpenses()
             isSaving = false
             return response

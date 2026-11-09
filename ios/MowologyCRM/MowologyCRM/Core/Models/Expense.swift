@@ -100,8 +100,10 @@ struct ExpenseSaveResponse: Decodable {
     /// through, and why not if it didn't. The expense itself is committed either way.
     let sent: Bool?
     let sendError: String?
+    /// True when the save itself filed a receipt from a closed year against its bank line (server 2026-11-08; nil on older servers).
+    let filed: Bool?
     enum CodingKeys: String, CodingKey {
-        case success, sent
+        case success, sent, filed
         case expenseId = "expense_id"
         case sendError = "send_error"
     }

@@ -891,3 +891,22 @@ match stays trusted. Fix the system, not the receipt: hand corrections teach not
 was offered for VCHA's $1,235.44 invoices and a $378.16 e-Transfer for Obsidian's $399. Now only Stripe/unnamed payouts
 (`InvoiceReconciliationService::mayCarryFee()`). Also: production's copy of this service carried Yardi remittance evidence
 (`mismatch`, `evidence`) that was in no branch — pull and `cmp` before editing it.
+
+## 2026-11-08 — the capture review: filing took an expense out of the books on one bank line's word
+The automatic 2025 filing rested on the reader's date plus one bank line at the same amount, the evidence `linkBank()` uses after
+a person has approved. Here it removes the expense with no one looking. One approved receipt in 95 had 2026 read as 2025, and 11 of
+263 approved receipts found a unique stranger line a year back. **Rule:** line within 3 days and dated in the closed year, not cash,
+no doubts (`ClosedYearReceiptTrace::doubts`); `ops_settings closed_year_autofile` defaults to `propose` (Penny's one-tap
+`file_closed_year` question, web card only so far); `auto` still asks about anything doubtful and leaves a notice with Undo.
+Do not require the vendor name for everything: only 112 of 253 real links name it. `DATE_UNREADABLE` can't gate this: every
+backlog receipt carries it.
+
+## 2026-11-08 — a phone number named the vendor on the local list too
+The Lordco/Costco fix guarded the commons only. A vendor's phone printed on another shop's receipt (97 cases where the paper didn't
+name that vendor and the approved vendor was another, 4 where it was the right one) outscored a printed name. `matchVendorFromOcr`
+now needs `namedOnPaper`; intake no longer back-fills phone or website (`VendorDetailsService::fillFromReceipt` does, after a person confirms).
+
+## 2026-11-08 — iPhone queue: a 4xx deleted the photo
+Any 4xx counted as the server's answer about the photo and the file was removed, so a hosting 403/404 or a full disk (PHP answers 400)
+could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, and a refusal keeps the photo for Try again / Discard.
+

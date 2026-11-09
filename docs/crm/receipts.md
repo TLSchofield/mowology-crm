@@ -137,6 +137,13 @@ recipients are set or any send fails, **nothing is deleted**.
 2. Set the recipient emails in `ops_settings` (above). With none set, nothing is deleted.
 3. (Optional) add the monthly cPanel cron above to automate.
 
+## Receipts from a filed year
+
+A receipt dated before `ExpenseGate::CLOSED_BEFORE` is never booked again; it is filed with its photo and linked to its bank line
+(`ClosedYearReceiptTrace`). The line must be the only one at the exact amount, dated in the closed year, within 3 days; cash and
+owner-paid receipts never qualify. `ops_settings closed_year_autofile`: `propose` (default) asks "File it there?" on Penny's card;
+`auto` files when nothing casts doubt (crew photo, supplier stop on the upload day, another year on the paper) and leaves a notice with Undo.
+
 ## Approval
 
 `ExpenseApprovalService::approve()` blocks self-approval (the creator of an
