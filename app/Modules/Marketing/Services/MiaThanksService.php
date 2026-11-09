@@ -76,7 +76,7 @@ class MiaThanksService
             }
             $s = $this->db->prepare("
                 SELECT a.id, a.invoice_id, a.etransfer_notification_id, a.transaction_id, a.reference, a.amount,
-                       a.payment_date, a.method, i.contact_id, i.company_id, i.property_id, i.invoice_number,
+                       a.payment_date, a.method, i.contact_id, i.company_id, i.client_id, i.property_id, i.invoice_number,
                        co.company_name, p.property_manager_id
                 FROM invoice_payment_allocations a
                 JOIN invoices i ON i.id = a.invoice_id
@@ -144,10 +144,12 @@ class MiaThanksService
 
         // Where this invoice's emails go (its send snapshot, PM routing, then its contact) — as Penny's reminders.
         require_once dirname(__DIR__, 2) . '/Invoices/Services/InvoiceRouting.php';
-        $recipient = null;
-        foreach (resolveReminderRecipients((int)$first['invoice_id'], $this->db) as $r) {
-            if (filter_var(trim((string)($r['email_address'] ?? '')), FILTER_VALIDATE_EMAIL)) { $recipient = $r; break; }
-        }
+        // Never thank someone who has left the account (a strata rep who sold her unit, 2026-11-07): the current person takes over.
+        require_once dirname(__DIR__, 2) . '/Clients/Services/ContactRoster.php';
+        $recipient = (new ContactRoster($this->db))->firstCurrent(
+            resolveReminderRecipients((int)$first['invoice_id'], $this->db),
+            (int)($first['contact_id'] ?? 0), (int)($first['client_id'] ?? 0), 'thanks', $today
+        );
         if (!$recipient) return false;
         $email = strtolower(trim((string)$recipient['email_address']));
         if (EtransferNudgeService::isBusinessEmail($email)) return false;
@@ -166,12 +168,15 @@ class MiaThanksService
         $pid = !empty($first['property_id']) ? (int)$first['property_id'] : null;
 
         $in = implode(',', array_fill(0, count(self::OWING), '?'));
-        $owing = $this->db->prepare("SELECT COUNT(*) FROM invoices WHERE contact_id = ? AND balance_due > 0.005 AND status IN ($in)");
-        $owing->execute(array_merge([$cid], self::OWING));
+        // A person who just took over the account answers for the account, not for their own contact record.
+        $replaced = !empty($recipient['replaced']);
+        $owing = $this->db->prepare("SELECT COUNT(*) FROM invoices WHERE " . ($replaced ? 'client_id' : 'contact_id') . " = ? AND balance_due > 0.005 AND status IN ($in)");
+        $owing->execute(array_merge([$replaced ? (int)$first['client_id'] : $cid], self::OWING));
         $cleared = (int)$owing->fetchColumn() === 0;
 
         $history = null;
-        $why = $ownAddress ? $this->whyNoAsk($cid, $pid, $first, $today, $history) : 'other_address';
+        // Someone new on the account gets a plain thank-you: last year's work wasn't arranged with them.
+        $why = $replaced ? 'new_contact' : ($ownAddress ? $this->whyNoAsk($cid, $pid, $first, $today, $history) : 'other_address');
         $ask = $why === null;
 
         // A claimed e-Transfer: Penny's one-time "please use the auto-deposit address" goes in this email.

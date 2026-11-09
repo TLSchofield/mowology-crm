@@ -20,7 +20,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Team/HeadCardView.swift
   - ios/MowologyCRM/MowologyCRM/Features/Team/HeadCardViewModel.swift
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   created: 2026-10-11
   owner: Tim Schofield (Mowology) — Mia drafts, Tim approves every public post and every send
 ---
@@ -112,6 +112,7 @@ the task:
 | Reminders and last calls | `MiaSequenceService::run()` | `mia_email_daily` cron |
 | Best send time per person — learned from every reply, text, payment, quote acceptance/view and email open | `SendTimeService` (`SendTimeService::recompute()` nightly; `SendTimeService::thanksSlot()` for one-to-one sends) | campaign approval, Mia's desk queue |
 | Payment thank-you (Penny → Mia), with the fall cleanup ask | `MiaThanksService::sweep()` (drafts only) + `MiaSeasonalHistory::lastFallCleanup()` | `MiaDeskService::prepare()`, `campaign_sender` cron |
+| Who a thank-you goes to when the contact has left the account | `ContactRoster::firstCurrent()` (left dates on `client_contacts`, migration 1443) | `MiaThanksService::create()` |
 | Sending a queued one-to-one email at its best time | `MiaDeskService::sendDue()` | `campaign_sender` cron |
 | Watering stage (Metro Vancouver) | `WaterRestrictionService::refresh()` | daily cron, copy checks |
 | Daily email-hub run | `MiaEmailHubService::daily()` | `app/Modules/Marketing/Cron/mia_email_daily.php` |
