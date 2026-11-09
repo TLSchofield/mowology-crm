@@ -5,7 +5,7 @@
     "build": 22,
     "min_version": "1.6.0",
     "min_build": 18,
-    "apk_url": "/crm/downloads/mowology-crew.apk",
+    "apk_url": "",
     "apk_sha256": "",
     "native_auth": true,
     "native_day": true,
