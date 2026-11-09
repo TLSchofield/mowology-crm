@@ -8,6 +8,14 @@ date_default_timezone_set('UTC');
 // Composer autoloader (PHPUnit + smalot/pdfparser)
 require_once __DIR__ . '/../vendor/autoload.php';
 
+// Production-only deps live under public/vendor (mpdf, stripe-php, etc.).
+// Pull that autoload in too so service classes that typehint Stripe types can
+// be loaded by tests. Loaded conditionally so a missing public/vendor doesn't
+// hard-break the suite — tests that don't need Stripe still run.
+if (file_exists(__DIR__ . '/../public/vendor/autoload.php')) {
+    require_once __DIR__ . '/../public/vendor/autoload.php';
+}
+
 // Load service classes under test
 // No namespace — plain PHP classes, loaded directly
 
@@ -134,6 +142,12 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/EmailLeadService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorMessageService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
+// Tidy iCloud (the one mailbox WRITER, the filing classifier, the tidy service + its IMAP port)
+require_once __DIR__ . '/../app/Services/Mail/ImapWriter.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/MailTidyClassifier.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/MailTidyPort.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/ImapTidyPort.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/MailTidyService.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
 require_once __DIR__ . '/../app/Modules/Consent/Services/CaslRules.php';
@@ -215,6 +229,15 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptParserScoreServ
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptCatalogService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
+// Work with nothing scheduled + real visit lengths (migrations 1265 / 1266)
+require_once __DIR__ . '/../app/Modules/Operations/Services/UnscheduledWorkRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/UnscheduledWorkService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoContractLogService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VisitDurationRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VisitDurationService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyBorderRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyBorderService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoScheduleService.php';
 // Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read
 require_once __DIR__ . '/../app/Modules/Operations/Services/CostFactsService.php';
 // Special requests on arrival (migrations 1295–1299): matcher, service, crew gate
@@ -237,6 +260,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/CloserRateCard.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/MulchPriceBand.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserSettingsService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/MulchPricingService.php';
 
 // Charlie — Chief of Staff
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieRankService.php';
@@ -263,7 +287,10 @@ require_once __DIR__ . '/../app/Services/Spreadsheet/PdfTableReader.php';   // s
 require_once __DIR__ . '/../app/Modules/Operations/Services/PlantNameNormalizer.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogMatchers.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierListParser.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierFormatInferrer.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierWebCatalogReader.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/CatalogTaxonService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierPriceListService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierSearchService.php';   // best price across supplier lists (2026-10-19)
 require_once __DIR__ . '/../app/Modules/Operations/Services/MarketPriceService.php';
@@ -322,6 +349,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBrainService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennySelfAuditService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/MissingReceiptService.php';   // missing-receipt chaser (1245)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankRuleLearning.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDeskService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineReceipts.php';
@@ -606,3 +634,13 @@ require_once __DIR__ . '/../app/Modules/Payroll/Services/PayHours.php';
 require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoPositionService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PruningPlanService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantWorkService.php';
+
+// Live code brought back into git 2026-11-09 (security audit fix 3 B1)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferNudgeService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/LookbackRules.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/LookbackService.php';
+require_once __DIR__ . '/../app/Modules/CMS/Services/CmsFormSubmitRules.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/EmbedLeadRules.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/EmbedLeadService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/PipelineStageService.php';

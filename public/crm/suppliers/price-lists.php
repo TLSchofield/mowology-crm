@@ -31,6 +31,34 @@ $flash = '';
 if ($ready && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) { http_response_code(403); exit('You need products.edit to change catalogue matches.'); }
     if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) { http_response_code(403); exit('The security token expired. Go back and try again.'); }
+    $do = (string)($_POST['do'] ?? '');
+    if (in_array($do, ['confirm_format', 'fix_columns', 'dismiss_skip', 'fetch_taxa', 'add_web_supplier'], true)) {
+        // The reading of a supplier's first list (migration 1390): confirm it, correct it, or dismiss a list we could not read.
+        try {
+            if ($do === 'confirm_format') { $svc->confirmFormat((int)($_POST['format_id'] ?? 0)); $flash = 'Confirmed. Those prices now count in quotes, and later lists from this supplier import quietly.'; }
+            elseif ($do === 'dismiss_skip') { $svc->dismissSkip((int)($_POST['skip_id'] ?? 0)); $flash = 'Dismissed.'; }
+            elseif ($do === 'add_web_supplier') {
+                // A supplier's public Shopify web shop (brecksbulbs.ca): its product feed read as a price list.
+                @set_time_limit(180);
+                $w = $svc->addWebSupplier((string)($_POST['shop_name'] ?? ''), (string)($_POST['shop_url'] ?? ''));
+                $flash = "Added. Read {$w['import']['products']} products ({$w['import']['rows']} priced lines). It stays out of quote pricing until you press \"Looks right\" below, and refreshes itself weekly.";
+            }
+            elseif ($do === 'fetch_taxa') {
+                // Common names and reference photos from iNaturalist, about 40 plant species a click (1 call a second).
+                require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
+                @set_time_limit(120);
+                $tx = (new CatalogTaxonService($db))->enrichBatch(40);
+                $flash = "Looked up {$tx['keys']} plant species: {$tx['found']} found, {$tx['none']} not found." . ($tx['stopped'] ? ' Stopped early: ' . $tx['stopped'] . '. Try again in a minute.' : '');
+            }
+            else {
+                $svc->updateFormatColumns((int)($_POST['format_id'] ?? 0), (array)($_POST['cols'] ?? []));
+                $flash = 'Columns saved. The next list uses them; the list already read keeps its old reading until the supplier sends the next one.';
+            }
+        } catch (Throwable $e) {
+            error_log('price-lists format: ' . $e->getMessage());
+            $flash = 'Could not save that: ' . $e->getMessage();
+        }
+    } else
     try {
         $target = (int)($_POST['target_id'] ?? 0);
         $cat->decide((int)($_POST['queue_id'] ?? 0), (string)($_POST['decision'] ?? ''), (int)($user['id'] ?? 0) ?: null, $target ?: null);
@@ -49,7 +77,11 @@ $formatFamily = [];
 if ($ready) {
     foreach ($db->query("SELECT id, family FROM supplier_list_formats")->fetchAll(PDO::FETCH_KEY_PAIR) as $fid => $fam) $formatFamily[(int)$fid] = $fam;
 }
-$lists = array_values(array_filter($lists, fn($l) => !$l['format_id'] || !$usedFamilies || in_array($formatFamily[(int)$l['format_id']] ?? 'other', $usedFamilies, true)));
+$lists = array_values(array_filter($lists, fn($l) => !empty($l['needs_review']) || !$l['format_id'] || !$usedFamilies || in_array($formatFamily[(int)$l['format_id']] ?? 'other', $usedFamilies, true)));
+$reviews = $ready ? $svc->reviewQueue() : [];   // first lists read automatically, waiting for "looks right"
+$skips = $ready ? $svc->openSkips() : [];        // lists that arrived but could not be read
+require_once APP_ROOT . '/Modules/Operations/Services/CatalogTaxonService.php';
+$taxaPending = $ready ? (new CatalogTaxonService($db))->pending() : 0;   // plants still waiting for a common name / photo
 
 $suppliers = [];
 foreach ($lists as $l) $suppliers[(int)$l['supplier_account_id']] = $l['supplier_name'] ?: ('Supplier #' . $l['supplier_account_id']);
@@ -104,6 +136,97 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
   </div>
 
   <?php if ($flash !== ''): ?><div class="alert alert-info"><?= h($flash) ?></div><?php endif; ?>
+
+  <?php if ($ready && $canEdit): ?>
+  <details class="mb-3 mw-plr-fix">
+    <summary>Add a supplier from its website</summary>
+    <form method="post" class="mt-2">
+      <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="add_web_supplier">
+      <div class="mw-plr-grid">
+        <label>Supplier name<input name="shop_name" class="form-control form-control-sm" placeholder="Breck's Bulbs" maxlength="160"></label>
+        <label>Web address<input name="shop_url" class="form-control form-control-sm" placeholder="https://www.brecksbulbs.ca" required maxlength="200"></label>
+      </div>
+      <p class="mw-ops-hint mt-2 mb-2">Works for online shops built on Shopify. We read only the public product feed (the same list the shop gives any visitor), once a week, and never log in or order anything. Takes about 15 seconds.</p>
+      <button class="btn btn-outline-primary btn-sm">Add and read it</button>
+    </form>
+  </details>
+  <?php endif; ?>
+
+  <?php if ($ready && $taxaPending > 0 && $canEdit): ?>
+  <form method="post" class="mw-pl-taxa mb-3">
+    <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="fetch_taxa">
+    <button class="btn btn-outline-primary btn-sm">Fetch plant names and photos</button>
+    <span class="mw-ops-hint"><?= (int)$taxaPending ?> catalogue plant(s) have no common name or photo yet. This looks up about 40 species a click; it also runs by itself every 6 hours. Photos come from iNaturalist and show the photographer's credit on hover.</span>
+  </form>
+  <?php endif; ?>
+
+  <?php foreach ($reviews as $rv): $fmt = $rv['format']; $seen = (array)((json_decode((string)$fmt['spec_json'], true) ?: [])['seen_headers'] ?? []); ?>
+  <div class="card mw-plr">
+    <div class="card-body">
+      <h2 class="h5 mb-1">Check how we read <?= h($rv['list']['supplier_name'] ?: $fmt['name']) ?></h2>
+      <?php if (($fmt['arrives'] ?? '') === 'web'): ?>
+      <p class="mw-ops-hint mb-2">Read from their public web shop. These are <strong>retail web prices</strong>, shipping extra, and stock shows as sold out when it is out of season. They are shown here but <strong>not used in quotes</strong> until you say it looks right.</p>
+      <?php else: ?>
+      <p class="mw-ops-hint mb-2">This is the first list we have from them, read automatically (<?= (int)round(((float)$fmt['inferred_confidence']) * 100) ?>% sure). The prices are shown here but are <strong>not used in quotes</strong> until you say it looks right.</p>
+      <?php endif; ?>
+      <div class="table-responsive">
+        <table class="table table-sm mw-ops-table">
+          <thead><tr><th>Name</th><th>Size</th><th class="text-right">Price</th><th class="text-right">Available</th></tr></thead>
+          <tbody>
+          <?php foreach ($rv['sample'] as $it): ?>
+            <tr><td><?= h($it['name']) ?></td><td><?= h((string)$it['size']) ?></td><td class="text-right"><?= h($money($it['price'])) ?></td><td class="text-right"><?= $it['available'] === null ? '' : (int)$it['available'] ?></td></tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <p class="mw-ops-hint mb-2">Columns used: <?php foreach ($rv['columns'] as $field => $hdr): ?><span class="mw-plr-col"><?= h(str_replace('_', ' ', $field)) ?> = “<?= h($hdr) ?>”</span> <?php endforeach; ?></p>
+      <?php if ($canEdit): ?>
+      <form method="post" class="d-inline">
+        <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+        <input type="hidden" name="do" value="confirm_format"><input type="hidden" name="format_id" value="<?= (int)$fmt['id'] ?>">
+        <button class="btn btn-primary btn-sm">Looks right</button>
+      </form>
+      <?php if (!empty($fmt['auto_inferred'])): ?>
+      <details class="mw-plr-fix">
+        <summary>Something is wrong — fix the columns</summary>
+        <form method="post" class="mt-2">
+          <input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>">
+          <input type="hidden" name="do" value="fix_columns"><input type="hidden" name="format_id" value="<?= (int)$fmt['id'] ?>">
+          <div class="mw-plr-grid">
+          <?php foreach (['name' => 'Name', 'product_code' => 'Code', 'size' => 'Size', 'price' => 'Our price', 'list_price' => 'List price', 'special_price' => 'Special price', 'available' => 'Available', 'zone' => 'Zone', 'category' => 'Category'] as $field => $label): ?>
+            <label><?= h($label) ?>
+              <select name="cols[<?= h($field) ?>]" class="form-control form-control-sm">
+                <option value="">— none —</option>
+                <?php foreach ($seen as $hdr): ?><option value="<?= h($hdr) ?>"<?= ($rv['columns'][$field] ?? '') === $hdr ? ' selected' : '' ?>><?= h($hdr) ?></option><?php endforeach; ?>
+              </select>
+            </label>
+          <?php endforeach; ?>
+          </div>
+          <button class="btn btn-outline-primary btn-sm mt-2">Save columns</button>
+        </form>
+      </details>
+      <?php endif; ?>
+      <?php else: ?><p class="mw-ops-hint mb-0">Someone with product edit access needs to confirm this.</p><?php endif; ?>
+    </div>
+  </div>
+  <?php endforeach; ?>
+
+  <?php if ($skips): ?>
+  <div class="card mw-plr">
+    <div class="card-body">
+      <h2 class="h5 mb-1">Lists we could not read</h2>
+      <p class="mw-ops-hint mb-2">These arrived by email but did not look like a price list we can read. Forward the file to Claude to teach it, or dismiss it.</p>
+      <?php foreach ($skips as $k): ?>
+        <div class="mw-plr-skip">
+          <div><strong><?= h($k['supplier_name'] ?: $k['sender']) ?></strong> — <?= h($k['file_name']) ?> <span class="text-muted">(<?= h(substr((string)$k['created_at'], 0, 10)) ?>)</span><br><span class="text-muted"><?= h($k['reason']) ?></span></div>
+          <?php if ($canEdit): ?>
+          <form method="post"><input type="hidden" name="csrf_token" value="<?= h(generateCSRFToken()) ?>"><input type="hidden" name="do" value="dismiss_skip"><input type="hidden" name="skip_id" value="<?= (int)$k['id'] ?>"><button class="btn btn-outline-secondary btn-sm">Dismiss</button></form>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <?php if (!$ready): ?>
     <div class="alert alert-warning">Run migration 1331 first (/crm/api/run-migration-1331.php).</div>
@@ -234,7 +357,7 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
         <?php foreach ($items as $r): ?>
           <tr class="<?= $r['price_change'] ? 'mw-pl-' . h($r['price_change']) . '-row' : '' ?>">
             <td class="mw-pl-code"><?= h((string)$r['product_code']) ?></td>
-            <td class="mw-pl-name"><?= h($r['name']) ?>
+            <td class="mw-pl-name"><?php if (!empty($r['photo_file'])): ?><img class="mw-plantpic" src="/uploads/taxa/<?= h(rawurlencode((string)$r['photo_file'])) ?>" alt="" loading="lazy" title="<?= h((string)$r['photo_credit']) ?>"><?php endif; ?><?= h($r['name']) ?>
               <?php if (!empty($r['common_names'])): ?><div class="mw-ops-hint mt-0"><?= h(str_replace('|', ', ', $r['common_names'])) ?></div><?php endif; ?></td>
             <td><?= $sizeLabel($r) ?></td>
             <td><?= h((string)$r['zone']) ?></td>

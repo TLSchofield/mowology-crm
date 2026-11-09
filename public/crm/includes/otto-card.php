@@ -12,6 +12,7 @@ if (!function_exists('userHasPermission') || !userHasPermission('jobs.edit')) {
 }
 try {
     require_once APP_ROOT . '/Modules/Operations/Services/OpsDeskService.php';
+    require_once APP_ROOT . '/Modules/Operations/Services/UnscheduledWorkRules.php';
     $__od = new OpsDeskService(getDB());
     if (!$__od->ready()) {
         return;
@@ -129,6 +130,22 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
       <div class="mw-v"><?= (int)$__os['gaps'] ?></div>
       <div class="mw-n">Last <?= OttoRules::GAP_DAYS ?> days</div>
     </div>
+    <?php $__cov = $__os['coverage'] ?? null; ?>
+    <div class="mw-otto-stat<?= ($__cov && $__cov['pct'] !== null && $__cov['pct'] < 70) ? ' is-alert' : '' ?>">
+      <div class="mw-k">Timed visits</div>
+      <div class="mw-v"><?= ($__cov && $__cov['pct'] !== null) ? (int)$__cov['pct'] . '%' : '—' ?></div>
+      <div class="mw-n"><?= $__cov && $__cov['completed'] ? (int)$__cov['timed'] . ' of ' . (int)$__cov['completed'] . ', last ' . (int)$__cov['days'] . ' days · ' : '' ?><a href="/crm/ops/otto-review.php?view=durations">Lengths</a></div>
+    </div>
+    <div class="mw-otto-stat<?= ($__os['unscheduled'] ?? 0) > 0 ? ' is-alert' : '' ?>">
+      <div class="mw-k">Unscheduled work</div>
+      <div class="mw-v"><?= (int)($__os['unscheduled'] ?? 0) ?></div>
+      <div class="mw-n">Last <?= (int)UnscheduledWorkRules::LOOKBACK_DAYS ?> days · <a href="/crm/ops/otto-review.php?view=unscheduled">Review</a></div>
+    </div>
+    <div class="mw-otto-stat<?= ($__os['borders'] ?? 0) > 0 ? ' is-alert' : '' ?>">
+      <div class="mw-k">Pins &amp; borders</div>
+      <div class="mw-v"><?= (int)($__os['borders'] ?? 0) ?></div>
+      <div class="mw-n"><?= (int)($__os['default_borders'] ?? 0) ?> default to draw · <a href="/crm/ops/otto-review.php?view=borders">Review</a></div>
+    </div>
     <div class="mw-otto-stat<?= ($__os['dispatch'] ?? 0) > 0 ? ' is-alert' : '' ?>">
       <div class="mw-k">Bylaws &amp; kit</div>
       <div class="mw-v"><?= (int)($__os['dispatch'] ?? 0) ?></div>
@@ -149,6 +166,15 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
   <?php if (!empty($__os['outlook'])): ?>
     <div class="mw-otto-outlook">❄ <?= h($__os['outlook']) ?></div>
   <?php endif; ?>
+  <?php
+  $__ocl = null;
+  try {
+      require_once APP_ROOT . '/Modules/Operations/Services/OttoContractLogService.php';
+      $__ocl = (new OttoContractLogService(getDB()))->summary();
+  } catch (Throwable $__e) { /* migration 1267 not run */ }
+  if ($__ocl): ?>
+    <div class="mw-otto-autolog"><?= h($__ocl['line']) ?> — <a href="/crm/ops/otto-review.php?view=unscheduled#auto">review</a></div>
+  <?php endif; ?>
 
   <?php if (is_file(__DIR__ . '/otto-missed-panel.php')) include __DIR__ . '/otto-missed-panel.php'; // end-of-day missed-visit review (migration 1349) ?>
   <?php include __DIR__ . '/otto-trips.php'; ?>
@@ -161,7 +187,7 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
   </div>
 
   <div class="mw-head-foot mw-otto-foot">
-    <span>Learning from every call you make: rain by service · visit lengths · whose phone goes quiet · real truck km</span>
+    <span>Learning from every call you make: rain by service · visit lengths · whose phone goes quiet · real truck km · <a href="/crm/ops/otto-review.php">Review work &amp; lengths</a></span>
     <a class="btn btn-sm btn-success" href="/crm/jobs/schedule.php">Schedule →</a>
   </div>
 </section>
