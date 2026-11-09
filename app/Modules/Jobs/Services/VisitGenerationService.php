@@ -36,6 +36,7 @@ class VisitGenerationService
      */
     public static function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
         $db = getDB();
+        self::$weekdayEnds = [];   // one run's cache: a window may have changed since the last run in this process
         $plansProcessed = 0;
         $visitsCreated = 0;
         $errors = [];
@@ -250,15 +251,17 @@ class VisitGenerationService
      * @param string[] $dates  candidate Y-m-d dates
      * @param string[] $existing Y-m-d dates that already have a non-cancelled visit
      */
+    /** @var array<int, array<int, string>> plan_id => [day_of_week => end time], for one generateVisits() run */
+    private static array $weekdayEnds = [];
+
     /** A plan with several weekdays can have its own end time for one of them (Otto, migration 1444). */
     private static function endForDate(PDO $db, array $plan, string $date): ?string {
-        static $windows = [];
         $id = (int)$plan['id'];
-        if (!isset($windows[$id])) {
+        if (!isset(self::$weekdayEnds[$id])) {
             require_once APP_ROOT . '/Modules/Operations/Services/VisitWindowService.php';
-            $windows[$id] = VisitWindowService::windowsFor($db, $id);
+            self::$weekdayEnds[$id] = VisitWindowService::windowsFor($db, $id);
         }
-        return $windows[$id][(int)date('w', strtotime($date))] ?? $plan['default_time_end'];
+        return self::$weekdayEnds[$id][(int)date('w', strtotime($date))] ?? $plan['default_time_end'];
     }
 
     public static function withoutExisting(array $dates, array $existing): array {

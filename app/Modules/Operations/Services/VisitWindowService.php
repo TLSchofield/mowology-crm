@@ -229,7 +229,7 @@ class VisitWindowService
     {
         if (!$this->ready()) return ['ok' => false, 'message' => 'Run migration 1444 first.'];
         if ($dow < 0 || $dow > 6) return ['ok' => false, 'message' => 'That weekday is not valid.'];
-        $s = $this->db->prepare('SELECT id, recurrence_day_of_week FROM job_plans WHERE id = ?');
+        $s = $this->db->prepare('SELECT id, recurrence_pattern, recurrence_day_of_week FROM job_plans WHERE id = ?');
         $s->execute([$planId]);
         $plan = $s->fetch(PDO::FETCH_ASSOC);
         if (!$plan) return ['ok' => false, 'message' => 'That plan is gone.'];
@@ -243,7 +243,8 @@ class VisitWindowService
         if (!$ids) return ['ok' => false, 'message' => 'No upcoming visits on that day still have that end time.'];
 
         $days = array_filter(explode(',', (string)$plan['recurrence_day_of_week']), 'strlen');
-        $onPlan = count($days) <= 1;
+        // Only a plan that truly runs on one weekday may change its default; a custom or monthly plan lands on several.
+        $onPlan = count($days) === 1 && in_array((string)$plan['recurrence_pattern'], ['weekly', 'biweekly'], true);
         $oldWindow = self::windowsFor($this->db, $planId)[$dow] ?? null;
 
         $own = !$this->db->inTransaction();

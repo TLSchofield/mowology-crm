@@ -68,7 +68,7 @@ final class VisitWindowTest extends TestCase
         $db = new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec('CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, property_name TEXT)');
-        $db->exec('CREATE TABLE job_plans (id INTEGER PRIMARY KEY, title TEXT, property_id INT, status TEXT, is_recurring INT, recurrence_day_of_week TEXT, default_time_end TEXT)');
+        $db->exec('CREATE TABLE job_plans (id INTEGER PRIMARY KEY, title TEXT, property_id INT, status TEXT, is_recurring INT, recurrence_pattern TEXT, recurrence_day_of_week TEXT, default_time_end TEXT)');
         $db->exec('CREATE TABLE job_visits (id INTEGER PRIMARY KEY, plan_id INT, scheduled_date TEXT, scheduled_time_start TEXT, scheduled_time_end TEXT, status TEXT, actual_duration_minutes INT)');
         $db->exec('CREATE TABLE visit_onsite_time (visit_id INT, minutes INT, first_at TEXT, last_at TEXT)');
         $db->exec('CREATE TABLE job_time_entries (id INTEGER PRIMARY KEY, visit_id INT, start_time TEXT, end_time TEXT, status TEXT, auto_stopped INT)');
@@ -76,7 +76,7 @@ final class VisitWindowTest extends TestCase
         $db->exec('CREATE TABLE plan_weekday_windows (plan_id INT, day_of_week INT, time_end TEXT, updated_by INT, updated_at TEXT)');
         $db->exec('CREATE TABLE otto_window_changes (id INTEGER PRIMARY KEY, plan_id INT, day_of_week INT, old_end TEXT, new_end TEXT, old_window_end TEXT, on_plan INT, visit_ids TEXT, basis_json TEXT, changed_by INT, changed_at TEXT, undone_at TEXT)');
         $db->exec("INSERT INTO properties VALUES (73, '6015 Tisdall Street', 'Oakridge Gardens')");
-        $db->exec("INSERT INTO job_plans VALUES (59, 'Beds', 73, 'active', 1, '1,3', '16:00:00')");
+        $db->exec("INSERT INTO job_plans VALUES (59, 'Beds', 73, 'active', 1, 'weekly', '1,3', '16:00:00')");
         $id = 1;
         foreach (['2026-11-02' => '14:30:00', '2026-10-26' => '14:40:00', '2026-10-19' => '12:36:00'] as $d => $end) {   // Mondays
             $db->exec("INSERT INTO job_visits VALUES ($id, 59, '$d', '08:30:00', '16:00:00', 'completed', 200)");
@@ -126,6 +126,15 @@ final class VisitWindowTest extends TestCase
         (new VisitWindowService($db, '2026-11-08'))->apply(59, 1, '16:00:00', '15:00:00', 7, []);
         self::assertSame('15:00:00', $db->query('SELECT default_time_end FROM job_plans WHERE id = 59')->fetchColumn());
         self::assertSame([], VisitWindowService::windowsFor($db, 59));
+    }
+
+    public function test_a_custom_plan_with_no_weekday_keeps_its_default(): void
+    {
+        $db = $this->db();
+        $db->exec("UPDATE job_plans SET recurrence_pattern = 'custom', recurrence_day_of_week = NULL");
+        (new VisitWindowService($db, '2026-11-08'))->apply(59, 1, '16:00:00', '15:00:00', 7, []);
+        self::assertSame('16:00:00', $db->query('SELECT default_time_end FROM job_plans WHERE id = 59')->fetchColumn());
+        self::assertSame([1 => '15:00:00'], VisitWindowService::windowsFor($db, 59));
     }
 
     public function test_leave_it_stays_quiet_until_three_more_finishes(): void

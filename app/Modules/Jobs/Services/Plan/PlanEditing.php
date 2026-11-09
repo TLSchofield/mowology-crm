@@ -114,6 +114,18 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
             return ['success' => true, 'errors' => [], 'visits_regenerated' => false];
         }
 
+        // The plan form posts both times on every save: only a real change may reset the upcoming visits' times, or
+        // renaming a plan would undo Otto's per-weekday end and anything moved by hand.
+        $timesEdited = false;
+        foreach (['default_time_start', 'default_time_end'] as $timeField) {
+            if (!array_key_exists($timeField, $changes)) continue;
+            if (substr((string)($current[$timeField] ?? ''), 0, 5) === substr((string)($changes[$timeField] ?? ''), 0, 5)) {
+                unset($changes[$timeField]);
+            } else {
+                $timesEdited = true;
+            }
+        }
+
         $setClauses[] = "updated_at = NOW()";
         $params[] = $planId;
 
@@ -125,6 +137,11 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
         $stmt->execute($params);
 
         $db->commit();
+
+        if ($timesEdited) {
+            require_once APP_ROOT . '/Modules/Operations/Services/VisitWindowService.php';
+            VisitWindowService::clearWindows($db, $planId);   // set by hand: wins over Otto's per-weekday end
+        }
 
         // Update crew assignments if provided
         if (array_key_exists('crew_ids', $data) && is_array($data['crew_ids'])) {
@@ -252,10 +269,6 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
         }
         if ($needsPropagate) {
             propagatePlanChanges($planId, $changes, $userId);
-            if (array_key_exists('default_time_start', $changes) || array_key_exists('default_time_end', $changes)) {
-                require_once APP_ROOT . '/Modules/Operations/Services/VisitWindowService.php';
-                VisitWindowService::clearWindows($db, $planId);   // set by hand: wins over Otto's per-weekday end
-            }
         }
 
         return ['success' => true, 'errors' => [], 'visits_regenerated' => false];

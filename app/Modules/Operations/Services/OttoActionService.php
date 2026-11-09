@@ -420,7 +420,7 @@ class OttoActionService
         if ($sug['kind'] === 'visit_window_done') {
             if ($choice !== 'undo_window') return ['ok' => false, 'message' => 'Undo it, or is it fine?'];
             $r = $svc->undo((int)$sug['subject_id'], $actorId);
-            return $r['ok'] ? $this->close($sug, 'accepted', ['choice' => 'undo'], $actorId, $r['message']) : $r;
+            return $r['ok'] ? $this->close($sug, 'dismissed', ['choice' => 'undo'], $actorId, $r['message']) : $r;   // an undo is not a kept call
         }
         $dow = (int)($propose['dow'] ?? -1);
         if ($choice === 'keep') return $this->close($sug, 'dismissed', ['choice' => 'keep', 'dow' => $dow], $actorId, 'Left as it is.');
