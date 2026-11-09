@@ -21,3 +21,6 @@ struct OttoAttentionChecks {
         print("Otto attention checks passed")
     }
 }
+
+/// TeamHeadModels names this, and the real one lives in a SwiftUI view file this check does not compile.
+struct QuickAction: Decodable, Hashable {}

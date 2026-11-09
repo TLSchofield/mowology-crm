@@ -1,19 +1,21 @@
 {
   "android": {
-    "version": "1.6.0",
-    "build": 18,
-    "min_version": "1.6.0",
-    "min_build": 18,
-    "apk_url": "/crm/downloads/mowology-crew.apk",
-    "released": "2026-10-16",
-    "release_notes": "Salt and snow stops, extra work and special requests are ready for the new Finish screen. Jobs you finish with no signal now always keep their details until they send.",
+    "version": "2.2.11",
+    "build": 43,
+    "min_version": "2.2.10",
+    "min_build": 42,
+    "apk_url": "/crm/downloads/mowology-crew-2.2.11-test.apk",
+    "released": "2026-11-09",
+    "release_notes": "The bottom bar now moves and behaves like the iPhone's: tap a tab again for its shortcut, hold New to add a job.",
     "force_update": false,
     "native_camera": false,
     "native_visit": false,
     "native_receipts": true,
     "native_plants": true,
     "native_signup": false,
-    "native_crew_schedule": false
+    "native_day": true,
+    "native_crew_schedule": true,
+    "apk_sha256": "01053043092f71e2e51f1113b61c919b47134e1f973a8194821c45332a0fadcc"
   },
   "ios": {
     "version": "1.0.0",

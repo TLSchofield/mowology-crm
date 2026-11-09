@@ -187,8 +187,13 @@ function getCalendarStops(string $startDate, string $endDate, $crewId = null, ?s
         : array_values(array_filter(array_map('trim', explode(',', $serviceType)), 'strlen'));
     if ($serviceSlugs) {
         // Filter: only show stops that have at least one visit with one of these service types
-        $sql .= " AND cs.id IN (SELECT jv2.stop_id FROM job_visits jv2 JOIN job_plans jp2 ON jv2.plan_id = jp2.id WHERE jv2.stop_id IS NOT NULL AND jp2.service_type IN (" . implode(',', array_fill(0, count($serviceSlugs), '?')) . "))";
-        foreach ($serviceSlugs as $slug) { $params[] = $slug; }
+        $knownTypes = [];
+        try {
+            $knownTypes = $db->query("SELECT slug, label FROM service_types")->fetchAll(PDO::FETCH_KEY_PAIR);
+        } catch (Throwable $e) { /* no service_types table: match the chosen slugs only */ }
+        [$shows, $showsParams] = ServiceTypeFilter::showsClause('jp2.service_type', $serviceSlugs, $knownTypes);
+        $sql .= " AND cs.id IN (SELECT jv2.stop_id FROM job_visits jv2 JOIN job_plans jp2 ON jv2.plan_id = jp2.id WHERE jv2.stop_id IS NOT NULL AND $shows)";
+        foreach ($showsParams as $bound) { $params[] = $bound; }
     }
 
     $sql .= " ORDER BY cs.stop_date, cs.crew_id, cs.route_order, jv.scheduled_time_start";

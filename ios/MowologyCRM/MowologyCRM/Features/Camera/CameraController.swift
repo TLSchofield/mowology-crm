@@ -65,6 +65,15 @@ final class CameraController: NSObject, ObservableObject {
     private var maxZoom: CGFloat = 1
 
     private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
+
+    // Receipt camera only: live frames for the outline, and the light held on. Job photos never set these.
+    /// Set before `start`. Called about 5 times a second on a background queue with the frame and "focus and exposure have settled".
+    var receiptFrames: ((CVPixelBuffer, Bool) -> Void)?
+    private let frameOutput = AVCaptureVideoDataOutput()
+    private let frameQueue = DispatchQueue(label: "ca.mowology.batchcamera.frames")
+    private var lastFrameAt: CFTimeInterval = 0
+    /// Session-queue. Re-applied with each frame, so the light returns after a phone call or when the torch has cooled.
+    private var receiptLightWanted = false
     private var recordingDone: ((URL?) -> Void)?
     private var recordingTimer: Timer?
     private var recordingStartedAt: Date?
@@ -129,6 +138,7 @@ final class CameraController: NSObject, ObservableObject {
     /// Main thread only.
     private func makeRotationCoordinator(for device: AVCaptureDevice) {
         rotationObservation?.invalidate()
+        if receiptFrames != nil { applyPreviewAngle(receiptCaptureAngle()); return }
         guard let layer = previewLayer else { return }
         let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: layer)
         rotationCoordinator = coordinator
@@ -139,10 +149,30 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
+    /// Receipt camera only: the top of the screen is the top of the photo. Apple's angles follow gravity, which says
+    /// nothing with the phone flat over a receipt (2026-11-09: a shot taken in portrait saved sideways). Main thread only.
+    func receiptCaptureAngle() -> CGFloat {
+        switch (previewLayer?.delegate as? UIView)?.window?.windowScene?.interfaceOrientation {
+        case .landscapeRight: return 0
+        case .landscapeLeft: return 180
+        case .portraitUpsideDown: return 270
+        default: return 90
+        }
+    }
+
+    /// The preview has its place on screen, or the screen turned. Main thread only.
+    func previewDidLayout() {
+        if receiptFrames != nil { applyPreviewAngle(receiptCaptureAngle()) }
+    }
+
     /// Main thread only.
     private func applyPreviewAngle(_ angle: CGFloat) {
         guard let conn = previewLayer?.connection, conn.isVideoRotationAngleSupported(angle) else { return }
         conn.videoRotationAngle = angle
+        // Upright frames, so the outline lands on what the preview shows.
+        if let frames = frameOutput.connection(with: .video), frames.isVideoRotationAngleSupported(angle) {
+            frames.videoRotationAngle = angle
+        }
     }
 
     // MARK: - Configuration (session queue)
@@ -176,6 +206,12 @@ final class CameraController: NSObject, ObservableObject {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
             photoOutput.maxPhotoQualityPrioritization = .quality
+        }
+        if receiptFrames != nil, session.canAddOutput(frameOutput) {
+            frameOutput.alwaysDiscardsLateVideoFrames = true
+            frameOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            frameOutput.setSampleBufferDelegate(self, queue: frameQueue)
+            session.addOutput(frameOutput)
         }
         session.commitConfiguration()
         configured = true
@@ -252,8 +288,10 @@ final class CameraController: NSObject, ObservableObject {
     /// Take one photo. `completion` runs on main with the JPEG file data (EXIF kept,
     /// GPS added when a fix is available) or nil on failure.
     @MainActor
-    func capturePhoto(location: CLLocation?, completion: @escaping (Data?) -> Void) {
-        let captureAngle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
+    /// `matchPreview`: turn the photo the way the screen shows it (receipt camera only; see `receiptCaptureAngle`).
+    func capturePhoto(location: CLLocation?, matchPreview: Bool = false, completion: @escaping (Data?) -> Void) {
+        let captureAngle = matchPreview ? receiptCaptureAngle()
+                                        : rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
         let flashMode = flash.avMode
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -359,11 +397,48 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
+    /// Receipt camera: the light stays on while the camera is open, at half strength to limit glare on shiny paper.
+    func setReceiptLight(_ on: Bool) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.receiptLightWanted = on
+            self.applyReceiptLight()
+        }
+    }
+
+    /// Session queue.
+    private func applyReceiptLight() {
+        guard let device = videoInput?.device, device.hasTorch, session.isRunning else { return }
+        let lit = device.torchMode == .on
+        guard lit != receiptLightWanted, !receiptLightWanted || device.isTorchAvailable else { return }
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        if receiptLightWanted {
+            try? device.setTorchModeOn(level: 0.5)
+        } else {
+            device.torchMode = .off
+        }
+        device.unlockForConfiguration()
+    }
+
     private func setTorch(_ on: Bool) {
         guard let device = videoInput?.device, device.hasTorch else { return }
         try? device.lockForConfiguration()
         device.torchMode = on ? .on : .off
         device.unlockForConfiguration()
+    }
+}
+
+// MARK: - Receipt frames
+
+extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let now = CACurrentMediaTime()
+        guard now - lastFrameAt >= 0.2, let handler = receiptFrames,
+              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        lastFrameAt = now
+        let device = videoInput?.device
+        handler(buffer, !(device?.isAdjustingFocus ?? true) && !(device?.isAdjustingExposure ?? true))
+        sessionQueue.async { [weak self] in self?.applyReceiptLight() }
     }
 }
 

@@ -479,18 +479,21 @@ struct BatchCameraView: View {
 
 // MARK: - Preview layer
 
-private struct CameraPreview: UIViewRepresentable {
+struct CameraPreview: UIViewRepresentable {
     let camera: CameraController
 
     final class PreviewView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
         var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+        var onLayout: (() -> Void)?
+        override func layoutSubviews() { super.layoutSubviews(); onLayout?() }
     }
 
     func makeUIView(context: Context) -> PreviewView {
         let v = PreviewView()
         v.backgroundColor = .black
         camera.attach(previewLayer: v.previewLayer)
+        v.onLayout = { [weak camera] in camera?.previewDidLayout() }
         return v
     }
 

@@ -117,6 +117,16 @@ When the CMS is built, swap the `require` of the static data file for a database
 
 ---
 
+## Adding a database change
+
+1. Name the file `database/migrations/NNNN_what_it_does.sql` (lowercase letters, digits, underscores). NNNN is the next number and must be **1445 or higher**; older files are history and are never run automatically.
+2. Write statements that are safe to run twice (the updater also skips "already exists" / "does not exist" errors, but do not rely on that for data changes).
+3. Deploy it with `scripts/deploy-migration.sh database/migrations/NNNN_what_it_does.sql`. No click is needed after that.
+4. Within 5 minutes the `schema_update` cron applies it to every business's database, in number order, and records it in `migrations_log` (executed_by empty, notes start with "automatic").
+5. See the result: Database > Cron Jobs > "Database Updater" log (one summary line per business), or `migrations_log`. A failed file stops that business until the file is edited or `schema_update.php --tenant=<key> --retry` is run; `--dry-run` lists what is pending.
+
+---
+
 ## Adding a Date Field
 
 Never use a bare `<input type="date">` as the visible control — use the shared `MwDatePicker` component (`/crm/js/mw-datepicker.js`, already loaded on every AppStack page via `appstack_footer.php`, auto-inits on `DOMContentLoaded`). See CLAUDE.md rule 12.

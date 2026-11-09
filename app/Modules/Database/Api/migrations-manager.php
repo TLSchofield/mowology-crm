@@ -31,6 +31,7 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Modules/Database/Services/SchemaUpdater.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -320,76 +321,10 @@ function handleMigrationHistory($input) {
 }
 
 /**
- * Split a SQL string into individual statements, respecting quoted strings.
- * Handles single-quoted strings with escaped quotes ('it''s ok').
- * Strips SQL comments (-- line comments and block comments).
- * Returns only non-empty statements.
+ * Split a SQL string into individual statements (one copy, shared with the automatic updater).
  */
 function splitSqlStatements(string $sql): array {
-    $statements = [];
-    $current = '';
-    $len = strlen($sql);
-    $i = 0;
-
-    while ($i < $len) {
-        $ch = $sql[$i];
-
-        // Skip -- line comments
-        if ($ch === '-' && $i + 1 < $len && $sql[$i + 1] === '-') {
-            $end = strpos($sql, "\n", $i);
-            $i = ($end === false) ? $len : $end + 1;
-            continue;
-        }
-
-        // Skip /* block comments */
-        if ($ch === '/' && $i + 1 < $len && $sql[$i + 1] === '*') {
-            $end = strpos($sql, '*/', $i + 2);
-            $i = ($end === false) ? $len : $end + 2;
-            continue;
-        }
-
-        // Handle single-quoted strings (including '' escapes)
-        if ($ch === "'") {
-            $current .= $ch;
-            $i++;
-            while ($i < $len) {
-                if ($sql[$i] === "'" && $i + 1 < $len && $sql[$i + 1] === "'") {
-                    $current .= "''";
-                    $i += 2;
-                } elseif ($sql[$i] === "'") {
-                    $current .= "'";
-                    $i++;
-                    break;
-                } else {
-                    $current .= $sql[$i];
-                    $i++;
-                }
-            }
-            continue;
-        }
-
-        // Statement terminator
-        if ($ch === ';') {
-            $trimmed = trim($current);
-            if ($trimmed !== '') {
-                $statements[] = $trimmed;
-            }
-            $current = '';
-            $i++;
-            continue;
-        }
-
-        $current .= $ch;
-        $i++;
-    }
-
-    // Last statement (may not end with ;)
-    $trimmed = trim($current);
-    if ($trimmed !== '') {
-        $statements[] = $trimmed;
-    }
-
-    return $statements;
+    return SchemaUpdater::splitStatements($sql);
 }
 
 /**

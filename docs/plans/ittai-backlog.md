@@ -502,6 +502,16 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - **Day carousel rebuilt 2026-11-08, iOS 1.3.132** (`DayCarouselView.swift`, rules in `DayCarouselRules.swift`): the pill is fixed on the line and the days pass under it (text turns white exactly at the pill's edge); the day loads only once the strip has come to rest on it, then the list fades in; the day either side is preloaded; fixed stale dots after Mine / All crews, dates beyond the strip's window, "today" after midnight, "Nov" lagging the line. **Left:** how far a flick carries (judge on the phone; one line, `scrollTargetBehavior`); a pause of a tenth of a second exactly on a day mid-drag loads that day early; VoiceOver focus moving along the strip still changes the day (as before).
 - **Android to match (Tim, 2026-11-08):** the native branch (`codex/native`, `SchedulePlusScreens.kt`) has no day carousel: three week strips (`NewWeekStrip`, `CrewWeekStrip`, `WeekStrip`) that swipe a whole week and are disabled while a day loads. Build the iPhone's carousel there (fixed pill on the Schedule axis, land-then-load, neighbour preload) from `DayCarouselRules`. Needs its own plan; Codex writes Android and is out until 2026-11-11.
 
+## Android meniscus bar: implement the redesign (Tim, 2026-11-09: "The android meniscus bar has been redesigned and needs to be implemented")
+- Next Android build after 2.2.10 (the self-update build), so it reaches the phone and tablet by itself as 2.2.11. Existing Android bar: `ui/ittai/MeniscusGeometry.kt` (task 34, codex/native `3d5b627`, `a3410cc`, `55b2f23`). The iPhone's bar was rebuilt 2026-11-08 (bead on Core Animation, one sampled spring, bead first then the screen; `ItMeniscusBar.swift`, `ItMeniscusMotion.swift`, iOS 1.3.130). **Open:** which design to follow — the iPhone's current bar, or a new mock from Tim.
+
+## One Android app for every business (Tim, 2026-11-09: "resolve the 'mowology flavour' and ittai edition permanently. Having two deployments is wasteful.")
+- Today a flavour is a separate build, not a theme: `mowology` (package `ca.mowology.crew`, mowology.ca baked in, native switches off until the feed says true), `ittai` / `tenanttest` (package `ca.mowology.crew.test`, one business's address baked in per APK, native switches on by default). Mowology's crew also still have the older 1.8.0 web-shell line.
+- Wanted: one installed app; the business is found at sign-in (address chosen at run time instead of `BuildConfig.SERVER_HOST` in `config/ServerConfig.kt`); look, name inside the app and switches come from the business's own feed and settings (`AppVersionFeed` already answers per business). Mowology becomes an ordinary business on it.
+- To settle in the plan: one package id (a one-time reinstall on the phone and the tablet), launcher name and icon (one for everyone), app links, the web-shell config, the test-business banner and the "never talk to production" guard, push config, moving off the debug signing key, and when the 1.8.0 line can be retired (after the native field test on mowology.ca, started 2026-11-09). iPhone: one app already, but `APIEndpoints.swift` hard-codes mowology.ca.
+- **Decided (Tim, 2026-11-09):** the design is one app per platform, one database per business, sign-in sends the person to their business. An email that belongs to more than one business sees a "which business?" list after sign-in. Database changes are to run automatically for every business (today: 147 hand-run runner pages, two migration folders that have drifted, a new business copies Mowology's layout). Plan, in order: (1) one updater over every registered business with `migrations_log`, one migrations folder; (2) a state page and a check after each deploy; (3) new businesses brought up to date by the updater; (4) a small central directory (email → business → address, no client data); (5) shared sign-in that returns the business's address with a token checked against that business; (6) Android one app; (7) iPhone reads the address from sign-in (16 files name mowology.ca); (8) retire Android 1.8.0 after the native field test. Plan approval and order still open.
+- Needs its own chat and a plan first.
+
 ## Clock-in on the Dynamic Island / Lock Screen (Tim, 2026-11-07: "Jobber shows itself clocked in at the very top even though the app is backgrounded. I like that")
 - A Live Activity while clocked in: the running timer in the Dynamic Island and on the Lock Screen (job name or "On break"), started on Clock in, ended on Clock out, updated on break start/end.
 - Needs a Widget Extension target with ActivityKit (iOS 16.1+; Xcode 15.2 can build it), `NSSupportsLiveActivities` in Info.plist, and push updates (APNs live-activity token) so it stays right when the server changes the clock (auto clock-out, office edits). Android: an ongoing notification with a chronometer.
@@ -566,3 +576,24 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - `TrackimoService` signs in with Mowology's own TRACKIMO_* constants for every business. Files are now per business (#8), but a
   second business turning tracking on would read Mowology's trucks. Before then: per-business Trackimo credentials (encrypted,
   like the QuickBooks keys) and refuse tracking where none are set.
+
+## Found when live code came back into git (security audit fix 3, 2026-11-09)
+- **LookbackService calls the model directly** (`app/Modules/Accounting/Services/LookbackService.php:977`), skipping LlmGateway's retry, kill switch and cost log. `NoDirectAnthropicCallsTest` carries a dated exception for it; route the call through `LlmGateway::send()` and remove the exception.
+- **Old tests not adopted:** `EtransferNudgeServiceTest` and `InvoiceServiceTest` on the old branches are older than the live services and fail against them (nudge copy now reads the address from settings; `ensurePaymentIntent` has a lock). Both services have no current test.
+- **Left server-only, for the delete list:** `/customer/invoice-v2.php`, `/crm/api/test-invoice-create.php`, `/crm/api/salt-manual-trigger.php` (the last echoes a raw exception message; `invoice-v2.php` sends no CSP).
+
+## Otto warns the owner about weather and public holidays, per business (Tim, 2026-11-09)
+- Tim was not told by Otto (app or push) that heavy rain was forecast for Tue 2026-11-10 with Wed 2026-11-11 a public holiday, so Tuesday's jobs had to move to Thursday. "Otto should be the one telling me."
+- Wanted: Otto looks a few days ahead and tells the owner on his card, in the brief and by push when a scheduled day has weather over the business's threshold or is a public holiday in its region, and proposes the move (skipping holidays and non-working days); the owner confirms.
+- Per business: "Not all Ittai tenants may want this service (maybe they work indoors)" — one onboarding question plus Otto's settings; location from the business (today `weather_guard` uses Vancouver and is left out of the per-business crons); holidays from the region rules.
+- Needs its own chat and a plan first. Brief saved 2026-11-09 (carousel chat); Part 1 (why nothing was said) traced there.
+
+## Android receipt camera: wait for steady, light on (Tim 2026-11-09)
+iPhone 1.3.133 won't shoot a receipt until the phone, the receipt and the focus are steady, and keeps the light on
+(`ReceiptCameraView`, `ReceiptSteadyGate`). Android still shoots whenever tapped. Wait until the iPhone's steadiness
+numbers are tuned on real receipts, then copy them. **Shared:** the rule and the numbers. **Private:** nothing.
+
+## Add Job: last-charged price on Android and web (Tim 2026-11-09)
+iPhone 1.3.135 offers "Last charged $X" under the price box (`FieldJobService::lastPrice`, `?mode=last_price`). The server
+side is shared; Android and the web overlay (`public/crm/js/field-job.js`) still need the button. **Shared:** the matching
+rule. **Private:** each business's own prices.

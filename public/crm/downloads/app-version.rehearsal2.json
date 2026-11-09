@@ -1,6 +1,12 @@
 {
-  "_comment": "Rehearsal business 2 (Claudia walk 2, 2026-11-03): every native switch ON so the app is fully native, as a founding business gets it. Release details come from the shared app-version.json.",
+  "_comment": "Rehearsal business 2 (Claudia walk 2, 2026-11-03): every native switch ON so the app is fully native, as a founding business gets it. Release details are pinned here (2026-11-09): the shared app-version.json now describes Mowology's own build, which is a different app from this business's test app.",
   "android": {
+    "version": "1.8.0",
+    "build": 22,
+    "min_version": "1.6.0",
+    "min_build": 18,
+    "apk_url": "",
+    "apk_sha256": "",
     "native_auth": true,
     "native_day": true,
     "webview_shell_disabled": true,

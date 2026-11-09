@@ -19,6 +19,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/SupplierListParser.php';
+require_once __DIR__ . '/SupplierFormatInferrer.php';
+require_once __DIR__ . '/SupplierWebCatalogReader.php';
+require_once __DIR__ . '/SupplierDirectoryService.php';
 require_once __DIR__ . '/CatalogService.php';
 require_once dirname(__DIR__, 3) . '/Services/Spreadsheet/PdfTableReader.php';   // supplier PDF price tables (2026-10-19)
 
@@ -112,7 +115,7 @@ class SupplierPriceListService
             $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
             if (!in_array($ext, $types, true)) continue;
             if (!empty($spec['skip_files']) && preg_match('/' . str_replace('/', '\/', (string)$spec['skip_files']) . '/i', $name)) continue;
-            $known = false;
+            $known = !empty($format['auto_inferred']);   // a format read automatically has no file-name kinds: any sheet link counts
             foreach ((array)($spec['kinds'] ?? []) as $k) {
                 if (!empty($k['file']) && preg_match('/' . str_replace('/', '\/', (string)$k['file']) . '/i', $name)) $known = true;
             }
@@ -224,6 +227,296 @@ class SupplierPriceListService
         return (bool)$s->fetchColumn();
     }
 
+    // ---- a supplier's public web shop (SupplierWebCatalogReader) ----------------------------------
+
+    /**
+     * Add a Shopify web shop as a supplier: the directory entry (once per web domain), its web format (held for a
+     * "looks right"), and the first read. Returns what happened.
+     * @param callable|null $resolve fn(string $host): string  host -> IP (tests); default gethostbyname
+     * @return array{supplier_id: int, format_id: int, import: array}
+     * @throws InvalidArgumentException|RuntimeException
+     */
+    public function addWebSupplier(string $name, string $url, ?callable $http = null, ?callable $sleep = null, ?callable $resolve = null): array
+    {
+        $base = SupplierWebCatalogReader::safeBase($url);
+        $host = (string)parse_url($base, PHP_URL_HOST);
+        $ip = ($resolve ?? 'gethostbyname')($host);
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) throw new InvalidArgumentException('that name does not resolve to a public web server');
+        $name = trim($name) !== '' ? trim($name) : $host;
+
+        $dir = new SupplierDirectoryService($this->db);
+        $s = $this->db->prepare("SELECT id FROM supplier_accounts WHERE domain = ? OR domain = ? ORDER BY id LIMIT 1");
+        $s->execute([$host, preg_replace('/^www\./', '', $host)]);
+        $sid = (int)($s->fetchColumn() ?: 0);
+        if (!$sid) $sid = $dir->upsert(['name' => $name, 'website' => $base, 'status' => 'open', 'list_kind' => 'web', 'sells' => 'online shop']);
+        if (!$sid) throw new RuntimeException('could not add the supplier');
+
+        $bare = (string)preg_replace('/^www\./', '', $host);   // www and bare are one shop
+        $code = 'web-' . substr((string)preg_replace('/[^a-z0-9]+/', '-', $bare), 0, 50);
+        $q = $this->db->prepare("SELECT * FROM supplier_list_formats WHERE code = ?");
+        $q->execute([$code]);
+        $format = $q->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$format) {
+            $spec = SupplierWebCatalogReader::spec($base, $sid);
+            $this->db->prepare("INSERT INTO supplier_list_formats (code, name, family, sender_domains, link_hosts, arrives, spec_json, is_active, needs_review, auto_inferred)
+                                VALUES (?, ?, 'other', NULL, ?, 'web', ?, 1, 1, 0)")
+                     ->execute([$code, mb_substr($name . ' (web shop)', 0, 160), $bare, json_encode($spec, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+            $q->execute([$code]);
+            $format = $q->fetch(PDO::FETCH_ASSOC);
+        }
+        $supplier = ['id' => $sid, 'name' => $name];
+        return ['supplier_id' => $sid, 'format_id' => (int)$format['id'], 'import' => $this->importWeb($supplier, $format, $http, $sleep)];
+    }
+
+    /**
+     * Read one web format now -> a new list dated today (the existing diff shows what moved since last time).
+     * @return array{status: string, list_id: ?int, rows: int, products: int, pages: int}
+     * @throws RuntimeException when the shop cannot be read
+     */
+    public function importWeb(array $supplier, array $format, ?callable $http = null, ?callable $sleep = null): array
+    {
+        $spec = SupplierListParser::spec((string)$format['spec_json']);
+        $web = (array)($spec['web'] ?? []);
+        if (($web['type'] ?? '') !== 'shopify' || empty($web['base'])) throw new RuntimeException('not a web shop format');
+        $base = SupplierWebCatalogReader::safeBase((string)$web['base']);
+        $hosts = self::splitList((string)($format['link_hosts'] ?? ''));
+        if ($hosts && !self::urlAllowed($base . '/', $hosts)) throw new RuntimeException('the shop address is not the format\'s host');
+        $feed = SupplierWebCatalogReader::fetchAll($base, $http ?? [SupplierWebCatalogReader::class, 'curl'], $sleep ?? static function (int $us): void { usleep($us); });
+        $cells = SupplierWebCatalogReader::cells($feed['products'], $web);
+        $r = $this->importCells($cells, ['supplier_account_id' => (int)$supplier['id'], 'format' => $format, 'file_name' => 'web catalogue',
+                                         'source_url' => $base . SupplierWebCatalogReader::PATH, 'received' => date('Y-m-d')]);
+        return ['status' => $r['status'], 'list_id' => $r['list_id'], 'rows' => $r['rows'], 'products' => count($feed['products']), 'pages' => $feed['pages']];
+    }
+
+    /**
+     * Weekly: every active web format whose newest list is 7+ days old. A shop that cannot be read is recorded
+     * as a skip with the reason, never silently. Called by the generate_visits cron.
+     * @return array{shops: int, imported: int, failed: int}
+     */
+    public function refreshWebDue(?callable $http = null, ?callable $sleep = null, ?int $now = null): array
+    {
+        $out = ['shops' => 0, 'imported' => 0, 'failed' => 0];
+        $now = $now ?? time();
+        try {
+            $formats = $this->db->query("SELECT * FROM supplier_list_formats WHERE is_active = 1 AND arrives = 'web'")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return $out;
+        }
+        foreach ($formats as $f) {
+            $web = (array)((json_decode((string)$f['spec_json'], true) ?: [])['web'] ?? []);
+            $sid = (int)($web['supplier_id'] ?? 0);
+            if (!$sid) continue;
+            $s = $this->db->prepare("SELECT MAX(list_date) FROM supplier_price_lists WHERE site_id = ? AND format_id = ?");
+            $s->execute([$this->siteId, (int)$f['id']]);
+            $last = (string)$s->fetchColumn();
+            if ($last !== '' && strtotime($last) > $now - 6 * 86400) continue;
+            // A shop that refused us today (429/403 or an error) is not asked again until tomorrow.
+            $tried = $this->db->prepare("SELECT 1 FROM supplier_list_skips WHERE site_id = ? AND supplier_account_id = ? AND message_key = ?");
+            $tried->execute([$this->siteId, $sid, 'web:' . date('Y-m-d', $now)]);
+            if ($tried->fetchColumn()) continue;
+            $out['shops']++;
+            try {
+                $r = $this->importWeb(['id' => $sid, 'name' => $f['name']], $f, $http, $sleep);
+                if ($r['status'] === 'imported') $out['imported']++;
+            } catch (Throwable $e) {
+                $out['failed']++;
+                error_log('[web catalogue] ' . $f['name'] . ': ' . $e->getMessage());
+                $this->recordSkip($sid, (string)($f['link_hosts'] ?? ''), 'Web catalogue', 'products.json', mb_substr($e->getMessage(), 0, 240), 'web:' . date('Y-m-d', $now));
+            }
+        }
+        return $out;
+    }
+
+    // ---- formats read automatically (migration 1390) --------------------------------------------
+
+    /** Has migration 1390 run? The automatic path stays off until it has. */
+    public function reviewReady(): bool
+    {
+        try {
+            $this->db->query("SELECT needs_review, auto_inferred FROM supplier_list_formats LIMIT 1");
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Read one file and work out how it reads. Never throws.
+     * @return array the SupplierFormatInferrer result (ok=false with a reason when it is not a price list)
+     */
+    public function inferFromFile(string $fileName, string $bytes): array
+    {
+        try {
+            if ($bytes === '' || strlen($bytes) > self::MAX_BYTES * 4) return ['ok' => false, 'reason' => 'the file is empty or too big'] + self::emptyInference();
+            if (strncmp($bytes, '%PDF-', 5) === 0 || strtolower(pathinfo($fileName, PATHINFO_EXTENSION)) === 'pdf') return $this->inferFromPdf($fileName, $bytes);
+            return SupplierFormatInferrer::infer(SheetReader::read($bytes, $fileName), $fileName);
+        } catch (Throwable $e) {
+            return ['ok' => false, 'reason' => 'could not open the file (' . $e->getMessage() . ')'] + self::emptyInference();
+        }
+    }
+
+    /**
+     * A PDF price table: a product line ends in N numbers (PdfTableReader). Try N = 1..4 and keep the LARGEST N
+     * that still reads at least 70% as many rows as N = 1 (a 1-number read matches every line, so it is the ceiling).
+     * The numbers are called Price, List Price, then Value 3/4: a guess a person confirms on the check banner.
+     */
+    private function inferFromPdf(string $fileName, string $bytes): array
+    {
+        $names = ['Price', 'List Price', 'Value 3', 'Value 4'];
+        $best = null;
+        $ceiling = 0;
+        for ($n = 1; $n <= 4; $n++) {
+            $pdf = ['numbers' => $n, 'columns' => array_slice($names, 0, $n)];
+            $inf = SupplierFormatInferrer::infer(PdfTableReader::cells($bytes, $pdf), $fileName);
+            if ($n === 1) $ceiling = (int)$inf['rows'];
+            if (!$inf['ok'] || $ceiling === 0 || $inf['rows'] < 0.7 * $ceiling) continue;
+            $inf['spec']['pdf'] = $pdf;
+            $best = $inf;
+        }
+        return $best ?? ['ok' => false, 'reason' => 'the PDF has no table of lines ending in prices'] + self::emptyInference();
+    }
+
+    private static function emptyInference(): array
+    {
+        return ['spec' => null, 'header_row' => null, 'mapped' => [], 'unmapped' => [], 'confidence' => 0.0, 'rows' => 0, 'sample' => []];
+    }
+
+    /** plants when the names read as botanical ("Acer palmatum 'X'") or a zone column exists, else other. PURE. */
+    public static function guessFamily(array $inference): string
+    {
+        if (isset($inference['mapped']['zone'])) return 'plants';
+        $bot = 0;
+        $n = 0;
+        foreach ((array)($inference['sample'] ?? []) as $r) {
+            $n++;
+            if (preg_match('/^[A-Z][a-z]+ (x |[a-z]{3,})/', (string)($r['name'] ?? ''))) $bot++;
+        }
+        return $n && $bot / $n >= 0.6 ? 'plants' : 'other';
+    }
+
+    /**
+     * Make the format for an unknown supplier's first list, held for a person to confirm (needs_review).
+     * One format per sender domain: a second call for the same domain returns the one that exists.
+     * @param array $inference a SupplierFormatInferrer result with ok = true
+     */
+    public function createAutoFormat(array $supplier, string $domain, array $inference, array $hosts = []): ?array
+    {
+        $domain = strtolower(trim($domain));
+        if ($domain === '' || empty($inference['ok'])) return null;
+        if ($f = $this->formatForDomain($domain)) return $f;
+        $code = 'auto-' . substr(preg_replace('/[^a-z0-9]+/', '-', $domain), 0, 40);
+        $spec = (array)$inference['spec'];
+        $has = $this->db->prepare("SELECT 1 FROM supplier_list_formats WHERE code = ?");
+        $has->execute([$code]);
+        if (!$has->fetchColumn()) {
+            $this->db->prepare("INSERT INTO supplier_list_formats (code, name, family, sender_domains, link_hosts, arrives, spec_json,
+                                    is_active, needs_review, auto_inferred, inferred_confidence) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1, ?)")
+                     ->execute([$code, mb_substr(((string)($supplier['name'] ?? $domain)) . ' (read automatically)', 0, 160), self::guessFamily($inference), $domain,
+                                implode('|', $hosts ?: [$domain]), 'both',
+                                json_encode($spec, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (float)($inference['confidence'] ?? 0)]);
+        }
+        return $this->formatForDomain($domain);
+    }
+
+    /** The supplier changed their sheet: store the new reading and ask for another check. Auto formats only. */
+    public function respecAutoFormat(int $formatId, array $inference): ?array
+    {
+        if (empty($inference['ok'])) return null;
+        $u = $this->db->prepare("UPDATE supplier_list_formats SET spec_json = ?, needs_review = 1, inferred_confidence = ? WHERE id = ? AND auto_inferred = 1");
+        $u->execute([json_encode((array)$inference['spec'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (float)($inference['confidence'] ?? 0), $formatId]);
+        if (!$u->rowCount()) return null;
+        $s = $this->db->prepare("SELECT * FROM supplier_list_formats WHERE id = ?");
+        $s->execute([$formatId]);
+        return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /** Remember a list that arrived but could not be read, so the page can say so. Never throws. */
+    public function recordSkip(int $supplierId, string $sender, string $subject, string $fileName, string $reason, string $messageKey): void
+    {
+        try {
+            $has = $this->db->prepare("SELECT 1 FROM supplier_list_skips WHERE site_id = ? AND message_key = ? AND file_name = ?");
+            $has->execute([$this->siteId, mb_substr($messageKey, 0, 191), mb_substr($fileName, 0, 255)]);
+            if ($has->fetchColumn()) return;
+            $this->db->prepare("INSERT INTO supplier_list_skips (site_id, supplier_account_id, sender, subject, file_name, reason, message_key)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)")
+                     ->execute([$this->siteId, $supplierId ?: null, mb_substr($sender, 0, 190), mb_substr($subject, 0, 255), mb_substr($fileName, 0, 255),
+                                mb_substr($reason, 0, 255), mb_substr($messageKey, 0, 191)]);
+        } catch (Throwable $e) {
+            error_log('[price lists] recordSkip: ' . $e->getMessage());
+        }
+    }
+
+    /** @return array<int,array> lists we could not read, newest first (not dismissed) */
+    public function openSkips(int $limit = 20): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT k.*, a.name AS supplier_name FROM supplier_list_skips k LEFT JOIN supplier_accounts a ON a.id = k.supplier_account_id
+                                     WHERE k.site_id = ? AND k.dismissed_at IS NULL ORDER BY k.id DESC LIMIT " . (int)$limit);
+            $s->execute([$this->siteId]);
+            return $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    public function dismissSkip(int $id): void
+    {
+        $this->db->prepare("UPDATE supplier_list_skips SET dismissed_at = ? WHERE id = ? AND site_id = ?")->execute([date('Y-m-d H:i:s'), $id, $this->siteId]);
+    }
+
+    /**
+     * Formats read automatically and not yet confirmed, each with this site's latest list and 5 sample lines,
+     * for the "check this reading" banner.
+     * @return array<int,array>
+     */
+    public function reviewQueue(): array
+    {
+        if (!$this->reviewReady()) return [];
+        $out = [];
+        foreach ($this->db->query("SELECT * FROM supplier_list_formats WHERE needs_review = 1 AND is_active = 1 ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $f) {
+            $s = $this->db->prepare("SELECT l.*, a.name AS supplier_name FROM supplier_price_lists l LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
+                                     WHERE l.site_id = ? AND l.format_id = ? ORDER BY l.list_date DESC, l.id DESC LIMIT 1");
+            $s->execute([$this->siteId, (int)$f['id']]);
+            $l = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$l) continue;
+            $spec = json_decode((string)$f['spec_json'], true) ?: [];
+            $cols = [];
+            foreach ((array)($spec['columns'] ?? []) as $field => $syns) $cols[$field] = (string)((array)$syns)[0];
+            $out[] = ['format' => $f, 'list' => $l, 'columns' => $cols, 'sample' => $this->items((int)$l['id'], [], 5)];
+        }
+        return $out;
+    }
+
+    /** "Looks right": the format stops needing a check, and its lists join quote pricing. */
+    public function confirmFormat(int $formatId): void
+    {
+        $this->db->prepare("UPDATE supplier_list_formats SET needs_review = 0 WHERE id = ?")->execute([$formatId]);
+        $this->db->prepare("UPDATE supplier_price_lists SET needs_review = 0 WHERE site_id = ? AND format_id = ?")->execute([$this->siteId, $formatId]);
+    }
+
+    /**
+     * "Fix columns": point fields at different header texts. $fieldToHeader = [field => exact header text or ''],
+     * '' removes the field. Only known fields; name stays required. Re-read the lists afterwards from the page.
+     * @throws InvalidArgumentException
+     */
+    public function updateFormatColumns(int $formatId, array $fieldToHeader): void
+    {
+        $s = $this->db->prepare("SELECT spec_json FROM supplier_list_formats WHERE id = ? AND auto_inferred = 1");
+        $s->execute([$formatId]);
+        $json = $s->fetchColumn();
+        if ($json === false) throw new InvalidArgumentException('format not found');
+        $spec = json_decode((string)$json, true) ?: [];
+        foreach ($fieldToHeader as $field => $header) {
+            if (!in_array($field, SupplierListParser::FIELDS, true)) continue;
+            $header = trim((string)$header);
+            if ($header === '') unset($spec['columns'][$field]);
+            else $spec['columns'][$field] = [$header];
+        }
+        if (empty($spec['columns']['name'])) throw new InvalidArgumentException('a name column is required');
+        $this->db->prepare("UPDATE supplier_list_formats SET spec_json = ? WHERE id = ?")
+                 ->execute([json_encode($spec, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $formatId]);
+    }
+
     // ---- import ----------------------------------------------------------------------------
 
     /**
@@ -239,6 +532,17 @@ class SupplierPriceListService
         $cells = (strncmp($bytes, '%PDF-', 5) === 0 || strtolower(pathinfo($fileName, PATHINFO_EXTENSION)) === 'pdf')
             ? PdfTableReader::cells($bytes, (array)($spec['pdf'] ?? []))      // a PDF price table (format's "pdf" section)
             : SheetReader::read($bytes, $fileName);
+        return $this->importCells($cells, $meta);
+    }
+
+    /**
+     * The same import from cells already read (a web catalogue, SupplierWebCatalogReader, has no file).
+     * @param array $meta as import()
+     */
+    public function importCells(array $cells, array $meta): array
+    {
+        $format = (array)$meta['format'];
+        $spec = SupplierListParser::spec((string)$format['spec_json']);
         $p = SupplierListParser::parse($cells, $spec, ['file_name' => (string)($meta['file_name'] ?? ''),
                                                        'body' => (string)($meta['body'] ?? ''), 'received' => (string)($meta['received'] ?? '')]);
         $supplierId = (int)$meta['supplier_account_id'];
@@ -263,6 +567,9 @@ class SupplierPriceListService
                                 isset($meta['message_key']) ? mb_substr((string)$meta['message_key'], 0, 191) : null,
                                 json_encode($p['rules'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), count($p['rows'])]);
             $listId = (int)$this->db->lastInsertId();
+            if (!empty($format['needs_review'])) {
+                $this->db->prepare("UPDATE supplier_price_lists SET needs_review = 1 WHERE id = ?")->execute([$listId]);   // out of quote pricing until confirmed
+            }
             $ins = $this->db->prepare("INSERT INTO supplier_price_items (site_id, list_id, product_code, name, size, zone, category, brand, mfr_part_no, upc,
                                            price, list_price, special_price, available, comment, use_kind, prev_price, price_change, catalog_product_id,
                                            catalog_category_id, size_code, height, name_key, match_confidence, match_how)
@@ -363,8 +670,9 @@ class SupplierPriceListService
         if (($c = trim((string)($f['category'] ?? ''))) !== '') { $where[] = 'i.category = ?'; $args[] = $c; }
         if (($z = trim((string)($f['size'] ?? ''))) !== '') { $where[] = 'i.size_code = ?'; $args[] = $z; }
         if (!empty($f['changes'])) $where[] = "i.price_change IN ('new','up','down')";
-        $s = $this->db->prepare("SELECT i.*, p.canonical_name, p.common_names FROM supplier_price_items i
+        $s = $this->db->prepare("SELECT i.*, p.canonical_name, p.common_names, t.photo_file, t.photo_credit FROM supplier_price_items i
                                  LEFT JOIN catalog_products p ON p.id = i.catalog_product_id
+                                 LEFT JOIN catalog_taxa t ON t.species_key = p.species_key AND t.status = 'found'
                                  WHERE " . implode(' AND ', $where) . " ORDER BY i.name, i.size_code LIMIT " . max(1, min(5000, $limit)));
         $s->execute($args);
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
@@ -383,7 +691,7 @@ class SupplierPriceListService
     public function currentSpecials(int $supplierId, ?string $today = null): array
     {
         $today = $today ?? date('Y-m-d');
-        $s = $this->db->prepare("SELECT id, valid_until FROM supplier_price_lists WHERE site_id = ? AND supplier_account_id = ? AND kind = 'specials'
+        $s = $this->db->prepare("SELECT id, valid_until FROM supplier_price_lists WHERE site_id = ? AND supplier_account_id = ? AND kind = 'specials' AND needs_review = 0
                                  AND (valid_until IS NULL OR valid_until >= ?) ORDER BY list_date DESC LIMIT 1");
         $s->execute([$this->siteId, $supplierId, $today]);
         $l = $s->fetch(PDO::FETCH_ASSOC);
@@ -444,8 +752,8 @@ class SupplierPriceListService
                        i.available, i.product_code, i.price_change, i.prev_price
                 FROM supplier_price_items i
                 JOIN supplier_price_lists l ON l.id = i.list_id
-                JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' GROUP BY supplier_account_id) x
-                  ON x.supplier_account_id = l.supplier_account_id AND x.d = l.list_date
+                JOIN (SELECT supplier_account_id, MAX(list_date) AS d FROM supplier_price_lists WHERE site_id = ? AND kind = 'availability' AND needs_review = 0 GROUP BY supplier_account_id) x
+                  ON x.supplier_account_id = l.supplier_account_id AND x.d = l.list_date AND l.needs_review = 0
                 LEFT JOIN supplier_accounts a ON a.id = l.supplier_account_id
                 WHERE i.site_id = ? AND l.kind = 'availability' AND i.catalog_product_id = ?" . ($sizeCode !== null && $sizeCode !== '' ? " AND i.size_code = ?" : '') . "
                 ORDER BY i.size_code, i.height, i.price";
