@@ -84,7 +84,9 @@ final class LedgerSite
     {
         $base = defined('STORAGE_ROOT') && is_dir(STORAGE_ROOT) && is_writable(STORAGE_ROOT) ? STORAGE_ROOT . '/cache' : sys_get_temp_dir() . '/mw-cache';
         if (!is_dir($base)) @mkdir($base, 0750, true);
-        $db = defined('DB_NAME') ? (string)DB_NAME : 'db';
+        // Each business's own database, not DB_NAME (always the original business's) — security review 2026-11-06, #4.
+        $db = class_exists('Tenant') ? (string)(Tenant::db()[0] ?? '') : '';
+        if ($db === '') $db = defined('DB_NAME') ? (string)DB_NAME : 'db';
         return $base . '/ledger-' . sha1($db . '|' . $key) . '.json';
     }
 

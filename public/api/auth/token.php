@@ -6,6 +6,8 @@ declare(strict_types=1);
  *
  * BlueMoon Web — JWT Token Endpoint
  * Issues a signed JWT for authenticated Mowology users.
+ * Two-step sign-in (2026-11-06) covers WEB sign-in only for now: this phone sign-in is unchanged, because the
+ * installed apps cannot show a code field. A later phase adds it here with an app update.
  *
  * POST /api/auth/token
  * Body (JSON): { "email": "...", "password": "..." }

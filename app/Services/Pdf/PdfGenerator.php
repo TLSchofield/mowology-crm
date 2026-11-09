@@ -17,6 +17,7 @@ if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
 
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
 require_once dirname(__DIR__, 2) . '/Modules/Clients/Services/BillToResolver.php';
 
 class PdfGenerator
@@ -34,13 +35,9 @@ class PdfGenerator
         $this->storagePath = STORAGE_ROOT . '/pdfs';
         $this->templatePath = CRM_ROOT . '/templates/pdf';
 
-        // Ensure subdirectories exist
-        if (!is_dir($this->storagePath . '/quotes')) {
-            @mkdir($this->storagePath . '/quotes', 0755, true);
-        }
-        if (!is_dir($this->storagePath . '/invoices')) {
-            @mkdir($this->storagePath . '/invoices', 0755, true);
-        }
+        // Ensure this business's subdirectories exist (per-business folders: PdfStore)
+        PdfStore::dir('quotes');
+        PdfStore::dir('invoices');
     }
 
     /**
@@ -290,6 +287,15 @@ class PdfGenerator
 
         $relPath = $row['pdf_path'];
 
+        // Per-business folders: another business's file is never served. A non-default business reads only
+        // its own t/<key>/ files; the default business keeps the legacy lookup below but refuses any t/ path.
+        if (!Tenant::isDefault()) {
+            return PdfStore::absoluteFromStored($relPath);
+        }
+        if (strpos($relPath, 'pdfs/t/') !== false || strpos($relPath, '..') !== false) {
+            return null;
+        }
+
         // Historically pdf_path was stored as "storage/pdfs/invoices/foo.pdf" relative
         // to project root, but files are actually written under APP_ROOT/Storage/pdfs.
         // Resolve both layouts so we can find the file in either location.
@@ -335,8 +341,7 @@ class PdfGenerator
             $mpdf = $this->createMpdf();
             $mpdf->WriteHTML($html);
 
-            $dir = $this->storagePath . '/statements';
-            if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+            $dir = PdfStore::dir('statements');
 
             $contact = $statement['contact'] ?? [];
             $who = preg_replace('/[^A-Za-z0-9]+/', '-', trim(($contact['last_name'] ?? '') . '-' . ($contact['first_name'] ?? '')));
@@ -543,12 +548,8 @@ class PdfGenerator
      */
     private function savePdf(\Mpdf\Mpdf $mpdf, string $type, int $id, string $number, ?int $forcedVersion = null): array
     {
-        $dir = $this->storagePath . '/' . $type . 's';
-
-        // Ensure directory exists
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
+        // This business's own folder (the default business keeps the original one)
+        $dir = PdfStore::dir($type . 's');
 
         // Determine next version number. A caller may supply one instead, for
         // document types that have no pdf_version column to read or write —
@@ -570,7 +571,7 @@ class PdfGenerator
         $fullPath = $dir . '/' . $filename;
         // Store as project-root-relative path that matches the real on-disk layout:
         // files live under APP_ROOT/Storage/pdfs/... which is app/Storage/pdfs/... from PROJECT_ROOT.
-        $relativePath = 'app/Storage/pdfs/' . $type . 's/' . $filename;
+        $relativePath = PdfStore::relative($type . 's', $filename, 'app/Storage');
 
         // Write PDF file
         $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);

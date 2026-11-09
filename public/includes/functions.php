@@ -64,7 +64,15 @@ function generateAccessToken() {
 /**
  * Calculate quote totals from line items
  */
-function calculateQuoteTotals($lineItems, $taxRate = 0.05) {
+function calculateQuoteTotals($lineItems, $taxRate = null) {
+    if ($taxRate === null) {
+        // No rate given: 5%, or none when the business is not registered for GST (onboarding).
+        $taxRate = 0.05;
+        try {
+            if (!class_exists('TaxEngine') && defined('APP_ROOT')) require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+            $taxRate = TaxEngine::chargedRate(getDB(), 0.05);
+        } catch (Throwable $e) { /* keep 5% */ }
+    }
     $subtotal = 0;
     foreach ($lineItems as $item) {
         // Declined by the client on the quote page (migration 1315): out of the total.

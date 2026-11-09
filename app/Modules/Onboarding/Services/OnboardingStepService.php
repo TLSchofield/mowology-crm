@@ -28,7 +28,8 @@ final class OnboardingStepService
     public function apply(int $userId, array $in): array
     {
         $context = new OnboardingContext($this->db, $userId);
-        $onboarding = new OnboardingService($context);
+        // Phones say which new steps they know ('knows'); the web page sends nothing and sees them all.
+        $onboarding = new OnboardingService($context, null, array_key_exists('knows', $in) ? OnboardingService::knowsFrom($in['knows']) : null);
         $key = trim((string)($in['key'] ?? ''));
         $do = trim((string)($in['do'] ?? ''));
         if ($onboarding->module($key) === null) return ['ok' => false, 'error' => 'validation', 'message' => 'No such step.'];
@@ -86,6 +87,14 @@ final class OnboardingStepService
                 return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null]
                     : ['ok' => false, 'error' => 'refused', 'message' => (string)($r['message'] ?? '')];
             }
+            if ($key === 'terms' && $do === 'accept') {
+                (new OnboardingTermsModule())->accept($context);
+                $this->recordTerms($userId, (string)($in['_ip'] ?? ''), (string)($in['_ua'] ?? ''));
+                return ['ok' => true, 'next' => $onboarding->next()];
+            }
+            if ($key === 'gst' && $do === 'answer') return $this->finish((new OnboardingGstModule())->save($context, trim((string)($in['registered'] ?? '')), (string)($in['number'] ?? ''), trim((string)($in['filing'] ?? ''))), $onboarding);
+            if ($key === 'yearend' && $do === 'answer') return $this->finish((new OnboardingYearEndModule())->save($context, trim((string)($in['who'] ?? $in['answer'] ?? ''))), $onboarding);
+            if ($key === 'payroll' && $do === 'answer') return $this->finish((new OnboardingPayrollModule())->save($context, trim((string)($in['how'] ?? $in['answer'] ?? '')), (string)($in['app'] ?? '')), $onboarding);
             if ($key === 'books' && $do === 'ack') { (new OnboardingBooksModule())->acknowledge($context); return ['ok' => true, 'next' => $onboarding->next()]; }
             if ($key === 'accountant' && $do === 'invite') {
                 $name = trim((string)($in['name'] ?? '')); $email = trim((string)($in['email'] ?? ''));
@@ -127,6 +136,30 @@ final class OnboardingStepService
             }
         } catch (Throwable $e) { /* installations without the column use PHP's configured timezone */ }
         return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
+    }
+
+    /**
+     * Accepting the terms in onboarding also records it against the platform terms (the sign-in gate), for a
+     * business that is not the default one: the first accept makes this version current for that business's own
+     * database. Best effort — missing tables must never stop the step, and Mowology's gate is Tim's switch.
+     */
+    private function recordTerms(int $userId, string $ip, string $ua): void
+    {
+        if (class_exists('Tenant') && Tenant::isDefault()) return;
+        try {
+            require_once dirname(__DIR__, 2) . '/Legal/Services/TermsService.php';
+            // Only when no platform row exists at all: a version someone set non-current must stay off.
+            $has = $this->db->prepare('SELECT COUNT(*) FROM terms_versions WHERE doc_key = ?');
+            $has->execute([TermsService::DOC_KEY]);
+            if ((int)$has->fetchColumn() === 0) {
+                $v = OnboardingTermsModule::TERMS_VERSION;
+                $this->db->prepare(($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE') . ' INTO terms_versions (doc_key, version, is_current, activated_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)')
+                    ->execute([TermsService::DOC_KEY, $v]);
+            }
+            (new TermsService($this->db))->recordAcceptance($userId, $ip !== '' ? $ip : null, $ua !== '' ? $ua : null);
+        } catch (Throwable $e) {
+            error_log('Onboarding terms record: ' . get_class($e));
+        }
     }
 
     private function identity(int $userId)

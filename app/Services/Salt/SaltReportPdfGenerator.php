@@ -27,6 +27,7 @@ if (!defined('APP_ROOT')) {
 
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
 require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
 
 if (!class_exists('MapSnapshotService')) {
     require_once APP_ROOT . '/Services/Pow/MapSnapshotService.php';
@@ -46,14 +47,15 @@ class SaltReportPdfGenerator
     {
         $this->db         = $db;
         $this->publicRoot = rtrim($publicRoot, '/');
+        // Per-business folder (PdfStore); the default business keeps storage/pdfs/salt-reports
         $this->storageDir = defined('STORAGE_ROOT')
-            ? STORAGE_ROOT . '/pdfs/salt-reports'
+            ? PdfStore::dir('salt-reports', false)
             : dirname($this->publicRoot) . '/storage/pdfs/salt-reports';
         $this->siteUrl    = rtrim($siteUrl, '/');
         $this->userId     = $userId;
 
         if (!is_dir($this->storageDir)) {
-            mkdir($this->storageDir, 0755, true);
+            mkdir($this->storageDir, 0750, true);
         }
     }
 
@@ -71,7 +73,8 @@ class SaltReportPdfGenerator
 
         $report = $this->getOrCreateReportRecord($visitId);
 
-        if (!empty($report['pdf_path']) && !$forceRegen) {
+        // A stored path this business can't open (a pre-2026-11-06 flat path on a non-default business) counts as missing.
+        if (!empty($report['pdf_path']) && !$forceRegen && PdfStore::absoluteFromStored((string)$report['pdf_path']) !== null) {
             return ['success' => true, 'path' => $report['pdf_path'], 'report_number' => $report['report_number'], 'error' => null];
         }
 
@@ -107,7 +110,7 @@ class SaltReportPdfGenerator
 
         $filename = 'salt_' . $visitId . '_v' . $version . '.pdf';
         $filepath = $this->storageDir . '/' . $filename;
-        $webPath  = self::RELATIVE_DIR . $filename;
+        $webPath  = PdfStore::relative('salt-reports', $filename);
 
         $this->renderWithMpdf($html, $filepath);
 

@@ -47,16 +47,18 @@ final class ResetCaptcha
      * Hidden field + submit hook for the form with id $formId; '' when disabled. The form posts once a
      * token is in the field (a blocked Google script still submits; the server then refuses).
      */
-    public static function formTags(string $formId): string
+    public static function formTags(string $formId, string $action = self::ACTION): string
     {
         if (!self::enabled()) return '';
         $key = json_encode((string)RECAPTCHA_V3_SITE_KEY);
         $fid = json_encode($formId);
-        $act = json_encode(self::ACTION);
-        return '<input type="hidden" name="recaptcha_v3_token" id="recaptcha_v3_token" value="">'
+        $act = json_encode($action);   // LoginCaptcha passes 'login'
+        // form="…" lets the field sit after the form, so the hook can be placed after the page's own submit checks:
+        // a check that cancels the submit (e.g. the sign-in page's short-password guard) then wins.
+        return '<input type="hidden" name="recaptcha_v3_token" id="recaptcha_v3_token" value="" form="' . htmlspecialchars($formId, ENT_QUOTES, 'UTF-8') . '">'
             . "<script>(function(){var f=document.getElementById($fid);if(!f)return;var done=false;"
-            . "f.addEventListener('submit',function(e){if(done)return;e.preventDefault();"
-            . "function go(){done=true;f.submit();}"
+            . "f.addEventListener('submit',function(e){if(done||e.defaultPrevented)return;e.preventDefault();"
+            . "function go(){if(done)return;done=true;f.submit();}setTimeout(go,6000);"
             . "if(typeof grecaptcha==='undefined'){go();return;}"
             . "grecaptcha.ready(function(){grecaptcha.execute($key,{action:$act}).then(function(t){"
             . "document.getElementById('recaptcha_v3_token').value=t;go();},go);});});})();</script>";

@@ -25,15 +25,17 @@ if (!in_array($method, ['GET', 'POST'], true)) {
 }
 
 $jwtUser = requireJwt();
-$svc = new OnboardingService(new OnboardingContext(getDB(), (int)$jwtUser['id']));
+$decoded = $method === 'POST' ? json_decode((string)file_get_contents('php://input'), true) : null;
+$body = is_array($decoded) ? $decoded : [];
+// ?knows=terms,gst,... (or "knows" in the POST body) — the new steps this app can show; none given = an old app, which never sees them.
+$knows = OnboardingService::knowsFrom($_GET['knows'] ?? ($body['knows'] ?? ''));
+$svc = new OnboardingService(new OnboardingContext(getDB(), (int)$jwtUser['id']), null, $knows);
 if ($method === 'POST') {
     if (!jwtIsAdmin((string)$jwtUser['role'])) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'forbidden']);
         exit;
     }
-    $decoded = json_decode((string)file_get_contents('php://input'), true);
-    $body = is_array($decoded) ? $decoded : [];
     $key = trim((string)($body['key'] ?? ''));
     $action = trim((string)($body['do'] ?? ''));
     if ($svc->module($key) === null) {
@@ -55,5 +57,5 @@ if ($method === 'POST') {
     }
 }
 
-$data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[0]);
+$data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[0], $knows);
 echo json_encode(OnboardingApiPresenter::present($svc->map(), $svc->next(), $svc->readyToFinish(), $data));

@@ -57,4 +57,28 @@ class StoredPdfPathTest extends TestCase
         $this->assertStringContainsString('StoredPdfPath::resolve(', $src);
         $this->assertStringContainsString("requirePermission('billing.view')", $src);
     }
+
+    /** Per-business folders (2026-11-06). */
+    public function testDefaultBusinessAcceptsFlatPathsAndRefusesTenantSegment(): void
+    {
+        $this->assertNotNull(StoredPdfPath::resolve('storage/pdfs/invoices/INV-1.pdf', $this->root, false, 'default'));
+        $this->assertNull(StoredPdfPath::resolve('storage/pdfs/t/rehearsal2/invoices/INV-1.pdf', $this->root, false, 'default'));
+    }
+
+    public function testTenantAcceptsOnlyItsOwnSegment(): void
+    {
+        $ok = StoredPdfPath::resolve('app/Storage/pdfs/t/rehearsal2/invoices/INV-1.pdf', $this->root, false, 'rehearsal2');
+        $this->assertSame($this->root . '/pdfs/t/rehearsal2/invoices/INV-1.pdf', $ok);
+        $this->assertNull(StoredPdfPath::resolve('app/Storage/pdfs/t/other-co/invoices/INV-1.pdf', $this->root, false, 'rehearsal2'));
+        $this->assertNull(StoredPdfPath::resolve('storage/pdfs/invoices/INV-1.pdf', $this->root, false, 'rehearsal2'));
+    }
+
+    public function testTenantReadsItsOwnFileButNotTheDefaultsWithSameName(): void
+    {
+        mkdir($this->root . '/pdfs/t/rehearsal2/invoices', 0777, true);
+        file_put_contents($this->root . '/pdfs/t/rehearsal2/invoices/INV-1.pdf', '%PDF');
+        $own = StoredPdfPath::resolve('storage/pdfs/t/rehearsal2/invoices/INV-1.pdf', $this->root, true, 'rehearsal2');
+        $this->assertSame(realpath($this->root . '/pdfs/t/rehearsal2/invoices/INV-1.pdf'), $own);
+        $this->assertNull(StoredPdfPath::resolve('storage/pdfs/t/rehearsal2/invoices/INV-1.pdf', $this->root, true, 'default'));
+    }
 }

@@ -169,7 +169,7 @@ final class SignUpService
             $owner['password_hash'] = $hash;
             $owner['full_name'] = trim($first . ' ' . $last);
             $owner['role'] = 'admin';
-            $next = (new OnboardingService($context))->next();
+            $next = (new OnboardingService($context, null, []))->next();   // phone sign-up: only steps the first apps know
             $token = $issueToken !== null ? $issueToken($owner) : null;
             try {
                 $this->db->prepare("INSERT INTO activity_log (user_id, action, details, ip_address) VALUES (?, 'Sign-up (mobile)', 'Business claimed, JWT issued', ?)")->execute([$ownerId, $ip]);

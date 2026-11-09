@@ -131,6 +131,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $hash = password_hash($newPass, PASSWORD_DEFAULT);
                     $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1")
                        ->execute([$hash, $targetUserId]);
+                    // A password change also ends every "trusted device" for two-step sign-in (migration 1440; no-op without it).
+                    try { (new TwoStepService($db, null))->revokeAllDevices($targetUserId); } catch (Throwable $e) { error_log('two-step devices not revoked: ' . $e->getMessage()); }
                     if ($targetUserId === (int)$user['id']) {
                         // Own password: keep this session; the person's other sessions end (#12).
                         $_SESSION['pwd_v'] = AuthFreshness::passwordVersion($hash);

@@ -40,7 +40,7 @@ if (!$rawPath) {
 // Fable #8 (2026-10-12): only PDFs in the document folders — never anything else in storage
 // (token caches, schema snapshots, supplier/company documents, backups).
 require_once APP_ROOT . '/Core/StoredPdfPath.php';
-$realAbs = StoredPdfPath::resolve($rawPath, STORAGE_ROOT);
+$realAbs = StoredPdfPath::resolve($rawPath, STORAGE_ROOT, true, Tenant::key());
 if ($realAbs === null) {
     http_response_code(404);
     exit('File not found.');

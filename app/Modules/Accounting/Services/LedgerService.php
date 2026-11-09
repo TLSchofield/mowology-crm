@@ -392,6 +392,8 @@ class LedgerService
         // A personal purchase charged to a shareholder (1300 Tim, 1302 Katrenna …) is not a business
         // input: no GST is claimed back, the whole receipt goes on the shareholder's account (2026-10-19).
         if (self::isShareholderAccount((string)$exp['expense_account'])) $claim = 0.0;
+        // A business not registered for GST claims nothing back: the GST stays in the cost (claim_itc false, set only then).
+        if (($exp['claim_itc'] ?? true) === false) $claim = 0.0;
 
         $lines = [];
         $lines[] = [
@@ -437,6 +439,7 @@ class LedgerService
             $pst = round((float)($a['pst'] ?? 0), 2);
             $claim = !empty($a['meals']) ? round($gst * $rate, 2) : $gst;
             if (self::isShareholderAccount((string)$a['account'])) $claim = 0.0;   // personal share: no ITC
+            if (($exp['claim_itc'] ?? true) === false) $claim = 0.0;   // not registered for GST: the GST stays in the cost
             $itc += $claim;
             $total += $net + $gst + $pst;
             $debit = round($net + $pst + $gst - $claim, 2);

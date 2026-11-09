@@ -40,10 +40,7 @@ $html = '<p>Your Ittai code is <strong>' . h($code) . '</strong>.</p><p>It expir
 $emailSent = false;
 try { $emailSent = sendCrmEmail($email, 'Your Ittai code', $html); } catch (Throwable $e) { error_log('[signup] Email failed: ' . get_class($e)); }
 if (!$emailSent && !$local) { $service->clearCode(); http_response_code(502); echo json_encode(['ok' => false, 'error' => 'send_failed']); exit; }
-$sent = ['email'];
-try {
-    $sms = sendSms((string)$body['mobile'], 'Your Ittai code is ' . $code . '. It expires in 15 minutes.');
-    if (!empty($sms['success'])) $sent[] = 'sms';
-    else error_log('[signup] SMS failed');
-} catch (Throwable $e) { error_log('[signup] SMS failed: ' . get_class($e)); }
-echo json_encode(SignUpService::requestResponse($sent, $code, $local));
+// Email only: the claim proves the owner holds the email on file. The code used to be texted to the mobile in this
+// request too — a number the caller chooses — so anyone knowing an unclaimed owner's email could claim the business
+// (security review 2026-11-06, #2). The mobile is still saved with the claim; it just never receives the code.
+echo json_encode(SignUpService::requestResponse(['email'], $code, $local));

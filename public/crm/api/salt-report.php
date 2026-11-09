@@ -119,10 +119,11 @@ if ($action === 'email_pm') {
         exit;
     }
 
-    $pdfAbs = (defined('STORAGE_ROOT') ? STORAGE_ROOT : APP_ROOT . '/Storage')
-        . '/pdfs/salt-reports/' . basename($report['pdf_path']);
+    // Only this business's own folder (PdfStore): a path from another business resolves to null
+    require_once APP_ROOT . '/Core/PdfStore.php';
+    $pdfAbs = PdfStore::absoluteFromStored((string)$report['pdf_path']);
 
-    if (!file_exists($pdfAbs)) {
+    if ($pdfAbs === null || !file_exists($pdfAbs)) {
         echo json_encode(['success' => false, 'error' => 'PDF file not found on disk — re-generate']);
         exit;
     }
