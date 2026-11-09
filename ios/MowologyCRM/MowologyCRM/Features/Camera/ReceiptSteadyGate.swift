@@ -162,6 +162,22 @@ enum ReceiptRetake {
     }
 }
 
+/// Which way a photo must turn so its printing reads normally. Measured on a real receipt (Mac, 2026-11-09): in all four
+/// rotations every line ran the same way, about 300 characters to 0, so a mixed or thin result means leave the photo alone.
+enum ReceiptPrintTurn {
+    static let minCharacters = 40
+    static let minShare = 0.7
+
+    /// `votes`: characters in lines running right, down, left and up in the photo.
+    /// Returns the index of the clear winner (0 = already reads normally), or 0 when there is none.
+    static func quarterTurns(votes: [Int]) -> Int {
+        let total = votes.reduce(0, +)
+        guard votes.count == 4, total >= minCharacters, let top = votes.max(), let i = votes.firstIndex(of: top),
+              Double(top) / Double(total) >= minShare else { return 0 }
+        return i
+    }
+}
+
 /// `ios.receipt_own_camera: false` in app-version.json goes back to Apple's document camera without a new build.
 enum ReceiptCameraSwitch {
     private static let key = "receipt_own_camera_off"

@@ -326,7 +326,7 @@ struct ReceiptsView: View {
             let done: [(Data, ReceiptPhotoPrep.Outcome?)] = await Task.detached(priority: .userInitiated) {
                 images.map { image in
                     guard !asLabel else { return (ReceiptsView.resizeAndCompress(image), nil) }
-                    let prep = ReceiptPhotoPrep.prepare(image, alreadyCropped: scanned)
+                    let prep = ReceiptPhotoPrep.prepare(image, alreadyCropped: scanned, turnByPrinting: !scanned)
                     return (ReceiptsView.resizeAndCompress(prep.image), prep)
                 }
             }.value
