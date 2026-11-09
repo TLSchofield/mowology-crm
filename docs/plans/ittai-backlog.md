@@ -24,9 +24,11 @@ trades first. The AI back office is the edge.
   `docs/plans/2026-11-07-contact-left-the-building.md`.
 - **One search box for the owner — phase 1 BUILT 2026-11-06** (iPhone Search tab + web global search on
   `UniversalSearchService`; `ClientFactAnswerer` answers quote sent? / owes? / next visit? / last message? with
-  Open/Call/Text/Email; Ask Kaname row; client page; picks learned in `search_picks`, migration 1441). Phase 2: tap a
-  person to make a chip that narrows the search ("Linda ×" + "unpaid"), verbs ("call linda", "nudge linda", "invoice
-  linda"), a big mic button, "Nothing found → what did you mean?" teaching the word pool, Nudge / Send reminder buttons.
+  Open/Call/Text/Email; Ask Kaname row; client page; picks learned in `search_picks`, migration 1441). **Phase 2 BUILT
+  2026-11-06:** client chip ("Only Linda" swipe → "Linda ×" + "unpaid"), filter words (overdue, unpaid, draft, open,
+  accepted + group words), commands (call/text/email/nudge/remind/open), Nudge/Remind open the owner's own Messages/Mail
+  with the text written (nothing sent by the server), voice search, "you picked before" for a word that found nothing.
+  Still open: a native company page; "invoice linda" (create an invoice by voice); the shared per-trade word pool.
 - **Ask Kaname buttons:** (Open / Call / Text / Email shipped with the owner search, 2026-11-06; Nudge / Send reminder
   still to do) every answer gets up to 3 rule-chosen actions for the record it is about (quote sent, not
   accepted → "Nudge <name>" opening Sam's follow-up + "Open quote"; overdue invoice → "Send reminder" via Penny + "Open

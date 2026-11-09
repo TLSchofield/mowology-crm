@@ -124,6 +124,8 @@ class OttoActionService
                 return $this->close($sug, 'accepted', ['choice' => 'move', 'from' => $propose['from'] ?? null, 'to' => $sug['for_date']], $actorId,
                     'Moved to ' . date('D M j', strtotime((string)$sug['for_date'])) . '.');
             case 'duration':    return $this->duration($sug, $propose, $choice, $in, $actorId);
+            case 'visit_window':
+            case 'visit_window_done': return $this->visitWindow($sug, $propose, $choice, $actorId);
             case 'no_pin':
             case 'pin_off':
             case 'default_border':
@@ -404,6 +406,28 @@ class OttoActionService
         $out = $this->close($sug, $status, ['choice' => 'apply', 'minutes' => $minutes, 'was' => $r['old'], 'change_id' => $r['change_id'], 'suggested' => $propose['minutes'] ?? null], $actorId, $r['message']);
         $out['change_id'] = $r['change_id'];
         return $out;
+    }
+
+    /**
+     * A weekday's booked end against real finishes (VisitWindowService, migration 1444).
+     *   visit_window       set_window → upcoming visits of that weekday move to the new end; keep → quiet for 3 more visits
+     *   visit_window_done  undo_window → puts it back
+     */
+    private function visitWindow(array $sug, array $propose, string $choice, int $actorId): array
+    {
+        require_once __DIR__ . '/VisitWindowService.php';
+        $svc = new VisitWindowService($this->db);
+        if ($sug['kind'] === 'visit_window_done') {
+            if ($choice !== 'undo_window') return ['ok' => false, 'message' => 'Undo it, or is it fine?'];
+            $r = $svc->undo((int)$sug['subject_id'], $actorId);
+            return $r['ok'] ? $this->close($sug, 'dismissed', ['choice' => 'undo'], $actorId, $r['message']) : $r;   // an undo is not a kept call
+        }
+        $dow = (int)($propose['dow'] ?? -1);
+        if ($choice === 'keep') return $this->close($sug, 'dismissed', ['choice' => 'keep', 'dow' => $dow], $actorId, 'Left as it is.');
+        if ($choice !== 'set_window') return ['ok' => false, 'message' => 'Change the time, or leave it?'];
+        $r = $svc->apply((int)$sug['subject_id'], $dow, (string)($propose['old_end'] ?? ''), (string)($propose['end'] ?? ''), $actorId, $propose);
+        if (!$r['ok']) return $r;
+        return $this->close($sug, 'accepted', ['choice' => 'set_window', 'dow' => $dow, 'end' => $propose['end'] ?? null, 'change_id' => $r['change_id']], $actorId, $r['message']);
     }
 
     private function visitNote(int $visitId, string $text, int $actorId): void
