@@ -27,8 +27,7 @@ struct VisitPhoto: Decodable, Identifiable {
     /// Paths come back web-root relative.
     var thumbnailURL: URL? {
         let path = (thumbUrl?.isEmpty == false ? thumbUrl : nil) ?? photoUrl
-        if path.hasPrefix("http") { return URL(string: path) }
-        return URL(string: "https://mowology.ca" + path)
+        return Server.url(path)
     }
 }
 

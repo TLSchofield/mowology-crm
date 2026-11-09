@@ -30,7 +30,7 @@ final class VersionCheckService {
     private init() {}
 
     func check() async -> VersionCheckResult {
-        guard let url = URL(string: "https://mowology.ca/crm/api/app-version.php") else {
+        guard let url = Server.url("/crm/api/app-version.php") else {
             return .noUpdate
         }
 

@@ -22,7 +22,7 @@ struct TeamHead: Identifiable, Hashable {
     let isLive: Bool
 
     var id: String { slug }
-    var faceURL: URL? { URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg") }
+    var faceURL: URL? { Server.url("/crm/img/heads/\(slug).jpg") }
 
     static let all: [TeamHead] = [
         TeamHead(slug: "penny",   name: "Penny",   role: "Bookkeeper",     isLive: true),

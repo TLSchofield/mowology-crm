@@ -3,7 +3,7 @@
 //  MowologyCRM
 //
 //  A department head's face (Yui, Otto, …) from the same URL the Team tab uses
-//  (TeamHead.faceURL → https://mowology.ca/crm/img/heads/<slug>.jpg), kept in a small disk
+//  (TeamHead.faceURL → Server.url("/crm/img/heads/<slug>.jpg")), kept in a small disk
 //  cache so the special-request screen still shows the face with no signal. Falls back to the
 //  head's initial on a green disc.
 //
@@ -27,7 +27,7 @@ final class HeadFaceCache {
 
     static func url(for slug: String) -> URL? {
         TeamHead.all.first { $0.slug == slug }?.faceURL
-            ?? URL(string: "https://mowology.ca/crm/img/heads/\(slug).jpg")
+            ?? Server.url("/crm/img/heads/\(slug).jpg")
     }
 
     /// Memory, then disk. Never touches the network.

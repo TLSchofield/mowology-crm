@@ -41,7 +41,7 @@ struct QuizQuestionImage: Decodable, Hashable {
         case caption
     }
 
-    var url: URL? { URL(string: imagePath.hasPrefix("http") ? imagePath : "https://mowology.ca" + imagePath) }
+    var url: URL? { Server.url(imagePath) }
 }
 
 struct QuizQuestionDetail: Decodable {

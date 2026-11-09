@@ -184,6 +184,7 @@
 		30BAFDD47D77E76AD590AB92 /* AddInvoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1303D0755EC72E72182B115B /* AddInvoiceView.swift */; };
 		04ADBD8227D60684D3E114D1 /* ReceiptCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1E7CEBFCF8EA9921483CEA4 /* ReceiptCameraView.swift */; };
 		EAC6FF3AB99854195DB15F47 /* ReceiptSteadyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20ED7D7CCD650C26AF73140 /* ReceiptSteadyGate.swift */; };
+		1BBFCDF535B9F7AC304B4E5C /* Server.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5882047C6D052F47162AF64C /* Server.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -366,6 +367,7 @@
 		1303D0755EC72E72182B115B /* AddInvoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddInvoiceView.swift; sourceTree = "<group>"; };
 		C1E7CEBFCF8EA9921483CEA4 /* ReceiptCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCameraView.swift; sourceTree = "<group>"; };
 		F20ED7D7CCD650C26AF73140 /* ReceiptSteadyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSteadyGate.swift; sourceTree = "<group>"; };
+		5882047C6D052F47162AF64C /* Server.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Server.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -410,6 +412,7 @@
 				6D504DC78E053FE292176721 /* DeviceTokenService.swift */,
 				BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */,
 				5F8E36570080B9C5C39E87B6 /* KnowledgeAPI.swift */,
+				5882047C6D052F47162AF64C /* Server.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -988,6 +991,7 @@
 				30BAFDD47D77E76AD590AB92 /* AddInvoiceView.swift in Sources */,
 				04ADBD8227D60684D3E114D1 /* ReceiptCameraView.swift in Sources */,
 				EAC6FF3AB99854195DB15F47 /* ReceiptSteadyGate.swift in Sources */,
+				1BBFCDF535B9F7AC304B4E5C /* Server.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1061,7 +1065,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.133;
+				MARKETING_VERSION = 1.3.134;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1147,7 +1151,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.133;
+				MARKETING_VERSION = 1.3.134;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
