@@ -592,3 +592,8 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 iPhone 1.3.133 won't shoot a receipt until the phone, the receipt and the focus are steady, and keeps the light on
 (`ReceiptCameraView`, `ReceiptSteadyGate`). Android still shoots whenever tapped. Wait until the iPhone's steadiness
 numbers are tuned on real receipts, then copy them. **Shared:** the rule and the numbers. **Private:** nothing.
+
+## Add Job: last-charged price on Android and web (Tim 2026-11-09)
+iPhone 1.3.135 offers "Last charged $X" under the price box (`FieldJobService::lastPrice`, `?mode=last_price`). The server
+side is shared; Android and the web overlay (`public/crm/js/field-job.js`) still need the button. **Shared:** the matching
+rule. **Private:** each business's own prices.

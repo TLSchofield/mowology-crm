@@ -244,6 +244,7 @@ enum APIEndpoint {
 
     /// GET /api/schedule/field-job?mode=nearby — properties near a GPS fix, with their active plans.
     case fieldJobNearby(lat: Double, lng: Double)
+    case fieldJobLastPrice(propertyId: Int, serviceType: String)
 
     /// POST /api/schedule/field-job — add_visit | create_job | create_client_job.
     case fieldJobAction
@@ -633,6 +634,15 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .fieldJobLastPrice(let propertyId, let serviceType):
+            var components = URLComponents(string: "\(baseURLString)/schedule/field-job")
+            components?.queryItems = [
+                URLQueryItem(name: "mode", value: "last_price"),
+                URLQueryItem(name: "property_id", value: "\(propertyId)"),
+                URLQueryItem(name: "service_type", value: serviceType),
+            ]
+            return components?.url
+
         case .fieldJobAction:
             return URL(string: "\(baseURLString)/schedule/field-job")
 
@@ -780,6 +790,7 @@ enum APIEndpoint {
              .scheduleVisitPhotos,
              .scheduleVisitPhotoHistory,
              .fieldJobNearby,
+             .fieldJobLastPrice,
              .fieldJobAction,
              .tasksMobile,
              .tasksMobileCreate,
@@ -881,6 +892,7 @@ enum APIEndpoint {
              .scheduleVisitPhotoHistory,
              .scheduleTimerActive,
              .fieldJobNearby,
+             .fieldJobLastPrice,
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,

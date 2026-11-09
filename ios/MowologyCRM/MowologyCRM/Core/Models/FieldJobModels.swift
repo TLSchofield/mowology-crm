@@ -51,6 +51,14 @@ struct FieldJobNearbyResponse: Decodable {
     }
 }
 
+/// What this property was last charged for this kind of job, before GST.
+struct FieldJobLastPrice: Decodable, Equatable {
+    let found: Bool
+    let price: Double?
+    let label: String?
+    let when: String?
+}
+
 struct FieldJobActionResponse: Decodable {
     let success: Bool
     let error: String?
