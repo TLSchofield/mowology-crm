@@ -53,18 +53,28 @@ class AgentRegistryAndEvalsTest extends TestCase
 
     public function testEveryLlmSkillLabelIsReallyUsedWhereDeclared(): void
     {
-        $src = '';
-        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(self::root() . '/app', FilesystemIterator::SKIP_DOTS));
-        foreach ($it as $f) {
-            if ($f->getExtension() === 'php' && $f->getBasename('.php') !== 'SkillRegistry') {
-                $src .= file_get_contents($f->getPathname());
-            }
-        }
+        // One file at a time: concatenating all of app/ (16 MB by 2026-11-09) blew the 128M default memory limit.
+        $missing = [];
         foreach (SkillRegistry::all() as $k) {
             if ($k['llm'] !== null) {
-                $this->assertStringContainsString("'skill' => '" . $k['llm'] . "'", $src, "no gateway call labelled {$k['llm']}: cost lines would not match this skill");
+                $missing[$k['llm']] = "'skill' => '" . $k['llm'] . "'";
             }
         }
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(self::root() . '/app', FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $f) {
+            if ($missing === []) {
+                break;
+            }
+            if ($f->getExtension() === 'php' && $f->getBasename('.php') !== 'SkillRegistry') {
+                $src = (string)file_get_contents($f->getPathname());
+                foreach ($missing as $label => $needle) {
+                    if (strpos($src, $needle) !== false) {
+                        unset($missing[$label]);
+                    }
+                }
+            }
+        }
+        $this->assertSame([], array_keys($missing), 'no gateway call labelled with these skills: cost lines would not match them');
     }
 
     public function testEveryHeadCronIsInTheCronsTab(): void

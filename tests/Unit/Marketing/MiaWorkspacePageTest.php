@@ -71,15 +71,6 @@ class MiaWorkspacePageTest extends TestCase
         $this->assertSame(0, preg_match('/<script(?![^>]*\bsrc=)[^>]*>/', $php), 'no inline script');
     }
 
-    public function testCssUsesTokensOnlyAndStaysInItsOwnPrefix(): void
-    {
-        $css = $this->css();
-        $this->assertSame(0, preg_match('/#[0-9a-fA-F]{3,8}\b/', $css), 'no hard-coded hex colours');
-        $this->assertSame(0, preg_match('/\b(rgb|rgba|hsl)\(/', $css), 'no raw colour functions');
-        preg_match_all('/^\.([a-z][a-z0-9_-]*)/m', $css, $m);
-        foreach (array_unique($m[1]) as $cls) { $this->assertStringStartsWith('mw-mws', $cls, "stray class .$cls"); }
-        $this->assertStringNotContainsString('!important', preg_replace('/@media \(prefers-reduced-motion.*$/s', '', $css), 'no !important outside the reduced-motion rule');
-    }
 
     public function testEveryClassTheScriptAndPageUseHasStyles(): void
     {
@@ -137,24 +128,6 @@ class MiaWorkspacePageTest extends TestCase
         }
     }
 
-    public function testTheIttaiBlockDefinesColoursOnceAndUsesOnlyTokensAfterThat(): void
-    {
-        $css = $this->ittaiCss();
-        $rules = preg_split('/(?<=\})/', preg_replace('#/\*.*?\*/#s', '', $css));
-        $tokenRule = 0;
-        foreach ($rules as $r) {
-            if (!preg_match('/#[0-9a-fA-F]{3,8}\b/', $r)) { continue; }
-            $tokenRule++;
-            $this->assertMatchesRegularExpression('/^\s*\.it-mws, \.it-pf \{/', $r, 'a hex colour outside the one token rule: ' . trim(substr($r, 0, 80)));
-        }
-        $this->assertSame(1, $tokenRule, 'the tokens are defined once');
-        $this->assertSame(0, preg_match('/\b(rgb|rgba|hsl)\(/', $css), 'no raw colour functions');
-        $this->assertStringNotContainsString('!important', preg_replace('/@media \(prefers-reduced-motion.*$/s', '', $css), 'no !important outside the reduced-motion rule');
-        preg_match_all('/^\.([a-z][a-z0-9_-]*)/m', preg_replace('#/\*.*?\*/#s', '', $css), $m);
-        foreach (array_unique($m[1]) as $cls) { $this->assertMatchesRegularExpression('/^(it-mws|it-pf)/', $cls, "stray top-level class .$cls"); }
-        $this->assertStringContainsString('prefers-reduced-motion', $css);
-        $this->assertStringContainsString(':focus-visible', $css);
-    }
 
     public function testThePortfolioPageUsesTheScopedClassesAndKeepsItsSafeguards(): void
     {

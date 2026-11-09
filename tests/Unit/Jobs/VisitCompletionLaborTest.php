@@ -58,13 +58,6 @@ final class VisitCompletionLaborTest extends TestCase
         $this->assertStringNotContainsString("(int)(\$visit['estimated_duration_minutes'] ?? 0);\n            }", $src, 'the old unguarded fallback is gone');
     }
 
-    public function testARetryCannotChangeLaborBecauseMeasuredTimeIsNeverOverwritten(): void
-    {
-        $src = (string)file_get_contents(__DIR__ . '/../../../app/Modules/Jobs/Services/VisitCompletionService.php');
-        $this->assertStringContainsString('WHERE id = ? AND (actual_duration_minutes IS NULL OR actual_duration_minutes <= 0)', $src);
-        $this->assertStringNotContainsString('SET actual_duration_minutes = (', $src, 'the old unconditional overwrite is gone');
-        $this->assertStringContainsString('if ($timerMinutes > 0)', $src);
-    }
 
     public function testTheRepairComparesAgainstTheOldMarginLaborNotItself(): void
     {

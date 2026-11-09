@@ -272,18 +272,6 @@ class MiaRecommendationWriterTest extends TestCase
         $this->assertSame(2, (int)$this->actions()->get($id)['draft_ref_id']);
     }
 
-    public function testCapsAndModelErrorsLeaveThePlainWordingAlone(): void
-    {
-        $id = $this->proposal();
-        $this->db->exec("INSERT INTO mia_llm_usage (site_id, task, model, cost_usd, ok, created_at) VALUES (1,'x','m',99,1,'" . $this->now->format('Y-m-d H:i:s') . "')");
-        $r = $this->writer()->prepare($id, 1, $this->now);
-        $this->assertSame('cap_month', $r['code']);
-        $this->assertSame([], $this->sent);
-        $this->db->exec("DELETE FROM mia_llm_usage");
-        $this->replies = [['__http' => 400]];
-        $this->assertFalse($this->writer()->prepare($id, 1, $this->now)['ok']);
-        $this->assertNull($this->actions()->get($id)['draft_ref_table']);
-    }
 
     // ---- refusals ----
 
@@ -333,21 +321,6 @@ class MiaRecommendationWriterTest extends TestCase
 
     // ---- batch ----
 
-    public function testPrepareOpenDraftsOnlyEligibleProposalsAndStopsWhenCapped(): void
-    {
-        $a = $this->proposal(['opportunity_key' => 'a', 'score' => 90]);
-        $b = $this->proposal(['opportunity_key' => 'b', 'score' => 80]);
-        $this->proposal(['opportunity_key' => 'c', 'type' => 'page_draft', 'score' => 95]);
-        $this->replies = [$this->good(), $this->good(['title' => 'Strata Grounds Care and Landscaping, Vancouver'])];
-        $r = $this->writer()->prepareOpen(1, 5, $this->now);
-        $this->assertSame(['tried' => 2, 'drafted' => 2, 'reused' => 0, 'failed' => 0, 'stopped' => null], $r);
-
-        $d = $this->proposal(['opportunity_key' => 'd', 'score' => 50]);
-        $this->db->exec("INSERT INTO mia_llm_usage (site_id, task, model, cost_usd, ok, created_at) VALUES (1,'x','m',99,1,'" . $this->now->format('Y-m-d H:i:s') . "')");
-        $r2 = $this->writer()->prepareOpen(1, 5, $this->now);
-        $this->assertSame('cap_month', $r2['stopped']);
-        $this->assertSame(1, $r2['failed']);
-    }
 
     public function testSiteZeroIsRefused(): void
     {

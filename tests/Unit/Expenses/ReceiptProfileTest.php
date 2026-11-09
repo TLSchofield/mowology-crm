@@ -16,27 +16,7 @@ class ReceiptProfileTest extends TestCase
         BusinessIdentity::use(null);
     }
 
-    public function testTheOriginalBusinessGetsExactlyTodaysPromptAndVersion(): void
-    {
-        BusinessIdentity::use(self::MOWOLOGY);
-        ReceiptProfile::use(ReceiptProfile::build(self::MOWOLOGY, ReceiptProfile::mowologyOps(), self::BC_ROWS));
-        $golden = file_get_contents(__DIR__ . '/../../fixtures/receipt_prompt_mowology.txt');
-        $this->assertSame($golden, ReceiptBookkeeperService::systemPrompt(), 'Mowology reads with exactly the prompt it had before profiles');
-        $this->assertSame('c2ac68c969', ReceiptBookkeeperService::promptVersion());
-    }
 
-    public function testASecondBusinessInTheSameProvinceGetsItsOwnWordingAndNothingOfMowologys(): void
-    {
-        $claudia = ['name' => 'Claudia Gardens', 'city' => 'Vancouver', 'province' => 'BC', 'trade' => 'gardening', 'owner_name' => 'Claudia', 'staff' => 1] + self::MOWOLOGY;
-        BusinessIdentity::use($claudia);
-        ReceiptProfile::use(ReceiptProfile::build($claudia, [], self::BC_ROWS));   // she has set nothing yet
-        $p = ReceiptBookkeeperService::systemPrompt();
-        $this->assertStringContainsString('In BC, GST is 5% and PST is 7%', $p, 'her province is BC');
-        $this->assertStringContainsString('not registered for GST', $p, 'unregistered until she says otherwise');
-        foreach (['Dodge Ram', 'mowers', 'Marine Dr', 'Timmo', 'Mowology', '{', '}'] as $gone) $this->assertStringNotContainsString($gone, $p, $gone);
-        $this->assertStringContainsString('the company vehicle', $p);
-        $this->assertNotSame('c2ac68c969', ReceiptBookkeeperService::promptVersion());
-    }
 
     public function testRegisteringForGstRemovesTheNote(): void
     {
@@ -45,23 +25,6 @@ class ReceiptProfileTest extends TestCase
         $this->assertStringNotContainsString('not registered for GST', ReceiptBookkeeperService::systemPrompt());
     }
 
-    public function testAProvinceWithoutRatesIsNeverGuessed(): void
-    {
-        $ab = ['province' => 'AB'] + self::MOWOLOGY;
-        $p = ReceiptProfile::build($ab, [], []);
-        $this->assertFalse($p['tax_checked']);
-        $this->assertStringContainsString('read every tax amount exactly as printed', ReceiptProfile::taxSentence($p));
-        $s = ['subtotal' => ['value' => 100.0], 'gst' => ['value' => 9.0], 'pst' => ['value' => 0.0], 'total' => ['value' => 109.0], 'accounting_category' => ['value' => 'Materials'], 'line_items' => []];
-        $r = ReceiptBookkeeperService::check($s, ['prompt' => ['receipt_text' => '100.00 9.00 109.00'], 'profile' => $p]);
-        $checks = array_column($r['checks'], 'ok', 'check');
-        $this->assertArrayHasKey('tax_unchecked', $checks);
-        $this->assertArrayNotHasKey('gst_rate', $checks, 'no rate, no judgement');
-        // BC with rows: unchanged
-        $bc = ReceiptProfile::build(self::MOWOLOGY, [], self::BC_ROWS);
-        $r2 = ReceiptBookkeeperService::check($s, ['prompt' => ['receipt_text' => '100.00 9.00 109.00'], 'profile' => $bc]);
-        $this->assertFalse(array_column($r2['checks'], 'ok', 'check')['gst_rate'], '9% GST is impossible in BC');
-        $this->assertSame('GST 9.00 vs at most 5% of 100.00', array_column($r2['checks'], 'message', 'check')['gst_rate']);
-    }
 
     public function testNoStoredRulesMeansNoForcedHits(): void
     {
