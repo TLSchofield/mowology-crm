@@ -73,6 +73,9 @@ try {
     $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'desk');
 
     $db = getDB();
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    // A lost answer + retry must not send a second SMS/email/quote or accept twice (same key = same action).
+    IdempotencyGuard::begin($db, (int)$user['id'], 'sales-head-mobile', $mode, ['send', 'park', 'draft_reply', 'handled', 'move', 'answer', 'send_quote', 'accept_signed', 'not_acceptance', 'approval_seen']);
 
     require_once APP_ROOT . '/Modules/Sales/Services/SalesDeskService.php';
     require_once APP_ROOT . '/Modules/Sales/Services/SamFollowupService.php';
