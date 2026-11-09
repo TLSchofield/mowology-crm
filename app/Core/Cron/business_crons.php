@@ -58,6 +58,27 @@ try {
         }
     }
     $results = BusinessCronFanout::runPairs($pairs);
+    // The fan-out covers the other businesses only; the original business's database is updated here, in this process.
+    $ownUpdate = null;
+    if (in_array('schema_update', $due, true)) {
+        require_once APP_ROOT . '/Modules/Database/Services/SchemaUpdater.php';
+        $t0 = microtime(true);
+        try {
+            $ownUpdate = SchemaUpdater::runHere('mowology', Database::ddl());
+        } catch (Throwable $e) {
+            $ownUpdate = ['summary' => 'schema_update mowology: FAILED ' . $e->getMessage(), 'failed' => true,
+                          'error' => $e->getMessage(), 'warnings' => false];
+        }
+        try {
+            recordCronRun('schema_update', $ownUpdate['failed'] ? 'error' : ($ownUpdate['warnings'] ? 'warning' : 'success'),
+                $ownUpdate['summary'], (int)round((microtime(true) - $t0) * 1000), $ownUpdate['error'], false);
+        } catch (Throwable $e) {
+            error_log('[schema_update] could not record the run: ' . $e->getMessage());
+        }
+        if ($ownUpdate['failed']) {
+            $results[] = ['key' => 'mowology', 'cron' => 'schema_update', 'exit' => 1, 'last_line' => $ownUpdate['summary']];
+        }
+    }
     $failed = array_values(array_filter($results, static function (array $r): bool {
         return (int)$r['exit'] !== 0;
     }));

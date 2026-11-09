@@ -644,3 +644,6 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/EmbedLeadRules.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/EmbedLeadService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/PipelineStageService.php';
+
+// Automatic database updater (2026-11-09)
+require_once __DIR__ . '/../app/Modules/Database/Services/SchemaUpdater.php';

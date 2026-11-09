@@ -146,6 +146,10 @@ RewriteRule ^sitemap\.xml$ /sitemap.php [L]
 # mowology.ca/crew → the crew app download (easy to type on a tablet). Point it at the release APK
 # (/crm/downloads/mowology-crew.apk) once 1.7.0 is released to everyone.
 RewriteRule ^crew/?$ /crm/downloads/mowology-crew-2.2.11-test.apk [NC,L,R=302]
+# The old app's own pages (sign-in banner, update page, tracking health) link the fixed name below. On this
+# business's address it leads to the current release too; the other businesses keep the file itself.
+RewriteCond %{HTTP_HOST} ^(www\.)?mowology\.ca$ [NC]
+RewriteRule ^crm/downloads/mowology-crew\.apk$ /crm/downloads/mowology-crew-2.2.11-test.apk [NC,L,R=302]
 
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]

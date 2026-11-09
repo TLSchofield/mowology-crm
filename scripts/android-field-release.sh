@@ -90,8 +90,9 @@ PY
 import re, sys
 p = "public/.htaccess"
 s = open(p).read()
-new, n = re.subn(r"(RewriteRule \^crew/\?\$ /crm/downloads/)\S+( \[NC,L,R=302\])", r"\g<1>" + sys.argv[1] + r"\g<2>", s)
-if n != 1: sys.exit("STOP  the /crew rule was not found exactly once in public/.htaccess")
+# Two rules lead to the release: /crew, and the fixed file name the old app's pages link.
+new, n = re.subn(r"(RewriteRule \^(?:crew/\?|crm/downloads/mowology-crew\\\.apk)\$ /crm/downloads/)\S+( \[NC,L,R=302\])", r"\g<1>" + sys.argv[1] + r"\g<2>", s)
+if n != 2: sys.exit("STOP  the two download rules were not both found in public/.htaccess")
 open(p, "w").write(new)
 PY
   say "prepared: $FEED and the /crew link now describe $(basename "$APK") (version $VERSION, build $BUILD)"
