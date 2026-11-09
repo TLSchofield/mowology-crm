@@ -2325,7 +2325,7 @@ function extractDate(string $text, ?string $order = null): ?string
     // The sale's date first: a line labelled as it, then the paper without the dates that are never the sale (return-by,
     // warranty, member since). Patterns run in a fixed order, so a return-by with a 4-digit year used to beat the sale's
     // 2-digit date (Fable review 2026-11-08). The whole text stays the last resort.
-    $notSale = '/^.*\b(?:returns?\s+(?:by|until|before)|exchange\s+by|valid\s+(?:until|thru|through)|expir\w*|exp\.?\s*date|warranty|member\s+since|due\s+(?:date|by)|best\s+before)\b.*$/im';
+    $notSale = '/^.*\b(?:returns?\s+(?:by|until|before)|exchange\s+by|valid\s+(?:until|thru|through)|expir\w*|exp\.?\s*date|warranty|member\s+since|due\s+(?:date|by)|best\s+before|(?:order|ship|shipped|delivery)\s+date)\b.*$/im';
     $withoutOthers = (string)preg_replace($notSale, '', $text);
     $labelled = preg_match_all('/^.*\b(?:(?:invoice|sale|sales|transaction|trans|purchase|receipt)\s+date|date\s*:).*$/im', $withoutOthers, $found) ? implode("\n", $found[0]) : '';
     foreach (array_unique(array_filter([$labelled, $withoutOthers, $text], 'strlen')) as $source) {

@@ -489,16 +489,30 @@ class PennyQuestionService
         $isNotice = (string)$c->fetchColumn() === 'notice';
         if (!in_array($answer, $isNotice ? ['seen', 'undo'] : ['file', 'keep'], true)) return ['ok' => false, 'message' => 'Unknown answer'];
         $res = ['ok' => true, 'message' => $answer === 'keep' ? "Left waiting. I won't ask about this one again." : 'Got it.'];
-        if (in_array($answer, ['file', 'undo'], true)) {
-            require_once __DIR__ . '/ClosedYearReceiptTrace.php';
-            $line = self::parseSubject('file_closed_year', $subject)['line_id'];
-            if (!$line || !$expenseId) return ['ok' => false, 'message' => 'Unknown answer'];
-            $trace = new ClosedYearReceiptTrace($this->db);
-            $res = $answer === 'file' ? $trace->fileProposed($expenseId, $line, $userId) : $trace->undo($expenseId, $line, $userId);
-            if (empty($res['ok'])) return $res;
+        // The filing (or Undo) and the question's answer together: one tap, one outcome.
+        $this->db->beginTransaction();
+        try {
+            if (in_array($answer, ['file', 'undo'], true)) {
+                require_once __DIR__ . '/ClosedYearReceiptTrace.php';
+                $line = self::parseSubject('file_closed_year', $subject)['line_id'];
+                if (!$line || !$expenseId) { $this->db->rollBack(); return ['ok' => false, 'message' => 'Unknown answer']; }
+                $trace = new ClosedYearReceiptTrace($this->db);
+                $res = $answer === 'file' ? $trace->fileProposed($expenseId, $line, $userId) : $trace->undo($expenseId, $line, $userId);
+                if (empty($res['ok'])) {
+                    // Out of date: the question goes, so the next save of the receipt can ask afresh.
+                    if (!empty($res['stale'])) $this->db->prepare("DELETE FROM penny_questions WHERE id = ?")->execute([$id]);
+                    $this->db->commit();
+                    unset($res['stale']);
+                    return $res;
+                }
+            }
+            $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
+               ->execute([$answer, $userId, $id]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
         }
-        $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
-           ->execute([$answer, $userId, $id]);
         return $res;
     }
 

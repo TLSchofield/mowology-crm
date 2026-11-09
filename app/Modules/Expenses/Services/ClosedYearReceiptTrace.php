@@ -122,21 +122,47 @@ final class ClosedYearReceiptTrace
         return ['action' => 'traced', 'transaction_id' => (int)$line['transaction_id']];
     }
 
-    /** A person said yes to Penny's question. @return array{ok: bool, message: string} */
+    /**
+     * A person said yes to Penny's question. The question was a snapshot: the receipt may have changed since, so the line
+     * must still be the one the rules pick. `stale` = the question no longer holds and should go.
+     * @return array{ok: bool, message: string, stale?: bool}
+     */
     public function fileProposed(int $expenseId, int $lineId, int $userId): array
     {
+        $s = $this->db->prepare("SELECT id, status, expense_date, total, payment_method FROM expenses WHERE id = ?");
+        $s->execute([$expenseId]);
+        $row = $s->fetch(PDO::FETCH_ASSOC);
+        $line = $row && self::applies($row)
+            ? self::pick($this->bank()->candidateTransactionsForExpense($expenseId, 8), (float)$row['total'], substr((string)$row['expense_date'], 0, 10))
+            : null;
+        if ($line === null || (int)$line['transaction_id'] !== $lineId) {
+            return ['ok' => false, 'stale' => true, 'message' => 'This receipt has changed since I asked, so I left it waiting.'];
+        }
         $why = $this->linkAndFile($expenseId, $lineId, $userId);
         return $why === null ? ['ok' => true, 'message' => 'Filed: kept with its photo and linked to its bank line, nothing booked again.']
                              : ['ok' => false, 'message' => $why];
     }
 
-    /** Undo Penny's own filing: the line is free again and the receipt is back waiting. @return array{ok: bool, message: string} */
+    /**
+     * Undo Penny's own filing: the line is free again and the receipt is back waiting. Only while the line is still this
+     * receipt's and the receipt is still filed: detaching a line unmatches everything on it.
+     * @return array{ok: bool, message: string, stale?: bool}
+     */
     public function undo(int $expenseId, int $lineId, int $userId): array
     {
         $own = !$this->db->inTransaction();
         if ($own) $this->db->beginTransaction();
         else $this->db->exec('SAVEPOINT closed_year_undo');
         try {
+            $l = $this->db->prepare("SELECT matched_expense_id FROM accounting_transactions WHERE id = ?");
+            $l->execute([$lineId]);
+            $e = $this->db->prepare("SELECT rejection_reason FROM expenses WHERE id = ? AND status = 'rejected'");
+            $e->execute([$expenseId]);
+            if ((int)$l->fetchColumn() !== $expenseId || strncmp((string)$e->fetchColumn(), 'Filed:', 6) !== 0) {
+                if ($own) $this->db->rollBack();
+                else $this->db->exec('ROLLBACK TO SAVEPOINT closed_year_undo');
+                return ['ok' => false, 'stale' => true, 'message' => 'That filing has already been changed, so I left it as it is.'];
+            }
             $this->bank()->detachExpenseMatch($lineId, $userId);
             (new ExpenseGate($this->db))->apply($expenseId, [
                 'status' => 'pending_approval', 'approved_by' => null, 'approved_at' => null, 'rejection_reason' => null,

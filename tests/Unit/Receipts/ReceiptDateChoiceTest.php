@@ -16,6 +16,11 @@ final class ReceiptDateChoiceTest extends TestCase
         $this->assertSame('2026-01-05', extractDate("Order 2025-12-20\nInvoice Date: 2026-01-05\nTOTAL 80.00"));
     }
 
+    public function testAnOrderDateNeverBeatsTheInvoiceDate(): void
+    {
+        $this->assertSame('2026-01-05', extractDate("Order Date: 2025-12-20\nInvoice Date: 01/05/26\nTOTAL 80.00"));
+    }
+
     public function testAnOrdinaryReceiptReadsAsBefore(): void
     {
         $this->assertSame('2026-02-13', extractDate("SHOP\nFeb 13, 2026\nTOTAL 9.00"));

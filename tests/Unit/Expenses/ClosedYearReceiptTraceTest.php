@@ -172,4 +172,38 @@ final class ClosedYearReceiptTraceTest extends TestCase
         $this->assertSame([[50, 4]], $bank->detached);
         $this->assertSame('held', $t->trace(7)['action']);
     }
+
+    public function testYesIsRefusedWhenTheReceiptChangedSinceAsked(): void
+    {
+        [$db, $bank] = $this->kit();
+        $db->exec("UPDATE expenses SET total = 38.40 WHERE id = 7");
+        $r = (new ClosedYearReceiptTrace($db, $bank))->fileProposed(7, 50, 4);
+        $this->assertFalse($r['ok']);
+        $this->assertTrue($r['stale']);
+        $this->assertSame('pending_approval', $this->receiptStatus($db));
+        $this->assertSame([], $bank->attached);
+    }
+
+    public function testUndoLeavesALineThatNowBelongsToAnotherReceipt(): void
+    {
+        [$db, $bank] = $this->kit();
+        $db->exec("INSERT INTO ops_settings (setting_key, setting_value) VALUES ('closed_year_autofile', 'auto')");
+        $t = new ClosedYearReceiptTrace($db, $bank);
+        $t->trace(7);
+        $db->exec("UPDATE accounting_transactions SET matched_expense_id = 99 WHERE id = 50");
+        $r = $t->undo(7, 50, 4);
+        $this->assertFalse($r['ok']);
+        $this->assertTrue($r['stale']);
+        $this->assertSame([], $bank->detached);
+        $this->assertSame('rejected', $this->receiptStatus($db));
+    }
+
+    public function testUndoLeavesAReceiptRejectedForAnotherReason(): void
+    {
+        [$db, $bank] = $this->kit();
+        $db->exec("UPDATE expenses SET status = 'rejected', rejection_reason = 'Personal' WHERE id = 7");
+        $db->exec("UPDATE accounting_transactions SET matched_expense_id = 7 WHERE id = 50");
+        $this->assertFalse((new ClosedYearReceiptTrace($db, $bank))->undo(7, 50, 4)['ok']);
+        $this->assertSame([], $bank->detached);
+    }
 }
