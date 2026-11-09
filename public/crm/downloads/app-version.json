@@ -2,8 +2,8 @@
   "android": {
     "version": "2.2.11",
     "build": 43,
-    "min_version": "2.2.11",
-    "min_build": 43,
+    "min_version": "2.2.10",
+    "min_build": 42,
     "apk_url": "/crm/downloads/mowology-crew-2.2.11-test.apk",
     "released": "2026-11-09",
     "release_notes": "The bottom bar now moves and behaves like the iPhone's: tap a tab again for its shortcut, hold New to add a job.",
