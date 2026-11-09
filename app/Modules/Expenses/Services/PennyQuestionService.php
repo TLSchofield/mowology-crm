@@ -17,7 +17,7 @@ class PennyQuestionService
 {
     public const BILLABLE_CATEGORIES = ['Materials', 'Disposal/Dump', 'Subcontractors'];
     /** 'billed' (2026-10-12): it is already on an invoice Penny didn't connect (Marc Nelitz's hedge disposal). */
-    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account', 'seen', 'use_bank_line', 'different'];
+    public const ANSWERS = ['invoice', 'contract', 'not_billable', 'billed', 'account', 'seen', 'use_bank_line', 'different', 'file', 'keep', 'undo'];
     /** Answers to a payment-source notice / question (ReceiptFundingCheck, 2026-10-12). */
     public const SOURCE_ANSWERS = ['seen', 'use_bank_line'];
     /** Give the owner time to invoice before asking; stop asking about old receipts. */
@@ -340,7 +340,7 @@ class PennyQuestionService
             $out[] = $r;
         }
         usort($out, fn($a, $b) => [(float)$b['amount'], $a['id']] <=> [(float)$a['amount'], $b['id']]);
-        return array_slice(array_merge($twins, $this->paymentSource(), $service, $out), 0, max(1, $limit));
+        return array_slice(array_merge($this->closedYear(), $twins, $this->paymentSource(), $service, $out), 0, max(1, $limit));
     }
 
     /** Parse the compact routing data stored with a twin question. */
@@ -354,8 +354,35 @@ class PennyQuestionService
         } elseif ($kind === 'bad_link' && preg_match('/^line:(\d+);right:(\d+)$/', $subject, $m)) {
             $out['line_id'] = (int)$m[1];
             $out['right_id'] = (int)$m[2];
+        } elseif ($kind === 'file_closed_year' && preg_match('/^line:(\d+)$/', $subject, $m)) {
+            $out['line_id'] = (int)$m[1];
         }
         return $out;
+    }
+
+    /**
+     * A receipt dated in a filed year and its one bank line (ClosedYearReceiptTrace): a question ("File it there?") or,
+     * in auto mode, a notice of what Penny filed, with Undo.
+     */
+    private function closedYear(): array
+    {
+        try {
+            $rows = $this->db->query("SELECT q.id, q.kind, q.expense_id, q.amount, q.question, q.category, q.subject
+                                      FROM penny_questions q JOIN expenses e ON e.id = q.expense_id
+                                      WHERE q.status = 'open' AND q.kind = 'file_closed_year'
+                                        AND (q.category = 'notice' OR e.status IN ('draft', 'pending_approval'))
+                                      ORDER BY q.id LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        foreach ($rows as &$r) {
+            $r['ask'] = ($r['category'] ?? '') === 'question';
+            $r['amount'] = (float)$r['amount'];
+            $r['expense_id'] = (int)$r['expense_id'];
+            unset($r['category'], $r['subject']);
+        }
+        unset($r);
+        return $rows;
     }
 
     /**
@@ -396,6 +423,12 @@ class PennyQuestionService
         $q = $s->fetch(PDO::FETCH_ASSOC);
         if (!$q || $q['status'] !== 'open') {
             return ['ok' => false, 'message' => 'Already answered'];
+        }
+        if ((string)$q['kind'] === 'file_closed_year') {
+            return $this->answerClosedYear($id, (int)$q['expense_id'], (string)$q['subject'], $answer, $userId);
+        }
+        if (in_array($answer, ['file', 'keep', 'undo'], true)) {
+            return ['ok' => false, 'message' => 'Unknown answer'];
         }
         if ($answer === 'different' && !in_array((string)$q['kind'], ['possible_twin', 'repeat_amount'], true)) {
             return ['ok' => false, 'message' => 'Unknown answer'];
@@ -446,6 +479,27 @@ class PennyQuestionService
             $out['invoice_url'] = '/crm/invoices/create.php?plan_id=' . (int)$q['plan_id'];
         }
         return $out;
+    }
+
+    /** Yes (file), keep waiting, or for Penny's own filing: seen / Undo. Only the matching pair is accepted. */
+    private function answerClosedYear(int $id, int $expenseId, string $subject, string $answer, int $userId): array
+    {
+        $c = $this->db->prepare("SELECT category FROM penny_questions WHERE id = ?");
+        $c->execute([$id]);
+        $isNotice = (string)$c->fetchColumn() === 'notice';
+        if (!in_array($answer, $isNotice ? ['seen', 'undo'] : ['file', 'keep'], true)) return ['ok' => false, 'message' => 'Unknown answer'];
+        $res = ['ok' => true, 'message' => $answer === 'keep' ? "Left waiting. I won't ask about this one again." : 'Got it.'];
+        if (in_array($answer, ['file', 'undo'], true)) {
+            require_once __DIR__ . '/ClosedYearReceiptTrace.php';
+            $line = self::parseSubject('file_closed_year', $subject)['line_id'];
+            if (!$line || !$expenseId) return ['ok' => false, 'message' => 'Unknown answer'];
+            $trace = new ClosedYearReceiptTrace($this->db);
+            $res = $answer === 'file' ? $trace->fileProposed($expenseId, $line, $userId) : $trace->undo($expenseId, $line, $userId);
+            if (empty($res['ok'])) return $res;
+        }
+        $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
+           ->execute([$answer, $userId, $id]);
+        return $res;
     }
 
     private function answerPaymentSource(int $id, string $answer, int $userId, string $name): array

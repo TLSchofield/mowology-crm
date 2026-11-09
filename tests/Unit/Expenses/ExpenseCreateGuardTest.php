@@ -20,7 +20,7 @@ class ExpenseCreateGuardTest extends TestCase
         }
         $this->db = new PDO('sqlite::memory:');
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $this->db->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, receipt_media_id INT, status TEXT)");
+        $this->db->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, receipt_media_id INT, status TEXT, rejection_reason TEXT)");
     }
 
     private function expense(int $id, ?int $media, string $status): void
@@ -83,5 +83,11 @@ class ExpenseCreateGuardTest extends TestCase
         $this->assertFalse(ExpenseCreateGuard::lockAcquired('0'));
         $this->assertFalse(ExpenseCreateGuard::lockAcquired(null));
         $this->assertFalse(ExpenseCreateGuard::lockAcquired(false));
+    }
+
+    public function testAFiledReceiptStillCountsAsTheReceipt(): void
+    {
+        $this->assertSame(8, ExpenseCreateGuard::pickExisting([['id' => 8, 'status' => 'rejected', 'rejection_reason' => 'Filed: 2025 receipt traced to its bank line']]));
+        $this->assertNull(ExpenseCreateGuard::pickExisting([['id' => 8, 'status' => 'rejected', 'rejection_reason' => 'Wrong photo']]));
     }
 }

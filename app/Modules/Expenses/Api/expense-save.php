@@ -40,7 +40,9 @@ try {
     }
 
     $input = json_decode(file_get_contents('php://input'), true);
+    // A refusal is a 4xx, never a 200: the phone's queue reads a 200 with no expense_id as "try later" for ever.
     if (!is_array($input)) {
+        http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'JSON body required']);
         exit;
     }
@@ -54,6 +56,7 @@ try {
     $status = in_array($requestedStatus, ['draft', 'pending_approval'], true) ? $requestedStatus : 'pending_approval';
 
     if ($total <= 0 && empty($input['description'])) {
+        http_response_code(422);
         echo json_encode(['success' => false, 'error' => 'Total amount or description is required']);
         exit;
     }
@@ -66,6 +69,7 @@ try {
     // Only a photo this user may see (Codex review 2026-10-14).
     if ($guardMediaId && !ExpenseService::userMayUseReceiptMedia(getDB(), $guardMediaId, $userId,
             ExpenseService::isOffice((string)($jwtUser['role'] ?? ''), jwtUserHasPermission($jwtUser, 'expenses.approve')))) {
+        http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'That receipt photo isn\'t yours to attach']);
         exit;
     }
@@ -158,9 +162,16 @@ try {
         }
     }
 
+    // The status as it stands now: a receipt from a filed year may have been filed by the save itself.
+    $stNow = getDB()->prepare("SELECT status, rejection_reason FROM expenses WHERE id = ?");
+    $stNow->execute([$expenseId]);
+    $saved = $stNow->fetch(PDO::FETCH_ASSOC) ?: [];
+
     echo json_encode([
         'success'    => true,
         'expense_id' => $expenseId,
+        'status'     => $saved['status'] ?? $status,
+        'filed'      => ($saved['status'] ?? '') === 'rejected' && strncmp((string)($saved['rejection_reason'] ?? ''), 'Filed:', 6) === 0,
         'sent'       => $sent,
         'send_error' => $sendError,
     ]);

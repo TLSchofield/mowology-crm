@@ -27,6 +27,27 @@ class PennyQuestionServiceTest extends TestCase
         $this->assertSame(['status' => 'open', 'answer' => null, 'answered_by' => null, 'answered_at' => null], $row);
     }
 
+    public function test_a_filed_year_question_takes_only_its_own_answers(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->exec('CREATE TABLE expenses (id INTEGER PRIMARY KEY, job_id INTEGER)');
+        $db->exec('CREATE TABLE penny_questions (
+            id INTEGER PRIMARY KEY, plan_id INTEGER, status TEXT, kind TEXT, category TEXT,
+            expense_id INTEGER, subject TEXT, answer TEXT, answered_by INTEGER, answered_at TEXT
+        )');
+        $db->sqliteCreateFunction('NOW', static fn() => date('Y-m-d H:i:s'));
+        $db->exec("INSERT INTO expenses (id) VALUES (9)");
+        $db->exec("INSERT INTO penny_questions (id, status, kind, category, expense_id, subject) VALUES (1, 'open', 'file_closed_year', 'question', 9, 'line:50')");
+        $db->exec("INSERT INTO penny_questions (id, status, kind, expense_id, subject) VALUES (2, 'open', 'unbilled_materials', 9, '')");
+        $service = new PennyQuestionService($db);
+
+        $this->assertFalse($service->answer(1, 'undo', 7)['ok'], 'Undo is for a notice');
+        $this->assertFalse($service->answer(1, 'invoice', 7)['ok']);
+        $this->assertFalse($service->answer(2, 'file', 7)['ok'], 'File is only for a filed-year question');
+        $this->assertTrue($service->answer(1, 'keep', 7)['ok']);
+        $this->assertSame('keep', $db->query('SELECT answer FROM penny_questions WHERE id = 1')->fetchColumn());
+    }
+
     public function test_twin_subjects_are_parsed_and_unknown_formats_are_zero(): void
     {
         $this->assertSame(['copy_id' => 0, 'keep_id' => 102, 'line_id' => 0, 'right_id' => 0], PennyQuestionService::parseSubject('possible_twin', 'keep:102'));

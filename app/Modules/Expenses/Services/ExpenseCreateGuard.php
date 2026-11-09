@@ -62,7 +62,7 @@ class ExpenseCreateGuard
     /** The live expense already made from this photo, if any. */
     public function existingForMedia(int $mediaId): ?int
     {
-        $stmt = $this->db->prepare("SELECT id, status FROM expenses WHERE receipt_media_id = ? ORDER BY id ASC");
+        $stmt = $this->db->prepare("SELECT id, status, rejection_reason FROM expenses WHERE receipt_media_id = ? ORDER BY id ASC");
         $stmt->execute([$mediaId]);
         return self::pickExisting($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -72,13 +72,14 @@ class ExpenseCreateGuard
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * The oldest expense that still stands (anything but rejected), or null.
+     * The oldest expense that still stands (anything but rejected, or filed as already booked), or null.
+     * "Filed:" is a rejection only in name: a repeat of a save that was filed must not make a second receipt.
      * @param array<int, array{id: int|string, status: ?string}> $rows
      */
     public static function pickExisting(array $rows): ?int
     {
         foreach ($rows as $r) {
-            if (($r['status'] ?? '') !== 'rejected') return (int)$r['id'];
+            if (($r['status'] ?? '') !== 'rejected' || strncmp((string)($r['rejection_reason'] ?? ''), 'Filed:', 6) === 0) return (int)$r['id'];
         }
         return null;
     }

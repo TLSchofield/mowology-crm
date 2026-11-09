@@ -156,4 +156,12 @@ final class DeviceBoxRowsTest extends TestCase
             restore_error_handler();
         }
     }
+
+    public function testCaptureQualityTravelsCleaned(): void
+    {
+        $post = ['client_ocr_text' => "SHOP\nTOTAL 1.00", 'client_ocr_engine' => 'apple_vision', 'client_capture' => '{"chars":412,"sharpness":88.26,"used_anyway":true,"extra":"x"}'];
+        $this->assertSame(['chars' => 412, 'sharpness' => 88.3, 'used_anyway' => true], cleanDeviceOcr($post)['capture']);
+        $this->assertNull(cleanDeviceCapture('not json'));
+        $this->assertNull(cleanDeviceCapture('{"sharpness":-3}'));
+    }
 }
