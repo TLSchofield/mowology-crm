@@ -581,3 +581,8 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - **LookbackService calls the model directly** (`app/Modules/Accounting/Services/LookbackService.php:977`), skipping LlmGateway's retry, kill switch and cost log. `NoDirectAnthropicCallsTest` carries a dated exception for it; route the call through `LlmGateway::send()` and remove the exception.
 - **Old tests not adopted:** `EtransferNudgeServiceTest` and `InvoiceServiceTest` on the old branches are older than the live services and fail against them (nudge copy now reads the address from settings; `ensurePaymentIntent` has a lock). Both services have no current test.
 - **Left server-only, for the delete list:** `/customer/invoice-v2.php`, `/crm/api/test-invoice-create.php`, `/crm/api/salt-manual-trigger.php` (the last echoes a raw exception message; `invoice-v2.php` sends no CSP).
+
+## Android receipt camera: wait for steady, light on (Tim 2026-11-09)
+iPhone 1.3.133 won't shoot a receipt until the phone, the receipt and the focus are steady, and keeps the light on
+(`ReceiptCameraView`, `ReceiptSteadyGate`). Android still shoots whenever tapped. Wait until the iPhone's steadiness
+numbers are tuned on real receipts, then copy them. **Shared:** the rule and the numbers. **Private:** nothing.

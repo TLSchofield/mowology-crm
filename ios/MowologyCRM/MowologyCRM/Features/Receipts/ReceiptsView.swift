@@ -135,9 +135,12 @@ struct ReceiptsView: View {
             cameraOnScreen = false
             if weakCapture != nil { showWeakCaptureHint = true }
         }) {
-            // Receipts: Apple's document camera with live edge guides and auto-capture (it hands back the page
-            // already cropped). Labels, and phones without it (the simulator too), keep the system camera.
-            if !labelMode && DocumentCameraPicker.isSupported {
+            // Receipts: our camera, which won't shoot until the phone is steady and keeps the light on (Apple's document
+            // camera can do neither). Its photos get the usual crop, so scanned: false. Apple's stays as the switched-off
+            // path; labels, and phones with neither (the simulator too), keep the system camera.
+            if !labelMode && ReceiptCameraSwitch.isOn() && UIImagePickerController.isSourceTypeAvailable(.camera) {
+                ReceiptCameraView(onCapture: { cameraCaptured($0, scanned: false) }, onCancel: cameraCancelled)
+            } else if !labelMode && DocumentCameraPicker.isSupported {
                 DocumentCameraPicker(onCapture: { cameraCaptured($0, scanned: true) }, onCancel: cameraCancelled)
                     .ignoresSafeArea()
             } else {
@@ -308,7 +311,7 @@ struct ReceiptsView: View {
         let asLabel: Bool
     }
 
-    /// Photos from either camera. `scanned`: the document camera already cropped and straightened them.
+    /// Photos from any camera. `scanned`: the document camera already cropped and straightened them.
     private func cameraCaptured(_ images: [UIImage], scanned: Bool) {
         showCamera = false
         // A retake replaces the receipt under review: only now, so a cancelled retake still has it.
