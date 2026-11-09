@@ -629,7 +629,7 @@ private struct ScheduleTimelineDemo: View {
 #endif
 
 #if DEBUG
-/// `-mwBarDemo admin|add|crew|receipts|out|break` (`-mwBeadDemo` = receipts): the tab bar and the Time chip over the
+/// `-mwBarDemo admin|add|crew|receipts|out|break|stall` (`-mwBeadDemo` = receipts): the tab bar and the Time chip over the
 /// synthetic day — admin or crew slots, the Add dial open, Receipts' camera bead, or the chip clocked out.
 private struct MeniscusBarDemo: View {
     @Environment(\.itAppStyle) private var style
@@ -651,11 +651,11 @@ private struct MeniscusBarDemo: View {
             : [("Schedule", "calendar"), ("Search", "magnifyingglass"), ("Kaname", "hexagon"), ("Receipts", "doc.text.image"), ("Add", "plus")]
         return titles.enumerated().map { i, t in
             switch t.0 {
-            case "Receipts": return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
-                                                   beadIcon: Image(systemName: "camera.fill"), beadLabel: "Snap a receipt")
-            case "Add":      return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1),
+            case "Receipts": return ItMeniscusItem(id: i, title: t.0, icon: .system(t.1),
+                                                   beadIcon: .system("camera.fill"), beadLabel: "Snap a receipt")
+            case "Add":      return ItMeniscusItem(id: i, title: t.0, icon: .system(t.1),
                                                    beadTurn: 45, beadLabel: "Close", longPressLabel: "Add a job")
-            default:         return ItMeniscusItem(id: i, title: t.0, icon: Image(systemName: t.1))
+            default:         return ItMeniscusItem(id: i, title: t.0, icon: .system(t.1))
             }
         }
     }
@@ -679,14 +679,24 @@ private struct MeniscusBarDemo: View {
         // As MainTabView does: every scroll view below gets the bar's bottom margin (the day strip must ignore it).
         .contentMargins(.bottom, MainTabView.barReserve, for: .scrollContent)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ItMeniscusBar(items: items, selected: Binding(
-                get: { addOpen ? items.count - 1 : selected },
-                set: { if $0 == items.count - 1 { addOpen = true } else { addOpen = false; selected = $0 } }),
+            ItMeniscusBar(items: items, selected: addOpen ? items.count - 1 : selected,
+                onSelect: { if $0 == items.count - 1 { addOpen = true } else { addOpen = false; selected = $0 } },
                 onReselect: { if $0 == items.count - 1 { addOpen = false } })
         }
         .onAppear {
             ClockChipStore.shared.set(clockedIn: variant != "out", elapsedSeconds: 42 * 60)
             if variant == "break" { BreakController.shared.demoStartBreak(minutesAgo: 12) }
+        }
+        // `-mwBarDemo stall`: the smoothness proof. The bead is sent across the bar on a timer and the app is blocked
+        // for 150 ms just after each slide starts, as a heavy screen would block it. Record the simulator's screen and
+        // run ios/tools/bar-smoothness.py on the video: the bead must keep moving through every block.
+        .task {
+            guard variant == "stall" else { return }
+            for next in [3, 0, 2, 1, 3, 0, 3, 1] {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                selected = next
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Thread.sleep(forTimeInterval: 0.15) }
+            }
         }
     }
 }
