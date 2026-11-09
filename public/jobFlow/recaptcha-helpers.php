@@ -89,12 +89,30 @@ function verify_recaptcha(string $token, string $secretKey, ?string $remoteIp = 
         return ['success' => false, 'error' => 'invalid_json'];
     }
 
+    $siteUrl = defined('SITE_URL') ? (string)SITE_URL : null;
+    if ($siteUrl === null) {
+        // Pages that skip public/includes/bootstrap.php (quote form, password reset): resolve the
+        // registered site from cms_sites, the same lookup bootstrap uses, so another business's
+        // domain on this server is accepted. Only active cms_sites domains can come back.
+        $siteFns = (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__) . '/app') . '/Modules/CMS/Services/CmsSiteFunctions.php';
+        try {
+            if (!function_exists('cms_resolveSite') && is_file($siteFns)) require_once $siteFns;
+            if (function_exists('cms_resolveSite')) {
+                $site = cms_resolveSite();
+                if (!empty($site['domain'])) $siteUrl = 'https://' . $site['domain'];
+            }
+        } catch (\Throwable $e) {
+            error_log('reCAPTCHA verify: site lookup failed — ' . $e->getMessage());
+        }
+    }
+    $siteUrl = PublicFormSecurity::recaptchaSiteUrl($siteUrl);
     if (!empty($json['success']) && !PublicFormSecurity::isAllowedRecaptchaHostname(
         (string)($json['hostname'] ?? ''),
-        defined('SITE_URL') ? (string)SITE_URL : '',
+        $siteUrl,
         (string)($_SERVER['HTTP_HOST'] ?? '')
     )) {
-        error_log('reCAPTCHA verify: hostname mismatch');
+        error_log(sprintf('reCAPTCHA verify: hostname mismatch (Google said "%s", site is "%s")',
+            substr(preg_replace('/[^A-Za-z0-9.:-]/', '?', (string)($json['hostname'] ?? '')), 0, 100), (string)parse_url($siteUrl, PHP_URL_HOST)));
         return ['success' => false, 'error' => 'hostname_mismatch'];
     }
 

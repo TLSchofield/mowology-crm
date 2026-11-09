@@ -17,6 +17,11 @@ trades first. The AI back office is the edge.
 6. **Streamline services and how the system reads them** (entry below), then widen the thank-you ask beyond fall cleanup.
 
 ## Queued from Tim, 2026-11-05 (after Sam step 2)
+- **Competitor checklist, reviewed quarterly** (Tim, 2026-11-08: "BuildOps has some strong features"): `docs/marketing/competitor-checklist.md` — BuildOps, ServiceTitan/Aspire, Jobber, Housecall Pro, LeanScaper, Hootsuite. Ideas from the first pass: Sam finds work noted on a visit but never quoted (BuildOps Revenue Agent), a stalled-jobs list in Kaname's brief, job costing, an AI receptionist for Yui, morning-huddle capture for Otto.
+- **Who is the contact now — one roster every head uses, kept true by payments and mail** (fundamental, Tim 2026-11-07) (Tim, 2026-11-07: Mia thanked a strata rep who had
+  left the strata; someone else paid). Payer on the payment record ≠ the invoice recipient, or a bounce / "no longer
+  with" reply → Mia holds the thank-you and Yui asks "Make <payer> the contact?". Plan, waiting for Tim's OK:
+  `docs/plans/2026-11-07-contact-left-the-building.md`.
 - **One search box for the owner — phase 1 BUILT 2026-11-06** (iPhone Search tab + web global search on
   `UniversalSearchService`; `ClientFactAnswerer` answers quote sent? / owes? / next visit? / last message? with
   Open/Call/Text/Email; Ask Kaname row; client page; picks learned in `search_picks`, migration 1441). Phase 2: tap a
@@ -468,3 +473,29 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - **Word positions:** the iPhone (Vision `VNRecognizeTextRequest`) and Android (ML Kit) send each recognised line with its bounding box beside the plain text; the server builds rows from them the way `reconstructLinesFromVisionResponse()` does for Google Vision. Why: phone plain text puts Chevron item names in one block and prices in another (most of Chevron's 71 unread receipts, replay 2026-11-06). Keep the upload backwards compatible.
 - **Camera hints:** edge detection with crop or straighten (iOS `VNDetectDocumentSegmentationRequest` / VisionKit; Android ML Kit Document Scanner) and a "hold flat, fill the frame" hint on blurry or skewed photos. Capture-only stays.
 - Needs its own chat started from the desktop app (owns `ios/` + the Android repo + one server row-builder). Could not be started over Remote Control.
+
+## Phone day carousel: the line chooses the day (Tim, 2026-11-06) — BUILT in iPhone 1.3.101
+- On phones, swap the working-week strip for a continuous day carousel that snaps the chosen day onto the Schedule
+  bead's axis (`ItTabSlot`), so the centre line runs straight from the day → its stops → the Schedule bead (SPEC §13).
+  The day on the line is the day shown; swipe or tap snaps a day onto it; "Nov" follows it. No week walls.
+- iPad / desktop (≥ 768 pt) keep the week grid (the week at a glance matters for office planning).
+- Trade-off: past days sit off the left edge (one swipe; "Today" returns). Mine / All crews already moved above the
+  days in 1.3.100 for this. Simulator check before TestFlight (snapping, selection sync).
+
+## Schedule bead cycles its views (Tim, 2026-11-07: "What if the schedule button can switch the view from map to numbered to cards?")
+- **BUILT 2026-11-07 (iPhone):** tap the Schedule bead = next view (numbered → cards → time → map), long press = pick, bead shows the current view, top-bar map button gone, remembered per phone; new hour-grid Time view (`DayTimeGridView`). **Left:** first tap scrolls to top when the list is scrolled; Android to match.
+- Tapping the raised Schedule bead while on Schedule cycles numbered timeline → map → cards; the first tap scrolls to the top when the list is scrolled down.
+- The bead's icon shows the current view; a long press opens a menu of the three; the top-bar map button goes; the last view is remembered per person; VoiceOver says the view and what a tap does.
+- Same pattern as Receipts (tap the selected bead = camera, iOS 1.3.81). Android to match later. Needs its own chat (iPhone `ios/` only).
+
+## iPhone smoothness: bottom bar, calendar strip, rolling + (Tim, 2026-11-07: "The main bottom navbar is still not smooth. Also the calendar.")
+- **BUILT 2026-11-07, iOS 1.3.112:** bar split into still buttons + moving notch/collar/bead (only the bead's glyph per frame); Add's + spins one turn per slot travelled (1 from Receipts, 4 from Schedule), faster the further; calendar chips built once and Equatable. **Left:** the fixed selection ring on the centre axis (a design change), deferring the new tab's first render.
+- **Bottom bar** (`ItMeniscusBar.swift`): `ItMeniscusBarBody` is Animatable, so the whole bar (five Buttons with gestures, labels, icon fades) is rebuilt every frame of the bead's slide. Split it: the buttons/labels a static layer, only the bead + collar + notch animated (offset + the notch Shape's `animatableData`). Start the new tab's heavy first render as the bead lands, not mid-slide.
+- **Calendar strip** (`WeekStripView.swift`): 181 non-lazy chips (kept non-lazy after the 1.3.101 blank-space bug) are all rebuilt whenever `centred` changes during a swipe, each re-formatting its date in `summary()`, plus a `matchedGeometryEffect` pill. Fix: compute the 181 chip models once (refresh when a week's dots arrive); make `DayChip` skip redraws when unchanged; replace the sliding pill with a fixed selection ring on the centre axis that the days scroll under (same idea as the duplicate number row on the Kaname line).
+- **Add's + rotation** (`ItBeadSpin`): Tim asked for more and faster turns the further the bead travels (Schedule furthest). Agreed form: the + rolls like a wheel along the bar, turn = distance travelled ÷ radius, in step with the slide, then settles into the × as now. Reduce Motion skips it.
+- iPhone only; render in the simulator before a build. Needs its own chat.
+
+## Clock-in on the Dynamic Island / Lock Screen (Tim, 2026-11-07: "Jobber shows itself clocked in at the very top even though the app is backgrounded. I like that")
+- A Live Activity while clocked in: the running timer in the Dynamic Island and on the Lock Screen (job name or "On break"), started on Clock in, ended on Clock out, updated on break start/end.
+- Needs a Widget Extension target with ActivityKit (iOS 16.1+; Xcode 15.2 can build it), `NSSupportsLiveActivities` in Info.plist, and push updates (APNs live-activity token) so it stays right when the server changes the clock (auto clock-out, office edits). Android: an ongoing notification with a chronometer.
+- Needs its own chat; Xcode Cloud signing for a second target (bundle id, capability) checked first.

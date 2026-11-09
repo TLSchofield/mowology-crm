@@ -195,6 +195,26 @@ class ReceiptFactsService
                 }
             }
         }
+        // The label alone and its number further down: a photo read in two columns puts the left column's lines first
+        // (City of Vancouver landfill #142, 2026-11-06: "Ticket #:", then Truck ID, plates, count, then "43198823").
+        // Only a long number (6–12 digits) alone on a line within the next 10 lines, so a count or a plate never passes.
+        // Swept 2026-11-06: 14 landfill tickets and one Nutrien invoice gained their number.
+        if ($out['doc_number'] === null) {
+            // Not 'transaction': McDonald's prints a terminal id (8080008000) under that label that repeats every visit.
+            foreach (['ticket', 'invoice'] as $kind) {
+                $label = self::DOC_LABELS[$kind];
+                foreach ($lines as $i => $l) {
+                    if (!preg_match('/^' . $label . '[ \t]*[:#\-]?[ \t]*$/i', $l)) continue;
+                    for ($j = $i + 1; $j <= min($i + 10, count($lines) - 1); $j++) {
+                        if (preg_match('/^#?[ \t]*(\d{6,12})$/', $lines[$j], $m)) {
+                            $out['doc_number'] = $m[1];
+                            $out['doc_kind'] = $kind;
+                            break 3;
+                        }
+                    }
+                }
+            }
+        }
         // Numbered receipt pads (Lawnboy, 2026-10-11): a stamped "Nº 003", often read as "No" on
         // one line and "003" on the next. Only a line that is JUST the label (or label + number)
         // counts, so "No signature required" never does. Different numbers = two receipts.
@@ -205,6 +225,26 @@ class ReceiptFactsService
                     || (preg_match($label, $l) && isset($lines[$i + 1]) && preg_match('/^(\d{2,7})$/', $lines[$i + 1], $m))) {
                     $out['doc_number'] = $m[1];
                     $out['doc_kind'] = 'receipt';
+                    break;
+                }
+            }
+        }
+
+        // Pre-printed numbered repair-order pads (Champion, 2026-11-06: "Champion uses invoice numbers that aren't being
+        // picked up"). The red pad number sits beside the shop's name and OCR glues it onto that line:
+        // "CHAMPION LAWN MOWER SALES AND SERVICE 15826". Only on a form that says REPAIR ORDER — on any other receipt a
+        // number after the name is usually a store number (Chevron, Shell), which would make two visits look the same.
+        // The form is known by "REPAIR ORDER", or by "WORK DONE" + "SERVICED BY" when the read lost those words (#486).
+        // A pad number is never reused, so 4–7 digits stand on their own (unlike Lawnboy's 1–100 stamped pads).
+        // Swept over all 448 read receipts on 2026-11-06: 14 matches, every one a Champion pad.
+        $repairOrder = preg_match('/\bREPAIR\s+ORDER\b/i', $text)
+            || (preg_match('/\bWORK\s+DONE\b/i', $text) && preg_match('/\bSERVICED\s+BY\b/i', $text));
+        if ($out['doc_number'] === null && $repairOrder) {
+            foreach ($lines as $l) {
+                if (preg_match('/^([A-Z][A-Z&\'.\- ]{9,}?)\s+(\d{4,7})$/', $l, $m)
+                    && !preg_match('/\b(?:TOTAL|SUBTOTAL|GST|PST|HST|TAX|LABOU?R|PARTS|AMOUNT|BALANCE|PHONE|PH)\b/i', $m[1])) {
+                    $out['doc_number'] = $m[2];
+                    $out['doc_kind'] = 'invoice';
                     break;
                 }
             }

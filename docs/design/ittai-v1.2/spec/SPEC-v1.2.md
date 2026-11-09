@@ -85,3 +85,75 @@ store and words on screen. One table, used by both.
 A pending (offline) approval shows its pending words on ALL three surfaces: the decision, the Inbox communication and the owning employee's AI Office row
 ("Approval saved on phone"). The tenant check compares against the GENERATED value of each tenant role: a generated colour may equal the raw input
 (Brightline's dark primary IS its brand #F2C200) — what is forbidden is a raw input used in a role that was not generated for it.
+
+## 13. The Kaname centre line (Tim, 6 Nov 2026 — added to v1.2, shipped in iPhone 1.3.98–1.3.99)
+A head's decision screen (Penny's card first) hangs on one thin vertical line down the middle of the page, running
+into the active tab's button (Kaname's on his screens). It reads as "this is Kaname at work": every decision leads back to him.
+- **The line**: 1 pt, the `line` token (the nav bar hairline), centred. It runs from the first framed panel down to
+  the Kaname button and never stops short of it.
+- **Comparisons sit on it.** Two things being compared (a cheque and an invoice, two duplicate receipts) take the left
+  and right of the line, values hugging it: left column right-aligned, right column left-aligned.
+- **Agreement is a ringed tick on the line**: a page-coloured gap that cuts the line, a 1 pt `line` ring, and inside it
+  a filled check in `brand` (indigo). A row that differs gets no tick and an `attention` wash on the differing value.
+- **Text never sits on the line.** A full-width line of text (bank memo, "Or INV-…") gets a page-coloured background so
+  the line breaks around it.
+- **Panels are wrapped by a frame of the same weight**: 1 pt `line`, radius 14, page fill. The line passes behind it.
+- **A section's icon sits centred on the line** at the top of its frame: filled `brand` circle, white glyph, in the same
+  page-coloured gap and thin ring as the ticks, large (56 pt ring), in place of a words heading: Penny's "Your
+  business" (building), duplicates (`doc.on.doc.fill`, copies). The heading's words move to the accessibility label.
+- **Schedule (phones, 1.3.101)**: the days are one smooth strip that snaps the chosen day onto the Schedule bead's
+  axis; the line leaves that day and runs through the stops into the bead. iPad keeps the week grid.
+- **One column grid per panel.** Facts, photos and buttons share the panel's edges and one 46 pt gap (the tick ring sits
+  in it), so the line (two columns) or the column dividers (three) pass through every row in the same place. No row
+  gets its own side padding or width cap.
+- **Two square buttons**, the panel's two halves either side of the gap, same size whatever their text: the primary
+  filled (`tenant`), the other outlined. With three columns they still take the two halves (two choices, not three).
+- **Three or more columns**: the best one (in the books / most data) takes the middle column, on the axis. The axis
+  splits round that one receipt — one frame whose two sides run down the gaps, so the ticks sit on it — and rejoins
+  below. The side receipts are not framed (ticks always sit on a line, never between frames). Two columns: the axis runs
+  from the icon down the gap between them.
+- **Two become one.** Once a decision joins things — duplicates merged, a cheque recorded on its invoice — the card
+  shows one thing, centred on the axis (the kept receipt; the paid invoice with its cheque), and one way on, centred
+  (Unmerge; Next). Unity, not two columns with a status.
+- **Order**: the section icon first, then the numbers (a carousel of groups) hanging on the axis below it, then the
+  panel. No self-congratulating lines ("I've been right N of N") — they add nothing and cross the axis.
+- **Outlined buttons are page-filled**, so the axis passes behind them, never through.
+- **Setup headings go once learned.** A "getting to know you" heading shows only while the head is still learning;
+  once confirmed, only the framed result stays (Tim: "unnecessary once learned").
+- **Desktop**: the same panel lies sideways from 768 px: the comparison on the left, the two squares on the right.
+- **The line belongs to the active tab.** It sits on the axis of the tab you are on and runs into that tab's bead at
+  12 o'clock: centred on Kaname (his bead is centred), down the left on Schedule, where the day's timeline rail sits on
+  the Schedule bead's axis and carries on past the last stop into it (`ItTabSlot`, 1.3.99). Not centred by rule —
+  connected by rule.
+- **Time view: the hours ride the same axis (Tim, 2026-11-07).** Each hour is a pill like the Clock in pill (tenant
+  outline, page fill, tenant numeral) threaded on the Schedule bead's axis; the axis runs up to meet the chosen day in the
+  strip and down to the bead, exactly as the numbered timeline does. The hour's grid line leaves from the pill's right.
+- **Only where something is in sequence or in pairs**: a timeline (Schedule) or a comparison (Penny's cheques and
+  duplicates). Plain lists (Receipts, Search results) stay hairline rows with no line. One line per screen, never two.
+- **The money's path (Penny's payment cards, 7 Nov 2026).** Down the line: the number row (the shared Kaname row, as on
+  the duplicates), the bank icon (`building.columns.fill`, the money starts on the bank statement), the confidence
+  triangle (which replaced Penny's sentence), the panel, the two squares, and the ledger (`text.book.closed`) at the bottom, seated on the panel's bottom edge where the centre line
+  crosses it (as the business icon sits on its card's top edge; Tim, 2026-11-07) — an outline
+  while the deposit waits, filled brand indigo once it is linked or recorded (in the books, counted once).
+- **Confidence is the knowledge triangle, not words.** Low = broken (dashed) outline in `knowledge-discovered`; medium
+  = solid `knowledge-understood`; high = `knowledge-mastered` gold with the mastered inner page-colour keyline (so gold
+  differs from blue by more than colour). VoiceOver says "High / Medium / Low confidence".
+  **Exception, 2026-11-07 (Tim):** the knowledge colours are otherwise "knowledge brain only; never an operational status
+  colour" (`tokens.json`). This triangle on Penny's payment cards is the one other use; the rule stands for everything
+  else. (`ItTokens.swift` is generated from `tokens.json`, so the note lives here and beside `PaymentConfidenceTriangle`.)
+- **Two marks on the line (Tim's drawing, 2026-11-07).** (1) *The fraction*: a triangle on the line, only its left side
+  and its base to the line drawn, in the line's own weight and shade, numerals and the joined label in `meta` (what
+  they name is already decided; the line colour itself is too pale for text), numerals at title2; the joined count above its left side, the whole (3: invoice, payment, bank line) inside, what is
+  joined to its right in small caps — "2⁄3, INV-… + PAYMENT": two steps are done already. Inferred, never written as
+  "2 of 3". (2) *Mastery*: the knowledge triangle (gold / blue / broken) in a square box where the line crosses the top
+  edge of the panel being matched, as the ledger sits on its bottom edge. Gold: Penny has mastered the parts she offers to
+  join. Square, not round: circles on the line are ticks and section heads. The duplicates card has the mastery box only.
+  The section icon (bank, copies) heads the section, above the number row.
+- **Linked (Tim, 2026-11-07).** The panel is page-filled: the line stops at its top edge and comes back at the ledger.
+  Inside, one filled brand-indigo block, wide (not the square-button shape), not tappable: link icon, invoice number(s),
+  payer, "$409.50 e-transfer", text in `page` (indigo turns pale in dark mode). Over 10 invoices: the count and the first
+  three. No Next, no Undo: the cards are a swipe-only carousel (swipe left for the next; its edge peeks in the right
+  margin; past the last, on to the first unanswered card or receipts; VoiceOver "Next payment"). The filled ledger is the
+  unlink: indigo ring once linked, a confirm sheet ("Take $X out of the books? It unlinks from N invoices and goes back to
+  waiting." Unlink in `status-blocked` / Keep, the full list when long).
+

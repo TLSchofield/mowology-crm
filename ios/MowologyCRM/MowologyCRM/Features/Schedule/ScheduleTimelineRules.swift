@@ -261,3 +261,55 @@ enum ScheduleTimelineSwitch {
         }
     }
 }
+
+// MARK: - Which view the Schedule shows (Tim, 2026-11-07: "bottom navbar schedule button needs to switch between
+// calendar views, map/cards/time/numbered")
+
+/// The four ways to see a day. The Schedule bead shows the current one; a tap on it moves to the next, a long press
+/// picks one. Remembered on this phone.
+enum ScheduleViewKind: String, CaseIterable, Identifiable {
+    case numbered, cards, time, map
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .numbered: return "Numbered"
+        case .cards:    return "Cards"
+        case .time:     return "Time"
+        case .map:      return "Map"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .numbered: return "list.number"
+        case .cards:    return "rectangle.grid.1x2"
+        case .time:     return "clock"
+        case .map:      return "map"
+        }
+    }
+    var next: ScheduleViewKind {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
+}
+
+@MainActor
+final class ScheduleViewStore: ObservableObject {
+    static let shared = ScheduleViewStore()
+    static let defaultsKey = "mw.schedule.view"
+
+    @Published var kind: ScheduleViewKind {
+        didSet { UserDefaults.standard.set(kind.rawValue, forKey: Self.defaultsKey) }
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        if let raw = defaults.string(forKey: Self.defaultsKey), let k = ScheduleViewKind(rawValue: raw) {
+            kind = k
+        } else {
+            // Before the bead chose: the old timeline switch (2 = timeline off → cards).
+            kind = defaults.integer(forKey: ScheduleTimelineSwitch.defaultsKey) == 2 ? .cards : .numbered
+        }
+    }
+
+    func cycle() { kind = kind.next }
+}

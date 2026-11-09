@@ -309,8 +309,12 @@ struct ReceiptsView: View {
     }
 
     /// The phone read enough of the photo to be a receipt: some text and at least one money amount. Pure.
+    /// Plenty of print read = a readable photo, even with no printed price: handwritten receipts (Champion's repair-order
+    /// pads) print only the form and the amounts are in ink (Tim, 2026-11-06: "because it's handwritten"). The blurred
+    /// shot this guards against read ~30 characters; good photos ~550, a handwritten Champion form ~400.
     nonisolated static func readLooksLikeAReceipt(_ text: String) -> Bool {
         let chars = text.filter { !$0.isWhitespace }.count
+        if chars >= 150 { return true }
         return chars >= 60 && text.range(of: #"\d[.,]\d{2}\b"#, options: .regularExpression) != nil
     }
 

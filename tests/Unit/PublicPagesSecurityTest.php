@@ -36,6 +36,12 @@ final class PublicPagesSecurityTest extends TestCase
         // a hostname that only matches the Host header of the request is NOT enough (an attacker can point a domain here)
         self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('attacker.example', 'https://mowology.ca', 'attacker.example'));
         self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('', 'https://mowology.ca', ''));
+        // 2026-11-07: pages without SITE_URL (quote form, password reset) rejected every token.
+        self::assertSame('https://mowology.ca', PublicFormSecurity::recaptchaSiteUrl(null));
+        self::assertSame('https://mowology.ca', PublicFormSecurity::recaptchaSiteUrl(''));
+        self::assertSame('https://talkinghands.ca', PublicFormSecurity::recaptchaSiteUrl('https://talkinghands.ca'));
+        self::assertTrue(PublicFormSecurity::isAllowedRecaptchaHostname('mowology.ca', PublicFormSecurity::recaptchaSiteUrl(null), 'mowology.ca'));
+        self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('attacker.example', PublicFormSecurity::recaptchaSiteUrl(null), 'attacker.example'));
     }
 
     public function testPublicQuoteFormDoesNotReturnStoredAddresses(): void

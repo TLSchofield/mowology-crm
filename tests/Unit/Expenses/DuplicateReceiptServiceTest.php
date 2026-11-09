@@ -415,4 +415,15 @@ class DuplicateReceiptServiceTest extends TestCase
         $this->assertSame(1, $rec['home depot']['agreed'] ?? 0);
         $this->assertArrayNotHasKey('unknown vendor', $rec);
     }
+
+    public function test_undismiss_takes_back_only_a_persons_answer(): void
+    {
+        $db = $this->deskDb();
+        $db->exec("CREATE TABLE expense_duplicate_dismissals (id INTEGER PRIMARY KEY, expense_a INT, expense_b INT, dismissed_by INT, created_at TEXT)");
+        $db->exec("INSERT INTO expense_duplicate_dismissals (expense_a, expense_b, dismissed_by) VALUES (408, 412, 1), (409, 410, NULL)");
+        $svc = new class($db) extends DuplicateReceiptService { public function dismissalsReady(): bool { return true; } };
+        $this->assertTrue($svc->undismiss(412, 408, ['id' => 1])['ok']);
+        $this->assertFalse($svc->undismiss(409, 410, ['id' => 1])['ok'], "Penny's own call from printed facts stays");
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM expense_duplicate_dismissals")->fetchColumn());
+    }
 }

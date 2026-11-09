@@ -12,6 +12,19 @@ final class PublicFormSecurity
             && preg_match('#^data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$#', $signatureData) === 1;
     }
 
+    /**
+     * The site address the reCAPTCHA hostname is checked against. Pages that load only
+     * app_config/config.php (the jobFlow quote form, password reset) never define SITE_URL, and
+     * with an empty address every check failed: quote form and reset were dead from the 2026-11-06
+     * deploy until 2026-11-07. Falls back to the same default as public/includes/bootstrap.php.
+     * Never derived from the request's Host header, which the visitor controls.
+     */
+    public static function recaptchaSiteUrl(?string $siteUrl): string
+    {
+        $siteUrl = trim((string)$siteUrl);
+        return ($siteUrl !== '' && (string)parse_url($siteUrl, PHP_URL_HOST) !== '') ? $siteUrl : 'https://mowology.ca';
+    }
+
     public static function isAllowedRecaptchaHostname(string $hostname, string $siteUrl, string $requestHost): bool
     {
         $hostname = strtolower(rtrim(trim($hostname), '.'));

@@ -336,6 +336,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDuplicateCleanup
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StripePayoutService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineMoveService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/IncomeCleanupService.php';
+// Payments reconciled against invoices — CRM + Jobber, one matcher (migration 1260)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PaymentMatchService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CreditCardPayableAuditService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankTransferDirectionRepair.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitService.php';
@@ -402,6 +404,7 @@ require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRosterSync.php';
 
 // Contracts
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractService.php';
@@ -434,6 +437,10 @@ require_once __DIR__ . '/../app/Modules/Agents/Services/SkillRegistry.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentEvals.php';
 require_once __DIR__ . '/../app/Services/Copy/DraftSafety.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/TaskService.php';
+require_once __DIR__ . '/../app/Modules/Tasks/Services/TaskCreateService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledVisitService.php';
+require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteFromPhoneService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromPhoneService.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentDetectors.php';
 require_once __DIR__ . '/../app/Modules/Agents/Services/AgentActivity.php';
 

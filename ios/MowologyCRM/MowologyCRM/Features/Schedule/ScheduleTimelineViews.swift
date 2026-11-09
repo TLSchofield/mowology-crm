@@ -42,8 +42,10 @@ struct TimelineStopRow: View {
     let onSelect: () -> Void
     let onAction: (VisitQuickAction) -> Void
 
-    private let railWidth: CGFloat = 1.5
-    private let markerSize: CGFloat = 28
+    static let railWidth: CGFloat = 1.5
+    static let markerSize: CGFloat = 28
+    private var railWidth: CGFloat { Self.railWidth }
+    private var markerSize: CGFloat { Self.markerSize }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -62,11 +64,13 @@ struct TimelineStopRow: View {
     private var rail: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(isFirst ? Color.clear : (tenantAbove ? style.tenant : style.line))
+                // The first stop's line comes down from the chosen day (DayCarouselView, SPEC §13).
+                .fill(tenantAbove ? style.tenant : style.line)
                 .frame(width: railWidth, height: 4)
             marker
             Rectangle()
-                .fill(isLast ? Color.clear : (tenantBelow ? style.tenant : style.line))
+                // The last stop's rail carries on toward the Schedule bead (DayListView draws the rest; SPEC §13).
+                .fill(tenantBelow ? style.tenant : style.line)
                 .frame(width: railWidth)
                 .frame(maxHeight: .infinity)
         }
@@ -463,6 +467,15 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwAddTaskDemo") {
+            AddTaskView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwAddQuoteDemo") {
+            AddQuoteView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwAddInvoiceDemo") {
+            AddInvoiceView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwSpineDemo") {
+            HeadSpineDemo(head: i + 1 < args.count ? args[i + 1] : "penny")
+                .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwChaseDemo") {
             PennyChaseDemo().itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwDupeDemo") {
@@ -600,9 +613,21 @@ private struct ScheduleTimelineDemo: View {
     }
 
     var body: some View {
-        DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
-                    onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
+        if mode == "time" {   // `-mwTimelineDemo time`: the hour grid (the Schedule bead's Time view)
+            // With the day strip above and the Schedule bead's slot, to see the axis meet the chosen day.
+            VStack(spacing: 0) {
+                DayCarouselView(selectedDate: .constant(Date()), weekDays: [], showsLine: true)
+                DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
+                                                          Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
+                                isLoading: false, isToday: true, onRefresh: {}, onSelect: { _ in })
+            }
+            .environment(\.itTabSlot, ItTabSlot(index: 0, count: 5))
             .background(style.page)
+        } else {
+            DayListView(stops: stops, isLoading: false, errorMessage: nil, isOffline: false, isAdmin: true,
+                        onRefresh: {}, onSelect: { _ in }, onAction: { _, _ in }, timeline: input)
+                .background(style.page)
+        }
     }
 }
 #endif
@@ -615,10 +640,11 @@ private struct MeniscusBarDemo: View {
     let variant: String
     @State private var selected: Int
     @State private var addOpen: Bool
+    @State private var demoDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
 
     init(variant: String) {
         self.variant = variant
-        _selected = State(initialValue: variant == "receipts" ? 3 : 0)
+        _selected = State(initialValue: variant == "receipts" ? 3 : variant == "addbead" ? 4 : 0)   // addbead: the bead parked on Add (the ×)
         _addOpen = State(initialValue: variant == "add")
     }
 
@@ -640,7 +666,11 @@ private struct MeniscusBarDemo: View {
 
     var body: some View {
         NavigationStack {
-            ScheduleTimelineDemo(mode: "day")
+            VStack(spacing: 0) {
+                DayCarouselView(selectedDate: $demoDate, weekDays: [], showsLine: true)
+                ScheduleTimelineDemo(mode: "day")
+            }
+                .environment(\.itTabSlot, ItTabSlot(index: 0, count: items.count))
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
@@ -650,6 +680,8 @@ private struct MeniscusBarDemo: View {
                 AddDial(slot: items.count - 1, slotCount: items.count, onPick: { _ in addOpen = false }, onClose: { addOpen = false })
             }
         }
+        // As MainTabView does: every scroll view below gets the bar's bottom margin (the day strip must ignore it).
+        .contentMargins(.bottom, MainTabView.barReserve, for: .scrollContent)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ItMeniscusBar(items: items, selected: Binding(
                 get: { addOpen ? items.count - 1 : selected },

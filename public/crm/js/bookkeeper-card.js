@@ -19,6 +19,9 @@
     var GREETING = root.getAttribute('data-name') || '';
     var queue = [];
     var dupes = [];          // possible duplicate pairs — sorted before anything is approved
+    var payments = [];       // every deposit the payments matcher proposes — first of all (Tim, 2026-11-06)
+    var paySkipped = {};     // tx id → true: "Not now" on this page view
+    var payDone = null;      // {card, log_id, message}: just recorded — shown as one, with Undo
     var idx = 0;
     var busy = false;
     var rounds = 0;          // background preparation rounds this page view (max 3 × 2 receipts)
@@ -65,6 +68,7 @@
             .then(function (d) {
                 queue = (d && d.ok && d.queue) ? d.queue : [];
                 dupes = (d && d.ok && d.dupes) ? d.dupes : [];
+                payments = (d && d.ok && d.payments) ? d.payments : [];
                 idx = 0;
                 topUp();
                 render(msg);
@@ -195,7 +199,87 @@
         }).catch(function () { busy = false; renderDupe('Network error — try again'); });
     }
 
+    // ── Likely payments: every deposit the payments matcher proposes (PaymentMatchService::pennyCards()), the same list
+    //    as "N deposits matched". Suggest only — Record is a person's tap (payment_book, refused if the line changed);
+    //    Undo goes back through the path that booked it (payment_undo). Same words as the iPhone card.
+    function openPayments() { return payments.filter(function (c) { return !paySkipped[c.tx_id]; }); }
+    function payTargets(c) { return c.targets.length === 1 ? c.targets[0].number : c.targets.length + ' invoices'; }
+    function renderPayment(msg) {
+        var list = openPayments();
+        var c = list[0];
+        var facts = (c.facts || []).map(function (f) {
+            var mark = f.state === 'same' ? '<span class="mw-rc-dup-tick" aria-label="matches">✓</span>'
+                : f.state === 'differs' ? '<span class="mw-rc-chq-diff" aria-label="differs">≠</span>' : '';
+            return '<tr><th scope="row">' + esc(f.label) + '</th><td>' + esc(f.deposit) + '</td><td class="mw-rc-chq-mark">' + mark + '</td><td>' + esc(f.invoice) + '</td></tr>';
+        }).join('');
+        var lines = c.targets.length > 1
+            ? '<ul class="mw-rc-chq-targets">' + c.targets.map(function (t) { return '<li>' + esc(t.number) + ' · ' + esc(money(t.amount)) + '</li>'; }).join('') + '</ul>' : '';
+        var flags = (c.flags || []).map(function (f) { return '<div class="mw-rc-chq-flag">' + esc(f) + '</div>'; }).join('');
+        var conf = [c.confidence ? c.confidence.charAt(0).toUpperCase() + c.confidence.slice(1) + ' confidence' : ''].concat(c.evidence || []).filter(Boolean).join(' · ');
+        root.innerHTML = '<div class="mw-rc-top"><span><b>Likely payment</b>' + (list.length > 1 ? ' · 1 of ' + list.length : '') + '</span></div>' +
+            '<div class="mw-rc-dup-verdict">' + esc(c.verdict) + '</div>' +
+            '<div class="mw-rc-dup-conf">' + esc(conf) + '</div>' +
+            '<div class="mw-rc-chq">' +
+              '<div class="mw-rc-chq-main">' +
+                '<div class="mw-rc-dup-tablewrap"><table class="mw-rc-dup-table mw-rc-chq-table"><thead><tr><th scope="col"><span class="mw-rc-dup-sr">Fact</span></th>' +
+                  '<th scope="col">' + esc(c.label) + '</th><th scope="col"><span class="mw-rc-dup-sr">Match</span></th>' +
+                  '<th scope="col">' + esc(payTargets(c)) + '</th></tr></thead><tbody>' + facts + '</tbody></table></div>' +
+                '<div class="mw-rc-chq-memo">Bank memo: ' + esc(c.memo) + '</div>' + lines + flags +
+              '</div>' +
+              '<div class="mw-rc-dup-btns mw-rc-chq-btns">' +
+                // The server says what the tap does: "Link · bank line to the payment" when the payment is already on the
+                // invoice, "Record · $X on INV-…" when it records one (Tim, 2026-11-07).
+                '<button type="button" class="mw-rc-dup-btn is-merge" data-pay-record="1"><span class="mw-rc-dup-ico" aria-hidden="true">' + (c.button && c.button.title === 'Link' ? '⛓' : '✓') + '</span><b>' +
+                  esc((c.button && c.button.title) || 'Record') + '</b><small>' + esc((c.button && c.button.detail) || (money(c.amount) + ' on ' + payTargets(c))) + '</small></button>' +
+                '<button type="button" class="mw-rc-dup-btn is-diff" data-pay-skip="1"><span class="mw-rc-dup-ico" aria-hidden="true">→</span><b>Not now</b><small>leave it in the bank</small></button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="mw-rc-msg" role="status">' + (msg ? esc(msg) : '') + '</div>';
+    }
+    /** Recorded: the deposit and its invoice(s) are one now — centred, Next, and Undo. */
+    function renderPaymentDone(msg) {
+        var c = payDone.card;
+        var next = openPayments().length ? 'next payment' : (dupes.length ? 'on to duplicates' : 'on to receipts');
+        root.innerHTML = '<div class="mw-rc-top"><span><b>Likely payment</b></span></div>' +
+            '<div class="mw-rc-paid">' +
+              '<div class="mw-rc-paid-word">✓ ' + (c.button && c.button.title === 'Link' ? 'Linked to the bank' : 'Paid') + '</div>' +
+              c.targets.map(function (t) { return '<div class="mw-rc-paid-inv">' + esc(t.number) + '</div>'; }).join('') +
+              '<div class="mw-rc-paid-sub">' + esc((c.targets[0] && c.targets[0].payer) || '') + '</div>' +
+              '<div class="mw-rc-paid-sub">' + esc(money(c.amount) + ' ' + c.label.toLowerCase()) + '</div>' +
+              '<div class="mw-rc-dup-btns"><button type="button" class="mw-rc-dup-btn is-merge" data-pay-next="1"><span class="mw-rc-dup-ico" aria-hidden="true">→</span><b>Next</b><small>' + esc(next) + '</small></button></div>' +
+              (payDone.log_id ? '<button type="button" class="mw-rc-dup-undo" data-pay-undo="1">Undo</button>' : '') +
+            '</div>' +
+            '<div class="mw-rc-msg" role="status">' + (msg ? esc(msg) : '') + '</div>';
+    }
+    function recordPayment() {
+        var c = openPayments()[0];
+        if (busy || !c) return;
+        busy = true;
+        post({ mode: 'payment_book', transaction_id: c.tx_id, signature: c.signature })
+            .then(function (d) {
+                busy = false;
+                if (!(d && d.ok)) { renderPayment((d && (d.message || d.error)) || 'Could not record it.'); return; }
+                payDone = { card: c, log_id: d.log_id || 0, message: d.message || '' };
+                load();
+            })
+            .catch(function () { busy = false; renderPayment('Network error — try again'); });
+    }
+    function undoPayment() {
+        if (busy || !payDone || !payDone.log_id) return;
+        busy = true;
+        post({ mode: 'payment_undo', log_id: payDone.log_id })
+            .then(function (d) {
+                busy = false;
+                if (!(d && d.ok)) { renderPaymentDone((d && (d.message || d.error)) || 'Could not undo it.'); return; }
+                payDone = null;
+                load(d.message || 'Undone — the deposit is back as it was.');
+            })
+            .catch(function () { busy = false; renderPaymentDone('Network error — try again'); });
+    }
+
     function render(msg) {
+        if (payDone) { setZoom(false); renderPaymentDone(msg); return; }
+        if (openPayments().length) { setZoom(false); renderPayment(msg); return; }
         if (dupes.length) { setZoom(false); renderDupe(msg); return; }
         if (!queue.length) {
             setZoom(false);
@@ -788,6 +872,14 @@
             return;
         }
         if (e.target.hasAttribute && e.target.hasAttribute('data-ipenny')) { usePennyItems(); return; }
+        var payBtn = e.target.closest && e.target.closest('[data-pay-record],[data-pay-skip],[data-pay-next],[data-pay-undo]');
+        if (payBtn) {
+            if (payBtn.hasAttribute('data-pay-record')) recordPayment();
+            else if (payBtn.hasAttribute('data-pay-undo')) undoPayment();
+            else if (payBtn.hasAttribute('data-pay-next')) { payDone = null; render(); }
+            else { var op = openPayments()[0]; if (op) { paySkipped[op.tx_id] = true; render(); } }
+            return;
+        }
         var dupBtn = e.target.closest && e.target.closest('[data-dup-merge],[data-dup-not],[data-dup-swap],[data-dup-undo]');
         if (dupBtn) {
             if (dupBtn.hasAttribute('data-dup-merge')) settleDupe(false);
@@ -911,8 +1003,8 @@
         var t = e.target.tagName;
         if (t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
         if (zoomed && e.key === 'Escape') { e.preventDefault(); setZoom(false); render(); return; }
-        if ((e.key === 'r' || e.key === 'R') && queue.length && !dupes.length && root.offsetParent) { e.preventDefault(); rotate(); return; }
-        if (!root.offsetParent || !queue.length) return;
+        if ((e.key === 'r' || e.key === 'R') && queue.length && !dupes.length && !openPayments().length && !payDone && root.offsetParent) { e.preventDefault(); rotate(); return; }
+        if (!root.offsetParent || !queue.length || openPayments().length || payDone) return;   // a payment is showing, not a receipt
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
         else if (e.key === 's' || e.key === 'S') { e.preventDefault(); submit(true); }
         else if (e.key === 'ArrowRight') { if (busy) return; idx = (idx + 1) % queue.length; render(); }

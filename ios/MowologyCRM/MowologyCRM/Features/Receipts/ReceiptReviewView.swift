@@ -135,7 +135,10 @@ struct ReceiptReviewView: View {
     }
 
     private var totalValue: Double { ReceiptNumber.parse(total) ?? 0 }
-    private var canSave: Bool { totalValue > 0 && !viewModel.isSaving }
+    // Submit stays tappable; with no total it says why and goes to the field (Tim, 2026-11-06: "it wouldn't let me but
+    // didn't tell me why"). The total stays required: drafts with no total would all pair up as duplicates (same $0.00).
+    private var canSave: Bool { !viewModel.isSaving }
+    @State private var totalMissing = false
 
     var body: some View {
         NavigationStack {
@@ -482,6 +485,13 @@ struct ReceiptReviewView: View {
             amountRow(label: "Subtotal", value: $amount, field: .amount)
             amountRow(label: "GST",      value: $gst,    field: .gst)
             amountRow(label: "PST",      value: $pst,    field: .pst)
+        } header: {
+            if totalMissing && totalValue <= 0 {
+                Label("Type the total from the receipt to submit. The phone couldn't read it.", systemImage: "exclamationmark.circle.fill")
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.blocked)
+                    .textCase(nil)
+            }
         } footer: {
             Text("Editing subtotal or tax recalculates the total; editing the total recalculates the subtotal.")
         }
@@ -813,6 +823,12 @@ struct ReceiptReviewView: View {
     // MARK: - Save
 
     private func attemptSave(andSend: Bool) async {
+        guard totalValue > 0 else {
+            withAnimation { totalMissing = true }
+            focus = .total
+            return
+        }
+        totalMissing = false
         focus = nil
         if !duplicatesAcknowledged {
             await runDuplicateCheck()

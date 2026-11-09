@@ -4,7 +4,7 @@
 //
 //  Penny's receipt card for the admin, one receipt at a time: the photo, her read of
 //  every field (with how sure she is and why), and Approve · Save draft · Reject · Skip.
-//  Possible duplicates come first, as on the web card — never offered for approval.
+//  Likely cheques come first (PennyChequeCard), then possible duplicates, as on the web card — never offered for approval.
 //
 
 import SwiftUI
@@ -14,6 +14,8 @@ struct PennyCardView: View {
     @Environment(\.itAppStyle) private var appStyle
 
     @ObservedObject var vm: PennyCardViewModel
+    /// Opens the "Waiting now" section on Penny's spine (the workspace's guide and her lines).
+    var lead: AnyView = AnyView(EmptyView())
 
     @State private var zoomTarget: ZoomTarget?
     @State private var showReject = false
@@ -22,21 +24,19 @@ struct PennyCardView: View {
 
     @Environment(\.openURL) private var openURL
 
+    /// Penny's spine sections (2026-11-07): Waiting now holds her cards, which run on the same centre line (bank →
+    /// panel → ledger), so it has no frame of its own; then mail from customers.
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            mailSection
-            if vm.isLoading && !vm.hasLoaded {
-                HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
-                    .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty {
-                errorState(err)
-            } else if let group = vm.dupes.first {
-                dupeCard(group)
-            } else if let item = vm.current {
-                receiptCard(item)
-            } else if vm.hasLoaded {
-                emptyState
+        VStack(alignment: .leading, spacing: 0) {
+            SpineNode(slug: "penny", id: "now", title: "Waiting now", symbol: "tray.full.fill",
+                      waiting: HeadSpineLogic.count(vm.payments.count + vm.cheques.count + vm.dupes.count + vm.queue.count, "waiting"),
+                      defaultOpen: true, framed: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    lead
+                    waitingCards
+                }
             }
+            mailSection
         }
         .fullScreenCover(item: $zoomTarget) { target in
             ZoomableReceiptView(url: target.url)
@@ -53,6 +53,54 @@ struct PennyCardView: View {
         }
         .fullScreenCover(item: $pagerTarget) { t in
             DupePhotoPager(urls: t.urls, labels: t.labels, reads: t.reads, start: t.start)
+        }
+    }
+
+    @ViewBuilder private var waitingCards: some View {
+        if vm.isLoading && !vm.hasLoaded {
+            HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
+                .padding(.vertical, 40)
+        } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.paySession.isEmpty {
+            errorState(err)
+        } else if vm.showsPayments, vm.currentPayment != nil {
+            // Every deposit the payments matcher proposes, first (the same list as "N deposits matched"); answered
+            // ones keep their number in the row and open in their answered state. Swiped, the next one peeking.
+            PennyPaymentCarousel(vm: vm, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+            if vm.showsDupes, let group = vm.currentDupe {
+                dupeCard(group).id(group.id).padding(.top, 18)
+            }
+        } else if let done = vm.chequeDone {
+            // Recorded: the cheque and its invoice are one (Tim, 2026-11-06), duplicates under it as before.
+            PennyChequeDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+            if vm.showsDupes, let group = vm.currentDupe {
+                dupeCard(group).id(group.id).padding(.top, 18)
+            }
+        } else if let cheque = vm.currentCheque {
+            // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
+            // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
+            PennyChequeCard(vm: vm, cheque: cheque, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
+                .id(cheque.id)
+                .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
+            if vm.showsDupes, let group = vm.currentDupe {
+                dupeCard(group)
+                    .id(group.id)
+                    .padding(.top, 18)
+            }
+        } else if vm.showsDupes, let group = vm.currentDupe {
+            dupeCard(group)
+                .id(group.id)
+                .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .leading : .trailing).combined(with: .opacity),
+                                        removal: .opacity))
+                // A carousel: swipe sideways to the next / previous group (the photos open full screen on a tap).
+                .gesture(DragGesture(minimumDistance: 30).onEnded { g in
+                    guard abs(g.translation.width) > abs(g.translation.height) * 1.5, abs(g.translation.width) > 60 else { return }
+                    // Right to left, as the numbers read: drag right to bring the next group in from the left.
+                    withAnimation(.easeOut(duration: 0.22)) { g.translation.width > 0 ? vm.nextDupe() : vm.previousDupe() }
+                })
+        } else if let item = vm.current {
+            receiptCard(item)
+        } else if vm.hasLoaded {
+            emptyState
         }
     }
 
@@ -291,7 +339,11 @@ struct PennyCardView: View {
             Text(m)
                 .font(appStyle.font(.footnote))
                 .foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 6)
+                .background(appStyle.page)          // centred on page colour: the axis breaks round it
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -300,22 +352,21 @@ struct PennyCardView: View {
     @ViewBuilder
     private var mailSection: some View {
         if !vm.messages.isEmpty || vm.mailNote != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("From customers")
-                    .font(appStyle.font(.subheadline, weight: .semibold))
-                ForEach(vm.messages) { m in
-                    mailRow(m)
-                    if m.id != vm.messages.last?.id { Divider() }
-                }
-                if let n = vm.mailNote {
-                    Text(n)
-                        .font(appStyle.font(.footnote))
-                        .foregroundStyle(vm.mailNoteIsError ? appStyle.blocked : appStyle.tenant)
-                        .fixedSize(horizontal: false, vertical: true)
+            SpineNode(slug: "penny", id: "mail", title: "From customers", symbol: "envelope.fill",
+                      waiting: HeadSpineLogic.count(vm.messages.count, "message", plural: "messages")) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(vm.messages) { m in
+                        mailRow(m)
+                        if m.id != vm.messages.last?.id { Divider() }
+                    }
+                    if let n = vm.mailNote {
+                        Text(n)
+                            .font(appStyle.font(.footnote))
+                            .foregroundStyle(vm.mailNoteIsError ? appStyle.blocked : appStyle.tenant)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
-            .padding(12)
-            .background(appStyle.tenant.opacity(0.06), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
@@ -375,98 +426,288 @@ struct PennyCardView: View {
         let copies = vm.copyIds(for: group)
         let swaps = vm.swapOptions(for: group)
         let members = group.members.sorted { $0.id < $1.id }
+        let outcome = vm.dupeOutcome(group.id)
         // Fits one phone screen (Tim, 2026-11-06): matching facts fold into one ticked line, the table keeps only
         // what differs or wasn't read, status and sender sit under the photos, the squares are capped.
         let compared = group.facts.filter { $0.state != "info" }
-        // Never say a fact twice: a row the verdict already names ("auth 433970 is on both", "same total and date")
-        // leaves the table; status and sender sit under the photos.
-        let stated = Self.statedByVerdict(group.evidence)
-        // Only a row that really matches may leave: a differing date stays even when the verdict talks about dates.
-        let rows = compared.filter { !(stated.contains($0.label) && $0.state == "same") }
-        let info = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
+        // The table carries the facts; the headline only says what they add up to. Status and sender sit under the photos.
+        let rows = compared   // every compared fact, auth number included (Tim, 2026-11-06: "auth should be in the table")
+        let infoById = Dictionary(uniqueKeysWithValues: group.facts.filter { $0.state == "info" }.map { ($0.label, $0.values) })
+        // Three or more: the receipt kept (in the books / most data) takes the middle column, on the axis (Tim, 2026-11-06:
+        // "the best one … should go in the middle"). Every per-column list is put in the same order.
+        let order = Self.displayOrder(members.map(\.id), keep: keep)
+        let shown = order.map { members[$0] }
+        let shownRows = rows.map { $0.reordered(order) }
+        let shownCompared = compared.map { $0.reordered(order) }
+        let info = infoById.mapValues { v in order.map { v[safe: $0] ?? nil } }
         return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(members.count > 2 ? "Possible duplicates" : "Possible duplicate").font(appStyle.font(.headline))
-                if vm.dupes.count > 1 { badge("1 of \(vm.dupes.count)", color: appStyle.meta) }
-                Spacer()
+            // The section starts with its icon on the axis, above the numbers (Tim, 2026-11-06: "the copies icon should be
+            // above the numbering axis"); the axis runs from it down through the numbers and the panel toward Kaname.
+            Self.sectionIcon("doc.on.doc.fill", style: appStyle)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement()
+                .accessibilityLabel(Self.headline(group) + (group.confidence.map { ". " + $0 } ?? ""))
+            if vm.dupeSession.count > 1 {
+                dupePager
             }
-
-            // 1. Penny's verdict, large, and how sure she is with this vendor.
-            VStack(alignment: .leading, spacing: 4) {
-                Text(group.verdict ?? "Same total, within 3 days. Nothing printed proves it either way.")
-                    .font(appStyle.font(.title3, weight: .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                if let c = group.confidence, !c.isEmpty {
-                    Text(c).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .accessibilityElement(children: .combine)
-
-            // 2. The facts side by side (Tim: "fast to read"), minus what the verdict already says.
-            if !rows.isEmpty { factsTable(rows, members: members, keep: keep) }
-
-            // 3. Photos in the buttons' columns, same width (Tim, 2026-11-06); tap for full screen with Penny's read.
-            HStack(alignment: .top, spacing: members.count > 2 ? 10 : 16) {
-                ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
-                    dupeThumb(m, index: i, members: members, keep: keep,
-                              status: info["Status"]?[safe: i] ?? nil, sender: info["Sent in by"]?[safe: i] ?? nil,
-                              reads: members.indices.map { Self.pennyRead(compared, at: $0) })
-                }
-            }
-            .frame(maxWidth: 2 * 150 + 16)
-            .frame(maxWidth: .infinity)
-
-            // 4. Which one is kept, in words; the swap well away from the buttons.
-            VStack(alignment: .leading, spacing: 6) {
-                Text(vm.keepLine(for: group))
-                    .font(appStyle.font(.subheadline, weight: .semibold))
-                ForEach(swaps, id: \.self) { id in
-                    Button(swaps.count == 1 ? "Keep the other instead" : "Keep #\(id) instead") { vm.chooseKeep(id, in: group) }
-                        .font(appStyle.font(.footnote))
-                        .foregroundStyle(appStyle.tenant)
-                        .disabled(vm.isBusy)
-                }
-            }
-
-            // 5. Two square buttons, side by side, nothing else near them (capped so the card fits one screen).
-            HStack(spacing: 16) {
-                squareButton(icon: "arrow.triangle.merge", title: "Merge",
-                             detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
-                    Task { await vm.merge(group) }
-                }
-                .disabled(copies.isEmpty)
-                .accessibilityHint("Sets #\(copies.map(String.init).joined(separator: ", #")) aside as a copy of #\(keep). You can undo it.")
-                squareButton(icon: "doc.on.doc", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
-                    Task { await vm.different(group) }
-                }
-                .accessibilityHint("They are separate purchases. Both go on for approval.")
-            }
-            .disabled(vm.isBusy)
-            .frame(maxWidth: 2 * 150 + 16)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 2)
-
+            // Undo sits up here, under the numbers: at the bottom the tab bar's Kaname button covered it.
             undoOrMessage
+            // No "I've been right N of N times" line: superfluous, and it crossed the axis (Tim, 2026-11-06). VoiceOver
+            // still hears it on the icon.
+            // How sure, as the knowledge triangle on the line (Tim, 2026-11-07: "The receipts merge feature should also make
+            // use of the ledger icon and triangle"): a printed number or the same photo proves it (gold), the same printed
+            // time (blue), only total and date (broken outline).
+            // In its ring where the line meets the panel's top edge (Tim, 2026-11-07, his drawing): see the panel below.
+            let level = Self.dupeConfidence(group.evidence)
+
+            // The rest hangs on one thin centre line (Tim, 2026-11-06): down the table, between the photos and between
+            // the two buttons, on toward the Kaname button below. Two receipts only; three get the table's own lines.
+            VStack(alignment: .leading, spacing: 10) {
+                // 2–3. The facts side by side, and each receipt's photo under its own column. Three or more: each column is
+                //      wrapped in a frame of the line's weight (Tim: "wrap each one"); the axis runs behind the middle one.
+                if case .merged(let kept, let copiesDone)? = outcome, let ki = members.firstIndex(where: { $0.id == kept }) {
+                    // Merged: they are one now (Tim, 2026-11-06: "once merged it should become one") — the kept receipt
+                    // alone, centred on the axis, and what went into it.
+                    let m = members[ki]
+                    VStack(spacing: 6) {
+                        dupeThumb(m, index: 0, members: [m], keep: kept,
+                                  status: infoById["Status"]?[safe: ki] ?? nil,
+                                  sender: infoById["Sent in by"]?[safe: ki] ?? nil,
+                                  reads: [Self.pennyRead(compared, at: ki)])
+                            .frame(width: Self.singleColumn)
+                        Text("#" + copiesDone.map(String.init).joined(separator: ", #") + " merged into it")
+                            .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+                            .padding(.horizontal, 6).background(appStyle.page)
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                VStack(alignment: .leading, spacing: 10) {
+                if !shownRows.isEmpty { factsTable(shownRows, members: shown, keep: keep) }
+
+                // 3. Photos in the buttons' columns, same width (Tim, 2026-11-06); tap for full screen with Penny's read.
+                HStack(alignment: .top, spacing: Self.columnGap) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, m in
+                        dupeThumb(m, index: i, members: shown, keep: keep,
+                                  status: Self.statusAfter(outcome, member: m.id) ?? info["Status"]?[safe: i] ?? nil,
+                              sender: info["Sent in by"]?[safe: i] ?? nil,
+                                  reads: shown.indices.map { Self.pennyRead(shownCompared, at: $0) })
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                }
+                .background { if shown.count > 2 { columnFrames(shown.count) } }
+                }
+
+                // 4. The swap, small and away from the buttons. (Which one is kept is on its photo and on Merge.)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(outcome == nil ? swaps : [], id: \.self) { id in
+                        Button(swaps.count == 1 ? "Keep the other instead" : "Keep #\(id) instead") { vm.chooseKeep(id, in: group) }
+                            .font(appStyle.font(.footnote))
+                            .foregroundStyle(appStyle.tenant)
+                            .disabled(vm.isBusy)
+                    }
+                }
+
+                // 5. Open: Merge / Different. Answered: what was decided, and the way back (Unmerge / Undo).
+                if let outcome {
+                    answeredButtons(outcome, group: group)
+                } else {
+                    // 5. Two square buttons, side by side, nothing else near them (capped so the card fits one screen).
+                    HStack(spacing: Self.columnGap) {
+                        squareButton(icon: "arrow.triangle.merge", title: "Merge",
+                                     detail: copies.count > 1 ? "all into #\(keep)" : "into #\(keep)", filled: true) {
+                            Task { await vm.merge(group) }
+                        }
+                        .disabled(copies.isEmpty)
+                        .accessibilityHint("Sets #\(copies.map(String.init).joined(separator: ", #")) aside as a copy of #\(keep). You can undo it.")
+                        squareButton(icon: "rectangle.split.2x1", title: "Different", detail: members.count > 2 ? "keep them all" : "keep both", filled: false) {
+                            Task { await vm.different(group) }
+                        }
+                        .accessibilityHint("They are separate purchases. Both go on for approval.")
+                    }
+                    .disabled(vm.isBusy)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+                }
+
+            }
+            .padding(8)
+            .padding(.top, level == nil ? 0 : 30)  // the confidence ring's lower half sits inside the panel
+            // A thin frame of the same weight around the side-by-side panel (Tim: "surround with a similar weighted line").
+            .padding(.bottom, 30)                 // the ledger's upper half sits inside the panel
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+            // The end of the line: the books carry one receipt once it is answered (Merged, or Different — both kept).
+            // The ledger sits where the centre line crosses the panel's bottom edge (Tim, 2026-11-07), as the business icon sits
+            // on its card's top edge: its page-colour disc covers the frame there; the space below makes room for its lower half.
+            .overlay(alignment: .bottom) { Self.ledgerIcon(filled: outcome != nil, style: appStyle).offset(y: 31) }
+            .padding(.bottom, 31)
+            .modifier(PaymentConfidenceTriangle.Seat(level: level))
+        }
+        .background(alignment: .top) {
+                Rectangle().fill(appStyle.line)
+                    .frame(width: 1)
+                    .frame(maxHeight: .infinity)
+                    .padding(.top, 31)                // from the icon's centre
+                    .padding(.bottom, -400)          // runs on past the card toward the Kaname button
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
         }
     }
 
-    /// 6. "Merged into #N · Undo" for about 6 seconds after a merge, else the usual message line.
-    @ViewBuilder private var undoOrMessage: some View {
-        if let m = vm.lastMerge {
-            HStack {
-                Text("Merged into #\(m.keepId)").font(appStyle.font(.subheadline, weight: .semibold))
-                Spacer()
-                Button("Undo") { Task { await vm.undoLastMerge() } }
-                    .font(appStyle.font(.subheadline, weight: .bold))
-                    .foregroundStyle(appStyle.tenant)
-                    .frame(minWidth: 64, minHeight: 44)
+    /// Three or more receipts: the axis splits round the middle (kept) receipt and rejoins below it — one page-filled frame
+    /// whose two sides run down the gaps, so the tick rings sit ON the line (Tim, 2026-11-06: "the tick circles are on the
+    /// line so you've drawn too many frames"). Any other gap (four or more receipts) gets a plain divider line.
+    private func columnFrames(_ n: Int) -> some View {
+        GeometryReader { geo in
+            let gap = Self.columnGap
+            let colW = (geo.size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+            let mid = n % 2 == 1 ? n / 2 : nil
+            ForEach(1..<n, id: \.self) { k in                       // gap k sits between columns k-1 and k
+                if mid == nil || (k != mid! && k != mid! + 1) {
+                    Rectangle().fill(appStyle.line)
+                        .frame(width: 1, height: geo.size.height)
+                        .position(x: CGFloat(k) * (colW + gap) - gap / 2, y: geo.size.height / 2)
+                }
             }
-            .padding(.horizontal, 12)
-            .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-        } else {
-            messageLine
+            if let m = mid {
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                    .fill(appStyle.page)
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.line, lineWidth: 1))
+                    .frame(width: colW + gap, height: geo.size.height + 12)
+                    .position(x: CGFloat(m) * (colW + gap) + colW / 2, y: geo.size.height / 2)
+            }
         }
+        .accessibilityHidden(true)
+    }
+
+    /// Column order for a group: three or more → the kept receipt in the middle, the rest in id order round it.
+    static func displayOrder(_ ids: [Int], keep: Int) -> [Int] {
+        let idx = Array(ids.indices)
+        guard ids.count > 2, let k = ids.firstIndex(of: keep) else { return idx }
+        var rest = idx.filter { $0 != k }
+        rest.insert(k, at: ids.count / 2)
+        return rest
+    }
+
+    /// Progress through the duplicates: the shared Kaname number row (also on the payment cards).
+    private var dupePager: some View {
+        KanameNumberRow(count: vm.dupeSession.count, current: vm.dupePos,
+                        isDone: { i in vm.dupeSession.indices.contains(i) && vm.dupeOutcome(vm.dupeSession[i]) != nil },
+                        noun: "Group",
+                        onTap: { i in if vm.dupeSession.indices.contains(i) { vm.showDupe(id: vm.dupeSession[i]) } })
+    }
+
+    /// An answered group: a status square beside the way back, in the same two columns as Merge / Different.
+    @ViewBuilder private func answeredButtons(_ outcome: PennyCardViewModel.DupeOutcome, group: BKDupeGroup) -> some View {
+        VStack(spacing: 10) {
+            HStack(spacing: Self.columnGap) {
+                switch outcome {
+                case .merged:
+                    // One receipt, one way back: Unmerge alone, centred on the axis (Tim, 2026-11-06).
+                    squareButton(icon: "arrow.uturn.backward", title: "Unmerge", detail: "decide again", filled: false) {
+                        Task { await vm.reopen(group.id) }
+                    }
+                    .frame(width: Self.singleColumn)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHint("Brings the copy back to waiting and asks about this pair again.")
+                case .different:
+                    statusSquare(icon: "doc.on.doc", title: "Different", detail: "both kept")
+                    squareButton(icon: "arrow.uturn.backward", title: "Undo", detail: "decide again", filled: false) {
+                        Task { await vm.reopen(group.id) }
+                    }
+                case .elsewhere:
+                    statusSquare(icon: "checkmark", title: "Settled", detail: "on another screen")
+                    Color.clear.frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
+                }
+            }
+            .disabled(vm.isBusy)
+            .frame(maxWidth: .infinity)
+            if vm.dupesAllAnswered {
+                Button("All sorted. On to the receipts") { withAnimation { vm.finishDupes() } }
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.tenant)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+        }
+    }
+
+    /// The decided state, same size as a button but not one: quiet fill, no border.
+    private func statusSquare(icon: String, title: String, detail: String) -> some View {
+        let shape = RoundedRectangle(cornerRadius: appStyle.cornerRadius(16))
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                VStack(spacing: 8) {
+                    Image(systemName: icon).font(appStyle.font(size: 30, weight: .semibold)).frame(height: 42)
+                    Text(title).font(appStyle.font(.title3, weight: .bold))
+                    Text(detail).font(appStyle.font(.footnote)).multilineTextAlignment(.center)
+                }
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .padding(10)
+                .foregroundStyle(appStyle.meta)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(appStyle.sunk, in: shape)
+                .accessibilityElement(children: .combine)
+            }
+    }
+
+    /// 6. Penny's message line, under the numbers.
+    @ViewBuilder private var undoOrMessage: some View {
+        messageLine        // Undo lives on the answered card itself now: swipe back, Unmerge (Tim, 2026-11-06)
+    }
+
+    /// One column grid per panel (Tim, 2026-11-06: "the buttons left and right padding along with images throws off the
+    /// design"): the facts, the photos and the buttons share the panel's edges and this gap, so the centre line (two
+    /// receipts) or the column dividers (three) pass through every row in the same place. The tick ring sits in it.
+    static let columnGap: CGFloat = 46
+    /// One column of the two-column grid on a phone: the merged receipt and its Unmerge button, centred on the axis.
+    static let singleColumn: CGFloat = 150
+
+    /// A section's icon on the centre line: a filled `brand` circle with a white glyph, in a page-coloured gap and a thin
+    /// ring of the line's weight (the ticks' and Kaname button's look). Large: it names the section (SPEC §13).
+    static func sectionIcon(_ symbol: String, style: ItAppStyle, ring: CGFloat = 56) -> some View {
+        let indigo = style.isEnabled ? style.palette.color(.brand) : Color.indigo
+        return ZStack {
+            Circle().fill(style.page).frame(width: ring + 6, height: ring + 6)
+            Circle().stroke(style.line, lineWidth: 1).frame(width: ring, height: ring)
+            Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
+            Image(systemName: symbol).font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// A duplicate group's evidence (DuplicateReceiptService::verdictFor) → the knowledge triangle's level.
+    static func dupeConfidence(_ evidence: String?) -> String? {
+        switch evidence {
+        case "number", "photo": return "high"
+        case "time": return "medium"
+        case "total_date": return "low"
+        default: return nil
+        }
+    }
+
+    /// The end of the money's path on the centre line (Tim, 2026-11-07: "It starts with the bank icon indicating
+    /// transactions it ends with in the books"): a ledger in the same gap and ring as the section icon. An outline while
+    /// the deposit waits; filled brand indigo, white glyph, once it is linked or recorded — counted once, in the books.
+    /// `tappable` (linked, undo available — Tim, 2026-11-07): the ring is drawn in indigo, not the line's shade, so only
+    /// then does it read as something to press.
+    static func ledgerIcon(filled: Bool, style: ItAppStyle, ring: CGFloat = 56, tappable: Bool = false) -> some View {
+        let indigo = style.isEnabled ? style.palette.color(.brand) : Color.indigo
+        return ZStack {
+            Circle().fill(style.page).frame(width: ring + 6, height: ring + 6)
+            Circle().stroke(tappable ? indigo : style.line, lineWidth: tappable ? 1.5 : 1).frame(width: ring, height: ring)
+            if filled {
+                Circle().fill(indigo).frame(width: ring - 10, height: ring - 10)
+                Image(systemName: "text.book.closed.fill").font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(.white)
+            } else {
+                Circle().stroke(indigo.opacity(0.55), lineWidth: 1.5).frame(width: ring - 10, height: ring - 10)
+                Image(systemName: "text.book.closed").font(.system(size: ring * 0.36, weight: .semibold)).foregroundStyle(indigo)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel(filled ? "In the books" : "Not in the books yet")
     }
 
     /// A square button: a width-filling clear base made square (half the row each, about 160 pt on a 393 pt phone,
@@ -489,7 +730,7 @@ struct PennyCardView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .foregroundStyle(filled ? appStyle.onTenant : appStyle.tenant)
-                    .background(filled ? appStyle.tenant : Color.clear, in: shape)
+                    .background(filled ? appStyle.tenant : appStyle.page, in: shape)   // the axis passes behind, never through
                     .overlay(shape.strokeBorder(appStyle.tenant, lineWidth: filled ? 0 : 2))
                     .contentShape(shape)
                 }
@@ -498,50 +739,80 @@ struct PennyCardView: View {
             }
     }
 
+    /// The facts side by side. A row that matches shows only the values, with a filled indigo check between them
+    /// (Tim, 2026-11-06); a row that differs or wasn't read keeps its label, and a difference is highlighted.
     private func factsTable(_ rows: [BKDupeFactRow], members: [BKDupeMember], keep: Int) -> some View {
-        let labelW: CGFloat = 78
-        let colW: CGFloat = members.count > 2 ? 108 : 124
-        return ScrollView(.horizontal, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 0) {
-                    Text("").frame(width: labelW, alignment: .leading)
-                    ForEach(members) { m in
-                        Text("#\(m.id)\(m.id == keep ? " · kept" : "")")
-                            .font(appStyle.font(.caption, weight: .bold))
-                            .foregroundStyle(m.id == keep ? appStyle.tenant : appStyle.meta)
-                            .frame(width: colW, alignment: .leading)
-                    }
-                }
-                .padding(.bottom, 2)
-                ForEach(rows) { row in
-                    HStack(alignment: .top, spacing: 0) {
-                        HStack(spacing: 3) {
-                            Text(row.label).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-                            if row.state == "same" {
-                                Image(systemName: "checkmark").font(appStyle.font(size: 10, weight: .bold)).foregroundStyle(appStyle.tenant)
-                                    .accessibilityLabel("matches")
-                            }
-                        }
-                        .frame(width: labelW, alignment: .leading)
-                        ForEach(Array(row.values.enumerated()), id: \.offset) { _, v in
-                            Text(v ?? "–")
-                                .font(appStyle.font(.footnote, weight: row.state == "differs" ? .semibold : .regular))
-                                .foregroundStyle(v == nil ? appStyle.meta : appStyle.text)
-                                .lineLimit(2)
-                                .padding(.horizontal, 4).padding(.vertical, 2)
-                                .frame(width: colW - 6, alignment: .leading)
-                                .background(row.state == "differs" && v != nil ? appStyle.attention.opacity(0.18) : Color.clear,
-                                            in: RoundedRectangle(cornerRadius: 4))
-                                .frame(width: colW, alignment: .leading)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityValue(row.state == "differs" ? "differs" : row.state == "same" ? "matches" : "")
-                    Divider().overlay(appStyle.line)
+        let gap = Self.columnGap   // the values sit a few points clear of the tick's ring
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        let n = members.count
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(Array(members.enumerated()), id: \.element.id) { i, m in
+                    if i > 0 { Color.clear.frame(width: gap, height: 1) }
+                    Text("#\(m.id)\(m.id == keep ? " · kept" : "")")
+                        .font(appStyle.font(.caption, weight: .bold))
+                        .foregroundStyle(m.id == keep ? appStyle.tenant : appStyle.meta)
+                        .frame(maxWidth: .infinity, alignment: Self.cellAlignment(i, of: n))
                 }
             }
+            .padding(.bottom, 4)
+            ForEach(rows) { row in
+                let match = row.state == "same"
+                HStack(alignment: .center, spacing: 0) {
+                    ForEach(Array(row.values.enumerated()), id: \.offset) { i, v in
+                        if i > 0 {
+                            Group {
+                                if match {
+                                    // Like the Kaname button: the centre line stops short, a page-coloured gap, then a thin
+                                    // ring of the same weight around the filled tick.
+                                    ZStack {
+                                        Circle().fill(appStyle.page).frame(width: 27, height: 27)
+                                        Circle().stroke(appStyle.line, lineWidth: 1).frame(width: 25, height: 25)
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(appStyle.font(size: 16, weight: .semibold))
+                                            .foregroundStyle(indigo)
+                                    }
+                                    .accessibilityHidden(true)
+                                } else { Color.clear }
+                            }
+                            .frame(width: gap)
+                        }
+                        Text(match ? (v ?? "–") : Self.unmatchedCell(row.label, v))
+                            .font(appStyle.font(.footnote, weight: row.state == "differs" ? .semibold : .regular))
+                            .foregroundStyle(v == nil ? appStyle.meta : appStyle.text)
+                            .lineLimit(match ? 1 : 2)          // "Southlands Nursery" shrinks a little, never wraps
+                            .minimumScaleFactor(match ? 0.75 : 1)
+                            .multilineTextAlignment(Self.textAlignment(i, of: n))
+                            .padding(.horizontal, row.state == "differs" && v != nil ? 4 : 0).padding(.vertical, 1)
+                            .background(row.state == "differs" && v != nil ? appStyle.attention.opacity(0.18) : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: 4))
+                            .frame(maxWidth: .infinity, alignment: Self.cellAlignment(i, of: n))
+                    }
+                }
+                .padding(.vertical, 3)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(match ? "\(row.label) matches: \(row.values.compactMap { $0 }.first ?? "")"
+                                          : "\(row.label): " + row.values.map { $0 ?? "not read" }.joined(separator: ", "))
+                Divider().overlay(appStyle.line)
+            }
         }
+        // Three or more: the column frames (columnFrames) divide the receipts; the checks sit in their gaps.
+    }
+
+    /// A cell in a row that doesn't match: its label goes first so "Card –" reads, unless the value already names itself
+    /// ("Ticket 43198823", "Auth 433970" — not "Number Ticket 43198823").
+    static func unmatchedCell(_ label: String, _ value: String?) -> String {
+        guard let v = value else { return "\(label) –" }
+        return label == "Number" ? v : "\(label) \(v)"
+    }
+
+    /// Two receipts: the left column hugs the check from the left, the right one from the right. Three or more: centred.
+    static func cellAlignment(_ i: Int, of n: Int) -> Alignment {
+        n == 2 ? (i == 0 ? .trailing : .leading) : .center
+    }
+
+    static func textAlignment(_ i: Int, of n: Int) -> TextAlignment {
+        n == 2 ? (i == 0 ? .trailing : .leading) : .center
     }
 
     private func dupeThumb(_ m: BKDupeMember, index: Int, members: [BKDupeMember], keep: Int, status: String?, sender: String?,
@@ -571,11 +842,11 @@ struct PennyCardView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 112)
+            .frame(height: 96)
             .background(appStyle.sunk)
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(kept ? appStyle.tenant : Color.clear, lineWidth: 2))
-            Text(["#\(m.id)", status, sender.map(Self.shortName)].compactMap { $0 }.joined(separator: " · "))
+            Text(["#\(m.id)", kept && status == "waiting" ? "kept" : nil, status, sender.map(Self.shortName)].compactMap { $0 }.joined(separator: " · "))
                 .font(appStyle.font(.caption, weight: kept ? .semibold : .regular))
                 .foregroundStyle(kept ? appStyle.tenant : appStyle.meta)
                 .lineLimit(2)
@@ -584,20 +855,22 @@ struct PennyCardView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Fact rows the verdict already states, by Penny's evidence kind (server DuplicateReceiptService::verdictFor).
-    static func statedByVerdict(_ evidence: String?) -> Set<String> {
-        switch evidence {
-        case "number": return ["Number"]
-        case "time": return ["Time", "Total", "Date"]
-        case "total_date": return ["Total", "Date"]
-        default: return []
-        }
+    /// Penny's headline. A printed-number match is just "Same receipt" — the number itself is in the table.
+    static func headline(_ group: BKDupeGroup) -> String {
+        if group.evidence == "number" { return "Same receipt" }
+        return group.verdict ?? "Same total, within 3 days. Nothing printed proves it either way."
     }
 
     /// Penny's read of one receipt in one line, to check against the paper in the full-screen photo:
     /// "Shell · Oct 3, 2026 · 12:04 · $20.00 · Auth 433970 · ••7640" (what wasn't read is left out).
     static func pennyRead(_ rows: [BKDupeFactRow], at i: Int) -> String {
         rows.compactMap { $0.values[safe: i] ?? nil }.joined(separator: " · ")
+    }
+
+    /// On an answered card the snapshot's status is stale: a merged copy is now set aside.
+    static func statusAfter(_ outcome: PennyCardViewModel.DupeOutcome?, member: Int) -> String? {
+        if case .merged(_, let copies)? = outcome, copies.contains(member) { return "set aside" }
+        return nil
     }
 
     /// "TIM SCHOFIELD" → "Tim S." — first name and initial, so it fits under a photo.
@@ -707,18 +980,36 @@ private struct ZoomTarget: Identifiable {
 struct PennyDupeDemo: View {
     let variant: String
 
-    private struct DemoAPI: BookkeeperDeskAPI {
+    @MainActor final class DemoAPI: BookkeeperDeskAPI {
         let variant: String
+        var answered = 0          // groups merged / said different: the server drops them from the list
+        init(variant: String) { self.variant = variant }
         func loadQueue() async throws -> BookkeeperQueueResponse {
-            let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Shell","Shell"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
+            let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Southlands Nursery","Southlands Nursery"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
             let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
-            let groups = variant == "done" ? "" : variant == "three" ? champ : variant == "first" ? champ + "," + shell : shell + "," + champ
-            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"dupes":["# + groups + "]}"
+            // `cheque`: a likely cheque with a three-receipt group under it (the line must stop at the group).
+            let cheque = #"{"tx_id":9001,"amount":1195.36,"payer":"Sample Property Mgmt","memo":"Cheque deposit-branch SAMPLE PROPERTY MGMT","label":"Cheque deposit","confidence":89,"invoice":{"id":1,"number":"INV-2026-0001","payer":"Sample Property Mgmt","balance_due":1195.36},"apply":1195.36,"verdict":"This $1,195.36 cheque from Sample Property Mgmt likely pays INV-2026-0001.","confidence_line":"89% · exact amount · memo names sample property mgmt","facts":[{"label":"Amount","cheque":"$1,195.36","invoice":"$1,195.36 owing","state":"same"},{"label":"Name","cheque":"Sample Property Mgmt","invoice":"Sample Property Mgmt","state":"same"},{"label":"Date","cheque":"Banked Nov 2","invoice":"Issued Oct 1","state":"info"}],"others":[]}"#
+            let cheques = (variant == "cheque" || (variant == "chequedone" && answered == 0)) ? cheque : ""
+            // `payment` / `paymentdone`: the payments matcher's cards — a cheque paying three invoices, an e-Transfer.
+            let pay1 = #"{"tx_id":9101,"signature":"s1","amount":1370.52,"memo":"CHEQUEDEPOSIT-BRANCH","label":"Cheque deposit","payer":"Sample Strata","confidence":"medium","verdict":"$1,370.52 pays INV-2026-0431, INV-2026-0314, INV-2026-0372 (Sample Strata) — record it on the invoices.","evidence":[],"flags":[],"targets":[{"number":"INV-2026-0431","payer":"Sample Strata","amount":500},{"number":"INV-2026-0314","payer":"Sample Strata","amount":470.52},{"number":"INV-2026-0372","payer":"Sample Strata","amount":400}],"facts":[{"label":"Amount","deposit":"$1,370.52","invoice":"$1,370.52 on 3 invoices","state":"same"},{"label":"Name","deposit":"not on the memo","invoice":"Sample Strata","state":"missing"},{"label":"Date","deposit":"Banked Oct 22","invoice":"Issued Sep 1","state":"info"}]}"#
+            let pay2 = #"{"tx_id":9102,"signature":"s2","amount":1890,"memo":"ETRANSFERCREDIT(SAMPLECLIENT)","label":"e-Transfer","payer":"SAMPLECLIENT","confidence":"high","button":{"title":"Link","detail":"bank line to the payment"},"verdict":"$1,890.00 is the payment already recorded on INV-2026-0465 (Sample Client) — link it so it counts once.","evidence":["Interac e-Transfer from Sample Client paid INV-2026-0465"],"flags":[],"targets":[{"number":"INV-2026-0465","payer":"Sample Client","amount":1890}],"facts":[{"label":"Amount","deposit":"$1,890.00","invoice":"$1,890.00","state":"same"},{"label":"Name","deposit":"SAMPLECLIENT","invoice":"Sample Client","state":"same"},{"label":"Date","deposit":"Banked Oct 23","invoice":"Issued Oct 1","state":"info"}]}"#
+            // `paymentmany`: one deposit paying 12 invoices, recorded at launch (the block shows the count and the first three).
+            let manyTargets = (1...12).map { k in #"{"number":"INV-2026-05\#(String(format: "%02d", k))","payer":"Sample Strata","amount":34.13}"# }.joined(separator: ",")
+            let pay3 = #"{"tx_id":9103,"signature":"s3","amount":409.50,"memo":"ETRANSFERCREDIT(SAMPLESTRATA)","label":"e-Transfer","payer":"Sample Strata","confidence":"high","verdict":"$409.50 pays 12 invoices (Sample Strata).","evidence":[],"flags":[],"targets":["# + manyTargets + #"],"facts":[]}"#
+            let payments = variant == "payment" ? pay1 + "," + pay2 : (variant == "paymentdone" ? (answered == 0 ? pay1 + "," + pay2 : pay2)
+                : variant == "paymentmany" ? pay3 + "," + pay2 : "")
+            let groups = variant == "done" ? "" : (variant == "three" || variant == "cheque" || variant == "chequedone" || variant == "payment" || variant == "paymentdone" || variant == "paymentmany") ? champ : variant == "first" ? champ + "," + shell
+                : variant == "nine" ? ([shell] + (1...8).map { k in champ.replacingOccurrences(of: "48", with: "4\(k)") }).dropFirst(answered).joined(separator: ",")
+                : shell + "," + champ
+            let json = #"{"ok":true,"queue":[],"categories":[],"asset_tags":[],"payments":["# + payments + #"],"cheques":["# + cheques + #"],"dupes":["# + groups + "]}"
             return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
         }
         func send(_ body: [String: Any]) async throws -> BookkeeperActionResponse {
             let mode = body["mode"] as? String ?? ""
-            let json = mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
+            if mode == "merge" || mode == "not_dupe" || mode == "cheque_record" || mode == "payment_book" { answered += 1 }
+            if mode == "unmerge" || mode == "undismiss" { answered = max(0, answered - 1) }
+            let json = mode == "payment_book" ? #"{"ok":true,"log_id":77,"message":"1 deposit(s) booked."}"#
+                     : mode == "merge" ? #"{"ok":true,"undo":true,"message":"Kept #254 — the copy is set aside."}"#
                      : #"{"ok":true,"message":"Got it — not a duplicate. Both go on for approval."}"#
             return try JSONDecoder().decode(BookkeeperActionResponse.self, from: Data(json.utf8))
         }
@@ -749,7 +1040,87 @@ struct PennyDupeDemo: View {
                 .navigationTitle("Penny")
                 .itAppScreen()
         }
-        .task { await vm.load() }
+        .task {
+            await vm.load()
+            if variant == "chequedone", let c = vm.currentCheque { await vm.recordCheque(c) }
+            if variant == "paymentdone" || variant == "paymentmany", let p = vm.currentPayment { await vm.recordPayment(p) }
+            // `-mwPayAnswered N`: skip the first N payment cards, to see ticked numbers in the row.
+            let payArgs = ProcessInfo.processInfo.arguments
+            if let i = payArgs.firstIndex(of: "-mwPayAnswered"), i + 1 < payArgs.count, let n = Int(payArgs[i + 1]) {
+                for _ in 0..<n { if let p = vm.currentPayment { vm.skipPayment(p) } }
+            }
+            // `-mwDupeAnswered N` (+ `-mwDupeBack`): merge the first N groups at launch, then go back to the first,
+            // to see the filled numbers and an answered card.
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-mwDupeAnswered"), i + 1 < args.count, let n = Int(args[i + 1]) {
+                for _ in 0..<n { if let g = vm.currentDupe { await vm.merge(g) } }
+                if args.contains("-mwDupeBack"), let first = vm.dupeSession.first { vm.showDupe(id: first) }
+            }
+        }
     }
 }
 #endif
+
+extension BKDupeFactRow {
+    /// The same row with its values in the cards' column order (PennyCardView.displayOrder).
+    func reordered(_ order: [Int]) -> BKDupeFactRow {
+        BKDupeFactRow(label: label, values: order.map { values[safe: $0] ?? nil }, state: state)
+    }
+}
+
+/// Numbered circles on a horizontal line, each in a Kaname-style ring (Tim, 2026-11-06: "this is Kaname at work"):
+/// answered = filled indigo with a tick, current = enlarged indigo ring and number on the vertical Kaname line at the
+/// centre, the rest open. Reads right to left (the ones still to do wait on the left, answered ones go off to the right);
+/// each step slides the row right. Tap any number to go to it. Shared by the duplicate groups and the payment cards
+/// (2026-11-07) — one row, so both look and behave the same.
+struct KanameNumberRow: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let count: Int
+    let current: Int
+    let isDone: (Int) -> Bool
+    var noun: String = "Item"
+    let onTap: (Int) -> Void
+
+    var body: some View {
+        let indigo = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        let step: CGFloat = 44
+        return GeometryReader { geo in
+            let mid = geo.size.width / 2
+            ZStack {
+                Rectangle().fill(appStyle.line).frame(height: 1).accessibilityHidden(true)
+                ForEach(0..<count, id: \.self) { i in
+                    let done = isDone(i)
+                    let on = i == current
+                    let x = mid - CGFloat(i - current) * step
+                    Button {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { onTap(i) }
+                    } label: {
+                        ZStack {
+                            Circle().fill(appStyle.page).frame(width: 30, height: 30)
+                            Circle().stroke(on ? indigo : appStyle.line, lineWidth: on ? 1.5 : 1).frame(width: 28, height: 28)
+                            Circle().fill(done ? indigo : appStyle.page).frame(width: 22, height: 22)
+                            if done {
+                                Image(systemName: "checkmark").font(appStyle.font(size: 11, weight: .heavy)).foregroundStyle(Color.white)
+                            } else {
+                                Text("\(i + 1)")
+                                    .font(appStyle.font(.footnote, weight: .bold))
+                                    .foregroundStyle(on ? indigo : appStyle.meta)
+                            }
+                        }
+                        .scaleEffect(on ? 1.4 : 1)
+                        .frame(width: step, height: 52)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)                    // answered ones stay tappable: go back, Unmerge / Undo
+                    .position(x: x, y: 26)
+                    .opacity(x < -step || x > geo.size.width + step ? 0 : 1)
+                    .accessibilityLabel("\(noun) \(i + 1) of \(count)" + (done ? ", done" : on ? ", showing" : ""))
+                }
+            }
+            .frame(width: geo.size.width, height: 52)
+            .clipped()
+        }
+        .frame(height: 52)
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: current)
+    }
+}

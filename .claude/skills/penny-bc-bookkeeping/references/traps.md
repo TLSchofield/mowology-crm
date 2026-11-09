@@ -15,6 +15,7 @@ happened, the signature, the rule. Start with the one-line rules below; open the
 - **2026-10-13 — Penny read the receipt right, but only her desktop card showed it (Chevron #424)** — Whatever Penny knows about a receipt is shown wherever it is opened; an accepted correction teaches the reader too.
 - **2026-10-13 — Rescan kept a $2.61 coffee at subtotal −2.39 (Chevron #355)** — An amount that cannot be true is a failed read, never a value; a re-read must be able to replace it.
 
+- **Champion's invoice number was never read (2026-11-06)** — its numbered REPAIR ORDER pads print the number beside the shop's name and OCR glues it on ("CHAMPION LAWN MOWER SALES AND SERVICE 15826"), with no label; `ReceiptFactsService::parse()` now takes it on repair-order forms only (a trailing number elsewhere is a store number). Three "nothing printed proves it" pairs became "same invoice".
 - **A duplicate merge taught Penny things nobody said (2026-11-06)** — carrying a copy's job/category into the kept receipt went through the gate as a person's override (`expense_gate:duplicates` lessons), and an Undo left the merge's "she was right" lesson behind; `duplicates` is now a `LESSON_SKIP_SOURCES` source and `unmerge()` retracts the agreement.
 - **Approved twin receipts were never re-checked (2026-10-29)** — `TwinFinder::find()` plus a daily `TwinCheckService` now ask about approved receipts that copy a purchase already linked to a bank line; Penny's own "different" call from printed facts is not final.
 ## Bank statements and balancing
@@ -884,3 +885,9 @@ phone match (95) then beat everything, so every Lordco receipt read as Costco �
 (`VendorIdentity::namedOnPaper`), both for matching (`kbResolveVendorFromOcr`) and learning (`publishLesson`). A GST number
 match stays trusted. Fix the system, not the receipt: hand corrections teach nothing (Tim, 2026-11-06).
 
+
+## 2026-11-06 — "net of fee" given to cheques and e-Transfers on the invoices list
+`scoreDeposit()` allowed a 0–6.5% shortfall as a card fee on any deposit. Only processors keep a fee: VML's $1,195.36 cheque
+was offered for VCHA's $1,235.44 invoices and a $378.16 e-Transfer for Obsidian's $399. Now only Stripe/unnamed payouts
+(`InvoiceReconciliationService::mayCarryFee()`). Also: production's copy of this service carried Yardi remittance evidence
+(`mismatch`, `evidence`) that was in no branch — pull and `cmp` before editing it.

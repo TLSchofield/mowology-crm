@@ -319,17 +319,17 @@ struct ItBusinessIdentityRow: View {
     let onChange: () -> Void
     @Environment(\.it) private var it
     var body: some View {
-        HStack(alignment: .top, spacing: ItSpace.s3) {
-            Image(systemName: "building.2").frame(width: ItSize.targetPhone, height: ItSize.targetPhone).background(it.sunk, in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Your business").itText(.caption12, weight: 600).foregroundStyle(it.meta)
-                Text(identity.legalName ?? identity.enteredName ?? "Business").itText(.body16, weight: 600)
-                if let op = identity.operatingName, op != identity.legalName { Text(op).itText(.body14).foregroundStyle(it.meta) }
-                Text(Array(Set(identity.provenance.values.map(\.words))).sorted().joined(separator: " · ")).itText(.caption12).foregroundStyle(it.meta)
-            }
-            Spacer()
-            Button("Change", action: onChange).buttonStyle(.it(.ghost)).disabled(!canEdit)
-        }.padding(ItSpace.s3).background(it.surface, in: RoundedRectangle(cornerRadius: ItRadius.lg)).foregroundStyle(it.text)
+        // Centred under the building icon that sits on Penny's centre line (TeamView frames it, 2026-11-06).
+        VStack(alignment: .center, spacing: 3) {
+            Text("Your business").itText(.caption12, weight: 600).foregroundStyle(it.meta)
+            Text(identity.legalName ?? identity.enteredName ?? "Business").itText(.body16, weight: 600)
+            if let op = identity.operatingName, op != identity.legalName { Text(op).itText(.body14).foregroundStyle(it.meta) }
+            Text(Array(Set(identity.provenance.values.map(\.words))).sorted().joined(separator: " · ")).itText(.caption12).foregroundStyle(it.meta)
+            Button("Change", action: onChange).buttonStyle(.it(.ghost)).disabled(!canEdit).padding(.top, ItSpace.s2)
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .foregroundStyle(it.text)
     }
 }
 

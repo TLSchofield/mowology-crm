@@ -709,6 +709,12 @@ class MiaDeskService
         if ($k['referral']) $bits[] = sprintf('%d happy customer%s could send you a referral', $k['referral'], $k['referral'] === 1 ? '' : 's');
         if (!empty($k['consent_ask'])) $bits[] = sprintf('%d customer%s should be asked to keep hearing from you before their consent runs out', $k['consent_ask'], $k['consent_ask'] === 1 ? '' : 's');
         if (!$bits) {
+            // Items under the line (a campaign to OK, a reply to answer) mean something does need Tim, so the line says so
+            // (Tim, 2026-11-07: "nobody needs a message" sat above two things that did).
+            $n = count($top);
+            if ($n > 0) {
+                return $hi . sprintf('no messages to send today, but %d thing%s need%s you.', $n, $n === 1 ? '' : 's', $n === 1 ? 's' : '');
+            }
             return $hi . ($st['questions'] ? "nobody needs a message today. I've got a question for you below." : "nobody needs a message from you today. I'll keep watching.");
         }
         $last = array_pop($bits);
@@ -754,14 +760,31 @@ class MiaDeskService
             require_once __DIR__ . '/MiaChannelsService.php';
             foreach ((new MiaChannelsService($this->db))->briefItems() as $it) $items[] = $it;
         } catch (Throwable $e) { error_log('Mia channels brief: ' . $e->getMessage()); }
-        return ['head' => 'mia', 'headline' => self::headline($st, $ownerFirstName), 'items' => $items, 'count' => count($items)];
+        // Search & Website (Phase 1.14): suggestions worth the owner's time, and a website Mia can no longer look at.
+        // Quiet when there is nothing: see MiaQueueBrief.
+        // Live since ff085d9d0 (its branch is not merged here yet): guarded so this file works with or without it.
+        if (is_file(__DIR__ . '/MiaQueueBrief.php')) {
+            try {
+                require_once __DIR__ . '/MiaQueueBrief.php';
+                foreach (MiaQueueBrief::items($this->db) as $it) $items[] = $it;
+            } catch (Throwable $e) { error_log('Mia queue brief: ' . $e->getMessage()); }
+        }
+        return ['head' => 'mia', 'headline' => self::headline($st, $ownerFirstName, $items), 'items' => $items, 'count' => count($items)];
     }
 
     /** The owner's first name for "Hey Tim —". */
     public static function firstName(array $user): string
     {
         $n = trim((string)($user['first_name'] ?? '')) ?: (string)strtok(trim((string)($user['full_name'] ?? '')), ' ');
-        return ucfirst(trim($n));
+        return self::nameCase(trim($n));
+    }
+
+    /** "TIM" or "tim" → "Tim"; a name typed with its own mix of cases ("McKay", "DeShawn") is left as typed. */
+    public static function nameCase(string $n): string
+    {
+        if ($n === '') return '';
+        if ($n === mb_strtoupper($n) || $n === mb_strtolower($n)) return mb_convert_case(mb_strtolower($n), MB_CASE_TITLE);
+        return ucfirst($n);
     }
 
     private function setSetting(string $key, string $value): void

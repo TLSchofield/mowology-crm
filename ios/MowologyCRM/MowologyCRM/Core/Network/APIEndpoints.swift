@@ -19,10 +19,11 @@ enum APIEndpoint {
 
     /// GET /api/schedule/day?date=YYYY-MM-DD[&scope=mine|all][&service=slug] — stops for a specific date.
     /// scope/service: whose jobs and which job type (CrewViewScope on the server, 2026-10-14).
-    case scheduleDay(date: String, scope: String? = nil, service: String? = nil)
+    /// crews: on All crews, the people ticked on the phone (comma user ids, 2026-11-08); nil/"" = everyone.
+    case scheduleDay(date: String, scope: String? = nil, service: String? = nil, crews: String? = nil)
 
     /// GET /api/schedule/week?start=YYYY-MM-DD — weekly summary strip.
-    case scheduleWeek(start: String, scope: String? = nil, service: String? = nil)
+    case scheduleWeek(start: String, scope: String? = nil, service: String? = nil, crews: String? = nil)
 
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
@@ -247,6 +248,17 @@ enum APIEndpoint {
     /// POST /api/schedule/field-job — add_visit | create_job | create_client_job.
     case fieldJobAction
 
+    /// GET /api/tasks/tasks-mobile — who a task can go to, and the clients kept on the phone for no-signal use.
+    case tasksMobile
+    /// POST /api/tasks/tasks-mobile — create a task (Add → Task; sent through CreateOutbox).
+    case tasksMobileCreate
+    /// GET /api/quotes/quote-mobile — the price list, kept on the phone. POST — a draft quote (via CreateOutbox).
+    case quoteMobile
+    case quoteMobileCreate
+    /// GET /api/invoices/invoices-mobile — visits waiting on an invoice + drafts. POST — create (via CreateOutbox) / send.
+    case invoicesMobile
+    case invoicesMobileAction
+
     case scheduleJobPhoto
 
     /// POST /api/schedule/plant-id — "What is this plant?": {mode: identify | confirm, …} (2026-10-15).
@@ -293,19 +305,21 @@ enum APIEndpoint {
         case .tokenAuth:
             return URL(string: "\(baseURLString)/auth/token.php")
 
-        case .scheduleDay(let date, let scope, let service):
+        case .scheduleDay(let date, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/day")
             var items = [URLQueryItem(name: "date", value: date)]
             if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
             if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            if let crews, !crews.isEmpty { items.append(URLQueryItem(name: "crews", value: crews)) }
             components?.queryItems = items
             return components?.url
 
-        case .scheduleWeek(let start, let scope, let service):
+        case .scheduleWeek(let start, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/week")
             var items = [URLQueryItem(name: "start", value: start)]
             if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
             if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            if let crews, !crews.isEmpty { items.append(URLQueryItem(name: "crews", value: crews)) }
             components?.queryItems = items
             return components?.url
 
@@ -622,6 +636,15 @@ enum APIEndpoint {
         case .fieldJobAction:
             return URL(string: "\(baseURLString)/schedule/field-job")
 
+        case .tasksMobile, .tasksMobileCreate:
+            return URL(string: "\(baseURLString)/tasks/tasks-mobile")
+
+        case .quoteMobile, .quoteMobileCreate:
+            return URL(string: "\(baseURLString)/quotes/quote-mobile")
+
+        case .invoicesMobile, .invoicesMobileAction:
+            return URL(string: "\(baseURLString)/invoices/invoices-mobile")
+
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
@@ -758,6 +781,12 @@ enum APIEndpoint {
              .scheduleVisitPhotoHistory,
              .fieldJobNearby,
              .fieldJobAction,
+             .tasksMobile,
+             .tasksMobileCreate,
+             .quoteMobile,
+             .quoteMobileCreate,
+             .invoicesMobile,
+             .invoicesMobileAction,
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
@@ -777,7 +806,11 @@ enum APIEndpoint {
     var httpMethod: String {
         switch self {
         case .tokenAuth:    return "POST"
-        case .scheduleDay,
+        case .tasksMobileCreate, .quoteMobileCreate, .invoicesMobileAction: return "POST"
+        case .tasksMobile,
+             .quoteMobile,
+             .invoicesMobile,
+             .scheduleDay,
              .scheduleWeek,
              .scheduleCrewTrails,
              .teamMembers,

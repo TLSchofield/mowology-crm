@@ -13,7 +13,6 @@ import SwiftUI
 struct SamCardView: View {
     @Environment(\.itAppStyle) private var appStyle
     @Environment(\.it) private var it
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var vm: SamCardViewModel
     @Environment(\.openURL) private var openURL
@@ -22,42 +21,45 @@ struct SamCardView: View {
     @State private var customerThread: SamThreadTarget?
     @State private var confirmQuote: SalesDraftQuote?
     @State private var showCustomer = false
-    /// Which sections are open; a section not in here uses its default (decisions open, the rest shut).
-    @State private var folds: [String: Bool] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: ItSpace.s6) {
-            if vm.isLoading && !vm.hasLoaded {
-                HStack { Spacer(); ProgressView("Loading Sam's list…"); Spacer() }
-                    .padding(.vertical, 40)
-            } else if let err = vm.loadError, vm.queue.isEmpty && vm.replies.isEmpty {
-                errorState(err)
-            } else if vm.hasLoaded {
-                briefing
-                nextRow
-                customerRows
-                VStack(alignment: .leading, spacing: 0) {
-                    if !vm.acceptances.isEmpty || vm.acceptanceMessage != nil {
-                        fold("acceptances", "Looks like a yes", count: vm.acceptances.count, open: true) { acceptanceSection }
+        // The head's spine (2026-11-07): Waiting now (sentence, Next, customer rows), then the folds as circles.
+        VStack(alignment: .leading, spacing: 0) {
+            SpineNode(slug: "sam", id: "now", title: "Waiting now", symbol: "tray.full.fill",
+                      waiting: HeadSpineLogic.count(vm.queue.count, "to follow up"), defaultOpen: true) {
+                VStack(alignment: .leading, spacing: ItSpace.s6) {
+                    if vm.isLoading && !vm.hasLoaded {
+                        HStack { Spacer(); ProgressView("Loading Sam's list…"); Spacer() }
+                            .padding(.vertical, 40)
+                    } else if let err = vm.loadError, vm.queue.isEmpty && vm.replies.isEmpty {
+                        errorState(err)
+                    } else if vm.hasLoaded {
+                        briefing
+                        nextRow
+                        customerRows
                     }
-                    if !vm.toSend.isEmpty || vm.toSendMessage != nil {
-                        fold("tosend", "Quotes to send", count: vm.toSend.count, open: true) { toSendSection }
-                    }
-                    if !vm.approved.isEmpty {
-                        fold("approved", "Just approved", count: vm.approved.count, open: true) { approvedSection }
-                    }
-                    if !vm.replies.isEmpty || vm.replyMessage != nil {
-                        fold("replies", "Replies waiting", count: vm.replies.count, open: true) { repliesSection }
-                    }
-                    if !vm.questions.isEmpty || vm.questionMessage != nil {
-                        fold("questions", "Questions for you", count: vm.questions.count, open: true) { questionsSection }
-                    }
-                    if !vm.leads.isEmpty {
-                        fold("leads", "New leads", count: vm.leads.count, open: true) { leadsSection }
-                    }
-                    fold("numbers", "Sam's numbers", count: nil, open: false) { statsStrip }
-                    Rectangle().fill(it.line).frame(height: 1)
                 }
+            }
+            if vm.hasLoaded {
+                if !vm.acceptances.isEmpty || vm.acceptanceMessage != nil {
+                    fold("acceptances", "Looks like a yes", "hand.thumbsup.fill", count: vm.acceptances.count, "to confirm", open: true) { acceptanceSection }
+                }
+                if !vm.toSend.isEmpty || vm.toSendMessage != nil {
+                    fold("tosend", "Quotes to send", "paperplane.fill", count: vm.toSend.count, "to send", open: true) { toSendSection }
+                }
+                if !vm.approved.isEmpty {
+                    fold("approved", "Just approved", "checkmark", count: vm.approved.count, "new", open: true) { approvedSection }
+                }
+                if !vm.replies.isEmpty || vm.replyMessage != nil {
+                    fold("replies", "Replies waiting", "arrowshape.turn.up.left.fill", count: vm.replies.count, "to answer", open: true) { repliesSection }
+                }
+                if !vm.questions.isEmpty || vm.questionMessage != nil {
+                    fold("questions", "Questions for you", "questionmark", count: vm.questions.count, "to answer", open: true) { questionsSection }
+                }
+                if !vm.leads.isEmpty {
+                    fold("leads", "New leads", "person.badge.plus", count: vm.leads.count, "new", open: true) { leadsSection }
+                }
+                fold("numbers", "Sam's numbers", "chart.bar.fill", count: nil, "", open: false) { statsStrip }
             }
         }
         .sheet(item: $threadTarget) { t in
@@ -233,33 +235,11 @@ struct SamCardView: View {
         showCustomer = true
     }
 
-    /// A section that folds: title and count on a 48 pt row, the rows underneath when open.
-    private func fold<C: View>(_ id: String, _ title: String, count: Int?, open defaultOpen: Bool,
-                               @ViewBuilder _ content: () -> C) -> some View {
-        let isOpen = folds[id] ?? defaultOpen
-        return VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(it.line).frame(height: 1)
-            Button {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { folds[id] = !isOpen }
-            } label: {
-                HStack(spacing: ItSpace.s2) {
-                    Text(title).itText(.body16, weight: 600).foregroundStyle(it.text)
-                    if let count { countPill(count) }
-                    Spacer(minLength: ItSpace.s2)
-                    Image(systemName: "chevron.down").itText(.meta13, weight: 600).foregroundStyle(it.meta)
-                        .rotationEffect(.degrees(isOpen ? 180 : 0))
-                        .accessibilityHidden(true)
-                }
-                .frame(minHeight: ItSize.targetPhone)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityValue(isOpen ? "Open" : "Closed")
-            if isOpen {
-                content().padding(.bottom, ItSpace.s4)
-            }
-        }
+    /// A section on Sam's spine: a circle with its name and what waits ("2 to send"); it opens in place under it.
+    private func fold<C: View>(_ id: String, _ title: String, _ symbol: String, count: Int?, _ phrase: String, open defaultOpen: Bool,
+                               @ViewBuilder _ content: @escaping () -> C) -> some View {
+        SpineNode(slug: "sam", id: id, title: title, symbol: symbol, waiting: count.flatMap { HeadSpineLogic.count($0, phrase) },
+                  defaultOpen: defaultOpen, content: content)
     }
 
     /// One customer on their own screen: the follow-up card (quotes, emails, Sam's draft, send).

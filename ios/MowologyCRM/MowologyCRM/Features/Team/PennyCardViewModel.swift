@@ -36,16 +36,83 @@ final class PennyCardViewModel: ObservableObject {
     // MARK: - Desk state
     @Published private(set) var queue: [BookkeeperItem] = []
     @Published private(set) var dupes: [BKDupeGroup] = []
+    /// Likely cheques for open invoices, shown before the duplicates (Tim, 2026-11-06). "Not now" hides one until the
+    /// next open of the card; "Or …" picks another invoice for it (index into [best] + others).
+    @Published private(set) var cheques: [BKChequeMatch] = []
+    /// Every deposit the payments matcher proposes (1.3.108): replaces the cheque-only cards on this build.
+    @Published private(set) var payments: [BKPaymentMatch] = []
+    struct PaymentDone: Equatable, Identifiable { let card: BKPaymentMatch; let logId: Int; let message: String; var id: Int { card.txId } }
+    /// The sitting's payments, kept in order with a snapshot each, so answered ones keep their number in the row and stay
+    /// reachable (Tim, 2026-11-07: "1 of 7 should follow the same carousel numbering style … for the receipt merge").
+    enum PaymentOutcome: Equatable { case booked(PaymentDone), skipped }
+    @Published private(set) var paySession: [Int] = []
+    @Published private(set) var paySnapshots: [Int: BKPaymentMatch] = [:]
+    @Published private(set) var payOutcomes: [Int: PaymentOutcome] = [:]
+    @Published private(set) var payPos = 0
+    @Published private(set) var paymentsFinished = false
+    @Published private(set) var chequeSkipped: Set<Int> = []
+    @Published private(set) var chequePick: [Int: Int] = [:]
+    // MARK: Duplicates carousel (Tim, 2026-11-06: "I should be able to swipe back to 1 and view the merged bill and
+    // unmerge it if I want"). The carousel walks every group seen since the card opened. An open group is on the
+    // server's list; an answered one keeps its last snapshot and what was decided, so it can be viewed and reversed.
+
+    enum DupeOutcome: Equatable {
+        case merged(keep: Int, copies: [Int])
+        case different(pairs: [[Int]])
+        case elsewhere                      // gone from the list without an answer here (web card, another phone)
+    }
+
+    @Published private(set) var dupeSession: [String] = []
+    @Published private(set) var dupeSnapshots: [String: BKDupeGroup] = [:]
+    @Published private(set) var dupeOutcomes: [String: DupeOutcome] = [:]
+    @Published private(set) var dupePos = 0
+    @Published private(set) var dupeSwipeForward = true
+    /// "On to the receipts" after the last group: the carousel steps aside until a new duplicate turns up.
+    @Published private(set) var dupesFinished = false
+
+    var dupeOpenIds: Set<String> { Set(dupes.map(\.id)) }
+    var currentDupeId: String? { dupeSession.indices.contains(dupePos) ? dupeSession[dupePos] : nil }
+    var currentDupe: BKDupeGroup? {
+        guard let id = currentDupeId else { return nil }
+        return dupes.first { $0.id == id } ?? dupeSnapshots[id]
+    }
+    /// nil while the group is open; else what was decided.
+    func dupeOutcome(_ id: String) -> DupeOutcome? {
+        dupeOpenIds.contains(id) ? nil : (dupeOutcomes[id] ?? .elsewhere)
+    }
+    var showsDupes: Bool { !dupeSession.isEmpty && !dupesFinished }
+    var dupesAllAnswered: Bool { dupes.isEmpty && !dupeSession.isEmpty }
+
+    private func trackDupes() {
+        for g in dupes {
+            dupeSnapshots[g.id] = g
+            dupeOutcomes[g.id] = nil                    // back on the list (Unmerge / Undo): open again
+            if !dupeSession.contains(g.id) { dupeSession.append(g.id); dupesFinished = false }
+        }
+        if dupePos >= dupeSession.count { dupePos = max(0, dupeSession.count - 1) }
+    }
+
+    func nextDupe() { move(to: dupePos + 1) }
+    func previousDupe() { move(to: dupePos - 1) }
+    func showDupe(id: String) { if let i = dupeSession.firstIndex(of: id) { move(to: i) } }
+    private func move(to i: Int) {
+        guard dupeSession.indices.contains(i), i != dupePos else { return }
+        dupeSwipeForward = i > dupePos
+        dupePos = i
+    }
+    /// After an answer: the next open group after this one (wrapping), else stay on the answered card.
+    private func advanceToOpen() {
+        let n = dupeSession.count
+        guard n > 0 else { return }
+        for step in 1...n {
+            let i = (dupePos + step) % n
+            if dupeOpenIds.contains(dupeSession[i]) { move(to: i); return }
+        }
+    }
+    func finishDupes() { dupesFinished = true }
+
     /// "Keep the other instead": the receipt chosen to stay, per group id (else Penny's pick).
     @Published private(set) var keepChoice: [String: Int] = [:]
-    /// The merge just made, for "Merged into #N · Undo" (cleared after about 6 seconds).
-    @Published private(set) var lastMerge: LastMerge?
-
-    struct LastMerge: Equatable {
-        let keepId: Int
-        let copyIds: [Int]
-        let at: Date
-    }
     @Published private(set) var categories: [String] = []
     @Published private(set) var tagOptions: [BKTagOption] = BKTagOption.defaults
     @Published private(set) var index = 0
@@ -123,7 +190,11 @@ final class PennyCardViewModel: ObservableObject {
         messages = r.messages
         lines = r.lines
         queue = r.queue
+        payments = r.payments
+        trackPayments()
+        cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
         dupes = r.dupes
+        trackDupes()
         categories = r.categories
         tagOptions = r.assetTags.isEmpty ? BKTagOption.defaults : r.assetTags
         index = 0
@@ -234,6 +305,96 @@ final class PennyCardViewModel: ObservableObject {
         keepChoice[group.id] = id
     }
 
+    // MARK: - Likely payments (the payments matcher; suggest only — Record / Link is the person's tap)
+
+    /// New proposals join the end of the sitting; ones the server dropped keep their snapshot (answered, or booked elsewhere).
+    private func trackPayments() {
+        for p in payments {
+            paySnapshots[p.txId] = p
+            if !paySession.contains(p.txId) { paySession.append(p.txId); paymentsFinished = false }
+        }
+        if payPos >= paySession.count { payPos = max(0, paySession.count - 1) }
+    }
+
+    var showsPayments: Bool { !paySession.isEmpty && !paymentsFinished }
+    var currentPaymentId: Int? { paySession.indices.contains(payPos) ? paySession[payPos] : nil }
+    var currentPayment: BKPaymentMatch? { currentPaymentId.flatMap { paySnapshots[$0] } }
+    func paymentOutcome(_ id: Int) -> PaymentOutcome? { payOutcomes[id] }
+    var currentPaymentDone: PaymentDone? {
+        if let id = currentPaymentId, case .booked(let d)? = payOutcomes[id] { return d }
+        return nil
+    }
+    /// Still waiting on Penny's card (not answered this sitting).
+    var openPayments: [Int] { paySession.filter { payOutcomes[$0] == nil } }
+
+    func showPayment(at i: Int) { if paySession.indices.contains(i) { payPos = i } }
+    /// After an answer: the next unanswered one (right to left), else the section is done and the duplicates come up.
+    func advancePayment() {
+        if let next = paySession.indices.first(where: { $0 > payPos && payOutcomes[paySession[$0]] == nil })
+            ?? paySession.indices.first(where: { payOutcomes[paySession[$0]] == nil }) {
+            payPos = next
+        } else {
+            paymentsFinished = true
+        }
+    }
+    /// The carousel's swipe left (and VoiceOver's "Next payment"): the next card; past the last one, on as Next used to go —
+    /// the first unanswered card, else the section is done and receipts come up (there is no Next button since 2026-11-07).
+    func swipeToNextPayment() {
+        if paySession.indices.contains(payPos + 1) { payPos += 1 } else { advancePayment() }
+    }
+    /// Past the last card there is somewhere to go only once that card is answered (else it would skip it unseen).
+    var canSwipePastLastPayment: Bool { currentPaymentId.map { payOutcomes[$0] != nil } ?? false }
+    func skipPayment(_ p: BKPaymentMatch) { payOutcomes[p.txId] = .skipped; advancePayment() }
+
+    func recordPayment(_ p: BKPaymentMatch) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "payment_book", "transaction_id": p.txId, "signature": p.signature]) else { return }
+        payOutcomes[p.txId] = .booked(PaymentDone(card: p, logId: r.logId ?? 0, message: r.message ?? "Recorded."))
+        await load()
+    }
+
+    /// Undo from the answered card: the matcher reverses it through the path that booked it; the card opens again.
+    func undoPayment(_ d: PaymentDone) async {
+        guard !isBusy, d.logId > 0 else { return }
+        guard let r = await perform(["mode": "payment_undo", "log_id": d.logId]) else { return }
+        payOutcomes[d.card.txId] = nil
+        await load()
+        show(r.message ?? "Undone — the deposit is back as it was.", error: false)
+    }
+
+    // MARK: - Likely cheques (suggest only — Record is the person's tap)
+
+    var openCheques: [BKChequeMatch] { cheques.filter { !chequeSkipped.contains($0.txId) } }
+    var currentCheque: BKChequeMatch? { openCheques.first }
+
+    /// The invoice the cheque goes on: Penny's pick, or one the person chose from "Or …".
+    struct ChequeTarget: Equatable { let invoiceId: Int; let number: String; let balanceDue: Double; let apply: Double }
+    func chequeTargets(_ c: BKChequeMatch) -> [ChequeTarget] {
+        [ChequeTarget(invoiceId: c.invoice.id, number: c.invoice.number, balanceDue: c.invoice.balanceDue, apply: c.apply)]
+            + c.others.map { ChequeTarget(invoiceId: $0.invoiceId, number: $0.invoiceNumber, balanceDue: $0.balanceDue, apply: $0.apply) }
+    }
+    func chequeTarget(_ c: BKChequeMatch) -> ChequeTarget {
+        let all = chequeTargets(c)
+        return all[min(chequePick[c.txId] ?? 0, all.count - 1)]
+    }
+    /// The cheque just recorded: the card shows the paid invoice (one, not two) until "Next".
+    struct ChequeDone: Equatable { let cheque: BKChequeMatch; let target: ChequeTarget; let banked: String }
+    @Published private(set) var chequeDone: ChequeDone?
+    func dismissChequeDone() { chequeDone = nil }
+
+    func pickCheque(_ c: BKChequeMatch, index: Int) { chequePick[c.txId] = index }
+    func skipCheque(_ c: BKChequeMatch) { chequeSkipped.insert(c.txId) }
+
+    func recordCheque(_ c: BKChequeMatch) async {
+        guard !isBusy else { return }
+        let t = chequeTarget(c)
+        guard await perform(["mode": "cheque_record", "transaction_id": c.txId, "invoice_id": t.invoiceId, "amount": t.apply]) != nil else { return }
+        chequePick[c.txId] = nil
+        let banked = c.facts.first { $0.label == "Date" }?.cheque.replacingOccurrences(of: "Banked ", with: "") ?? ""
+        chequeDone = ChequeDone(cheque: c, target: t, banked: banked)
+        await load()
+    }
+
     func merge(_ group: BKDupeGroup) async {
         guard !isBusy else { return }
         let keep = keepId(for: group)
@@ -241,41 +402,42 @@ final class PennyCardViewModel: ObservableObject {
         guard keep > 0, !copies.isEmpty else { return }
         guard let r = await perform(["mode": "merge", "keep_id": keep, "copy_ids": copies]) else { return }
         keepChoice[group.id] = nil
+        dupeOutcomes[group.id] = .merged(keep: keep, copies: copies)
         await load()
-        if r.undo == true {
-            let m = LastMerge(keepId: keep, copyIds: copies, at: Date())
-            lastMerge = m
-            show("Merged into #\(keep)", error: false)
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
-                if self?.lastMerge == m { self?.lastMerge = nil }
-            }
-        } else {
-            show(r.message ?? "Merged into #\(keep).", error: false)
-        }
+        show(r.undo == false ? (r.message ?? "Merged into #\(keep).") : "Merged into #\(keep). Swipe back to unmerge.", error: false)
+        advanceToOpen()
     }
 
-    /// Undo straight after Merge: each copy goes back and the pair is asked about again (nothing learned).
-    func undoLastMerge() async {
-        guard let m = lastMerge, !isBusy else { return }
-        lastMerge = nil
-        var last: BookkeeperActionResponse?
-        for id in m.copyIds {
-            guard let r = await perform(["mode": "unmerge", "copy_id": id, "kind": "undo"]) else { await load(); return }
-            last = r
-        }
-        await load()
-        show(last?.message ?? "Undone — back to decide again.", error: false)
-    }
-
-    /// "Different": two purchases — remembered for good, both go on for approval.
+    /// "Different": two purchases — remembered, both go on for approval.
     func different(_ group: BKDupeGroup) async {
         guard !isBusy else { return }
         guard let r = await perform(["mode": "not_dupe", "pairs": group.pairs]) else { return }
         keepChoice[group.id] = nil
-        lastMerge = nil
+        dupeOutcomes[group.id] = .different(pairs: group.pairs)
         await load()
         show(r.message ?? "Got it — two purchases.", error: false)
+        advanceToOpen()
+    }
+
+    /// Reverse an answered group from its card: Unmerge (each copy back, the pair asked again, Penny's lesson taken
+    /// back) or undo "Different". The group comes back open on this card.
+    func reopen(_ id: String) async {
+        guard !isBusy, let outcome = dupeOutcome(id) else { return }
+        var last: BookkeeperActionResponse?
+        switch outcome {
+        case .merged(_, let copies):
+            for c in copies {
+                guard let r = await perform(["mode": "unmerge", "copy_id": c, "kind": "undo"]) else { await load(); return }
+                last = r
+            }
+        case .different(let pairs):
+            guard let r = await perform(["mode": "undismiss", "pairs": pairs]) else { return }
+            last = r
+        case .elsewhere:
+            return
+        }
+        await load()
+        show(last?.message ?? "Back to decide again.", error: false)
     }
 
     /// "Keep this one": every other waiting copy in the group is set aside (rejected
@@ -428,7 +590,11 @@ final class PennyCardViewModel: ObservableObject {
         let saved = message
         let savedIsError = messageIsError
         queue = r.queue
+        payments = r.payments
+        trackPayments()
+        cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
         dupes = r.dupes
+        trackDupes()
         if !r.categories.isEmpty { categories = r.categories }
         index = keepId.flatMap { id in queue.firstIndex { $0.suggestionId == id } } ?? 0
         fillForm()

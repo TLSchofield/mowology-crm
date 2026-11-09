@@ -36,4 +36,14 @@ class CrewViewScopeTest extends TestCase
         $db->exec("INSERT INTO users (role, is_active) VALUES ('admin', 1), ('accountant', 1), ('user', 0)");
         $this->assertSame(1, CrewViewScope::people($db), 'the accountant and inactive logins do not count');
     }
+
+    public function test_the_crew_checklist_keeps_only_offered_people_in_order_without_repeats(): void
+    {
+        $this->assertSame([5, 3], CrewViewScope::crewList(' 5,3,5,99,,abc ', ['3', '5', '7']));
+        $this->assertSame([], CrewViewScope::crewList('', ['3']), 'nobody ticked = every crew');
+        $db = new PDO('sqlite::memory:');
+        $db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT, role TEXT, is_active INT)");
+        $db->exec("INSERT INTO users (full_name, role, is_active) VALUES ('Zoe', 'user', 1), ('Amy', 'admin', 1), ('Ann', 'accountant', 1), ('Old', 'user', 0)");
+        $this->assertSame([['value' => '2', 'label' => 'Amy'], ['value' => '1', 'label' => 'Zoe']], CrewViewScope::crewOptions($db));
+    }
 }

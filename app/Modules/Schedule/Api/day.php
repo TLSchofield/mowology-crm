@@ -72,6 +72,15 @@ require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
 $askedScope = in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null;
 $viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()), $askedScope, null, CrewViewScope::people(getDB()));
 $crewFilter = $viewScope['crew'];
+// On All crews, ?crews=<id,id> narrows to the people ticked on the phone (2026-11-08).
+$crewOptions = [];
+if ($viewScope['can_switch']) {
+    $crewOptions = CrewViewScope::crewOptions(getDB());
+    if ($viewScope['scope'] === 'all') {
+        $pickedCrews = CrewViewScope::crewList((string)($_GET['crews'] ?? ''), array_column($crewOptions, 'value'));
+        if ($pickedCrews) $crewFilter = $pickedCrews;
+    }
+}
 $serviceFilter = null;
 $serviceTypes  = [];
 try {
@@ -287,7 +296,7 @@ try {
 $appointments = [];
 try {
     require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
-    $appointments = (new AppointmentService(getDB()))->forRange($date, $date, $crewFilter ? (int)$crewFilter : null)[$date] ?? [];
+    $appointments = (new AppointmentService(getDB()))->forRange($date, $date, $crewFilter)[$date] ?? [];
 } catch (Throwable $e) {
     error_log('[schedule/day] appointments: ' . $e->getMessage());
 }
@@ -300,6 +309,8 @@ echo json_encode([
     'role'                 => $jwtUser['role'],
     'scope'                => $viewScope['scope'],
     'can_switch_scope'     => $viewScope['can_switch'],
+    'crews'                => $crewOptions,
+    'crew_filter'          => is_array($crewFilter) ? implode(',', $crewFilter) : null,
     'service'              => $serviceFilter,
     'service_types'        => array_map(fn($t) => ['value' => (string)$t['slug'], 'label' => (string)$t['label']], $serviceTypes),
     'stop_count'           => count($stops),
