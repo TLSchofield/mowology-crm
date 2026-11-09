@@ -156,6 +156,9 @@ class ExpenseGateHooksSpy extends ExpenseGateHooks
     public function linkBank(int $expenseId, array $row): void { $this->hit('linkBank', [$expenseId]); }
     public function catalog(int $expenseId): void { $this->hit('catalog', [$expenseId]); }
     public function chase(int $expenseId): void { $this->hit('chase', [$expenseId]); }
+    public function catalog(int $expenseId): void { $this->hit('catalog', [$expenseId]); }
+    public function dateCheck(int $expenseId): void { $this->hit('dateCheck', [$expenseId]); }
+    public function linkBank(int $expenseId, array $row): void { $this->hit('linkBank', [$expenseId]); }
     public function lessons(int $expenseId, array $before, array $after, array $fields, ?int $userId, string $source, ?array $allocations = null): void { $this->hit('lessons', [$expenseId, $fields, $source]); }
     public function repost(int $expenseId, ?int $userId, string $why, bool $strict = false): bool
     {

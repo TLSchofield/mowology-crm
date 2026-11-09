@@ -27,6 +27,8 @@ require_once __DIR__ . '/../app/Modules/Settings/Services/Registry/OrgBookBcProv
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReportingService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/OwnerFreedomService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/OverheadSuggestionService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyRevisitService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerSyncService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CapitalItemRule.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/RulesEngine.php';
@@ -144,6 +146,10 @@ require_once __DIR__ . '/../app/Modules/Comms/Services/MailboxPollLock.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/EmailLeadService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorMessageService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxRereadService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptAttachmentGuard.php';
+require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetWeekService.php';
+require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetReopenService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
 // Tidy iCloud (the one mailbox WRITER, the filing classifier, the tidy service + its IMAP port)
 require_once __DIR__ . '/../app/Services/Mail/ImapWriter.php';

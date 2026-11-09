@@ -31,7 +31,7 @@ class ReceiptBookkeeperServiceTest extends TestCase
 
     private function ctx(array $ruleHits = [], array $jobs = []): array
     {
-        return ['prompt' => ['rule_hits' => $ruleHits, 'job_candidates' => $jobs]];
+        return ['profile' => ['gst_rate' => 0.05, 'pst_rate' => 0.07, 'tax_checked' => true, 'province' => 'BC'], 'prompt' => ['rule_hits' => $ruleHits, 'job_candidates' => $jobs]];
     }
 
     private function checksByName(array $checks): array

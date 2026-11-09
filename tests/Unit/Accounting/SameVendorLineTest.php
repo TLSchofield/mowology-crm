@@ -26,4 +26,81 @@ class SameVendorLineTest extends TestCase
         $this->assertFalse(BankImportService::amountsAgree(134.40, 184.40));
         $this->assertTrue(BankImportService::vendorInDescription('Champion', 'Point of sale SQ CHAMPION LAWN MOWE'));
     }
+
+    public function testATipOnAMealIsSuggestedAndTheTaxIsLeftAlone(): void
+    {
+        // Moxies 2026-02-28: receipt $90.69 (85.25 + 4.26 GST + 1.18 PST), bank charged $107.01.
+        $e = ['expense_date' => '2026-02-28', 'total' => 90.69, 'amount' => 85.25, 'gst_amount' => 4.26, 'pst_amount' => 1.18, 'accounting_category' => 'Meals'];
+        $t = BankImportService::tipSuggestion($e, 107.01, '2026-02-28');
+        $this->assertSame(16.32, $t['tip']);
+        $this->assertSame(101.57, $t['amount'], 'pre-tax amount takes the tip');
+        $this->assertSame(107.01, $t['total']);
+        $this->assertEqualsWithDelta(101.57 + 4.26 + 1.18, 107.01, 0.001, 'amount + the unchanged tax = the bank charge');
+        $this->assertEqualsWithDelta(19.1, $t['pct'], 0.1);
+    }
+
+    public function testNoTipWhenItIsNotAMealOrNotPlausible(): void
+    {
+        $e = ['expense_date' => '2026-02-28', 'total' => 90.69, 'amount' => 85.25, 'gst_amount' => 4.26, 'pst_amount' => 1.18, 'accounting_category' => 'Meals'];
+        $this->assertNull(BankImportService::tipSuggestion(['accounting_category' => 'Fuel'] + $e, 107.01, '2026-02-28'), 'not a meal');
+        $this->assertNull(BankImportService::tipSuggestion($e, 90.69, '2026-02-28'), 'no difference');
+        $this->assertNull(BankImportService::tipSuggestion($e, 91.20, '2026-02-28'), 'under a dollar');
+        $this->assertNull(BankImportService::tipSuggestion($e, 190.69, '2026-02-28'), 'a 117% "tip" is a different purchase');
+        $this->assertNull(BankImportService::tipSuggestion($e, 107.01, '2026-03-20'), 'weeks away');
+        $this->assertNull(BankImportService::tipSuggestion($e, 80.00, '2026-02-28'), 'the bank charged less');
+    }
+
+    public function testAVendorLineCarriesTheTipAndRanksAboveAPlainDifferentAmount(): void
+    {
+        $e = ['expense_date' => '2026-02-27', 'total' => 22.52, 'amount' => 21.45, 'gst_amount' => 1.07, 'pst_amount' => 0.0, 'accounting_category' => 'Meals'];
+        $tipped = BankImportService::vendorLine($e, ['id' => 1, 'transaction_date' => '2026-02-27', 'description' => 'AH LONG SUSHI', 'amount' => 27.02]);
+        $plain  = BankImportService::vendorLine($e, ['id' => 2, 'transaction_date' => '2026-02-27', 'description' => 'AH LONG SUSHI', 'amount' => 60.00]);
+        $this->assertSame(4.5, $tipped['tip']['tip']);
+        $this->assertStringContainsString('Adds a $4.50 tip', $tipped['reasons'][1]);
+        $this->assertNull($plain['tip']);
+        $this->assertGreaterThan($plain['confidence'], $tipped['confidence']);
+        $this->assertFalse($tipped['same_amount']);
+    }
+
+    public function testAReceiptThatDoesNotAddUpGetsNoTipGuess(): void
+    {
+        // pre-tax 100 + GST 5 = 105, but the saved total is 120 (a tip is already in it): leave it alone.
+        $e = ['expense_date' => '2026-02-28', 'total' => 120.0, 'amount' => 100.0, 'gst_amount' => 5.0, 'pst_amount' => 0.0, 'accounting_category' => 'Meals'];
+        $this->assertNull(BankImportService::tipSuggestion($e, 130.0, '2026-02-28'));
+    }
+
+    public function testOnlyTheMealsCategoryAndCalendarDaysCount(): void
+    {
+        $e = ['expense_date' => '2026-10-31', 'total' => 105.0, 'amount' => 100.0, 'gst_amount' => 5.0, 'pst_amount' => 0.0, 'accounting_category' => 'Meals'];
+        $this->assertNotNull(BankImportService::tipSuggestion($e, 120.0, '2026-11-03'), 'three calendar days across the clock change');
+        $this->assertNull(BankImportService::tipSuggestion(['accounting_category' => 'Meal preparation supplies'] + $e, 120.0, '2026-10-31'));
+        $this->assertNotNull(BankImportService::tipSuggestion(['accounting_category' => 'Meals & Entertainment'] + $e, 120.0, '2026-10-31'));
+    }
+
+    private function sameVendorLinesFor(array $expense, array $rows): array
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method('fetchAll')->willReturn($rows);
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturn($stmt);
+        $m = new ReflectionMethod(BankImportService::class, 'sameVendorLines');
+        $m->setAccessible(true);
+        return $m->invoke(new BankImportService($pdo), $expense, []);
+    }
+
+    public function testTwoPossibleTipChargesAreNotGuessedBetween(): void
+    {
+        $e = ['expense_date' => '2026-10-10', 'total' => 21.0, 'amount' => 20.0, 'gst_amount' => 1.0, 'pst_amount' => 0.0, 'accounting_category' => 'Meals', 'vendor_name_raw' => 'Moxies', 'vendor_name' => null];
+        $row = fn(int $id, string $d, float $a) => ['id' => $id, 'transaction_date' => $d, 'description' => 'POINTOFSALE(MOXIES014VANCOUVERBCCA)', 'amount' => $a, 'bank_account' => 'Visa'];
+        $one = $this->sameVendorLinesFor($e, [$row(1, '2026-10-10', 25.0)]);
+        $this->assertSame(4.0, $one[0]['tip']['tip'], 'a single charge is offered as the tip');
+        $two = $this->sameVendorLinesFor($e, [$row(1, '2026-10-10', 25.0), $row(2, '2026-10-11', 26.0)]);
+        $this->assertCount(2, $two);
+        foreach ($two as $l) {
+            $this->assertNull($l['tip'], 'two visits: no guess');
+            $this->assertStringContainsString('Different amount', $l['reasons'][1]);
+        }
+    }
 }
+

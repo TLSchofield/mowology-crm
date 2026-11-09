@@ -64,6 +64,7 @@ $activePage = 'timesheets';
         <h1 class="mw-page-title">Timesheets</h1>
     </div>
     <div class="mw-page-actions">
+        <a href="/crm/timeclock/timesheet-week.php" class="btn btn-sm btn-primary">Week view</a>
         <a href="/crm/timeclock/my-schedule.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="arrow-left"></i> My Schedule
         </a>
