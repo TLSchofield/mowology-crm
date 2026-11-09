@@ -131,6 +131,19 @@ class OttoRulesTest extends TestCase
         $this->assertArrayNotHasKey('_n', $sorted[0]);
     }
 
+    public function test_schedule_questions_lead_the_card_without_changing_priority(): void
+    {
+        $sorted = OttoRules::sortItems([
+            ['k' => 'done', 'kind' => 'visit_window_done', 'priority' => 4], ['k' => 'quiet', 'kind' => 'silent', 'priority' => 1],
+            ['k' => 'length', 'kind' => 'duration', 'priority' => 3], ['k' => 'window', 'kind' => 'visit_window', 'priority' => 3],
+        ]);
+        $this->assertSame(['quiet', 'length', 'window', 'done'], array_column($sorted, 'k'));
+        $card = OttoRules::questionsFirst($sorted);
+        $this->assertSame(['window', 'done', 'quiet', 'length'], array_column($card, 'k'));
+        $this->assertSame(3, $card[0]['priority']);
+        $this->assertSame(4, $card[1]['priority']);
+    }
+
     public function test_day_words(): void
     {
         $this->assertSame('today', OttoRules::dayWord('2026-10-05', '2026-10-05'));

@@ -144,7 +144,7 @@ class OpsDeskService
             $open[$k] = $it;
         }
         if ($persist) $this->expire($known, $open);
-        return OttoRules::sortItems(array_values($open));
+        return OttoRules::questionsFirst(OttoRules::sortItems(array_values($open)));
     }
 
     /** One line per thing for the card's numbers and the brief. */
