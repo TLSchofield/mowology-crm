@@ -19,8 +19,10 @@ final class PublicFormSecurity
      * deploy until 2026-11-07. Falls back to the same default as public/includes/bootstrap.php.
      * Never derived from the request's Host header, which the visitor controls.
      */
-    public static function recaptchaSiteUrl(?string $siteUrl): string
+    /** $businessUrl = Tenant::appUrl(): a business on its own address is checked against that address, from the registry. */
+    public static function recaptchaSiteUrl(?string $siteUrl, string $businessUrl = ''): string
     {
+        if ((string)parse_url($businessUrl, PHP_URL_HOST) !== '') return $businessUrl;
         $siteUrl = trim((string)$siteUrl);
         return ($siteUrl !== '' && (string)parse_url($siteUrl, PHP_URL_HOST) !== '') ? $siteUrl : 'https://mowology.ca';
     }
