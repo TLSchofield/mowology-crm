@@ -22,6 +22,11 @@ struct ScheduleView: View {
     /// Which view the day shows: chosen on the Schedule bead (tap = next, long press = pick), remembered.
     @ObservedObject private var views = ScheduleViewStore.shared
     @State private var isOttoExpanded = false
+    /// The month of the day on the carousel's line while it differs from the loaded day's.
+    @State private var lineMonth: Date?
+    /// The day's content fades in when another day lands (2026-11-08).
+    @State private var dayOpacity = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Navigation path — owned here so a tapped notification can open a stop directly.
     @State private var path: [Stop] = []
@@ -96,8 +101,16 @@ struct ScheduleView: View {
 
                 // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
                 if horizontalSizeClass == .compact {
-                    DayCarouselView(selectedDate: weekStripBinding, weekDays: viewModel.weekDays,
-                                    showsLine: (views.kind == .numbered && viewModel.timelineInput != nil) || views.kind == .time)
+                    DayCarouselView(selectedDate: viewModel.selectedDate, weekDays: viewModel.weekDays,
+                                    dotsKey: viewModel.dotsKey,
+                                    showsLine: (views.kind == .numbered && viewModel.timelineInput != nil) || views.kind == .time,
+                                    onLand: { weekStripBinding.wrappedValue = $0 },
+                                    onLine: { day in
+                                        // "Nov" follows the day on the line, not only the day loaded.
+                                        let shown = lineMonth ?? viewModel.selectedDate
+                                        if !Calendar.current.isDate(day, equalTo: shown, toGranularity: .month) { lineMonth = day }
+                                    })
+                        .equatable()
                 } else {
                 WeekStripView(
                     selectedDate: weekStripBinding,
@@ -119,6 +132,7 @@ struct ScheduleView: View {
                 OutboxStatusLine()
 
                 // MARK: Content
+                Group {
                 if views.kind == .time {
                     DayTimeGridView(
                         stops:     viewModel.stops,
@@ -155,6 +169,16 @@ struct ScheduleView: View {
                         onMove:        { movingStop = $0 }
                     )
                 }
+                }
+                .opacity(dayOpacity)
+            }
+            // Another day landed: its content (already swapped in with the date) fades in.
+            .onChange(of: viewModel.selectedDate) { old, new in
+                lineMonth = nil
+                guard !reduceMotion, !Calendar.current.isDate(old, inSameDayAs: new) else { return }
+                var still = Transaction(); still.disablesAnimations = true
+                withTransaction(still) { dayOpacity = 0 }
+                DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.22)) { dayOpacity = 1 } }
             }
             // Single navigationDestination covers both list and map modes.
             .navigationDestination(for: Stop.self) { stop in
@@ -424,7 +448,7 @@ struct ScheduleView: View {
                 pickerDate = viewModel.selectedDate
                 showDatePicker = true
             } label: {
-                Text(viewModel.selectedDate.formatted(.dateTime.month(.abbreviated)))   // "Nov": "November" wrapped beside the Clock in chip (Tim, 2026-11-06)
+                Text((lineMonth ?? viewModel.selectedDate).formatted(.dateTime.month(.abbreviated)))   // "Nov": "November" wrapped beside the Clock in chip (Tim, 2026-11-06)
                     .font(appStyle.font(.headline, weight: .semibold))
                     .foregroundStyle(appStyle.text)
             }

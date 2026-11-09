@@ -72,3 +72,7 @@ run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/Serv
   "$SRC/Core/Models/Stop.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" \
   "$SRC/Core/Design/Ittai/ItTheme.swift" "$SRC/Core/Design/Ittai/ItSymbol.swift" \
   "$SRC/Core/Design/Ittai/ItSymbolAssembly.swift" "$OUT/main.swift"
+
+# Day carousel (2026-11-08): the strip's window, the day on the line, when it has landed, today after midnight.
+cp "$ROOT/ios/LogicTests/DayCarouselTests.swift" "$OUT/main.swift"
+run daycarousel "$SRC/Core/Models/ScheduleDay.swift" "$SRC/Features/Schedule/DayCarouselRules.swift" "$OUT/main.swift"

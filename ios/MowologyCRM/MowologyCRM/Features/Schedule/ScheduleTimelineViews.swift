@@ -612,7 +612,7 @@ private struct ScheduleTimelineDemo: View {
         if mode == "time" {   // `-mwTimelineDemo time`: the hour grid (the Schedule bead's Time view)
             // With the day strip above and the Schedule bead's slot, to see the axis meet the chosen day.
             VStack(spacing: 0) {
-                DayCarouselView(selectedDate: .constant(Date()), weekDays: [], showsLine: true)
+                DayCarouselView(selectedDate: Date(), weekDays: [], dotsKey: "", showsLine: true, onLand: { _ in })
                 DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
                                                           Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
                                 isLoading: false, isToday: true, onRefresh: {}, onSelect: { _ in })
@@ -637,6 +637,7 @@ private struct MeniscusBarDemo: View {
     @State private var selected: Int
     @State private var addOpen: Bool
     @State private var demoDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
+    @State private var landings = 0
 
     init(variant: String) {
         self.variant = variant
@@ -663,7 +664,20 @@ private struct MeniscusBarDemo: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                DayCarouselView(selectedDate: $demoDate, weekDays: [], showsLine: true)
+                DayCarouselView(selectedDate: demoDate, weekDays: [], dotsKey: "", showsLine: true,
+                                onLand: { demoDate = $0; landings += 1 })
+                // `-mwCarouselProbe`: shows the landed day and the number of landings, then changes the day from
+                // outside: a glide three days on (add `-mwCarouselSlow` to photograph it), then a date beyond the window.
+                if ProcessInfo.processInfo.arguments.contains("-mwCarouselProbe") {
+                    Text("\(demoDate.formatted(.dateTime.weekday().day().month().year())) · landings \(landings)")
+                        .font(.caption.monospaced())
+                        .task {
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                            demoDate = Calendar.current.date(byAdding: .day, value: 3, to: demoDate) ?? demoDate
+                            try? await Task.sleep(nanoseconds: 9_000_000_000)
+                            demoDate = Calendar.current.date(byAdding: .day, value: 300, to: Date()) ?? demoDate
+                        }
+                }
                 ScheduleTimelineDemo(mode: "day")
             }
                 .environment(\.itTabSlot, ItTabSlot(index: 0, count: items.count))
