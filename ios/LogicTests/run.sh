@@ -20,6 +20,10 @@ python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 cp "$ROOT/ios/LogicTests/BatchCameraModelsTests.swift" "$OUT/main.swift"
 run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
 
+# Receipt camera (2026-11-09): when it may shoot, retakes, the switch.
+cp "$ROOT/ios/LogicTests/ReceiptSteadyGateTests.swift" "$OUT/main.swift"
+run receiptsteady "$SRC/Features/Camera/ReceiptSteadyGate.swift" "$OUT/main.swift"
+
 # Meniscus tab bar: notch shape (cups the bead with the gap, joins the edge horizontally, symmetric), slots, nearest tab.
 cp "$ROOT/ios/LogicTests/MiaWhenTests.swift" "$OUT/main.swift"
 run miawhen "$SRC/Features/Team/MiaWhen.swift" "$OUT/main.swift"

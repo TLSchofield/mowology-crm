@@ -479,7 +479,7 @@ struct BatchCameraView: View {
 
 // MARK: - Preview layer
 
-private struct CameraPreview: UIViewRepresentable {
+struct CameraPreview: UIViewRepresentable {
     let camera: CameraController
 
     final class PreviewView: UIView {

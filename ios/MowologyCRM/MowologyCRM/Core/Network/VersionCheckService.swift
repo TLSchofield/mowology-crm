@@ -6,6 +6,7 @@ struct AppVersionInfo: Decodable {
     let forceUpdate: Bool?
     let releaseNotes: String?
     let storeUrl: String?
+    let receiptOwnCamera: Bool?
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -13,6 +14,7 @@ struct AppVersionInfo: Decodable {
         case forceUpdate = "force_update"
         case releaseNotes = "release_notes"
         case storeUrl = "store_url"
+        case receiptOwnCamera = "receipt_own_camera"
     }
 }
 
@@ -51,6 +53,7 @@ final class VersionCheckService {
     }
 
     private func evaluate(_ info: AppVersionInfo) -> VersionCheckResult {
+        ReceiptCameraSwitch.apply(serverValue: info.receiptOwnCamera)
         let installed = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
         let minimum   = info.minVersion ?? info.version ?? "0.0.0"
         let force     = info.forceUpdate ?? false

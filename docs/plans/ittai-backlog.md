@@ -587,3 +587,8 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - Wanted: Otto looks a few days ahead and tells the owner on his card, in the brief and by push when a scheduled day has weather over the business's threshold or is a public holiday in its region, and proposes the move (skipping holidays and non-working days); the owner confirms.
 - Per business: "Not all Ittai tenants may want this service (maybe they work indoors)" — one onboarding question plus Otto's settings; location from the business (today `weather_guard` uses Vancouver and is left out of the per-business crons); holidays from the region rules.
 - Needs its own chat and a plan first. Brief saved 2026-11-09 (carousel chat); Part 1 (why nothing was said) traced there.
+
+## Android receipt camera: wait for steady, light on (Tim 2026-11-09)
+iPhone 1.3.133 won't shoot a receipt until the phone, the receipt and the focus are steady, and keeps the light on
+(`ReceiptCameraView`, `ReceiptSteadyGate`). Android still shoots whenever tapped. Wait until the iPhone's steadiness
+numbers are tuned on real receipts, then copy them. **Shared:** the rule and the numbers. **Private:** nothing.
