@@ -15,6 +15,41 @@ final class FieldJobServiceTest extends TestCase
         $this->assertSame(self::TODAY, FieldJobService::resolveDate(null, self::TODAY));
     }
 
+    public function testLastPriceIsTheNewestMatchingInvoiceLine(): void
+    {
+        $lines = [
+            ['text' => 'Fertilizer program, full season', 'price' => '650.00', 'date' => '2026-11-07'],
+            ['text' => 'Lawn cuts, 11 visits (May 7 to Sep 24)', 'price' => '90.00', 'date' => '2026-11-07'],
+            ['text' => 'Lawn cuts, 4 visits', 'price' => '80.00', 'date' => '2026-05-01'],
+        ];
+        $plans = [['text' => 'Lawn Cuts lawn_care', 'price' => '93.46', 'date' => '2026-04-30']];
+        $hit = FieldJobService::pickLastPrice($lines, $plans, 'Lawn Cut');
+        $this->assertSame(90.0, $hit['price']);
+        $this->assertSame('invoice', $hit['source']);
+    }
+
+    public function testLastPriceNeedsEveryWordOfTheJob(): void
+    {
+        $lines = [['text' => 'Lawn & Garden — October 2026', 'price' => '405.00', 'date' => '2026-10-01']];
+        $this->assertNull(FieldJobService::pickLastPrice($lines, [], 'Lawn Cut'));
+    }
+
+    public function testLastPriceFallsBackToAPlan(): void
+    {
+        $plans = [['text' => 'Lawn Cuts lawn_care', 'price' => '93.46', 'date' => '2026-04-30']];
+        $hit = FieldJobService::pickLastPrice([], $plans, 'Lawn Cut');
+        $this->assertSame(93.46, $hit['price']);
+        $this->assertSame('plan', $hit['source']);
+    }
+
+    public function testLastPriceIgnoresCreditsAndOther(): void
+    {
+        $lines = [['text' => 'Lawn cut credit', 'price' => '-50.00', 'date' => '2026-10-01'],
+                  ['text' => 'Deposit for lawn cuts', 'price' => '200.00', 'date' => '2026-10-01']];
+        $this->assertNull(FieldJobService::pickLastPrice($lines, [], 'Lawn Cut'));
+        $this->assertNull(FieldJobService::pickLastPrice([['text' => 'Other work', 'price' => '50', 'date' => '2026-10-01']], [], 'Other'));
+    }
+
     public function testRadiusIsBounded(): void
     {
         $this->assertSame(400, FieldJobService::resolveRadius('400'));

@@ -157,6 +157,9 @@ class OttoRules
     // Words and order
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** Kinds that lead the card: see questionsFirst(). */
+    public const QUESTIONS_FIRST = ['visit_window', 'visit_window_done'];
+
     /** Most urgent first; within a priority, the order they were found. */
     public static function sortItems(array $items): array
     {
@@ -165,6 +168,21 @@ class OttoRules
         unset($it);
         usort($items, fn($a, $b) => [(int)$a['priority'], $a['_n']] <=> [(int)$b['priority'], $b['_n']]);
         return array_map(function ($it) { unset($it['_n']); return $it; }, $items);
+    }
+
+    /**
+     * Otto's list on the card: questions that change the booked schedule lead, whatever their priority — the phone is
+     * sent 12 items and the web shows 8, so one at the bottom of a long list is never seen (2026-11-09). Their priority
+     * stays as it is, because Charlie's ranking reads it. Otherwise the order is left alone.
+     */
+    public static function questionsFirst(array $sorted): array
+    {
+        $first = $rest = [];
+        foreach ($sorted as $it) {
+            if (in_array($it['kind'] ?? '', self::QUESTIONS_FIRST, true)) $first[] = $it;
+            else $rest[] = $it;
+        }
+        return array_merge($first, $rest);
     }
 
     /**
