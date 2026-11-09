@@ -33,6 +33,8 @@ final class RuntimeDdlTest extends TestCase
         'public/crm/api/measurement-groups.php',
         // Owner-run business provisioning (Ittai): copies table structure into a NEW business's database on Database::ddl():
         'app/Core/TenantProvisioner.php',
+        // The automatic database updater: creates migrations_log if missing, always on Database::ddl():
+        'app/Modules/Database/Services/SchemaUpdater.php',
     ];
 
     public function test_no_new_runtime_ddl(): void

@@ -581,3 +581,9 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 - **LookbackService calls the model directly** (`app/Modules/Accounting/Services/LookbackService.php:977`), skipping LlmGateway's retry, kill switch and cost log. `NoDirectAnthropicCallsTest` carries a dated exception for it; route the call through `LlmGateway::send()` and remove the exception.
 - **Old tests not adopted:** `EtransferNudgeServiceTest` and `InvoiceServiceTest` on the old branches are older than the live services and fail against them (nudge copy now reads the address from settings; `ensurePaymentIntent` has a lock). Both services have no current test.
 - **Left server-only, for the delete list:** `/customer/invoice-v2.php`, `/crm/api/test-invoice-create.php`, `/crm/api/salt-manual-trigger.php` (the last echoes a raw exception message; `invoice-v2.php` sends no CSP).
+
+## Otto warns the owner about weather and public holidays, per business (Tim, 2026-11-09)
+- Tim was not told by Otto (app or push) that heavy rain was forecast for Tue 2026-11-10 with Wed 2026-11-11 a public holiday, so Tuesday's jobs had to move to Thursday. "Otto should be the one telling me."
+- Wanted: Otto looks a few days ahead and tells the owner on his card, in the brief and by push when a scheduled day has weather over the business's threshold or is a public holiday in its region, and proposes the move (skipping holidays and non-working days); the owner confirms.
+- Per business: "Not all Ittai tenants may want this service (maybe they work indoors)" — one onboarding question plus Otto's settings; location from the business (today `weather_guard` uses Vancouver and is left out of the per-business crons); holidays from the region rules.
+- Needs its own chat and a plan first. Brief saved 2026-11-09 (carousel chat); Part 1 (why nothing was said) traced there.

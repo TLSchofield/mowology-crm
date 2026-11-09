@@ -36,6 +36,8 @@ final class BusinessCrons
         // Contract billing (2026-11-04, G9): a test business ('test' => true in the registry) makes drafts, sends nothing.
         'contract_billing' => ['path' => '/app/Modules/Contracts/Cron/contract_billing.php', 'expr' => '0 3 1 * *', 'timeout' => 900],
         'contract_billing_retry' => ['path' => '/app/Modules/Contracts/Cron/contract_billing_retry.php', 'expr' => '15 7 * * *', 'timeout' => 600],
+        // Automatic database updater (2026-11-09): applies pending database/migrations files to each business; see HOWTO.md.
+        'schema_update' => ['path' => '/app/Modules/Database/Cron/schema_update.php', 'expr' => '*/5 * * * *', 'timeout' => 300],
         'generate_visits' => ['path' => '/app/Modules/Jobs/Cron/generate_visits.php', 'expr' => '0 */6 * * *', 'timeout' => 1500],
     ];
 
