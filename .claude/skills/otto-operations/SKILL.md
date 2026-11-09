@@ -36,7 +36,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.2.0
+  version: 1.2.1
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -162,6 +162,7 @@ reference that matches the task:
 | Seasonal stock watch (owner-named items, dated decide-by; seeded with ice melt / salt when snow routes exist) | `SeasonalStockRules::items()`; list in ops_settings `otto_seasonal_stock` via `OttoHarvestService::watchList()` | brief |
 | Quarterly supplier review (90-day receipt spend, concentration > 60% with an alternative in the directory, price lists > 90 days old) | `SupplierReviewRules::build()` / `SupplierReviewRules::briefItem()` | brief |
 | A plan's visit length (`job_plans.estimated_duration_minutes`, the booked slot) — ONE writer since 2026-11-05 | `VisitDurationService::apply()` on Tim's tap, proposed by `VisitDurationService::review()` from timers checked against GPS time on the lot (`VisitDurationRules::choose()`); GPS time per visit stored nightly by `VisitDurationService::measure()` (trip cron, table `visit_onsite_time`, migration 1439) | Otto's card, the review page, day capacity, the schedule |
+| A weekday's booked end time against real finishes (Otto's `visit_window` card + Undo; weekday ends in `plan_weekday_windows`) | `VisitWindowService::apply()` on Tim's tap, rules in `VisitWindowRules`; migration 1444 |
 | A new lead's pin and arrival border within minutes (city lot map first, then the province's; pin only on an exact building match) | `OttoAutoPlaceService::placeNewLead()`; open leads are candidates via `OttoAutoPlaceService::leadCandidates()`; the 15-minute catch-up `OttoLeadService::placeOpenLeads()` runs at the end of `app/Modules/Sales/Cron/sales_inbox_poll.php` | the quote-workflow screen, Sam's lead row |
 | The best working day to look at a lead (extra truck minutes from the crews' real route days; Sundays, solid days, wet days, plan lengths that look wrong) | `LeadRouteDay::rank()` / `LeadRouteDay::line()`, assembled by `OttoLeadService::bestDays()` (loads from `OttoHarvestService::dayLoads()`, routes from `CloserService::routeDays()`) | Sam's lead row (`SalesDeskService::leads()`), the quote-visit panel on `public/crm/quote-workflow.php` (pre-fills its Day) |
 | Stops for a day | `getCalendarStops()` in `app/Modules/Jobs/Services/Plan/CalendarStops.php` — TWO JSON shapes: `app/Modules/Jobs/Api/calendar-stops.php` (web/Android) and `app/Modules/Schedule/Api/day.php` (iPhone) | schedule |

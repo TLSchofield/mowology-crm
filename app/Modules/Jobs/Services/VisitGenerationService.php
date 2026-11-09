@@ -212,7 +212,7 @@ class VisitGenerationService
                             $stopId,
                             $date,
                             $plan['default_time_start'],
-                            $plan['default_time_end'],
+                            self::endForDate($db, $plan, $date),
                             $nextSeq,
                             $plan['default_crew_id']
                         ]);
@@ -250,6 +250,17 @@ class VisitGenerationService
      * @param string[] $dates  candidate Y-m-d dates
      * @param string[] $existing Y-m-d dates that already have a non-cancelled visit
      */
+    /** A plan with several weekdays can have its own end time for one of them (Otto, migration 1444). */
+    private static function endForDate(PDO $db, array $plan, string $date): ?string {
+        static $windows = [];
+        $id = (int)$plan['id'];
+        if (!isset($windows[$id])) {
+            require_once APP_ROOT . '/Modules/Operations/Services/VisitWindowService.php';
+            $windows[$id] = VisitWindowService::windowsFor($db, $id);
+        }
+        return $windows[$id][(int)date('w', strtotime($date))] ?? $plan['default_time_end'];
+    }
+
     public static function withoutExisting(array $dates, array $existing): array {
         $have = array_flip(array_map('strval', $existing));
         return array_values(array_filter($dates, fn($d) => !isset($have[(string)$d])));

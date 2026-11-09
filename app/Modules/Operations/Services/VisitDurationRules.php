@@ -244,6 +244,10 @@ class VisitDurationRules
             'planned' => $planned, 'proposed' => null, 'change' => null, 'reason' => '',
         ];
         if ($n < self::MIN_TO_PROPOSE) { $out['reason'] = 'too_few'; return $out; }
+        // Full Mondays and short mid-week visits have no meaningful middle (Oakridge, 2026-11-08: 145 min proposed for a
+        // day that runs 4+ hours). When times vary and the plan runs on several weekdays, book the longest regular day.
+        $longest = $stable ? null : self::longestDay($used);
+        if ($longest !== null) $med = $longest['minutes'];
         $proposed = max(self::ROUND_TO, (int)(round($med / self::ROUND_TO) * self::ROUND_TO));
         if ($planned !== null && $planned > 0) {
             $diff = abs($med - $planned);
@@ -252,7 +256,26 @@ class VisitDurationRules
         $out['proposed'] = $proposed;
         $out['change'] = $planned !== null ? $proposed - $planned : null;
         $out['reason'] = $out['confident'] ? 'confident' : ($n >= self::CONFIDENT_SAMPLES ? 'spread' : 'few');
+        $out['longest_day'] = $longest;
         return $out;
+    }
+
+    /**
+     * The weekday with the longest median, when at least two weekdays have two or more visits each.
+     * @return ?array{day: string, minutes: float}
+     */
+    public static function longestDay(array $used): ?array
+    {
+        $byDay = [];
+        foreach ($used as $v) $byDay[date('l', (int)strtotime((string)$v['date']))][] = (int)$v['crew_min'];
+        $byDay = array_filter($byDay, fn($m) => count($m) >= 2);
+        if (count($byDay) < 2) return null;
+        $best = null;
+        foreach ($byDay as $day => $m) {
+            $median = (float)self::median($m);
+            if ($best === null || $median > $best['minutes']) $best = ['day' => $day, 'minutes' => $median];
+        }
+        return $best;
     }
 
     /** "2448 Larch St: plan 45 min, real median 32 min over 9 visits → 30 min". */
@@ -261,6 +284,7 @@ class VisitDurationRules
         $plan = $s['planned'] ? 'plan ' . $s['planned'] . ' min' : 'no plan length';
         $t = $street . ': ' . $plan . ', real median ' . $s['median_crew'] . ' min over ' . $s['samples'] . ' visit' . ($s['samples'] === 1 ? '' : 's');
         if ($s['proposed'] !== null) $t .= ' → ' . $s['proposed'] . ' min';
+        if ($s['proposed'] !== null && !empty($s['longest_day'])) $t .= ' (' . $s['longest_day']['day'] . 's, the longest day)';
         return $t . '.';
     }
 

@@ -73,6 +73,8 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/VendorHoursService.p
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/MissedVisitReviewService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/VisitDurationRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VisitWindowRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/VisitWindowService.php';
 require_once __DIR__ . '/../app/Core/OnboardingQuestions.php';
 require_once __DIR__ . '/../app/Core/ApiResponse.php';
 require_once __DIR__ . '/../app/Core/Auth/AuthFreshness.php';

@@ -252,6 +252,10 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
         }
         if ($needsPropagate) {
             propagatePlanChanges($planId, $changes, $userId);
+            if (array_key_exists('default_time_start', $changes) || array_key_exists('default_time_end', $changes)) {
+                require_once APP_ROOT . '/Modules/Operations/Services/VisitWindowService.php';
+                VisitWindowService::clearWindows($db, $planId);   // set by hand: wins over Otto's per-weekday end
+            }
         }
 
         return ['success' => true, 'errors' => [], 'visits_regenerated' => false];
