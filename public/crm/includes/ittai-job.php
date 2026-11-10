@@ -145,7 +145,7 @@ $__ijRailEt = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols, $
 $__ij = $__ijJobs[0];
 // The one picture beside the decision (Tim, 2026-11-10): six months of approved spend, this month marked, and the
 // quarter's GST on receipts — what a solo operator needs to know while deciding. Tokens only; bars are inline SVG.
-$__ijViz = static function (?array $p): string {
+$__ijViz = static function (?array $p) use ($__ijSvg): string {
     if (!$p) return '';
     $w = 288; $h = 120; $pad = 8; $n = count($p['months']); $bw = (int)floor(($w - $pad * 2) / $n) - 8;
     $max = $p['max'] > 0 ? $p['max'] : 1;

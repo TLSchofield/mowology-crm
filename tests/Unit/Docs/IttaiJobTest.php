@@ -69,6 +69,8 @@ class IttaiJobTest extends TestCase
         }
         $inc = $this->src('public/crm/includes/ittai-job.php');
         $js = $this->src('public/crm/js/ittai-job.js');
+                // the graph card's chart icon calls $__ijSvg inside a static closure: it must be captured (a missing use broke the page, 2026-11-10)
+        $this->assertStringContainsString('static function (?array $p) use ($__ijSvg): string', $inc);
         foreach (["'forming', 'held', 'known', 'mastered'", 'First time with this vendor.', 'it-st-approval-'] as $n) $this->assertStringContainsString($n, $inc, $n);
         foreach (['is-forming', 'is-held', 'is-known', 'is-mastered', 'First time with this vendor.'] as $n) $this->assertStringContainsString($n, $js, $n);
     }
