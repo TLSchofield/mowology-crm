@@ -11,6 +11,9 @@
  * POST {mode: 'send', key, channel: email|sms, subject, body, suggested_body, drafted_by, csrf_token}
  *                     Tim sends (CRM messaging functions only). Yui never sends on her own.
  * POST {mode: 'handled', key, csrf_token}   Off the list (and dismissed in Charlie).
+ * "Who is this?" (mail from people not on file; desk gains a top-level `who`, never inside `sections`):
+ * POST {mode: 'who_confirm', id, client_id, first_name, last_name} / {mode: 'who_not', id} / {mode: 'who_undo', id}
+ * GET  ?mode=who_accounts&q=   active accounts by name, for "Another account…".
  *
  * The item is always re-read on the server (key → YuiDeskService::find()), so the recipient
  * comes from the CRM, never from the browser.
@@ -55,6 +58,7 @@ try {
 
     require_once APP_ROOT . '/Modules/Comms/Services/YuiDeskService.php';
     require_once APP_ROOT . '/Modules/Comms/Services/YuiDraftService.php';
+    require_once APP_ROOT . '/Modules/Comms/Services/InboundQuestionService.php';
     $desk = new YuiDeskService($db);
     $name = SalesDeskService::ownerName((array)$user);
 
@@ -72,8 +76,34 @@ try {
 
     switch ($mode) {
         case 'desk':
-            echo json_encode(['ok' => true, 'name' => $name] + $desk->desk($name));
+            $out = ['ok' => true, 'name' => $name] + $desk->desk($name);
+            $who = new InboundQuestionService($db);
+            if ($who->ready()) $out['who'] = ['items' => $who->questions(), 'quiet_count' => $who->quietCount(), 'quiet' => $who->quiet()];
+            echo json_encode($out);
             break;
+
+        case 'who_accounts':
+            $who = new InboundQuestionService($db);
+            echo json_encode(['ok' => true, 'accounts' => $who->ready() ? $who->accounts(mb_substr(trim((string)($_GET['q'] ?? '')), 0, 60)) : []]);
+            break;
+
+        case 'who_confirm':
+        case 'who_not':
+        case 'who_undo': {
+            $who = new InboundQuestionService($db);
+            if (!$who->ready()) { echo json_encode(['ok' => false, 'message' => 'Migration 1447 has not run yet.']); break; }
+            $wid = (int)($input['id'] ?? 0);
+            $uid = (int)($user['id'] ?? 0);
+            if ($mode === 'who_confirm') {
+                echo json_encode($who->confirm($wid, (int)($input['client_id'] ?? 0), mb_substr(trim((string)($input['first_name'] ?? '')), 0, 100),
+                                               mb_substr(trim((string)($input['last_name'] ?? '')), 0, 100), $uid));
+            } elseif ($mode === 'who_not') {
+                echo json_encode($who->notClient($wid, $uid));
+            } else {
+                echo json_encode($who->undo($wid, $uid));
+            }
+            break;
+        }
 
         case 'draft': {
             $item = $desk->find($key, $name);

@@ -47,6 +47,9 @@ foreach (array_reverse($hits) as $no) {   // newest first, so an early stop lose
     if ($t['kind'] === 'person') $id = InboundIdentityService::withReplyEvidence($db, $id, $from, $subject);
     $supplier = $t['kind'] === 'person' && $svc->fromSupplier($from);
     if ($supplier) $out['supplier'] = ($out['supplier'] ?? 0) + 1;
+    $rule = SalesInboxService::ruleFor($svc->senderRules(), $addr);   // the owner's answers (migration 1447); [] before it runs
+    if ($rule !== null && $rule['verdict'] === 'noise') { $out['rule_noise'] = ($out['rule_noise'] ?? 0) + 1; $t['kind'] = 'noise'; $t['reason'] = 'you said not a client'; $id['strength'] = 'none'; }
+    elseif ($rule !== null && $t['kind'] === 'person' && !$supplier && $id['strength'] !== 'strong') { $out['rule_domain'] = ($out['rule_domain'] ?? 0) + 1; $out['would_place_by_domain'][] = ['from' => $from, 'subject' => $subject, 'contact_id' => $rule['contact_id']]; continue; }
     $out['by_kind'][$t['kind']] = ($out['by_kind'][$t['kind']] ?? 0) + 1;
     $out['by_strength'][$id['strength']] = ($out['by_strength'][$id['strength']] ?? 0) + 1;
     $rk = $t['kind'] . ': ' . $t['reason'];

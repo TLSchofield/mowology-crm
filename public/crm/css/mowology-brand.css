@@ -39220,12 +39220,29 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-yui-act button:disabled { opacity: .5; cursor: not-allowed; }
 .mw-yui-ed { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; margin-top: 10px; align-items: start; }
 .mw-yui-ed > .mw-sam-draft:only-child { grid-column: 1 / -1; }
+/* "Who is this?" — mail from people not on file, answered in place (Yui) */
+.mw-yui-who-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
+.mw-yui-who-main { min-width: 0; overflow-wrap: anywhere; }
+.mw-yui-who-main q { display: block; margin: 4px 0; color: var(--mw-ink-700); font-style: italic; }
+.mw-yui-who-why { display: block; color: var(--mw-ink-500); margin-top: 2px; }
+.mw-yui-who-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+.mw-yui-who-form .mw-yui-who-acct, .mw-yui-who-form .mw-rc-actions { grid-column: 1 / -1; }
+.mw-yui-who-form .mw-sam-in { min-height: 44px; min-width: 0; }
+.mw-yui-who-form .mw-yui-who-acct { gap: 6px; }
+.mw-yui-who-row .mw-rc-actions { margin-top: 0; }
+.mw-yui-who-row .mw-rc-actions button, .mw-yui-who-undo { min-height: 44px; }
+.mw-yui-who-row .mw-rc-actions .mw-rc-ok:disabled { opacity: .5; cursor: not-allowed; }
+.mw-yui-who-quiet { margin-top: 8px; border-top: 1px dashed var(--mw-ink-200); padding-top: 8px; font-size: .8rem; color: var(--mw-ink-700); }
+.mw-yui-who-quiet summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--mw-ink-700); text-decoration: underline; }
+.mw-yui-who-undo { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 14px; font-weight: 600; }
+.mw-yui-who-q { padding: 4px 0; min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 991.98px) {
     .mw-yui { grid-template-columns: 1fr; }
     .mw-yui-stats { grid-template-columns: repeat(2, 1fr); }
     .mw-yui-ed { grid-template-columns: 1fr; }
 }
 @media (max-width: 767.98px) {
+    .mw-yui-who-row { grid-template-columns: 1fr; }
     .mw-yui-line { flex-direction: column; align-items: flex-start; }
     .mw-yui-act { justify-content: flex-start; }
 }
