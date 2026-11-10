@@ -80,4 +80,11 @@ if (!$res['ok']) {
     $read = array_sum(array_intersect_key($res['counts'], array_flip(IcloudInboxRouter::ROUTES)));
     $finish($read === 0 && $res['errors'] > 0 ? 'error' : 'warning', $res['message'], $res['errors'] > 0 ? $res['errors'] . ' error(s)' : null);
 }
+// Yui (2026-11-10): tell the owner a client wrote. Additive: never fails the poll (the service catches everything).
+try {
+    require_once APP_ROOT . '/Modules/Comms/Services/InboundAlertService.php';
+    (new InboundAlertService(getDB()))->run();
+} catch (Throwable $e) {
+    error_log('[inbound alert] ' . $e->getMessage());
+}
 $finish('success', 'iCloud: ' . $res['message']);
