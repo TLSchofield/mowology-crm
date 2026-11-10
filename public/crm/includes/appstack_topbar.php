@@ -17,7 +17,6 @@ if (!isset($user)) $user = ['name' => 'Admin'];
     <a class="sidebar-toggle d-flex">
         <i class="hamburger align-self-center"></i>
     </a>
-    <?php if (!empty($itShell)) include __DIR__ . '/ittai-kaname-band.php'; /* Ittai shell: Kaname's band, one subject, alerts, heads */ ?>
 
     <?php if (empty($mwLedgerOnly)): /* the accountant's login: no tracking dot, clock or receipt camera */ ?>
     <!-- Location Tracking Status Indicator -->

@@ -131,25 +131,31 @@ class IttaiShellTest extends TestCase
         $this->assertStringContainsString('.it-grp > .it-hp-space { order: 1;', $css, 'the spacer sits between the row and the pages');
     }
 
-    /** Kaname's band (Tim, 2026-11-10): one search top right, her line beside it, fixed; one subject at a time; the sidebar box is gone. */
-    public function testKanameBandReplacesTheSidebarSearchAndThePageBand(): void
+    /** Kaname's line (Tim, 2026-11-10): her alerts run off HER sidebar row, not the top nav; one search top right; one subject at a time. */
+    public function testKanameLineRunsOffHerRowNotTheTopNav(): void
     {
         $sb = $this->itShellBlock();
-        $this->assertStringNotContainsString('data-spotlight-open', $sb, 'no search box in the sidebar');
-        $this->assertStringNotContainsString('it-chip-need', $sb, "Kaname's count moved to the band");
-        $this->assertStringContainsString("if (\$__ws === '' && !empty(\$__items[0]['href'])) \$__ws = (string)\$__items[0]['href'];", $sb, "a head click opens her first page");
+        $this->assertStringNotContainsString('data-spotlight-open', $sb, 'no search box in the sidebar: the one search is top right');
+        $this->assertStringContainsString('it-chip-need', $sb, "Kaname's count stays on her row");
+        $this->assertStringContainsString("if (\$__ws === '' && !empty(\$__items[0]['href'])) \$__ws = (string)\$__items[0]['href'];", $sb, 'a head click opens her first page');
         $top = $this->src('public/crm/includes/appstack_topbar.php');
-        $this->assertStringContainsString("if (!empty(\$itShell)) include __DIR__ . '/ittai-kaname-band.php';", $top);
+        $this->assertStringNotContainsString('ittai-kaname', $top, 'nothing of Kaname in the top nav');
         $this->assertSame(1, substr_count($top, 'data-spotlight-open'), 'the one search');
+        $head = $this->src('public/crm/includes/appstack_head.php');
+        $this->assertStringContainsString("include __DIR__ . '/ittai-kaname-band.php'; include __DIR__ . '/ittai-job.php';", $head, 'her line at the top of the content, before the heads\' strips');
         $band = $this->src('public/crm/includes/ittai-kaname-band.php');
-        $this->assertStringContainsString("if (empty(\$itShell)", $band);
-        $this->assertSame(1, substr_count($band, 'it-band-subject'), 'one subject at a time');
+        $this->assertStringContainsString("empty(\$__itOwner)) return;", $band, 'owner only');
+        $this->assertSame(1, substr_count($band, 'it-kan-subject'), 'one subject at a time');
         $this->assertStringNotContainsString('<style', $band);
         $this->assertFileDoesNotExist($this->repo . '/public/crm/includes/ittai-kaname-space.php');
         $css = $this->src('public/crm/css/ittai-shell.css');
-        $this->assertMatchesRegularExpression('/\.navbar \{ position: sticky; top: 0;/', $css, 'the band is fixed');
+        $this->assertStringContainsString('.it-kan-line { position: sticky; top: 57px;', $css, 'her line stays under the top bar');
+        $this->assertStringContainsString('.it-kan-link { position: fixed;', $css, 'the hairline from her portrait');
+        $this->assertStringNotContainsString('.it-band', $css);
         $this->assertStringNotContainsString('.it-sf', $css);
-        $this->assertStringNotContainsString('.it-kan-space', $css);
         $this->assertStringContainsString('.it-grp.has-card .it-grow:focus-visible { outline: none; }', $css);
+        $js = $this->src('public/crm/js/ittai-shell.js');
+        $this->assertStringContainsString('function placeKanLink()', $js);
+        $this->assertStringContainsString("sb.querySelector('.it-grp.it-kan .it-grow .it-pt')", $js, 'the line starts at her portrait on the spine');
     }
 }
