@@ -43,8 +43,8 @@ foreach (array_reverse($hits) as $no) {   // newest first, so an early stop lose
     $body = ImapReader::textBody($mbox, $no);
     $headers = ImapReader::rawHeaders($mbox, $no);
     $id = InboundIdentityService::identify(['from' => $from, 'subject' => $subject, 'body' => $body], $index);
-    $id = InboundIdentityService::withReplyEvidence($db, $id, $from, $subject);
     $t = InboundIdentityService::triage($from, $subject, $body, $headers);
+    if ($t['kind'] === 'person') $id = InboundIdentityService::withReplyEvidence($db, $id, $from, $subject);
     $supplier = $t['kind'] === 'person' && $svc->fromSupplier($from);
     if ($supplier) $out['supplier'] = ($out['supplier'] ?? 0) + 1;
     $out['by_kind'][$t['kind']] = ($out['by_kind'][$t['kind']] ?? 0) + 1;
@@ -54,7 +54,7 @@ foreach (array_reverse($hits) as $no) {   // newest first, so an early stop lose
     $date = date('Y-m-d H:i', strtotime((string)($h->date ?? 'now')) ?: time());
     if ($id['strength'] !== 'none') {
         // What the poll would do: strong + person = stored on the contact; anything else waits in inbound_unplaced.
-        $out['placements'][] = ['would' => ($id['strength'] === 'strong' && $t['kind'] === 'person' && $id['contact_id'] !== null) ? 'place on contact' : 'keep for owner',
+        $out['placements'][] = ['would' => ($id['strength'] === 'strong' && $t['kind'] === 'person' && !$supplier && $id['contact_id'] !== null) ? 'place on contact' : 'keep for owner',
             'kind' => $t['kind'], 'strength' => $id['strength'], 'from' => $from, 'subject' => $subject, 'date' => $date,
             'account' => $id['client_id'] === null ? '(several)' : implode('', array_column(array_filter($id['candidates'], fn($c) => $c['client_id'] === $id['client_id']), 'name')),
             'contact_id' => $id['contact_id'], 'evidence' => $id['evidence'],

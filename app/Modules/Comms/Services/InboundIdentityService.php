@@ -181,19 +181,31 @@ class InboundIdentityService
         $like = '%' . addcslashes($addr, '%_\\') . '%';
         $cid = null;
         try {
-            $s = $db->prepare("SELECT contact_id FROM communication_log WHERE contact_id IS NOT NULL AND (to_email = ? OR cc_email LIKE ?) ORDER BY id DESC LIMIT 1");
+            // LIKE only narrows the rows: mentionsAddress() decides, so ann@x.ca never matches joann@x.ca.
+            $s = $db->prepare("SELECT contact_id, to_email, cc_email FROM communication_log WHERE contact_id IS NOT NULL AND (to_email = ? OR cc_email LIKE ?) ORDER BY id DESC LIMIT 20");
             $s->execute([$addr, $like]);
-            $cid = $s->fetchColumn() ?: null;
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if (self::mentionsAddress((string)$r['to_email'], $addr) || self::mentionsAddress((string)$r['cc_email'], $addr)) { $cid = (int)$r['contact_id']; break; }
+            }
             if ($cid === null) {
-                $s = $db->prepare("SELECT contact_id FROM activity_log WHERE contact_id IS NOT NULL AND details LIKE ? AND created_at >= DATE_SUB(NOW(), INTERVAL 180 DAY) ORDER BY id DESC LIMIT 1");
+                $s = $db->prepare("SELECT contact_id, details FROM activity_log WHERE contact_id IS NOT NULL AND details LIKE ? AND created_at >= DATE_SUB(NOW(), INTERVAL 180 DAY) ORDER BY id DESC LIMIT 20");
                 $s->execute([$like]);
-                $cid = $s->fetchColumn() ?: null;
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    if (self::mentionsAddress((string)$r['details'], $addr)) { $cid = (int)$r['contact_id']; break; }
+                }
             }
         } catch (Throwable $e) {
             return $id;
         }
         if ($cid === null) return $id;
         return ['strength' => 'medium', 'client_id' => null, 'contact_id' => (int)$cid, 'evidence' => ['replied'], 'candidates' => []];
+    }
+
+    /** Does this text name exactly this email address (not one that merely ends with it)? */
+    public static function mentionsAddress(string $text, string $addr): bool
+    {
+        if ($addr === '') return false;
+        return preg_match('/(?<![a-z0-9._%+-])' . preg_quote(strtolower($addr), '/') . '(?![a-z0-9_%+-]|\.[a-z0-9])/', strtolower($text)) === 1;
     }
 
     /**

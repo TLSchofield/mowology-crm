@@ -124,6 +124,14 @@ class InboundIdentityServiceTest extends TestCase
         $this->assertSame('none', $r['strength']);
     }
 
+    public function test_an_address_only_matches_itself(): void
+    {
+        $this->assertTrue(InboundIdentityService::mentionsAddress('Ann <ann@x.ca>, bob@y.ca', 'ann@x.ca'));
+        $this->assertTrue(InboundIdentityService::mentionsAddress('Sent to ANN@X.CA.', 'ann@x.ca'));
+        $this->assertFalse(InboundIdentityService::mentionsAddress('joann@x.ca', 'ann@x.ca'));
+        $this->assertFalse(InboundIdentityService::mentionsAddress('ann@x.ca.example', 'ann@x.ca'));
+    }
+
     public function test_home_internet_provider_domains_never_join(): void
     {
         $isp = ['client_id' => 9, 'type' => 'business', 'name' => 'Acme Gardens Ltd', 'contact_id' => 9, 'addresses' => [], 'domains' => ['att.net']];

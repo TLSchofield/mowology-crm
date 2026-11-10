@@ -202,11 +202,12 @@ class SalesInboxService
             $m['subject'] = InboundIdentityService::decodeHeader((string)$m['subject']);
             $subject = trim((string)$m['subject']);
             $id = InboundIdentityService::identify(['from' => (string)$m['from'], 'subject' => $subject, 'body' => $body], $this->identityIndex);
-            $id = InboundIdentityService::withReplyEvidence($this->db, $id, (string)$m['from'], $subject);
-
             $t = InboundIdentityService::triage((string)$m['from'], $subject, $body, (string)$headers);
+            if ($t['kind'] === 'person') $id = InboundIdentityService::withReplyEvidence($this->db, $id, (string)$m['from'], $subject);   // noise never pays for this search
+            // A supplier naming a client's site (a delivery notice) is not that client's conversation either.
+            $supplier = $t['kind'] === 'person' && $this->fromSupplier((string)$m['from']);
             // A robot's mail that names an account (a statement bot, a newsletter) is not that client's conversation.
-            if ($id['strength'] === 'strong' && $t['kind'] === 'person' && $id['contact_id'] !== null && $this->joinReady()) {
+            if ($id['strength'] === 'strong' && $t['kind'] === 'person' && !$supplier && $id['contact_id'] !== null && $this->joinReady()) {
                 $res = $this->storeClassified(array_merge($m, ['body' => $body]), ['direction' => 'inbound', 'contact_id' => (int)$id['contact_id'], 'from' => $from,
                     'to' => implode(', ', self::addresses((string)$m['to'])), 'quote_id' => null, 'joined_by' => 'company_address']);
                 if ($res === 'stored' || $res === 'dupe') {
@@ -218,7 +219,7 @@ class SalesInboxService
             }
             $status = 'open';
             $reason = $t['reason'];
-            if ($t['kind'] === 'person' && $this->fromSupplier((string)$m['from'])) {
+            if ($supplier) {
                 $status = 'supplier';      // Otto's and Penny's mail: kept and counted, never a question or a lead
                 $reason = 'known supplier';
             } elseif ($t['kind'] === 'person' && $id['strength'] === 'none') {
