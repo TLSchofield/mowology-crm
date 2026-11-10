@@ -59,6 +59,11 @@ final class YuiJobsViewModel: ObservableObject {
     @Published private(set) var undoOffer: UndoOffer?
     @Published private(set) var drafting: String?
     @Published private(set) var searching = false
+    /// The whole email, by job key, once loaded and while shown.
+    struct FullEmail: Equatable { let text: String; let earlier: String; let message: String }
+    @Published private(set) var fullEmails: [String: FullEmail] = [:]
+    @Published private(set) var reading: String?
+    @Published private(set) var readErrors: [String: String] = [:]
 
     /// How long Undo stays on screen after a who answer.
     static let undoSeconds: UInt64 = 6
@@ -248,4 +253,28 @@ final class YuiJobsViewModel: ObservableObject {
             notes[job.key] = Note(text: "Couldn't reach the server to search.", isError: true)
         }
     }
+
+    // MARK: Reading the whole email
+
+    /// "Read the whole email": the server's full text replaces the short view in place; nothing else on the card changes.
+    func readWhole(_ job: YuiJob) async {
+        guard let req = job.readRequest, reading == nil else { return }
+        reading = job.key
+        readErrors[job.key] = nil
+        defer { reading = nil }
+        do {
+            let r = try await api.yuiAct(request: req, fields: [:], idempotencyKey: UUID().uuidString)
+            if r.ok, let text = r.text, !text.isEmpty {
+                fullEmails[job.key] = FullEmail(text: text, earlier: r.earlier ?? "", message: r.message ?? "")
+            } else {
+                let m = r.error ?? r.message ?? ""
+                readErrors[job.key] = m.isEmpty ? "Couldn't load the email." : m
+            }
+        } catch {
+            readErrors[job.key] = Self.failure(error) == "Couldn't confirm that with the server. Check before trying again."
+                ? "Couldn't load the email." : Self.failure(error)
+        }
+    }
+
+    func showLess(_ job: YuiJob) { fullEmails[job.key] = nil; readErrors[job.key] = nil }
 }

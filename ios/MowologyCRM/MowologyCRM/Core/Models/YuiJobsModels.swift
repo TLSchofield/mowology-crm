@@ -112,6 +112,8 @@ struct YuiJob: Identifiable {
     let searchRequest: [String: Any]?
     /// reply: the request that has Claude draft the note.
     let draftRequest: [String: Any]?
+    /// The request that loads the whole email ({mode: "message", key|id}); nil when the server offers none.
+    let readRequest: [String: Any]?
 
     var id: String { key }
 
@@ -176,6 +178,7 @@ struct YuiJob: Identifiable {
         undo = YuiAction(o["undo"])
         if case .object(let s)? = o["search"] { searchRequest = s.mapValues(\.anyValue) } else { searchRequest = nil }
         if case .object(let d)? = o["draft"] { draftRequest = d.mapValues(\.anyValue) } else { draftRequest = nil }
+        if case .object(let d)? = o["read"] { readRequest = d.mapValues(\.anyValue) } else { readRequest = nil }
     }
 }
 
@@ -205,13 +208,21 @@ struct YuiActResponse: Decodable {
     let undoId: String?
     let accounts: [YuiCandidate]
     let body: String?
+    /// message mode: the whole email, the thread before it, and which mailbox it came from.
+    let text: String?
+    let earlier: String?
+    let fromMailbox: String?
 
-    private enum CodingKeys: String, CodingKey { case ok, message, error, undoId = "undo_id", accounts, body }
+    private enum CodingKeys: String, CodingKey {
+        case ok, message, error, undoId = "undo_id", accounts, body, text, earlier, fromMailbox = "from_mailbox"
+    }
 
     init(ok: Bool, message: String? = nil, error: String? = nil, undoId: String? = nil,
-         accounts: [YuiCandidate] = [], body: String? = nil) {
+         accounts: [YuiCandidate] = [], body: String? = nil,
+         text: String? = nil, earlier: String? = nil, fromMailbox: String? = nil) {
         self.ok = ok; self.message = message; self.error = error; self.undoId = undoId
         self.accounts = accounts; self.body = body
+        self.text = text; self.earlier = earlier; self.fromMailbox = fromMailbox
     }
 
     init(from decoder: Decoder) throws {
@@ -221,6 +232,14 @@ struct YuiActResponse: Decodable {
         error = c.bkString(.error)
         undoId = c.bkString(.undoId)
         body = c.bkString(.body)
+        text = c.bkString(.text)
+        fromMailbox = c.bkString(.fromMailbox)
+        // `earlier` may arrive as one string or a list of strings.
+        switch try? c.decodeIfPresent(BKValue.self, forKey: .earlier) {
+        case .array(let a)?: earlier = a.compactMap(\.text).joined(separator: "\n\n")
+        case let v?: earlier = v.text
+        case nil: earlier = nil
+        }
         if case .array(let a)? = try? c.decodeIfPresent(BKValue.self, forKey: .accounts) {
             accounts = a.compactMap(YuiCandidate.init)
         } else { accounts = [] }

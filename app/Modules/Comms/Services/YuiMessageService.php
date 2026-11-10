@@ -68,7 +68,7 @@ final class YuiMessageService
             // A date window keeps the search cheap on a mailbox of 70,000 messages; the Message-ID decides.
             $t = strtotime((string)($row['sent_at'] ?? '')) ?: time();
             $q = 'SINCE "' . date('d-M-Y', $t - 3 * 86400) . '" BEFORE "' . date('d-M-Y', $t + 3 * 86400) . '" HEADER Message-ID "'
-               . str_replace(['"', '\\'], '', $key) . '"';
+               . preg_replace('/[^\x21-\x7e]|["\\\\]/', '', $key) . '"';   // printable ASCII only, no quotes
             $hits = @imap_search($conn, $q) ?: [];
             $no = $hits ? (int)$hits[0] : self::byOverview($conn, $key, $t);   // some servers ignore HEADER searches
             if ($no <= 0) return $kept + ['message' => 'I could not find it in the mailbox. This is what Yui kept.'];
@@ -87,7 +87,9 @@ final class YuiMessageService
     private static function byOverview($conn, string $key, int $t): int
     {
         $nos = @imap_search($conn, 'SINCE "' . date('d-M-Y', $t - 2 * 86400) . '" BEFORE "' . date('d-M-Y', $t + 2 * 86400) . '"') ?: [];
-        foreach (array_chunk($nos, 200) as $chunk) {
+        $deadline = microtime(true) + 8;   // a busy iCloud window must not outlast the request
+        foreach (array_chunk(array_slice($nos, -1500), 200) as $chunk) {
+            if (microtime(true) > $deadline) break;
             foreach (@imap_fetch_overview($conn, implode(',', $chunk)) ?: [] as $o) {
                 if (trim((string)($o->message_id ?? '')) === $key) return (int)$o->msgno;
             }
