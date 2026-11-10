@@ -29,6 +29,11 @@
     return !!($('mw-sub-done') && $('mw-sub-done').checked && $('mw-sub-bill-received').checked);
   }
 
+  function markEmailed(to) {
+    $('mw-sub-send-to').closest('.input-group').style.display = 'none';
+    $('mw-sub-share-status').textContent = 'Emailed to ' + to + '. Nothing more to do. Share or Copy is only if you also want to text it.';
+  }
+
   function showLink(link) {
     $('mw-sub-share').hidden = false;
     $('mw-sub-link').value = link;
@@ -76,7 +81,7 @@
         if (!thenEmail) return;
         $('mw-sub-share-status').textContent = 'Emailing…';
         call({ action: 'email_link', email: to, link: res.link, bill_received: billReceived() }).then(function (sent) {
-          if (sent.ok) $('mw-sub-share-status').textContent = 'Emailed to ' + to + '. You can also share the link from here.';
+          if (sent.ok) markEmailed(to);
           else { $('mw-sub-share-status').textContent = 'The job is created, but the email did not send. Copy the link instead.'; showError(sent.error); }
         });
       });
@@ -118,7 +123,7 @@
     button.disabled = true;
     call({ action: 'email_link', email: $('mw-sub-send-to').value, link: $('mw-sub-link').value, bill_received: billReceived() }).then(function (res) {
       button.disabled = false;
-      if (res.ok) $('mw-sub-share-status').textContent = 'Emailed.';
+      if (res.ok) markEmailed($('mw-sub-send-to').value);
       else showError(res.error);
     });
   });
