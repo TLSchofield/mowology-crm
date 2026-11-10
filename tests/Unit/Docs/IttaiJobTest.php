@@ -91,7 +91,7 @@ class IttaiJobTest extends TestCase
         $a = strpos($css, '.it-job-pieces {');
         $this->assertNotFalse($a);
         $block = substr($css, $a, strpos($css, "/* Yui's job strip") - $a);
-        foreach (['.it-job-frac {', '.it-job-frac-s {', 'skewX(', '.it-job-lbl {', '.it-job-side-top {', '.it-job-side-bot {', 'var(--it-rail)', 'var(--it-meta)', '[data-kind="etransfer"]'] as $n) {
+        foreach (['.it-job-frac {', '.it-job-frac-s {', 'stroke: var(--it-rail)', '.it-job-lbl {', '.it-job-side-top {', '.it-job-side-bot {', 'var(--it-rail)', 'var(--it-meta)', '[data-kind="etransfer"]'] as $n) {
             $this->assertStringContainsString($n, $block, $n);
         }
         $this->assertDoesNotMatchRegularExpression('/#[0-9a-fA-F]{3,8}\b/', $block, 'tokens only');

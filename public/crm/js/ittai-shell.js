@@ -246,7 +246,7 @@
                 if (conf) conf.hidden = (endX - cr.right) < 44;
                 stub.hidden = true; link.hidden = false;
                 link.classList.add('is-flat'); link.classList.remove('is-up');
-                link.style.left = Math.round(cr.right) + 'px'; link.style.width = Math.round(endX - cr.right) + 'px';
+                link.style.left = Math.round(cr.right - 6) + 'px'; link.style.width = Math.round(endX - cr.right + 6) + 'px';   /* tucked 6 px under the card (it stacks above) so the line always meets it */
                 link.style.top = Math.round(ry) + 'px'; link.style.height = '0px';
                 return;
             }

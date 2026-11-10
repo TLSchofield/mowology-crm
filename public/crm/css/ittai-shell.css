@@ -578,9 +578,14 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 /* "2/3": how many of the three pieces (the Interac email, the invoice match, the bank deposit) are already in hand.
    Large numerals either side of a slanted hairline, the match's name beside them; a station on the rail, so it sits on surface. */
 .it-job-pieces { display: flex; align-items: center; gap: 12px; padding: 0 8px; background: var(--it-surface); }
-.it-job-frac { display: inline-flex; align-items: center; font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--it-text); }
+.it-job-frac { position: relative; display: block; flex: none; width: 90px; height: 40px; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--it-text); }
 .it-job-frac b { font-weight: 600; }
-.it-job-frac-s { display: inline-block; width: 1px; height: 36px; margin: 0 7px; background: var(--it-rail); transform: skewX(-22deg); }
+/* The phone's drawing turned on its side: the rail runs in, climbs the slash, drops back to its own height and runs on;
+   the 2 sits above-left of the slash, the 3 in the gap on the rail's level. The rail is the stroke, so no slanted hairline. */
+.it-job-frac b { position: absolute; }
+.it-job-frac-n { left: -2px; top: -14px; }
+.it-job-frac-d { left: 32px; top: 0; }
+.it-job-frac-s { position: absolute; left: -8px; top: -6px; overflow: visible; fill: none; stroke: var(--it-rail); stroke-width: 1px; stroke-linejoin: miter; pointer-events: none; }
 .it-job-frac-d { color: var(--it-meta); }
 .it-job-lbl { max-width: 104px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--it-meta); }
 /* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
