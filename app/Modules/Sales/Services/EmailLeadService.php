@@ -93,7 +93,7 @@ class EmailLeadService
     ];
 
     /** Pitch signals that are decisive on their own. */
-    private const PITCH_DECISIVE = ['pitch in subject', 'marketing sender', 'bulk mail headers', 'unsubscribe footer'];
+    public const PITCH_DECISIVE = ['pitch in subject', 'marketing sender', 'bulk mail headers', 'unsubscribe footer'];
 
     /** Free-mail domains: never "marketing-looking", whatever the name. */
     private const FREE_MAIL = ['gmail', 'googlemail', 'outlook', 'hotmail', 'live', 'msn', 'yahoo', 'icloud', 'me', 'mac',

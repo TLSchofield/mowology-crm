@@ -123,6 +123,7 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRiskRegister.php'
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAcceptedRisks.php';
 
 // Yui — comms / client relations head
+require_once __DIR__ . '/../app/Modules/Comms/Services/InboundIdentityService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';

@@ -78,6 +78,11 @@ $open = fn(string $folder) => ImapReader::open($office, $folder);
 $body = fn($mbox, int $no): string => ImapReader::textBody($mbox, $no);
 
 $counts = ['stored' => 0, 'dupe' => 0, 'skipped' => 0];
+// Unknown senders (ops_settings.inbox_place_unknown, default off): placed by what they wrote or kept for the owner,
+// never dropped silently. Bodies are read once each, inside a time budget; what is left waits for the next poll.
+$placing = $svc->placementOn();
+$placeDeadline = microtime(true) + 40;
+$unknown = ['placed' => 0, 'unplaced' => 0, 'noise' => 0, 'lead' => 0, 'later' => 0, 'error' => 0];
 $errors = 0;
 $folders = ['INBOX'];
 
@@ -101,7 +106,7 @@ foreach ($folders as $folder) {
         try {
             $h = @imap_headerinfo($mbox, $no);
             if (!$h) continue;
-            $res = $svc->ingest([
+            $msg = [
                 'mailbox'    => 'office@ ' . $folder,
                 'message_id' => $h->message_id ?? null,
                 'from'       => isset($h->fromaddress) ? imap_utf8($h->fromaddress) : '',
@@ -109,10 +114,22 @@ foreach ($folders as $folder) {
                 'subject'    => isset($h->subject) ? imap_utf8($h->subject) : '',
                 'body'       => '',   // fetched only for customer mail, below
                 'date'       => $h->date ?? 'now',
-            ]);
-            if ($res === 'skipped') { $counts['skipped']++; continue; }
+            ];
+            $res = $svc->ingest($msg);
+            $placedNow = false;
+            if ($res === 'skipped') {
+                $counts['skipped']++;
+                if (!$placing || $folder !== 'INBOX') continue;
+                $pr = $svc->placeUnknown($msg, fn() => [$body($mbox, $no), ImapReader::rawHeaders($mbox, $no)], $placeDeadline);
+                if (isset($unknown[$pr])) $unknown[$pr]++;
+                if ($pr !== 'placed') continue;
+                // A strong match is now a stored customer email: carry on to its attachments like any other.
+                $counts['skipped']--;
+                $res = 'stored';
+                $placedNow = true;
+            }
             // 'dupe' with no text yet: an earlier run stored the row but never got the body — fill it in now.
-            if ($res === 'stored' || ($res === 'dupe' && $svc->needsSnippet($svc->lastKey))) {
+            if (!$placedNow && ($res === 'stored' || ($res === 'dupe' && $svc->needsSnippet($svc->lastKey)))) {
                 // Customer mail: now read its text (FT_PEEK) and fill the snippet in.
                 $raw = $body($mbox, $no);
                 $snip = SalesInboxService::snippet($raw);
@@ -146,6 +163,10 @@ foreach ($folders as $folder) {
 }
 
 $summary = "Read " . implode(' + ', $folders) . ": {$counts['stored']} new customer email(s), {$counts['dupe']} already kept, {$counts['skipped']} not customer mail.";
+if ($placing) {
+    $summary .= " Unknown senders: {$unknown['placed']} placed on an account, {$unknown['unplaced']} kept for you, {$unknown['lead']} enquiry(ies) to Sam, {$unknown['noise']} noise"
+        . ($unknown['later'] > 0 ? ", {$unknown['later']} left for the next poll (time budget)" : '') . ($unknown['error'] > 0 ? ", {$unknown['error']} failed" : '') . '.';
+}
 
 // Yui's supplier rule (SupplierInboxService, migration 1320): supplier mail at office@ and iCloud —
 // account applications go to Otto to fill, the city's licence email is filed. Additive: never

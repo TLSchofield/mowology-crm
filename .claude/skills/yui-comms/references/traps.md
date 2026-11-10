@@ -140,3 +140,12 @@ leaves the list unless our last message asked something (a `?` or "please confir
 ordinary list for good, even after its hold is marked Handled (otherwise the draftable copy comes back); the repeat-chase rule needs a
 weekday gap (two texts in a row are one conversation); a mention of a credential ("the PDF password is the invoice number") is dropped
 sentence by sentence, so a real ask beside it still holds.
+
+## 2026-11-09 — office@ mail from people not on file was dropped silently (switch OFF until the replay is read)
+A paralegal asked office@ for the balance on a numbered company; she was not a contact, `classifyAny()` found nothing and
+the poll counted it as "not customer mail". `InboundIdentityService` now reads the person's own words (quoted text and
+signature cut, so a law firm's footer never counts) and matches company (numbered, or two non-generic words), address and
+non-free domain. Strong = company + address, or a numbered company alone, on ONE account; everything else waits in
+`inbound_unplaced` (migration 1446). Only when `ops_settings.inbox_place_unknown` is on. **Rule:** a name or domain in an
+email is evidence of the account, not proof of who wrote it; evidence at two accounts is "weak", never a guess. Run
+`scripts/inbox-replay.php` through `prod-run.sh` and read every placement before switching on.
