@@ -176,29 +176,26 @@
             var card = strip ? cards[strip.getAttribute('data-head')] : null;
             if (!rail || !card || !card.classList.contains('is-open') || isRail()) {
                 link.hidden = stub.hidden = true;
-                var c0 = document.querySelector('.it-job-conf'); if (c0) c0.hidden = true;
                 return;
             }
             var cr = card.getBoundingClientRect(), rr = rail.getBoundingClientRect();
             // The line runs at the height of the table's lead row into the strip's edge, where a hairline carries it
             // on to the top of the spine; the confidence triangle sits ON the line between the card and the strip.
-            var lead = rail.querySelector('.it-job-lead');
-            var tr = lead ? lead.getBoundingClientRect() : rr;
+            var tr = rr;   /* the rail's own middle is the line */
             var cy = cr.top + cr.height / 2, ry = tr.top + tr.height / 2, x0 = cr.right + 16;
-            var conf = document.querySelector('.it-job-conf');
-            if (conf && conf.parentNode !== layer) layer.appendChild(conf);
+            var conf = null;   /* the triangle sits in flow on the rail now */
             if (rr.bottom < 0 || rr.top > window.innerHeight) { link.hidden = stub.hidden = true; if (conf) conf.hidden = true; return; }
             var endX = strip.getBoundingClientRect().left;
             if (conf) {
                 var gap = endX - cr.right;
-                conf.hidden = gap < 60;
+                conf.hidden = gap < 44;
                 conf.style.left = Math.round(cr.right + gap / 2) + 'px';
                 conf.style.top = Math.round(ry) + 'px';
             }
             // The card overlaps the strip's edge (the usual case): the rail simply emerges from under the card,
             // a straight navy line at the rail's height from the card's right edge to the first disc.
             if (ry >= cr.top + 8 && ry <= cr.bottom - 8 && cr.right < endX - 4) {
-                if (conf) conf.hidden = (endX - cr.right) < 60;
+                if (conf) conf.hidden = (endX - cr.right) < 44;
                 stub.hidden = true; link.hidden = false;
                 link.classList.add('is-flat'); link.classList.remove('is-up');
                 link.style.left = Math.round(cr.right) + 'px'; link.style.width = Math.round(endX - cr.right) + 'px';
@@ -207,7 +204,7 @@
             }
             link.classList.remove('is-flat');
             if (endX <= x0 + 8) { link.hidden = stub.hidden = true; if (conf) conf.hidden = true; return; }
-            if (conf) { conf.style.left = Math.round(x0 + (endX - x0) / 2) + 'px'; conf.style.top = Math.round(ry) + 'px'; conf.hidden = (endX - x0) < 60; }
+            if (conf) { conf.style.left = Math.round(x0 + (endX - x0) / 2) + 'px'; conf.style.top = Math.round(ry) + 'px'; conf.hidden = (endX - x0) < 44; }
             stub.hidden = link.hidden = false;
             stub.style.left = Math.round(cr.right) + 'px'; stub.style.top = Math.round(cy) + 'px'; stub.style.width = '16px';
             link.style.left = Math.round(x0) + 'px'; link.style.width = Math.round(endX - x0) + 'px';

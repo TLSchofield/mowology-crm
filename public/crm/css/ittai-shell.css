@@ -425,7 +425,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 
 /* The job strip: a head's job across the top of her pages (Penny's duplicate receipt). A hairline rail runs
    through the middle: what the two receipts say, the two photos, the two answers, then where it lands. */
-.it-job { margin: 0; padding: 16px 24px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job { margin: 0; padding: 16px 20px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job[hidden], .it-job [hidden] { display: none; }
 .it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
@@ -439,11 +439,13 @@ body.it-shell.it-shell .it-kan-space .it-kan-open { display: inline-flex; align-
 body.it-shell.it-shell .it-kan-space .it-kan-open:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
 
 /* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
-body.it-shell.it-shell .it-job-wrap { margin-left: 96px; }
-@media (max-width: 1023px) { body.it-shell.it-shell .it-job-wrap { margin-left: 0; } }
+body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-job-outer { margin-left: 0; } }
 /* The decision and the picture are two cards side by side: the strip left, the graph in its own right column */
-.it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 360px; column-gap: 24px; align-items: start; margin: 0 0 24px; container-type: inline-size; }
-@container (max-width: 1100px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
+.it-job-outer { container-type: inline-size; margin: 0 0 24px; }
+.it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 360px; column-gap: 24px; align-items: start; }
+/* the horizontal flow needs its width: under 1360 px of content the graph goes below the strip */
+@container (max-width: 1420px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
 .it-job-rail { position: relative; }
 .it-job-viz { margin: 0; padding: 16px 24px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
@@ -462,54 +464,52 @@ body.it-shell.it-shell .it-job-wrap { margin-left: 96px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
 .it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
-.it-job-cmp { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); max-width: 720px; align-items: center; }
-/* the spine: from the confidence triangle down through every disc to the Ledger */
-.it-job-cmp::before { content: ""; position: absolute; left: 50%; top: 28px; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--it-line); pointer-events: none; }
-.it-job-cmp > * { position: relative; }
-.it-job-lead { grid-column: 1 / -1; display: flex; justify-content: center; height: 56px; align-items: center; }
-.it-job-conf { position: fixed; z-index: 1046; margin: -22px 0 0 -22px; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-mastered); pointer-events: none; }
-.it-job-conf[hidden] { display: none; }
-/* inside the strip the line carries on from the left edge to the top of the spine */
-.it-job-lead::before { content: ""; position: absolute; left: -24px; right: 50%; top: 50%; height: 2px; margin-top: -1px; background: var(--it-brand); }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
+/* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
+.it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
+.it-job-rail > *, .it-job-cols > li { position: relative; flex: none; }
+/* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
+.it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.it-job-cols { display: flex; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-lblcol { justify-items: start; min-width: 0; }
+.it-job-keeplbl { font-weight: 600; color: var(--it-brand); }
+.it-job-copylbl { font-weight: 600; color: var(--it-meta); }
+.it-job-m { width: 28px; height: 28px; }
+/* the confidence triangle: on the rail, right after the Receipts anchor (as on the phone, below its top anchor) */
+.it-job-conf { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-mastered); flex: none; }
 .it-job-conf .it-si { fill: var(--it-knowledge-mastered); stroke: none; }
-.it-job-hd, .it-job-row, .it-job-imgs, .it-job-acts { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
-.it-job-hd { min-height: 44px; }
-.it-job-keeplbl { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--it-brand); }
-.it-job-copylbl { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--it-meta); }
-.it-job-rows { list-style: none; margin: 0; padding: 0; display: contents; }
-.it-job-row { min-height: 48px; border-top: var(--it-stroke-hairline) solid var(--it-line); font-variant-numeric: tabular-nums; }
-.it-job-row:last-child { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
-.it-job-l { justify-self: end; text-align: right; padding-right: 16px; font-size: 16px; line-height: 24px; color: var(--it-text); }
-.it-job-r { justify-self: start; text-align: left; padding-left: 16px; font-size: 16px; line-height: 24px; color: var(--it-text); }
-.it-job-m { width: 44px; }
-.it-job-row .it-job-disc { justify-self: center; }
-.it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); }
+/* the line circles every icon: a surface gap, then a ring in the line's colour */
+.it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); box-shadow: 0 0 0 3px var(--it-surface), 0 0 0 4px var(--it-line); }
 .it-job-disc-same { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
 .it-job-disc-differs { background: var(--it-sunk); border: 2px solid var(--it-status-attention); color: var(--it-status-attention); }
 .it-job-disc-missing { background: var(--it-sunk); border: 2px solid var(--it-meta); color: var(--it-meta); }
 .it-job-disc-info { background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
-.it-job-imgs { margin-top: 16px; align-items: start; }
-.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 6px; width: 100%; max-width: 240px; }
-.it-job-imgs .it-job-fig:first-child { justify-self: end; margin-right: 16px; }
-.it-job-imgs .it-job-fig:last-child { justify-self: start; margin-left: 16px; }
-.it-job-fig img, .it-job-noimg { display: block; width: 100%; max-width: 240px; aspect-ratio: 4 / 3; height: auto; object-fit: cover; border-radius: 10px; background: var(--it-sunk); }
+.it-job-imgs { min-width: 104px; }
+.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 104px; }
+.it-job-imgs .it-job-fig:first-child { align-self: end; }
+.it-job-imgs .it-job-fig:last-child { align-self: start; }
+.it-job-fig img, .it-job-noimg { display: block; width: 104px; aspect-ratio: 4 / 3; height: auto; object-fit: cover; border-radius: 10px; background: var(--it-sunk); }
 .it-job-fig.is-keep img, .it-job-fig.is-keep .it-job-noimg { outline: 2px solid var(--it-brand); outline-offset: 0; }
 .it-job-fig figcaption { font-size: 12px; line-height: 16px; color: var(--it-meta); text-align: center; }
 .it-job-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
-.it-job-acts { margin-top: 16px; }
-.it-job-acts .it-btn-fill { justify-self: end; margin-right: 16px; }
-.it-job-acts .it-btn-line { justify-self: start; margin-left: 16px; }
-.it-job-acts .it-btn { width: 100%; max-width: 240px; }
-.it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 24px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
+.it-job-acts { min-width: 148px; }
+.it-job-acts .it-btn-fill { align-self: end; }
+.it-job-acts .it-btn-line { align-self: start; }
+.it-job-acts .it-btn { width: 100%; }
+.it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 16px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
 .it-job .it-btn .it-job-ic { grid-row: 1 / span 2; width: 20px; height: 20px; }
 .it-job .it-btn b { font-weight: 600; }
 .it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
 .it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
 .it-job .it-btn-line { background: var(--it-surface); border-color: var(--it-brand); color: var(--it-brand); }
 .it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
-.it-job-anchor { grid-column: 1 / -1; justify-self: center; margin-top: 16px; display: grid; justify-items: center; gap: 4px; min-width: 48px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
+.it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
 .it-job-anchor:hover { color: var(--it-text); text-decoration: none; }
-.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); }
+.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
+.it-ad-fill { background: var(--it-brand); color: var(--it-on-tenant); }
+.it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
@@ -517,7 +517,7 @@ body.it-shell.it-shell .it-job-wrap { margin-left: 96px; }
 @keyframes it-job-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 .it-job .it-btn:focus-visible, .it-job-skip:focus-visible, .it-job-undo:focus-visible, .it-job-anchor:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 @container (max-width: 900px) {
-  .it-job-cmp { max-width: none; }
+  .it-job-rail { gap: 16px; }
 }
 
 /* Reduced motion: nothing slides, fades or rotates; open things simply appear */

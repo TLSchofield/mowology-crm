@@ -116,17 +116,17 @@
         var job = queue[0];
         var oldRail = root.querySelector('.it-job-rail');
         var rail = tpl.content.firstElementChild.cloneNode(true);
-        var rows = rail.querySelector('.it-job-rows');
+        var cols = rail.querySelector('.it-job-cols');
         (job.columns || []).forEach(function (c) {
-            var li = el('li', 'it-job-row');
-            li.appendChild(el('span', 'it-job-l', c.top));
+            var li = el('li', 'it-job-col');
+            li.appendChild(el('span', 'it-job-top', c.top));
             var d = el('span', 'it-job-disc it-job-disc-' + c.state);
             d.setAttribute('role', 'img');
             d.setAttribute('aria-label', c.label + ': ' + (WORD[c.state] || 'info'));
             d.appendChild(icon(ICON[c.state] || 'info'));
             li.appendChild(d);
-            li.appendChild(el('span', 'it-job-r', c.bottom));
-            rows.appendChild(li);
+            li.appendChild(el('span', 'it-job-bot', c.bottom));
+            cols.appendChild(li);
         });
         var kl = rail.querySelector('.it-job-keeplbl'), cl = rail.querySelector('.it-job-copylbl');
         if (kl) kl.textContent = (job.keep && job.keep.label) || '';
