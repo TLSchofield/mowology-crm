@@ -464,13 +464,16 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
 .it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
-.it-job-rail { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
 /* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
 .it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
-.it-job-rail > *, .it-job-cols > li { position: relative; flex: none; }
+.it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
+/* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 20px 10px 20px 30px; margin-left: -22px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
+.it-job-conf { z-index: 2; }
 /* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
 .it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
-.it-job-cols { display: flex; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.it-job-cols { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
 .it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-lblcol { justify-items: start; min-width: 0; }
