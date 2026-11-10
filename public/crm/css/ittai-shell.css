@@ -430,9 +430,19 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
 .it-job-c { margin-left: auto; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--it-meta); }
+/* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
+body.it-shell.it-shell .it-job { margin-left: 96px; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-job { margin-left: 0; } }
 .it-job-rail { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 24px; align-items: center; }
 .it-job-rail::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--it-line); z-index: 0; pointer-events: none; }
 .it-job-rail > * { position: relative; z-index: 1; }
+/* The rail's line reaching the head's card: a stub out of the card, then an L to the rail (JS places them) */
+.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-brand); box-sizing: border-box; }
+.it-job-link-stub { height: 0; border-top-width: 2px; margin-top: -1px; }
+.it-job-link { border-left-width: 2px; border-bottom-width: 2px; margin-left: -1px; margin-bottom: -1px; }
+.it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
+.it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
+.it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
 .it-job-cols { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; overflow-x: auto; }
 .it-job-col { display: grid; grid-template-rows: 20px 28px 20px 16px; justify-items: center; row-gap: 6px; min-width: 96px; font-variant-numeric: tabular-nums; }
 .it-job-top { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); white-space: nowrap; }

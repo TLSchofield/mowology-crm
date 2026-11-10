@@ -140,6 +140,7 @@
                 g.classList.remove('has-card');
             });
             measureLive();
+            if (typeof placeLink === 'function') placeLink();
         }
         function closeFlies() {
             clearTimeout(flyTimer);
@@ -160,7 +161,43 @@
         }
         function replaceOpenCards() {
             groups.forEach(function (g) { var c = cardOf(g); if (c && c.classList.contains('is-open')) placeCard(g); });
+            placeLink();
         }
+
+        // The job strip's rail line reaches the head's card (Tim, 2026-11-10): out of the card's right edge at its
+        // middle, a short step, a right angle up or down to the rail's height, then into the strip's rail.
+        var link = document.createElement('div'), stub = document.createElement('div');
+        link.className = 'it-job-link'; stub.className = 'it-job-link-stub';
+        link.hidden = stub.hidden = true;
+        layer.appendChild(link); layer.appendChild(stub);
+        function placeLink() {
+            var rail = document.querySelector('.it-job:not(.is-done) .it-job-rail');
+            var strip = rail ? rail.closest('.it-job') : null;
+            var card = strip ? cards[strip.getAttribute('data-head')] : null;
+            if (!rail || !card || !card.classList.contains('is-open') || isRail()) { link.hidden = stub.hidden = true; return; }
+            var cr = card.getBoundingClientRect(), rr = rail.getBoundingClientRect();
+            var cy = cr.top + cr.height / 2, ry = rr.top + rr.height / 2, x0 = cr.right + 16;
+            if (rr.bottom < 0 || rr.top > window.innerHeight) { link.hidden = stub.hidden = true; return; }
+            var col = rail.querySelector('.it-job-col');
+            var endX = col ? col.getBoundingClientRect().left : rr.left;
+            // The card overlaps the strip's edge (the usual case): the rail simply emerges from under the card,
+            // a straight navy line at the rail's height from the card's right edge to the first disc.
+            if (ry >= cr.top + 8 && ry <= cr.bottom - 8 && cr.right < endX - 4) {
+                stub.hidden = true; link.hidden = false;
+                link.classList.add('is-flat'); link.classList.remove('is-up');
+                link.style.left = Math.round(cr.right) + 'px'; link.style.width = Math.round(endX - cr.right) + 'px';
+                link.style.top = Math.round(ry) + 'px'; link.style.height = '0px';
+                return;
+            }
+            link.classList.remove('is-flat');
+            if (rr.left <= x0 + 8) { link.hidden = stub.hidden = true; return; }
+            stub.hidden = link.hidden = false;
+            stub.style.left = Math.round(cr.right) + 'px'; stub.style.top = Math.round(cy) + 'px'; stub.style.width = '16px';
+            link.style.left = Math.round(x0) + 'px'; link.style.width = Math.round(rr.left - x0) + 'px';
+            link.style.top = Math.round(Math.min(cy, ry)) + 'px'; link.style.height = Math.max(0, Math.round(Math.abs(cy - ry))) + 'px';
+            link.classList.toggle('is-up', ry < cy);
+        }
+        window.addEventListener('scroll', function () { replaceOpenCards(); }, { passive: true });
         function openCard(g) {
             closeCards();
             var c = cardOf(g), sp = spaceOf(g);
