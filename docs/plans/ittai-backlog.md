@@ -605,7 +605,6 @@ rule. **Private:** each business's own prices.
 
 ## Getting paid without cards: what is left (Tim 2026-11-09)
 - A pasted payment link (the business's own Stripe or Square page) for businesses with no QuickBooks. Until then they show other ways to pay and mark invoices paid themselves.
-- The customer invoice, autopay and portal pages name Mowology in the header, footer and messages (`public/customer/invoice.php`, `autopay.php`): another business's client would see the wrong name. Must be fixed before the first real business.
 - Intuit's official Connect button still needs the artwork pack from Tim's developer sign-in (see above).
 - The pay link has only been seen with online payment off (the test company has no QuickBooks Payments). Prove the real page on a live QuickBooks once Production keys arrive.
 
