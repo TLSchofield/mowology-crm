@@ -27,7 +27,7 @@ class IttaiJobTest extends TestCase
         $this->assertStringContainsString('get-csrf.php', $js);
         $this->assertStringContainsString('prefers-reduced-motion', $js);
         $this->assertStringContainsString('function playInk()', $js, "the merge's resolution: the ink line");
-        $this->assertStringContainsString("(isMerge ? playInk() : Promise.resolve())", $js, 'only a merge draws the ink; Different is immediate');
+        $this->assertStringContainsString("((isMerge || isRecord) ? playInk() : Promise.resolve())", $js, 'a merge or a recorded payment draws the ink; Different and Not this invoice are immediate');
         $this->assertStringContainsString('/crm/api/bookkeeper.php', $js);
     }
 
