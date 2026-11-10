@@ -35,7 +35,7 @@ foreach (array_reverse($hits) as $no) {   // newest first, so an early stop lose
     $out['read']++;
     $from = isset($h->fromaddress) ? imap_utf8($h->fromaddress) : '';
     $to = trim((isset($h->toaddress) ? imap_utf8($h->toaddress) : '') . ', ' . (isset($h->ccaddress) ? imap_utf8($h->ccaddress) : ''), ', ');
-    $subject = isset($h->subject) ? imap_utf8($h->subject) : '';
+    $subject = InboundIdentityService::decodeHeader(isset($h->subject) ? imap_utf8($h->subject) : '');
     $addr = SalesInboxService::addresses($from)[0] ?? '';
     if ($addr === '' || SalesInboxService::isOurs($addr)) { $out['ours']++; continue; }
     if (SalesInboxService::classifyAny($from, $to, $subject, $contacts, $join) !== null) { $out['already_kept']++; continue; }
@@ -43,7 +43,10 @@ foreach (array_reverse($hits) as $no) {   // newest first, so an early stop lose
     $body = ImapReader::textBody($mbox, $no);
     $headers = ImapReader::rawHeaders($mbox, $no);
     $id = InboundIdentityService::identify(['from' => $from, 'subject' => $subject, 'body' => $body], $index);
+    $id = InboundIdentityService::withReplyEvidence($db, $id, $from, $subject);
     $t = InboundIdentityService::triage($from, $subject, $body, $headers);
+    $supplier = $t['kind'] === 'person' && $svc->fromSupplier($from);
+    if ($supplier) $out['supplier'] = ($out['supplier'] ?? 0) + 1;
     $out['by_kind'][$t['kind']] = ($out['by_kind'][$t['kind']] ?? 0) + 1;
     $out['by_strength'][$id['strength']] = ($out['by_strength'][$id['strength']] ?? 0) + 1;
     $rk = $t['kind'] . ': ' . $t['reason'];
@@ -56,7 +59,9 @@ foreach (array_reverse($hits) as $no) {   // newest first, so an early stop lose
             'account' => $id['client_id'] === null ? '(several)' : implode('', array_column(array_filter($id['candidates'], fn($c) => $c['client_id'] === $id['client_id']), 'name')),
             'contact_id' => $id['contact_id'], 'evidence' => $id['evidence'],
             'candidates' => array_map(fn($c) => $c['name'] . ' [' . implode('+', $c['evidence']) . ']', $id['candidates'])];
-    } elseif ($t['kind'] === 'person' && count($out['person_none_sample']) < 40) {
+    } elseif ($t['kind'] === 'person' && !$supplier && ($sc = EmailLeadService::score($subject, SalesInboxService::snippet($body), $addr, $headers))['strength'] !== null) {
+        $out['would_lead'][] = ['strength' => $sc['strength'], 'from' => $from, 'subject' => $subject, 'date' => $date];
+    } elseif ($t['kind'] === 'person' && !$supplier && count($out['person_none_sample']) < 40) {
         $out['person_none_sample'][] = ['from' => $from, 'subject' => $subject, 'date' => $date];
     }
 }

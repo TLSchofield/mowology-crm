@@ -173,4 +173,34 @@ class InboundIdentityServiceTest extends TestCase
         $r = $this->identify('A Vendor <a@elsewhere.ca>', 'Invoice INV-2026-9999', "Your invoice is attached.\nThanks for your business.");
         $this->assertSame('none', $r['strength']);
     }
+
+    /** Review 2026-11-09: INV-YYYY-NNNN is a common format on suppliers' own invoices. */
+    public function test_a_bare_invoice_number_is_a_question_not_a_placement(): void
+    {
+        $idx = $this->index([['client_id' => 60, 'type' => 'business', 'name' => 'Health Authority', 'contact_id' => 61,
+            'addresses' => [], 'domains' => [], 'invoices' => ['INV-2026-0430']]]);
+        foreach (['Your order INV-2026-0430', 'Re: INV-2026-0430'] as $subject) {
+            $r = $this->identify('A Supplier <a@elsewhere.ca>', $subject, "Details attached.\nThanks for your business.", $idx);
+            $this->assertSame('medium', $r['strength'], $subject);
+        }
+    }
+
+    public function test_reply_evidence_only_looks_up_replies_with_nothing_else(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->expects($this->never())->method('prepare');
+        $none = ['strength' => 'none', 'client_id' => null, 'contact_id' => null, 'evidence' => [], 'candidates' => []];
+        $this->assertSame($none, InboundIdentityService::withReplyEvidence($db, $none, 'A <a@b.ca>', 'Hello there'));
+        $strong = array_merge($none, ['strength' => 'strong', 'client_id' => 1, 'contact_id' => 2]);
+        $this->assertSame($strong, InboundIdentityService::withReplyEvidence($db, $strong, 'A <a@b.ca>', 'Re: Hello there'));
+    }
+
+    public function test_a_subject_still_in_mime_form_is_read(): void
+    {
+        $idx = $this->index([['client_id' => 60, 'type' => 'business', 'name' => 'Health Authority', 'contact_id' => 61,
+            'addresses' => [], 'domains' => [], 'invoices' => ['INV-2026-0229']]]);
+        $r = $this->identify('Erin <e@gmail.com>', '=?UTF-8?Q?Re=3A_Invoice_INV=2D2026=2D0229_from_Mowology?=', "Paid this today.\nThanks.", $idx);
+        $this->assertSame('strong', $r['strength']);
+        $this->assertSame(60, $r['client_id']);
+    }
 }

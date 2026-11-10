@@ -48,6 +48,7 @@ class SalesInboxService
     private ?bool $placeOn = null;
     /** @var array|null this business's accounts for InboundIdentityService, built once per run */
     private ?array $identityIndex = null;
+    private ?array $vendorList = null;
     /** @var array{quotes: array, domains: array}|null */
     private ?array $join = null;
     /** @var InboundRouteService|null */
@@ -195,8 +196,10 @@ class SalesInboxService
             $body = (string)$body;
             require_once dirname(__DIR__, 2) . '/Comms/Services/InboundIdentityService.php';
             if ($this->identityIndex === null) $this->identityIndex = InboundIdentityService::buildIndex($this->db);
+            $m['subject'] = InboundIdentityService::decodeHeader((string)$m['subject']);
             $subject = trim((string)$m['subject']);
             $id = InboundIdentityService::identify(['from' => (string)$m['from'], 'subject' => $subject, 'body' => $body], $this->identityIndex);
+            $id = InboundIdentityService::withReplyEvidence($this->db, $id, (string)$m['from'], $subject);
 
             $t = InboundIdentityService::triage((string)$m['from'], $subject, $body, (string)$headers);
             // A robot's mail that names an account (a statement bot, a newsletter) is not that client's conversation.
@@ -208,10 +211,14 @@ class SalesInboxService
                     if ($sig !== '') $this->setSignature($this->lastKey, $sig);
                     return 'placed';
                 }
+                $t['reason'] = 'strong match, could not be stored';
             }
             $status = 'open';
             $reason = $t['reason'];
-            if ($t['kind'] === 'person' && $id['strength'] === 'none') {
+            if ($t['kind'] === 'person' && $this->fromSupplier((string)$m['from'])) {
+                $status = 'supplier';      // Otto's and Penny's mail: kept and counted, never a question or a lead
+                $reason = 'known supplier';
+            } elseif ($t['kind'] === 'person' && $id['strength'] === 'none') {
                 // Nothing on file matches: could it be someone asking for work? (iCloud router's 'lead' route)
                 $leads = new EmailLeadService($this->db);
                 if ($leads->ready()) {
@@ -230,6 +237,35 @@ class SalesInboxService
         } catch (Throwable $e) {
             error_log('[sales inbox] place unknown: ' . $e->getMessage());
             return 'error';
+        }
+    }
+
+    /** Build the accounts index now, so the time it takes is not charged to the poll's body-reading budget. */
+    public function warmIdentityIndex(): void
+    {
+        if ($this->identityIndex !== null) return;
+        try {
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundIdentityService.php';
+            $this->identityIndex = InboundIdentityService::buildIndex($this->db);
+        } catch (Throwable $e) {
+            error_log('[sales inbox] identity index: ' . $e->getMessage());
+        }
+    }
+
+    /** A sender in the supplier directory or the vendor list. Mail from them is not a client and not an enquiry. */
+    public function fromSupplier(string $from): bool
+    {
+        try {
+            $addr = self::addresses($from)[0] ?? '';
+            if ($addr === '') return false;
+            require_once APP_ROOT . '/Modules/Operations/Services/SupplierDirectoryService.php';
+            require_once APP_ROOT . '/Modules/Expenses/Services/VendorMessageService.php';
+            $dir = new SupplierDirectoryService($this->db);
+            if ($dir->ready() && $dir->forAddress($addr) !== null) return true;
+            if ($this->vendorList === null) $this->vendorList = (new VendorMessageService($this->db))->vendors();
+            return VendorMessageService::matchVendor($addr, self::senderName($from), $this->vendorList) !== null;
+        } catch (Throwable $e) {
+            return false;
         }
     }
 

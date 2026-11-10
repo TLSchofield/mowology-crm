@@ -81,6 +81,7 @@ $counts = ['stored' => 0, 'dupe' => 0, 'skipped' => 0];
 // Unknown senders (ops_settings.inbox_place_unknown, default off): placed by what they wrote or kept for the owner,
 // never dropped silently. Bodies are read once each, inside a time budget; what is left waits for the next poll.
 $placing = $svc->placementOn();
+if ($placing) $svc->warmIdentityIndex();
 $placeDeadline = microtime(true) + 40;
 $unknown = ['placed' => 0, 'unplaced' => 0, 'noise' => 0, 'lead' => 0, 'later' => 0, 'error' => 0];
 $errors = 0;

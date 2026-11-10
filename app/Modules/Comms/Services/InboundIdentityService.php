@@ -17,7 +17,7 @@ require_once dirname(__DIR__, 2) . '/Sales/Services/UnclaimedReplyService.php';
  *   address  a street address of the account (SalesInboxService::addressKey, whole tokens)
  *   domain   the sender's company domain, never free mail
  *   invoice  one of the account's invoice numbers, in the subject or their own words
- * Strength: an invoice number, company + address on one account, or a numbered company on one account = strong (placed on the
+ * Strength: an invoice number in a reply about our invoice or with a second signal, company + address on one account, or a numbered company on one account = strong (placed on the
  * account's contact); one account by address alone / a plain company name alone / the domain alone = medium (a
  * question for the owner); several accounts tied, or evidence pointing at different accounts = weak (candidates
  * listed, none chosen); nothing = none. Evidence is not proof of who wrote it — nothing here sends anything.
@@ -81,7 +81,8 @@ class InboundIdentityService
     public static function identify(array $m, array $accounts): array
     {
         $none = ['strength' => 'none', 'client_id' => null, 'contact_id' => null, 'evidence' => [], 'candidates' => []];
-        $text = trim((string)($m['subject'] ?? '')) . "\n" . SalesInboxService::withoutSignature((string)($m['body'] ?? ''));
+        $m['subject'] = self::decodeHeader((string)($m['subject'] ?? ''));
+        $text = trim($m['subject']) . "\n" . SalesInboxService::withoutSignature((string)($m['body'] ?? ''));
         $words = ' ' . self::normaliseCompany($text) . ' ';
         $tokens = ' ' . SalesInboxService::addressKey($text, false) . ' ';
         $addr = SalesInboxService::addresses((string)($m['from'] ?? ''))[0] ?? '';
@@ -122,13 +123,16 @@ class InboundIdentityService
         // Decisive: one of our invoice numbers, or the company and its address together. One such
         // account beats others that only share its address or domain (the same client is often on file twice: a business
         // account holding the invoices and the person's own account holding the property).
-        $decisive = array_keys(array_filter($hits, fn($h) => in_array('invoice', $h['ev'], true)
+        // An invoice number alone needs the message to be about OUR invoice ("Re: Invoice INV-2026-0413..."): the same format
+        // is common on suppliers' own invoices, so a bare number is a question, not a placement.
+        $aboutOurInvoice = (bool)preg_match('/^\s*(re|fw|fwd)\s*:.*\binvoice\b/i', trim((string)($m['subject'] ?? '')));
+        $decisive = array_keys(array_filter($hits, fn($h) => (in_array('invoice', $h['ev'], true) && ($aboutOurInvoice || count($h['ev']) > 1))
             || (in_array('company', $h['ev'], true) && in_array('address', $h['ev'], true))));
         if (count($decisive) > 1) return $weak;
         if (count($decisive) === 1) return $pick($decisive[0], $cand[$decisive[0]]['contact_id'] !== null ? 'strong' : 'medium');
 
         // Accounts the words themselves point at (company or address); the domain only says "same firm".
-        $named = array_keys(array_filter($hits, fn($h) => array_intersect(['company', 'address'], $h['ev']) !== []));
+        $named = array_keys(array_filter($hits, fn($h) => array_intersect(['invoice', 'company', 'address'], $h['ev']) !== []));
         if (count($named) > 1) return $weak;
         if (count($named) === 1) {
             $i = $named[0];
@@ -149,11 +153,47 @@ class InboundIdentityService
         return $weak;
     }
 
+    /** A header still in MIME form ("=?UTF-8?Q?Re=3A_Invoice...?="): imap_utf8() leaves some of these undecoded (seen 2026-11-09). */
+    public static function decodeHeader(string $s): string
+    {
+        if (strpos($s, '=?') === false || !function_exists('iconv_mime_decode')) return $s;
+        $d = @iconv_mime_decode($s, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
+        return is_string($d) && $d !== '' ? $d : $s;
+    }
+
     /** Our invoice numbers in a text, in stored form: "INV-2026-0413", also written "INV# 2026-0413". @return string[] */
     public static function invoiceRefs(string $text): array
     {
         preg_match_all('/\bINV\s*[-#:]*\s*(\d{4})-(\d{3,6})\b/i', $text, $m, PREG_SET_ORDER);
         return array_values(array_unique(array_map(fn($x) => 'INV-' . $x[1] . '-' . $x[2], $m)));
+    }
+
+    /**
+     * Nothing in the words, but it is a reply and we wrote to this address: the person we copied on a statement answering
+     * it (2026-11-05: "Re: Your Statement of Account" from someone only ever cc'd). A question for the owner, never a placement.
+     * @param array{strength: string, client_id: ?int, contact_id: ?int, evidence: string[], candidates: array} $id identify()'s result
+     */
+    public static function withReplyEvidence(PDO $db, array $id, string $from, string $subject): array
+    {
+        if ($id['strength'] !== 'none' || !preg_match('/^\s*(re|fw|fwd)\s*:/i', $subject)) return $id;
+        $addr = strtolower(SalesInboxService::addresses($from)[0] ?? '');
+        if ($addr === '') return $id;
+        $like = '%' . addcslashes($addr, '%_\\') . '%';
+        $cid = null;
+        try {
+            $s = $db->prepare("SELECT contact_id FROM communication_log WHERE contact_id IS NOT NULL AND (to_email = ? OR cc_email LIKE ?) ORDER BY id DESC LIMIT 1");
+            $s->execute([$addr, $like]);
+            $cid = $s->fetchColumn() ?: null;
+            if ($cid === null) {
+                $s = $db->prepare("SELECT contact_id FROM activity_log WHERE contact_id IS NOT NULL AND details LIKE ? AND created_at >= DATE_SUB(NOW(), INTERVAL 180 DAY) ORDER BY id DESC LIMIT 1");
+                $s->execute([$like]);
+                $cid = $s->fetchColumn() ?: null;
+            }
+        } catch (Throwable $e) {
+            return $id;
+        }
+        if ($cid === null) return $id;
+        return ['strength' => 'medium', 'client_id' => null, 'contact_id' => (int)$cid, 'evidence' => ['replied'], 'candidates' => []];
     }
 
     /**
