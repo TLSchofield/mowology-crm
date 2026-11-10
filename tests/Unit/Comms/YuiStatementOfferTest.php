@@ -99,4 +99,12 @@ class YuiStatementOfferTest extends TestCase
         $this->assertStringContainsString('nothing owing', $d['body']);
         $this->assertStringContainsString('Hi there,', $d['body']);
     }
+
+    public function test_a_reply_quoting_invoice_numbers_still_drafts(): void
+    {
+        $v = YuiRules::vars(['to' => ['first_name' => 'Pat'], 'invoices' => ['INV-1', 'INV-2'], 'subject' => 'Amount'], 'Tim');
+        $this->assertStringContainsString('INV-1', implode(' ', $v));
+        $d = YuiRules::draft(['template' => 'reply', 'to' => ['first_name' => 'Pat'], 'invoices' => ['INV-1'], 'subject' => 'Amount'], 'Tim');
+        $this->assertStringStartsWith('Re: ', $d['subject']);
+    }
 }
