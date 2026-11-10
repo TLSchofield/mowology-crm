@@ -35,7 +35,8 @@ $__iySvg = static function (string $id): string {
 // Local-only fixture so the strip can be drawn without live data (never on production).
 $__iyDemo = false;
 if (($_GET['it_job_demo'] ?? '') === '1'
-    && in_array(strtok((string)($_SERVER['HTTP_HOST'] ?? ''), ':'), ['127.0.0.1', 'localhost'], true)) {
+    && in_array(strtok((string)($_SERVER['HTTP_HOST'] ?? ''), ':'), ['127.0.0.1', 'localhost'], true)
+    && in_array((string)($_SERVER['REMOTE_ADDR'] ?? ''), ['127.0.0.1', '::1'], true)) {   // the Host header is the client's; the address is not
     $__iyDemo = [
         ['head' => 'yui', 'kind' => 'statement', 'key' => 'demo-1', 'title' => 'Send Client A their statement', 'why' => 'Two invoices are more than 60 days overdue.',
          'left' => ['name' => 'Client A', 'subject' => 'Statement of account', 'text' => 'Account balance $450.00, oldest invoice 72 days.', 'at' => 'Today'],

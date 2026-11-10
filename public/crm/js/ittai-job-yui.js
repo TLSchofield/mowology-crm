@@ -76,8 +76,9 @@
         var body = field('body');
         var cid = field('client_id');
         var off = false;
+        var rcpt = field('recipient');
         if (card.kind === 'who') off = !cid || cid.value === '';
-        else if (body) off = body.value.trim() === '';
+        else if (body) off = body.value.trim() === '' || (rcpt && rcpt.value === '');
         btnP.disabled = off;
     }
 
@@ -111,6 +112,7 @@
             sel.appendChild(o);
         });
         if (r.recipient) sel.value = r.recipient;
+        if (sel.selectedIndex < 0 && sel.options.length) sel.selectedIndex = 0;   // the web card's default: the first address
         field('subject').value = r.subject || '';
         field('body').value = r.body || '';
         sel.addEventListener('change', setWarn);
@@ -155,22 +157,27 @@
 
     function buildReply(card) {
         var r = card.right || {};
-        field('to').value = r.to || '';
+        var to = r.to && typeof r.to === 'object' ? ((r.to.name ? r.to.name + ' · ' : '') + (r.to.email || '')) : (r.to || '');
+        field('to').value = to;
         field('subject').value = r.subject || '';
         field('body').value = r.body || '';
         var dr = form.querySelector('.it-job-draft');
-        if (!(r.can_draft && card.draft && card.draft.request)) { dr.hidden = true; return; }
+        var draftReq = card.draft ? (card.draft.request || card.draft) : null;   // the adapter sends {mode:'draft', key} directly
+        if (!(r.can_draft && draftReq && draftReq.mode)) { dr.hidden = true; return; }
         dr.addEventListener('click', function () {
             if (busy) return;
             setBusy(true);
             say('Drafting…', false);
-            post(card.api || api, card.draft.request).then(function (d) {
+            post(card.api || api, draftReq).then(function (d) {
                 setBusy(false);
                 if (d && d.ok) { field('body').value = d.body || d.draft || d.text || ''; say('Here’s a draft — read it before you send.', false); gate(); }
                 else say((d && (d.message || d.error)) || 'Could not draft that one', false);
             }).catch(function () { setBusy(false); say('Could not reach Yui — try again', false); });
         });
     }
+
+    // Enter in the one text field of a form would submit it (a GET reload that drops the body): never.
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
 
     function render() {
         var card = queue[0];
@@ -184,7 +191,8 @@
         put('.it-job-addr', card.kind === 'who' ? l.addr : '');
         var more = q('.it-job-more');
         more.textContent = '';
-        (l.more || []).forEach(function (m) { more.appendChild(el('li', '', m)); });
+        if (Array.isArray(l.more)) l.more.forEach(function (m) { more.appendChild(el('li', '', m)); });
+        else if (l.more && Number(l.more) > 0) more.appendChild(el('li', '', Number(l.more) + ' earlier from them'));
         put('.it-job-why', card.why);
 
         form.textContent = '';
