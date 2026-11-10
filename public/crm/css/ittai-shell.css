@@ -159,7 +159,7 @@ body.it-shell.it-shell .it-grp > .it-grow { order: 0; }
 body.it-shell.it-shell .it-grp > .it-hp { order: 1; }
 body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
 body.it-shell.it-shell .it-hp {
-  display: none; position: static; margin: 2px 52px 10px 12px; padding: 14px 12px 16px;
+  display: none; position: static; margin: 2px 27px 10px 12px; padding: 14px 12px 16px;   /* its right edge sits on the rail line */
   flex-direction: column; align-items: center; gap: 2px; text-align: center;
   background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; box-shadow: var(--it-shadow-menu);
   opacity: 0; transform: translateY(-6px);
@@ -172,6 +172,9 @@ body.it-shell.it-shell .it-hp.is-open {
 @starting-style { body.it-shell.it-shell .it-hp.is-open { opacity: 0; transform: translateY(-6px); } }
 @media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open { display: none !important; } }
 body.it-shell.it-shell .it-pt-lg { width: 44px; height: 44px; margin: 0 auto 2px; }
+/* The card is the head enlarged: while it is open the row's small portrait steps aside (one face, not two) */
+body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
+body.it-shell.it-shell .it-hp { position: relative; z-index: 2; }
 body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
 body.it-shell.it-shell .it-hpd { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 body.it-shell.it-shell .it-hp .it-s { margin-top: 2px; }

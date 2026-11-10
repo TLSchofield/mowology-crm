@@ -98,7 +98,12 @@
                 var pt = g.querySelector('.it-grow .it-pt');
                 if (!acc || acc.hidden || !pg || !pt || isRail()) return;
                 var gr = g.getBoundingClientRect(), pr = pt.getBoundingClientRect(), r = pg.getBoundingClientRect();
-                var top = pr.top + pr.height / 2 - gr.top, end = r.top + r.height / 2 - gr.top;
+                // The line feeds the expanded card when there is one (its bottom edge), else the portrait's centre.
+                var card = cardOf(g);
+                var top = (card && card.classList.contains('is-open') && card.offsetParent)
+                    ? card.getBoundingClientRect().bottom - gr.top
+                    : pr.top + pr.height / 2 - gr.top;
+                var end = r.top + r.height / 2 - gr.top;
                 if (end <= top) return;
                 g.style.setProperty('--it-live-top', Math.round(top) + 'px');
                 g.style.setProperty('--it-live', Math.round(end - top) + 'px');
