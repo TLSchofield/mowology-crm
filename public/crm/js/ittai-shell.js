@@ -155,6 +155,7 @@
             }
             measureLive();
             if (typeof placeLink === 'function') placeLink();
+            if (typeof placeKanLink === 'function') placeKanLink();
         }
         function closeFlies() {
             clearTimeout(flyTimer);
@@ -176,6 +177,7 @@
         function replaceOpenCards() {
             groups.forEach(function (g) { var c = cardOf(g); if (c && c.classList.contains('is-open')) placeCard(g); });
             placeLink();
+            placeKanLink();
         }
 
         // The job strip's rail line reaches the head's card (Tim, 2026-11-10): out of the card's right edge at its
@@ -184,6 +186,28 @@
         link.className = 'it-job-link'; stub.className = 'it-job-link-stub';
         link.hidden = stub.hidden = true;
         layer.appendChild(link); layer.appendChild(stub);
+        // Kaname's line (Tim, 2026-11-10): her alerts run off HER row. The card at the top of the content is levelled
+        // with her row at the top of the page, and a hairline runs from her portrait on the spine to the card's edge.
+        var kanLink = document.createElement('div');
+        kanLink.className = 'it-kan-link'; kanLink.hidden = true;
+        layer.appendChild(kanLink);
+        function placeKanLink() {
+            var line = document.querySelector('.it-kan-line');
+            var kan = sb.querySelector('.it-grp.it-kan .it-grow .it-pt');
+            if (!line || !kan || isRail() || window.innerWidth < 1024) { kanLink.hidden = true; return; }
+            var kr = kan.getBoundingClientRect(), lr = line.getBoundingClientRect();
+            if (window.scrollY < 10) {
+                var cur = parseFloat(line.style.marginTop || '0') || 0;
+                var want = Math.max(-46, Math.min(0, Math.round(cur + (kr.top + kr.height / 2) - (lr.top + lr.height / 2))));
+                if (Math.abs(want - cur) > 1) { line.style.marginTop = want + 'px'; lr = line.getBoundingClientRect(); }
+            }
+            var y = lr.top + lr.height / 2;
+            if (lr.right < kr.right + 8 || lr.bottom < 0 || lr.top > window.innerHeight || kr.bottom < 57 || kr.top > window.innerHeight) { kanLink.hidden = true; return; }
+            kanLink.hidden = false;
+            kanLink.style.left = Math.round(kr.right + 2) + 'px';
+            kanLink.style.width = Math.round(lr.left - kr.right - 2) + 'px';
+            kanLink.style.top = Math.round(y) + 'px';
+        }
         function placeLink() {
             var rail = document.querySelector('.it-job:not(.is-done) .it-job-rail');
             var strip = rail ? rail.closest('.it-job') : null;
@@ -401,6 +425,8 @@
         }
         syncRail();
         measureLive();
+        placeKanLink();
+        window.setTimeout(placeKanLink, 250);   // after fonts and the sidebar's first layout
         window.addEventListener('load', measureLive);
         // Anything that moves a row later (a late webfont, a wrapped chip) moves the live line with it.
         if (window.ResizeObserver) {

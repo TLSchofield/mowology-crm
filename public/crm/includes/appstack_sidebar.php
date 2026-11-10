@@ -133,7 +133,7 @@ if (!empty($itShell)):
                 <button type="button" class="it-grow" aria-expanded="<?php echo $__isOpen ? 'true' : 'false'; ?>" aria-controls="it-acc-<?php echo $__h($__slug); ?>" aria-label="<?php echo $__h($__aria); ?>">
                     <?php /* Round 7 (Tim's sketch, 2026-11-10): name on the left, the portrait on the spine at the right; the state is
                              the ring and glyph (the word stays in the aria-label and on the card); Kaname carries the owner's count. */ ?>
-                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
+                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span><?php if ($__slug === 'charlie' && (int)($__hd['needs_you'] ?? 0) > 0): ?><span class="it-chip it-chip-need"><?php echo $__h($__word); ?></span><?php endif; ?></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
                     <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"><?php if ($__st !== ''): ?><svg class="it-bd it-bd-<?php echo $__st; ?>" width="16" height="16" aria-hidden="true"><use href="#it-st-<?php echo $__st; ?>"/></svg><?php endif; ?></span>
                 </button>
                 <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>

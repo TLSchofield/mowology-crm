@@ -20,7 +20,7 @@ body.it-shell.it-shell .sidebar.it-sidebar {
 body.it-shell.it-shell .it-sidebar .sidebar-content {
   position: sticky; top: 0; left: 0;
   display: flex; flex-direction: column;
-  width: 100%; height: 100vh; min-height: 100%;
+  width: 100%; height: 100vh; max-height: 100vh; min-height: 0;   /* not min-height: 100%: the wrapper stretches, and a column as tall as the page cannot stick */
   overflow-x: hidden; overflow-y: auto;
   background: var(--it-surface);
   border-right: 0;
@@ -292,29 +292,30 @@ body.it-shell .it-sb-strip.is-closed .it-sb-chev { transform: rotate(-90deg); }
 /* The block the current page is in: the strip's face ring takes the tenant mark */
 body.it-shell .it-sb-strip.is-here .it-sb-face img { box-shadow: 0 0 0 2px var(--it-tenant-mark); }
 
-/* ── Kaname's band: the fixed strip across the top (Tim, 2026-11-10: the one search top right, her line beside it,
-   fixed, where alerts and heads' notifications land; one subject at a time) ── */
-body.it-shell.it-shell .navbar { position: sticky; top: 0; z-index: 1030; display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 0 16px 0 8px; }
-body.it-shell.it-shell .navbar .sidebar-toggle { order: 0; }
-body.it-shell.it-shell .it-band { order: 1; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; height: 56px; font-family: var(--it-font-sans); font-size: 14px; line-height: 20px; color: var(--it-text); }
-body.it-shell.it-shell .navbar .mw-tracking-dot-wrapper, body.it-shell.it-shell .navbar .mw-clock-widget, body.it-shell.it-shell .navbar .mw-snap-receipt-btn { order: 2; flex: none; }
-body.it-shell.it-shell .navbar .mw-topbar-right-cluster { order: 3; flex: none; margin-left: 0; }
-body.it-shell.it-shell .it-band-who { display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 6px 0 0; color: var(--it-text); text-decoration: none; }
-body.it-shell.it-shell .it-band-who .it-pt { width: 28px; height: 28px; }
-body.it-shell.it-shell .it-band-who b { font-weight: 600; }
-body.it-shell.it-shell .it-band-subject { display: inline-flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; min-height: 44px; padding: 0 10px; border-radius: 10px; color: var(--it-meta); text-decoration: none; }
-body.it-shell.it-shell .it-band-subject:hover { background: var(--it-selected); color: var(--it-text); }
-body.it-shell.it-shell .it-band-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.it-shell.it-shell .it-band-subject.is-alert { color: var(--it-status-attention); font-weight: 500; }
-body.it-shell.it-shell .it-band-subject.is-alert .it-si { flex: none; fill: currentColor; stroke: none; }
-body.it-shell.it-shell .it-band-age { flex: none; font-size: 13px; color: var(--it-meta); font-weight: 400; }
-body.it-shell.it-shell .it-band-more { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 28px; height: 22px; padding: 0 6px; border: var(--it-stroke-hairline) solid var(--it-status-attention); border-radius: var(--it-radius-full); color: var(--it-status-attention); font-size: 12px; font-weight: 600; text-decoration: none; }
-body.it-shell.it-shell .it-band-heads { display: inline-flex; align-items: center; gap: 10px; flex: none; margin-left: 6px; }
-body.it-shell.it-shell .it-band-head { width: 28px; height: 28px; }
-body.it-shell.it-shell .it-band-head .it-bd { left: -6px; bottom: -3px; }
-body.it-shell.it-shell .it-band a:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; border-radius: 10px; }
-@media (max-width: 1200px) { body.it-shell.it-shell .it-band-age { display: none; } body.it-shell.it-shell .navbar .mw-clock-label, body.it-shell.it-shell .navbar .mw-snap-receipt-label { display: none; } }
-@media (max-width: 1023px) { body.it-shell.it-shell .it-band { display: none; } }
+/* ── Top bar in the shell: sticky, so the one search (top right) stays put; Kaname's line below sticks under it ── */
+/* 56 px like the sidebar's lockup row, so the navbar's bottom hairline and the line under Kaname's row are one line (Tim, 2026-11-10) */
+body.it-shell.it-shell .navbar { position: sticky; top: 0; z-index: 1030; display: flex; align-items: center; height: 56px; min-height: 56px; padding-top: 0; padding-bottom: 0; }
+
+/* ── Kaname's line: her alerts run off HER sidebar row (Tim, 2026-11-10), not the top nav. One subject at a time.
+   ittai-shell.js levels this card with her row and draws the hairline from her portrait to its left edge. ── */
+body.it-shell.it-shell .it-kan-line { position: sticky; top: 57px; z-index: 1029; display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 0 0 16px; padding: 0 8px 0 12px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); font-size: 14px; line-height: 20px; color: var(--it-text); }
+body.it-shell.it-shell .it-kan-subject { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 8px; border-radius: 10px; color: var(--it-meta); text-decoration: none; }
+body.it-shell.it-shell .it-kan-subject:hover { background: var(--it-selected); color: var(--it-text); }
+body.it-shell.it-shell .it-kan-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.it-shell.it-shell .it-kan-subject.is-alert { color: var(--it-status-attention); font-weight: 500; }
+body.it-shell.it-shell .it-kan-subject.is-alert .it-si { flex: none; fill: currentColor; stroke: none; }
+body.it-shell.it-shell .it-kan-age { flex: none; font-size: 13px; color: var(--it-meta); font-weight: 400; }
+body.it-shell.it-shell .it-kan-more { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 28px; height: 22px; padding: 0 6px; border: var(--it-stroke-hairline) solid var(--it-status-attention); border-radius: var(--it-radius-full); color: var(--it-status-attention); font-size: 12px; font-weight: 600; text-decoration: none; }
+body.it-shell.it-shell .it-kan-heads { display: inline-flex; align-items: center; gap: 10px; flex: none; margin: 0 6px; }
+body.it-shell.it-shell .it-kan-head { width: 28px; height: 28px; }
+body.it-shell.it-shell .it-kan-head .it-bd { left: -6px; bottom: -3px; }
+body.it-shell.it-shell .it-kan-open { display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 0 8px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; color: var(--it-text); }
+body.it-shell.it-shell .it-kan-line a:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; border-radius: 10px; }
+/* the hairline from her portrait on the spine to the card's edge (fixed, placed by ittai-shell.js) */
+.it-kan-link { position: fixed; z-index: 1040; height: 0; border-top: 1px solid var(--it-line); border-top-color: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); pointer-events: none; }
+.it-kan-link[hidden] { display: none; }
+@media (max-width: 1200px) { body.it-shell.it-shell .it-kan-age { display: none; } }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-kan-line { position: static; } .it-kan-link { display: none; } }
 
 /* ── Top bar: a flat white strip with a hairline ── */
 body.it-shell.it-shell .navbar-bg {

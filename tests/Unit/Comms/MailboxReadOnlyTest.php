@@ -22,6 +22,9 @@ class MailboxReadOnlyTest extends TestCase
         'app/Modules/Accounting/Cron/yardi_eft_inbox_poll.php',
         'app/Modules/Comms/Services/SupplierInboxService.php',
         'scripts/inbox-replay.php',
+        'app/Modules/Comms/Services/YuiMessageService.php',
+        'scripts/inbox-backfill-scan.php',
+        'scripts/inbox-backfill-apply.php',
     ];
 
     /** The ONE file allowed to change a mailbox (Tidy iCloud — move + create folder only). */
