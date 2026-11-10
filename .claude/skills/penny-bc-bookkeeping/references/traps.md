@@ -910,3 +910,11 @@ now needs `namedOnPaper`; intake no longer back-fills phone or website (`VendorD
 Any 4xx counted as the server's answer about the photo and the file was removed, so a hosting 403/404 or a full disk (PHP answers 400)
 could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, and a refusal keeps the photo for Try again / Discard.
 
+## QuickBooks payments for other businesses (2026-11-09)
+
+- `invoices.payment_method` is an ENUM without `quickbooks`, and Mowology already has 9 blank values in it, so changing the ENUM can fail. `QboClientPayService` passes `'other'` to `applyAllocation()` and then sets `invoice_payment_allocations.method` (a VARCHAR) to `quickbooks`.
+- Never compare QuickBooks' paid amount with `invoices.amount_paid`. Account credit is in `amount_paid` but not in QuickBooks. Compare with the payments linked in `qbo_links`.
+- QuickBooks returns `InvoiceLink` even with online payment off, and that page cannot take a payment. Show it only when the invoice reads back with online payment allowed (`QboClientPayService::payUrl`).
+- Total minus Balance also falls for a QuickBooks credit memo, which would be recorded as a payment. Ittai originates these invoices, so credit memos belong in Ittai.
+- A `prod-run` preview that touches QuickBooks can renew its sign-in and then roll the new token back. Use `--commit`, and never `return` from a snippet (nothing prints).
+

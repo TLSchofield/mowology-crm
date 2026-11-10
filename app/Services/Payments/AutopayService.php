@@ -108,6 +108,10 @@ class AutopayService
      */
     public function attemptCharge(int $invoiceId): array
     {
+        if (!\Tenant::takesCards()) {
+            return ['status' => 'skipped', 'message' => 'Card payments are not available for this business.'];
+        }
+
         // ── System-wide live-mode gate ────────────────────────────────────────
         // autopay_live_mode must be explicitly set to 1 in business_settings
         // before any real charges fire. While 0, every eligible invoice is

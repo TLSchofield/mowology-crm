@@ -124,6 +124,15 @@ if ($isPayable) {
     }
 }
 
+// Cards are the original business's own. Other businesses' clients pay on QuickBooks' page, when it is on.
+$takesCards = Tenant::takesCards();
+$qboPayUrl = null;
+if ($isPayable && !$takesCards) {
+    require_once APP_ROOT . '/Modules/QuickBooks/Services/QboClientPayService.php';
+    $qboConn = new QboConnectionService($db);
+    if ($qboConn->tablesReady()) $qboPayUrl = (new QboClientPayService(new QboSyncService($qboConn), $qboConn))->forInvoice((int)$invoice['id']);
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 function fmt(float $n): string {
     return '$' . number_format($n, 2);
@@ -140,7 +149,7 @@ function fmtDate(string $d): string {
     <title>Invoice<?php echo $invoice ? ' ' . htmlspecialchars($invoice['invoice_number']) : ''; ?> | Mowology</title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
-    <?php if ($isPayable): ?>
+    <?php if ($isPayable && $takesCards): ?>
         <script src="https://js.stripe.com/v3/" defer></script>
     <?php endif; ?>
 </head>
@@ -209,7 +218,14 @@ function fmtDate(string $d): string {
                 <div class="due-label">Amount Due</div>
                 <div class="due-amount"><?php echo fmt(floatval($invoice['balance_due'])); ?> CAD</div>
             </div>
+            <?php if ($takesCards): ?>
             <button class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" data-mw-call="openPayModal">Pay Online Now</button>
+            <?php elseif ($qboPayUrl): ?>
+            <div>
+                <a class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" href="<?php echo htmlspecialchars($qboPayUrl); ?>" target="_blank" rel="noopener">Pay Online Now</a>
+                <div style="font-size:12px;margin-top:6px;text-align:center;">Payment is handled by QuickBooks.</div>
+            </div>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
@@ -380,7 +396,7 @@ function fmtDate(string $d): string {
     </div>
 
     <!-- Payment modal -->
-    <?php if ($isPayable): ?>
+    <?php if ($isPayable && $takesCards): ?>
     <div id="payModal" class="portal-overlay" role="dialog" aria-modal="true" aria-labelledby="payModalTitle">
         <div class="portal-modal">
             <div class="portal-modal-hdr">

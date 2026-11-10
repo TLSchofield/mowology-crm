@@ -139,6 +139,15 @@ final class Tenant
         return self::key() === self::DEFAULT;
     }
 
+    /**
+     * Only the original business takes cards, from its own customers. Ittai launches no charges for other
+     * businesses: their clients pay on QuickBooks' own page (Bank of Canada RPAA scenarios; Tim 2026-11-09).
+     */
+    public static function takesCards(): bool
+    {
+        return self::isDefault();
+    }
+
     /** Pure registry-config resolver: only an explicit boolean true marks a business as a test business. */
     public static function isTestCfg(array $cfg): bool
     {

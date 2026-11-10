@@ -349,6 +349,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
         </div>
 
         <!-- Personal card on file -->
+        <?php if (Tenant::takesCards()): ?>
         <div class="cp-card-row">
             <div class="cp-card-icon">
                 <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -369,6 +370,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
                 <span class="cp-card-autopay">Autopay On</span>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
 
         <!-- Personal balance -->
         <div class="cp-balance">
@@ -426,6 +428,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
         </div>
 
         <!-- Business card on file -->
+        <?php if (Tenant::takesCards()): ?>
         <div class="cp-card-row">
             <div class="cp-card-icon">
                 <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -446,6 +449,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
                 <span class="cp-card-autopay">Autopay On</span>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
 
         <!-- Business balance -->
         <div class="cp-balance">

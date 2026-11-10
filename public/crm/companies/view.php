@@ -113,7 +113,7 @@ $typeLabels = ['individual' => 'Individual', 'business' => 'Business', 'strata' 
 $pageTitle = htmlspecialchars($company['company_name']);
 $activePage = 'companies';
 $stripePublishableKey = defined('STRIPE_PUBLISHABLE_KEY') ? STRIPE_PUBLISHABLE_KEY : '';
-$extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
+$extraHead = (Tenant::takesCards() ? '<script src="https://js.stripe.com/v3/" defer></script>' : '')
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . (defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '') . '&libraries=places" defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -316,6 +316,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="send" class="mw-detail-icon"></i></span> Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
+                                        <?php if (Tenant::takesCards()): ?>
                                         <tr>
                                             <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Autopay Card</td>
                                             <td id="mw-company-card-cell">
@@ -339,6 +340,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
+                                        <?php endif; ?>
                                     </table>
                                 </div>
                             </div>

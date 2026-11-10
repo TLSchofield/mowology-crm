@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once dirname(__DIR__, 2) . '/app_config/config.php';
+if (!Tenant::takesCards()) { http_response_code(403); echo json_encode(['error' => 'Card payments are not available here.']); exit; }
 require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 

@@ -87,7 +87,7 @@ class QboClient
                 $d = json_decode($r['body'], true);
                 return is_array($d) ? ['ok' => true, 'data' => $d] : ['ok' => false, 'error' => 'QuickBooks sent something that is not JSON.'];
             }
-            return ['ok' => false, 'error' => self::faultLine($r['status'], $r['body']), 'code' => self::faultCode($r['body']),
+            return ['ok' => false, 'error' => self::withTid(self::faultLine($r['status'], $r['body']), $r), 'code' => self::faultCode($r['body']),
                     'refused' => self::refused($r['status'])];
         }
         return ['ok' => false, 'error' => 'QuickBooks refused the sign-in twice. Connect again.'];
@@ -126,9 +126,15 @@ class QboClient
                 $att = $d['AttachableResponse'][0]['Attachable'] ?? null;
                 return $att ? ['ok' => true, 'data' => $att] : ['ok' => false, 'error' => self::faultLine(200, json_encode($d['AttachableResponse'][0] ?? []))];
             }
-            return ['ok' => false, 'error' => self::faultLine($r['status'], $r['body'])];
+            return ['ok' => false, 'error' => self::withTid(self::faultLine($r['status'], $r['body']), $r)];
         }
         return ['ok' => false, 'error' => 'QuickBooks refused the sign-in twice. Connect again.'];
+    }
+
+    /** A query whose invoices carry their pay link: QuickBooks returns InvoiceLink only when asked. */
+    public function queryWithPayLinks(string $sql): array
+    {
+        return $this->get(self::queryUrl($this->base, $sql) . '&include=invoiceLink');
     }
 
     /** Run one query (first page), e.g. to find a customer by name. */
@@ -162,9 +168,25 @@ class QboClient
                 $d = json_decode($r['body'], true);
                 return is_array($d) ? ['ok' => true, 'data' => $d] : ['ok' => false, 'error' => 'QuickBooks sent something that is not JSON.'];
             }
-            return ['ok' => false, 'error' => self::faultLine($r['status'], $r['body'])];
+            return ['ok' => false, 'error' => self::withTid(self::faultLine($r['status'], $r['body']), $r)];
         }
         return ['ok' => false, 'error' => 'QuickBooks refused the sign-in twice. Connect again.'];
+    }
+
+    /** Pure (tested): the error, with the intuit_tid Intuit support asks for. */
+    public static function withTid(string $message, array $response): string
+    {
+        $tid = trim((string)($response['tid'] ?? ''));
+        return $tid !== '' ? $message . ' (Intuit ref ' . $tid . ')' : $message;
+    }
+
+    /** A curl header callback that keeps the intuit_tid response header in $tid. */
+    public static function tidCatcher(string &$tid): callable
+    {
+        return static function ($ch, string $line) use (&$tid): int {
+            if (stripos($line, 'intuit_tid:') === 0) $tid = trim(substr($line, 11));
+            return strlen($line);
+        };
     }
 
     /** Pure (tested): QuickBooks' Fault block → one line. */
@@ -184,14 +206,16 @@ class QboClient
     /** @return array{status:int, body:string} */
     public static function curlGet(string $url, array $headers): array
     {
+        $tid = '';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_HTTPHEADER => $headers, CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_HEADERFUNCTION => self::tidCatcher($tid),
         ]);
         $out = curl_exec($ch);
         $status = $out === false ? 0 : (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        return ['status' => $status, 'body' => $out === false ? '' : (string)$out];
+        return ['status' => $status, 'body' => $out === false ? '' : (string)$out, 'tid' => $tid];
     }
 }

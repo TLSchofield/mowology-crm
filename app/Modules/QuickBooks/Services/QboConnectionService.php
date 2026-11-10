@@ -45,6 +45,7 @@ class QboConnectionService
         $this->siteId = $siteId;
         $cfg = self::config();
         $this->oauth = $oauth ?? ($cfg['client_id'] !== '' && $cfg['client_secret'] !== '' ? new QboOAuth($cfg['client_id'], $cfg['client_secret']) : null);
+        if ($oauth === null && $this->oauth !== null && !Tenant::takesCards()) QboOAuth::discover($cfg['environment']);
         $key = QboTokenVault::keyFromSecrets();
         $this->vault = $vault ?? ($key !== null ? new QboTokenVault($key) : null);
         $this->clock = $clock ?? 'time';

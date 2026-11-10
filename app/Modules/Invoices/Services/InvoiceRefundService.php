@@ -45,6 +45,9 @@ class InvoiceRefundService
 
     private function stripe(): object
     {
+        if (!Tenant::takesCards()) {
+            throw new RuntimeException('Card payments are not available for this business.');
+        }
         if ($this->stripeClientFactory) {
             return ($this->stripeClientFactory)();
         }

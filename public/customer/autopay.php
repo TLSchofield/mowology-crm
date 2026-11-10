@@ -24,6 +24,8 @@ $token = trim($_GET['token'] ?? '');
 
 if (empty($token)) {
     $error = 'Invalid or missing link.';
+} elseif (!Tenant::takesCards()) {
+    $error = 'Card payments are not available here.';
 }
 
 $contact = null;

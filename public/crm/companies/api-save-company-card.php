@@ -21,6 +21,7 @@ requireLogin();
 requirePermission('clients.edit');
 
 header('Content-Type: application/json');
+if (!Tenant::takesCards()) { http_response_code(403); echo json_encode(['error' => 'Card payments are not available here.']); exit; }
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

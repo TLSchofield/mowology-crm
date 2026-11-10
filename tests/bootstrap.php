@@ -634,6 +634,7 @@ require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboConnectionService
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboPhoneCallbackService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboSyncService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboExpenseSyncService.php';
+require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboClientPayService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingApiPresenter.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingStepService.php';
