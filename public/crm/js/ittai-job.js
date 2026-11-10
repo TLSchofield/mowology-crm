@@ -195,14 +195,13 @@
         }
         var conf = rail.querySelector('.it-job-conf');
         if (conf) {
-            var sure = ['forming', 'held', 'earned'].indexOf(job.sure) >= 0 ? job.sure : 'forming';
-            conf.classList.remove('is-forming', 'is-held', 'is-earned');
+            var sure = ['forming', 'held', 'known', 'mastered'].indexOf(job.sure) >= 0 ? job.sure : 'forming';
+            conf.classList.remove('is-forming', 'is-held', 'is-known', 'is-mastered');
             conf.classList.add('is-' + sure);
             var use = conf.querySelector('use');
-            if (use) use.setAttribute('href', '#it-st-approval' + (sure === 'earned' ? '' : '-' + sure));
-            var why = kind === 'etransfer'
-                ? (job.confidence || (sure === 'earned' ? 'The invoice number is on the transfer.' : 'Her reading of this transfer — check it.'))
-                : (sure === 'forming' ? 'First time with this vendor.' : (job.confidence || 'Her record with this vendor is short.'));
+            if (use) use.setAttribute('href', '#it-st-approval' + (sure === 'known' ? '' : '-' + sure));
+            var words = { forming: 'First time with this vendor.', held: 'Noticed, not yet known: check it.', known: 'She knows this one.', mastered: 'She has mastered this.' };
+            var why = words[sure] + (sure !== 'forming' && job.confidence ? ' ' + job.confidence : '');
             var lbl = 'Penny proposes; your approval decides. ' + why;
             conf.setAttribute('aria-label', lbl);
             conf.setAttribute('title', lbl);

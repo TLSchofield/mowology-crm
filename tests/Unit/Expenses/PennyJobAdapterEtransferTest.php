@@ -42,7 +42,7 @@ class PennyJobAdapterEtransferTest extends TestCase
         $this->assertSame('et:512', $j['key']);
         $this->assertSame(['matched' => 3, 'total' => 3], $j['pieces']);
         $this->assertSame('1 invoice + payment', $j['label']);
-        $this->assertSame('earned', $j['sure'], 'the invoice number is on the transfer: solid');
+        $this->assertSame('known', $j['sure'], 'the invoice number is on the transfer: solid blue, not gold');
         $this->assertSame([2, 3], [$j['index'], $j['total']]);
         $this->assertSame('e-Transfer', $j['left']['label']);
         $this->assertSame('John Hughes', $j['left']['who']);
@@ -102,7 +102,7 @@ class PennyJobAdapterEtransferTest extends TestCase
         $j = PennyJobAdapter::fromTransfer($row, $read, $facts, 1, 1);
         $this->assertSame(['matched' => 2, 'total' => 3], $j['pieces']);
         $this->assertSame('6 invoices + payment', $j['label']);
-        $this->assertSame('earned', $j['sure']);
+        $this->assertSame('held', $j['sure'], 'named, but the sender differs from the payer and no pair is learned: broken triangle');
         $this->assertSame('6 invoices', $j['right']['label']);
         $this->assertSame('Alison Birdsall', $j['right']['who']);
         $cols = $j['columns'];
@@ -121,7 +121,7 @@ class PennyJobAdapterEtransferTest extends TestCase
         $read = $this->read(['active' => 1800.0, 'kind' => 'likely', 'confirmed' => 1, 'lines' => [['invoice' => 'INV-2026-0465', 'amount' => 1800.0]]]);
         $j = PennyJobAdapter::fromTransfer($row, $read, $this->facts(), 1, 1);
         $this->assertSame(['matched' => 1, 'total' => 3], $j['pieces']);
-        $this->assertSame('held', $j['sure']);
+        $this->assertSame('forming', $j['sure'], 'a reading by name, never recorded, and the amount differs: three loose lines');
         $cols = $j['columns'];
         $this->assertSame(['$1,800.00', '$1,890.00 owing', 'differs'], [$cols[0]['top'], $cols[0]['bottom'], $cols[0]['state']]);
         $this->assertSame(['Not banked yet', 'info'], [$cols[2]['top'], $cols[2]['state']]);
@@ -153,9 +153,16 @@ class PennyJobAdapterEtransferTest extends TestCase
 
     public function testSureOfMatch(): void
     {
-        $this->assertSame('earned', PennyJobAdapter::sureOfMatch('match'));
-        $this->assertSame('held', PennyJobAdapter::sureOfMatch('spread'));
-        $this->assertSame('held', PennyJobAdapter::sureOfMatch('named_check'));
-        $this->assertSame('forming', PennyJobAdapter::sureOfMatch('none'));
+        // kind, times recorded for this payer, a ≠ disc showing
+        $this->assertSame('known', PennyJobAdapter::sureOfTransfer('match', 0, false), 'number on the transfer: solid blue');
+        $this->assertSame('forming', PennyJobAdapter::sureOfTransfer('spread', 0, false), 'never recorded, only a reading: three loose lines');
+        $this->assertSame('held', PennyJobAdapter::sureOfTransfer('spread', 1, false), 'seen once: broken triangle');
+        $this->assertSame('known', PennyJobAdapter::sureOfTransfer('spread', 2, false), 'recorded twice: known');
+        $this->assertSame('held', PennyJobAdapter::sureOfTransfer('named_check', 3, true), 'a ≠ disc holds it at broken');
+        $this->assertSame('held', PennyJobAdapter::sureOfTransfer('match', 9, true), 'one cent out: broken, however well known');
+        $this->assertSame('known', PennyJobAdapter::sureOfTransfer('match', 4, false));
+        $this->assertSame('mastered', PennyJobAdapter::sureOfTransfer('match', 5, false), 'five recordings, nothing differing: gold');
+        $this->assertSame('mastered', PennyJobAdapter::sureOfTransfer('spread', 5, false));
+        $this->assertSame('forming', PennyJobAdapter::sureOfTransfer('none', 0, true));
     }
 }

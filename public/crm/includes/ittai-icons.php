@@ -12,8 +12,9 @@ function itIconSprite(): void
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
 <symbol id="it-st-working" viewBox="0 0 16 16"><path d="M8 1.8a6.2 6.2 0 1 1 0 12.4a6.2 6.2 0 1 1 0-12.4zM8 4.8V8l2.2 1.4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 <symbol id="it-st-approval" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="currentColor"/></symbol>
-<symbol id="it-st-approval-held" viewBox="0 0 16 16"><path d="M8 2.2 14.3 13.3H1.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
-<symbol id="it-st-approval-forming" viewBox="0 0 16 16"><path d="M6.2 5.4 8 2.2 14.3 13.3H1.7l2.6-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+<symbol id="it-st-approval-forming" viewBox="0 0 16 16"><path d="M3.1 12.4 6.3 6.2M9.4 3.4 13.6 10.9M2.4 14.1 12.2 13.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+<symbol id="it-st-approval-held" viewBox="0 0 16 16"><path d="M6.2 5.4 8 2.2 14.3 13.3H1.7l2.6-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+<symbol id="it-st-approval-mastered" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 5.9 11.4 12.2H4.6z" fill="none" stroke-width="1.1" stroke-linejoin="round" style="stroke:var(--it-surface)"/></symbol>
 <symbol id="it-st-blocked" viewBox="0 0 16 16"><path d="M5.1 1h5.8L15 5.1v5.8L10.9 15H5.1L1 10.9V5.1z" fill="currentColor"/><path d="M4.6 8h6.8" fill="none" stroke-width="2.2" style="stroke:var(--it-surface)"/></symbol>
 <symbol id="it-st-idle" viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12z" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="2.6 2.1"/></symbol>
 <symbol id="it-st-unavailable" viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 1 0 12a6 6 0 1 1 0-12zM3.8 12.2 12.2 3.8" fill="none" stroke="currentColor" stroke-width="2"/></symbol>

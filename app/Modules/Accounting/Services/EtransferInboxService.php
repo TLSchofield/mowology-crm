@@ -799,6 +799,18 @@ class EtransferInboxService
         return isset($this->learnedPayers[self::normalizeName($sender)][self::normalizeName($payer)]);
     }
 
+    /** How many of this sender's transfers the owner has recorded in full (an undone one is no longer 'recorded'). */
+    public function timesRecordedFrom(?string $sender): int
+    {
+        $sender = trim((string)$sender);
+        if ($sender === '') return 0;
+        try {
+            $st = $this->db->prepare("SELECT COUNT(*) FROM etransfer_notifications WHERE sender_name = ? AND status = 'recorded'");
+            $st->execute([$sender]);
+            return (int)$st->fetchColumn();
+        } catch (Throwable $e) { return 0; }
+    }
+
     /** Same person by the matcher's own rule (exact, or same first and last name). */
     public static function samePayer(string $a, string $b): bool
     {

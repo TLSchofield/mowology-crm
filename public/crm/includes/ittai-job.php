@@ -57,11 +57,12 @@ $__ijFig = static function (array $side, bool $keep): string {
     return '<figure class="it-job-fig' . ($keep ? ' is-keep' : '') . '">' . $img . '<figcaption>' . h($cap) . '</figcaption></figure>';
 };
 // The rail for one job; null prints the empty skeleton the script clones for the next job.
-/** The approval triangle, as whole as Penny's record with the vendor: forming (broken outline), held (outline), earned (solid). */
+/** The knowledge triangle, as whole as Penny's record: forming (three loose lines), held (broken triangle), known (solid blue), mastered (gold). */
 $__ijConf = static function (string $sure, string $line): string {
-    $sure = in_array($sure, ['forming', 'held', 'earned'], true) ? $sure : 'forming';
-    $sym = $sure === 'earned' ? 'it-st-approval' : 'it-st-approval-' . $sure;
-    $label = 'Penny proposes; your approval decides. ' . ($sure === 'forming' ? 'First time with this vendor.' : ($line !== '' ? $line : 'Her record with this vendor is short.'));
+    $sure = in_array($sure, ['forming', 'held', 'known', 'mastered'], true) ? $sure : 'forming';
+    $sym = $sure === 'known' ? 'it-st-approval' : 'it-st-approval-' . $sure;
+    $words = ['forming' => 'First time with this vendor.', 'held' => 'Noticed, not yet known: check it.', 'known' => 'She knows this one.', 'mastered' => 'She has mastered this.'];
+    $label = 'Penny proposes; your approval decides. ' . $words[$sure] . ($sure !== 'forming' && $line !== '' ? ' ' . $line : '');
     return '<span class="it-job-conf is-' . $sure . '" role="img" aria-label="' . h($label) . '" title="' . h($label) . '"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#' . $sym . '"/></svg></span>';
 };
 // Shared pieces of either rail: the fact columns, the two choices stacked, the end anchor.
@@ -114,7 +115,7 @@ $__ijSide = static function (array $side, bool $top): string {
 $__ijPieces = static function (?array $j): string {
     $m = (int)($j['pieces']['matched'] ?? 0); $t = (int)($j['pieces']['total'] ?? 3);
     return '<div class="it-job-pieces"><span class="it-job-frac" role="img" aria-label="' . h($m . ' of ' . $t . ' pieces in hand') . '">'
-        . '<b class="it-job-frac-n">' . $m . '</b><svg class="it-job-frac-s" aria-hidden="true" viewBox="-8 -4 138 72" width="138" height="72"><path d="M0 32H12L82 0V32H116"/></svg><b class="it-job-frac-d">' . $t . '</b></span>'
+        . '<b class="it-job-frac-n">' . $m . '</b><svg class="it-job-frac-s" aria-hidden="true" viewBox="0 0 72 72" width="72" height="72"><path d="M0 36.5H14L35 .5 56 36.5H72"/></svg><b class="it-job-frac-d">' . $t . '</b></span>'
         . '<span class="it-job-lbl">' . implode('', array_map(fn($w) => '<span>' . h($w) . '</span>', explode(' + ', (string)($j['label'] ?? '')))) . '</span></div>';
 };
 // The e-Transfer rail (Tim's phone reference, 2026-11-10): Bank → the fraction and the match's name → the triangle →

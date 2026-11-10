@@ -95,7 +95,8 @@ class PennyJobAdapter
                 $read = $desk->read($et);
                 if (!self::proposes($read)) continue;
                 $facts = $inbox->invoiceFacts(array_map(fn($l) => (string)$l['invoice'], $read['lines']));
-                $out[] = self::fromTransfer($et, $read, $facts, 0, 0, fn(string $sender, string $payer): bool => $inbox->paysFor($sender, $payer));
+                $out[] = self::fromTransfer($et, $read, $facts, 0, 0, fn(string $sender, string $payer): bool => $inbox->paysFor($sender, $payer),
+                    fn(string $sender, string $payer): int => EtransferInboxService::samePayer($sender, $payer) ? $inbox->timesRecordedFrom($sender) : $inbox->timesPaidFor($sender, $payer));
             }
             return $out;
         } catch (Throwable $e) {
@@ -125,9 +126,11 @@ class PennyJobAdapter
      * of it (kind, lines, confirmed, say); $facts is invoiceFacts() for the lines, keyed by invoice number.
      * $paysFor(sender, payer) is what Penny has learned about who pays for whom (a strata plan paying an owner's bill):
      * the Payer column reads "same" for a pair the owner has recorded before, as the matcher itself does.
+     * $record(sender, payer) is how many times the owner has recorded this sender's transfers for this payer: it earns the
+     * knowledge triangle (sureOfTransfer). None given = no record.
      * The e-Transfer is drawn ABOVE the rail and the invoice(s) BELOW it; the discs on the rail compare them.
      */
-    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total, ?callable $paysFor = null): array
+    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total, ?callable $paysFor = null, ?callable $record = null): array
     {
         $id = (int)($et['id'] ?? $read['id'] ?? 0);
         $sender = trim((string)($et['sender_name'] ?? '')) !== '' ? trim((string)$et['sender_name']) : 'Unknown sender';
@@ -193,7 +196,7 @@ class PennyJobAdapter
             'key'        => 'et:' . $id,
             'title'      => 'e-Transfer to record — Penny has matched it',
             'confidence' => trim((string)($read['say'] ?? '')),
-            'sure'       => self::sureOfMatch($kind),
+            'sure'       => self::sureOfTransfer($kind, count($payers) === 1 && $record !== null ? (int)$record($sender, $client) : 0, $amountState === 'differs' || $payerState === 'differs'),
             'pieces'     => ['matched' => $matched, 'total' => 3],
             'label'      => $n . ' invoice' . ($n === 1 ? '' : 's') . ' + payment',
             // the two sides: the e-Transfer above the rail, the invoice(s) below it
@@ -217,17 +220,25 @@ class PennyJobAdapter
     }
 
     /**
-     * The triangle for an e-Transfer: as sure as the match is. Pure.
-     * earned: the invoice number is on the transfer (match, or the memo names them and they add up);
-     * held: a reading by amount, name or history that the owner should check;
-     * forming: nothing to go on.
+     * The knowledge triangle for an e-Transfer (SPEC-v1.2 "Confidence"; Tim, 2026-11-10). Pure.
+     * $recorded: times the owner has recorded this sender's transfers for this payer (an undone recording no longer counts).
+     * $differs: a ≠ disc is showing (amount or payer). One strikes it back to the broken triangle, however well known.
+     * forming (three loose lines): never recorded and only a reading by amount, name or history;
+     * held (broken triangle): noticed, or something differs;
+     * known (solid blue): the invoice number is on the transfer, or recorded twice or more;
+     * mastered (gold): recorded five times or more with nothing differing.
      */
-    public static function sureOfMatch(string $kind): string
+    public static function sureOfTransfer(string $kind, int $recorded, bool $differs): string
     {
-        if (in_array($kind, ['match', 'named'], true)) return 'earned';
-        if (in_array($kind, ['likely', 'spread', 'learned', 'hint', 'value', 'named_check'], true)) return 'held';
-        return 'forming';
+        $strong = in_array($kind, ['match', 'named'], true);
+        if ($differs) return (!$strong && $recorded <= 0) ? 'forming' : 'held';
+        if ($recorded >= self::MASTERED_AT) return 'mastered';
+        if ($strong || $recorded >= 2) return 'known';
+        return $recorded <= 0 ? 'forming' : 'held';
     }
+
+    /** Right-every-time recordings that earn the gold triangle (Tim, 2026-11-10: five). */
+    public const MASTERED_AT = 5;
 
     /**
      * One presentGroup() group → the generic job shape. Pure. The first copy is the one compared; a group with
@@ -295,16 +306,18 @@ class PennyJobAdapter
 
     /**
      * The triangle's state from her record with the vendor. Pure.
-     * forming: no call yet (a new vendor, a new business) — the broken outline;
-     * held: some calls, or ever wrong — the closed outline;
-     * earned: right every time over at least four calls — solid.
+     * forming: no call yet (a new vendor, a new business) — three loose lines;
+     * held: one call, or ever wrong — the broken triangle;
+     * known: right every time over two to four calls — solid blue;
+     * mastered: right every time over five or more — gold.
      */
     public static function sure(array $record): string
     {
         $called = (int)($record['called'] ?? 0);
         $agreed = (int)($record['agreed'] ?? 0);
         if ($called <= 0) return 'forming';
-        return ($called >= 4 && $agreed >= $called) ? 'earned' : 'held';
+        if ($agreed < $called) return 'held';
+        return $called >= self::MASTERED_AT ? 'mastered' : ($called >= 2 ? 'known' : 'held');
     }
 
     /** One receipt of the pair for the strip: id, "#278 · in the books", who sent it, photo. */

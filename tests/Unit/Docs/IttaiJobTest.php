@@ -69,8 +69,8 @@ class IttaiJobTest extends TestCase
         }
         $inc = $this->src('public/crm/includes/ittai-job.php');
         $js = $this->src('public/crm/js/ittai-job.js');
-        foreach (["'forming', 'held', 'earned'", 'First time with this vendor.', 'it-st-approval-'] as $n) $this->assertStringContainsString($n, $inc, $n);
-        foreach (['is-forming', 'is-held', 'is-earned', 'First time with this vendor.'] as $n) $this->assertStringContainsString($n, $js, $n);
+        foreach (["'forming', 'held', 'known', 'mastered'", 'First time with this vendor.', 'it-st-approval-'] as $n) $this->assertStringContainsString($n, $inc, $n);
+        foreach (['is-forming', 'is-held', 'is-known', 'is-mastered', 'First time with this vendor.'] as $n) $this->assertStringContainsString($n, $js, $n);
     }
 
     /** Penny's e-Transfer job: the fraction and its label on the rail, two templates, the card's own form posted by the script. */

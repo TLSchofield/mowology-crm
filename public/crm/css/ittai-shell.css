@@ -496,12 +496,13 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-copylbl { font-weight: 600; color: var(--it-meta); }
 .it-job-m { width: 28px; height: 28px; }
 /* the confidence triangle: on the rail, right after the Receipts anchor (as on the phone, below its top anchor) */
-.it-job-conf { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-mastered); flex: none; }
-.it-job-conf .it-si { fill: var(--it-knowledge-mastered); stroke: none; }
-/* as whole as her record with the vendor: forming (broken outline, quiet), held (closed outline), earned (solid gold) */
-.it-job-conf.is-forming, .it-job-conf.is-held { color: var(--it-meta); }
+.it-job-conf { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-discovered); flex: none; }
+.it-job-conf .it-si { fill: currentColor; stroke: none; }
+/* the knowledge triangle (SPEC-v1.2 "Confidence"): new = three loose lines, noticed = broken triangle (both the discovered
+   colour), known = solid blue, mastered = gold with the page-coloured keyline */
 .it-job-conf.is-forming .it-si, .it-job-conf.is-held .it-si { fill: none; stroke: currentColor; }
-.it-job-conf.is-earned { color: var(--it-knowledge-mastered); }
+.it-job-conf.is-known { color: var(--it-knowledge-understood); }
+.it-job-conf.is-mastered { color: var(--it-knowledge-mastered); }
 /* the line circles every icon: a surface gap, then a ring in the line's colour */
 .it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); box-shadow: 0 0 0 3px var(--it-surface), 0 0 0 4px var(--it-line); }
 .it-job-disc-same { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
@@ -576,14 +577,15 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 /* "2/3": how many of the three pieces (the Interac email, the invoice match, the bank deposit) are already in hand.
    Large numerals either side of a slanted hairline, the match's name beside them; a station on the rail, so it sits on surface. */
 .it-job-pieces { display: flex; align-items: center; gap: 12px; padding: 0 8px; }
-.it-job-frac { position: relative; background: var(--it-surface); display: block; flex: none; width: 116px; height: 64px; font-size: 30px; line-height: 34px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--it-text); }
+.it-job-frac { position: relative; background: var(--it-surface); display: block; flex: none; width: 72px; height: 72px; font-size: 24px; line-height: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--it-text); }
 .it-job-frac b { font-weight: 600; }
-/* The phone's drawing turned on its side: the rail runs in, climbs the slash, drops back to its own height and runs on;
-   the 2 sits above-left of the slash, the 3 in the gap on the rail's level. The rail is the stroke, so no slanted hairline. */
+/* The inferred fraction (SPEC-v1.2, Tim's drawing): an equilateral triangle on the rail with only its two upper sides drawn,
+   the rail itself being the third; the whole (3) inside it, the joined count (2) beside its left side. The surface behind
+   the box hides the rail under the triangle, so the two strokes ARE the rail there. */
 .it-job-frac b { position: absolute; }
-.it-job-frac-n { left: 13px; top: -9px; }
-.it-job-frac-d { left: 60px; top: 9px; }
-.it-job-frac-s { position: absolute; left: -8px; top: -4px; overflow: visible; fill: none; stroke: var(--it-rail); stroke-width: 1px; stroke-linejoin: miter; pointer-events: none; }
+.it-job-frac-n { left: 12px; top: 0; transform: translateX(-50%); }
+.it-job-frac-d { left: 35px; top: 12px; transform: translateX(-50%); }
+.it-job-frac-s { position: absolute; left: 0; top: 0; overflow: visible; fill: none; stroke: var(--it-rail); stroke-width: 1px; stroke-linejoin: miter; pointer-events: none; }
 .it-job-frac-d { color: var(--it-meta); }
 .it-job-lbl { display: flex; flex-direction: column; justify-content: space-between; height: 44px; max-width: none; white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--it-meta); }
 /* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
