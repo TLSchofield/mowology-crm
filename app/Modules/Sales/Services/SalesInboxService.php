@@ -32,7 +32,10 @@ class SalesInboxService
     /** Mail providers anyone can use: a shared domain here never means "same company". */
     public const FREE_DOMAINS = ['gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.ca', 'outlook.com', 'live.com', 'live.ca',
         'msn.com', 'yahoo.com', 'yahoo.ca', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'shaw.ca', 'telus.net', 'rogers.com',
-        'bell.net', 'sympatico.ca', 'protonmail.com', 'proton.me', 'gmx.com', 'mail.com', 'zoho.com', 'yandex.com', 'fastmail.com'];
+        'bell.net', 'sympatico.ca', 'protonmail.com', 'proton.me', 'gmx.com', 'mail.com', 'zoho.com', 'yandex.com', 'fastmail.com',
+        'att.net', 'sbcglobal.net', 'bellsouth.net', 'comcast.net', 'verizon.net', 'cox.net', 'charter.net', 'earthlink.net',
+        'ymail.com', 'rocketmail.com', 'hotmail.co.uk', 'yahoo.co.uk', 'outlook.ca', 'gmx.net', 'telusmail.net', 'uniserve.com',
+        'axion.net', 'videotron.ca', 'eastlink.ca'];
 
     private PDO $db;
     /** @var array<string, int>|null lowercase email => contact id */

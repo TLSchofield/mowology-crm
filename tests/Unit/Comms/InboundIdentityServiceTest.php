@@ -124,6 +124,13 @@ class InboundIdentityServiceTest extends TestCase
         $this->assertSame('none', $r['strength']);
     }
 
+    public function test_home_internet_provider_domains_never_join(): void
+    {
+        $isp = ['client_id' => 9, 'type' => 'business', 'name' => 'Acme Gardens Ltd', 'contact_id' => 9, 'addresses' => [], 'domains' => ['att.net']];
+        $r = $this->identify('Spam Person <spam758@att.net>', 'Re: Property Maintenance app', 'I am still waiting for your response.', $this->index([$isp]));
+        $this->assertSame('none', $r['strength']);
+    }
+
     public function test_text_quoted_from_an_earlier_message_does_not_count(): void
     {
         $body = "Thanks for that.\n\nOn Nov 3, 2026, at 9:00 AM, Office wrote:\n> Your invoice for 500 Oak Street is attached.\n> Dorset Strata";

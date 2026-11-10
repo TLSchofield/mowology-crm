@@ -208,6 +208,11 @@ class InboundIdentityService
         if (UnclaimedReplyService::isAutomated($from, $subject, $new)) return ['kind' => 'noise', 'reason' => 'automated reply'];
         if ($addr !== '' && EmailLeadService::isAutomated($addr, $rawHeaders)) return ['kind' => 'noise', 'reason' => 'automated sender'];
         if ($addr !== '' && EmailLeadService::marketingDomain($addr)) return ['kind' => 'noise', 'reason' => 'marketing sender'];
+        // A sign-in notice from a portal (even from an address that doesn't look automated) is nobody writing to us.
+        if (!preg_match('/^\s*(?:re|fw|fwd):/i', $subject)
+            && preg_match('/\byour\b.{0,40}\b(?:password|passcode|verification code|security code|login code|sign[- ]?in code)\b/i', $subject)) {
+            return ['kind' => 'noise', 'reason' => 'account sign-in notice'];
+        }
         $pitch = EmailLeadService::pitchSignals($subject, $new, $addr, $rawHeaders);
         $decisive = array_values(array_intersect($pitch, EmailLeadService::PITCH_DECISIVE));
         if ($decisive || count($pitch) >= 2) return ['kind' => 'noise', 'reason' => 'cold pitch (' . implode(', ', $decisive ?: $pitch) . ')'];
