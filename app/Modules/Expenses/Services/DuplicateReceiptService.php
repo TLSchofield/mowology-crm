@@ -940,7 +940,10 @@ class DuplicateReceiptService
         $g['copy_ids'] = $copies;
         $g['merge_label'] = (count($copies) > 1 ? 'all into #' : 'into #') . $keep['id'];
         $g['can_swap'] = $alt;
-        $g['confidence'] = self::confidenceLine($vendor, $records[HeadLessons::normaliseKey($vendor)] ?? null);
+        $rec = $records[HeadLessons::normaliseKey($vendor)] ?? null;
+        $g['confidence'] = self::confidenceLine($vendor, $rec);
+        // Her record with this vendor as numbers, for the strip's triangle (forming → held → earned)
+        $g['record'] = ['agreed' => (int)($rec['agreed'] ?? 0), 'called' => (int)($rec['called'] ?? 0)];
         $g['facts'] = self::factRows($members, $facts);
         $g['member_ids'] = array_map(fn($m) => (int)$m['id'], $members);
         return $g;

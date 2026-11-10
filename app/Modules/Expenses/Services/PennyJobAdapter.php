@@ -99,6 +99,8 @@ class PennyJobAdapter
             'verdict'    => (string)($group['verdict'] ?? ''),
             // Penny's confidence sentence, or her verdict when she has no track record with this vendor yet
             'confidence' => trim((string)($group['confidence'] ?? '')) !== '' ? trim((string)$group['confidence']) : trim((string)($group['verdict'] ?? '')),
+            // How whole the approval triangle is drawn: Penny's record with this vendor (Tim, 2026-11-10)
+            'sure'       => self::sure((array)($group['record'] ?? [])),
             'keep'       => $side($keepAt, $keepId),
             'copy'       => $side($copyAt, $copyId),
             'columns'    => $columns,
@@ -112,6 +114,20 @@ class PennyJobAdapter
             'index'      => $index,
             'total'      => $total,
         ];
+    }
+
+    /**
+     * The triangle's state from her record with the vendor. Pure.
+     * forming: no call yet (a new vendor, a new business) — the broken outline;
+     * held: some calls, or ever wrong — the closed outline;
+     * earned: right every time over at least four calls — solid.
+     */
+    public static function sure(array $record): string
+    {
+        $called = (int)($record['called'] ?? 0);
+        $agreed = (int)($record['agreed'] ?? 0);
+        if ($called <= 0) return 'forming';
+        return ($called >= 4 && $agreed >= $called) ? 'earned' : 'held';
     }
 
     /** One receipt of the pair for the strip: id, "#278 · in the books", who sent it, photo. */

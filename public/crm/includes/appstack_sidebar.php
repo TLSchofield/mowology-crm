@@ -140,9 +140,10 @@ if (!empty($itShell)):
                 <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
                 <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
                     <span class="<?php echo $__ring; ?> it-pt-lg"><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
-                    <span class="it-hpn"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span>
+                    <?php /* The card is the row enlarged (Tim, 2026-11-10): face, name, role. No state word, no second AI tag;
+                             the state stays in the ring and the aria-label, the word in the rail flyout. */ ?>
+                    <span class="it-hpn"><b><?php echo $__h($__name); ?></b></span>
                     <span class="it-hpd"><?php echo $__h($__role); ?></span>
-                    <?php echo $__stHtml; ?>
                     <?php if ($__line !== ''): ?><p class="it-hpl"><?php echo $__h($__line); ?></p><?php endif; ?>
                 </div>
                 <div class="it-fly" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', ' . $__role); ?>">

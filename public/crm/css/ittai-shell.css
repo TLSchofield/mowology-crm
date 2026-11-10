@@ -175,6 +175,8 @@ body.it-shell.it-shell .it-hp:not([data-placed]) { visibility: hidden; }
 @media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open, body.it-shell.it-shell .it-hp-space { display: none !important; } }
 body.it-shell.it-shell .it-pt-lg { width: 44px; height: 44px; margin: 0 auto 2px; }
 body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
+/* …and so does the row's name and tag (the card carries them); Kaname's needs-you chip stays */
+body.it-shell.it-shell .it-grp.has-card .it-grow .it-l1 > b, body.it-shell.it-shell .it-grp.has-card .it-grow .it-l1 > .it-tag, body.it-shell.it-shell .it-grp.has-card .it-grow .it-l2 { visibility: hidden; }
 body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
 body.it-shell.it-shell .it-hpd { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 body.it-shell.it-shell .it-hp .it-s { margin-top: 2px; }
@@ -454,6 +456,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 /* the graph stays to the right on every desktop width (Tim); a tight strip scrolls its rail instead */
 @media (max-width: 1023px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
+.it-job-outer { --it-rail: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
 .it-job-rail { position: relative; }
 .it-job-viz { margin: 0; padding: 16px 20px; min-width: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job-viz figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
@@ -466,7 +469,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-viz-gst { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); font-variant-numeric: tabular-nums; }
 .it-job-viz-gst span { color: var(--it-meta); }
 /* The feeder from the head's card is the rail itself continued: the same 1 px hairline (Tim: navy was too heavy) */
-.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-line); box-sizing: border-box; }
+.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); box-sizing: border-box; }
 .it-job-link-stub { height: 0; border-top-width: 1px; }
 .it-job-link { border-left-width: 1px; border-bottom-width: 1px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 1px; }
@@ -474,16 +477,20 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
 .it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-bottom: 16px; min-width: 0; overflow-x: auto; overflow-y: hidden; }
 /* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
-.it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
+.it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-rail); pointer-events: none; }
 .it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
 /* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
-.it-job-split { display: flex; align-items: center; gap: 10px; padding: 12px 10px 12px 40px; margin-left: -32px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 12px 10px 12px 40px; margin-left: -32px; margin-right: 26px; border: var(--it-stroke-hairline) solid var(--it-rail); border-right: 0; border-radius: 14px 0 0 14px; }
+/* the rejoin: from the frame's top and bottom edges two lines close onto the rail, which carries on to the Ledger */
+.it-job-split::after { content: ""; position: absolute; top: -1px; bottom: -1px; right: -26px; width: 26px; background: var(--it-rail); pointer-events: none;
+  clip-path: polygon(0 0, 100% 50%, 0 100%, 0 calc(100% - 1px), calc(100% - 4.5px) 50%, 0 1px); }
 .it-job-conf { z-index: 2; }
 /* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
 .it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
 .it-job-cols { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
 .it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-col:has(.it-job-disc-same) .it-job-bot { color: var(--it-meta); opacity: .6; }
 .it-job-lblcol { justify-items: start; min-width: 0; }
 .it-job-keeplbl { font-weight: 600; color: var(--it-brand); }
 .it-job-copylbl { font-weight: 600; color: var(--it-meta); }
@@ -491,6 +498,10 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 /* the confidence triangle: on the rail, right after the Receipts anchor (as on the phone, below its top anchor) */
 .it-job-conf { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-mastered); flex: none; }
 .it-job-conf .it-si { fill: var(--it-knowledge-mastered); stroke: none; }
+/* as whole as her record with the vendor: forming (broken outline, quiet), held (closed outline), earned (solid gold) */
+.it-job-conf.is-forming, .it-job-conf.is-held { color: var(--it-meta); }
+.it-job-conf.is-forming .it-si, .it-job-conf.is-held .it-si { fill: none; stroke: currentColor; }
+.it-job-conf.is-earned { color: var(--it-knowledge-mastered); }
 /* the line circles every icon: a surface gap, then a ring in the line's colour */
 .it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); box-shadow: 0 0 0 3px var(--it-surface), 0 0 0 4px var(--it-line); }
 .it-job-disc-same { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }

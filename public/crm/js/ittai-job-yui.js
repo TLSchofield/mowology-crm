@@ -116,7 +116,25 @@
         field('subject').value = r.subject || '';
         field('body').value = r.body || '';
         sel.addEventListener('change', setWarn);
+        sel.addEventListener('change', greet);
         setWarn();
+        greet();
+    }
+
+    /**
+     * The greeting follows the address: a statement drafted "Hi Candace," but addressed to Sandra went out wrong
+     * (Tim, 2026-11-10). Only the first line's name is touched, and only while the owner has not edited the body.
+     */
+    function greet() {
+        var sel = field('recipient'), body = field('body');
+        if (!sel || !body || sel.selectedIndex < 0) return;
+        var opt = sel.options[sel.selectedIndex];
+        var label = opt ? opt.textContent : '';
+        var first = label.split(' · ')[0].trim().split(/\s+/)[0] || '';
+        if (!first || first.indexOf('@') >= 0) return;
+        var m = /^(Hi|Hello|Dear)\s+([^,\n]+),/.exec(body.value);
+        if (!m || m[2] === first) return;
+        body.value = body.value.replace(m[0], m[1] + ' ' + first + ',');
     }
 
     function buildWho(card) {

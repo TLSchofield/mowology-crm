@@ -52,7 +52,14 @@ $__ijFig = static function (array $side, bool $keep): string {
     return '<figure class="it-job-fig' . ($keep ? ' is-keep' : '') . '">' . $img . '<figcaption>' . h($cap) . '</figcaption></figure>';
 };
 // The rail for one job; null prints the empty skeleton the script clones for the next job.
-$__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__ijFig, $__ijFlags): string {
+/** The approval triangle, as whole as Penny's record with the vendor: forming (broken outline), held (outline), earned (solid). */
+$__ijConf = static function (string $sure, string $line): string {
+    $sure = in_array($sure, ['forming', 'held', 'earned'], true) ? $sure : 'forming';
+    $sym = $sure === 'earned' ? 'it-st-approval' : 'it-st-approval-' . $sure;
+    $label = 'Penny proposes; your approval decides. ' . ($sure !== 'forming' && $line !== '' ? $line : 'First time with this vendor.');
+    return '<span class="it-job-conf is-' . $sure . '" role="img" aria-label="' . h($label) . '" title="' . h($label) . '"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#' . $sym . '"/></svg></span>';
+};
+$__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__ijFig, $__ijFlags, $__ijConf): string {
     // The phone's sentence read left to right (Tim, 2026-11-10): the line from the head's card runs on as the rail;
     // kept receipt ABOVE it, waiting receipt BELOW, each disc on the rail where the two still touch; the receipts and
     // the two choices stacked the same way; the line comes back together into the Ledger at the end.
@@ -70,7 +77,7 @@ $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__
     $anchor = (array)($j['anchor'] ?? ['label' => 'Ledger', 'href' => '/crm/ledger/']);
     return '<div class="it-job-rail">'
         . '<a class="it-job-anchor it-job-anchor-start" href="/crm/receipts-review_appstack.php"><span class="it-ad it-ad-fill">' . $__ijSvg('copies') . '</span><span>Duplicate</span></a>'
-        . '<span class="it-job-conf" role="img" aria-label="Penny proposes; your approval decides"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>'
+        . $__ijConf((string)($j['sure'] ?? 'forming'), (string)($j['confidence'] ?? ''))
         . '<div class="it-job-split">'
         . '<div class="it-job-col it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true)
         . '<button type="button" class="it-job-view" aria-label="View both receipts side by side"><span class="it-ad it-ad-sm">' . $__ijSvg('eye') . '</span><span>View</span></button>'

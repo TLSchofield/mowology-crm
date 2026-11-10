@@ -60,6 +60,13 @@ class IttaiJobTest extends TestCase
         foreach (['check', 'neq', 'x', 'info', 'merge', 'split', 'book'] as $id) {
             $this->assertStringContainsString('id="it-w-' . $id . '"', $icons, $id);
         }
+        foreach (['approval', 'approval-held', 'approval-forming'] as $id) {
+            $this->assertStringContainsString('id="it-st-' . $id . '"', $icons, $id);
+        }
+        $inc = $this->src('public/crm/includes/ittai-job.php');
+        $js = $this->src('public/crm/js/ittai-job.js');
+        foreach (["'forming', 'held', 'earned'", 'First time with this vendor.', 'it-st-approval-'] as $n) $this->assertStringContainsString($n, $inc, $n);
+        foreach (['is-forming', 'is-held', 'is-earned', 'First time with this vendor.'] as $n) $this->assertStringContainsString($n, $js, $n);
     }
 
     public function testHeadIncludesTheStripOnlyInTheIttaiShell(): void

@@ -137,6 +137,17 @@
         imgs.appendChild(figure(job.keep, true));
         if (viewBtn) imgs.appendChild(viewBtn);
         imgs.appendChild(figure(job.copy, false));
+        var conf = rail.querySelector('.it-job-conf');
+        if (conf) {
+            var sure = ['forming', 'held', 'earned'].indexOf(job.sure) >= 0 ? job.sure : 'forming';
+            conf.classList.remove('is-forming', 'is-held', 'is-earned');
+            conf.classList.add('is-' + sure);
+            var use = conf.querySelector('use');
+            if (use) use.setAttribute('href', '#it-st-approval' + (sure === 'earned' ? '' : '-' + sure));
+            var lbl = 'Penny proposes; your approval decides. ' + (sure !== 'forming' && job.confidence ? job.confidence : 'First time with this vendor.');
+            conf.setAttribute('aria-label', lbl);
+            conf.setAttribute('title', lbl);
+        }
         fillButton(rail.querySelector('.it-btn-fill'), job.primary);
         fillButton(rail.querySelector('.it-btn-line'), job.secondary);
         var a = rail.querySelector('.it-job-anchor');

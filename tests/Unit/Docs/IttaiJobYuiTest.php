@@ -62,4 +62,12 @@ class IttaiJobYuiTest extends TestCase
         $head = $this->src('public/crm/includes/appstack_head.php');
         $this->assertStringContainsString("include __DIR__ . '/ittai-job-yui.php'", $head);
     }
+
+    /** The greeting follows the chosen address (a statement greeting Candace but addressed to Sandra, 2026-11-10). */
+    public function testGreetingFollowsTheRecipient(): void
+    {
+        $js = (string)file_get_contents($this->repo . '/public/crm/js/ittai-job-yui.js');
+        $this->assertStringContainsString("sel.addEventListener('change', greet)", $js);
+        $this->assertStringContainsString('/^(Hi|Hello|Dear)\\s+([^,\\n]+),/', $js);
+    }
 }

@@ -19,6 +19,7 @@ class PennyJobAdapterTest extends TestCase
             'copy_ids' => [301],
             'merge_label' => 'into #278',
             'confidence' => "With Home Hardware I've been right 3 of 3 times.",
+            'record' => ['agreed' => 3, 'called' => 3],
             'facts' => [
                 ['label' => 'Vendor', 'values' => ['Home Hardware', 'Home Hardware'], 'state' => 'same'],
                 ['label' => 'Time', 'values' => ['10:02', null], 'state' => 'missing'],
@@ -40,6 +41,7 @@ class PennyJobAdapterTest extends TestCase
         $this->assertSame(['id' => 278, 'label' => '#278 · in the books', 'who' => 'Nigel C.', 'image' => '/crm/api/serve-receipt.php?id=91'], $j['keep']);
         $this->assertSame(['id' => 301, 'label' => '#301 · waiting', 'who' => 'Trevor', 'image' => null], $j['copy']);
         $this->assertSame("With Home Hardware I've been right 3 of 3 times.", $j['confidence']);
+        $this->assertSame('held', $j['sure'], 'three right calls: a closed outline, not yet solid');
         $this->assertSame('/crm/ledger/', $j['anchor']['href']);
     }
 
@@ -81,5 +83,18 @@ class PennyJobAdapterTest extends TestCase
         $this->assertSame('all into #278 · 2 copies', $j['primary']['sub'], 'the label says how many copies the merge sets aside');
         $this->assertCount(2, $j['undo']['requests']);
         $this->assertSame('dup:278:301-302', $j['key']);
+    }
+
+    /** The triangle: broken until she has called the vendor once, closed while the record is short or blemished, solid once earned. */
+    public function testSureGradesHerRecordWithTheVendor(): void
+    {
+        $this->assertSame('forming', PennyJobAdapter::sure([]));
+        $this->assertSame('forming', PennyJobAdapter::sure(['agreed' => 0, 'called' => 0]));
+        $this->assertSame('held', PennyJobAdapter::sure(['agreed' => 1, 'called' => 1]));
+        $this->assertSame('held', PennyJobAdapter::sure(['agreed' => 3, 'called' => 3]));
+        $this->assertSame('held', PennyJobAdapter::sure(['agreed' => 5, 'called' => 6]), 'ever wrong: outline');
+        $this->assertSame('earned', PennyJobAdapter::sure(['agreed' => 4, 'called' => 4]));
+        $this->assertSame('earned', PennyJobAdapter::fromGroup($this->group(['record' => ['agreed' => 9, 'called' => 9]]), 1, 1)['sure']);
+        $this->assertSame('forming', PennyJobAdapter::fromGroup($this->group(['record' => []]), 1, 1)['sure'], 'no record: the broken outline');
     }
 }
