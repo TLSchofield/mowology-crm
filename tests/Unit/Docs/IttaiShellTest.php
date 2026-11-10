@@ -108,6 +108,8 @@ class IttaiShellTest extends TestCase
         $js = $this->src('public/crm/js/ittai-shell.js');
         $this->assertStringContainsString("'--it-live'", $js);
         $this->assertStringContainsString('it-layer', $js, 'cards and flyouts are moved to <body>');
+        $this->assertSame(2, substr_count($js, 'closeCards(true)'), 'Escape and a click elsewhere keep the here-head\'s card (Tim, 2026-11-10)');
+        $this->assertStringContainsString("g.classList.contains('is-here') && c && sp) { here = g; return; }", $js);
     }
 
     /**

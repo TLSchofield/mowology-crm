@@ -132,13 +132,27 @@
             rowOf(g).setAttribute('aria-expanded', open ? 'true' : 'false');
             setChev(g, open);
         }
-        function closeCards() {
+        /**
+         * Close every card. With keepHere, the head you are with (the group holding this page, .is-here) keeps
+         * hers: her card is the head, the job strip runs out of it, and a click in the page must not take it away
+         * (Tim, 2026-11-10). Only a card opened for another head gives way to a stray click or Escape.
+         */
+        function closeCards(keepHere) {
+            var here = null;
             groups.forEach(function (g) {
                 var c = cardOf(g), sp = spaceOf(g);
+                if (keepHere && g.classList.contains('is-here') && c && sp) { here = g; return; }
                 if (c) c.classList.remove('is-open');
                 if (sp) sp.hidden = true;
                 g.classList.remove('has-card');
             });
+            if (here && !isRail()) {
+                var hc = cardOf(here), hs = spaceOf(here);
+                hs.hidden = false;
+                hc.classList.add('is-open');
+                here.classList.add('has-card');
+                if (typeof placeCard === 'function') placeCard(here);
+            }
             measureLive();
             if (typeof placeLink === 'function') placeLink();
         }
@@ -329,11 +343,11 @@
         // Escape, a click elsewhere or on the lockup closes the card and any flyout.
         document.addEventListener('keydown', function (e) {
             if (e.key !== 'Escape') return;
-            closeCards();
+            closeCards(true);
             closeFlies();
         });
         document.addEventListener('click', function (e) {
-            if ((!sb.contains(e.target) && !layer.contains(e.target)) || e.target.closest('.it-mark')) { closeCards(); closeFlies(); }
+            if ((!sb.contains(e.target) && !layer.contains(e.target)) || e.target.closest('.it-mark')) { closeCards(true); closeFlies(); }
         });
         window.addEventListener('resize', function () { replaceOpenCards(); closeFlies(); measureLive(); });
         // A group finished folding or unfolding: every row below it has moved, so the open card follows.
