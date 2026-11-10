@@ -445,7 +445,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-outer { container-type: inline-size; margin: 0 0 24px; }
 .it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 360px; column-gap: 24px; align-items: start; }
 /* the horizontal flow needs its width: under 1360 px of content the graph goes below the strip */
-@container (max-width: 1360px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
+@container (max-width: 1420px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
 .it-job-rail { position: relative; }
 .it-job-viz { margin: 0; padding: 16px 24px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
