@@ -1655,6 +1655,8 @@ if ($hasPropCoords) {
                                                         <i data-feather="cloud-rain" style="width: 14px; height: 14px;"></i>
                                                     </button>
                                                     <?php if (userHasPermission('jobs.edit')): ?>
+                                                    <a class="btn btn-sm btn-outline-secondary" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$visit['id']; ?>#mw-sub"
+                                                       title="Give this visit to another company" aria-label="Subcontract this visit">Subcontract</a>
                                                     <button type="button" class="btn btn-sm btn-outline-danger"
                                                             onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
                                                             title="Delete this visit">

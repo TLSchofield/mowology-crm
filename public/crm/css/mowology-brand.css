@@ -41787,3 +41787,5 @@ body.mw-books {
 .mw-sub-files { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .mw-sub-files img { width: 100%; height: 96px; object-fit: cover; border-radius: 10px; display: block; }
 .mw-sub-event { padding: 4px 0; }
+.mw-dv-btn-sub { flex: 0 0 auto; display: inline-block; padding: 6px 9px; border: 1px solid var(--mw-light); border-radius: 5px; font-size: .72rem; font-weight: 600; color: var(--mw-dark); white-space: nowrap; text-decoration: none; }
+.mw-dv-btn-sub:hover { background: var(--mw-light); color: var(--mw-dark); text-decoration: none; }
