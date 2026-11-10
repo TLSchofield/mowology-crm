@@ -425,7 +425,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 
 /* The job strip: a head's job across the top of her pages (Penny's duplicate receipt). A hairline rail runs
    through the middle: what the two receipts say, the two photos, the two answers, then where it lands. */
-.it-job { margin: 0; padding: 16px 20px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job { margin: 0; padding: 12px 20px 8px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job[hidden], .it-job [hidden] { display: none; }
 .it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
@@ -489,7 +489,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-disc-differs { background: var(--it-sunk); border: 2px solid var(--it-status-attention); color: var(--it-status-attention); }
 .it-job-disc-missing { background: var(--it-sunk); border: 2px solid var(--it-meta); color: var(--it-meta); }
 .it-job-disc-info { background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
-.it-job-imgs { min-width: 104px; }
+.it-job-imgs { min-width: 104px; row-gap: 22px; }
 .it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 104px; }
 .it-job-imgs .it-job-fig:first-child { align-self: end; }
 .it-job-imgs .it-job-fig:last-child { align-self: start; }
@@ -503,6 +503,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-acts .it-btn { width: 100%; }
 .it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 16px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
 .it-job .it-btn .it-job-ic { grid-row: 1 / span 2; width: 20px; height: 20px; }
+.it-job .it-btn-fill .it-job-ic { transform: rotate(90deg); }   /* the merge arrow points along the horizontal flow */
 .it-job .it-btn b { font-weight: 600; }
 .it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
 .it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }

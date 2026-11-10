@@ -71,7 +71,7 @@ $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__
     $keepLabel = (string)(($j['keep'] ?? [])['label'] ?? '');
     $copyLabel = (string)(($j['copy'] ?? [])['label'] ?? '');
     return '<div class="it-job-rail">'
-        . '<a class="it-job-anchor it-job-anchor-start" href="/crm/receipts-review_appstack.php"><span class="it-ad it-ad-fill">' . $__ijSvg('copies') . '</span><span>Receipts</span></a>'
+        . '<a class="it-job-anchor it-job-anchor-start" href="/crm/receipts-review_appstack.php"><span class="it-ad it-ad-fill">' . $__ijSvg('copies') . '</span><span>Duplicate</span></a>'
         . '<span class="it-job-conf" role="img" aria-label="Penny proposes; your approval decides"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>'
         . '<div class="it-job-split">'
         . '<div class="it-job-col it-job-lblcol"><span class="it-job-top it-job-keeplbl">' . h($keepLabel) . '</span><span class="it-job-m"></span><span class="it-job-bot it-job-copylbl">' . h($copyLabel) . '</span></div>'
@@ -107,7 +107,7 @@ itIconSprite();
 ?>
 <div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job" data-head="penny" aria-label="Penny's job">
-  <h2 class="it-job-t"><span class="it-job-tt"><?= h($__ij['title']) ?></span> <span class="it-tag">AI</span><span class="it-job-c"><?= h($__ij['confidence']) ?></span></h2>
+  <h2 class="it-vh it-job-tt"><?= h($__ij['title']) ?></h2>
   <div class="it-job-body"><?= $__ijRail($__ij) ?></div>
   <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
