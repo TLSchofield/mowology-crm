@@ -58,82 +58,17 @@ try {
     session_write_close();
 
     require_once APP_ROOT . '/Modules/Comms/Services/YuiDeskService.php';
-    require_once APP_ROOT . '/Modules/Comms/Services/YuiDraftService.php';
-    require_once APP_ROOT . '/Modules/Comms/Services/InboundQuestionService.php';
-    $desk = new YuiDeskService($db);
+    require_once APP_ROOT . '/Modules/Comms/Services/YuiActions.php';
     $name = SalesDeskService::ownerName((array)$user);
 
     if ($mode === 'brief') {
+        $desk = new YuiDeskService($db);
         echo json_encode(['ok' => true] + $desk->brief($name));
         exit;
     }
-    if (!$desk->ready()) {
-        echo json_encode(['ok' => false, 'error' => 'Migration 1191 has not run yet']);
-        exit;
-    }
-    $drafts = new YuiDraftService($db);
-    $key = substr((string)($input['key'] ?? ''), 0, 120);
-    $gone = ['ok' => false, 'message' => 'That one is no longer on my list — refresh.'];
-
-    switch ($mode) {
-        case 'jobs':   // Yui's decisions, one card at a time (desktop strip, iPhone carousel)
-            require_once APP_ROOT . '/Modules/Comms/Services/YuiJobAdapter.php';
-            echo json_encode(['ok' => true, 'jobs' => YuiJobAdapter::jobs($db, $name)]);
-            break;
-
-        case 'desk':
-            $out = ['ok' => true, 'name' => $name] + $desk->desk($name);
-            $who = new InboundQuestionService($db);
-            if ($who->ready()) $out['who'] = ['items' => $who->questions(), 'quiet_count' => $who->quietCount(), 'quiet' => $who->quiet()];
-            echo json_encode($out);
-            break;
-
-        case 'who_accounts':
-            $who = new InboundQuestionService($db);
-            echo json_encode(['ok' => true, 'accounts' => $who->ready() ? $who->accounts(mb_substr(trim((string)($_GET['q'] ?? '')), 0, 60)) : []]);
-            break;
-
-        case 'who_confirm':
-        case 'who_not':
-        case 'who_undo': {
-            $who = new InboundQuestionService($db);
-            if (!$who->ready()) { echo json_encode(['ok' => false, 'message' => 'Migration 1447 has not run yet.']); break; }
-            $wid = (int)($input['id'] ?? 0);
-            $uid = (int)($user['id'] ?? 0);
-            if ($mode === 'who_confirm') {
-                echo json_encode($who->confirm($wid, (int)($input['client_id'] ?? 0), mb_substr(trim((string)($input['first_name'] ?? '')), 0, 100),
-                                               mb_substr(trim((string)($input['last_name'] ?? '')), 0, 100), $uid));
-            } elseif ($mode === 'who_not') {
-                echo json_encode($who->notClient($wid, $uid));
-            } else {
-                echo json_encode($who->undo($wid, $uid));
-            }
-            break;
-        }
-
-        case 'draft': {
-            $item = $desk->find($key, $name);
-            echo json_encode($item ? $drafts->draftReply($item, $name, (int)$user['id']) : $gone);
-            break;
-        }
-
-        case 'send': {
-            $item = $desk->find($key, $name);
-            echo json_encode($item ? $drafts->send($item, $input, (array)$user, $name) : $gone);
-            break;
-        }
-
-        case 'handled': {
-            if (strpos($key, 'yui:') !== 0) { echo json_encode($gone); break; }
-            $item = $desk->find($key, $name);
-            echo json_encode($drafts->handled($key, (string)($item['kind'] ?? ''), isset($item['contact_id']) ? (int)$item['contact_id'] : null, (array)$user));
-            break;
-        }
-
-        default:
-            http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => 'Unknown mode']);
-    }
+    $out = YuiActions::dispatch($db, $mode, $input + ['q' => (string)($_GET['q'] ?? '')], (array)$user, $name);
+    if (isset($out['_status'])) { http_response_code((int)$out['_status']); unset($out['_status']); }
+    echo json_encode($out);
 } catch (Throwable $e) {
     error_log('[yui] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);

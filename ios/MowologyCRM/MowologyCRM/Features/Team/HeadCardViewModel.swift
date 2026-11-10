@@ -19,7 +19,7 @@ import CoreLocation
 
 /// The calls a head card makes. APIClient in the app; a canned stub in previews/renders.
 @MainActor
-protocol TeamHeadAPI {
+protocol TeamHeadAPI: YuiJobsAPI {
     func loadCard(head: String) async throws -> HeadCardResponse
     func send(_ body: [String: Any]) async throws -> HeadActionResponse
     /// Otto's suggestion buttons / auto-log Undo (team-mobile otto_decide | otto_undo_auto).
@@ -61,6 +61,15 @@ struct LiveTeamHeadAPI: TeamHeadAPI {
 
     func ottoMissedSend(_ body: [String: Any]) async throws -> OttoMissedActionResponse {
         try await client.request(.ottoMissedReviewAction, body: body)
+    }
+
+    func yuiJobs() async throws -> YuiJobsResponse {
+        try await client.request(.teamYuiJobs)
+    }
+
+    func yuiAct(request: [String: Any], fields: [String: Any], idempotencyKey: String) async throws -> YuiActResponse {
+        try await client.request(.teamHeadAction, body: ["mode": "yui_act", "request": request, "fields": fields],
+                                 extraHeaders: ["Idempotency-Key": idempotencyKey])
     }
 }
 
@@ -133,11 +142,14 @@ final class HeadCardViewModel: ObservableObject {
 
     /// Otto's end-of-day missed-visit review (Otto's card only).
     let missedReview: OttoMissedReviewModel
+    /// Yui's decision carousel (Yui's card only; empty for the other heads).
+    let yuiJobs: YuiJobsViewModel
 
     init(head: String, api: TeamHeadAPI, geocoder: AddressGeocoder = AppleAddressGeocoder()) {
         self.head = head
         self.api = api
         self.geocoder = geocoder
+        self.yuiJobs = YuiJobsViewModel(api: api)
         self.missedReview = OttoMissedReviewModel(api: api)
     }
 
@@ -165,6 +177,7 @@ final class HeadCardViewModel: ObservableObject {
                 loadError = r.error ?? "\(head.capitalized) card response ok=false; server returned no error field."
             } else {
                 apply(r)
+                if head == "yui" { await yuiJobs.load() }
             }
         } catch let err as APIError {
             loadError = err.errorDescription

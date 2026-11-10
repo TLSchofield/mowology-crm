@@ -27,6 +27,12 @@
  * POST {mode: 'mia_decide', id, action: send|skip|unqueue, subject?, body?, now?, reason?}
  *                                                       Mia's suggestions — exactly the web card's mia.php {mode: decide}
  *                                                       (marketing.approve). Send waits for their best time unless now.
+ * GET  {mode: 'yui_jobs'}                              Yui's decision cards, YuiJobAdapter::jobs (billing.edit): {ok, jobs}.
+ * POST {mode: 'yui_act', request: {mode, key|id}, fields: {…}}
+ *                                                       A card's button. request.mode is one of send|handled|who_confirm|
+ *                                                       who_not|who_undo|draft|who_accounts (fields.q); the card is re-read on
+ *                                                       the server and only the names in ITS fields list are merged (YuiActions;
+ *                                                       billing.edit). Answers as /crm/api/yui.php does.
  * POST {mode: 'ask', question}                          Charlie answers from CRM data (CharlieAskService,
  *                                                       daily-capped, Tim's tap only).
  * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a routed message (InboundRouteService):
@@ -166,7 +172,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$user['id'], 'team-mobile', $mode, ['act', 'ask', 'move', 'done', 'geocode', 'gbp_post', 'otto_decide', 'otto_undo_auto']);
+    IdempotencyGuard::begin($db, (int)$user['id'], 'team-mobile', $mode, ['act', 'ask', 'move', 'done', 'geocode', 'gbp_post', 'otto_decide', 'otto_undo_auto', 'yui_act']);
     if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
     require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
@@ -433,6 +439,36 @@ try {
             require_once APP_ROOT . '/Modules/Operations/Services/OttoContractLogService.php';
             require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';   // VisitLifecycleService (stop status)
             echo json_encode((new OttoContractLogService($db))->undo((int)($input['id'] ?? 0), (int)$user['id']));
+            break;
+        }
+
+        case 'yui_jobs':
+        case 'yui_act': {
+            // Yui's decision carousel — the same actions as the web card (/crm/api/yui.php), via YuiActions.
+            if (($mode === 'yui_act') !== ($method === 'POST')) throw new RuntimeException(($mode === 'yui_act' ? 'POST' : 'GET') . ' required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'error' => 'Permission denied: billing.edit required']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Sales/Services/SalesDeskService.php';
+            require_once APP_ROOT . '/Modules/Comms/Services/YuiActions.php';
+            require_once APP_ROOT . '/Modules/Comms/Services/YuiJobAdapter.php';
+            $owner = SalesDeskService::ownerName($user);
+            if ($mode === 'yui_jobs') {
+                $out = YuiActions::dispatch($db, 'jobs', [], $user, $owner);
+                echo json_encode($out);
+                break;
+            }
+            $req = YuiActions::phoneRequest(YuiJobAdapter::jobs($db, $owner), (array)($input['request'] ?? []), (array)($input['fields'] ?? []));
+            if ($req === null) {
+                echo json_encode(['ok' => false, 'message' => 'That one is no longer on my list — refresh.']);
+                break;
+            }
+            $out = YuiActions::dispatch($db, (string)$req['mode'], $req, $user, $owner);
+            if (isset($out['_status'])) { http_response_code((int)$out['_status']); unset($out['_status']); }
+            echo json_encode($out);
+            if (!empty($out['ok']) && isset($req['key'])) tmDropReady($db, (string)$req['key']);
             break;
         }
 
