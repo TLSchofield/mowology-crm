@@ -181,7 +181,10 @@
             frac.setAttribute('aria-label', pm + ' of ' + pt + ' pieces in hand');
         }
         var lbl = rail.querySelector('.it-job-lbl');
-        if (lbl) lbl.textContent = job.label || '';
+        if (lbl) {   // "1 invoice + payment": the first word group above the rail, the second below it
+            lbl.textContent = '';
+            String(job.label || '').split(' + ').forEach(function (w) { var s = document.createElement('span'); s.textContent = w; lbl.appendChild(s); });
+        }
         side(rail.querySelector('.it-job-side-top'), job.left);
         side(rail.querySelector('.it-job-side-bot'), job.right);
         var start = rail.querySelector('.it-job-anchor-start');

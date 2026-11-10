@@ -114,8 +114,8 @@ $__ijSide = static function (array $side, bool $top): string {
 $__ijPieces = static function (?array $j): string {
     $m = (int)($j['pieces']['matched'] ?? 0); $t = (int)($j['pieces']['total'] ?? 3);
     return '<div class="it-job-pieces"><span class="it-job-frac" role="img" aria-label="' . h($m . ' of ' . $t . ' pieces in hand') . '">'
-        . '<b class="it-job-frac-n">' . $m . '</b><svg class="it-job-frac-s" aria-hidden="true" viewBox="-8 -6 116 52" width="116" height="52"><path d="M-8 20H10L56 -4V20H98"/></svg><b class="it-job-frac-d">' . $t . '</b></span>'
-        . '<span class="it-job-lbl">' . h((string)($j['label'] ?? '')) . '</span></div>';
+        . '<b class="it-job-frac-n">' . $m . '</b><svg class="it-job-frac-s" aria-hidden="true" viewBox="-8 -4 138 72" width="138" height="72"><path d="M0 32H12L82 0V32H116"/></svg><b class="it-job-frac-d">' . $t . '</b></span>'
+        . '<span class="it-job-lbl">' . implode('', array_map(fn($w) => '<span>' . h($w) . '</span>', explode(' + ', (string)($j['label'] ?? '')))) . '</span></div>';
 };
 // The e-Transfer rail (Tim's phone reference, 2026-11-10): Bank → the fraction and the match's name → the triangle →
 // the frame: e-Transfer above the rail, invoice(s) below, a disc per fact where they meet → Record payment → Ledger.
