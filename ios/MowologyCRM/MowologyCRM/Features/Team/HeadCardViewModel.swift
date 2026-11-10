@@ -119,6 +119,8 @@ final class HeadCardViewModel: ObservableObject {
     @Published private(set) var ottoTotal = 0
     @Published private(set) var ottoReviewURL = "/crm/ops/otto-review.php"
     @Published private(set) var autolog: OttoAutoLog?
+    /// Otto's Subcontracts carousel (SubcontractService::board), waiting-on-you first.
+    @Published private(set) var subcontracts: [SubcontractCard] = []
     /// Auto-log rows undone from this phone (their outcome line stays).
     @Published private(set) var undoneAuto: Set<Int> = []
     /// The suggestion (or auto-log row, negated id) being sent.
@@ -188,6 +190,7 @@ final class HeadCardViewModel: ObservableObject {
         ottoTotal = r.otto?.total ?? 0
         ottoReviewURL = r.otto?.reviewURL ?? "/crm/ops/otto-review.php"
         autolog = r.otto?.autolog
+        subcontracts = r.subcontracts
         undoneAuto = []
         ottoNotes = [:]
     }
@@ -327,6 +330,15 @@ final class HeadCardViewModel: ObservableObject {
             ottoNotes[s.id] = OttoNote(text: ErrorDetails.describe(error), isError: true)
         }
         return nil
+    }
+
+    /// A Subcontracts button: team-mobile {mode: sub_accept | sub_paid | sub_dismiss, job_id}, the same service calls
+    /// as the web card. The board is read again afterwards so the job shows its new stage.
+    func subcontractAct(_ card: SubcontractCard, mode: String) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": mode, "job_id": card.jobId]) else { return }
+        show(r.message ?? "Done.", error: false)
+        await load()
     }
 
     /// A local problem with the inputs (no times, no minutes), shown under that suggestion.

@@ -41790,3 +41790,31 @@ body.mw-books {
 .mw-sub-event { padding: 4px 0; }
 .mw-dv-btn-sub { flex: 0 0 auto; display: inline-block; padding: 6px 9px; border: 1px solid var(--mw-light); border-radius: 5px; font-size: .72rem; font-weight: 600; color: var(--mw-dark); white-space: nowrap; text-decoration: none; }
 .mw-dv-btn-sub:hover { background: var(--mw-light); color: var(--mw-dark); text-decoration: none; }
+
+/* Otto's Subcontracts carousel */
+.mw-subboard { border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+.mw-subboard-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.mw-subboard-title { font-size: 1rem; font-weight: 700; margin: 0; color: var(--mw-forest); }
+.mw-subboard-title small { font-size: .8rem; font-weight: 500; color: var(--mw-ink-700); }
+.mw-subboard-nav { display: flex; align-items: center; gap: 4px; }
+.mw-subboard-arrow { width: 44px; height: 44px; border: 1px solid var(--mw-ink-200); border-radius: 10px; background: var(--mw-ink-0); color: var(--mw-forest); font-size: 1.4rem; line-height: 1; cursor: pointer; }
+.mw-subboard-count { font-size: .8rem; color: var(--mw-ink-700); min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.mw-subboard-who strong { display: block; font-size: .95rem; color: var(--mw-forest); }
+.mw-subboard-who span { font-size: .8rem; color: var(--mw-ink-700); overflow-wrap: anywhere; }
+.mw-subboard-track { list-style: none; display: flex; margin: 12px 0 8px; padding: 0 0 4px; overflow-x: auto; }
+.mw-subboard-track li { flex: 1 0 60px; position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.mw-subboard-track li::before { content: ""; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: var(--mw-ink-200); z-index: 0; }
+.mw-subboard-track li:first-child::before { display: none; }
+.mw-subboard-track li.is-done::before, .mw-subboard-track li.is-current::before { background: var(--mw-green); }
+.mw-subboard-dot { position: relative; z-index: 1; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--mw-ink-200); background: var(--mw-ink-0); color: var(--mw-ink-0); font-size: .75rem; font-weight: 700; display: grid; place-items: center; }
+.mw-subboard-track li.is-done .mw-subboard-dot { background: var(--mw-green); border-color: var(--mw-green); }
+.mw-subboard-track li.is-current .mw-subboard-dot { background: var(--mw-dark); border-color: var(--mw-dark); box-shadow: 0 0 0 3px var(--mw-light); }
+.mw-subboard-label { font-size: .75rem; line-height: 1.2; color: var(--mw-ink-700); }
+.mw-subboard-track li.is-current .mw-subboard-label { font-weight: 700; color: var(--mw-forest); }
+.mw-subboard-now { font-size: .8rem; color: var(--mw-ink-700); margin: 0 0 8px; }
+.mw-subboard-now strong { color: var(--mw-forest); }
+.mw-subboard-photos { display: flex; gap: 6px; margin-bottom: 8px; }
+.mw-subboard-photos img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; display: block; }
+.mw-subboard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mw-subboard-actions .btn { min-height: 44px; display: inline-flex; align-items: center; }
+.mw-subboard-error { font-size: .8rem; font-weight: 600; color: var(--mw-color-danger); margin: 8px 0 0; }

@@ -52,6 +52,11 @@ struct HeadCardView: View {
             if vm.card != nil {
                 if vm.head == "otto" {
                     OttoMissedNode(model: vm.missedReview)
+                    if !vm.subcontracts.isEmpty {
+                        SpineNode(slug: "otto", id: "subcontracts", title: "Subcontracts", symbol: "person.2.fill",
+                                  waiting: HeadSpineLogic.count(vm.subcontracts.filter { SubcontractBoardSection.needsYou($0) }.count, "needs you", plural: "need you"),
+                                  defaultOpen: true) { SubcontractBoardSection(vm: vm) }
+                    }
                     if !vm.ottoItems.isEmpty || vm.autolog != nil {
                         SpineNode(slug: "otto", id: "suggestions", title: "Suggestions", symbol: "sparkles",
                                   waiting: HeadSpineLogic.count(vm.ottoTotal, "to review")) { OttoDeskSection(vm: vm) }
