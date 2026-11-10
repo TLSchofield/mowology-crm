@@ -8,6 +8,27 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## How a business starts and gets paid (Tim, 2026-11-10) — before the first real business
+Ittai no longer depends on invoicing as its centre: clients, the schedule and the crew's day are the core, and the invoice is
+the handoff at the end. Without QuickBooks a business can still invoice, show How to Pay and keep its books, but has no Pay
+button and nothing marks an invoice paid. Each item needs its own plan.
+1. **Pasted payment link** — the business pastes its own Stripe, Square or PayPal page; it becomes the Pay button on the customer
+   invoice page when `Tenant::takesCards()` is false and there is no QuickBooks link. The money goes straight to the business,
+   and Ittai only sends the client there. Ask the lawyer first (Bank of Canada examples treat a redirect to someone else's
+   checkout as not a payment provider). Marked paid by hand until a provider says otherwise. **Shared:** the rule and the button.
+   **Private:** each business's link.
+2. **e-Transfer matching for every business** — exists for Mowology only; each business needs its own mailbox and poller
+   (`project_etransfer_inbox_poller`). **Shared:** the matching rules. **Private:** the mailbox and payers.
+3. **Two setup paths, not one with a fork.** Measured 2026-11-10 on a fresh local business: 14 screens plus connecting QuickBooks,
+   never asks what work they do, ends on an empty day. Symphony by Wix took two tapped answers and about 3 minutes.
+   - **Has something:** fetch it, then "Are these your clients?" (keep or skip). Order: QuickBooks, phone contacts, Google Business
+     (fills name, address, phone), Outlook, Gmail once Google's yearly assessment is priced, Facebook/Instagram messages, WhatsApp.
+   - **Has nothing:** "Who's your next job for, and when?" A client and a schedule entry from one real job; the price can wait.
+   - **Both end on the schedule** (Tim started on Jobber with scheduling). Check how many steps one new job takes today.
+   - **Ask when it matters:** business name before the first thing goes to a client, GST at the first invoice, payroll at the first
+     employee, accountant when there is something to show, quiet hours before the first notification. Terms stay up front.
+   - **Owed first:** a business creating itself (today Tim provisions it and adds its Intuit address by hand), iPhone sign-up.
+
 ## Build queue (Tim, 2026-11-05: "Queue all other items") — in order, one at a time after the payment thank-you
 1. ~~e-Transfer memos naming invoices without the year~~ — DONE (b13a1aa95, seen 2026-11-06).
 2. ~~Duplicate receipts on the phone~~ — BUILT 2026-11-06: Merge / Different square buttons, Penny's verdict + per-vendor record, facts side by side, Undo, Split off (iOS 1.3.89, web card, `expense_merges` migration 1442 — to run). Left: synchronised zoom across the two photos; web "Also on this purchase"; Penny asking per vendor for level 3 once her record is long.
@@ -604,7 +625,7 @@ side is shared; Android and the web overlay (`public/crm/js/field-job.js`) still
 rule. **Private:** each business's own prices.
 
 ## Getting paid without cards: what is left (Tim 2026-11-09)
-- A pasted payment link (the business's own Stripe or Square page) for businesses with no QuickBooks. Until then they show other ways to pay and mark invoices paid themselves.
+- A pasted payment link: moved up to "How a business starts and gets paid" at the top of this file (2026-11-10).
 - Intuit's official Connect button still needs the artwork pack from Tim's developer sign-in (see above).
 - The pay link has only been seen with online payment off (the test company has no QuickBooks Payments). Prove the real page on a live QuickBooks once Production keys arrive.
 
