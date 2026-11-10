@@ -155,6 +155,7 @@
             var d = el('span', 'it-job-disc it-job-disc-' + c.state);
             d.setAttribute('role', 'img');
             d.setAttribute('aria-label', c.label + ': ' + (WORD[c.state] || 'info'));
+            d.setAttribute('title', c.label + ': ' + (WORD[c.state] || 'info'));
             d.appendChild(icon(ICON[c.state] || 'info'));
             li.appendChild(d);
             var bot = el('span', 'it-job-bot', c.bottom); bot.setAttribute('title', c.bottom || ''); li.appendChild(bot);
@@ -405,6 +406,28 @@
     root.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') skip();
     });
+
+    // The graph gives way, never the strip: with the graph beside it a rail that would overflow gets the whole row (is-solo),
+    // and the graph comes back when the width allows. Measured with the graph in place each time, so it cannot stick.
+    var wrap = root.closest('.it-job-wrap');
+    if (wrap && wrap.querySelector(':scope > .it-job-viz')) {
+        var fitQueued = false;
+        var fit = function () {
+            fitQueued = false;
+            var rail = root.querySelector('.it-job-rail');
+            if (!rail) return;
+            var was = wrap.classList.contains('is-solo');
+            wrap.classList.remove('is-solo');
+            var tight = rail.scrollWidth > rail.clientWidth + 1;
+            wrap.classList.toggle('is-solo', tight);
+            if (tight !== was) window.dispatchEvent(new Event('resize'));   // the head card's line re-finds the strip
+        };
+        var queueFit = function () { if (!fitQueued) { fitQueued = true; requestAnimationFrame(fit); } };
+        window.addEventListener('resize', queueFit);
+        if ('ResizeObserver' in window && wrap.parentNode) new ResizeObserver(queueFit).observe(wrap.parentNode);
+        if ('MutationObserver' in window) new MutationObserver(queueFit).observe(root, { childList: true, subtree: true });
+        queueFit();
+    }
 
     window.ItJob = { next: next };
 })();

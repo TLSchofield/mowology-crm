@@ -453,7 +453,10 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; column-gap: 24px; align-items: start; }
 /* no picture yet (Yui): the strip takes the whole row */
 .it-job-wrap:has(> .it-job-viz[hidden]) { grid-template-columns: minmax(0, 1fr); }
-/* the graph stays to the right on every desktop width (Tim); a tight strip scrolls its rail instead */
+/* When the strip needs more room, the graph collapses; the card never scrolls (Tim, 2026-11-10). ittai-job.js adds is-solo
+   when the rail would overflow with the graph beside it, and takes it off again when the width allows. */
+.it-job-wrap.is-solo { grid-template-columns: minmax(0, 1fr); }
+.it-job-wrap.is-solo > .it-job-viz { display: none; }
 @media (max-width: 1023px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
 .it-job-outer { --it-rail: var(--it-line); --it-rail: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
@@ -488,6 +491,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 /* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
 .it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
 .it-job-cols { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.it-job-col:not(:has(.it-job-top:not(:empty))):not(:has(.it-job-bot:not(:empty))) { min-width: 44px; }   /* a disc alone needs no more room than itself */
 .it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-col:has(.it-job-disc-same) .it-job-bot { color: var(--it-meta); opacity: .6; }

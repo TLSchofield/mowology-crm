@@ -168,17 +168,15 @@ class PennyJobAdapter
         $issued = $dates ? 'Issued ' . $d($dates[0]) . (count($dates) > 1 && $d(end($dates)) !== $d($dates[0]) ? ' – ' . $d(end($dates)) : '') : '–';
         // Column 4: the bank memo against the invoice list — same when the number is on the transfer
         $memo = trim((string)($et['memo'] ?? ''));
-        // one format everywhere (Tim, 2026-11-10): an invoice reads INV-2026-0485, even where the memo wrote "Invoice 2026 0485"
-        $memoShown = (string)preg_replace('/\b(?:INV(?:OICE)?[\s-]*)?(20\d{2})[\s-]+(\d{3,})\b/i', 'INV-$1-$2', $memo);
-        $memoTop = $memoShown !== '' ? (mb_strlen($memoShown) > 26 ? mb_substr($memoShown, 0, 25) . '…' : $memoShown) : 'No memo';
-        $list = $n > 2 ? implode(', ', array_slice($numbers, 0, 2)) . ' +' . ($n - 2) : implode(', ', $numbers);
         $memoState = in_array($kind, ['named', 'named_check'], true) || (string)($et['match_method'] ?? '') === 'invoice_number' ? 'same' : 'info';
 
+        // The frame already names both sides (who, when, the invoice number), so the columns carry only the comparison:
+        // the two amounts, the bank's state, and a disc each for payer and memo (Tim, 2026-11-10).
         $columns = [
             ['label' => 'Amount', 'top' => $money($active), 'bottom' => $knowOwing ? $money($owing) : '–', 'state' => $amountState],
-            ['label' => 'Payer', 'top' => $sender, 'bottom' => $client !== '' ? $client : '–', 'state' => $payerState],
-            ['label' => 'Dates', 'top' => $bankTop, 'bottom' => $issued, 'state' => 'info'],
-            ['label' => 'Memo', 'top' => $memoTop, 'bottom' => $list !== '' ? $list : '–', 'state' => $memoState],
+            ['label' => 'Payer', 'top' => '', 'bottom' => '', 'state' => $payerState],
+            ['label' => 'Dates', 'top' => $bankTop, 'bottom' => '', 'state' => 'info'],
+            ['label' => 'Memo', 'top' => '', 'bottom' => '', 'state' => $memoState],
         ];
 
         $invoiceNumbers = []; $amounts = [];

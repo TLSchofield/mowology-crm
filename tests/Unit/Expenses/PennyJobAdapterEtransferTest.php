@@ -60,8 +60,9 @@ class PennyJobAdapterEtransferTest extends TestCase
         $this->assertSame(['Amount', 'Payer', 'Dates', 'Memo'], array_column($cols, 'label'));
         $this->assertSame(['label' => 'Amount', 'top' => '$1,890.00', 'bottom' => '$1,890.00', 'state' => 'same'], $cols[0]);
         $this->assertSame('same', $cols[1]['state']);
-        $this->assertSame(['label' => 'Dates', 'top' => 'Banked Nov 4', 'bottom' => 'Issued Oct 20', 'state' => 'info'], $cols[2]);
-        $this->assertSame(['label' => 'Memo', 'top' => 'INV-2026-0465 thanks', 'bottom' => 'INV-2026-0465', 'state' => 'same'], $cols[3]);
+        $this->assertSame(['label' => 'Payer', 'top' => '', 'bottom' => '', 'state' => 'same'], $cols[1], 'the frame names both sides: the column is a disc alone');
+        $this->assertSame(['label' => 'Dates', 'top' => 'Banked Nov 4', 'bottom' => '', 'state' => 'info'], $cols[2]);
+        $this->assertSame(['label' => 'Memo', 'top' => '', 'bottom' => '', 'state' => 'same'], $cols[3]);
     }
 
     /** A strata plan paying its owner's invoice: the names differ, but the owner has recorded that pair before, so the Payer column matches. */
@@ -73,12 +74,6 @@ class PennyJobAdapterEtransferTest extends TestCase
         $this->assertSame('differs', $plain['state']);
         $learned = PennyJobAdapter::fromTransfer($row, $this->read(), $facts, 1, 1, fn(string $s, string $p): bool => $s === 'STRATA PLAN BCS-2106' && $p === 'Alexandra Bee')['columns'][1];
         $this->assertSame('same', $learned['state']);
-    }
-
-    public function testMemoColumnWritesAnInvoiceNumberInTheOneFormat(): void
-    {
-        $cols = PennyJobAdapter::fromTransfer($this->row(['memo' => 'Invoice 2026 0485']), $this->read(), $this->facts(), 1, 1)['columns'];
-        $this->assertSame('INV-2026-0485', $cols[3]['top']);
     }
 
     /** Record payment is the card's own request: action=record, notification_id, invoice_numbers[], amounts[] to etransfer-confirm.php. */
@@ -114,8 +109,7 @@ class PennyJobAdapterEtransferTest extends TestCase
         $cols = $j['columns'];
         $this->assertSame(['$349.26', '$349.26', 'same'], [$cols[0]['top'], $cols[0]['bottom'], $cols[0]['state']]);
         $this->assertSame('differs', $cols[1]['state'], 'the strata sent it; the invoices are for the owner');
-        $this->assertSame(['Likely Nov 5', 'Issued Mar 10 – May 10'], [$cols[2]['top'], $cols[2]['bottom']]);
-        $this->assertSame('INV-2026-0065, INV-2026-0066 +4', $cols[3]['bottom']);
+        $this->assertSame(['Likely Nov 5', ''], [$cols[2]['top'], $cols[2]['bottom']]);
         $this->assertSame($nums, $j['primary']['request']['invoice_numbers']);
         $this->assertSame(array_fill(0, 6, '58.21'), $j['primary']['request']['amounts']);
         $this->assertSame('6 invoices', $j['primary']['sub']);
@@ -131,7 +125,7 @@ class PennyJobAdapterEtransferTest extends TestCase
         $cols = $j['columns'];
         $this->assertSame(['$1,800.00', '$1,890.00', 'differs'], [$cols[0]['top'], $cols[0]['bottom'], $cols[0]['state']]);
         $this->assertSame(['Not banked yet', 'info'], [$cols[2]['top'], $cols[2]['state']]);
-        $this->assertSame(['No memo', 'INV-2026-0465', 'info'], [$cols[3]['top'], $cols[3]['bottom'], $cols[3]['state']]);
+        $this->assertSame('info', $cols[3]['state']);
         $this->assertSame(['1800.00'], $j['primary']['request']['amounts']);
     }
 
@@ -139,7 +133,7 @@ class PennyJobAdapterEtransferTest extends TestCase
     {
         $j = PennyJobAdapter::fromTransfer($this->row(), $this->read(), [], 1, 1);
         $this->assertSame(['–', 'info'], [$j['columns'][0]['bottom'], $j['columns'][0]['state']]);
-        $this->assertSame(['–', 'info'], [$j['columns'][1]['bottom'], $j['columns'][1]['state']]);
+        $this->assertSame('info', $j['columns'][1]['state']);
         $this->assertSame('', $j['right']['who']);
     }
 

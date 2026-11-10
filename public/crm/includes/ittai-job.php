@@ -71,7 +71,7 @@ $__ijCols = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg): st
     foreach ((array)($j['columns'] ?? []) as $c) {
         $st = (string)$c['state'];
         $cols .= '<li class="it-job-col"><span class="it-job-top" title="' . h($c['top']) . '">' . h($c['top']) . '</span>'
-            . '<span class="it-job-disc it-job-disc-' . h($st) . '" role="img" aria-label="' . h($c['label'] . ': ' . ($__ijWord[$st] ?? 'info')) . '">' . $__ijSvg($__ijIcon[$st] ?? 'info') . '</span>'
+            . '<span class="it-job-disc it-job-disc-' . h($st) . '" role="img" aria-label="' . h($c['label'] . ': ' . ($__ijWord[$st] ?? 'info')) . '" title="' . h($c['label'] . ': ' . ($__ijWord[$st] ?? 'info')) . '">' . $__ijSvg($__ijIcon[$st] ?? 'info') . '</span>'
             . '<span class="it-job-bot" title="' . h($c['bottom']) . '">' . h($c['bottom']) . '</span></li>';
     }
     return '<ol class="it-job-cols">' . $cols . '</ol>';
