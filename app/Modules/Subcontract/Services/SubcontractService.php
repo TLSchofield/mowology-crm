@@ -15,6 +15,8 @@ require_once __DIR__ . '/SubcontractHooks.php';
 class SubcontractService
 {
     private const SUBCONTRACT_CATEGORY = 'Subcontractors';
+    private const MAX_FILE_BYTES = 15728640;
+    private const MAX_FILES = 24;
 
     private PDO $db;
     private SubcontractHooks $hooks;
@@ -93,6 +95,13 @@ class SubcontractService
             $ownerId,
         ]);
         $jobId = (int)$this->db->lastInsertId();
+        // Two tabs can both pass the check above; the earlier job wins.
+        $first = $this->db->prepare("SELECT MIN(id) FROM subcontract_jobs WHERE visit_id = ? AND revoked_at IS NULL AND work_status NOT IN ('declined', 'cancelled')");
+        $first->execute([$visitId]);
+        if ((int)$first->fetchColumn() !== $jobId) {
+            $this->db->prepare("DELETE FROM subcontract_jobs WHERE id = ?")->execute([$jobId]);
+            throw new InvalidArgumentException('This visit is already with a subcontractor. Cancel that first.');
+        }
         $this->event($jobId, $visitId, 'sent', 'staff', $ownerId);
         return ['job_id' => $jobId, 'token' => $token];
     }
@@ -110,6 +119,7 @@ class SubcontractService
         $stmt->execute([$hash]);
         $job = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$job || !hash_equals((string)$job['token_hash'], $hash)) return null;
+        $job = $this->syncBill($job);
         $job['db_now'] = $this->now();
         $job['link_state'] = SubcontractRules::linkState($job, $job['db_now']);
         return $job;
@@ -172,6 +182,11 @@ class SubcontractService
         }
         if (in_array($to, ['declined'], true)) { $set[] = 'expires_at = ?'; $params[] = SubcontractRules::expiryFrom($now, true); }
 
+        if ($to === 'finished') {
+            $problem = SubcontractRules::proofProblem($afterTheFact, count($this->files($id, 'photo')), (string)($input['note'] ?? ''));
+            if ($problem !== null) return ['ok' => false, 'error' => $problem];
+        }
+
         $params[] = $id;
         $params[] = $from;
         $stmt = $this->db->prepare('UPDATE subcontract_jobs SET ' . implode(', ', $set) . ' WHERE id = ? AND work_status = ?');
@@ -185,6 +200,143 @@ class SubcontractService
         return ['ok' => true];
     }
 
+    /** Keep one photo or invoice she sent. @return array{ok:bool, error?:string, file_id?:int} */
+    public function addFile(array $job, string $kind, array $file): array
+    {
+        if (($job['link_state'] ?? '') !== 'ok') return ['ok' => false, 'error' => 'This link is no longer active.'];
+        $step = SubcontractRules::nextStep($job);
+        $allowed = $kind === 'invoice' ? ['send_bill'] : ['finish', 'send_proof', 'send_bill'];
+        if (!in_array($step, $allowed, true)) return ['ok' => false, 'error' => 'Files can\'t be added at this step.'];
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return ['ok' => false, 'error' => 'That file did not arrive. Please try again.'];
+        $size = (int)($file['size'] ?? 0);
+        if ($size <= 0 || $size > self::MAX_FILE_BYTES) return ['ok' => false, 'error' => 'That file is too large. The limit is 15 MB.'];
+        if (count($this->files((int)$job['id'])) >= self::MAX_FILES) return ['ok' => false, 'error' => 'That is the most files this job can hold.'];
+
+        $mime = (string)(new finfo(FILEINFO_MIME_TYPE))->file((string)$file['tmp_name']);
+        $extension = SubcontractRules::extensionFor($kind, $mime);
+        if ($extension === null) return ['ok' => false, 'error' => $kind === 'invoice' ? 'Send a PDF or a photo.' : 'Send a photo.'];
+
+        $name = bin2hex(random_bytes(16)) . '.' . $extension;
+        if (!$this->hooks->storeFile((string)$file['tmp_name'], $this->hooks->fileDir() . '/' . $name)) {
+            return ['ok' => false, 'error' => 'That file could not be saved. Please try again.'];
+        }
+        $this->db->prepare("INSERT INTO subcontract_files (job_id, kind, stored_name, original_name, mime_type, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            ->execute([(int)$job['id'], $kind, $name, mb_substr(basename((string)($file['name'] ?? '')), 0, 191), $mime, $size, $this->now()]);
+        return ['ok' => true, 'file_id' => (int)$this->db->lastInsertId()];
+    }
+
+    public function files(int $jobId, ?string $kind = null): array
+    {
+        $sql = "SELECT id, kind, stored_name, original_name, mime_type FROM subcontract_files WHERE job_id = ?" . ($kind !== null ? " AND kind = ?" : '') . " ORDER BY id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($kind !== null ? [$jobId, $kind] : [$jobId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** One file with the path to read it from, for the signed-in API only. */
+    public function fileForStaff(int $fileId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT id, job_id, kind, stored_name, original_name, mime_type FROM subcontract_files WHERE id = ?");
+        $stmt->execute([$fileId]);
+        $file = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$file) return null;
+        $file['path'] = $this->hooks->fileDir() . '/' . basename((string)$file['stored_name']);
+        return $file;
+    }
+
+    /** Her bill becomes a draft expense on the job, for Penny's normal review. */
+    public function submitBill(array $job, array $input): array
+    {
+        if (($job['link_state'] ?? '') !== 'ok') return ['ok' => false, 'error' => 'This link is no longer active.'];
+        if (SubcontractRules::nextStep($job) !== 'send_bill') return ['ok' => false, 'error' => 'This bill has already been sent.'];
+        $amount = round((float)($input['amount'] ?? 0), 2);
+        $gst = round((float)($input['gst'] ?? 0), 2);
+        $invoiceNo = trim((string)($input['invoice_no'] ?? ''));
+        $problem = SubcontractRules::billProblem($amount, $gst, $invoiceNo);
+        if ($problem !== null) return ['ok' => false, 'error' => $problem];
+
+        $id = (int)$job['id'];
+        $claim = $this->db->prepare("UPDATE subcontract_jobs SET bill_status = 'sent', bill_amount = ?, bill_gst = ?, bill_invoice_no = ? WHERE id = ? AND bill_status IN ('none', 'returned')");
+        $claim->execute([$amount, $gst, $invoiceNo ?: null, $id]);
+        if ($claim->rowCount() !== 1) return ['ok' => false, 'error' => 'This bill has already been sent.'];
+
+        $visit = $this->context((int)$job['visit_id']);
+        try {
+            $vendor = $this->db->prepare("SELECT vendor_id FROM subcontractors WHERE id = ?");
+            $vendor->execute([(int)$job['subcontractor_id']]);
+            $expenseId = $this->hooks->recordBill([
+                'expense_date' => substr($this->now(), 0, 10),
+                'vendor_id' => (int)$vendor->fetchColumn() ?: null,
+                'vendor_name_raw' => (string)($job['company_name'] ?? ''),
+                'description' => 'Subcontract: ' . (string)($visit['plan_title'] ?? ''),
+                'amount' => $amount,
+                'gst_amount' => $gst,
+                'total' => round($amount + $gst, 2),
+                'accounting_category' => self::SUBCONTRACT_CATEGORY,
+                'job_id' => (int)$job['plan_id'],
+                'property_id' => (int)($visit['property_id'] ?? 0) ?: null,
+                'notes' => trim('Bill from the subcontract link, visit #' . $job['visit_id'] . ($invoiceNo !== '' ? ', their invoice ' . $invoiceNo : '')),
+                'status' => 'draft',
+                'source' => 'subcontract',
+                'created_by' => (int)$job['created_by'],
+            ], (int)$job['created_by']);
+        } catch (Throwable $e) {
+            error_log('SubcontractService::submitBill job ' . $id . ': ' . $e->getMessage());
+            $this->db->prepare("UPDATE subcontract_jobs SET bill_status = ? WHERE id = ?")->execute([(string)$job['bill_status'], $id]);
+            return ['ok' => false, 'error' => 'We could not record this bill. Please try again, or call the office.'];
+        }
+        $this->db->prepare("UPDATE subcontract_jobs SET bill_expense_id = ? WHERE id = ?")->execute([$expenseId, $id]);
+        $this->event($id, (int)$job['visit_id'], 'bill_sent', 'sub', null, '$' . number_format($amount + $gst, 2));
+        $this->notifyOwner($job, 'bill_sent');
+        // Accepted before the bill came in: the visit's cost was taken from the agreed price, so take it again from the bill.
+        if (!empty($job['work_accepted_at'])) $this->hooks->refreshVisitCost((int)$job['visit_id'], (int)$job['created_by']);
+        return ['ok' => true];
+    }
+
+    /** The owner marks it paid once Penny has approved the bill and the work is accepted. */
+    public function markPaid(int $jobId, int $userId): array
+    {
+        $job = $this->find($jobId);
+        if (!$job) return ['ok' => false, 'error' => 'Job not found.'];
+        $job = $this->syncBill($job);
+        if (empty($job['work_accepted_at'])) return ['ok' => false, 'error' => 'Accept the work first.'];
+        if ((string)$job['bill_status'] !== 'approved') return ['ok' => false, 'error' => 'Approve the bill with Penny first.'];
+        $now = $this->now();
+        $stmt = $this->db->prepare("UPDATE subcontract_jobs SET bill_status = 'paid', bill_paid_at = ?, expires_at = ? WHERE id = ? AND bill_status = 'approved'");
+        $stmt->execute([$now, SubcontractRules::expiryFrom($now, true), $jobId]);
+        if ($stmt->rowCount() !== 1) return ['ok' => false, 'error' => 'This bill has already been marked paid.'];
+        $this->event($jobId, (int)$job['visit_id'], 'paid', 'staff', $userId);
+        return ['ok' => true];
+    }
+
+    /** Once per job: she saw the Ittai panel. Counted, so the owner can see what subcontracting brings in. */
+    public function markPanelSeen(array $job): void
+    {
+        if (!$this->hasEvent((int)$job['id'], 'panel_seen')) $this->event((int)$job['id'], (int)$job['visit_id'], 'panel_seen');
+    }
+
+    public function hasAskedAboutIttai(int $jobId): bool
+    {
+        return $this->hasEvent($jobId, 'ittai_interest');
+    }
+
+    public function askAboutIttai(array $job): array
+    {
+        if (($job['link_state'] ?? '') !== 'ok') return ['ok' => false, 'error' => 'This link is no longer active.'];
+        if (!$this->hasAskedAboutIttai((int)$job['id'])) {
+            $this->event((int)$job['id'], (int)$job['visit_id'], 'ittai_interest');
+            $this->notifyOwner($job, 'ittai_interest');
+        }
+        return ['ok' => true];
+    }
+
+    /** @return array{invited:int, opened:int, panel_seen:int, asked:int} what subcontracting has brought in, across every job */
+    public function marketingCounts(): array
+    {
+        $count = fn (string $type): int => (int)$this->db->query("SELECT COUNT(DISTINCT job_id) FROM subcontract_events WHERE event_type = '{$type}'")->fetchColumn();
+        return ['invited' => $count('sent'), 'opened' => $count('opened'), 'panel_seen' => $count('panel_seen'), 'asked' => $count('ittai_interest')];
+    }
+
     /** Stop a job and kill its link. Work already finished stays on record. */
     public function cancel(int $jobId, int $userId): bool
     {
@@ -194,6 +346,9 @@ class SubcontractService
         $status = SubcontractRules::canMove((string)$job['work_status'], 'cancelled') ? 'cancelled' : (string)$job['work_status'];
         $this->db->prepare("UPDATE subcontract_jobs SET work_status = ?, status_changed_at = ?, revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
             ->execute([$status, $now, $now, $jobId]);
+        if ($status === 'cancelled' && (string)$job['work_status'] === 'started' && empty($job['after_the_fact'])) {
+            $this->hooks->visitBackToScheduled((int)$job['visit_id'], $userId);
+        }
         $this->event($jobId, (int)$job['visit_id'], 'cancelled', 'staff', $userId);
         return true;
     }
@@ -236,7 +391,8 @@ class SubcontractService
             ORDER BY j.id DESC LIMIT 1
         ");
         $stmt->execute([$visitId]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $job = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $job ? $this->syncBill($job) : null;
     }
 
     public function timeline(int $jobId): array
@@ -244,6 +400,28 @@ class SubcontractService
         $stmt = $this->db->prepare("SELECT event_type, actor, note, on_site, created_at FROM subcontract_events WHERE job_id = ? ORDER BY id");
         $stmt->execute([$jobId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** A bill Penny has approved or sent back shows on her page without anyone touching this job. */
+    private function syncBill(array $job): array
+    {
+        if (!in_array((string)$job['bill_status'], ['sent', 'approved'], true) || empty($job['bill_expense_id'])) return $job;
+        $stmt = $this->db->prepare("SELECT status FROM expenses WHERE id = ?");
+        $stmt->execute([(int)$job['bill_expense_id']]);
+        $status = (string)$stmt->fetchColumn();
+        $next = in_array($status, ['approved', 'forwarded'], true) ? 'approved' : (in_array($status, ['rejected', 'cancelled'], true) ? 'returned' : null);
+        if ($next === null || $next === $job['bill_status']) return $job;
+        $this->db->prepare("UPDATE subcontract_jobs SET bill_status = ? WHERE id = ?")->execute([$next, (int)$job['id']]);
+        $this->event((int)$job['id'], (int)$job['visit_id'], $next === 'approved' ? 'bill_approved' : 'bill_returned');
+        $job['bill_status'] = $next;
+        return $job;
+    }
+
+    private function hasEvent(int $jobId, string $type): bool
+    {
+        $stmt = $this->db->prepare("SELECT 1 FROM subcontract_events WHERE job_id = ? AND event_type = ? LIMIT 1");
+        $stmt->execute([$jobId, $type]);
+        return (bool)$stmt->fetchColumn();
     }
 
     private function undo(array $job, string $now): array
@@ -268,7 +446,7 @@ class SubcontractService
     private function context(int $visitId): array
     {
         $stmt = $this->db->prepare("
-            SELECT jv.scheduled_date, jp.title AS plan_title,
+            SELECT jv.scheduled_date, jp.title AS plan_title, jp.property_id,
                    p.address AS property_address, p.city AS property_city, p.latitude, p.longitude,
                    c.first_name AS contact_first_name, c.last_name AS contact_last_name, c.phone AS contact_phone
             FROM job_visits jv
@@ -335,7 +513,7 @@ class SubcontractService
         $id = (int)$find->fetchColumn();
         if ($id > 0) return $id;
         $this->db->prepare("INSERT INTO vendors (name, default_accounting_category, phone) VALUES (?, ?, ?)")
-            ->execute([$name, self::SUBCONTRACT_CATEGORY, $phone ?: null]);
+            ->execute([$name, self::SUBCONTRACT_CATEGORY, mb_substr($phone, 0, 20) ?: null]);
         return (int)$this->db->lastInsertId();
     }
 

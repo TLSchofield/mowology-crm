@@ -9,6 +9,7 @@ final class SubcontractServiceTest extends TestCase
     private array $calls = [];
     private bool $moveWorks = true;
     private bool $completeWorks = true;
+    public bool $billFails = false;
     private SubcontractService $svc;
 
     protected function setUp(): void
@@ -29,6 +30,8 @@ final class SubcontractServiceTest extends TestCase
         $db->exec("CREATE TABLE subcontractors (id INTEGER PRIMARY KEY, company_name TEXT UNIQUE, contact_name TEXT, email TEXT, phone TEXT, vendor_id INT, on_ittai INT DEFAULT 0, is_active INT DEFAULT 1, created_by INT, created_at TEXT DEFAULT '2026-11-10')");
         $db->exec("CREATE TABLE subcontract_jobs (id INTEGER PRIMARY KEY, subcontractor_id INT, visit_id INT, plan_id INT, token_hash TEXT UNIQUE, token_preview TEXT, expires_at TEXT, revoked_at TEXT, last_opened_at TEXT, open_count INT DEFAULT 0, agreed_amount REAL, note_to_sub TEXT, share_client_name INT DEFAULT 1, share_client_phone INT DEFAULT 1, after_the_fact INT DEFAULT 0, work_status TEXT DEFAULT 'sent', status_changed_at TEXT DEFAULT '2026-11-10 12:00:00', planned_date TEXT, started_at TEXT, finished_at TEXT, work_accepted_at TEXT, work_accepted_by INT, bill_status TEXT DEFAULT 'none', bill_amount REAL, bill_gst REAL, bill_invoice_no TEXT, bill_expense_id INT, bill_paid_at TEXT, created_by INT, created_at TEXT DEFAULT '2026-11-10')");
         $db->exec("CREATE TABLE subcontract_events (id INTEGER PRIMARY KEY, job_id INT, visit_id INT, event_type TEXT, actor TEXT, user_id INT, note TEXT, latitude REAL, longitude REAL, accuracy_m INT, on_site INT, created_at TEXT)");
+        $db->exec("CREATE TABLE subcontract_files (id INTEGER PRIMARY KEY, job_id INT, kind TEXT, stored_name TEXT, original_name TEXT, mime_type TEXT, size_bytes INT, created_at TEXT)");
+        $db->exec("CREATE TABLE expenses (id INTEGER PRIMARY KEY, status TEXT)");
         $db->exec("INSERT INTO contacts VALUES (5, 'Pat', 'Lee', '604-555-0100')");
         $db->exec("INSERT INTO properties VALUES (3, '12 Oak St', 'Vancouver', 49.2828, -123.1208, 5)");
         $db->exec("INSERT INTO job_plans VALUES (2, 'Fall cleanup', 3)");
@@ -44,6 +47,9 @@ final class SubcontractServiceTest extends TestCase
             public function moveVisit(int $visitId, string $date, int $ownerId): bool { $this->t->called('move', $date); return $this->t->canMove(); }
             public function completeVisit(int $visitId, int $userId): bool { $this->t->called('complete', $visitId); return $this->t->canComplete(); }
             public function push(array $userIds, string $title, string $body, array $data): void { $this->t->called('push', $body); }
+            public function visitBackToScheduled(int $visitId, int $userId): void { $this->t->called('back', $visitId); }
+            public function refreshVisitCost(int $visitId, int $userId): void { $this->t->called('recost', $visitId); }
+            public function recordBill(array $changes, int $ownerId): int { $this->t->called('bill', $changes); if ($this->t->billFails) throw new RuntimeException('no'); return 501; }
         });
     }
 
@@ -54,7 +60,9 @@ final class SubcontractServiceTest extends TestCase
     private function send(int $visit = 10, array $opts = []): array
     {
         $company = $this->svc->saveCompany(['company_name' => 'Green Co', 'contact_name' => 'C', 'email' => 'c@example.com'], 1);
-        return $this->svc->create($visit, $company, 1, $opts + ['agreed_amount' => '250', 'note' => 'Gate on the left']);
+        $sent = $this->svc->create($visit, $company, 1, $opts + ['agreed_amount' => '250', 'note' => 'Gate on the left']);
+        $this->db->exec("INSERT INTO subcontract_files (job_id, kind, stored_name, mime_type, size_bytes) VALUES ({$sent['job_id']}, 'photo', 'a.jpg', 'image/jpeg', 10)");
+        return $sent;
     }
 
     private function fresh(string $token): array
@@ -183,6 +191,112 @@ final class SubcontractServiceTest extends TestCase
         $this->assertSame([['push', 'Green Co sent proof of work for 12 Oak St']], $this->callsNamed('push'));
 
         $this->assertTrue($this->svc->acceptWork($sent['job_id'], 1)['ok']);
+    }
+
+    public function testFinishNeedsProof(): void
+    {
+        $sent = $this->send();
+        foreach (['accept', 'start'] as $a) $this->svc->act($this->fresh($sent['token']), $a);
+        $this->db->exec("DELETE FROM subcontract_files");
+        $result = $this->svc->act($this->fresh($sent['token']), 'finish', ['note' => 'Trust me, it is all done']);
+        $this->assertFalse($result['ok']);
+        $this->assertSame('started', $this->fresh($sent['token'])['work_status']);
+    }
+
+    public function testAJobDoneOffTheSystemCanProveItWithANote(): void
+    {
+        $sent = $this->send(12, ['already_done' => true]);
+        $this->db->exec("DELETE FROM subcontract_files");
+        $this->assertFalse($this->svc->act($this->fresh($sent['token']), 'finish', ['done_on' => '2026-11-02'])['ok']);
+        $this->assertTrue($this->svc->act($this->fresh($sent['token']), 'finish', ['done_on' => '2026-11-02', 'note' => 'Blew out 6 zones'])['ok']);
+    }
+
+    private function finished(): array
+    {
+        $sent = $this->send();
+        foreach (['accept', 'start', 'finish'] as $a) $this->svc->act($this->fresh($sent['token']), $a);
+        return $sent;
+    }
+
+    public function testBillBecomesADraftOnTheJobAndCannotBeSentTwice(): void
+    {
+        $sent = $this->finished();
+        $this->assertFalse($this->svc->submitBill($this->fresh($sent['token']), ['amount' => '0'])['ok']);
+        $this->assertTrue($this->svc->submitBill($this->fresh($sent['token']), ['amount' => '250', 'gst' => '12.50', 'invoice_no' => 'A7'])['ok']);
+        $this->assertFalse($this->svc->submitBill($this->fresh($sent['token']), ['amount' => '250', 'gst' => '12.50'])['ok']);
+
+        $bills = $this->callsNamed('bill');
+        $this->assertCount(1, $bills);
+        $this->assertSame('draft', $bills[0][1]['status']);
+        $this->assertSame('Subcontractors', $bills[0][1]['accounting_category']);
+        $this->assertSame(262.5, $bills[0][1]['total']);
+        $this->assertSame(2, $bills[0][1]['job_id']);
+        $this->assertSame(3, $bills[0][1]['property_id']);
+        $this->assertSame(1, $bills[0][1]['created_by']);
+        $this->assertSame('bill_waiting', $this->svc->page($this->fresh($sent['token']))['next_step']);
+    }
+
+    public function testAFailedBillCanBeSentAgain(): void
+    {
+        $sent = $this->finished();
+        $this->billFails = true;
+        $this->assertFalse($this->svc->submitBill($this->fresh($sent['token']), ['amount' => '250', 'gst' => '0'])['ok']);
+        $this->billFails = false;
+        $this->assertSame('none', $this->fresh($sent['token'])['bill_status']);
+        $this->assertTrue($this->svc->submitBill($this->fresh($sent['token']), ['amount' => '250', 'gst' => '0'])['ok']);
+    }
+
+    public function testPennysDecisionShowsOnHerPageAndPaidNeedsBothApprovals(): void
+    {
+        $sent = $this->finished();
+        $this->svc->submitBill($this->fresh($sent['token']), ['amount' => '250', 'gst' => '12.50']);
+        $this->db->exec("INSERT INTO expenses VALUES (501, 'draft')");
+
+        $this->assertFalse($this->svc->markPaid($sent['job_id'], 1)['ok'], 'work not accepted');
+        $this->svc->acceptWork($sent['job_id'], 1);
+        $this->assertFalse($this->svc->markPaid($sent['job_id'], 1)['ok'], 'bill not approved');
+
+        $this->db->exec("UPDATE expenses SET status = 'approved'");
+        $this->assertSame('payment_waiting', $this->svc->page($this->fresh($sent['token']))['next_step']);
+        $this->assertTrue($this->svc->markPaid($sent['job_id'], 1)['ok']);
+        $this->assertFalse($this->svc->markPaid($sent['job_id'], 1)['ok']);
+        $this->assertSame('done', $this->svc->page($this->fresh($sent['token']))['next_step']);
+    }
+
+    public function testARejectedBillGoesBackToHer(): void
+    {
+        $sent = $this->finished();
+        $this->svc->submitBill($this->fresh($sent['token']), ['amount' => '250', 'gst' => '12.50']);
+        $this->db->exec("INSERT INTO expenses VALUES (501, 'rejected')");
+        $this->assertSame('send_bill', $this->svc->page($this->fresh($sent['token']))['next_step']);
+    }
+
+    public function testAskingAboutIttaiIsCountedOncePerJob(): void
+    {
+        $sent = $this->finished();
+        $job = $this->fresh($sent['token']);
+        $this->svc->markPanelSeen($job);
+        $this->svc->markPanelSeen($job);
+        $this->svc->askAboutIttai($job);
+        $this->svc->askAboutIttai($job);
+        $this->assertSame(['invited' => 1, 'opened' => 0, 'panel_seen' => 1, 'asked' => 1], $this->svc->marketingCounts());
+        $this->assertCount(1, array_filter($this->callsNamed('push'), static fn ($c) => strpos($c[1], 'Ittai') !== false));
+    }
+
+    public function testCancellingAStartedJobFreesTheVisit(): void
+    {
+        $sent = $this->send();
+        foreach (['accept', 'start'] as $a) $this->svc->act($this->fresh($sent['token']), $a);
+        $this->svc->cancel($sent['job_id'], 1);
+        $this->assertSame([['back', 10]], $this->callsNamed('back'));
+    }
+
+    public function testABillAfterAcceptanceRefreshesTheVisitCost(): void
+    {
+        $sent = $this->finished();
+        $this->svc->acceptWork($sent['job_id'], 1);
+        $this->svc->submitBill($this->fresh($sent['token']), ['amount' => '300', 'gst' => '15']);
+        $this->assertSame([['recost', 10]], $this->callsNamed('recost'));
     }
 
     public function testLocationIsOnlyKeptAtStartAndFinish(): void

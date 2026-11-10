@@ -105,6 +105,47 @@ final class SubcontractRules
         return $metres - $accuracy > self::ON_SITE_METRES ? false : null;
     }
 
+    /** @return ?string what proof is still missing, in words for her, or null. Work done off the system may have no photo, so a note can stand in. */
+    public static function proofProblem(bool $afterTheFact, int $photos, string $note): ?string
+    {
+        if ($photos > 0) return null;
+        if (!$afterTheFact) return 'Add at least one photo of the finished work.';
+        return mb_strlen(trim($note)) >= 10 ? null : 'Add a photo, or say what you did.';
+    }
+
+    public static function minutesOnJob(?string $startedAt, ?string $finishedAt): ?int
+    {
+        $from = strtotime((string)$startedAt);
+        $to = strtotime((string)$finishedAt);
+        if (!$startedAt || !$finishedAt || $from === false || $to === false || $to < $from) return null;
+        return (int)round(($to - $from) / 60);
+    }
+
+    /**
+     * Her own record of the job: only these steps, in her words, so a staff note or the location never reaches her page.
+     * @return list<array{word:string, at:string}>
+     */
+    public static function recordFor(array $events): array
+    {
+        $words = ['accepted' => 'You took the job', 'scheduled' => 'Day arranged', 'on_way' => 'On your way', 'started' => 'Started', 'finished' => 'Finished',
+                  'work_accepted' => 'Work accepted', 'bill_sent' => 'Bill sent', 'bill_returned' => 'Bill sent back', 'paid' => 'Paid'];
+        $out = [];
+        foreach ($events as $event) {
+            $type = (string)($event['event_type'] ?? '');
+            if (isset($words[$type])) $out[] = ['word' => $words[$type], 'at' => (string)($event['created_at'] ?? '')];
+        }
+        return $out;
+    }
+
+    /** @return ?string the extension to store a file under, or null when this kind of file is not accepted */
+    public static function extensionFor(string $kind, string $mime): ?string
+    {
+        $images = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/heic' => 'heic', 'image/heif' => 'heif'];
+        if ($kind === 'photo') return $images[$mime] ?? null;
+        if ($kind === 'invoice') return ($images + ['application/pdf' => 'pdf'])[$mime] ?? null;
+        return null;
+    }
+
     /** @return ?string what is wrong with a bill, in words for her, or null */
     public static function billProblem(float $amount, float $gst, string $invoiceNo): ?string
     {
@@ -159,6 +200,7 @@ final class SubcontractRules
             'started'   => 'started at',
             'finished'  => 'finished at',
             'proof_sent' => 'sent proof of work for',
+            'ittai_interest' => 'asked about running their jobs on Ittai, from',
             'bill_sent' => 'sent a bill for',
         ];
         if (!isset($words[$event])) return null;

@@ -15,6 +15,12 @@ class SubcontractHooks
         VisitLifecycleService::updateVisitStatus($visitId, 'in_progress', $ownerId, null);
     }
 
+    public function visitBackToScheduled(int $visitId, int $userId): void
+    {
+        $this->lifecycle();
+        VisitLifecycleService::updateVisitStatus($visitId, 'scheduled', $userId, null);
+    }
+
     public function moveVisit(int $visitId, string $date, int $ownerId): bool
     {
         $this->lifecycle();
@@ -28,6 +34,13 @@ class SubcontractHooks
         return VisitLifecycleService::updateVisitStatus($visitId, 'completed', $userId, null);
     }
 
+    public function refreshVisitCost(int $visitId, int $userId): void
+    {
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
+        getDB()->prepare("UPDATE job_visits SET labor_cost_snapshot = NULL WHERE id = ?")->execute([$visitId]);
+        VisitCompletionService::capture($visitId, $userId);
+    }
+
     /** Best-effort: a push that fails must never undo the step she just recorded. */
     public function push(array $userIds, string $title, string $body, array $data): void
     {
@@ -38,6 +51,29 @@ class SubcontractHooks
         } catch (Throwable $e) {
             error_log('SubcontractHooks::push: ' . $e->getMessage());
         }
+    }
+
+    /** @return int the new expense id. A draft, so it goes through Penny's normal review. */
+    public function recordBill(array $changes, int $ownerId): int
+    {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
+        $result = (new ExpenseGate(getDB()))->apply(null, $changes, ['id' => $ownerId, 'kind' => 'system'], 'subcontract');
+        return (int)$result['expense_id'];
+    }
+
+    /** The closed folder her files go in. Staff read them only through the signed-in API. */
+    public function fileDir(): string
+    {
+        require_once APP_ROOT . '/Core/Uploads.php';
+        $dir = uploadsDir('subcontract');
+        if (!is_dir($dir)) mkdir($dir, 0755, true);
+        if (!is_file($dir . '/.htaccess')) file_put_contents($dir . '/.htaccess', "Require all denied\n");
+        return $dir;
+    }
+
+    public function storeFile(string $tmpPath, string $destination): bool
+    {
+        return move_uploaded_file($tmpPath, $destination);
     }
 
     private function lifecycle(): void

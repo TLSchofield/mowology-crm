@@ -73,3 +73,15 @@ CREATE TABLE IF NOT EXISTS subcontract_events (
   INDEX idx_se_job (job_id, id),
   INDEX idx_se_type (event_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS subcontract_files (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  job_id         INT NOT NULL,
+  kind           VARCHAR(8) NOT NULL COMMENT 'photo | invoice',
+  stored_name    VARCHAR(60) NOT NULL COMMENT 'random name in the closed subcontract uploads folder',
+  original_name  VARCHAR(191) NULL,
+  mime_type      VARCHAR(60) NOT NULL,
+  size_bytes     INT NOT NULL,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_sf_job (job_id, kind)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
