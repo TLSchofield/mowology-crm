@@ -115,25 +115,29 @@
             setChev(g, open);
         }
         function closeCards() {
-            groups.forEach(function (g) { var c = cardOf(g); if (c) c.classList.remove('is-open'); });
+            groups.forEach(function (g) { var c = cardOf(g); if (c) c.classList.remove('is-open'); g.classList.remove('has-card'); });
         }
         function closeFlies() {
             clearTimeout(flyTimer);
             groups.forEach(function (g) { var f = flyOf(g); if (f) f.classList.remove('is-open'); });
         }
 
-        // The card: 200 px, centred on its row, 5 px right of the sidebar, kept 8 px inside the window.
+        // The card: the portrait enlarged. 200 px, centred on the spine (the portrait's centre) and on its row,
+        // kept 8 px inside the window and below the top bar; it grows out of the portrait's own circle.
         function placeCard(g) {
             var card = cardOf(g);
             if (!card || isRail()) return;
-            var r = rowOf(g).getBoundingClientRect();
-            var h = card.offsetHeight || 200;
-            // Never over the top bar's controls: the card starts below it when the row is near the top.
+            var pt = g.querySelector('.it-grow .it-pt') || rowOf(g);
+            var p = pt.getBoundingClientRect();
+            var cx = p.left + p.width / 2, cy = p.top + p.height / 2;
+            var w = card.offsetWidth || 200, h = card.offsetHeight || 200;
             var bar = document.querySelector('.main > .navbar');
             var minTop = bar ? Math.max(8, bar.getBoundingClientRect().bottom + 8) : 8;
-            var top = Math.min(Math.max(r.top + r.height / 2 - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
+            var top = Math.min(Math.max(cy - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
+            var left = Math.max(8, cx - w / 2);
             card.style.top = Math.round(top) + 'px';
-            card.style.left = Math.round(sb.getBoundingClientRect().right + 5) + 'px';
+            card.style.left = Math.round(left) + 'px';
+            card.style.transformOrigin = Math.round(cx - left) + 'px ' + Math.round(cy - top) + 'px';
             card.setAttribute('data-placed', '1');
         }
         function replaceOpenCards() {
@@ -142,7 +146,10 @@
         function openCard(g) {
             closeCards();
             placeCard(g);
-            cardOf(g).classList.add('is-open');
+            var c = cardOf(g);
+            if (!c) return;
+            c.classList.add('is-open');
+            g.classList.add('has-card');
         }
 
         function select(g) {
@@ -150,7 +157,7 @@
             if (g.classList.contains('is-sel')) {
                 // Already selected: the second click only shows or hides the card.
                 var card = cardOf(g);
-                if (card.classList.contains('is-open')) card.classList.remove('is-open'); else openCard(g);
+                if (card && card.classList.contains('is-open')) closeCards(); else openCard(g);
                 return;
             }
             groups.forEach(function (o) {
