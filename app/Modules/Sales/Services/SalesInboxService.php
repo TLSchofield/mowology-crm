@@ -56,6 +56,8 @@ class SalesInboxService
     private ?array $join = null;
     /** @var InboundRouteService|null */
     private $router = null;
+    /** @var array<string, array{verdict: string, client_id: ?int, contact_id: ?int}>|null owner's sender rules (migration 1447), read once */
+    private ?array $senderRules = null;
 
     public function __construct(PDO $db)
     {
@@ -111,10 +113,10 @@ class SalesInboxService
      * The one insert for a classified message (ingest() and placeUnknown() both end here).
      * @param array $c classify()/classifyAny() result: direction, contact_id, from, to, quote_id?, joined_by?
      */
-    private function storeClassified(array $m, array $c): string
+    private function storeClassified(array $m, array $c, ?string $keepKey = null): string
     {
         $sentAt = strtotime((string)$m['date']) ?: time();
-        $key = self::messageKey($m);
+        $key = $keepKey ?? self::messageKey($m);
         $this->lastKey = $key;
         $this->lastDirection = $c['direction'];
         $row = [
@@ -146,6 +148,57 @@ class SalesInboxService
         $this->lastHead = '';
         if ($stored && $c['direction'] === 'inbound') $this->route($key);
         return $stored ? 'stored' : 'dupe';
+    }
+
+    /**
+     * The owner said whose this kept message is (InboundQuestionService::confirm): store it on that contact under the key it
+     * already has in inbound_unplaced (never recomputed, so the poll's re-read of the same mail still finds it as seen).
+     * Returns 'stored' | 'dupe' | 'skipped'.
+     * @param array $row an inbound_unplaced row: message_key, mailbox, from_addr, from_name, subject, snippet, sent_at
+     */
+    public function storeConfirmed(array $row, int $contactId, string $joinedBy): string
+    {
+        $addr = strtolower(trim((string)$row['from_addr']));
+        $name = trim((string)($row['from_name'] ?? ''));
+        $m = ['mailbox' => (string)$row['mailbox'], 'message_id' => null, 'from' => $name !== '' ? $name . ' <' . $addr . '>' : $addr,
+              'to' => '', 'subject' => (string)$row['subject'], 'body' => (string)($row['snippet'] ?? ''),
+              'date' => (string)($row['sent_at'] ?? '') !== '' ? (string)$row['sent_at'] : date('Y-m-d H:i:s')];
+        return $this->storeClassified($m, ['direction' => 'inbound', 'contact_id' => $contactId, 'from' => $addr, 'to' => '',
+                                           'quote_id' => null, 'joined_by' => $joinedBy], (string)$row['message_key']);
+    }
+
+    /**
+     * The owner's sender rules (migration 1447), read once per poll. Empty when the table is missing — never throws.
+     * @return array<string, array{verdict: string, client_id: ?int, contact_id: ?int}>
+     */
+    public function senderRules(): array
+    {
+        if ($this->senderRules !== null) return $this->senderRules;
+        $this->senderRules = [];
+        try {
+            foreach ($this->db->query("SELECT sender_key, verdict, client_id, contact_id FROM inbound_sender_rules")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $this->senderRules[strtolower((string)$r['sender_key'])] = ['verdict' => (string)$r['verdict'],
+                    'client_id' => $r['client_id'] === null ? null : (int)$r['client_id'], 'contact_id' => $r['contact_id'] === null ? null : (int)$r['contact_id']];
+            }
+        } catch (Throwable $e) {
+            $this->senderRules = [];
+        }
+        return $this->senderRules;
+    }
+
+    /**
+     * Which rule applies to this sender: an address marked noise always wins; otherwise a '@domain' account rule.
+     * @param array<string, array{verdict: string, client_id: ?int, contact_id: ?int}> $rules
+     * @return array{verdict: string, client_id: ?int, contact_id: ?int}|null
+     */
+    public static function ruleFor(array $rules, string $addr): ?array
+    {
+        $addr = strtolower(trim($addr));
+        if ($addr === '' || !$rules) return null;
+        if (isset($rules[$addr]) && $rules[$addr]['verdict'] === 'noise') return $rules[$addr];
+        $d = '@' . self::domain($addr);
+        if ($d !== '@' && isset($rules[$d]) && $rules[$d]['verdict'] === 'account' && $rules[$d]['contact_id']) return $rules[$d];
+        return null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -204,6 +257,13 @@ class SalesInboxService
             $id = InboundIdentityService::identify(['from' => (string)$m['from'], 'subject' => $subject, 'body' => $body], $this->identityIndex);
             $t = InboundIdentityService::triage((string)$m['from'], $subject, $body, (string)$headers);
             if ($t['kind'] === 'person') $id = InboundIdentityService::withReplyEvidence($this->db, $id, (string)$m['from'], $subject);   // noise never pays for this search
+            // The owner's own answers (migration 1447) come before any guess: "not a client" is final for that address.
+            $rule = self::ruleFor($this->senderRules(), $from);
+            if ($rule !== null && $rule['verdict'] === 'noise') {
+                $this->keepUnplaced($m, $key, $from, $body, 'noise', 'you said not a client',
+                    ['strength' => 'none', 'client_id' => null, 'contact_id' => null, 'evidence' => [], 'candidates' => []], 'dismissed');
+                return 'noise';
+            }
             // A supplier naming a client's site (a delivery notice) is not that client's conversation either.
             $supplier = $t['kind'] === 'person' && $this->fromSupplier((string)$m['from']);
             // A robot's mail that names an account (a statement bot, a newsletter) is not that client's conversation.
@@ -216,6 +276,16 @@ class SalesInboxService
                     return 'placed';
                 }
                 $t['reason'] = 'strong match, could not be stored';
+            }
+            // A business domain the owner has confirmed two people at: its mail goes to that account's contact.
+            if ($rule !== null && $t['kind'] === 'person' && !$supplier && $this->joinReady() && $this->contactIsLive((int)$rule['contact_id'])) {
+                $res = $this->storeClassified(array_merge($m, ['body' => $body]), ['direction' => 'inbound', 'contact_id' => (int)$rule['contact_id'], 'from' => $from,
+                    'to' => implode(', ', self::addresses((string)$m['to'])), 'quote_id' => null, 'joined_by' => 'learned_domain']);
+                if ($res === 'stored' || $res === 'dupe') {
+                    $sig = self::signature($body);
+                    if ($sig !== '') $this->setSignature($this->lastKey, $sig);
+                    return 'placed';
+                }
             }
             $status = 'open';
             $reason = $t['reason'];
@@ -242,6 +312,15 @@ class SalesInboxService
             error_log('[sales inbox] place unknown: ' . $e->getMessage());
             return 'error';
         }
+    }
+
+    /** The contact exists and has not been merged into another. */
+    private function contactIsLive(int $contactId): bool
+    {
+        if ($contactId <= 0) return false;
+        $st = $this->db->prepare("SELECT 1 FROM contacts WHERE id = ? AND merged_into_id IS NULL LIMIT 1");
+        $st->execute([$contactId]);
+        return (bool)$st->fetchColumn();
     }
 
     /** Build the accounts index now, so the time it takes is not charged to the poll's body-reading budget. */

@@ -9,9 +9,11 @@
  *   Accounts               PM firms and stratas missing people or emails → Open / Handled (read-only).
  *   Renewals & check-ins   contracts ending, last winter's salt/snow, quiet PM firms → a drafted note.
  *   Arrears                60+ days overdue → a polite note to the right person (Penny keeps the numbers).
+ *   Who is this?           (under Inbox) mail from people not on file that I could only half match: name them, pick the
+ *                          account, "Add to this account" or "Not a client". Answered in place; Undo for a day.
  *
  * Every message is edited and sent by Tim — Send · Handled. Nothing goes out on its own.
- * API: /crm/api/yui.php (?mode=desk; POST draft / send / handled). Texts follow the carrier
+ * API: /crm/api/yui.php (?mode=desk; POST draft / send / handled; who_confirm / who_not / who_undo; ?mode=who_accounts). Texts follow the carrier
  * rules (≤160 characters, no links, the office number, "check your email") on both sides.
  */
 (function () {
@@ -35,6 +37,9 @@
     var edits = {};          // key → {channel, subject, body, sms, drafted_by, suggested_body, suggested_sms}
     var notes = {};          // section → message under its header
     var busy = false;
+    var who = null;          // desk.who: {items, quiet_count, quiet} — only when migration 1447 has run
+    var whoEdits = {};       // id → {first, last, client, other, q, results}
+    var whoNote = '', whoUndo = null, quietOpen = false, whoTimer = null;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -96,6 +101,7 @@
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d || !d.ok) { root.innerHTML = '<div class="mw-rc-empty">Yui isn\'t set up yet.</div>'; return; }
+                who = d.who || null;
                 data = d.sections || data; stats = d.stats || null; draftsLeft = d.drafts_left;
                 if (d.name) NAME = d.name;
                 renderTop(); render();
@@ -131,17 +137,19 @@
         var html = '', any = false;
         SECTIONS.forEach(function (s) {
             var items = data[s[0]] || [];
-            if (!items.length && !notes[s[0]]) return;
-            any = true;
-            html += '<div class="mw-yui-sec" data-sec="' + s[0] + '"><div class="mw-yui-sec-head"><b>' + esc(s[1]) + '</b>' +
-                (items.length ? ' <span class="mw-yui-n">' + items.length + '</span>' : '') + ' <small>' + esc(s[2]) + '</small></div>' +
-                (notes[s[0]] ? '<div class="mw-rc-msg">' + esc(notes[s[0]]) + '</div>' : '') +
-                items.map(row).join('') + '</div>';
+            if (items.length || notes[s[0]]) {
+                any = true;
+                html += '<div class="mw-yui-sec" data-sec="' + s[0] + '"><div class="mw-yui-sec-head"><b>' + esc(s[1]) + '</b>' +
+                    (items.length ? ' <span class="mw-yui-n">' + items.length + '</span>' : '') + ' <small>' + esc(s[2]) + '</small></div>' +
+                    (notes[s[0]] ? '<div class="mw-rc-msg">' + esc(notes[s[0]]) + '</div>' : '') +
+                    items.map(row).join('') + '</div>';
+            }
+            if (s[0] === 'inbox') { var w = whoHtml(); if (w) { any = true; html += w; } }
         });
         root.innerHTML = any ? html : '<div class="mw-rc-empty">Nobody is waiting on you' + (NAME ? ', ' + esc(NAME) : '') + '. I\'ll bring the next one in.</div>';
     }
 
-    function who(it) {
+    function toLine(it) {
         var t = it.to;
         if (!t) return '<small class="mw-yui-to is-none">Nobody on file to write to</small>';
         return '<small class="mw-yui-to">To ' + esc(t.name) + (t.why ? ' (' + esc(t.why) + ')' : '') +
@@ -170,7 +178,7 @@
             acts.push('<a class="mw-rc-ed" href="' + esc(safeUrl(it.url)) + '">Contact</a>');
         } else {
             // The brief's text names the person for Charlie; the card shows them on their own line.
-            main = esc(String(it.text || '').replace(/ — a note to .*$/, '')) + (it.template ? who(it) : '');
+            main = esc(String(it.text || '').replace(/ — a note to .*$/, '')) + (it.template ? toLine(it) : '');
             if (it.template && it.to && (it.to.email || it.sms_ok)) acts.push('<button type="button" class="mw-rc-ok" data-do="write">' + (s === 'arrears' ? 'Draft note' : 'Draft') + '</button>');
             if (s === 'arrears' && it.autopay && it.autopay.offer) acts.push('<button type="button" class="mw-rc-ed" data-do="autopay">Offer autopay</button>');
             acts.push('<a class="mw-rc-ed" href="' + esc(safeUrl(it.url)) + '">Open</a>');
@@ -181,6 +189,140 @@
             '<div class="mw-yui-line"><div class="mw-yui-main">' + main + '</div><div class="mw-sam-lead-act mw-yui-act">' + acts.join('') + '</div></div>' +
             (isOpen ? editor(it) : '') + '</div>';
     }
+
+    // ── Who is this? ─────────────────────────────────────────────────────
+    function whoState(it) {
+        if (!whoEdits[it.id]) whoEdits[it.id] = { first: it.first_name || '', last: it.last_name || '', client: it.suggested_client_id ? String(it.suggested_client_id) : '', other: false, q: '', results: [] };
+        return whoEdits[it.id];
+    }
+    function whoFind(id) {
+        var items = (who && who.items) || [];
+        for (var i = 0; i < items.length; i++) if (String(items[i].id) === String(id)) return items[i];
+        return null;
+    }
+    function whoReady(st) { return !!st.first.trim() && Number(st.client) > 0; }
+    function opts(list, sel, first) {
+        return (first || '') + list.map(function (c) {
+            return '<option value="' + esc(c.client_id) + '"' + (String(c.client_id) === String(sel) ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+        }).join('');
+    }
+    function whoRow(it) {
+        var st = whoState(it), cands = it.candidates || [];
+        var pick = '<select class="mw-sam-in" data-wf="account" aria-label="Account">' +
+            (st.other ? '<option value="__other" selected>Another account…</option>' : opts(cands, st.client, '<option value="">Choose an account…</option>') + '<option value="__other">Another account…</option>') +
+            '</select>';
+        if (st.other) pick += '<input class="mw-sam-in" data-wf="q" type="search" placeholder="Start typing the account name" aria-label="Find an account" value="' + esc(st.q) + '">' +
+            '<select class="mw-sam-in" data-wf="found" aria-label="Matching accounts"' + (st.results.length ? '' : ' hidden') + '>' +
+            opts(st.results, st.client, '<option value="">Pick the account…</option>') + '</select>';
+        return '<div class="mw-yui-row mw-yui-who-row" data-w="' + esc(it.id) + '">' +
+            '<div class="mw-yui-who-main"><b>' + esc(it.name) + '</b> <small class="mw-yui-meta">' + esc(it.addr) + '</small>' +
+            (it.subject ? '<div>' + esc(it.subject) + '</div>' : '') +
+            (it.snippet ? '<q>' + esc(it.snippet) + '</q>' : '') +
+            '<small class="mw-yui-meta">' + esc(ago(it.at)) + '</small>' +
+            (it.why ? '<small class="mw-yui-who-why">Why I think so: ' + esc(it.why) + '</small>' : '') + '</div>' +
+            '<div class="mw-yui-who-form">' +
+              '<label class="mw-sam-lbl">First name<input class="mw-sam-in" data-wf="first" value="' + esc(st.first) + '"></label>' +
+              '<label class="mw-sam-lbl">Last name<input class="mw-sam-in" data-wf="last" value="' + esc(st.last) + '"></label>' +
+              '<label class="mw-sam-lbl mw-yui-who-acct">Account' + pick + '</label>' +
+              '<div class="mw-rc-actions">' +
+                '<button type="button" class="mw-rc-ok" data-do="who_ok"' + (whoReady(st) ? '' : ' disabled') + '>Add to this account</button>' +
+                '<button type="button" class="mw-rc-sk" data-do="who_no">Not a client</button>' +
+              '</div></div></div>';
+    }
+    function whoHtml() {
+        if (!who) return '';
+        var items = who.items || [], quiet = who.quiet || [], qn = Number(who.quiet_count || 0);
+        if (!items.length && !whoNote && !qn) return '';
+        return '<div class="mw-yui-sec mw-yui-who" data-sec="who"><div class="mw-yui-sec-head"><b>Who is this?</b>' +
+            (items.length ? ' <span class="mw-yui-n">' + items.length + '</span>' : '') + ' <small>I found these but I\'m not sure whose they are</small></div>' +
+            (whoNote ? '<div class="mw-rc-msg">' + esc(whoNote) +
+                (whoUndo ? ' <button type="button" class="mw-rc-ed mw-yui-who-undo" data-do="who_undo" data-id="' + esc(whoUndo) + '">Undo</button>' : '') + '</div>' : '') +
+            items.map(whoRow).join('') +
+            (qn > 0 ? '<details class="mw-yui-who-quiet"' + (quietOpen ? ' open' : '') + '><summary>' + esc(qn) + ' more kept, nothing on file matches ' + (qn === 1 ? 'it' : 'them') + '</summary>' +
+                quiet.map(function (q) {
+                    return '<div class="mw-yui-who-q"><b>' + esc(q.name) + '</b> <small class="mw-yui-meta">' + esc(q.subject) + ' · ' + esc(ago(q.at)) + '</small></div>';
+                }).join('') + '</details>' : '') + '</div>';
+    }
+    function whoButton(rowEl) {
+        var it = whoFind(rowEl.getAttribute('data-w')), b = rowEl.querySelector('[data-do="who_ok"]');
+        if (it && b) b.disabled = !whoReady(whoState(it));
+    }
+    function whoSearch(rowEl, it, st) {
+        clearTimeout(whoTimer);
+        var q = st.q.trim();
+        whoTimer = setTimeout(function () {
+            if (q.length < 2) { st.results = []; fillFound(rowEl, st); return; }
+            fetch(API + '?mode=who_accounts&q=' + encodeURIComponent(q), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (st.q.trim() !== q) return;   // typed on since
+                    st.results = (d && d.ok && d.accounts) || [];
+                    fillFound(rowEl, st);
+                })
+                .catch(function () { st.results = []; fillFound(rowEl, st); });
+        }, 250);
+    }
+    function fillFound(rowEl, st) {
+        var sel = rowEl.querySelector('[data-wf="found"]'); if (!sel) return;
+        sel.innerHTML = opts(st.results, st.client, '<option value="">Pick the account…</option>');
+        sel.hidden = !st.results.length;
+        whoButton(rowEl);
+    }
+    function whoDone(d, id) {
+        busy = false;
+        if (d && d.ok) {
+            who.items = who.items.filter(function (x) { return x.id !== id; });
+            delete whoEdits[id];
+            whoNote = d.message || 'Done.'; whoUndo = d.undo_id || null;
+        } else whoNote = (d && (d.message || d.error)) || 'That didn\'t work — try again.';
+        render();
+    }
+
+    root.addEventListener('input', function (e) {
+        var f = e.target.getAttribute('data-wf'), rowEl = f && e.target.closest('[data-w]'); if (!rowEl) return;
+        var it = whoFind(rowEl.getAttribute('data-w')); if (!it) return;
+        var st = whoState(it);
+        if (f === 'first' || f === 'last') st[f] = e.target.value;
+        else if (f === 'q') { st.q = e.target.value; st.client = ''; whoSearch(rowEl, it, st); }
+        whoButton(rowEl);
+    });
+    root.addEventListener('change', function (e) {
+        var f = e.target.getAttribute('data-wf'), rowEl = f && e.target.closest('[data-w]'); if (!rowEl) return;
+        var it = whoFind(rowEl.getAttribute('data-w')); if (!it) return;
+        var st = whoState(it);
+        if (f === 'account') {
+            if (e.target.value === '__other') {
+                st.other = true; st.client = ''; render();
+                var q = root.querySelector('[data-w="' + it.id + '"] [data-wf="q"]'); if (q) q.focus();
+                return;
+            }
+            st.client = e.target.value;
+        } else if (f === 'found') st.client = e.target.value;
+        whoButton(rowEl);
+    });
+    root.addEventListener('toggle', function (e) {
+        if (e.target.classList && e.target.classList.contains('mw-yui-who-quiet')) quietOpen = e.target.open;
+    }, true);
+    root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-do^="who_"]'); if (!b || busy || b.disabled) return;
+        var act = b.getAttribute('data-do');
+        if (act === 'who_undo') {
+            busy = true; b.disabled = true;
+            post({ mode: 'who_undo', id: Number(b.getAttribute('data-id')) }).then(function (d) {
+                busy = false;
+                whoNote = (d && (d.message || d.error)) || 'That didn\'t undo — try again.';
+                if (d && d.ok) { whoUndo = null; whoEdits = {}; load(); } else render();
+            }).catch(function () { busy = false; whoNote = 'Network error — try again.'; render(); });
+            return;
+        }
+        var rowEl = b.closest('[data-w]'), it = rowEl && whoFind(rowEl.getAttribute('data-w')); if (!it) return;
+        var st = whoState(it);
+        busy = true;
+        rowEl.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        var body = act === 'who_ok' ? { mode: 'who_confirm', id: it.id, client_id: Number(st.client), first_name: st.first.trim(), last_name: st.last.trim() } : { mode: 'who_not', id: it.id };
+        post(body).then(function (d) { whoDone(d, it.id); })
+            .catch(function () { busy = false; whoNote = 'Network error — nothing changed. Try again.'; render(); });
+    });
 
     function editor(it) {
         var st = state(it), isSms = st.channel === 'sms', text = isSms ? st.sms : st.body, probs = isSms ? smsProblems(text) : [];

@@ -230,6 +230,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/ParcelLotService.php
 require_once __DIR__ . '/../app/Modules/Operations/Services/CityParcelService.php';     // a city's own lot map, by address (2026-10-19)
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';  // Otto's own pins + lot borders
 require_once __DIR__ . '/../app/Modules/Comms/Services/BuildingManagerService.php';    // Yui: who manages a building
+require_once __DIR__ . '/../app/Modules/Comms/Services/InboundQuestionService.php';   // Yui: Who is this?
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptParserScoreService.php';
