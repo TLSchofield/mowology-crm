@@ -1,7 +1,9 @@
 /**
- * ittai-shell.js — the Ittai menu's head blocks open and close (appstack_sidebar.php, it-shell only).
- * The block holding the current page is always open; the rest remember the owner's choice
- * (localStorage, per browser — a convenience, so a blocked storage just means "all open").
+ * ittai-shell.js — the Ittai menu (appstack_sidebar.php + mobile-nav.php, it-shell only).
+ * Phone menu: its head blocks fold open and closed; the block holding the current page is always open and
+ * the rest remember the owner's choice (localStorage, per browser — a convenience).
+ * Desktop sidebar (round 6): one head open at a time, the square head card beside the selected row, the
+ * 72 px rail with flyouts, and the posture helper for a head's workspace (window.ItShell).
  */
 (function () {
     'use strict';
@@ -56,8 +58,313 @@
         });
     }
 
+    // ── Desktop sidebar: the seven heads as navigation ──────────────────────────────────────────────
+    var RAIL_KEY = 'it-rail';
+    var reduced = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+
+    function sidebarInit() {
+        var sb = document.querySelector('.it-sidebar');
+        if (!sb) return;
+        var scroller = sb.querySelector('.sidebar-content');
+        var cb = sb.querySelector('.it-cb');
+        var groups = [].slice.call(sb.querySelectorAll('.it-grp'));
+        var flyTimer = null;
+
+        // Cards and flyouts move out to <body>: inside the sidebar they sat under the page (its stacking
+        // context is below the content), so no z-index could lift them (Tim, 2026-11-10).
+        var layer = document.createElement('div');
+        layer.className = 'it-layer';
+        document.body.appendChild(layer);
+        var cards = {}, flies = {};
+        groups.forEach(function (g) {
+            var k = g.getAttribute('data-head');
+            var c = g.querySelector('.it-hp'), f = g.querySelector('.it-fly');
+            if (c) { layer.appendChild(c); cards[k] = c; }
+            if (f) { layer.appendChild(f); flies[k] = f; }
+        });
+
+        function isRail() { return sb.classList.contains('collapsed'); }
+        function rowOf(g) { return g.querySelector('.it-grow'); }
+        function cardOf(g) { return cards[g.getAttribute('data-head')]; }
+        function flyOf(g) { return flies[g.getAttribute('data-head')]; }
+
+        // The live page's line to its head: from the current page's row up the spine to the portrait.
+        function measureLive() {
+            groups.forEach(function (g) {
+                g.classList.remove('is-live');
+                var acc = g.querySelector('.it-acc');
+                var pg = g.querySelector('.it-pg[aria-current="page"]');
+                var pt = g.querySelector('.it-grow .it-pt');
+                if (!acc || acc.hidden || !pg || !pt || isRail()) return;
+                var gr = g.getBoundingClientRect(), pr = pt.getBoundingClientRect(), r = pg.getBoundingClientRect();
+                var top = pr.top + pr.height / 2 - gr.top, end = r.top + r.height / 2 - gr.top;
+                if (end <= top) return;
+                g.style.setProperty('--it-live-top', Math.round(top) + 'px');
+                g.style.setProperty('--it-live', Math.round(end - top) + 'px');
+                g.classList.add('is-live');
+            });
+        }
+        function setChev(g, open) {
+            var use = g.querySelector('.it-grow > .it-ch use');
+            if (use) use.setAttribute('href', open ? '#it-i-down' : '#it-i-right');
+        }
+        function setOpen(g, open) {
+            var acc = g.querySelector('.it-acc');
+            if (acc) acc.hidden = !open;
+            rowOf(g).setAttribute('aria-expanded', open ? 'true' : 'false');
+            setChev(g, open);
+        }
+        function closeCards() {
+            groups.forEach(function (g) { var c = cardOf(g); if (c) c.classList.remove('is-open'); g.classList.remove('has-card'); });
+        }
+        function closeFlies() {
+            clearTimeout(flyTimer);
+            groups.forEach(function (g) { var f = flyOf(g); if (f) f.classList.remove('is-open'); });
+        }
+
+        // The card: the portrait enlarged. 200 px, centred on the spine (the portrait's centre) and on its row,
+        // kept 8 px inside the window and below the top bar; it grows out of the portrait's own circle.
+        function placeCard(g) {
+            var card = cardOf(g);
+            if (!card || isRail()) return;
+            var pt = g.querySelector('.it-grow .it-pt') || rowOf(g);
+            var p = pt.getBoundingClientRect();
+            var cx = p.left + p.width / 2, cy = p.top + p.height / 2;
+            var w = card.offsetWidth || 200, h = card.offsetHeight || 200;
+            var bar = document.querySelector('.main > .navbar');
+            var minTop = bar ? Math.max(8, bar.getBoundingClientRect().bottom + 8) : 8;
+            var top = Math.min(Math.max(cy - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
+            var left = Math.max(8, cx - w / 2);
+            card.style.top = Math.round(top) + 'px';
+            card.style.left = Math.round(left) + 'px';
+            card.style.transformOrigin = Math.round(cx - left) + 'px ' + Math.round(cy - top) + 'px';
+            card.setAttribute('data-placed', '1');
+        }
+        function replaceOpenCards() {
+            groups.forEach(function (g) { var c = cardOf(g); if (c && c.classList.contains('is-open')) placeCard(g); });
+        }
+        function openCard(g) {
+            closeCards();
+            placeCard(g);
+            var c = cardOf(g);
+            if (!c) return;
+            c.classList.add('is-open');
+            g.classList.add('has-card');
+        }
+
+        function select(g) {
+            var ws = g.getAttribute('data-workspace') || '';
+            if (g.classList.contains('is-sel')) {
+                // Already selected: the second click only shows or hides the card.
+                var card = cardOf(g);
+                if (card && card.classList.contains('is-open')) closeCards(); else openCard(g);
+                return;
+            }
+            groups.forEach(function (o) {
+                if (o === g) return;
+                o.classList.remove('is-sel', 'is-here');
+                setOpen(o, false);
+            });
+            g.classList.remove('is-here');
+            g.classList.add('is-sel');
+            setOpen(g, true);
+            openCard(g);
+            // The other group folds over 180 ms and the row moves with it: place the card again once it has
+            // settled (the fold's transitionend below does it too; these are the fallback for a slow frame).
+            setTimeout(function () { replaceOpenCards(); measureLive(); }, 220);
+            setTimeout(function () { replaceOpenCards(); measureLive(); }, 600);
+            if (ws !== '' && window.location.pathname !== ws) window.location.href = ws;
+        }
+
+        // Rail: a head's pages open in a flyout beside its button.
+        function placeFly(g) {
+            var fly = flyOf(g);
+            if (!fly) return;
+            var r = rowOf(g).getBoundingClientRect();
+            var top = Math.max(r.top - 8, 8);
+            fly.style.left = '76px';
+            fly.style.top = Math.round(top) + 'px';
+            var h = fly.offsetHeight;
+            if (top + h > window.innerHeight - 8) fly.style.top = Math.round(Math.max(8, window.innerHeight - 8 - h)) + 'px';
+        }
+        function openFly(g) {
+            clearTimeout(flyTimer);
+            groups.forEach(function (o) { var f = flyOf(o); if (o !== g && f) f.classList.remove('is-open'); });
+            var fly = flyOf(g);
+            if (!fly) return;
+            fly.classList.add('is-open');
+            placeFly(g);
+        }
+
+        groups.forEach(function (g) {
+            var row = rowOf(g);
+            row.addEventListener('click', function () {
+                if (isRail()) {
+                    openFly(g);
+                    var ws = g.getAttribute('data-workspace') || '';
+                    if (ws !== '' && window.location.pathname !== ws) window.location.href = ws;
+                    return;
+                }
+                select(g);
+            });
+            g.addEventListener('mouseenter', function () { if (isRail()) openFly(g); });
+            function leave() {
+                if (!isRail()) return;
+                clearTimeout(flyTimer);
+                flyTimer = setTimeout(function () { var f = flyOf(g); if (f) f.classList.remove('is-open'); }, 120);
+            }
+            function stillIn(el) { var f = flyOf(g); return g.contains(el) || (f && f.contains(el)); }
+            g.addEventListener('mouseleave', leave);
+            g.addEventListener('focusin', function () { if (isRail()) openFly(g); });
+            g.addEventListener('focusout', function (e) {
+                if (isRail() && !stillIn(e.relatedTarget)) { var f = flyOf(g); if (f) f.classList.remove('is-open'); }
+            });
+            var fly = flyOf(g);
+            if (fly) {
+                // The flyout lives on <body> now, so moving the pointer onto it must not count as leaving the row.
+                fly.addEventListener('mouseenter', function () { clearTimeout(flyTimer); });
+                fly.addEventListener('mouseleave', leave);
+                fly.addEventListener('focusout', function (e) {
+                    if (isRail() && !stillIn(e.relatedTarget)) fly.classList.remove('is-open');
+                });
+                // Keyboard: the flyout is no longer next in tab order, so ArrowRight (or ArrowDown) steps into it
+                // and Escape inside it comes back to the row.
+                row.addEventListener('keydown', function (e) {
+                    if (!isRail() || (e.key !== 'ArrowRight' && e.key !== 'ArrowDown')) return;
+                    e.preventDefault();
+                    openFly(g);
+                    var first = fly.querySelector('.it-pg');
+                    if (first) first.focus();
+                });
+                fly.addEventListener('keydown', function (e) {
+                    if (e.key !== 'Escape') return;
+                    e.stopPropagation();
+                    fly.classList.remove('is-open');
+                    row.focus();
+                });
+            }
+        });
+
+        // Escape, a click elsewhere or on the lockup closes the card and any flyout.
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape') return;
+            closeCards();
+            closeFlies();
+        });
+        document.addEventListener('click', function (e) {
+            if ((!sb.contains(e.target) && !layer.contains(e.target)) || e.target.closest('.it-mark')) { closeCards(); closeFlies(); }
+        });
+        window.addEventListener('resize', function () { replaceOpenCards(); closeFlies(); measureLive(); });
+        // A group finished folding or unfolding: every row below it has moved, so the open card follows.
+        sb.addEventListener('transitionend', function (e) {
+            if (e.target && e.target.classList && e.target.classList.contains('it-acc')) { replaceOpenCards(); measureLive(); }
+        });
+        if (scroller) scroller.addEventListener('scroll', replaceOpenCards, { passive: true });
+
+        // The rail: the sidebar's own button, the AppStack hamburger, and the remembered choice.
+        function saveRail() {
+            try { window.localStorage.setItem(RAIL_KEY, isRail() ? '1' : '0'); } catch (e) { /* private mode */ }
+        }
+        function syncRail() {
+            var rail = isRail();
+            document.body.classList.toggle('it-rail', rail);
+            measureLive();
+            if (cb) {
+                cb.setAttribute('aria-label', rail ? 'Expand sidebar' : 'Collapse sidebar');
+                var use = cb.querySelector('use');
+                if (use) use.setAttribute('href', rail ? '#it-i-right' : '#it-i-left');
+            }
+            closeCards();
+            closeFlies();
+            saveRail();
+            if (!rail) {
+                var sel = sb.querySelector('.it-grp.is-sel');
+                if (sel) window.requestAnimationFrame(function () { openCard(sel); });
+            }
+        }
+        var desktop = !window.matchMedia || window.matchMedia('(min-width: 992px)').matches;
+        try { if (desktop && window.localStorage.getItem(RAIL_KEY) === '1') sb.classList.add('collapsed'); } catch (e) { /* private mode */ }
+        if (cb) cb.addEventListener('click', function () { sb.classList.toggle('collapsed'); });
+        document.querySelectorAll('.sidebar-toggle').forEach(function (t) {
+            t.addEventListener('click', function () {
+                // On a desktop screen AppStack's toggle has nothing to slide away; here it folds to the rail.
+                if (!window.matchMedia || !window.matchMedia('(min-width: 992px)').matches) return;
+                sb.classList.toggle('collapsed');
+                setTimeout(function () { sb.classList.remove('toggled'); }, 0);
+            });
+        });
+        if (window.MutationObserver) {
+            var was = isRail();
+            new MutationObserver(function () {
+                if (isRail() !== was) { was = isRail(); syncRail(); }
+            }).observe(sb, { attributes: true, attributeFilter: ['class'] });
+        }
+        syncRail();
+        measureLive();
+        window.addEventListener('load', measureLive);
+        // Anything that moves a row later (a late webfont, a wrapped chip) moves the live line with it.
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(function () { measureLive(); replaceOpenCards(); });
+            ro.observe(sb);
+            var nv = sb.querySelector('.it-nv');
+            if (nv) ro.observe(nv);
+        }
+
+        // A selected head (the page is its workspace) shows its card from the start.
+        var sel0 = sb.querySelector('.it-grp.is-sel');
+        if (sel0 && !isRail()) {
+            window.requestAnimationFrame(function () { openCard(sel0); });
+            window.addEventListener('load', function () { replaceOpenCards(); });
+        }
+    }
+
+    // ── A head's workspace: work posture (one job, advice as bars) and rest posture (advice as panels) ──
+    function setBar(li, open) {
+        if (!li) return;
+        li.classList.toggle('shut', !open);
+        var b = li.querySelector('.it-ah');
+        if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    function posture(frame, rest, animate) {
+        if (!frame) return;
+        var items = [].slice.call(frame.querySelectorAll('.it-ai'));
+        var h1 = frame.querySelector('h1');
+        var nm = h1 ? (h1.textContent || '').split(' ')[0] : '';
+        var st = frame.querySelector('[role="status"]');
+        clearTimeout(frame._t1); clearTimeout(frame._t2);
+        frame.classList.remove('anim', 'closing');
+        if (st) st.textContent = animate ? (rest ? nm + ': nothing waiting. Advice is open.' : nm + ': a new job is waiting.') : '';
+        if (!animate || reduced.matches) {
+            frame.classList.toggle('rest', rest);
+            frame.classList.toggle('work', !rest);
+            items.forEach(function (li) { li.style.removeProperty('--d'); setBar(li, rest); });
+            return;
+        }
+        frame.classList.add('anim');
+        if (rest) {
+            frame.classList.add('closing');
+            frame._t1 = setTimeout(function () {
+                frame.classList.remove('closing', 'work');
+                frame.classList.add('rest');
+                items.forEach(function (li, i) { li.style.setProperty('--d', (i * 30) + 'ms'); setBar(li, true); });
+            }, 180);
+            frame._t2 = setTimeout(function () { frame.classList.remove('anim'); }, 180 + items.length * 30 + 260);
+        } else {
+            items.forEach(function (li) { li.style.removeProperty('--d'); setBar(li, false); });
+            frame._t1 = setTimeout(function () { frame.classList.remove('rest'); frame.classList.add('work'); }, 180);
+            frame._t2 = setTimeout(function () { frame.classList.remove('anim'); }, 440);
+        }
+    }
+    document.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('.it-ah') : null;
+        if (!b) return;
+        setBar(b.closest('.it-ai'), b.getAttribute('aria-expanded') !== 'true');
+    });
+    window.ItShell = { posture: posture, setBar: setBar };
+
     function boot() {
         init();
+        sidebarInit();
         // The phone menu's head blocks name their icons with data-feather; draw any still empty.
         try { if (window.feather && document.querySelector('.it-mb-link i[data-feather]')) window.feather.replace(); } catch (e) { /* icons are decoration */ }
     }

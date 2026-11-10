@@ -43,44 +43,108 @@ if (!empty($mwLedgerOnly)): ?>
 
 require_once __DIR__ . '/nav-items.php';   // $navItems + badge counts, shared with the phone menu (mobile-nav.php)
 
-// ── Ittai design: the menu IS the office (owner, 2026-10-19) ─────────────────────────────────────────
-// With the it_design choice on (appstack_head.php sets $itShell), every page sits in its department
-// head's block: a full-width strip (portrait, name, role, kanji and what it means), then that head's
-// pages. Order and seats follow the Ittai v1.2 Six + One (Charlie, then clockwise from Yui). Same items,
-// permissions and badges as the classic menu below; a page with no mapping stays with its section's head.
-// Admin is Ada's block (kept in step with the classic Admin list further down).
+// ── Ittai design: the seven AI heads ARE the navigation (round 6, owner 2026-11-10) ──────────────────
+// With the it_design choice on ($itShell, appstack_head.php) each head is a row (portrait ringed by its
+// state, name, AI tag, the state in words), opening that head's pages; a square card beside the row says
+// what the head is doing. Collapsed, the sidebar is a 72 px rail whose rows open a flyout. Order and seats
+// follow the Ittai v1.2 Six + One. Same items, permissions and badges as the classic menu below.
 if (!empty($itShell)):
-    $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage);
+    $__h = static function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
+    // The brief behind the state words and Kaname's page is the owner's (same gate as the Action Board).
+    $__itOwner = false;
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+        $__itDesk = new CharlieDeskService(getDB());
+        $__itOwner = $__itDesk->ready() && $__itDesk->isOwner((array)$user);
+    } catch (Throwable $__e) { /* not the owner, then */ }
+    $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, $__itOwner);
+    $__itNav = ['heads' => []];
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadNavService.php';
+        $__itNav = HeadNavService::forShell(getDB(), $__itOwner);
+    } catch (Throwable $__e) { /* the menu still works without the state words */ }
+    require_once APP_ROOT . '/Services/BusinessIdentity.php';
+    require_once __DIR__ . '/ittai-icons.php';
+    $__itBiz = (string)(BusinessIdentity::get()['name'] ?? '');
+    if ($__itBiz === '') $__itBiz = 'Ittai';
+    $__itWords = preg_split('/\s+/', trim($__itBiz)) ?: [$__itBiz];
+    $__itInit = count($__itWords) > 1 ? mb_substr($__itWords[0], 0, 1) . mb_substr($__itWords[1], 0, 1) : mb_substr($__itBiz, 0, 2);
+    $__itInit = mb_strtoupper($__itInit);
+    $__itRole = ucfirst((string)($user['role'] ?? 'staff'));
+    $__itUser = (string)($user['name'] ?? '');
+    $__itMac = PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false;
+    $__itSymbol = is_file(dirname(__DIR__) . '/img/ittai/ittai-symbol-24.svg') ? '/crm/img/ittai/ittai-symbol-24.svg' : '';
+    $__itStates = ['working', 'approval', 'blocked', 'idle', 'unavailable'];
+    // Which group is open on load: the one holding this page, else the chief of staff's.
+    $__itOpen = '';
+    foreach ($__itBlocks as $__b) { if (!empty($__b['here'])) { $__itOpen = $__b['slug']; break; } }
+    if ($__itOpen === '') $__itOpen = 'charlie';
+    itIconSprite();
 ?>
-<nav id="sidebar" class="sidebar it-sidebar" aria-label="Main menu">
+<nav id="sidebar" class="sidebar it-sidebar" aria-label="Main navigation">
+    <?php /* Outside the scroll container so SimpleBar can't clip it: sits on the sidebar's right edge. */ ?>
+    <button type="button" class="it-cb" aria-label="Collapse sidebar"><svg class="it-ic" width="24" height="24" aria-hidden="true"><use href="#it-i-left"/></svg></button>
     <div class="sidebar-content js-simplebar">
-        <?php /* Product mark + the tenant's name, as Jobber does (owner, 2026-10-19). The symbol is the frozen v1.2 24 px asset. */ ?>
-        <a class="sidebar-brand it-sb-brand" href="/crm/dashboard_appstack.php"><img class="it-sb-wordmark" src="/crm/img/ittai/ittai-wordmark.svg" alt="Ittai" width="44" height="19"><span class="align-middle"><?php require_once APP_ROOT . '/Services/BusinessIdentity.php'; echo htmlspecialchars(BusinessIdentity::get()['name'] ?: 'Ittai'); ?></span></a>
-        <ul class="sidebar-nav it-sb-nav">
-        <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'kanji' => $__kanji, 'means' => $__means, 'here' => $__here, 'items' => $__items]): ?>
-            <li class="it-sb-strip<?php echo $__here ? ' is-here' : ''; ?>" data-head="<?php echo $__slug; ?>">
-                <button type="button" class="it-sb-toggle" aria-expanded="true" aria-controls="it-sb-<?php echo $__slug; ?>">
-                    <span class="it-sb-face"><img src="/crm/img/heads/<?php echo $__slug; ?>.jpg" alt="" width="36" height="36" loading="lazy"><span class="it-sb-kanji" aria-hidden="true"><?php echo $__kanji; ?></span></span>
-                    <span class="it-sb-who"><span class="it-sb-name"><?php echo $__name; ?></span><span class="it-sb-role"><?php echo $__role; ?></span>
-                        <span class="it-sb-means"><span lang="ja"><?php echo $__kanji; ?></span> <?php echo $__means; ?></span></span>
-                    <svg class="it-sb-chev" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="it-top">
+            <a class="it-mark" href="/crm/dashboard_appstack.php" aria-label="Ittai, home"><?php if ($__itSymbol !== ''): ?><img class="it-logo" src="<?php echo $__h($__itSymbol); ?>" alt="" width="24" height="24"><?php endif; ?><img class="it-wm" src="/crm/img/ittai/ittai-wordmark.svg" alt="" height="26"></a>
+        </div>
+        <div class="it-srch">
+            <button type="button" class="it-sf" data-spotlight-open aria-label="Search clients, addresses, buildings, phone numbers"><svg class="it-ic" width="24" height="24" aria-hidden="true"><use href="#it-i-search"/></svg><span class="it-sf-text">Search</span><span class="it-kc" aria-hidden="true"><kbd><?php echo $__itMac ? '⌘' : 'Ctrl'; ?></kbd><kbd>K</kbd></span></button>
+        </div>
+        <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
+        <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
+            $__hd    = (array)(($__itNav['heads'] ?? [])[$__slug] ?? []);
+            $__st    = in_array($__hd['state'] ?? '', $__itStates, true) ? $__hd['state'] : '';
+            $__word  = (string)($__hd['word'] ?? '');
+            if ($__st === '') $__word = '';   // no known state: no state span at all
+            $__line  = (string)($__hd['line'] ?? '');
+            if ($__line === '') $__line = (string)($__hd['reason'] ?? '');
+            $__ws    = (string)($__hd['workspace'] ?? '');
+            $__ring  = 'it-pt it-pt-' . ($__st !== '' ? $__st : 'none');
+            $__isOpen = ($__slug === $__itOpen);
+            $__sel   = false;
+            if ($__ws !== '') foreach ($__items as $__i) { if ($__i['href'] === $__ws && $__i['key'] === $activePage) $__sel = true; }
+            $__aria  = $__name . ', AI, ' . $__role . ($__word !== '' ? '. ' . $__word . '.' : '.');
+            $__stHtml = $__word !== ''
+                ? '<span class="it-s it-s-' . $__st . '"><svg class="it-si" width="12" height="12" aria-hidden="true"><use href="#it-st-' . $__st . '"/></svg>' . $__h($__word) . '</span>'
+                : '';
+            
+            // The head's pages: printed once, used by the open group and again in the rail flyout.
+            ob_start();
+            foreach ($__items as $__item): $__on = ($activePage === $__item['key']); ?>
+                <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
+            <?php endforeach;
+            $__pages = ob_get_clean();
+        ?>
+            <li class="it-grp<?php echo $__sel ? ' is-sel' : ''; ?><?php echo $__here ? ' is-here' : ''; ?><?php echo $__slug === 'charlie' ? ' it-kan' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" data-workspace="<?php echo $__h($__ws); ?>">
+                <button type="button" class="it-grow" aria-expanded="<?php echo $__isOpen ? 'true' : 'false'; ?>" aria-controls="it-acc-<?php echo $__h($__slug); ?>" aria-label="<?php echo $__h($__aria); ?>">
+                    <?php /* Round 7 (Tim's sketch, 2026-11-10): name on the left, the portrait on the spine at the right; the state is
+                             the ring and glyph (the word stays in the aria-label and on the card); Kaname carries the owner's count. */ ?>
+                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span><?php if ($__slug === 'charlie' && (int)($__hd['needs_you'] ?? 0) > 0): ?><span class="it-chip it-chip-need"><?php echo $__h($__word); ?></span><?php endif; ?></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
+                    <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"><?php if ($__st !== ''): ?><svg class="it-bd it-bd-<?php echo $__st; ?>" width="16" height="16" aria-hidden="true"><use href="#it-st-<?php echo $__st; ?>"/></svg><?php endif; ?></span>
                 </button>
+                <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
+                <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
+                    <span class="<?php echo $__ring; ?> it-pt-lg"><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
+                    <span class="it-hpn"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span>
+                    <span class="it-hpd"><?php echo $__h($__role); ?></span>
+                    <?php echo $__stHtml; ?>
+                    <?php if ($__line !== ''): ?><p class="it-hpl"><?php echo $__h($__line); ?></p><?php endif; ?>
+                </div>
+                <div class="it-fly" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', ' . $__role); ?>">
+                    <div class="it-fh">
+                        <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"></span>
+                        <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span><span class="it-l2"><?php echo $__h($__role); ?></span></span>
+                        <?php echo $__stHtml; ?>
+                    </div>
+                    <ul class="it-subs"><?php echo $__pages; ?></ul>
+                </div>
             </li>
-            <li class="it-sb-block" id="it-sb-<?php echo $__slug; ?>"><ul class="it-sb-items">
-            <?php foreach ($__items as $__item): ?>
-                <li class="sidebar-item<?php echo ($activePage === $__item['key']) ? ' active' : ''; ?>">
-                    <a class="sidebar-link" href="<?php echo $__item['href']; ?>"<?php echo ($activePage === $__item['key']) ? ' aria-current="page"' : ''; ?>>
-                        <i class="align-middle" data-feather="<?php echo $__item['icon']; ?>"></i>
-                        <span class="align-middle"><?php echo htmlspecialchars($__item['label']); ?></span>
-                        <?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?>
-                        <span class="mw-sidebar-badge mw-msg-sidebar-badge"><?php echo (int)$__item['badge']; ?></span>
-                        <?php endif; ?>
-                    </a>
-                </li>
-            <?php endforeach; ?>
-            </ul></li>
         <?php endforeach; ?>
-        </ul>
+        </ul></nav>
+        <div class="it-prof">
+            <a class="it-pcard" href="/crm/settings.php" aria-label="<?php echo $__h($__itBiz . ', ' . $__itUser . ', ' . $__itRole . '. Business settings'); ?>"><span class="it-disc"><?php echo $__h($__itInit); ?></span><span class="it-pt2"><b><?php echo $__h($__itBiz); ?></b><span><?php echo $__h($__itUser . ' · ' . $__itRole); ?></span></span><svg class="it-ch it-ic" width="16" height="16" aria-hidden="true"><use href="#it-i-updown"/></svg></a>
+        </div>
     </div>
 </nav>
 <?php return; endif;
