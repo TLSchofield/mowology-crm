@@ -963,6 +963,30 @@ if ($hasPropCoords) {
                     <a href="/crm/invoices/create.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-success" title="Raise an invoice for this plan">
                         <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
                     </a>
+                    <?php
+                    // The next visit still open, else the latest one (already-done work is subcontracted for its proof and bill).
+                    $subVisitId = 0;
+                    $subVisitDate = null;
+                    foreach ($visits as $subV) {
+                        if (in_array($subV['status'], ['scheduled', 'in_progress'], true) && $subV['scheduled_date'] >= date('Y-m-d') && ($subVisitDate === null || $subV['scheduled_date'] < $subVisitDate)) {
+                            $subVisitId = (int)$subV['id'];
+                            $subVisitDate = $subV['scheduled_date'];
+                        }
+                    }
+                    if (!$subVisitId && !empty($visits)) {
+                        foreach ($visits as $subV) {
+                            if ($subVisitDate === null || $subV['scheduled_date'] > $subVisitDate) {
+                                $subVisitId = (int)$subV['id'];
+                                $subVisitDate = $subV['scheduled_date'];
+                            }
+                        }
+                    }
+                    ?>
+                    <?php if ($subVisitId && userHasPermission('jobs.edit')): ?>
+                        <a href="/crm/jobs/visit-detail.php?id=<?php echo $subVisitId; ?>#mw-sub" class="btn btn-outline-secondary" title="Give this job to another company">
+                            <i data-feather="users" style="width:14px;height:14px;"></i> Subcontract
+                        </a>
+                    <?php endif; ?>
                     <?php if ($hasPropCoords): ?>
                         <button type="button" class="btn btn-outline-secondary"
                                 onclick="$('#planWorkZoneModal').modal('show')">
@@ -1655,6 +1679,8 @@ if ($hasPropCoords) {
                                                         <i data-feather="cloud-rain" style="width: 14px; height: 14px;"></i>
                                                     </button>
                                                     <?php if (userHasPermission('jobs.edit')): ?>
+                                                    <a class="btn btn-sm btn-outline-secondary" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$visit['id']; ?>#mw-sub"
+                                                       title="Give this visit to another company" aria-label="Subcontract this visit">Subcontract</a>
                                                     <button type="button" class="btn btn-sm btn-outline-danger"
                                                             onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
                                                             title="Delete this visit">

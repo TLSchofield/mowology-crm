@@ -17,6 +17,12 @@ $statusWords = [
 ];
 $primary = ['respond' => ['accept', 'Take this job'], 'pick_day' => ['pick_day', 'Confirm this day'], 'on_my_way' => ['on_my_way', "I'm on my way"],
             'start' => ['start', 'Start the job'], 'finish' => ['finish', 'Finish the job'], 'send_proof' => ['finish', 'Send my proof of work'], 'send_bill' => ['bill', 'Send my bill']][$step] ?? null;
+$billReceived = !empty($page['bill_received']);
+if ($billReceived) {
+    $statusWords['send_proof'] = 'Thanks for your invoice';
+    $statusWords['bill_waiting'] = 'Photos received';
+    $primary = $step === 'send_proof' ? ['finish', 'Send my photos'] : $primary;
+}
 $dateLine = $page ? $day((string)$page['date']) : '';
 $today = date('Y-m-d');
 ?>
@@ -135,14 +141,18 @@ $today = date('Y-m-d');
     <?php endif; ?>
 
     <?php if ($step === 'send_proof'): ?>
+      <?php if ($billReceived): ?>
+      <p class="sj-waiting">Thanks for the invoice. We just need the photos of the work.</p>
+      <?php else: ?>
       <p class="sj-meta"><?= $e($business) ?> needs this to pay you.</p>
       <label class="sj-field"><span>Day you did the work</span><input type="date" name="done_on" max="<?= $e($today) ?>" required></label>
+      <?php endif; ?>
     <?php endif; ?>
 
     <?php if ($step === 'finish' || $step === 'send_proof'): ?>
       <label class="sj-btn sj-file"><span id="sj-photo-word"><?= (int)$sub['photos'] > 0 ? (int)$sub['photos'] . ' added. Add more photos' : 'Add photos' ?></span><input type="file" id="sj-photos" accept="image/*" multiple></label>
       <p class="sj-sync" id="sj-photo-status" role="status" hidden></p>
-      <label class="sj-field"><span><?= $step === 'send_proof' ? 'What did you do?' : 'Anything ' . $e($business) . ' should know?' ?></span><textarea name="note" rows="2"></textarea></label>
+      <label class="sj-field"><span><?= $billReceived ? 'Anything to add?' : ($step === 'send_proof' ? 'What did you do?' : 'Anything ' . $e($business) . ' should know?') ?></span><textarea name="note" rows="2"></textarea></label>
     <?php endif; ?>
 
     <?php if ($step === 'send_bill'): ?>
@@ -156,7 +166,7 @@ $today = date('Y-m-d');
       <p class="sj-sync" id="sj-invoice-status" role="status" hidden></p>
     <?php endif; ?>
 
-    <?php if ($step === 'bill_waiting'): ?><p class="sj-waiting"><?= $e($business) ?> has your bill. You will see here when it is approved and paid.</p><?php endif; ?>
+    <?php if ($step === 'bill_waiting'): ?><p class="sj-waiting"><?= $billReceived ? 'Thanks. ' . $e($business) . ' has your invoice and photos.' : $e($business) . ' has your bill. You will see here when it is approved and paid.' ?></p><?php endif; ?>
     <?php if ($step === 'payment_waiting'): ?><p class="sj-waiting">Your bill is approved. You will see here when it is paid.</p><?php endif; ?>
     <?php if ($step === 'done'): ?><p class="sj-waiting">Paid. Thank you for the work.</p><?php endif; ?>
     <?php if ($step === 'closed'): ?><p class="sj-waiting">Thanks for letting <?= $e($business) ?> know.</p><?php endif; ?>

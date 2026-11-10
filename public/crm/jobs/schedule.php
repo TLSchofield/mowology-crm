@@ -2267,6 +2267,10 @@ if ($apiKey) {
                               <button class="mw-dv-btn-skip"
                                       data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                       title="Skip this stop — not done today">Skip</button>
+                              <?php if (!empty($stop['visits'][0]['visit_id']) && userHasPermission('jobs.edit')): ?>
+                              <a class="mw-dv-btn-sub" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$stop['visits'][0]['visit_id']; ?>#mw-sub"
+                                 title="Give this job to another company">Subcontract</a>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2449,6 +2453,10 @@ if ($apiKey) {
                               <button class="mw-dv-btn-skip"
                                       data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                       title="Skip this stop — not done today">Skip</button>
+                              <?php if (!empty($stop['visits'][0]['visit_id']) && userHasPermission('jobs.edit')): ?>
+                              <a class="mw-dv-btn-sub" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$stop['visits'][0]['visit_id']; ?>#mw-sub"
+                                 title="Give this job to another company">Subcontract</a>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
