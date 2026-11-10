@@ -133,6 +133,9 @@
             var w = card.offsetWidth || 200, h = card.offsetHeight || 200;
             var bar = document.querySelector('.main > .navbar');
             var minTop = bar ? Math.max(8, bar.getBoundingClientRect().bottom + 8) : 8;
+            // Kaname's row and the search box always keep their space: another head's card starts below her row.
+            var kan = sb.querySelector('.it-grp[data-head="charlie"] .it-grow');
+            if (kan && g.getAttribute('data-head') !== 'charlie') minTop = Math.max(minTop, kan.getBoundingClientRect().bottom + 4);
             var top = Math.min(Math.max(cy - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
             var left = Math.max(8, cx - w / 2);
             card.style.top = Math.round(top) + 'px';
