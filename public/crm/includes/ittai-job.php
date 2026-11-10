@@ -68,17 +68,16 @@ $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__
             . $__ijSvg($icon) . '<b>' . h($a['label'] ?? '') . '</b><span>' . h($a['sub'] ?? '') . '</span></button>';
     };
     $anchor = (array)($j['anchor'] ?? ['label' => 'Ledger', 'href' => '/crm/ledger/']);
-    $keepLabel = (string)(($j['keep'] ?? [])['label'] ?? '');
-    $copyLabel = (string)(($j['copy'] ?? [])['label'] ?? '');
     return '<div class="it-job-rail">'
-        . '<a class="it-job-anchor it-job-anchor-start" href="/crm/receipts-review_appstack.php"><span class="it-ad it-ad-fill">' . $__ijSvg('copies') . '</span><span>Receipts</span></a>'
+        . '<a class="it-job-anchor it-job-anchor-start" href="/crm/receipts-review_appstack.php"><span class="it-ad it-ad-fill">' . $__ijSvg('copies') . '</span><span>Duplicate</span></a>'
         . '<span class="it-job-conf" role="img" aria-label="Penny proposes; your approval decides"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>'
-        . '<div class="it-job-col it-job-lblcol"><span class="it-job-top it-job-keeplbl">' . h($keepLabel) . '</span><span class="it-job-m"></span><span class="it-job-bot it-job-copylbl">' . h($copyLabel) . '</span></div>'
-        . '<ol class="it-job-cols">' . $cols . '</ol>'
+        . '<div class="it-job-split">'
         . '<div class="it-job-col it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true)
         . '<button type="button" class="it-job-view" aria-label="View both receipts side by side"><span class="it-ad it-ad-sm">' . $__ijSvg('eye') . '</span><span>View</span></button>'
         . $__ijFig((array)($j['copy'] ?? []), false) . '</div>'
+        . '<ol class="it-job-cols">' . $cols . '</ol>'
         . '<div class="it-job-col it-job-acts">' . $btn('it-btn-fill', 'merge', $j['primary'] ?? null) . '<span class="it-job-m"></span>' . $btn('it-btn-line', 'split', $j['secondary'] ?? null) . '</div>'
+        . '</div>'
         . '<a class="it-job-anchor" href="' . h($anchor['href']) . '"><span class="it-ad">' . $__ijSvg('book') . '</span><span>' . h($anchor['label']) . '</span></a>'
         . '</div>';
 };
@@ -105,7 +104,7 @@ itIconSprite();
 ?>
 <div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job" data-head="penny" aria-label="Penny's job">
-  <h2 class="it-job-t"><span class="it-job-tt"><?= h($__ij['title']) ?></span> <span class="it-tag">AI</span><span class="it-job-c"><?= h($__ij['confidence']) ?></span></h2>
+  <h2 class="it-vh it-job-tt"><?= h($__ij['title']) ?></h2>
   <div class="it-job-body"><?= $__ijRail($__ij) ?></div>
   <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>

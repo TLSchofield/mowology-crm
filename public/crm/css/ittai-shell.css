@@ -425,7 +425,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 
 /* The job strip: a head's job across the top of her pages (Penny's duplicate receipt). A hairline rail runs
    through the middle: what the two receipts say, the two photos, the two answers, then where it lands. */
-.it-job { margin: 0; padding: 16px 20px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job { margin: 0; padding: 12px 20px 8px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job[hidden], .it-job [hidden] { display: none; }
 .it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
@@ -445,7 +445,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-outer { container-type: inline-size; margin: 0 0 24px; }
 .it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 360px; column-gap: 24px; align-items: start; }
 /* the horizontal flow needs its width: under 1360 px of content the graph goes below the strip */
-@container (max-width: 1420px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
+@container (max-width: 1640px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
 .it-job-rail { position: relative; }
 .it-job-viz { margin: 0; padding: 16px 24px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
@@ -464,13 +464,16 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
 .it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
-.it-job-rail { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
 /* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
 .it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
-.it-job-rail > *, .it-job-cols > li { position: relative; flex: none; }
+.it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
+/* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 20px 10px 20px 30px; margin-left: -22px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
+.it-job-conf { z-index: 2; }
 /* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
 .it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
-.it-job-cols { display: flex; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.it-job-cols { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
 .it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
 .it-job-lblcol { justify-items: start; min-width: 0; }
@@ -486,7 +489,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-disc-differs { background: var(--it-sunk); border: 2px solid var(--it-status-attention); color: var(--it-status-attention); }
 .it-job-disc-missing { background: var(--it-sunk); border: 2px solid var(--it-meta); color: var(--it-meta); }
 .it-job-disc-info { background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
-.it-job-imgs { min-width: 104px; }
+.it-job-imgs { min-width: 104px; row-gap: 22px; }
 .it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 104px; }
 .it-job-imgs .it-job-fig:first-child { align-self: end; }
 .it-job-imgs .it-job-fig:last-child { align-self: start; }
@@ -500,6 +503,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-acts .it-btn { width: 100%; }
 .it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 16px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
 .it-job .it-btn .it-job-ic { grid-row: 1 / span 2; width: 20px; height: 20px; }
+.it-job .it-btn-fill .it-job-ic { transform: rotate(90deg); }   /* the merge arrow points along the horizontal flow */
 .it-job .it-btn b { font-weight: 600; }
 .it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
 .it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }

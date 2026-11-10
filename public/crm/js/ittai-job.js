@@ -148,8 +148,9 @@
         if (!reduced) rail.classList.add('is-enter');
         oldRail.replaceWith(rail);
 
-        root.querySelector('.it-job-tt').textContent = job.title;
-        root.querySelector('.it-job-c').textContent = job.confidence || '';
+        var tt = root.querySelector('.it-job-tt'), cc = root.querySelector('.it-job-c');
+        if (tt) tt.textContent = job.title;
+        if (cc) cc.textContent = job.confidence || '';
         var total = queue.length;
         var n = root.querySelector('.it-job-n');
         n.textContent = '1 of ' + total;

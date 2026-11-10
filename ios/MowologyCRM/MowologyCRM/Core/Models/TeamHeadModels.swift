@@ -33,6 +33,8 @@ struct HeadCardResponse: Decodable {
     let unpinned: [UnpinnedProperty]
     /// Otto's suggestions with their buttons + the contract auto-log (jobs.edit; older servers send none).
     let otto: OttoDesk?
+    /// Otto's Subcontracts carousel: jobs given to other companies and the stage each is at (jobs.edit; older servers send none).
+    let subcontracts: [SubcontractCard]
     // Mia
     let post: MiaPostDraft?
     let googleMode: String?
@@ -43,7 +45,7 @@ struct HeadCardResponse: Decodable {
     let heads: [String: HeadOfficeState]?
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads, suggestions
+        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads, suggestions, subcontracts
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
@@ -64,11 +66,68 @@ struct HeadCardResponse: Decodable {
         quote = try? c.decodeIfPresent(BriefQuote.self, forKey: .quote)
         unpinned = (try? c.decodeIfPresent([UnpinnedProperty].self, forKey: .unpinned)) ?? []
         otto = try? c.decodeIfPresent(OttoDesk.self, forKey: .otto)
+        subcontracts = (try? c.decodeIfPresent([SubcontractCard].self, forKey: .subcontracts)) ?? []
         post = try? c.decodeIfPresent(MiaPostDraft.self, forKey: .post)
         googleMode = c.bkString(.googleMode)
         canApprove = c.bkBool(.canApprove) ?? false
         suggestions = (try? c.decodeIfPresent([MiaSuggestion].self, forKey: .suggestions)) ?? []
         heads = try? c.decodeIfPresent([String: HeadOfficeState].self, forKey: .heads)
+    }
+}
+
+/// One job given to another company, as SubcontractService::board() sends it.
+struct SubcontractCard: Decodable, Identifiable, Equatable {
+    let jobId: Int
+    let visitId: Int
+    let company: String
+    let title: String
+    let address: String
+    let stages: [SubcontractStage]
+    /// The stage it is at, in words ("Photos in").
+    let at: String
+    /// The last thing that happened ("Took the job") and when ("2026-11-10 14:20:00").
+    let last: String?
+    let lastAt: String?
+    /// accept | mark_paid | penny | dismiss, or nil while it is with them.
+    let action: String?
+    let url: String
+
+    var id: Int { jobId }
+
+    private enum CodingKeys: String, CodingKey {
+        case jobId = "job_id", visitId = "visit_id", company, title, address, stages, at, last, lastAt = "last_at", action, url
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        jobId = c.bkInt(.jobId) ?? 0
+        visitId = c.bkInt(.visitId) ?? 0
+        company = c.bkString(.company) ?? ""
+        title = c.bkString(.title) ?? ""
+        address = c.bkString(.address) ?? ""
+        stages = (try? c.decodeIfPresent([SubcontractStage].self, forKey: .stages)) ?? []
+        at = c.bkString(.at) ?? ""
+        last = c.bkString(.last)
+        lastAt = c.bkString(.lastAt)
+        action = c.bkString(.action)
+        url = c.bkString(.url) ?? ""
+    }
+}
+
+struct SubcontractStage: Decodable, Equatable {
+    let key: String
+    let label: String
+    let reached: Bool
+    let current: Bool
+
+    private enum CodingKeys: String, CodingKey { case key, label, reached, current }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = c.bkString(.key) ?? ""
+        label = c.bkString(.label) ?? ""
+        reached = c.bkBool(.reached) ?? false
+        current = c.bkBool(.current) ?? false
     }
 }
 

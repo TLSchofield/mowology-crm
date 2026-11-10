@@ -172,7 +172,7 @@ try {
 
     $db = getDB();
     require_once APP_ROOT . '/Core/IdempotencyGuard.php';
-    IdempotencyGuard::begin($db, (int)$user['id'], 'team-mobile', $mode, ['act', 'ask', 'move', 'done', 'geocode', 'gbp_post', 'otto_decide', 'otto_undo_auto', 'yui_act']);
+    IdempotencyGuard::begin($db, (int)$user['id'], 'team-mobile', $mode, ['act', 'ask', 'move', 'done', 'geocode', 'gbp_post', 'otto_decide', 'otto_undo_auto', 'sub_accept', 'sub_paid', 'sub_dismiss', 'yui_act']);
     if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
     require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
@@ -305,6 +305,15 @@ try {
                 require_once APP_ROOT . '/Modules/Operations/Services/PropertyReadinessService.php';
                 $out['unpinned'] = (new PropertyReadinessService($db))->unpinnedUpcoming(date('Y-m-d'), date('Y-m-d', strtotime('+14 days')), 3);
                 $out['otto'] = tmOttoDesk($db, $jwtUser);
+                $out['subcontracts'] = [];
+                if (jwtUserHasPermission($jwtUser, 'jobs.edit')) {
+                    try {   // the web card's Subcontracts carousel (SubcontractService::board)
+                        require_once APP_ROOT . '/Modules/Subcontract/Services/SubcontractService.php';
+                        $out['subcontracts'] = (new SubcontractService($db))->board(false);   // the phone shows no photos
+                    } catch (Throwable $e) {
+                        error_log('[team-mobile] Subcontracts: ' . $e->getMessage());   // tables not on this business yet
+                    }
+                }
             } elseif ($head === 'mia') {
                 $out['post'] = null;
                 $out['google_mode'] = 'drafts_only';
@@ -424,6 +433,27 @@ try {
                     }
                 } catch (Throwable $e) { /* the cache is a bonus */ }
             }
+            echo json_encode($r);
+            break;
+        }
+
+        case 'sub_accept':
+        case 'sub_paid':
+        case 'sub_dismiss': {
+            // The Subcontracts carousel's buttons — the same SubcontractService calls as the web card.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'jobs.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Subcontracts are for people who run the schedule (jobs.edit).']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Subcontract/Services/SubcontractService.php';
+            $sub = new SubcontractService($db);
+            $jobId = (int)($input['job_id'] ?? 0);
+            $r = $mode === 'sub_accept' ? $sub->acceptWork($jobId, (int)$user['id'])
+               : ($mode === 'sub_paid' ? $sub->markPaid($jobId, (int)$user['id']) : $sub->dismiss($jobId, (int)$user['id']));
+            if (!empty($r['ok'])) $r['message'] = ['sub_accept' => 'Work accepted. The visit is complete.', 'sub_paid' => 'Marked paid.', 'sub_dismiss' => 'Cleared.'][$mode];
+            elseif (isset($r['error'])) $r['message'] = $r['error'];
             echo json_encode($r);
             break;
         }

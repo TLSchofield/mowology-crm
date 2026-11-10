@@ -29,6 +29,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && ($_GET['mode'] ?? '') === 'f
 }
 
 header('Content-Type: application/json; charset=utf-8');
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && ($_GET['mode'] ?? '') === 'board') {
+    echo json_encode(['ok' => true, 'board' => $service->board()]);
+    exit;
+}
 $reply = static function (array $body, int $status = 200): void {
     http_response_code($status);
     echo json_encode($body);
@@ -77,6 +81,8 @@ try {
             $reply($service->acceptWork($jobId, $userId));
         case 'mark_paid':
             $reply($service->markPaid($jobId, $userId));
+        case 'dismiss':
+            $reply($service->dismiss($jobId, $userId));
         case 'cancel':
             $reply(['ok' => $service->cancel($jobId, $userId)]);
         default:
