@@ -33,6 +33,7 @@ $today = date('Y-m-d');
 <link rel="stylesheet" href="/customer/sub-job.css">
 </head>
 <body>
+<?php if ($page): ?><script src="/customer/sub-job-splash.js"></script><?php endif; ?>
 <main class="sj" id="sj" data-token="<?= $e($sub['token']) ?>">
 
   <header class="sj-brand">

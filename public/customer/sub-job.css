@@ -78,3 +78,8 @@ body { margin: 0; background: var(--sj-surface); color: var(--sj-text); font-fam
 @media (min-width: 768px) {
   .sj { padding-top: 24px; }
 }
+
+/* Ittai splash: navy, animation only, once per link. Drawn over the page until sub-job-splash.js removes it. */
+.sj-splash { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: #233A5E; cursor: pointer; opacity: 1; transition: opacity .3s ease-out; }
+.sj-splash svg { display: block; width: min(72vw, 420px); height: auto; }
+.sj-splash-out { opacity: 0; }
