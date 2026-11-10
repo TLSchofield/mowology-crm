@@ -23,6 +23,7 @@ struct PennyCardView: View {
     @State private var pagerTarget: PagerTarget?
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Penny's spine sections (2026-11-07): Waiting now holds her cards, which run on the same centre line (bank →
     /// panel → ledger), so it has no frame of its own; then mail from customers.
@@ -54,6 +55,16 @@ struct PennyCardView: View {
         .fullScreenCover(item: $pagerTarget) { t in
             DupePhotoPager(urls: t.urls, labels: t.labels, reads: t.reads, start: t.start)
         }
+        .onAppear { refreshLinks() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshLinks() }
+        }
+        .onChange(of: vm.dupePos) { _, _ in refreshLinks() }
+        .onChange(of: vm.index) { _, _ in refreshLinks() }
+    }
+
+    private func refreshLinks() {
+        Task { await vm.refreshPhotoLinksIfOld() }
     }
 
     @ViewBuilder private var waitingCards: some View {
@@ -140,7 +151,7 @@ struct PennyCardView: View {
     private func receiptCard(_ item: BookkeeperItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             header(item)
-            photo(item.imageURL)
+            photo(vm.photoLink(expenseId: item.expenseId, arrivedWith: item.imageURL))
 
             if let who = item.submittedBy, !who.isEmpty {
                 Text("from \(who)")
@@ -239,6 +250,7 @@ struct PennyCardView: View {
                         ProgressView()
                     }
                 }
+                .id(url)   // a re-issued link starts over, whatever the last one did
                 .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 260)
                 .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
                 .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
@@ -817,21 +829,23 @@ struct PennyCardView: View {
 
     private func dupeThumb(_ m: BKDupeMember, index: Int, members: [BKDupeMember], keep: Int, status: String?, sender: String?,
                            reads: [String]) -> some View {
-        let withPhoto = members.indices.filter { members[$0].receiptPath.flatMap(URL.init(string:)) != nil }
-        let urls = withPhoto.compactMap { members[$0].receiptPath.flatMap(URL.init(string:)) }
+        let link: (BKDupeMember) -> URL? = { vm.photoLink(expenseId: $0.id, arrivedWith: $0.receiptPath).flatMap(URL.init(string:)) }
+        let withPhoto = members.indices.filter { link(members[$0]) != nil }
+        let urls = withPhoto.compactMap { link(members[$0]) }
         let labels = withPhoto.map { "#\(members[$0].id)" }
         let pageReads = withPhoto.map { reads[safe: $0] ?? "" }
         let start = labels.firstIndex(of: "#\(m.id)") ?? 0
         let kept = m.id == keep
         return VStack(spacing: 4) {
             Group {
-                if let s = m.receiptPath, let url = URL(string: s) {
+                if let url = link(m) {
                     Button { pagerTarget = PagerTarget(urls: urls, labels: labels, reads: pageReads, start: start) } label: {
                         AsyncImage(url: url) { phase in
                             if let img = phase.image { img.resizable().scaledToFill() }
                             else if phase.error != nil { Image(systemName: "photo").foregroundStyle(appStyle.meta) }
                             else { ProgressView() }
                         }
+                        .id(url)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipped()
                     }

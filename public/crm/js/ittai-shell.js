@@ -70,10 +70,40 @@
         var groups = [].slice.call(sb.querySelectorAll('.it-grp'));
         var flyTimer = null;
 
+        // Cards and flyouts move out to <body>: inside the sidebar they sat under the page (its stacking
+        // context is below the content), so no z-index could lift them (Tim, 2026-11-10).
+        var layer = document.createElement('div');
+        layer.className = 'it-layer';
+        document.body.appendChild(layer);
+        var cards = {}, flies = {};
+        groups.forEach(function (g) {
+            var k = g.getAttribute('data-head');
+            var c = g.querySelector('.it-hp'), f = g.querySelector('.it-fly');
+            if (c) { layer.appendChild(c); cards[k] = c; }
+            if (f) { layer.appendChild(f); flies[k] = f; }
+        });
+
         function isRail() { return sb.classList.contains('collapsed'); }
         function rowOf(g) { return g.querySelector('.it-grow'); }
-        function cardOf(g) { return g.querySelector('.it-hp'); }
-        function flyOf(g) { return g.querySelector('.it-fly'); }
+        function cardOf(g) { return cards[g.getAttribute('data-head')]; }
+        function flyOf(g) { return flies[g.getAttribute('data-head')]; }
+
+        // The live page's line to its head: from the current page's row up the spine to the portrait.
+        function measureLive() {
+            groups.forEach(function (g) {
+                g.classList.remove('is-live');
+                var acc = g.querySelector('.it-acc');
+                var pg = g.querySelector('.it-pg[aria-current="page"]');
+                var pt = g.querySelector('.it-grow .it-pt');
+                if (!acc || acc.hidden || !pg || !pt || isRail()) return;
+                var gr = g.getBoundingClientRect(), pr = pt.getBoundingClientRect(), r = pg.getBoundingClientRect();
+                var top = pr.top + pr.height / 2 - gr.top, end = r.top + r.height / 2 - gr.top;
+                if (end <= top) return;
+                g.style.setProperty('--it-live-top', Math.round(top) + 'px');
+                g.style.setProperty('--it-live', Math.round(end - top) + 'px');
+                g.classList.add('is-live');
+            });
+        }
         function setChev(g, open) {
             var use = g.querySelector('.it-grow > .it-ch use');
             if (use) use.setAttribute('href', open ? '#it-i-down' : '#it-i-right');
@@ -85,34 +115,44 @@
             setChev(g, open);
         }
         function closeCards() {
-            groups.forEach(function (g) { cardOf(g).classList.remove('is-open'); });
+            groups.forEach(function (g) { var c = cardOf(g); if (c) c.classList.remove('is-open'); g.classList.remove('has-card'); });
         }
         function closeFlies() {
             clearTimeout(flyTimer);
-            groups.forEach(function (g) { flyOf(g).classList.remove('is-open'); });
+            groups.forEach(function (g) { var f = flyOf(g); if (f) f.classList.remove('is-open'); });
         }
 
-        // The card: 200 px, centred on its row, 5 px right of the sidebar, kept 8 px inside the window.
+        // The card: the portrait enlarged. 200 px, centred on the spine (the portrait's centre) and on its row,
+        // kept 8 px inside the window and below the top bar; it grows out of the portrait's own circle.
         function placeCard(g) {
             var card = cardOf(g);
             if (!card || isRail()) return;
-            var r = rowOf(g).getBoundingClientRect();
-            var h = card.offsetHeight || 200;
-            // Never over the top bar's controls: the card starts below it when the row is near the top.
+            var pt = g.querySelector('.it-grow .it-pt') || rowOf(g);
+            var p = pt.getBoundingClientRect();
+            var cx = p.left + p.width / 2, cy = p.top + p.height / 2;
+            var w = card.offsetWidth || 200, h = card.offsetHeight || 200;
             var bar = document.querySelector('.main > .navbar');
             var minTop = bar ? Math.max(8, bar.getBoundingClientRect().bottom + 8) : 8;
-            var top = Math.min(Math.max(r.top + r.height / 2 - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
+            // Kaname's row and the search box always keep their space: another head's card starts below her row.
+            var kan = sb.querySelector('.it-grp[data-head="charlie"] .it-grow');
+            if (kan && g.getAttribute('data-head') !== 'charlie') minTop = Math.max(minTop, kan.getBoundingClientRect().bottom + 4);
+            var top = Math.min(Math.max(cy - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
+            var left = Math.max(8, cx - w / 2);
             card.style.top = Math.round(top) + 'px';
-            card.style.left = Math.round(sb.getBoundingClientRect().right + 5) + 'px';
+            card.style.left = Math.round(left) + 'px';
+            card.style.transformOrigin = Math.round(cx - left) + 'px ' + Math.round(cy - top) + 'px';
             card.setAttribute('data-placed', '1');
         }
         function replaceOpenCards() {
-            groups.forEach(function (g) { if (cardOf(g).classList.contains('is-open')) placeCard(g); });
+            groups.forEach(function (g) { var c = cardOf(g); if (c && c.classList.contains('is-open')) placeCard(g); });
         }
         function openCard(g) {
             closeCards();
             placeCard(g);
-            cardOf(g).classList.add('is-open');
+            var c = cardOf(g);
+            if (!c) return;
+            c.classList.add('is-open');
+            g.classList.add('has-card');
         }
 
         function select(g) {
@@ -120,7 +160,7 @@
             if (g.classList.contains('is-sel')) {
                 // Already selected: the second click only shows or hides the card.
                 var card = cardOf(g);
-                if (card.classList.contains('is-open')) card.classList.remove('is-open'); else openCard(g);
+                if (card && card.classList.contains('is-open')) closeCards(); else openCard(g);
                 return;
             }
             groups.forEach(function (o) {
@@ -134,14 +174,15 @@
             openCard(g);
             // The other group folds over 180 ms and the row moves with it: place the card again once it has
             // settled (the fold's transitionend below does it too; these are the fallback for a slow frame).
-            setTimeout(replaceOpenCards, 220);
-            setTimeout(replaceOpenCards, 600);
+            setTimeout(function () { replaceOpenCards(); measureLive(); }, 220);
+            setTimeout(function () { replaceOpenCards(); measureLive(); }, 600);
             if (ws !== '' && window.location.pathname !== ws) window.location.href = ws;
         }
 
         // Rail: a head's pages open in a flyout beside its button.
         function placeFly(g) {
             var fly = flyOf(g);
+            if (!fly) return;
             var r = rowOf(g).getBoundingClientRect();
             var top = Math.max(r.top - 8, 8);
             fly.style.left = '76px';
@@ -151,8 +192,9 @@
         }
         function openFly(g) {
             clearTimeout(flyTimer);
-            groups.forEach(function (o) { if (o !== g) flyOf(o).classList.remove('is-open'); });
+            groups.forEach(function (o) { var f = flyOf(o); if (o !== g && f) f.classList.remove('is-open'); });
             var fly = flyOf(g);
+            if (!fly) return;
             fly.classList.add('is-open');
             placeFly(g);
         }
@@ -169,15 +211,41 @@
                 select(g);
             });
             g.addEventListener('mouseenter', function () { if (isRail()) openFly(g); });
-            g.addEventListener('mouseleave', function () {
+            function leave() {
                 if (!isRail()) return;
                 clearTimeout(flyTimer);
-                flyTimer = setTimeout(function () { flyOf(g).classList.remove('is-open'); }, 120);
-            });
+                flyTimer = setTimeout(function () { var f = flyOf(g); if (f) f.classList.remove('is-open'); }, 120);
+            }
+            function stillIn(el) { var f = flyOf(g); return g.contains(el) || (f && f.contains(el)); }
+            g.addEventListener('mouseleave', leave);
             g.addEventListener('focusin', function () { if (isRail()) openFly(g); });
             g.addEventListener('focusout', function (e) {
-                if (isRail() && !g.contains(e.relatedTarget)) flyOf(g).classList.remove('is-open');
+                if (isRail() && !stillIn(e.relatedTarget)) { var f = flyOf(g); if (f) f.classList.remove('is-open'); }
             });
+            var fly = flyOf(g);
+            if (fly) {
+                // The flyout lives on <body> now, so moving the pointer onto it must not count as leaving the row.
+                fly.addEventListener('mouseenter', function () { clearTimeout(flyTimer); });
+                fly.addEventListener('mouseleave', leave);
+                fly.addEventListener('focusout', function (e) {
+                    if (isRail() && !stillIn(e.relatedTarget)) fly.classList.remove('is-open');
+                });
+                // Keyboard: the flyout is no longer next in tab order, so ArrowRight (or ArrowDown) steps into it
+                // and Escape inside it comes back to the row.
+                row.addEventListener('keydown', function (e) {
+                    if (!isRail() || (e.key !== 'ArrowRight' && e.key !== 'ArrowDown')) return;
+                    e.preventDefault();
+                    openFly(g);
+                    var first = fly.querySelector('.it-pg');
+                    if (first) first.focus();
+                });
+                fly.addEventListener('keydown', function (e) {
+                    if (e.key !== 'Escape') return;
+                    e.stopPropagation();
+                    fly.classList.remove('is-open');
+                    row.focus();
+                });
+            }
         });
 
         // Escape, a click elsewhere or on the lockup closes the card and any flyout.
@@ -187,12 +255,12 @@
             closeFlies();
         });
         document.addEventListener('click', function (e) {
-            if (!sb.contains(e.target) || e.target.closest('.it-mark')) { closeCards(); closeFlies(); }
+            if ((!sb.contains(e.target) && !layer.contains(e.target)) || e.target.closest('.it-mark')) { closeCards(); closeFlies(); }
         });
-        window.addEventListener('resize', function () { replaceOpenCards(); closeFlies(); });
+        window.addEventListener('resize', function () { replaceOpenCards(); closeFlies(); measureLive(); });
         // A group finished folding or unfolding: every row below it has moved, so the open card follows.
         sb.addEventListener('transitionend', function (e) {
-            if (e.target && e.target.classList && e.target.classList.contains('it-acc')) replaceOpenCards();
+            if (e.target && e.target.classList && e.target.classList.contains('it-acc')) { replaceOpenCards(); measureLive(); }
         });
         if (scroller) scroller.addEventListener('scroll', replaceOpenCards, { passive: true });
 
@@ -202,6 +270,8 @@
         }
         function syncRail() {
             var rail = isRail();
+            document.body.classList.toggle('it-rail', rail);
+            measureLive();
             if (cb) {
                 cb.setAttribute('aria-label', rail ? 'Expand sidebar' : 'Collapse sidebar');
                 var use = cb.querySelector('use');
@@ -233,6 +303,15 @@
             }).observe(sb, { attributes: true, attributeFilter: ['class'] });
         }
         syncRail();
+        measureLive();
+        window.addEventListener('load', measureLive);
+        // Anything that moves a row later (a late webfont, a wrapped chip) moves the live line with it.
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(function () { measureLive(); replaceOpenCards(); });
+            ro.observe(sb);
+            var nv = sb.querySelector('.it-nv');
+            if (nv) ro.observe(nv);
+        }
 
         // A selected head (the page is its workspace) shows its card from the start.
         var sel0 = sb.querySelector('.it-grp.is-sel');

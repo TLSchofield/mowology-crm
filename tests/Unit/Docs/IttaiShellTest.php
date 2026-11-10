@@ -90,4 +90,23 @@ class IttaiShellTest extends TestCase
         $this->assertGreaterThan($fn, $at, 'the Morning brief page is inside mwIttaiNavBlocks');
         $this->assertSame(1, substr_count($s, "'key' => 'kaname'"), 'and nowhere in the classic $navItems list');
     }
+
+    /** Round 7: the state lives in the ring and glyph; no state word or chevron in the head row, the spine and the live line exist. */
+    public function testRowsCarryNoStateWordAndTheSpineIsDrawn(): void
+    {
+        $php = $this->src('public/crm/includes/appstack_sidebar.php');
+        preg_match_all('#<button type="button" class="it-grow".*?</button>#s', $php, $m);
+        $this->assertNotEmpty($m[0]);
+        foreach ($m[0] as $row) {
+            $this->assertStringNotContainsString('it-s it-s-', $row, 'no state word in a head row');
+            $this->assertStringNotContainsString('it-ch it-ic', $row, 'no chevron in a head row');
+            $this->assertStringContainsString('$__ring', $row, 'the portrait (its ring class) stays in the row');
+        }
+        $css = $this->src('public/crm/css/ittai-shell.css');
+        $this->assertStringContainsString('.it-grp::before', $css, 'the spine');
+        $this->assertStringContainsString('--it-live', $css, 'the live page line');
+        $js = $this->src('public/crm/js/ittai-shell.js');
+        $this->assertStringContainsString("'--it-live'", $js);
+        $this->assertStringContainsString('it-layer', $js, 'cards and flyouts are moved to <body>');
+    }
 }

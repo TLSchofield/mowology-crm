@@ -703,5 +703,8 @@ require_once __DIR__ . '/../app/Services/Receipts/ReceiptProfile.php';
 require_once __DIR__ . '/../app/Services/BusinessIdentity.php';
 require_once __DIR__ . '/../app/Services/PortalBrand.php';
 
+// Give a visit to another company (2026-11-10)
+require_once __DIR__ . '/../app/Modules/Subcontract/Services/SubcontractService.php';
+
 // Automatic database updater (2026-11-09)
 require_once __DIR__ . '/../app/Modules/Database/Services/SchemaUpdater.php';

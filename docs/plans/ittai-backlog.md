@@ -8,6 +8,13 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Subcontracting — what is left after the web version (live 2026-11-10)
+- Native iPhone card (timeline, Accept), schedule card label, Otto line when a job is close and not yet accepted.
+- Their photos onto the visit record on Accept; their invoice attached to the expense in Penny.
+- Plan-level profit: stop adding estimated labour on a subcontracted visit.
+- Hold WorkSafeBC clearance and insurance per subcontractor.
+- A subcontractor who is also on Ittai: the job lands in their schedule and their invoice arrives as the bill (separate databases, needs a handshake between businesses).
+
 ## How a business starts and gets paid (Tim, 2026-11-10) — before the first real business
 Ittai no longer depends on invoicing as its centre: clients, the schedule and the crew's day are the core, and the invoice is
 the handoff at the end. Without QuickBooks a business can still invoice, show How to Pay and keep its books, but has no Pay
@@ -638,3 +645,6 @@ rule. **Private:** each business's own prices.
 - Intuit's official Connect button still needs the artwork pack from Tim's developer sign-in (see above).
 - The pay link has only been seen with online payment off (the test company has no QuickBooks Payments). Prove the real page on a live QuickBooks once Production keys arrive.
 
+
+## iPhone photo links that expire while the screen is open (2026-11-10)
+- Penny's card now re-issues its 15-minute photo links (1.3.137). The Receipts tab, a receipt's detail screen and the full-screen pager hold the same kind of link and do not. Answered duplicate cards keep their old links too. No 403 from those yet; check the access log before building anything.

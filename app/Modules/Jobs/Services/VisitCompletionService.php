@@ -96,6 +96,13 @@ class VisitCompletionService
                 ? round($hourlyRate * ($actualMinutes / 60), 2)
                 : null;
 
+            // A subcontracted visit costs what the subcontractor charges, not the rate of whoever accepted the work.
+            $subcontractCost = self::subcontractCost($db, $visitId);
+            if ($subcontractCost !== null) {
+                $hourlyRate = 0.0;
+                $laborCost = $subcontractCost > 0 ? $subcontractCost : null;
+            }
+
             // ── 5. Compute drive cost ─────────────────────────────────────────
             $driveMinutes = (int)($visit['drive_time_minutes'] ?? 0);
             $driveCost    = null;
@@ -312,6 +319,23 @@ class VisitCompletionService
     /**
      * Resolve actual material cost for a visit from expenses.
      */
+    private static function subcontractCost(PDO $db, int $visitId): ?float
+    {
+        try {
+            $stmt = $db->prepare("
+                SELECT COALESCE(bill_amount, agreed_amount, 0)
+                FROM subcontract_jobs
+                WHERE visit_id = ? AND revoked_at IS NULL AND work_status = 'finished'
+                ORDER BY id DESC LIMIT 1
+            ");
+            $stmt->execute([$visitId]);
+            $cost = $stmt->fetchColumn();
+            return $cost === false ? null : (float)$cost;
+        } catch (Throwable $e) {
+            return null; // table not on this business yet
+        }
+    }
+
     private static function resolveMaterialCost(PDO $db, int $visitId): ?float
     {
         $stmt = $db->prepare("

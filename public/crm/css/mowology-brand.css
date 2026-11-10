@@ -41782,3 +41782,8 @@ body.mw-books {
 .mw-two-step-field { max-width: 22rem; }
 .mw-two-step-key { font-family: var(--mw-font-mono, monospace); font-size: 1.05rem; letter-spacing: .08em; word-break: break-all; }
 .mw-backup-codes { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem 1.5rem; max-width: 22rem; margin: .75rem 0; padding: .75rem 1rem; list-style: none; background: var(--mw-light); border-radius: 6px; font-family: var(--mw-font-mono, monospace); font-size: 1rem; }
+
+/* Subcontract card on the visit page */
+.mw-sub-files { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.mw-sub-files img { width: 100%; height: 96px; object-fit: cover; border-radius: 10px; display: block; }
+.mw-sub-event { padding: 4px 0; }
