@@ -70,8 +70,9 @@
         var groups = [].slice.call(sb.querySelectorAll('.it-grp'));
         var flyTimer = null;
 
-        // Cards and flyouts move out to <body>: inside the sidebar they sat under the page (its stacking
-        // context is below the content), so no z-index could lift them (Tim, 2026-11-10).
+        // Flyouts move out to <body>: inside the sidebar they sat under the page (its stacking context is below
+        // the content), so no z-index could lift them (Tim, 2026-11-10). The card stays in flow: it is the head's
+        // row grown taller, and the pages move down beneath it.
         var layer = document.createElement('div');
         layer.className = 'it-layer';
         document.body.appendChild(layer);
@@ -79,7 +80,7 @@
         groups.forEach(function (g) {
             var k = g.getAttribute('data-head');
             var c = g.querySelector('.it-hp'), f = g.querySelector('.it-fly');
-            if (c) { layer.appendChild(c); cards[k] = c; }
+            if (c) cards[k] = c;
             if (f) { layer.appendChild(f); flies[k] = f; }
         });
 
@@ -122,24 +123,8 @@
             groups.forEach(function (g) { var f = flyOf(g); if (f) f.classList.remove('is-open'); });
         }
 
-        // The card: the portrait enlarged. 200 px, centred on the spine (the portrait's centre) and on its row,
-        // kept 8 px inside the window and below the top bar; it grows out of the portrait's own circle.
-        function placeCard(g) {
-            var card = cardOf(g);
-            if (!card || isRail()) return;
-            var pt = g.querySelector('.it-grow .it-pt') || rowOf(g);
-            var p = pt.getBoundingClientRect();
-            var cx = p.left + p.width / 2, cy = p.top + p.height / 2;
-            var w = card.offsetWidth || 200, h = card.offsetHeight || 200;
-            var bar = document.querySelector('.main > .navbar');
-            var minTop = bar ? Math.max(8, bar.getBoundingClientRect().bottom + 8) : 8;
-            var top = Math.min(Math.max(cy - h / 2, minTop), Math.max(minTop, window.innerHeight - 8 - h));
-            var left = Math.max(8, cx - w / 2);
-            card.style.top = Math.round(top) + 'px';
-            card.style.left = Math.round(left) + 'px';
-            card.style.transformOrigin = Math.round(cx - left) + 'px ' + Math.round(cy - top) + 'px';
-            card.setAttribute('data-placed', '1');
-        }
+        // The card is in flow now (nothing to place); kept as a hook for callers and for a future floating variant.
+        function placeCard(g) { /* in flow */ }
         function replaceOpenCards() {
             groups.forEach(function (g) { var c = cardOf(g); if (c && c.classList.contains('is-open')) placeCard(g); });
         }
@@ -150,6 +135,7 @@
             if (!c) return;
             c.classList.add('is-open');
             g.classList.add('has-card');
+            measureLive();
         }
 
         function select(g) {
