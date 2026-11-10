@@ -220,6 +220,21 @@
                 fly.addEventListener('focusout', function (e) {
                     if (isRail() && !stillIn(e.relatedTarget)) fly.classList.remove('is-open');
                 });
+                // Keyboard: the flyout is no longer next in tab order, so ArrowRight (or ArrowDown) steps into it
+                // and Escape inside it comes back to the row.
+                row.addEventListener('keydown', function (e) {
+                    if (!isRail() || (e.key !== 'ArrowRight' && e.key !== 'ArrowDown')) return;
+                    e.preventDefault();
+                    openFly(g);
+                    var first = fly.querySelector('.it-pg');
+                    if (first) first.focus();
+                });
+                fly.addEventListener('keydown', function (e) {
+                    if (e.key !== 'Escape') return;
+                    e.stopPropagation();
+                    fly.classList.remove('is-open');
+                    row.focus();
+                });
             }
         });
 
@@ -280,6 +295,13 @@
         syncRail();
         measureLive();
         window.addEventListener('load', measureLive);
+        // Anything that moves a row later (a late webfont, a wrapped chip) moves the live line with it.
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(function () { measureLive(); replaceOpenCards(); });
+            ro.observe(sb);
+            var nv = sb.querySelector('.it-nv');
+            if (nv) ro.observe(nv);
+        }
 
         // A selected head (the page is its workspace) shows its card from the start.
         var sel0 = sb.querySelector('.it-grp.is-sel');
