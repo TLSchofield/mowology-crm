@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 
 $token  = trim($_GET['token'] ?? '');
 $inline = !empty($_GET['inline']);
@@ -70,7 +71,7 @@ try {
     if (empty($result['success']) || empty($result['path']) || !is_readable($result['path'])) {
         error_log("Customer PDF: generateContractPdf failed for contract {$contractId}: " . ($result['error'] ?? 'unknown'));
         http_response_code(500);
-        die('Sorry — we could not produce the contract PDF right now. Please contact us at (778) 846-9273.');
+        die('Sorry — we could not produce the contract PDF right now. Please ' . PortalBrand::callPhrase() . '.');
     }
 
     $downloadName = preg_replace('/[^A-Za-z0-9_\-]/', '', $contractNumber) . '.pdf';

@@ -27,6 +27,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -151,15 +152,19 @@ try {
             require_once $messagingFile;
         }
         if (function_exists('sendCrmEmail')) {
-            $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : 'office@mowology.ca';
-            $siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+            $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : PortalBrand::email();
+            $siteUrl    = PortalBrand::appUrl();
             $subject    = 'Client rebook request — ' . $customerName;
             $body = '<h2>New rebook request from ' . htmlspecialchars($customerName) . '</h2>
 <p><strong>Service:</strong> ' . htmlspecialchars($serviceLabel) . '</p>
 <p><strong>Property:</strong> ' . htmlspecialchars($visit['property_address'] ?? '') . '</p>
 ' . ($notes !== '' ? '<p><strong>Note:</strong><br>' . nl2br(htmlspecialchars($notes)) . '</p>' : '') . '
 <p><a href="' . $siteUrl . '/crm/products/quote-requests.php">Review in CRM →</a></p>';
-            @sendCrmEmail($adminEmail, $subject, $body, 'Mowology Admin');
+            if ($adminEmail !== '') {
+                @sendCrmEmail($adminEmail, $subject, $body, PortalBrand::name() . ' Admin');
+            } else {
+                error_log('Rebook request not emailed: this business has no email in Business Settings.');
+            }
         }
     } catch (Throwable $e) { /* non-fatal */ }
 

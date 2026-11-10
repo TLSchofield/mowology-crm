@@ -16,6 +16,7 @@ header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
@@ -409,7 +410,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
 
 <!-- Portal Header (sticky, hidden on print) -->
 <header class="portal-header">
-  <div class="portal-logo-text">Mowo<span>logy</span></div>
+  <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
   <div class="portal-header-divider"></div>
   <span class="portal-header-label">Service Report</span>
   <?php if ($contact): ?>
@@ -438,7 +439,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
 
 <!-- Print-only report header (hidden in browser, shown on print) -->
 <div class="pvr-print-header">
-  <strong>Mowology</strong> &mdash; Service Visit Report &mdash; <?php echo htmlspecialchars($visitDate); ?>
+  <strong><?= htmlspecialchars(PortalBrand::name()) ?></strong> &mdash; Service Visit Report &mdash; <?php echo htmlspecialchars($visitDate); ?>
 </div>
 
 <div class="pvr-page-wrap">
@@ -446,7 +447,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
 
   <!-- 1. Report Header Block ───────────────────────────────────────────── -->
   <div class="pvr-doc-header">
-    <div class="pvr-doc-header-logo">Mowology</div>
+    <div class="pvr-doc-header-logo"><?= htmlspecialchars(PortalBrand::name()) ?></div>
     <div class="pvr-doc-header-label">Service Visit Report</div>
     <div class="pvr-doc-header-service"><?php echo $serviceLabel; ?></div>
   </div>
@@ -786,13 +787,15 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
 
     <!-- 7. Footer ────────────────────────────────────────────────────────── -->
     <div class="pvr-footer">
-      <div class="pvr-footer-brand">Mowology</div>
+      <div class="pvr-footer-brand"><?= htmlspecialchars(PortalBrand::name()) ?></div>
       <div class="pvr-footer-contact">
-        <a href="tel:7788469273">(778) 846-9273</a>
-        &ensp;&middot;&ensp;
-        <a href="mailto:tim@mowology.ca">tim@mowology.ca</a>
-        &ensp;&middot;&ensp;
-        <a href="https://mowology.ca" target="_blank">mowology.ca</a>
+        <?php
+        $pvrContact = array_filter([PortalBrand::phoneLinkHtml(), PortalBrand::emailLinkHtml()]);
+        if (PortalBrand::homeUrl() !== '') {
+            $pvrContact[] = '<a href="' . htmlspecialchars(PortalBrand::homeUrl()) . '" target="_blank">' . htmlspecialchars(PortalBrand::websiteLabel()) . '</a>';
+        }
+        echo implode('&ensp;&middot;&ensp;', $pvrContact);
+        ?>
       </div>
       <div class="pvr-footer-generated">
         Report generated <?php echo htmlspecialchars($reportDate); ?> &mdash; This is a GPS-verified service record.

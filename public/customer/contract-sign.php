@@ -9,6 +9,7 @@ header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
@@ -88,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
         $reason   = trim($_POST['decline_reason'] ?? 'No reason given');
         $signerIp = $_SERVER['REMOTE_ADDR'] ?? '';
         if ($svc->declineSignature($token, $reason, $signerIp)) {
-            $success = 'We have recorded your response. If you have questions, call us at (778) 846-9273.';
+            $success = 'We have recorded your response. If you have questions, ' . PortalBrand::callPhrase() . '.';
             $row     = null;
         } else {
             $error = 'Could not record your response. The link may have already been used.';
@@ -108,7 +109,7 @@ if ($row) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Service Contract — Mowology</title>
+    <title>Service Contract — <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
     <script src="/assets/vendor/signature_pad/signature_pad.umd.min.js"></script>
@@ -140,7 +141,7 @@ if ($row) {
 <body>
 
 <header class="portal-header">
-    <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="portal-logo-img">
+    <?= PortalBrand::logoImgHtml() ?>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Service Contract</span>
     <?php if ($clientName): ?>
@@ -163,9 +164,11 @@ if ($row) {
             <p style="color:#6b7280;line-height:1.6;max-width:360px;margin:0 auto;">
                 <?php echo htmlspecialchars($success); ?>
             </p>
+            <?php if (PortalBrand::questionsHtml() !== ''): ?>
             <p style="margin-top:20px;font-size:.85rem;color:#6b7280;">
-                Questions? Call <a href="tel:7788469273">(778) 846-9273</a>
+                <?= PortalBrand::questionsHtml() ?>
             </p>
+            <?php endif; ?>
         </div>
 
     <?php elseif ($error && !$row): ?>
@@ -180,7 +183,7 @@ if ($row) {
             </svg>
             <h2>Link Not Valid</h2>
             <p><?php echo htmlspecialchars($error); ?></p>
-            <p style="margin-top:12px;">Contact us at <a href="tel:7788469273">(778) 846-9273</a></p>
+            <?php if (PortalBrand::contactHtml() !== ''): ?><p style="margin-top:12px;">Contact us at <?= PortalBrand::contactHtml() ?></p><?php endif; ?>
         </div>
 
     <?php elseif ($row): ?>
@@ -278,9 +281,9 @@ if ($row) {
                 <p style="font-size:.875rem;color:#6b7280;margin-bottom:20px;line-height:1.55;">
                     <?php if ($terms): ?>
                         By signing below you agree to the Terms &amp; Conditions shown above and to this
-                        service contract with Mowology Landscaping. Your digital signature is legally binding.
+                        service contract with <?= htmlspecialchars(PortalBrand::displayName()) ?>. Your digital signature is legally binding.
                     <?php else: ?>
-                        By signing below you agree to this service contract with Mowology Landscaping.
+                        By signing below you agree to this service contract with <?= htmlspecialchars(PortalBrand::displayName()) ?>.
                         Your digital signature is legally binding.
                     <?php endif; ?>
                 </p>
@@ -348,9 +351,11 @@ if ($row) {
                         <button type="submit" class="portal-btn" style="background:#6b7280;margin-top:8px;">
                             Decline This Contract
                         </button>
+                        <?php if (PortalBrand::phoneLinkHtml() !== ''): ?>
                         <p style="font-size:.78rem;color:#9ca3af;margin-top:8px;">
-                            Or call us: <a href="tel:7788469273">(778) 846-9273</a>
+                            Or call us: <?= PortalBrand::phoneLinkHtml() ?>
                         </p>
+                        <?php endif; ?>
                     </form>
                 </div>
             </div>
@@ -361,7 +366,7 @@ if ($row) {
 </div><!-- /portal-container -->
 
 <footer style="text-align:center;padding:24px;font-size:.78rem;color:#9ca3af;">
-    &copy; <?php echo date('Y'); ?> Mowology Landscaping &mdash; (778) 846-9273
+    &copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::displayName()) ?><?php if (PortalBrand::phone() !== ''): ?> &mdash; <?= htmlspecialchars(PortalBrand::phone()) ?><?php endif; ?>
 </footer>
 
 <script<?= MwCsp::attr() ?>>

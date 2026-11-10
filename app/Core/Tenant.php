@@ -190,6 +190,14 @@ final class Tenant
         return in_array(strtolower($m[1]), $hosts, true) ? $u : '';
     }
 
+    /** This business's own registered address, for links when no app_url is set; '' for the default tenant. */
+    public static function ownAddress(): string
+    {
+        if (self::isDefault()) return '';
+        $host = (string)(((array)(self::$current['cfg']['hosts'] ?? []))[0] ?? '');
+        return preg_match('/^[a-z0-9.-]+$/i', $host) ? 'https://' . strtolower($host) : '';
+    }
+
     /** Tests only. */
     public static function forTests(?array $current): void
     {

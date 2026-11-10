@@ -27,6 +27,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -80,9 +81,9 @@ try {
     if (PortalEmailChangeService::needsConfirmation($oldEmail, $email)) {
         $changes = new PortalEmailChangeService($db);
         if (!$changes->ready()) {
-            throw new Exception('To change your email address, please call us at (778) 846-9273.');
+            throw new Exception('To change your email address, please ' . PortalBrand::callPhrase() . '.');
         }
-        $base = defined('SITE_URL') ? (string)SITE_URL : 'https://mowology.ca';
+        $base = PortalBrand::appUrl();
         $changes->request((int)$contact['id'], $oldEmail !== '' ? $oldEmail : null, $email, (string)($contact['first_name'] ?? ''), $ip, $base);
         $emailPending = true;
     }

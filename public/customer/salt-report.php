@@ -12,6 +12,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
@@ -72,7 +73,7 @@ $pdfAbs = PdfStore::absoluteFromStored((string)$pdfRelative); // this business's
 
 if ($pdfAbs === null || !file_exists($pdfAbs)) {
     http_response_code(404);
-    echo '<p>PDF not found on disk. Please contact Mowology to regenerate the document.</p>';
+    echo '<p>PDF not found on disk. Please contact ' . htmlspecialchars(PortalBrand::name()) . ' to regenerate the document.</p>';
     exit;
 }
 

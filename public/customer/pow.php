@@ -12,6 +12,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 require_once APP_ROOT . '/Core/Uploads.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
@@ -167,7 +168,7 @@ if ($visit && $clientSees['length'] && $visit['started_at'] && $visit['completed
     $duration = ($mins >= 60 ? floor($mins/60).'h ' : '') . ($mins % 60) . 'm';
 }
 
-$siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+$siteUrl = PortalBrand::homeUrl();
 $year    = date('Y');
 
 $serviceLabel = [
@@ -186,14 +187,14 @@ $serviceLabel = [
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Proof of Work — Mowology Landscaping</title>
+  <title>Proof of Work — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex,nofollow">
   <link rel="stylesheet" href="/customer/portal.css">
 </head>
 <body>
 
 <header class="portal-header">
-  <div class="portal-logo-text">Mowo<span>logy</span></div>
+  <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
   <div class="portal-header-divider"></div>
   <span class="portal-header-label">Service Report</span>
   <?php if ($clientName): ?>
@@ -208,7 +209,7 @@ $serviceLabel = [
     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:#cdddd6;margin:0 auto 16px;display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <h2>Report Unavailable</h2>
     <p><?php echo htmlspecialchars($error); ?></p>
-    <p style="margin-top:12px;"><a href="<?php echo htmlspecialchars($siteUrl); ?>">← Return to Mowology.ca</a></p>
+    <p style="margin-top:12px;"><a href="<?php echo htmlspecialchars($siteUrl); ?>">← Return to <?php echo htmlspecialchars(PortalBrand::websiteLabel()); ?></a></p>
   </div>
 <?php else: ?>
 
@@ -382,7 +383,7 @@ $serviceLabel = [
   <!-- Fertilizer Bundle Card -->
   <?php if (!empty($visit['is_prepaid_bundle'])): ?>
   <?php
-    $siteUrlClean  = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    $siteUrlClean  = rtrim(PortalBrand::appUrl(), '/');
     $totalApps     = count($fertAllVisits);
     $completedApps = (int)($visit['bundle_applications_used'] ?? 0);
     $nextAppDate   = null;
@@ -484,10 +485,9 @@ $serviceLabel = [
 <?php endif; ?>
 
   <div class="portal-footer">
-    <a href="<?php echo htmlspecialchars($siteUrl); ?>">Mowology Landscaping</a> &middot;
-    Questions? <a href="tel:7788469273">(778) 846-9273</a> &middot;
-    <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
-    &copy; <?php echo $year; ?> Mowology Landscaping. All rights reserved.
+    <a href="<?php echo htmlspecialchars($siteUrl); ?>"><?= htmlspecialchars(PortalBrand::displayName()) ?></a>
+    <?php if (PortalBrand::questionsHtml() !== ''): ?>&middot; <?= PortalBrand::questionsHtml() ?><?php endif; ?><br>
+    &copy; <?php echo $year; ?> <?= htmlspecialchars(PortalBrand::displayName()) ?>. All rights reserved.
   </div>
 
 </div>

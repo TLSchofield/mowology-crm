@@ -13,6 +13,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once dirname(__DIR__) . '/app_config/secrets.php';
@@ -73,7 +74,7 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autopay Setup | Mowology</title>
+    <title>Autopay Setup | <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
     <?php if (!$error && !$isEnrolled): ?>
@@ -135,7 +136,7 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
             Portal
         </a>
     <?php endif; ?>
-    <div class="portal-logo-text">Mowo<span>logy</span></div>
+    <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Autopay Setup</span>
 </header>
@@ -291,7 +292,7 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
                     if (data.error) { showError(data.error); return; }
                     window.location.reload();
                 })
-                .catch(function () { showError('Something went wrong. Please try again or call (778) 846-9273.'); });
+                .catch(function () { showError(<?= json_encode('Something went wrong. Please try again or ' . PortalBrand::callPhrase() . '.', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>); });
 
             } else {
                 // New card — confirm SetupIntent via Stripe.js
@@ -321,8 +322,8 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
 </div><!-- .portal-container -->
 
 <footer class="portal-footer">
-    <p>Questions? Call <a href="tel:+17788469273">(778) 846-9273</a> or email <a href="mailto:office@mowology.ca">office@mowology.ca</a></p>
-    <p>&copy; <?php echo date('Y'); ?> Mowology Landscaping</p>
+    <?php if (PortalBrand::questionsHtml() !== ''): ?><p><?= PortalBrand::questionsHtml() ?></p><?php endif; ?>
+    <p>&copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::displayName()) ?></p>
 </footer>
 
 </body>
