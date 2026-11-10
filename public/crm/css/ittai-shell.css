@@ -447,9 +447,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-c { margin-left: auto; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--it-meta); }
 /* Kaname's space, always there at the top of the main page (Tim, 2026-11-10): her count and line, and the way to her brief */
 
-/* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
-body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
-@media (max-width: 1023px) { body.it-shell.it-shell .it-job-outer { margin-left: 0; } }
+/* The strip sits in line with the cards below it (Tim, 2026-11-10): the page gutter already keeps every page clear of the head's card */
 /* The decision and the picture are two cards side by side: the strip left, the graph in its own right column */
 .it-job-outer { container-type: inline-size; margin: 0 0 24px; }
 .it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; column-gap: 24px; align-items: start; }

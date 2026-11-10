@@ -217,6 +217,9 @@
                 return;
             }
             var cr = card.getBoundingClientRect(), rr = rail.getBoundingClientRect();
+            // The line meets the first icon's middle: the rail box's own middle sits lower when its scrollbar shows.
+            var lead = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
+            var midY = function () { var b = (lead || rail).getBoundingClientRect(); return b.top + b.height / 2; };
             // The line runs at the height of the table's lead row into the strip's edge, where a hairline carries it
             // on to the top of the spine; the confidence triangle sits ON the line between the card and the strip.
             // One straight line from the card to the Ledger (Tim): at the top of the page the strip is moved down
@@ -224,11 +227,11 @@
             var outer = strip.closest('.it-job-outer');
             if (outer && window.scrollY < 10) {
                 var cur = parseFloat(outer.style.marginTop || '0') || 0;
-                var want = Math.max(-16, Math.round(cur + (cr.top + cr.height / 2) - (rr.top + rr.height / 2)));
+                var want = Math.max(-16, Math.round(cur + (cr.top + cr.height / 2) - midY()));
                 if (Math.abs(want - cur) > 1) { outer.style.marginTop = want + 'px'; rr = rail.getBoundingClientRect(); }
             }
             var tr = rr;   /* the rail's own middle is the line */
-            var cy = cr.top + cr.height / 2, ry = tr.top + tr.height / 2, x0 = cr.right + 16;
+            var cy = cr.top + cr.height / 2, ry = midY(), x0 = cr.right + 16;
             var conf = null;   /* the triangle sits in flow on the rail now */
             if (rr.bottom < 0 || rr.top > window.innerHeight) { link.hidden = stub.hidden = true; if (conf) conf.hidden = true; return; }
             // The feeder meets the first icon on the rail (the Duplicate / Inbox anchor), not the strip's edge.
