@@ -20,7 +20,7 @@ body.it-shell.it-shell .sidebar.it-sidebar {
 body.it-shell.it-shell .it-sidebar .sidebar-content {
   position: sticky; top: 0; left: 0;
   display: flex; flex-direction: column;
-  width: 100%; height: 100vh; min-height: 100%;
+  width: 100%; height: 100vh; max-height: 100vh; min-height: 0;   /* not min-height: 100%: the wrapper stretches, and a column as tall as the page cannot stick */
   overflow-x: hidden; overflow-y: auto;
   background: var(--it-surface);
   border-right: 0;
