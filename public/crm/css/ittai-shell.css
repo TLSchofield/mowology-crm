@@ -27,7 +27,9 @@ body.it-shell.it-shell .it-sidebar .sidebar-content {
 }
 body.it-shell.it-shell .it-sidebar a { color: var(--it-text); text-decoration: none; }
 body.it-shell.it-shell .it-sidebar ul { list-style: none; margin: 0; padding: 0; }
-body.it-shell.it-shell .it-sidebar button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; }
+/* Low specificity on purpose: every button rule below (.it-grow, .it-sf, .it-cb) must outrank this reset. On 2026-11-10 it
+   zeroed the head rows' padding and pushed the portraits half out of the sidebar on production. */
+body.it-shell .it-sidebar button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; }
 body.it-shell.it-shell .it-sidebar b { font-weight: 600; }
 body.it-shell.it-shell .it-ic,
 body.it-shell.it-shell .it-si { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
