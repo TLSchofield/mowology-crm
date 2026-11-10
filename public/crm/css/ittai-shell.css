@@ -465,11 +465,12 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-viz .it-viz-lbl { font: 500 12px/16px var(--it-font-sans); fill: var(--it-meta); }
 .it-job-viz-gst { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); font-variant-numeric: tabular-nums; }
 .it-job-viz-gst span { color: var(--it-meta); }
-.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-brand); box-sizing: border-box; }
-.it-job-link-stub { height: 0; border-top-width: 2px; margin-top: -1px; }
-.it-job-link { border-left-width: 2px; border-bottom-width: 2px; margin-left: -1px; margin-bottom: -1px; }
-.it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
-.it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
+/* The feeder from the head's card is the rail itself continued: the same 1 px hairline (Tim: navy was too heavy) */
+.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-line); box-sizing: border-box; }
+.it-job-link-stub { height: 0; border-top-width: 1px; }
+.it-job-link { border-left-width: 1px; border-bottom-width: 1px; }
+.it-job-link.is-up { border-bottom-width: 0; border-top-width: 1px; }
+.it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 1px; margin: 0; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
 .it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-bottom: 16px; min-width: 0; overflow-x: auto; overflow-y: hidden; }
 /* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
@@ -518,9 +519,10 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
 .it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
 .it-job-anchor:hover { color: var(--it-text); text-decoration: none; }
-.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
+.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
 .it-ad-fill { background: var(--it-brand); color: var(--it-on-tenant); }
 .it-ad-sm { width: 36px; height: 36px; }
+.it-job-anchor .it-ad .it-job-ic { width: 24px; height: 24px; }
 /* View, on the rail between the two receipts */
 .it-job-view { position: relative; display: flex; flex-direction: column; align-items: center; background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 12px; line-height: 16px; color: var(--it-meta); cursor: pointer; min-width: 44px; min-height: 44px; justify-content: center; }
 .it-job-view > span:last-child { position: absolute; top: calc(100% - 2px); white-space: nowrap; }
