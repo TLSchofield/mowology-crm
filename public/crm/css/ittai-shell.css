@@ -151,16 +151,17 @@ body.it-shell.it-shell .it-pg[aria-current="page"]::after { content: ""; flex: 1
 body.it-shell.it-shell .it-grp.is-live::after { content: ""; position: absolute; right: 27px; width: 2px; margin-right: -0.5px; top: var(--it-live-top, 0px); height: var(--it-live, 0px); background: var(--it-brand); z-index: 1; pointer-events: none; }
 
 /* ── The square head card beside the row (JS places it; 1024 px and up only) ── */
-/* The head card, expanded to the LEFT of the spine (Tim, 2026-11-10): the same square rounded card as before —
-   portrait on top, name, role, state, the head's current line — sitting in the sidebar's flow under the head's
-   row, spanning the text column up to the spine; the pages move down beneath it. Flyouts (rail) stay on <body>. */
+/* The head card: the same square rounded card — portrait on top, name, role, state, the head's current line —
+   floating CENTRED on the rail line beside the head's row (Tim, 2026-11-10). A spacer in the sidebar keeps its
+   room, so the pages move down beneath it; the row's small portrait steps aside while it is open (one face). */
 body.it-shell.it-shell .it-grp { display: flex; flex-direction: column; }
 body.it-shell.it-shell .it-grp > .it-grow { order: 0; }
-body.it-shell.it-shell .it-grp > .it-hp { order: 1; }
+body.it-shell.it-shell .it-grp > .it-hp-space { order: 1; flex: none; margin: 2px 0 10px; }
 body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
+body.it-shell.it-shell .it-hp-space[hidden] { display: none; }
 body.it-shell.it-shell .it-hp {
-  display: none; position: static; margin: 2px 27px 10px 12px; padding: 14px 12px 16px;   /* its right edge sits on the rail line */
-  flex-direction: column; align-items: center; gap: 2px; text-align: center;
+  display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 200px;
+  flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px;
   background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; box-shadow: var(--it-shadow-menu);
   opacity: 0; transform: translateY(-6px);
   transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete;
@@ -170,11 +171,10 @@ body.it-shell.it-shell .it-hp.is-open {
   transition: opacity 180ms ease-out, transform 180ms ease-out, display 180ms allow-discrete;
 }
 @starting-style { body.it-shell.it-shell .it-hp.is-open { opacity: 0; transform: translateY(-6px); } }
-@media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open { display: none !important; } }
+body.it-shell.it-shell .it-hp:not([data-placed]) { visibility: hidden; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open, body.it-shell.it-shell .it-hp-space { display: none !important; } }
 body.it-shell.it-shell .it-pt-lg { width: 44px; height: 44px; margin: 0 auto 2px; }
-/* The card is the head enlarged: while it is open the row's small portrait steps aside (one face, not two) */
 body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
-body.it-shell.it-shell .it-hp { position: relative; z-index: 2; }
 body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
 body.it-shell.it-shell .it-hpd { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 body.it-shell.it-shell .it-hp .it-s { margin-top: 2px; }
@@ -219,7 +219,7 @@ body.it-shell.it-shell .sidebar.collapsed .it-grp.is-sel .it-grow { background: 
 body.it-shell.it-shell .sidebar.collapsed .it-grp.is-here::before,
 body.it-shell.it-shell .sidebar.collapsed .it-grp.is-sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--it-tenant-mark); z-index: 1; }
 body.it-shell.it-shell .sidebar.collapsed .it-pcard { display: flex; justify-content: center; padding: 8px 0; height: 56px; }
-body.it-shell.it-shell.it-rail .it-hp { display: none !important; }
+body.it-shell.it-shell.it-rail .it-hp, body.it-shell.it-shell .sidebar.collapsed .it-hp-space { display: none !important; }
 body.it-shell.it-shell .it-fly {
   display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: min(272px, calc(100vw - 160px)); padding-bottom: 4px; overflow: hidden;
   background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 10px; box-shadow: var(--it-shadow-menu);
