@@ -64,6 +64,17 @@ class PennyJobAdapterEtransferTest extends TestCase
         $this->assertSame(['label' => 'Memo', 'top' => 'INV-2026-0465 thanks', 'bottom' => 'Invoice 0465', 'state' => 'same'], $cols[3]);
     }
 
+    /** A strata plan paying its owner's invoice: the names differ, but the owner has recorded that pair before, so the Payer column matches. */
+    public function testPayerMatchesWhenPennyHasLearnedWhoPaysForWhom(): void
+    {
+        $row = $this->row(['sender_name' => 'STRATA PLAN BCS-2106']);
+        $facts = ['INV-2026-0465' => ['invoice_number' => 'INV-2026-0465', 'invoice_date' => '2026-10-20', 'balance_due' => 1890.0, 'payer_name' => 'Alexandra Bee']];
+        $plain = PennyJobAdapter::fromTransfer($row, $this->read(), $facts, 1, 1)['columns'][1];
+        $this->assertSame('differs', $plain['state']);
+        $learned = PennyJobAdapter::fromTransfer($row, $this->read(), $facts, 1, 1, fn(string $s, string $p): bool => $s === 'STRATA PLAN BCS-2106' && $p === 'Alexandra Bee')['columns'][1];
+        $this->assertSame('same', $learned['state']);
+    }
+
     /** Record payment is the card's own request: action=record, notification_id, invoice_numbers[], amounts[] to etransfer-confirm.php. */
     public function testRecordPaymentIsTheCardsExactRequest(): void
     {

@@ -95,7 +95,7 @@ class PennyJobAdapter
                 $read = $desk->read($et);
                 if (!self::proposes($read)) continue;
                 $facts = $inbox->invoiceFacts(array_map(fn($l) => (string)$l['invoice'], $read['lines']));
-                $out[] = self::fromTransfer($et, $read, $facts, 0, 0);
+                $out[] = self::fromTransfer($et, $read, $facts, 0, 0, fn(string $sender, string $payer): bool => $inbox->paysFor($sender, $payer));
             }
             return $out;
         } catch (Throwable $e) {
@@ -123,9 +123,11 @@ class PennyJobAdapter
      * One pending e-Transfer → the generic job shape. Pure.
      * $et is the listPending() row (sender, amount, memo, email_date, bank columns); $read is EtransferDeskService::read()
      * of it (kind, lines, confirmed, say); $facts is invoiceFacts() for the lines, keyed by invoice number.
+     * $paysFor(sender, payer) is what Penny has learned about who pays for whom (a strata plan paying an owner's bill):
+     * the Payer column reads "same" for a pair the owner has recorded before, as the matcher itself does.
      * The e-Transfer is drawn ABOVE the rail and the invoice(s) BELOW it; the discs on the rail compare them.
      */
-    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total): array
+    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total, ?callable $paysFor = null): array
     {
         $id = (int)($et['id'] ?? $read['id'] ?? 0);
         $sender = trim((string)($et['sender_name'] ?? '')) !== '' ? trim((string)$et['sender_name']) : 'Unknown sender';
@@ -156,7 +158,7 @@ class PennyJobAdapter
         // Column 1: the amount — the transfer against what the invoice(s) owe
         $amountState = $knowOwing ? (abs($owing - $active) < 0.005 ? 'same' : 'differs') : 'info';
         // Column 2: who sent it against who the invoice is for
-        $payerState = $client === '' || count($payers) !== 1 ? 'info' : (EtransferInboxService::samePayer($sender, $client) ? 'same' : 'differs');
+        $payerState = $client === '' || count($payers) !== 1 ? 'info' : (EtransferInboxService::samePayer($sender, $client) || ($paysFor !== null && $paysFor($sender, $client)) ? 'same' : 'differs');
         // Column 3: when it was banked against when the invoice was issued (facts, not a judgement)
         $bankTop = !empty($et['bank_transaction_id']) ? 'Banked ' . $d($et['bank_transaction_date'] ?? null)
                  : (!empty($et['likely_deposit_date']) ? 'Likely ' . $d((string)$et['likely_deposit_date']) : 'Not banked yet');
