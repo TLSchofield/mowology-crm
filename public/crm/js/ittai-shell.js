@@ -202,7 +202,7 @@
                 if (Math.abs(want - cur) > 1) { line.style.marginTop = want + 'px'; lr = line.getBoundingClientRect(); }
             }
             var y = lr.top + lr.height / 2;
-            if (lr.right < kr.right + 8 || lr.bottom < 0 || lr.top > window.innerHeight) { kanLink.hidden = true; return; }
+            if (lr.right < kr.right + 8 || lr.bottom < 0 || lr.top > window.innerHeight || kr.bottom < 57 || kr.top > window.innerHeight) { kanLink.hidden = true; return; }
             kanLink.hidden = false;
             kanLink.style.left = Math.round(kr.right + 2) + 'px';
             kanLink.style.width = Math.round(lr.left - kr.right - 2) + 'px';
