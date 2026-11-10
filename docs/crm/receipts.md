@@ -686,3 +686,11 @@ middle with each disc on the line at its row, the gold confidence triangle at th
 arrives). Beside the decision, `ExpensePulseService` draws the one picture a solo operator needs: six months of approved
 spend with this month marked, and the quarter's GST on receipts to claim. Above both, on every shell page, Kaname's space
 (`includes/ittai-kaname-space.php`): her count, her line, the way to her brief.
+
+**2026-11-10, after Tim's appraisal:** the approval triangle is as whole as Penny's record with the vendor
+(`PennyJobAdapter::sure()` from `presentGroup()`'s `record`): a broken outline until she has called the vendor once,
+a closed outline while the record is short or blemished, solid gold once she has been right four or more times and
+never wrong. The frame opens on its right and funnels back onto the rail before the Ledger (the split becomes one
+line again); rail, frame and feeder are a step darker than the hairline; the matching value below the rail is dimmed
+so the one difference reads first. The head card is the row enlarged: face, name, role, nothing else. Yui's statement
+greeting follows the chosen address (`ittai-job-yui.js` `greet()`), after a draft greeted Candace while addressed to Sandra.
