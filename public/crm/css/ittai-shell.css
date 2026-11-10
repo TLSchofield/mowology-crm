@@ -160,7 +160,7 @@ body.it-shell.it-shell .it-grp > .it-hp-space { order: 1; flex: none; margin: 2p
 body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
 body.it-shell.it-shell .it-hp-space[hidden] { display: none; }
 body.it-shell.it-shell .it-hp {
-  display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 200px;
+  display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 0;
   flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px;
   background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; box-shadow: var(--it-shadow-menu);
   opacity: 0; transform: translateY(-6px);
@@ -178,7 +178,8 @@ body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
 body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
 body.it-shell.it-shell .it-hpd { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 body.it-shell.it-shell .it-hp .it-s { margin-top: 2px; }
-body.it-shell.it-shell .it-hpl { margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--it-text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* The card is the head, not her status report (Tim, 2026-11-10): the current line stays in the aria-label only */
+body.it-shell.it-shell .it-hpl { display: none; }
 
 /* ── Profile: pinned to the bottom ── */
 body.it-shell.it-shell .it-prof { position: relative; margin-top: auto; flex: none; border-top: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-surface); }
@@ -447,12 +448,12 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 @media (max-width: 1023px) { body.it-shell.it-shell .it-job-outer { margin-left: 0; } }
 /* The decision and the picture are two cards side by side: the strip left, the graph in its own right column */
 .it-job-outer { container-type: inline-size; margin: 0 0 24px; }
-.it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 360px; column-gap: 24px; align-items: start; }
-/* the horizontal flow needs its width: under 1360 px of content the graph goes below the strip */
-@container (max-width: 1640px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
+.it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; column-gap: 24px; align-items: start; }
+/* the graph stays to the right on every desktop width (Tim); a tight strip scrolls its rail instead */
+@media (max-width: 1023px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
 .it-job-rail { position: relative; }
-.it-job-viz { margin: 0; padding: 16px 24px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job-viz { margin: 0; padding: 16px 20px; min-width: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job-viz figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
 .it-job-viz figcaption b { font-weight: 600; }
 .it-job-viz figcaption span { color: var(--it-meta); font-variant-numeric: tabular-nums; }
@@ -468,7 +469,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
 .it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
-.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 20px; min-width: 0; overflow-x: auto; overflow-y: hidden; }
 /* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
 .it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
 .it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
