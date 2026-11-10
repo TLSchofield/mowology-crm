@@ -26,6 +26,8 @@ class IttaiJobTest extends TestCase
         $this->assertStringContainsString('X-CSRF-Token', $js);
         $this->assertStringContainsString('get-csrf.php', $js);
         $this->assertStringContainsString('prefers-reduced-motion', $js);
+        $this->assertStringContainsString('function playInk()', $js, "the merge's resolution: the ink line");
+        $this->assertStringContainsString("(isMerge ? playInk() : Promise.resolve())", $js, 'only a merge draws the ink; Different is immediate');
         $this->assertStringContainsString('/crm/api/bookkeeper.php', $js);
     }
 
@@ -51,6 +53,8 @@ class IttaiJobTest extends TestCase
         $this->assertStringContainsString('min-height: 44px', $block);
         $this->assertStringContainsString('@container (max-width: 900px)', $block);
         $this->assertStringContainsString('.it-job-rail.is-enter { animation: none; }', $block);
+        $this->assertStringContainsString('.it-job-ink { display: none; }', $block, 'the ink line stays still under reduced motion');
+        $this->assertStringContainsString('.it-job-ink {', $block);
         $this->assertDoesNotMatchRegularExpression('/#[0-9a-fA-F]{3,8}\b/', $block);
     }
 

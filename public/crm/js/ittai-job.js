@@ -263,6 +263,46 @@
         if (req.href && /^\/crm\//.test(req.href)) window.location.assign(req.href);
     }
 
+    /**
+     * The merge's resolution (Tim's pick of five, 2026-11-10: "the ink line"): the frame's words fade, then ONE navy
+     * stroke is drawn along the rail from the Duplicate disc to the Ledger, each disc dissolving as the ink reaches it
+     * and the frame erased behind it; the Ledger disc fills, holds, and the ink lightens to the hairline — the split
+     * has become one line again. Resolves when done; at once under prefers-reduced-motion or when anything is missing.
+     */
+    function playInk() {
+        var rail = root.querySelector('.it-job-rail');
+        var a = rail && rail.querySelector('.it-job-anchor-start .it-ad');
+        var z = rail && rail.querySelector('.it-job-anchor:not(.it-job-anchor-start) .it-ad');
+        if (reduced || !rail || !a || !z) return Promise.resolve();
+        var rr = rail.getBoundingClientRect(), ar = a.getBoundingClientRect(), zr = z.getBoundingClientRect();
+        var x0 = ar.left + ar.width / 2, x1 = zr.left + zr.width / 2;
+        if (!(x1 > x0 + 40)) return Promise.resolve();
+        var FADE = 250, DRAW = 600, HOLD = 300, LIGHT = 400;
+        var ink = el('span', 'it-job-ink');
+        ink.style.left = Math.round(x0 - rr.left + rail.scrollLeft) + 'px';
+        ink.style.width = Math.round(x1 - x0) + 'px';
+        ink.style.transform = 'scaleX(0)';
+        rail.appendChild(ink);
+        rail.classList.add('is-inking');
+        var timers = [];
+        // every knot on the line goes as the ink reaches it: the discs, the View eye, the triangle
+        Array.prototype.forEach.call(rail.querySelectorAll('.it-job-disc, .it-job-view .it-ad, .it-job-conf'), function (d) {
+            var r = d.getBoundingClientRect(), cx = r.left + r.width / 2;
+            var at = FADE + DRAW * Math.min(1, Math.max(0, (cx - x0) / (x1 - x0)));
+            timers.push(setTimeout(function () { d.classList.add('is-gone'); }, at));
+        });
+        return new Promise(function (resolve) {
+            timers.push(setTimeout(function () {
+                rail.classList.add('is-erasing');
+                ink.style.transition = 'transform ' + DRAW + 'ms cubic-bezier(.3,.7,.3,1)';
+                ink.style.transform = 'scaleX(1)';
+            }, FADE));
+            timers.push(setTimeout(function () { z.classList.add('is-lit'); }, FADE + DRAW));
+            timers.push(setTimeout(function () { ink.classList.add('is-light'); z.classList.remove('is-lit'); }, FADE + DRAW + HOLD));
+            timers.push(setTimeout(function () { resolve(); }, FADE + DRAW + HOLD + LIGHT));
+        });
+    }
+
     function settle(btn) {
         if (busy || !queue.length) return;
         var req;
@@ -275,24 +315,28 @@
         setBusy(true);
         say('', false);
         post(req, job).then(function (d) {
-            setBusy(false);
-            if (!(d && d.ok)) { say((d && (d.message || d.error)) || 'Could not save — try again', false); return; }
+            if (!(d && d.ok)) { setBusy(false); say((d && (d.message || d.error)) || 'Could not save — try again', false); return; }
             var text = d.message || (isMerge ? 'Merged' : (isRecord ? 'Recorded.' : 'Got it — two purchases.'));
             if (isRecord && d.fully_allocated === false) {
                 text = 'Part recorded. ' + (typeof d.remaining === 'number' ? '$' + d.remaining.toFixed(2) + ' is still waiting for an invoice — see the card.' : 'The rest is still waiting for an invoice — see the card.');
             }
             var canUndo = isMerge && !!(job.undo && job.undo.requests && job.undo.requests.length);
-            queue.shift();
-            lastMerged = canUndo ? job : null;
-            // A recorded payment changes the invoice list and the card below: reload the Invoices page so it shows
-            // (as the card does, 2026-10-23); the next job is drawn first so the strip never goes blank.
-            var reload = isRecord && !!document.getElementById('etransfers');
-            if (!queue.length) { finish(text, canUndo); }
-            else { next(); say(text, canUndo); }
-            if (reload) { setBusy(true); setTimeout(function () { window.location.reload(); }, 1400); return; }
-            if (canUndo) {
-                undoTimer = setTimeout(function () { lastMerged = null; say(text, false); }, UNDO_MS);
-            }
+            // A merge or a recorded payment resolves on screen first (the ink line: the split becomes one line into
+            // the Ledger), then the next job or the quiet end.
+            return ((isMerge || isRecord) ? playInk() : Promise.resolve()).then(function () {
+                setBusy(false);
+                queue.shift();
+                lastMerged = canUndo ? job : null;
+                // A recorded payment changes the invoice list and the card below: reload the Invoices page so it shows
+                // (as the card does, 2026-10-23); the next job is drawn first so the strip never goes blank.
+                var reload = isRecord && !!document.getElementById('etransfers');
+                if (!queue.length) { finish(text, canUndo); }
+                else { next(); say(text, canUndo); }
+                if (reload) { setBusy(true); setTimeout(function () { window.location.reload(); }, 1400); return; }
+                if (canUndo) {
+                    undoTimer = setTimeout(function () { lastMerged = null; say(text, false); }, UNDO_MS);
+                }
+            });
         }).catch(function () { setBusy(false); say('Could not save — try again', false); });
     }
 
