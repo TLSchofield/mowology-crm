@@ -34,6 +34,7 @@ header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
@@ -286,7 +287,7 @@ $hasAnyPings = !empty($visitPings);
 $firstName   = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $contactName = $contact ? trim(htmlspecialchars($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : 'Client';
 $hasAnything = !empty($quotes) || !empty($invoices) || !empty($completedVisits);
-$baseUrl     = (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca'); // never the Host header
+$baseUrl     = PortalBrand::appUrl(); // never the Host header
 $portalUrl   = $contact && !empty($contact['portal_token'])
                ? $baseUrl . '/customer/portal.php?token=' . urlencode($contact['portal_token'])
                : '';
@@ -352,7 +353,7 @@ function statusBadge(string $status, bool $overdue = false): string {
 <body>
 
 <header class="portal-header">
-  <div class="portal-logo-text">Mowo<span>logy</span></div>
+  <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
   <div class="portal-header-divider"></div>
   <span class="portal-header-label">Client Portal</span>
   <?php if ($contact): ?>
@@ -453,7 +454,7 @@ function statusBadge(string $status, bool $overdue = false): string {
         </svg>
         <h3>No documents yet</h3>
         <p>Your quotes and invoices will appear here once they've been sent.<br>
-           Have a question? Call us at (778) 846-9273.</p>
+           <?php if (PortalBrand::phoneLinkHtml() !== ''): ?>Have a question? Call us at <?= PortalBrand::phoneLinkHtml() ?>.<?php endif; ?></p>
       </div>
 
     <?php else: ?>
@@ -792,7 +793,7 @@ function statusBadge(string $status, bool $overdue = false): string {
     <?php endif; ?>
 
     <div class="portal-footer">
-      Questions? Call <a href="tel:7788469273">(778) 846-9273</a> or email <a href="mailto:tim@mowology.ca">tim@mowology.ca</a>
+      <?= PortalBrand::questionsHtml() ?>
     </div>
 
   </div>

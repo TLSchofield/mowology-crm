@@ -11,6 +11,7 @@ header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
@@ -57,7 +58,7 @@ if (!$error) {
     $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$invoice) {
-        $error = 'This invoice link is invalid or has expired. Please contact Mowology at (778) 846-9273.';
+        $error = 'This invoice link is invalid or has expired. ' . PortalBrand::contactSentence();
     } else {
         // ── View tracking ────────────────────────────────────────────────
         // Update view_count + timestamps on every portal access,
@@ -146,7 +147,7 @@ function fmtDate(string $d): string {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice<?php echo $invoice ? ' ' . htmlspecialchars($invoice['invoice_number']) : ''; ?> | Mowology</title>
+    <title>Invoice<?php echo $invoice ? ' ' . htmlspecialchars($invoice['invoice_number']) : ''; ?> | <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
     <?php if ($isPayable && $takesCards): ?>
@@ -156,7 +157,7 @@ function fmtDate(string $d): string {
 <body>
 
 <header class="portal-header">
-    <div class="portal-logo-text">Mowo<span>logy</span></div>
+    <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Invoice</span>
     <?php if ($invoice): ?>
@@ -299,12 +300,16 @@ function fmtDate(string $d): string {
                 </div>
                 <div class="portal-bill-section">
                     <h4>From</h4>
-                    <div class="portal-bill-name">Mowology Landscaping</div>
+                    <div class="portal-bill-name"><?= htmlspecialchars(PortalBrand::displayName()) ?></div>
+                    <?php
+                    $fromSite = trim((string)preg_replace('#^https?://#i', '', PortalBrand::homeUrl()), '/');
+                    $fromLines = array_filter([PortalBrand::phone(), PortalBrand::email(), $fromSite], function ($l) { return $l !== ''; });
+                    ?>
+                    <?php if ($fromLines): ?>
                     <div class="portal-bill-detail">
-                        (778) 846-9273<br>
-                        hello@mowology.ca<br>
-                        mowology.ca
+                        <?php echo implode('<br>', array_map('htmlspecialchars', $fromLines)); ?>
                     </div>
+                    <?php endif; ?>
                     <?php if (!empty($invoice['property_address'])): ?>
                         <div style="margin-top:12px;">
                             <h4>Service Address</h4>
@@ -389,9 +394,8 @@ function fmtDate(string $d): string {
     <div class="portal-info-card">
         <div class="portal-info-card-header">Questions?</div>
         <div class="portal-info-card-body" style="font-size:0.875rem;color:var(--p-text-mid);">
-            <p>Please contact us at <a href="tel:+17788469273">(778) 846-9273</a> or
-            <a href="mailto:hello@mowology.ca">hello@mowology.ca</a>.
-            We're happy to help.</p>
+            <p><?php if (PortalBrand::contactHtml() !== ''): ?>Please contact us at <?= PortalBrand::contactHtml() ?>.
+            <?php endif; ?>We're happy to help.</p>
         </div>
     </div>
 
@@ -793,7 +797,7 @@ function fmtDate(string $d): string {
 <?php endif; ?>
 
     <div class="portal-footer">
-        &copy; <?php echo date('Y'); ?> Mowology Landscaping &mdash; mowology.ca
+        &copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::displayName()) ?> &mdash; <?= htmlspecialchars(PortalBrand::websiteLabel()) ?>
     </div>
 
 </div>

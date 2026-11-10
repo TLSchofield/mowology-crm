@@ -23,6 +23,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Services/MeasurementService.php';
 require_once APP_ROOT . '/Services/QuoteCalculator.php';
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
@@ -336,7 +337,7 @@ try {
         // Fable review 2026-10-12: only before approval, and only an upsell actually offered for a
         // product on THIS quote — priced from that offer (any product id used to be accepted).
         if (!QuoteUpsellRules::addAllowed((string)$quote['status'], !empty($quote['is_contract']))) {
-            throw new Exception('This quote has been approved. To add work, please call us at (778) 846-9273.');
+            throw new Exception('This quote has been approved. To add work, please ' . PortalBrand::callPhrase() . '.');
         }
         $baseSql = "SELECT DISTINCT product_id FROM quote_line_items WHERE quote_id = ? AND product_id IS NOT NULL AND is_upsell = 0";
         try {
@@ -605,7 +606,7 @@ try {
         }
 
         if ($removed === 0) {
-            throw new Exception($isPostAccept ? 'Only extras added after approval can be removed here. Call us at (778) 846-9273.' : 'Upsell not found on this quote');
+            throw new Exception($isPostAccept ? 'Only extras added after approval can be removed here. ' . ucfirst(PortalBrand::callPhrase()) . '.' : 'Upsell not found on this quote');
         }
         if ($isPostAccept) {
             try {

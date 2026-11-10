@@ -698,6 +698,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptDocumentLinkSer
 require_once __DIR__ . '/../app/Services/LlmUsageLog.php';
 require_once __DIR__ . '/../app/Services/Receipts/ReceiptProfile.php';
 require_once __DIR__ . '/../app/Services/BusinessIdentity.php';
+require_once __DIR__ . '/../app/Services/PortalBrand.php';
 
 // Automatic database updater (2026-11-09)
 require_once __DIR__ . '/../app/Modules/Database/Services/SchemaUpdater.php';
