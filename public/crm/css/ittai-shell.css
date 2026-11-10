@@ -150,18 +150,22 @@ body.it-shell.it-shell .it-pg[aria-current="page"]::after { content: ""; positio
 body.it-shell.it-shell .it-grp.is-live::after { content: ""; position: absolute; right: 27px; width: 2px; margin-right: -0.5px; top: var(--it-live-top, 0px); height: var(--it-live, 0px); background: var(--it-tenant-mark); z-index: 1; pointer-events: none; }
 
 /* ── The square head card beside the row (JS places it; 1024 px and up only) ── */
+/* The card IS the portrait, enlarged (Tim, 2026-11-10): it grows from the portrait's circle on the spine to the
+   200 px square centred on the line, and shrinks back into it. JS sets left/top and the transform origin. */
 body.it-shell.it-shell .it-hp {
   display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; height: 200px;
   flex-direction: column; align-items: center; text-align: center; padding: 16px 12px; overflow: hidden;
-  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; box-shadow: var(--it-shadow-menu);
-  opacity: 0; transform: translateX(-8px);
-  transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete;
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 100px; box-shadow: var(--it-shadow-menu);
+  opacity: 0; transform: scale(0.18);
+  transition: opacity 120ms ease-in, transform 160ms ease-in, border-radius 160ms ease-in, display 160ms allow-discrete;
 }
 body.it-shell.it-shell .it-hp.is-open {
-  display: flex; opacity: 1; transform: none;
-  transition: opacity 180ms ease-out, transform 180ms ease-out, display 180ms allow-discrete;
+  display: flex; opacity: 1; transform: none; border-radius: 14px;
+  transition: opacity 120ms ease-out, transform 200ms cubic-bezier(.2,.7,.2,1), border-radius 200ms ease-out, display 200ms allow-discrete;
 }
-@starting-style { body.it-shell.it-shell .it-hp.is-open { opacity: 0; transform: translateX(-8px); } }
+@starting-style { body.it-shell.it-shell .it-hp.is-open { opacity: 0.6; transform: scale(0.18); border-radius: 100px; } }
+/* While the card is open the row's portrait is the card: the small one steps aside */
+body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
 /* Until JS has placed it beside its row it stays invisible (no flash at the window's corner) */
 body.it-shell.it-shell .it-hp:not([data-placed]) { visibility: hidden; }
 @media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open { display: none !important; } }
@@ -427,6 +431,6 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
   @starting-style {
     body.it-shell.it-shell .it-acc { grid-template-rows: 1fr; }
     body.it-shell.it-shell .it-hp.is-open,
-    body.it-shell.it-shell.it-rail .it-fly.is-open { opacity: 1; transform: none; }
+    body.it-shell.it-shell.it-rail .it-fly.is-open { opacity: 1; transform: none; border-radius: 14px; }
   }
 }
