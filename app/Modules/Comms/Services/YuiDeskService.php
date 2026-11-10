@@ -604,7 +604,16 @@ class YuiDeskService
                 $it['draft_autopay'] = YuiRules::draft(['template' => 'autopay'] + $it, $owner, $drafts->learned('autopay'));
             }
         }
-        if (($it['section'] ?? '') === 'inbox') $it['thread'] = $drafts->thread((int)$it['contact_id'], 4);
+        if (($it['section'] ?? '') === 'inbox') {
+            $it['thread'] = $drafts->thread((int)$it['contact_id'], 4);
+            require_once __DIR__ . '/YuiStatementOffer.php';
+            $offer = YuiStatementOffer::load($this->db, $it, $owner);
+            if ($offer !== null) {
+                $it['draft_statement'] = $offer['draft'];
+                unset($offer['draft']);
+                $it['statement'] = $offer;
+            }
+        }
         unset($it['message_key']);
         return $it;
     }

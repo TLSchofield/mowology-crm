@@ -648,3 +648,5 @@ rule. **Private:** each business's own prices.
 
 ## iPhone photo links that expire while the screen is open (2026-11-10)
 - Penny's card now re-issues its 15-minute photo links (1.3.137). The Receipts tab, a receipt's detail screen and the full-screen pager hold the same kind of link and do not. Answered duplicate cards keep their old links too. No 403 from those yet; check the access log before building anything.
+
+- **Yui decision carousel (Tim, 2026-11-10):** like Penny's expenses carousel: one decision at a time, "Who is this?", statement requests and unanswered client replies as cards. Web and iPhone. Plan to bring to Tim once the statement job is live.

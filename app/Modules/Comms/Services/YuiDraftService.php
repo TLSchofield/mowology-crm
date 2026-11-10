@@ -163,6 +163,18 @@ class YuiDraftService
             }
             $item['template'] = 'autopay';
         }
+        // A statement goes only to an address the server itself offered, and only while the offer still stands.
+        $isStatement = ($in['template'] ?? '') === 'statement';
+        if ($isStatement) {
+            if (empty($item['statement']['offer'])) return ['ok' => false, 'message' => (string)($item['statement']['why'] ?? 'That statement is no longer ready.')];
+            $want = strtolower(trim((string)($in['recipient'] ?? '')));
+            $pick = null;
+            foreach ((array)$item['statement']['recipients'] as $r) { if ($r['email'] === $want) $pick = $r; }
+            if ($pick === null) return ['ok' => false, 'message' => 'That address is not one of the choices for this statement. Reload the card.'];
+            $item['template'] = 'statement';
+            $item['to'] = ['contact_id' => (int)$item['contact_id'], 'first_name' => '', 'name' => (string)$pick['name'], 'email' => (string)$pick['email'], 'phone' => ''];
+            $in['channel'] = 'email';
+        }
         $to = $item['to'] ?? null;
         if (!$to || empty($item['template'])) return ['ok' => false, 'message' => 'There is nobody to write to on that one.'];
         $channel = ($in['channel'] ?? 'email') === 'sms' ? 'sms' : 'email';
@@ -206,18 +218,27 @@ class YuiDraftService
         if ($this->inFlight((string)$item['key'])) {
             return ['ok' => false, 'message' => 'That one is already going out — give it a minute.'];
         }
+        // The statement is built here, from the books, never from anything the browser sent. No PDF, no email.
+        $attachment = null;
+        if ($isStatement) {
+            require_once APP_ROOT . '/Modules/Invoices/Services/StatementService.php';
+            $statements = new StatementService($this->db);
+            $pdf = $statements->pdf($statements->getStatementData((int)$item['contact_id'], null, null, true));
+            if (empty($pdf['success'])) return ['ok' => false, 'message' => "I couldn't build the statement, so nothing was sent."];
+            $attachment = (string)$pdf['path'];
+        }
         // The sign-up link is a live private token: the history keeps the words, not the key.
         $keepBody = self::redactAutopayToken($body);
         $keepSuggested = $suggested !== '' ? self::redactAutopayToken($suggested) : null;
         $rowId = $this->record($item, $channel, 'sending', (int)($user['id'] ?? 0), $draftedBy, $keepSuggested,
             $channel === 'email' ? $subject : null, $keepBody, null, null);
 
-        $r = $channel === 'sms' ? sendSms($dest, $body) : sendEmail($dest, $subject, $this->emailHtml($body));
+        $r = $channel === 'sms' ? sendSms($dest, $body) : sendEmail($dest, $subject, $this->emailHtml($body), $attachment);
         $ok = !empty($r['success']);
         if ($ok) $this->logMessage($cid, $channel, $dest, $subject, $keepBody);   // history first: it is what stops a resend
 
         $learned = null;
-        if ($ok && $edited && $channel === 'email' && $item['template'] !== 'reply') {
+        if ($ok && $edited && $channel === 'email' && $item['template'] !== 'reply' && !$isStatement) {   // a statement note carries names and amounts
             try {
                 $learned = YuiRules::learnFrom($body, $item, $owner);
                 // An autopay note is only worth learning if the link came back out as its placeholder; any other trace of a token = learn nothing.
