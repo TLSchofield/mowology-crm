@@ -135,6 +135,8 @@ if (!function_exists('mwIttaiNavBlocks')) {
         $can = static fn(string $p): bool => !function_exists('userHasPermission') || userHasPermission($p);
         $groups = array_fill_keys(array_keys($heads), []);
         $section = 'charlie';
+        // Kaname's workspace is the first page in Kaname's block (round-6 sidebar); the classic menu never lists it.
+        $groups['charlie'][] = ['key' => 'kaname', 'label' => 'Morning brief', 'icon' => 'sunrise', 'href' => '/crm/kaname_appstack.php'];
         foreach ($navItems as $it) {
             if (($it['type'] ?? '') === 'header') { $section = $it['head'] ?? $section; continue; }
             if (isset($it['perm']) && !$can($it['perm'])) continue;

@@ -280,6 +280,8 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadStateService.p
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadNavService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameWorkspaceService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DailyQuote.php';
 require_once __DIR__ . '/../app/Services/Pdf/PdfFormFiller.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/DepositBackfillService.php';
