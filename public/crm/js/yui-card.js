@@ -171,6 +171,7 @@
             if (it.statement && it.statement.offer) acts.push('<button type="button" class="mw-rc-ok" data-do="statement">Send statement</button>');
             if (it.to && it.to.email) acts.push('<button type="button" class="' + (it.statement && it.statement.offer ? 'mw-rc-ed' : 'mw-rc-ok') + '" data-do="claude"' + (draftsLeft === 0 ? ' disabled title="No drafts left today"' : '') + '>Draft reply</button>');
             if (it.to) acts.push('<button type="button" class="mw-rc-ed" data-do="write">Write</button>');
+            acts.push(readBtn('k:' + it.key));
             acts.push('<a class="mw-rc-ed" href="' + esc(safeUrl(it.url)) + '">Open</a>');
         } else if (s === 'promises') {
             main = '<b>' + esc(it.name) + ':</b> <q>' + esc(it.quote) + '</q> <small class="mw-yui-meta">' + esc(ago(it.at)) +
@@ -188,7 +189,7 @@
         var isOpen = open === it.key;
         return '<div class="mw-yui-row' + (it.yes ? ' is-yes' : '') + (it.hold ? ' is-hold' : '') + (s === 'arrears' ? ' is-money' : '') + (isOpen ? ' is-open' : '') + '" data-k="' + esc(it.key) + '">' +
             '<div class="mw-yui-line"><div class="mw-yui-main">' + main + '</div><div class="mw-sam-lead-act mw-yui-act">' + acts.join('') + '</div></div>' +
-            (isOpen ? editor(it) : '') + '</div>';
+            readPanel('k:' + it.key) + (isOpen ? editor(it) : '') + '</div>';
     }
 
     // ── Who is this? ─────────────────────────────────────────────────────
@@ -220,7 +221,7 @@
             (it.subject ? '<div>' + esc(it.subject) + '</div>' : '') +
             (it.snippet ? '<q>' + esc(it.snippet) + '</q>' : '') +
             '<small class="mw-yui-meta">' + esc(ago(it.at)) + (it.more ? ' · ' + esc(it.more) + ' earlier from them, answered together' : '') + '</small>' +
-            (it.why ? '<small class="mw-yui-who-why">Why I think so: ' + esc(it.why) + '</small>' : '') + '</div>' +
+            (it.why ? '<small class="mw-yui-who-why">Why I think so: ' + esc(it.why) + '</small>' : '') + readBtn('w:' + it.id) + readPanel('w:' + it.id) + '</div>' +
             '<div class="mw-yui-who-form">' +
               '<label class="mw-sam-lbl">First name<input class="mw-sam-in" data-wf="first" value="' + esc(st.first) + '"></label>' +
               '<label class="mw-sam-lbl">Last name<input class="mw-sam-in" data-wf="last" value="' + esc(st.last) + '"></label>' +
@@ -340,6 +341,38 @@
     function stmtUnconfirmed(it, st) {
         return (it.statement.recipients || []).some(function (r) { return r.email === st.recipient && !r.on_file; });
     }
+    // ── The whole email, read from the mailbox when asked (yui.php mode=message; nothing stored) ──
+    var reads = {};   // 'k:<item key>' | 'w:<question id>' → {open, loading, text, earlier, message}
+    function readBtn(id) {
+        var r = reads[id];
+        return '<button type="button" class="mw-rc-ed mw-yui-readbtn" data-do="read" data-r="' + esc(id) + '">' + (r && r.open ? 'Show less' : 'Whole email') + '</button>';
+    }
+    function readPanel(id) {
+        var r = reads[id];
+        if (!r || !r.open) return '';
+        if (r.loading) return '<div class="mw-yui-read" aria-busy="true"><small class="mw-yui-meta">Reading the email…</small></div>';
+        return '<div class="mw-yui-read">' + (r.message ? '<small class="mw-yui-meta">' + esc(r.message) + '</small>' : '') +
+            '<div class="mw-yui-read-text">' + esc(r.text || '(no text)') + '</div>' +
+            (r.earlier ? '<details class="mw-yui-read-earlier"><summary>Earlier in the thread</summary><div class="mw-yui-read-text">' + esc(r.earlier) + '</div></details>' : '') +
+            '</div>';
+    }
+    root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-do="read"]'); if (!b) return;
+        e.stopPropagation();
+        var id = b.getAttribute('data-r'), r = reads[id];
+        if (r && r.open) { r.open = false; render(); return; }
+        if (r && !r.loading && r.text != null) { r.open = true; render(); return; }
+        reads[id] = r = { open: true, loading: true };
+        render();
+        var body = id.indexOf('w:') === 0 ? { mode: 'message', id: Number(id.slice(2)) } : { mode: 'message', key: id.slice(2) };
+        post(body).then(function (d) {
+            r.loading = false;
+            if (d && d.ok) { r.text = d.text || ''; r.earlier = d.earlier || ''; r.message = d.message || ''; }
+            else { r.text = ''; r.earlier = ''; r.message = (d && (d.message || d.error)) || "Couldn't load the email."; }
+            render();
+        }).catch(function () { r.loading = false; r.text = ''; r.message = "Couldn't load the email."; render(); });
+    }, true);
+
     function money2(v) { return '$' + Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
     function editor(it) {
