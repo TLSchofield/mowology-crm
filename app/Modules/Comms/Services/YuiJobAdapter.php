@@ -39,6 +39,7 @@ final class YuiJobAdapter
         foreach ($inbox as $it) {
             if (!empty($it['hold'])) continue;                       // a phone call, not a card decision
             if (!empty($it['statement']['offer'])) { $stmt[] = self::fromStatement($it); continue; }
+            if (!empty($it['statement']['needs_contact'])) { $stmt[] = self::fromContact($it); continue; }
             if (empty($it['to']['email'])) continue;                 // nobody to write to: stays on the full card
             if (!empty($it['yes'])) $yes[] = self::fromReply($it); else $other[] = self::fromReply($it);
         }
@@ -68,7 +69,7 @@ final class YuiJobAdapter
             'head' => 'yui', 'kind' => 'statement', 'key' => (string)$it['key'],
             'title' => 'They asked what is owing. The statement is ready',
             'why' => $o['account'] . ' · ' . $o['label'] . ' · ' . $money,
-            'left' => self::left($it),
+            'left' => ['name' => (string)($o['asker_name'] ?? '') ?: (string)($it['name'] ?? '')] + self::left($it),
             'right' => ['account' => (string)$o['account'], 'label' => (string)$o['label'], 'closing' => (float)$o['closing'],
                         'recipients' => $first, 'recipient' => $default,
                         'subject' => (string)($d['subject'] ?? ''), 'body' => (string)($d['body'] ?? '')],
@@ -76,6 +77,27 @@ final class YuiJobAdapter
             'primary' => ['label' => 'Send statement', 'sub' => $money . ' · PDF attached',
                           'request' => ['mode' => 'send', 'key' => (string)$it['key'], 'template' => 'statement', 'channel' => 'email',
                                         'closing' => (float)$o['closing'], 'suggested_body' => (string)($d['body'] ?? ''), 'drafted_by' => 'template']],
+            'secondary' => ['label' => 'Handled', 'sub' => 'no statement', 'request' => ['mode' => 'handled', 'key' => (string)$it['key']]],
+            'api' => self::API,
+        ];
+    }
+
+    /** Someone not on file asked for a balance: add them to the account first (Tim: "the correct contact has to be sorted first"). */
+    public static function fromContact(array $it): array
+    {
+        $n = (array)$it['statement']['needs_contact'];
+        $name = trim((string)$n['name']);
+        [$first, $last] = array_pad(preg_split('/\s+/', $name, 2) ?: [], 2, '');
+        return [
+            'head' => 'yui', 'kind' => 'who', 'key' => (string)$it['key'],
+            'title' => 'Who is ' . ($first !== '' ? $first : 'this') . '? Sort the contact before the statement',
+            'why' => 'Asked for the balance on ' . $n['account'] . ' from an address not on file for it. Check the address.',
+            'left' => ['name' => $name !== '' ? $name : (string)$n['email'], 'addr' => (string)$n['email'], 'subject' => (string)($it['subject'] ?? ''),
+                       'text' => (string)($it['quote'] ?? ($it['text'] ?? '')), 'at' => (string)($it['at'] ?? ''), 'more' => 0],
+            'right' => ['first_name' => (string)$first, 'last_name' => (string)$last,
+                        'candidates' => [['client_id' => (int)$n['client_id'], 'name' => (string)$n['account']]], 'client_id' => (int)$n['client_id']],
+            'fields' => ['first_name', 'last_name', 'client_id'],
+            'primary' => ['label' => 'Add to account', 'sub' => 'then the statement', 'request' => ['mode' => 'contact_add', 'key' => (string)$it['key']]],
             'secondary' => ['label' => 'Handled', 'sub' => 'no statement', 'request' => ['mode' => 'handled', 'key' => (string)$it['key']]],
             'api' => self::API,
         ];

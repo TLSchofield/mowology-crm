@@ -145,11 +145,11 @@ class StatementService
      * What this contact's statement draws on: the account names, how many properties, and the account of the newest invoice
      * still owing (else the newest). same_place: every invoice is on one property AND billed to one company, the only proof
      * that two account records are one client filed twice (property alone is not: a landlord and a tenant share one).
-     * @return array{accounts: string[], same_place: bool, name: string}
+     * @return array{accounts: string[], same_place: bool, name: string, client_ids: int[], client_id: int}
      */
     public function coverage(int $contactId): array
     {
-        $names = []; $props = []; $cos = []; $owing = null; $newest = null;
+        $names = []; $props = []; $cos = []; $owing = null; $newest = null; $owingId = null; $newestId = null;
         foreach ($this->getContactInvoices($contactId) as $i) {
             $id = (int)($i['client_id'] ?? 0);
             if (!isset($names[$id])) {
@@ -163,11 +163,12 @@ class StatementService
             }
             $props[(int)($i['property_id'] ?? 0)] = true;
             $cos[(int)($i['company_id'] ?? 0)] = true;
-            $newest = $names[$id];
-            if ((float)($i['balance_due'] ?? 0) > 0) $owing = $names[$id];
+            $newest = $names[$id]; $newestId = $id;
+            if ((float)($i['balance_due'] ?? 0) > 0) { $owing = $names[$id]; $owingId = $id; }
         }
         $same = count($props) === 1 && !isset($props[0]) && count($cos) === 1 && !isset($cos[0]);
-        return ['accounts' => array_values($names), 'same_place' => $same, 'name' => (string)($owing ?? $newest ?? '')];
+        return ['accounts' => array_values($names), 'same_place' => $same, 'name' => (string)($owing ?? $newest ?? ''),
+                'client_ids' => array_values(array_filter(array_keys($names))), 'client_id' => (int)($owingId ?? $newestId ?? 0)];
     }
 
     /** The statement PDF: ['success'=>bool, 'path'=>, 'filename'=>, 'error'=>]. Web requests only (CRM_INCLUDES). */

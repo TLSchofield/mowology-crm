@@ -41,9 +41,19 @@ final class YuiStatementOffer
 
         $fileAddr = strtolower(trim((string)($in['on_file']['email'] ?? '')));
         $askAddr = strtolower(trim((string)($in['asker']['email'] ?? '')));
+        $askName = trim((string)($in['asker']['name'] ?? ''));
+        $known = $askAddr === $fileAddr || !empty($in['asker_known']);
+        // Tim (2026-11-10): "the correct contact has to be sorted first". A balance never goes to someone the account does not
+        // know: the person who asked is added as a contact first (YuiJobAdapter shows that step), then the statement.
+        if (filter_var($askAddr, FILTER_VALIDATE_EMAIL) && !$known) {
+            $o = $no('Not on file for this account yet: add them first.');
+            $o['needs_contact'] = ['name' => $askName, 'email' => $askAddr, 'client_id' => (int)($in['client_id'] ?? 0),
+                                   'account' => (string)($in['name'] ?? '') ?: $accounts[0]];
+            return $o;
+        }
         $out = [];
         if (filter_var($askAddr, FILTER_VALIDATE_EMAIL)) {
-            $out[] = ['email' => $askAddr, 'name' => trim((string)($in['asker']['name'] ?? '')) ?: $askAddr, 'on_file' => $askAddr === $fileAddr];
+            $out[] = ['email' => $askAddr, 'name' => $askName ?: $askAddr, 'on_file' => true];
         }
         if (filter_var($fileAddr, FILTER_VALIDATE_EMAIL) && $fileAddr !== $askAddr) {
             $out[] = ['email' => $fileAddr, 'name' => trim((string)($in['on_file']['name'] ?? '')) ?: $fileAddr, 'on_file' => true];
@@ -82,11 +92,25 @@ final class YuiStatementOffer
             $data = $svc->getStatementData($contactId, null, null, true);
             $name = trim((string)($m['from_name'] ?? ''));
             $cov = $svc->coverage($contactId);
+            $known = false;
+            $askAddr = strtolower(trim((string)$m['from_addr']));
+            if ($askAddr !== '' && $cov['client_ids']) {
+                $in = implode(',', array_map('intval', $cov['client_ids']));
+                $k = $db->prepare("SELECT 1 FROM contacts c WHERE LOWER(TRIM(c.email)) = ? AND c.merged_into_id IS NULL
+                                     AND (c.id = ? OR EXISTS (SELECT 1 FROM client_contacts cc WHERE cc.contact_id = c.id AND cc.client_id IN ({$in}))) LIMIT 1");
+                $k->execute([$askAddr, $contactId]);
+                $known = (bool)$k->fetchColumn();
+            }
             $offer = self::decide(['hold' => !empty($item['hold']), 'closing' => (float)$data['ledger']['closing'], 'label' => (string)$data['period']['label'],
-                'accounts' => $cov['accounts'], 'same_place' => $cov['same_place'], 'name' => $cov['name'], 'asker' => ['name' => $name, 'email' => (string)$m['from_addr']],
+                'accounts' => $cov['accounts'], 'same_place' => $cov['same_place'], 'name' => $cov['name'],
+                'client_id' => $cov['client_id'], 'asker_known' => $known, 'asker' => ['name' => $name, 'email' => (string)$m['from_addr']],
                 'on_file' => ['name' => (string)($data['recipient']['name'] ?? ''), 'email' => (string)($data['recipient']['email'] ?? '')]]);
-            [$first] = $name !== '' ? EmailLeadService::splitName($name, (string)$m['from_addr']) : [''];   // never "Hi Rperera" from an address
+            // The greeting is for the person the note goes to by default (the one who asked, now known), never another name.
+            $to = $offer['recipients'][0] ?? null;
+            $toName = $to && $to['name'] !== $to['email'] ? (string)$to['name'] : '';
+            [$first] = $toName !== '' ? EmailLeadService::splitName($toName, (string)$to['email']) : [''];   // never "Hi Rperera" from an address
             $offer['draft'] = $offer['offer'] ? self::draft($offer, $first, (string)$m['subject'], $owner) : null;
+            $offer['asker_name'] = $name;
             return $offer;
         } catch (Throwable $e) {
             error_log('[yui statement] ' . $e->getMessage());
