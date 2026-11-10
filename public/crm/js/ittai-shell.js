@@ -247,6 +247,11 @@
             measureLive();
         }
 
+        /** Is the page already the one at ws? Compared on the path alone, so a query or fragment never causes a reload. */
+        function herePath(ws) {
+            var a = document.createElement('a'); a.href = ws;
+            return a.pathname.replace(/\/index\.php$/, '/') === window.location.pathname.replace(/\/index\.php$/, '/');
+        }
         function select(g) {
             var ws = g.getAttribute('data-workspace') || '';
             if (g.classList.contains('is-sel')) {
@@ -268,7 +273,7 @@
             // settled (the fold's transitionend below does it too; these are the fallback for a slow frame).
             setTimeout(function () { replaceOpenCards(); measureLive(); }, 220);
             setTimeout(function () { replaceOpenCards(); measureLive(); }, 600);
-            if (ws !== '' && window.location.pathname !== ws) window.location.href = ws;
+            if (ws !== '' && !herePath(ws)) window.location.href = ws;
         }
 
         // Rail: a head's pages open in a flyout beside its button.
@@ -297,7 +302,7 @@
                 if (isRail()) {
                     openFly(g);
                     var ws = g.getAttribute('data-workspace') || '';
-                    if (ws !== '' && window.location.pathname !== ws) window.location.href = ws;
+                    if (ws !== '' && !herePath(ws)) window.location.href = ws;
                     return;
                 }
                 select(g);
