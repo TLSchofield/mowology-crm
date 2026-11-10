@@ -24,7 +24,7 @@ DB_PORT="${LOCAL_DB_PORT:-3307}"
 DB_NAME="mowology_local"
 DB_USER="mowology_local"
 BACKUP_DIR="${MOWOLOGY_BACKUP_DIR:-$HOME/Backups/mowology}"
-LOCAL_MIGRATIONS=(1331 1350 1355 1358 1359)   # repo migrations newer than the production schema snapshot
+LOCAL_MIGRATIONS=()   # repo migrations newer than the production schema snapshot (none: the schema is rebuilt from the newest backup)
 
 DATADIR="$STATE/mysql-data"
 SOCK="$STATE/mysql.sock"
@@ -126,7 +126,7 @@ reset_db() {
     GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'127.0.0.1';
     FLUSH PRIVILEGES;"
   "${MYSQL[@]}" "$DB_NAME" < "$SCHEMA"
-  for m in "${LOCAL_MIGRATIONS[@]}"; do
+  for m in ${LOCAL_MIGRATIONS[@]+"${LOCAL_MIGRATIONS[@]}"}; do
     for f in "$ROOT"/database/migrations/${m}_*.sql; do
       [ -f "$f" ] || continue
       echo "Local-only migration: $(basename "$f")"
