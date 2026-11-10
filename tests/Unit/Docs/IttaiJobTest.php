@@ -72,7 +72,8 @@ class IttaiJobTest extends TestCase
     public function testHeadIncludesTheStripOnlyInTheIttaiShell(): void
     {
         $head = $this->src('public/crm/includes/appstack_head.php');
-        $this->assertMatchesRegularExpression('/if \(!empty\(\$itShell\)\) \{ include __DIR__ \. \'\/ittai-kaname-space\.php\'; include __DIR__ \. \'\/ittai-job\.php\'; include __DIR__ \. \'\/ittai-job-yui\.php\'; \}/', $head, "Kaname's space, then the head's job, only in the shell");
+        $this->assertMatchesRegularExpression('/if \(!empty\(\$itShell\)\) \{ include __DIR__ \. \'\/ittai-job\.php\'; include __DIR__ \. \'\/ittai-job-yui\.php\'; \}/', $head, "the head's job strips, only in the shell (Kaname's band lives in the topbar now)");
+        $this->assertStringNotContainsString('ittai-kaname-space', $head, 'the page band is gone: one Kaname, in the topbar');
         $this->assertGreaterThan(strpos($head, '<div class="container-fluid p-0">'), strpos($head, 'ittai-job.php'));
     }
 }

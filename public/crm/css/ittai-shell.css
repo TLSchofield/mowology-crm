@@ -27,7 +27,7 @@ body.it-shell.it-shell .it-sidebar .sidebar-content {
 }
 body.it-shell.it-shell .it-sidebar a { color: var(--it-text); text-decoration: none; }
 body.it-shell .it-sidebar ul { list-style: none; margin: 0; padding: 0; }   /* weak on purpose: .it-subs sets its own padding */
-/* Low specificity on purpose: every button rule below (.it-grow, .it-sf, .it-cb) must outrank this reset. On 2026-11-10 it
+/* Low specificity on purpose: every button rule below (.it-grow, .it-cb) must outrank this reset. On 2026-11-10 it
    zeroed the head rows' padding and pushed the portraits half out of the sidebar on production. */
 body.it-shell .it-sidebar button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; }
 body.it-shell.it-shell .it-sidebar b { font-weight: 600; }
@@ -59,23 +59,6 @@ body.it-shell.it-shell .it-cb::before {
 body.it-shell.it-shell .it-cb:hover::before { background: var(--it-selected); }
 body.it-shell.it-shell .it-cb .it-ic { position: relative; width: 24px; height: 24px; }
 @media (max-width: 1023px) { body.it-shell.it-shell .it-cb { display: none; } }
-
-/* ── Search ── */
-body.it-shell.it-shell .it-srch { padding: 0 12px 8px; flex: none; }
-body.it-shell.it-shell .it-sf {
-  display: flex; align-items: center; gap: 6px; width: 100%; height: 44px; padding: 0 8px;
-  border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 10px;
-  background: var(--it-surface); color: var(--it-meta); font-size: 13px; line-height: 20px;
-}
-body.it-shell.it-shell .it-sf:hover { background: var(--it-selected); }
-body.it-shell.it-shell .it-sf .it-ic { width: 24px; height: 24px; }
-body.it-shell.it-shell .it-sf-text { flex: 1; min-width: 0; }
-body.it-shell.it-shell .it-kc { display: flex; gap: 4px; flex: none; }
-body.it-shell.it-shell .it-sidebar kbd {
-  font: 500 12px/16px var(--it-font-sans); color: var(--it-meta);
-  border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; padding: 0 4px; background: var(--it-sunk);
-}
-@media (max-width: 1023px) { body.it-shell.it-shell .it-kc { display: none; } }
 
 /* ── A head's row ── */
 body.it-shell.it-shell .it-nv { flex: 0 0 auto; }
@@ -175,6 +158,7 @@ body.it-shell.it-shell .it-hp:not([data-placed]) { visibility: hidden; }
 @media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open, body.it-shell.it-shell .it-hp-space { display: none !important; } }
 body.it-shell.it-shell .it-pt-lg { width: 44px; height: 44px; margin: 0 auto 2px; }
 body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
+body.it-shell.it-shell .it-grp.has-card .it-grow:focus-visible { outline: none; }   /* the card stands in for the row: no empty ring (Tim, 2026-11-10) */
 /* …and so does the row's name and tag (the card carries them); Kaname's needs-you chip stays */
 body.it-shell.it-shell .it-grp.has-card .it-grow .it-l1 > b, body.it-shell.it-shell .it-grp.has-card .it-grow .it-l1 > .it-tag, body.it-shell.it-shell .it-grp.has-card .it-grow .it-l2 { visibility: hidden; }
 body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
@@ -207,12 +191,8 @@ body.it-shell.it-shell .sidebar.collapsed .it-grow > .it-ch,
 body.it-shell.it-shell .sidebar.collapsed .it-acc,
 body.it-shell.it-shell .sidebar.collapsed .it-pt2,
 body.it-shell.it-shell .sidebar.collapsed .it-pcard > .it-ch,
-body.it-shell.it-shell .sidebar.collapsed .it-sf-text,
-body.it-shell.it-shell .sidebar.collapsed .it-kc { display: none; }
 body.it-shell.it-shell .sidebar.collapsed .it-top { justify-content: center; padding: 0; }
 body.it-shell.it-shell .sidebar.collapsed .it-mark { justify-content: center; }
-body.it-shell.it-shell .sidebar.collapsed .it-srch { padding: 0 8px 8px; }
-body.it-shell.it-shell .sidebar.collapsed .it-sf { justify-content: center; padding: 0; }
 body.it-shell.it-shell .sidebar.collapsed .it-grow,
 body.it-shell.it-shell .sidebar.collapsed .it-kan .it-grow { display: flex; align-items: center; justify-content: center; height: 52px; min-height: 52px; padding: 0; }
 body.it-shell.it-shell .sidebar.collapsed .it-grp::before { right: 35px; }
@@ -311,6 +291,30 @@ body.it-shell .it-sb-strip.is-closed .it-sb-chev { transform: rotate(-90deg); }
 
 /* The block the current page is in: the strip's face ring takes the tenant mark */
 body.it-shell .it-sb-strip.is-here .it-sb-face img { box-shadow: 0 0 0 2px var(--it-tenant-mark); }
+
+/* ── Kaname's band: the fixed strip across the top (Tim, 2026-11-10: the one search top right, her line beside it,
+   fixed, where alerts and heads' notifications land; one subject at a time) ── */
+body.it-shell.it-shell .navbar { position: sticky; top: 0; z-index: 1030; display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 0 16px 0 8px; }
+body.it-shell.it-shell .navbar .sidebar-toggle { order: 0; }
+body.it-shell.it-shell .it-band { order: 1; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; height: 56px; font-family: var(--it-font-sans); font-size: 14px; line-height: 20px; color: var(--it-text); }
+body.it-shell.it-shell .navbar .mw-tracking-dot-wrapper, body.it-shell.it-shell .navbar .mw-clock-widget, body.it-shell.it-shell .navbar .mw-snap-receipt-btn { order: 2; flex: none; }
+body.it-shell.it-shell .navbar .mw-topbar-right-cluster { order: 3; flex: none; margin-left: 0; }
+body.it-shell.it-shell .it-band-who { display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 6px 0 0; color: var(--it-text); text-decoration: none; }
+body.it-shell.it-shell .it-band-who .it-pt { width: 28px; height: 28px; }
+body.it-shell.it-shell .it-band-who b { font-weight: 600; }
+body.it-shell.it-shell .it-band-subject { display: inline-flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; min-height: 44px; padding: 0 10px; border-radius: 10px; color: var(--it-meta); text-decoration: none; }
+body.it-shell.it-shell .it-band-subject:hover { background: var(--it-selected); color: var(--it-text); }
+body.it-shell.it-shell .it-band-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.it-shell.it-shell .it-band-subject.is-alert { color: var(--it-status-attention); font-weight: 500; }
+body.it-shell.it-shell .it-band-subject.is-alert .it-si { flex: none; fill: currentColor; stroke: none; }
+body.it-shell.it-shell .it-band-age { flex: none; font-size: 13px; color: var(--it-meta); font-weight: 400; }
+body.it-shell.it-shell .it-band-more { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 28px; height: 22px; padding: 0 6px; border: var(--it-stroke-hairline) solid var(--it-status-attention); border-radius: var(--it-radius-full); color: var(--it-status-attention); font-size: 12px; font-weight: 600; text-decoration: none; }
+body.it-shell.it-shell .it-band-heads { display: inline-flex; align-items: center; gap: 10px; flex: none; margin-left: 6px; }
+body.it-shell.it-shell .it-band-head { width: 28px; height: 28px; }
+body.it-shell.it-shell .it-band-head .it-bd { left: -6px; bottom: -3px; }
+body.it-shell.it-shell .it-band a:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; border-radius: 10px; }
+@media (max-width: 1200px) { body.it-shell.it-shell .it-band-age { display: none; } body.it-shell.it-shell .navbar .mw-clock-label, body.it-shell.it-shell .navbar .mw-snap-receipt-label { display: none; } }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-band { display: none; } }
 
 /* ── Top bar: a flat white strip with a hairline ── */
 body.it-shell.it-shell .navbar-bg {
@@ -434,16 +438,6 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
 .it-job-c { margin-left: auto; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--it-meta); }
 /* Kaname's space, always there at the top of the main page (Tim, 2026-11-10): her count and line, and the way to her brief */
-body.it-shell.it-shell .it-kan-space { display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 0 0 16px; padding: 0 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); font-size: 14px; line-height: 20px; }
-body.it-shell.it-shell .it-kan-space img { width: 28px; height: 28px; border-radius: var(--it-radius-full); object-fit: cover; box-shadow: 0 0 0 2px var(--it-line); flex: none; }
-body.it-shell.it-shell .it-kan-space b { font-weight: 600; }
-body.it-shell.it-shell .it-kan-space .it-kan-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-meta); }
-body.it-shell.it-shell .it-kan-space .it-kan-open { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; color: var(--it-text); }
-body.it-shell.it-shell .it-kan-space .it-kan-open:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
-body.it-shell.it-shell .it-kan-space .it-kan-sub { display: inline-flex; align-items: center; min-height: 44px; max-width: 45%; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-text); font-weight: 500; text-decoration: none; border-left: var(--it-stroke-hairline) solid var(--it-line); }
-body.it-shell.it-shell .it-kan-space .it-kan-sub:hover { text-decoration: underline; }
-body.it-shell.it-shell .it-kan-space .it-kan-sub:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
-@media (max-width: 640px) { body.it-shell.it-shell .it-kan-space .it-kan-sub { display: none; } }
 
 /* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
 body.it-shell.it-shell .it-job-outer { margin-left: 96px; }

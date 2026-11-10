@@ -51,7 +51,7 @@ class IttaiShellTest extends TestCase
     public function testSidebarBlockIsAccessibleAndWired(): void
     {
         $b = $this->itShellBlock();
-        foreach (['aria-expanded', 'aria-current="page"', 'data-spotlight-open', 'HeadNavService::forShell', 'itIconSprite()'] as $needle) {
+        foreach (['aria-expanded', 'aria-current="page"', 'HeadNavService::forShell', 'itIconSprite()'] as $needle) {
             $this->assertStringContainsString($needle, $b, $needle);
         }
     }
@@ -129,5 +129,27 @@ class IttaiShellTest extends TestCase
         $this->assertMatchesRegularExpression('/\.it-hp\s*\{[^}]*position:\s*fixed[^}]*width:\s*200px/s', $css, 'floating 200 px square card');
         $this->assertStringContainsString('.it-grp.has-card .it-grow .it-pt { visibility: hidden; }', $css, 'one face while the card is open');
         $this->assertStringContainsString('.it-grp > .it-hp-space { order: 1;', $css, 'the spacer sits between the row and the pages');
+    }
+
+    /** Kaname's band (Tim, 2026-11-10): one search top right, her line beside it, fixed; one subject at a time; the sidebar box is gone. */
+    public function testKanameBandReplacesTheSidebarSearchAndThePageBand(): void
+    {
+        $sb = $this->itShellBlock();
+        $this->assertStringNotContainsString('data-spotlight-open', $sb, 'no search box in the sidebar');
+        $this->assertStringNotContainsString('it-chip-need', $sb, "Kaname's count moved to the band");
+        $this->assertStringContainsString("if (\$__ws === '' && !empty(\$__items[0]['href'])) \$__ws = (string)\$__items[0]['href'];", $sb, "a head click opens her first page");
+        $top = $this->src('public/crm/includes/appstack_topbar.php');
+        $this->assertStringContainsString("if (!empty(\$itShell)) include __DIR__ . '/ittai-kaname-band.php';", $top);
+        $this->assertSame(1, substr_count($top, 'data-spotlight-open'), 'the one search');
+        $band = $this->src('public/crm/includes/ittai-kaname-band.php');
+        $this->assertStringContainsString("if (empty(\$itShell)", $band);
+        $this->assertSame(1, substr_count($band, 'it-band-subject'), 'one subject at a time');
+        $this->assertStringNotContainsString('<style', $band);
+        $this->assertFileDoesNotExist($this->repo . '/public/crm/includes/ittai-kaname-space.php');
+        $css = $this->src('public/crm/css/ittai-shell.css');
+        $this->assertMatchesRegularExpression('/\.navbar \{ position: sticky; top: 0;/', $css, 'the band is fixed');
+        $this->assertStringNotContainsString('.it-sf', $css);
+        $this->assertStringNotContainsString('.it-kan-space', $css);
+        $this->assertStringContainsString('.it-grp.has-card .it-grow:focus-visible { outline: none; }', $css);
     }
 }

@@ -694,3 +694,10 @@ never wrong. The frame opens on its right and funnels back onto the rail before 
 line again); rail, frame and feeder are a step darker than the hairline; the matching value below the rail is dimmed
 so the one difference reads first. The head card is the row enlarged: face, name, role, nothing else. Yui's statement
 greeting follows the chosen address (`ittai-job-yui.js` `greet()`), after a draft greeted Candace while addressed to Sandra.
+
+**2026-11-10, Kaname's band:** her space moved from a card at the top of the page into the fixed top bar
+(`includes/ittai-kaname-band.php`, `KanameBandService`): her face and count, then ONE subject at a time — the newest
+of the last 24 h of `charlie_alerts` (what `CharlieUrgentService` already decided was worth an interruption), else her
+line — a "+N" for further alerts, and a face chip for each head whose ready state is approval or blocked. The one
+search is top right beside Clock In and Receipt; the sidebar search box is gone. A head click opens her first page
+(Penny → Invoices) with her job strip ready; her card is pinned there.

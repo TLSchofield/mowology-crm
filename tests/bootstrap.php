@@ -287,6 +287,7 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadNavService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameWorkspaceService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameBandService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DailyQuote.php';
 require_once __DIR__ . '/../app/Services/Pdf/PdfFormFiller.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/DepositBackfillService.php';

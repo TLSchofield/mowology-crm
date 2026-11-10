@@ -85,7 +85,6 @@ if (!empty($itShell)):
     $__itInit = mb_strtoupper($__itInit);
     $__itRole = ucfirst((string)($user['role'] ?? 'staff'));
     $__itUser = (string)($user['name'] ?? '');
-    $__itMac = PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false;
     $__itSymbol = is_file(dirname(__DIR__) . '/img/ittai/ittai-symbol-24.svg') ? '/crm/img/ittai/ittai-symbol-24.svg' : '';
     $__itStates = ['working', 'approval', 'blocked', 'idle', 'unavailable'];
     // Which group is open on load: the one holding this page, else the chief of staff's.
@@ -101,9 +100,7 @@ if (!empty($itShell)):
         <div class="it-top">
             <a class="it-mark" href="/crm/dashboard_appstack.php" aria-label="Ittai, home"><?php if ($__itSymbol !== ''): ?><img class="it-logo" src="<?php echo $__h($__itSymbol); ?>" alt="" width="24" height="24"><?php endif; ?><img class="it-wm" src="/crm/img/ittai/ittai-wordmark.svg" alt="" height="26"></a>
         </div>
-        <div class="it-srch">
-            <button type="button" class="it-sf" data-spotlight-open aria-label="Search clients, addresses, buildings, phone numbers"><svg class="it-ic" width="24" height="24" aria-hidden="true"><use href="#it-i-search"/></svg><span class="it-sf-text">Search</span><span class="it-kc" aria-hidden="true"><kbd><?php echo $__itMac ? '⌘' : 'Ctrl'; ?></kbd><kbd>K</kbd></span></button>
-        </div>
+        <?php /* No search box here (Tim, 2026-11-10): the one search is top right, in Kaname's band. */ ?>
         <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
         <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
             $__hd    = (array)(($__itNav['heads'] ?? [])[$__slug] ?? []);
@@ -112,7 +109,9 @@ if (!empty($itShell)):
             if ($__st === '') $__word = '';   // no known state: no state span at all
             $__line  = (string)($__hd['line'] ?? '');
             if ($__line === '') $__line = (string)($__hd['reason'] ?? '');
+            // A click on a head opens her first page with her work line ready (Tim, 2026-11-10); Kaname's is her brief.
             $__ws    = (string)($__hd['workspace'] ?? '');
+            if ($__ws === '' && !empty($__items[0]['href'])) $__ws = (string)$__items[0]['href'];
             $__ring  = 'it-pt it-pt-' . ($__st !== '' ? $__st : 'none');
             $__isOpen = ($__slug === $__itOpen);
             // The head you are with (the group holding this page) keeps its card open on every page, so a page
@@ -134,7 +133,7 @@ if (!empty($itShell)):
                 <button type="button" class="it-grow" aria-expanded="<?php echo $__isOpen ? 'true' : 'false'; ?>" aria-controls="it-acc-<?php echo $__h($__slug); ?>" aria-label="<?php echo $__h($__aria); ?>">
                     <?php /* Round 7 (Tim's sketch, 2026-11-10): name on the left, the portrait on the spine at the right; the state is
                              the ring and glyph (the word stays in the aria-label and on the card); Kaname carries the owner's count. */ ?>
-                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span><?php if ($__slug === 'charlie' && (int)($__hd['needs_you'] ?? 0) > 0): ?><span class="it-chip it-chip-need"><?php echo $__h($__word); ?></span><?php endif; ?></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
+                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
                     <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"><?php if ($__st !== ''): ?><svg class="it-bd it-bd-<?php echo $__st; ?>" width="16" height="16" aria-hidden="true"><use href="#it-st-<?php echo $__st; ?>"/></svg><?php endif; ?></span>
                 </button>
                 <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
