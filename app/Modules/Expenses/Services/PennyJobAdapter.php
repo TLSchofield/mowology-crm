@@ -6,6 +6,12 @@ declare(strict_types=1);
  * head's pages (public/crm/includes/ittai-job.php). A new face on existing money logic only: the groups come
  * from DuplicateReceiptService::presentGroups() (the same ones the web Penny card shows) and the buttons carry
  * the exact requests bookkeeper-card.js sends to /crm/api/bookkeeper.php (dupe_merge, not_dupe, unmerge).
+ *
+ * Her second job (2026-11-10): the pending Interac e-Transfer to record. The reading is EtransferDeskService::read()
+ * (the same one the Invoices page's "Pending e-Transfers" card makes) and Record payment carries the exact form
+ * fields that card posts to /crm/api/etransfer-confirm.php (action=record, notification_id, invoice_numbers[],
+ * amounts[]). The job also carries `pieces` {matched, total: 3} — the "2/3" fraction: how many of the e-Transfer
+ * email, the invoice match and the bank deposit are already in hand — and a `label` naming the match.
  * Nothing here writes anything.
  */
 class PennyJobAdapter
@@ -35,21 +41,182 @@ class PennyJobAdapter
         return false;
     }
 
-    /** The waiting pairs as jobs, in the card's order; [] on any failure. */
-    public static function jobs(PDO $db, array $user): array
+    /**
+     * Penny's queue: the waiting duplicate pairs first (in the card's order), then the pending e-Transfers with a
+     * proposed invoice ($withEtransfers: the owner can record payments — billing.edit). [] on any failure.
+     */
+    public static function jobs(PDO $db, array $user, bool $withEtransfers = false): array
     {
+        $out = [];
         try {
             self::load();
             $svc = new DuplicateReceiptService($db);
             $groups = $svc->presentGroups(DuplicateReceiptService::groups($svc->pairsInLine(60)));
             $groups = array_values(array_filter($groups, fn($g) => !empty($g['keep_id']) && !empty($g['copy_ids'])));
-            $out = [];
-            foreach ($groups as $i => $g) $out[] = self::fromGroup($g, $i + 1, count($groups));
-            return $out;
+            foreach ($groups as $g) $out[] = self::fromGroup($g, 0, 0);
         } catch (Throwable $e) {
             error_log('PennyJobAdapter::jobs: ' . $e->getMessage());
+            $out = [];
+        }
+        if ($withEtransfers) {
+            foreach (self::etransferJobs($db) as $j) $out[] = $j;
+        }
+        $n = count($out);
+        foreach ($out as $i => $j) { $out[$i]['index'] = $i + 1; $out[$i]['total'] = $n; }
+        return $out;
+    }
+
+    /** Cheap gate for the e-Transfer job: is any notification still waiting to be recorded? Any failure means no. */
+    public static function hasEtransferWork(PDO $db): bool
+    {
+        try {
+            self::loadEtransfer();
+            return (new EtransferInboxService($db))->countPending() > 0;
+        } catch (Throwable $e) {
+            error_log('PennyJobAdapter::hasEtransferWork: ' . $e->getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * The pending e-Transfers Penny can propose an invoice for, as jobs (index/total filled by jobs()). A transfer
+     * with no invoice to propose, or one she thinks is already recorded, stays on the card alone: the strip never
+     * offers Record without a proposal. [] on any failure.
+     */
+    public static function etransferJobs(PDO $db): array
+    {
+        try {
+            self::loadEtransfer();
+            $inbox = new EtransferInboxService($db);
+            $desk = new EtransferDeskService($db);
+            $rows = $inbox->listPending();
+            $out = [];
+            foreach (array_slice($rows, 0, 25) as $et) {
+                $read = $desk->read($et);
+                if (!self::proposes($read)) continue;
+                $facts = $inbox->invoiceFacts(array_map(fn($l) => (string)$l['invoice'], $read['lines']));
+                $out[] = self::fromTransfer($et, $read, $facts, 0, 0);
+            }
+            return $out;
+        } catch (Throwable $e) {
+            error_log('PennyJobAdapter::etransferJobs: ' . $e->getMessage());
             return [];
         }
+    }
+
+    /** Pure: does Penny's reading of a transfer carry an invoice she proposes recording it against? */
+    public static function proposes(array $read): bool
+    {
+        if (empty($read['lines']) || !is_array($read['lines'])) return false;
+        return !in_array((string)($read['kind'] ?? ''), ['duplicate', 'leftover', 'none'], true);
+    }
+
+    /**
+     * One pending e-Transfer → the generic job shape. Pure.
+     * $et is the listPending() row (sender, amount, memo, email_date, bank columns); $read is EtransferDeskService::read()
+     * of it (kind, lines, confirmed, say); $facts is invoiceFacts() for the lines, keyed by invoice number.
+     * The e-Transfer is drawn ABOVE the rail and the invoice(s) BELOW it; the discs on the rail compare them.
+     */
+    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total): array
+    {
+        $id = (int)($et['id'] ?? $read['id'] ?? 0);
+        $sender = trim((string)($et['sender_name'] ?? '')) !== '' ? trim((string)$et['sender_name']) : 'Unknown sender';
+        $active = round((float)($read['active'] ?? ($et['amount'] ?? 0)), 2);
+        $lines = array_values((array)($read['lines'] ?? []));
+        $numbers = array_values(array_filter(array_map(fn($l) => (string)($l['invoice'] ?? ''), $lines), fn($n) => $n !== ''));
+        $n = count($numbers);
+        $kind = (string)($read['kind'] ?? 'none');
+
+        // the invoice side, from the facts we have for the proposed lines
+        $owing = 0.0; $dates = []; $payers = [];
+        foreach ($numbers as $no) {
+            $f = (array)($facts[$no] ?? []);
+            $owing += (float)($f['balance_due'] ?? 0);
+            if (!empty($f['invoice_date']) && strtotime((string)$f['invoice_date'])) $dates[] = (string)$f['invoice_date'];
+            $p = trim((string)($f['payer_name'] ?? ''));
+            if ($p !== '') $payers[$p] = true;
+        }
+        $owing = round($owing, 2);
+        $payers = array_keys($payers);
+        $client = count($payers) === 1 ? $payers[0] : (count($payers) > 1 ? count($payers) . ' clients' : '');
+        sort($dates);
+        $knowOwing = $n > 0 && count(array_intersect_key($facts, array_fill_keys($numbers, 1))) === $n;
+
+        $d = static fn(?string $v, string $f = 'M j'): string => ($v && strtotime($v)) ? date($f, strtotime($v)) : '';
+        $money = static fn(float $v): string => '$' . number_format($v, 2);
+
+        // Column 1: the amount — the transfer against what the invoice(s) owe
+        $amountState = $knowOwing ? (abs($owing - $active) < 0.005 ? 'same' : 'differs') : 'info';
+        // Column 2: who sent it against who the invoice is for
+        $payerState = $client === '' || count($payers) !== 1 ? 'info' : (EtransferInboxService::samePayer($sender, $client) ? 'same' : 'differs');
+        // Column 3: when it was banked against when the invoice was issued (facts, not a judgement)
+        $bankTop = !empty($et['bank_transaction_id']) ? 'Banked ' . $d($et['bank_transaction_date'] ?? null)
+                 : (!empty($et['likely_deposit_date']) ? 'Likely ' . $d((string)$et['likely_deposit_date']) : 'Not banked yet');
+        $issued = $dates ? 'Issued ' . $d($dates[0]) . (count($dates) > 1 && $d(end($dates)) !== $d($dates[0]) ? ' – ' . $d(end($dates)) : '') : '–';
+        // Column 4: the bank memo against the invoice list — same when the number is on the transfer
+        $memo = trim((string)($et['memo'] ?? ''));
+        $memoTop = $memo !== '' ? (mb_strlen($memo) > 26 ? mb_substr($memo, 0, 25) . '…' : $memo) : 'No memo';
+        $shortNos = array_map(fn($no) => preg_match('/(\d{3,})$/', $no, $m) ? $m[1] : $no, $numbers);
+        $list = $n > 3 ? implode(', ', array_slice($shortNos, 0, 2)) . ' +' . ($n - 2) : implode(', ', $shortNos);
+        $memoState = in_array($kind, ['named', 'named_check'], true) || (string)($et['match_method'] ?? '') === 'invoice_number' ? 'same' : 'info';
+
+        $columns = [
+            ['label' => 'Amount', 'top' => $money($active), 'bottom' => $knowOwing ? $money($owing) . ' owing' : '–', 'state' => $amountState],
+            ['label' => 'Payer', 'top' => $sender, 'bottom' => $client !== '' ? $client : '–', 'state' => $payerState],
+            ['label' => 'Dates', 'top' => $bankTop, 'bottom' => $issued, 'state' => 'info'],
+            ['label' => 'Memo', 'top' => $memoTop, 'bottom' => $list !== '' ? ($n > 1 ? 'Invoices ' : 'Invoice ') . $list : '–', 'state' => $memoState],
+        ];
+
+        $invoiceNumbers = []; $amounts = [];
+        foreach ($lines as $l) {
+            $no = trim((string)($l['invoice'] ?? ''));
+            if ($no === '') continue;
+            $invoiceNumbers[] = $no;
+            $amounts[] = number_format((float)($l['amount'] ?? 0), 2, '.', '');
+        }
+        $matched = max(1, min(3, (int)($read['confirmed'] ?? 1)));
+        $emailAt = $d($et['email_date'] ?? null, 'M j, g:i a');
+
+        return [
+            'head'       => 'penny',
+            'kind'       => 'etransfer',
+            'key'        => 'et:' . $id,
+            'title'      => 'e-Transfer to record — Penny has matched it',
+            'confidence' => trim((string)($read['say'] ?? '')),
+            'sure'       => self::sureOfMatch($kind),
+            'pieces'     => ['matched' => $matched, 'total' => 3],
+            'label'      => $n . ' invoice' . ($n === 1 ? '' : 's') . ' + payment',
+            // the two sides: the e-Transfer above the rail, the invoice(s) below it
+            'left'       => ['label' => 'e-Transfer', 'who' => $sender, 'when' => $emailAt !== '' ? 'Interac email ' . $emailAt : '', 'amount' => $money($active)],
+            'right'      => ['label' => $n === 1 ? $numbers[0] : $n . ' invoices', 'who' => $client, 'when' => $issued !== '–' ? $issued : '', 'amount' => $knowOwing ? $money($owing) . ' owing' : ''],
+            'columns'    => $columns,
+            // the amount is already on the rail: the button names only what it pays
+            'primary'    => ['label' => 'Record payment', 'sub' => $n === 1 ? $numbers[0] : $n . ' invoices',
+                             'request' => ['action' => 'record', 'notification_id' => $id, 'invoice_numbers' => $invoiceNumbers, 'amounts' => $amounts]],
+            'secondary'  => ['label' => 'Not this invoice', 'sub' => 'pick on the card',
+                             'request' => ['mode' => 'pick', 'notification_id' => $id, 'href' => '/crm/invoices/#etransfers']],
+            'undo'       => null,
+            // Record payment posts the card's own form to the card's own endpoint
+            'api'        => '/crm/api/etransfer-confirm.php',
+            'transport'  => 'form',
+            'start'      => ['label' => 'Bank', 'href' => '/crm/invoices/#etransfers', 'icon' => 'bank'],
+            'anchor'     => ['label' => 'Ledger', 'href' => '/crm/ledger/'],
+            'index'      => $index,
+            'total'      => $total,
+        ];
+    }
+
+    /**
+     * The triangle for an e-Transfer: as sure as the match is. Pure.
+     * earned: the invoice number is on the transfer (match, or the memo names them and they add up);
+     * held: a reading by amount, name or history that the owner should check;
+     * forming: nothing to go on.
+     */
+    public static function sureOfMatch(string $kind): string
+    {
+        if (in_array($kind, ['match', 'named'], true)) return 'earned';
+        if (in_array($kind, ['likely', 'spread', 'learned', 'hint', 'value', 'named_check'], true)) return 'held';
+        return 'forming';
     }
 
     /**
@@ -166,6 +333,14 @@ class PennyJobAdapter
         if (!defined('APP_ROOT')) return;   // tests load the services through bootstrap.php
         foreach (['PennyQuestionService', 'DuplicateReceiptService'] as $c) {
             if (!class_exists($c, false)) require_once APP_ROOT . '/Modules/Expenses/Services/' . $c . '.php';
+        }
+    }
+
+    private static function loadEtransfer(): void
+    {
+        if (!defined('APP_ROOT')) return;   // tests load the services through bootstrap.php
+        foreach (['EtransferInboxService', 'EtransferDeskService'] as $c) {
+            if (!class_exists($c, false)) require_once APP_ROOT . '/Modules/Accounting/Services/' . $c . '.php';
         }
     }
 }

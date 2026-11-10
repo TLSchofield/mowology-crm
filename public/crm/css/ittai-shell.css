@@ -554,6 +554,32 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
   .it-job-rail { gap: 16px; }
 }
 
+/* Penny's e-Transfer job (Tim's phone reference, 2026-11-10): Bank → the fraction → the triangle → the frame with the
+   e-Transfer above the rail and the invoice(s) below → Record payment → Ledger. Same rail, same discs, same buttons. */
+/* "2/3": how many of the three pieces (the Interac email, the invoice match, the bank deposit) are already in hand.
+   Large numerals either side of a slanted hairline, the match's name beside them; a station on the rail, so it sits on surface. */
+.it-job-pieces { display: flex; align-items: center; gap: 12px; padding: 0 8px; background: var(--it-surface); }
+.it-job-frac { display: inline-flex; align-items: center; font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--it-text); }
+.it-job-frac b { font-weight: 600; }
+.it-job-frac-s { display: inline-block; width: 1px; height: 36px; margin: 0 7px; background: var(--it-rail); transform: skewX(-22deg); }
+.it-job-frac-d { color: var(--it-meta); }
+.it-job-lbl { max-width: 104px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--it-meta); }
+/* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
+.it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
+/* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */
+.it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-side { display: grid; justify-items: start; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: nowrap; }
+.it-job-side b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); }
+.it-job-side-top { align-self: end; }
+.it-job-side-bot { align-self: start; }
+.it-job-side-bot b { color: var(--it-brand); }
+.it-job-sides .it-job-disc-flow { justify-self: start; margin-left: 4px; }
+/* Record points along the flow already: no turned arrow (the duplicate job turns its merge arrow) */
+.it-job-rail[data-kind="etransfer"] .it-btn-fill .it-job-ic { transform: none; }
+@container (max-width: 900px) {
+  .it-job-lbl { max-width: 80px; }
+}
+
 /* Yui's job strip: a message on the left, the form that answers it on the right */
 .it-job-yui .it-job-split { padding-top: 16px; padding-bottom: 16px; }
 .it-job-left { min-width: 240px; max-width: 320px; justify-items: start; grid-template-rows: none; }

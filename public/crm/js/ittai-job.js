@@ -1,9 +1,11 @@
 /**
- * The job strip (Ittai desktop shell): Penny's duplicate-receipt job across the top of her pages.
- * Markup comes from public/crm/includes/ittai-job.php; the jobs are in its JSON block. Buttons carry the exact
- * requests bookkeeper-card.js sends to /crm/api/bookkeeper.php (JSON body: mode + params + csrf_token), so Merge,
- * Different and Undo do what the Penny card does — nothing is decided here. Merge shows Undo for 6 s.
- * Text goes in with textContent (no HTML strings), the next job is cloned from the <template>.
+ * The job strip (Ittai desktop shell): Penny's jobs across the top of her pages — the duplicate receipt and the
+ * pending e-Transfer to record. Markup comes from public/crm/includes/ittai-job.php; the jobs are in its JSON block.
+ * Buttons carry the exact requests the web cards send: the duplicate job posts JSON to /crm/api/bookkeeper.php
+ * (mode + params + csrf_token, as bookkeeper-card.js does; Merge shows Undo for 6 s), the e-Transfer job posts the
+ * Invoices card's own form (action=record, notification_id, invoice_numbers[], amounts[], csrf_token) to
+ * /crm/api/etransfer-confirm.php (job.api + job.transport = 'form'). Nothing is decided here.
+ * Text goes in with textContent (no HTML strings); the next job is cloned from the <template> of its kind.
  */
 (function () {
     'use strict';
@@ -13,7 +15,11 @@
     var root = document.querySelector('.it-job');
     if (!root) return;
 
-    var tpl = root.querySelector('.it-job-tpl');
+    var tpls = root.querySelectorAll('.it-job-tpl');
+    function tplFor(kind) {
+        for (var i = 0; i < tpls.length; i++) if (tpls[i].getAttribute('data-kind') === kind) return tpls[i];
+        return tpls[0];
+    }
     var dataEl = root.querySelector('.it-job-data');
     var msgBox = root.querySelector('.it-job-msg');
     var msgText = root.querySelector('.it-job-msgt');
@@ -57,19 +63,36 @@
     }
 
     function token() { return window.MW_CSRF_TOKEN || ''; }
-    function post(body, retried) {
-        var payload = {};
-        Object.keys(body).forEach(function (k) { payload[k] = body[k]; });
-        payload.csrf_token = token();
-        return fetch(API, {
-            method: 'POST', credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token() },
-            body: JSON.stringify(payload)
-        }).then(function (r) {
+    /** The card's form, field for field: arrays go as key[] (invoice_numbers[], amounts[]), the token as csrf_token. */
+    function formBody(body) {
+        var fd = new FormData();
+        Object.keys(body).forEach(function (k) {
+            var v = body[k];
+            if (Array.isArray(v)) v.forEach(function (x) { fd.append(k + '[]', String(x)); });
+            else if (v != null) fd.append(k, String(v));
+        });
+        fd.append('csrf_token', token());
+        return fd;
+    }
+    /** POST the job's request the way its card does: JSON to bookkeeper.php, or a form to the job's own endpoint. */
+    function post(body, job, retried) {
+        var url = (job && job.api) || API;
+        var asForm = !!(job && job.transport === 'form');
+        var init = { method: 'POST', credentials: 'same-origin' };
+        if (asForm) {
+            init.body = formBody(body);
+        } else {
+            var payload = {};
+            Object.keys(body).forEach(function (k) { payload[k] = body[k]; });
+            payload.csrf_token = token();
+            init.headers = { 'Content-Type': 'application/json', 'X-CSRF-Token': token() };
+            init.body = JSON.stringify(payload);
+        }
+        return fetch(url, init).then(function (r) {
             if (r.status === 403 && !retried) {
                 return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
                     .then(function (x) { return x.json(); })
-                    .then(function (d) { if (d && d.token) window.MW_CSRF_TOKEN = d.token; return post(body, true); });
+                    .then(function (d) { if (d && d.token) window.MW_CSRF_TOKEN = d.token; return post(body, job, true); });
             }
             return r.json();
         });
@@ -111,32 +134,62 @@
         b.appendChild(el('span', '', a.sub));
     }
 
-    /** Draw queue[0]: clone the skeleton, fill it, swap it in for the old rail. */
+    /** One side of the e-Transfer job: its name, who, when. */
+    function side(node, s) {
+        if (!node) return;
+        node.textContent = '';
+        node.appendChild(el('b', '', (s && s.label) || ''));
+        ['who', 'when'].forEach(function (k) { if (s && s[k]) node.appendChild(el('span', '', s[k])); });
+    }
+    /** Draw queue[0]: clone the skeleton of its kind, fill it, swap it in for the old rail. */
     function render() {
         var job = queue[0];
+        var kind = job.kind === 'etransfer' ? 'etransfer' : 'duplicate';
         var oldRail = root.querySelector('.it-job-rail');
-        var rail = tpl.content.firstElementChild.cloneNode(true);
+        var rail = tplFor(kind).content.firstElementChild.cloneNode(true);
+        root.setAttribute('data-kind', kind);
         var cols = rail.querySelector('.it-job-cols');
         (job.columns || []).forEach(function (c) {
             var li = el('li', 'it-job-col');
-            li.appendChild(el('span', 'it-job-top', c.top));
+            var top = el('span', 'it-job-top', c.top); top.setAttribute('title', c.top || ''); li.appendChild(top);
             var d = el('span', 'it-job-disc it-job-disc-' + c.state);
             d.setAttribute('role', 'img');
             d.setAttribute('aria-label', c.label + ': ' + (WORD[c.state] || 'info'));
             d.appendChild(icon(ICON[c.state] || 'info'));
             li.appendChild(d);
-            li.appendChild(el('span', 'it-job-bot', c.bottom));
+            var bot = el('span', 'it-job-bot', c.bottom); bot.setAttribute('title', c.bottom || ''); li.appendChild(bot);
             cols.appendChild(li);
         });
         var kl = rail.querySelector('.it-job-keeplbl'), cl = rail.querySelector('.it-job-copylbl');
         if (kl) kl.textContent = (job.keep && job.keep.label) || '';
         if (cl) cl.textContent = (job.copy && job.copy.label) || '';
         var imgs = rail.querySelector('.it-job-imgs');
-        var viewBtn = imgs.querySelector('.it-job-view');
-        imgs.textContent = '';
-        imgs.appendChild(figure(job.keep, true));
-        if (viewBtn) imgs.appendChild(viewBtn);
-        imgs.appendChild(figure(job.copy, false));
+        if (imgs) {
+            var viewBtn = imgs.querySelector('.it-job-view');
+            imgs.textContent = '';
+            imgs.appendChild(figure(job.keep, true));
+            if (viewBtn) imgs.appendChild(viewBtn);
+            imgs.appendChild(figure(job.copy, false));
+        }
+        // the e-Transfer job: the fraction, the match's name, the two sides, the Bank anchor
+        var frac = rail.querySelector('.it-job-frac');
+        if (frac) {
+            var pm = (job.pieces && job.pieces.matched) || 0, pt = (job.pieces && job.pieces.total) || 3;
+            var fn = frac.querySelector('.it-job-frac-n'), fdn = frac.querySelector('.it-job-frac-d');
+            if (fn) fn.textContent = String(pm);
+            if (fdn) fdn.textContent = String(pt);
+            frac.setAttribute('aria-label', pm + ' of ' + pt + ' pieces in hand');
+        }
+        var lbl = rail.querySelector('.it-job-lbl');
+        if (lbl) lbl.textContent = job.label || '';
+        side(rail.querySelector('.it-job-side-top'), job.left);
+        side(rail.querySelector('.it-job-side-bot'), job.right);
+        var start = rail.querySelector('.it-job-anchor-start');
+        if (start && job.start) {
+            start.setAttribute('href', job.start.href);
+            var sl = start.querySelectorAll('span');
+            if (sl.length) sl[sl.length - 1].textContent = job.start.label;
+        }
         var conf = rail.querySelector('.it-job-conf');
         if (conf) {
             var sure = ['forming', 'held', 'earned'].indexOf(job.sure) >= 0 ? job.sure : 'forming';
@@ -144,13 +197,16 @@
             conf.classList.add('is-' + sure);
             var use = conf.querySelector('use');
             if (use) use.setAttribute('href', '#it-st-approval' + (sure === 'earned' ? '' : '-' + sure));
-            var lbl = 'Penny proposes; your approval decides. ' + (sure === 'forming' ? 'First time with this vendor.' : (job.confidence || 'Her record with this vendor is short.'));
+            var why = kind === 'etransfer'
+                ? (job.confidence || (sure === 'earned' ? 'The invoice number is on the transfer.' : 'Her reading of this transfer — check it.'))
+                : (sure === 'forming' ? 'First time with this vendor.' : (job.confidence || 'Her record with this vendor is short.'));
+            var lbl = 'Penny proposes; your approval decides. ' + why;
             conf.setAttribute('aria-label', lbl);
             conf.setAttribute('title', lbl);
         }
         fillButton(rail.querySelector('.it-btn-fill'), job.primary);
         fillButton(rail.querySelector('.it-btn-line'), job.secondary);
-        var a = rail.querySelector('.it-job-anchor');
+        var a = rail.querySelector('.it-job-anchor:not(.it-job-anchor-start)');
         if (a && job.anchor) {
             a.setAttribute('href', job.anchor.href);
             var last = a.querySelectorAll('span');
@@ -194,25 +250,46 @@
         render();
     }
 
+    /** "Not this invoice": the card below (same page) has the form to pick another; elsewhere, go to it. */
+    function pick(req) {
+        var row = req.notification_id ? document.querySelector('#etransfers .mw-et-row[data-id="' + String(req.notification_id).replace(/[^0-9]/g, '') + '"]') : null;
+        if (row) {
+            row.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+            var inp = row.querySelector('.mw-et-inv');
+            if (inp) { try { inp.focus({ preventScroll: true }); inp.select(); } catch (e) { /* no focus: the scroll is enough */ } }
+            say('Pick the invoice on the card below, then record it there.', false);
+            return;
+        }
+        if (req.href && /^\/crm\//.test(req.href)) window.location.assign(req.href);
+    }
+
     function settle(btn) {
         if (busy || !queue.length) return;
         var req;
         try { req = JSON.parse(btn.getAttribute('data-request') || ''); } catch (e) { return; }
         var job = queue[0];
+        if (req.mode === 'pick') { pick(req); return; }
         var isMerge = req.mode === 'dupe_merge';
+        var isRecord = req.action === 'record';
         clearTimeout(undoTimer);
         setBusy(true);
         say('', false);
-        post(req).then(function (d) {
+        post(req, job).then(function (d) {
             setBusy(false);
             if (!(d && d.ok)) { say((d && (d.message || d.error)) || 'Could not save — try again', false); return; }
-            var text = d.message || (isMerge ? 'Merged' : 'Got it — two purchases.');
+            var text = d.message || (isMerge ? 'Merged' : (isRecord ? 'Recorded.' : 'Got it — two purchases.'));
+            if (isRecord && d.fully_allocated === false) {
+                text = 'Part recorded. ' + (typeof d.remaining === 'number' ? '$' + d.remaining.toFixed(2) + ' is still waiting for an invoice — see the card.' : 'The rest is still waiting for an invoice — see the card.');
+            }
             var canUndo = isMerge && !!(job.undo && job.undo.requests && job.undo.requests.length);
             queue.shift();
             lastMerged = canUndo ? job : null;
-            if (!queue.length) { finish(text, canUndo); return; }
-            next();
-            say(text, canUndo);
+            // A recorded payment changes the invoice list and the card below: reload the Invoices page so it shows
+            // (as the card does, 2026-10-23); the next job is drawn first so the strip never goes blank.
+            var reload = isRecord && !!document.getElementById('etransfers');
+            if (!queue.length) { finish(text, canUndo); }
+            else { next(); say(text, canUndo); }
+            if (reload) { setBusy(true); setTimeout(function () { window.location.reload(); }, 1400); return; }
             if (canUndo) {
                 undoTimer = setTimeout(function () { lastMerged = null; say(text, false); }, UNDO_MS);
             }
@@ -229,7 +306,7 @@
         job.undo.requests.reduce(function (p, r) {
             return p.then(function () {
                 if (bad) return null;
-                return post(r).then(function (d) { if (d && d.ok) done++; else bad = d || {}; });
+                return post(r, job).then(function (d) { if (d && d.ok) done++; else bad = d || {}; });
             });
         }, Promise.resolve()).then(function () {
             setBusy(false);

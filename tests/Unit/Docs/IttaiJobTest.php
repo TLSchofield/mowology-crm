@@ -69,6 +69,31 @@ class IttaiJobTest extends TestCase
         foreach (['is-forming', 'is-held', 'is-earned', 'First time with this vendor.'] as $n) $this->assertStringContainsString($n, $js, $n);
     }
 
+    /** Penny's e-Transfer job: the fraction and its label on the rail, two templates, the card's own form posted by the script. */
+    public function testEtransferJobCarriesTheFractionAndTheCardsForm(): void
+    {
+        $inc = $this->src('public/crm/includes/ittai-job.php');
+        foreach (['data-kind="etransfer"', 'data-kind="duplicate"', 'it-job-pieces', 'it-job-frac-n', 'it-job-frac-s', 'it-job-frac-d', 'it-job-lbl', 'it-job-side-', 'hasEtransferWork', 'billing.edit', "\$__ijSvg('bank')"] as $n) {
+            $this->assertStringContainsString($n, $inc, $n);
+        }
+        $this->assertSame(2, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind');
+        $this->assertSame(1, substr_count($inc, 'it-btn-fill'), 'the one filled button is built in one place for both kinds');
+        $js = $this->src('public/crm/js/ittai-job.js');
+        foreach (['new FormData()', "k + '[]'", "transport === 'form'", "req.action === 'record'", "req.mode === 'pick'", 'fully_allocated', 'it-job-frac-n', 'tplFor('] as $n) {
+            $this->assertStringContainsString($n, $js, $n);
+        }
+        $this->assertStringNotContainsString("'/crm/api/etransfer-confirm.php'", $js, 'the endpoint comes from the job (the adapter), not the script');
+        $css = $this->src('public/crm/css/ittai-shell.css');
+        $a = strpos($css, '.it-job-pieces {');
+        $this->assertNotFalse($a);
+        $block = substr($css, $a, strpos($css, "/* Yui's job strip") - $a);
+        foreach (['.it-job-frac {', '.it-job-frac-s {', 'skewX(', '.it-job-lbl {', '.it-job-side-top {', '.it-job-side-bot {', 'var(--it-rail)', 'var(--it-meta)', '[data-kind="etransfer"]'] as $n) {
+            $this->assertStringContainsString($n, $block, $n);
+        }
+        $this->assertDoesNotMatchRegularExpression('/#[0-9a-fA-F]{3,8}\b/', $block, 'tokens only');
+        $this->assertStringContainsString('id="it-w-bank"', $this->src('public/crm/includes/ittai-icons.php'));
+    }
+
     public function testHeadIncludesTheStripOnlyInTheIttaiShell(): void
     {
         $head = $this->src('public/crm/includes/appstack_head.php');

@@ -273,6 +273,33 @@ class EtransferInboxService
         return 'INV-%-' . str_pad((string)$n, 4, '0', STR_PAD_LEFT);
     }
 
+    /**
+     * What the job strip shows on the invoice side of a pending e-Transfer (PennyJobAdapter::fromTransfer):
+     * number, issue date, what is owing and who the invoice is for, keyed by invoice number. Read-only.
+     * @return array<string, array{invoice_number:string, invoice_date:?string, balance_due:float, payer_name:?string}>
+     */
+    public function invoiceFacts(array $numbers): array
+    {
+        $numbers = array_values(array_unique(array_filter(array_map('strval', $numbers), fn($n) => $n !== '')));
+        if (!$numbers) return [];
+        $stmt = $this->db->prepare(
+            "SELECT i.invoice_number, i.invoice_date, i.balance_due, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number IN (" . implode(',', array_fill(0, count($numbers), '?')) . ")"
+        );
+        $stmt->execute($numbers);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $out[(string)$r['invoice_number']] = [
+                'invoice_number' => (string)$r['invoice_number'],
+                'invoice_date'   => $r['invoice_date'] ?? null,
+                'balance_due'    => (float)($r['balance_due'] ?? 0),
+                'payer_name'     => $r['payer_name'] !== null ? (string)$r['payer_name'] : null,
+            ];
+        }
+        return $out;
+    }
+
     /** The invoice a year-less number means (see pickShortMatch), or null. */
     public function resolveShortNumber(int $n): ?array
     {
