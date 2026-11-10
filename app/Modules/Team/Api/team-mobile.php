@@ -303,7 +303,7 @@ try {
                 if (jwtUserHasPermission($jwtUser, 'jobs.edit')) {
                     try {   // the web card's Subcontracts carousel (SubcontractService::board)
                         require_once APP_ROOT . '/Modules/Subcontract/Services/SubcontractService.php';
-                        $out['subcontracts'] = (new SubcontractService($db))->board();
+                        $out['subcontracts'] = (new SubcontractService($db))->board(false);   // the phone shows no photos
                     } catch (Throwable $e) {
                         error_log('[team-mobile] Subcontracts: ' . $e->getMessage());   // tables not on this business yet
                     }

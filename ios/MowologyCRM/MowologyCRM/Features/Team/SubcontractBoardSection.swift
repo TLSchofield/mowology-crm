@@ -43,7 +43,9 @@ struct SubcontractBoardSection: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(minHeight: 260)
+                .frame(minHeight: 280)
+                // A job that leaves the board (cleared, or paid two weeks ago) must not leave the pager on an empty page.
+                .onChange(of: list.count) { _, n in index = min(index, max(0, n - 1)) }
             }
             .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                                 titleVisibility: .visible) {

@@ -343,21 +343,39 @@ class SubcontractService
      * Every subcontract job still on the board, waiting-on-you first, with its stages. Staff only: carries
      * links to their photos, never the client's price or email.
      */
-    public function board(): array
+    public function board(bool $withPhotos = true): array
     {
-        $jobs = $this->db->query("
+        $now = $this->now();
+        // Filtered before the limit, so an old job still waiting on the owner is never pushed off by newer ones.
+        $stmt = $this->db->prepare("
             SELECT j.*, s.company_name, jp.title AS plan_title, p.address AS property_address
             FROM subcontract_jobs j
             JOIN subcontractors s ON s.id = j.subcontractor_id
             LEFT JOIN job_plans jp ON jp.id = j.plan_id
             LEFT JOIN properties p ON p.id = jp.property_id
+            WHERE (j.bill_status <> 'paid' OR j.bill_paid_at > ?)
+              AND NOT EXISTS (SELECT 1 FROM subcontract_events d WHERE d.job_id = j.id AND d.event_type = 'dismissed')
             ORDER BY j.id DESC LIMIT 60
-        ")->fetchAll(PDO::FETCH_ASSOC);
-        $now = $this->now();
+        ");
+        $stmt->execute([date('Y-m-d H:i:s', (int)strtotime($now) - SubcontractRules::BOARD_PAID_DAYS * 86400)]);
+        $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$jobs) return [];
+        $ids = array_map('intval', array_column($jobs, 'id'));
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $events = [];
+        $ev = $this->db->prepare("SELECT job_id, event_type, created_at FROM subcontract_events WHERE job_id IN ($in) ORDER BY id");
+        $ev->execute($ids);
+        foreach ($ev->fetchAll(PDO::FETCH_ASSOC) as $e) $events[(int)$e['job_id']][] = $e;
+        $photos = [];
+        if ($withPhotos) {
+            $ph = $this->db->prepare("SELECT id, job_id FROM subcontract_files WHERE kind = 'photo' AND job_id IN ($in) ORDER BY id");
+            $ph->execute($ids);
+            foreach ($ph->fetchAll(PDO::FETCH_ASSOC) as $f) $photos[(int)$f['job_id']][] = '/crm/api/subcontract.php?mode=file&id=' . (int)$f['id'];
+        }
         $rows = [];
         foreach ($jobs as $job) {
             $job = $this->syncBill($job);
-            $timeline = $this->timeline((int)$job['id']);
+            $timeline = $events[(int)$job['id']] ?? [];
             $types = array_column($timeline, 'event_type');
             if (!SubcontractRules::onBoard($job, $types, $now)) continue;
             $last = null;
@@ -371,7 +389,7 @@ class SubcontractService
                 'kind' => $stages['kind'], 'stages' => $stages['stages'], 'at' => $stages['at'],
                 'last' => $last ? SubcontractRules::EVENT_WORDS[$last['event_type']] : null, 'last_at' => $last['created_at'] ?? $job['created_at'],
                 'action' => SubcontractRules::ownerAction($job),
-                'photos' => array_map(static fn ($f) => '/crm/api/subcontract.php?mode=file&id=' . (int)$f['id'], $this->files((int)$job['id'], 'photo')),
+                'photos' => $photos[(int)$job['id']] ?? [],
                 'url' => '/crm/jobs/visit-detail.php?id=' . (int)$job['visit_id'] . '#mw-sub',
             ];
         }
@@ -461,8 +479,10 @@ class SubcontractService
         $status = (string)$stmt->fetchColumn();
         $next = in_array($status, ['approved', 'forwarded'], true) ? 'approved' : (in_array($status, ['rejected', 'cancelled'], true) ? 'returned' : null);
         if ($next === null || $next === $job['bill_status']) return $job;
-        $this->db->prepare("UPDATE subcontract_jobs SET bill_status = ? WHERE id = ?")->execute([$next, (int)$job['id']]);
-        $this->event((int)$job['id'], (int)$job['visit_id'], $next === 'approved' ? 'bill_approved' : 'bill_returned');
+        // Guarded on the status it had, so two screens loading at once record the change once.
+        $up = $this->db->prepare("UPDATE subcontract_jobs SET bill_status = ? WHERE id = ? AND bill_status = ?");
+        $up->execute([$next, (int)$job['id'], (string)$job['bill_status']]);
+        if ($up->rowCount() === 1) $this->event((int)$job['id'], (int)$job['visit_id'], $next === 'approved' ? 'bill_approved' : 'bill_returned');
         $job['bill_status'] = $next;
         return $job;
     }
