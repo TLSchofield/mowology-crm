@@ -91,6 +91,14 @@ class InboundAlertServiceTest extends TestCase
         $this->assertSame(0, $this->svc->run(self::NOON)['alerted']);
     }
 
+    public function test_a_failed_send_is_tried_again(): void
+    {
+        $this->mail('pat@x.test', 'Pat Lee', 'Amount owing');
+        $bad = new InboundAlertService($this->db, function (): void { throw new RuntimeException('no'); });
+        $this->assertSame(0, $bad->run(self::NOON)['alerted']);
+        $this->assertSame(1, $this->svc->run(self::NOON)['alerted']);
+    }
+
     public function test_the_text_is_one_short_line(): void
     {
         $b = InboundAlertService::body([['from_name' => "\"Pat\nLee\"", 'from_addr' => 'p@x.test', 'subject' => str_repeat('long ', 60)]]);

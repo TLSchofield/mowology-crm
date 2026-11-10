@@ -58,7 +58,13 @@ final class InboundAlertService
                 if ($claim->rowCount() > 0) $mine[] = $r;
             }
             if (!$mine) return $none;
-            ($this->send)($to, self::body($mine));
+            try {
+                ($this->send)($to, self::body($mine));
+            } catch (Throwable $e) {   // not sent: let the next poll try again
+                $free = $this->db->prepare('DELETE FROM inbound_alerts WHERE message_key = ?');
+                foreach ($mine as $r) $free->execute([(string)$r['message_key']]);
+                throw $e;
+            }
             return ['alerted' => count($mine), 'held' => false];
         } catch (Throwable $e) {
             error_log('[inbound alert] ' . $e->getMessage());

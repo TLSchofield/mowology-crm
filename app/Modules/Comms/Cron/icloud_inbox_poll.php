@@ -46,10 +46,10 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Services/CrmFunctions.php';
 require_once APP_ROOT . '/Modules/Comms/Services/IcloudInboxRouter.php';
-// The router stops itself at its budget: 600 s from the CLI cron (every 15 min, CronLock +
+// The router stops itself at its budget: 420 s (LIVE_BUDGET) from the CLI cron (every 15 min, CronLock +
 // MailboxPollLock stop overlaps), 240 s from the web "run now" (the gateway gives up ~300 s).
 $budget = $isCli ? IcloudInboxRouter::LIVE_BUDGET : IcloudInboxRouter::DRY_RUN_BUDGET;
-@set_time_limit($isCli ? 840 : 300);
+@set_time_limit($isCli ? 600 : 300);   // hard stop: budget + a slow IMAP call, well inside the 15-minute interval
 
 const ICLOUD_POLL_KEY = 'icloud_inbox_poll';
 $startMs = (int)(microtime(true) * 1000);
