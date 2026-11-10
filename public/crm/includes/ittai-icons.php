@@ -20,6 +20,13 @@ function itIconSprite(): void
 <symbol id="it-i-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
 <symbol id="it-i-left" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
 <symbol id="it-i-updown" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></symbol>
+<symbol id="it-w-check" viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></symbol>
+<symbol id="it-w-neq" viewBox="0 0 24 24"><path d="M6 9h12M6 15h12M15 5l-6 14"/></symbol>
+<symbol id="it-w-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+<symbol id="it-w-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/></symbol>
+<symbol id="it-w-merge" viewBox="0 0 24 24"><path d="M6 20l6-8 6 8M12 12V4M9 7l3-3 3 3"/></symbol>
+<symbol id="it-w-split" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/></symbol>
+<symbol id="it-w-book" viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3zM5 16.5a3 3 0 0 1 3-3h11M9 8h6"/></symbol>
 </defs></svg>
 <?php
 }
