@@ -202,6 +202,38 @@
     // Enter in the one text field of a form would submit it (a GET reload that drops the body): never.
     form.addEventListener('submit', function (e) { e.preventDefault(); });
 
+    /** Open the whole email in the left column, scrolling inside the card; the right side is untouched. */
+    function readWhole() {
+        var card = queue[0]; if (!card) return;
+        var l = card.left || {};
+        var full = q('.it-job-full'), quote = q('.it-job-quote'), left = q('.it-job-left');
+        if (!full) return;
+        put('.it-job-fulltext', l.text || '');
+        full.hidden = false; if (quote) quote.hidden = true; left.classList.add('is-open');
+        q('.it-job-read').hidden = true;
+        if (!card.read || typeof card.read !== 'object') return;
+        put('.it-job-fullmeta', 'Reading the mailbox…');
+        var token = card.key;
+        post(card.api || api, JSON.parse(JSON.stringify(card.read))).then(function (d) {
+            if (!queue[0] || queue[0].key !== token) return;   // the card moved on meanwhile
+            if (!(d && d.ok)) { put('.it-job-fullmeta', (d && (d.message || d.error)) || 'Could not read the mailbox — this is what Yui kept.'); return; }
+            if (d.text) put('.it-job-fulltext', String(d.text));
+            var ear = q('.it-job-earlier');
+            if (ear) { var e = String(d.earlier || '').trim(); put('.it-job-earliertext', e); ear.hidden = e === ''; ear.open = false; }
+            put('.it-job-fullmeta', d.message ? String(d.message) : '');
+        }).catch(function () { put('.it-job-fullmeta', 'Could not read the mailbox — this is what Yui kept.'); });
+    }
+    function readLess() {
+        var full = q('.it-job-full'), quote = q('.it-job-quote'), left = q('.it-job-left');
+        if (full) full.hidden = true; if (quote) quote.hidden = !(quote.textContent); left.classList.remove('is-open');
+        var b = q('.it-job-read'); if (b) { b.hidden = false; b.focus({ preventScroll: true }); }
+    }
+    root.addEventListener('click', function (e) {
+        var t = e.target; if (!t || !t.closest) return;
+        if (t.closest('.it-job-read')) readWhole();
+        else if (t.closest('.it-job-readless')) readLess();
+    });
+
     function render() {
         var card = queue[0];
         if (!card) return;
@@ -211,6 +243,18 @@
         put('.it-job-at', l.at);
         put('.it-job-subj', l.subject);
         put('.it-job-quote', l.text);
+        // Read the whole email (Tim, 2026-11-10: Nick's card cut his email off). The link opens the full text in
+        // place: the short text at once (the clamp hid its end), then the mailbox copy when the card carries `read`.
+        var readBtn = q('.it-job-read'), full = q('.it-job-full');
+        if (readBtn && full) {
+            readBtn.hidden = !(l.text || card.read);
+            full.hidden = true;
+            q('.it-job-left').classList.remove('is-open');
+            put('.it-job-fulltext', '');
+            put('.it-job-fullmeta', '');
+            var ear = q('.it-job-earlier'); if (ear) { ear.hidden = true; ear.open = false; }
+            put('.it-job-earliertext', '');
+        }
         put('.it-job-addr', card.kind === 'who' ? l.addr : '');
         var more = q('.it-job-more');
         more.textContent = '';

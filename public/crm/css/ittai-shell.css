@@ -549,6 +549,17 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
 .it-job-rail.is-enter { animation: it-job-in 200ms ease-out; }
+/* The ink line (Tim's pick, 2026-11-10): after Merge, the frame's words fade, one navy stroke is drawn along the rail,
+   each knot dissolves as the ink reaches it, the frame is erased behind it, the Ledger fills, then the ink lightens. */
+.it-job-ink { position: absolute; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: var(--it-brand); transform-origin: left center; pointer-events: none; z-index: 3; transition: background-color 400ms ease-out; }
+.it-job-ink.is-light { background: var(--it-rail); }
+.it-job-rail.is-inking .it-job-top, .it-job-rail.is-inking .it-job-bot, .it-job-rail.is-inking .it-job-fig, .it-job-rail.is-inking .it-job-acts, .it-job-rail.is-inking .it-job-view > span:last-child { opacity: 0; transition: opacity 250ms ease-out; pointer-events: none; }
+.it-job-rail.is-inking .it-job-split { transition: border-color 600ms linear; }
+.it-job-rail.is-inking .it-job-split::after { transition: background-color 600ms linear; }
+.it-job-rail.is-erasing .it-job-split { border-color: transparent; }
+.it-job-rail.is-erasing .it-job-split::after { background: transparent; }
+.it-job-rail .is-gone { transform: scale(0); opacity: 0; transition: transform 160ms ease-in, opacity 160ms ease-in; }
+.it-job-rail .it-ad.is-lit { background: var(--it-brand); color: var(--it-on-tenant); transition: background-color 200ms ease-out, color 200ms ease-out; }
 @keyframes it-job-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 .it-job .it-btn:focus-visible, .it-job-skip:focus-visible, .it-job-undo:focus-visible, .it-job-anchor:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 @container (max-width: 900px) {
@@ -564,6 +575,18 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-subj { font-size: 14px; line-height: 20px; font-weight: 500; }
 .it-job-quote { margin: 0; font-size: 14px; line-height: 20px; color: var(--it-text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .it-job-addr, .it-job-why { margin: 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+/* Read the whole email (Tim, 2026-11-10): a quiet link; the full text opens in place and scrolls inside the card */
+.it-job-read, .it-job-readless { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0 -8px -4px; padding: 0 4px; border: 0; background: none; font: inherit; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-job-read:hover, .it-job-readless:hover { color: var(--it-text); }
+.it-job-read:focus-visible, .it-job-readless:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; border-radius: 6px; }
+.it-job-left.is-open { max-width: 440px; }
+.it-job-full { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; padding-right: 6px; justify-items: start; }
+.it-job-fulltext, .it-job-earliertext { margin: 0; font-size: 14px; line-height: 20px; color: var(--it-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.it-job-earlier { width: 100%; }
+.it-job-earlier summary { cursor: pointer; font-size: 13px; line-height: 18px; min-height: 28px; display: flex; align-items: center; color: var(--it-meta); }
+.it-job-earliertext { color: var(--it-meta); margin-top: 4px; }
+.it-job-fullmeta { margin: 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-fullmeta:empty, .it-job-earliertext:empty { display: none; }
 .it-job-more { margin: 0; padding: 0; list-style: none; }
 .it-job-more li { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-right { min-width: 300px; max-width: 360px; display: block; }
@@ -591,6 +614,7 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
   .it-ws.anim .it-ab,
   .it-ws.anim .it-jobx { transition: none; }
   .it-job-rail.is-enter { animation: none; }
+  .it-job-ink { display: none; }
   @starting-style {
     body.it-shell.it-shell .it-acc { grid-template-rows: 1fr; }
     body.it-shell.it-shell .it-hp.is-open,

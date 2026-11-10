@@ -70,4 +70,17 @@ class IttaiJobYuiTest extends TestCase
         $this->assertStringContainsString("sel.addEventListener('change', greet)", $js);
         $this->assertStringContainsString('/^(Hi|Hello|Dear)\\s+([^,\\n]+),/', $js);
     }
+
+    /** Read the whole email (Tim, 2026-11-10): the short text at once, the mailbox copy through card.read, in place. */
+    public function testReadTheWholeEmailOpensInPlace(): void
+    {
+        $inc = (string)file_get_contents($this->repo . '/public/crm/includes/ittai-job-yui.php');
+        $js = (string)file_get_contents($this->repo . '/public/crm/js/ittai-job-yui.js');
+        $this->assertStringContainsString('class="it-job-read" hidden>Read the whole email<', $inc);
+        $this->assertStringContainsString('<summary>Earlier in the thread</summary>', $inc);
+        $this->assertStringContainsString("JSON.parse(JSON.stringify(card.read))", $js, 'the exact read request the card carries');
+        $this->assertStringContainsString("put('.it-job-fulltext', l.text || '')", $js, 'the full short text shows before the fetch');
+        $this->assertStringContainsString("queue[0].key !== token", $js, 'a late answer never lands on the next card');
+        $this->assertDoesNotMatchRegularExpression('/innerHTML|insertAdjacentHTML/', $js);
+    }
 }
