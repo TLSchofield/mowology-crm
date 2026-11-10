@@ -69,6 +69,12 @@ class InboundTriageTest extends TestCase
         $this->assertSame('noise', $r['kind']);
     }
 
+    public function test_a_website_link_request_is_noise(): void
+    {
+        $r = InboundIdentityService::triage('Sender <info@helpfulsite.example>', 'A resource for your Hedge Trimming and Shaping page', 'Would you consider adding it? We trim hedges too.');
+        $this->assertSame('noise', $r['kind']);
+    }
+
     public function test_a_client_mentioning_an_app_stays_a_person(): void
     {
         $r = InboundIdentityService::triage('Client <client@gmail.com>', 'Crew app', 'Your crew used the app to take photos. Can you send them?');
