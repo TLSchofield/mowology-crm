@@ -199,6 +199,43 @@ final class PennyCardViewModel: ObservableObject {
         tagOptions = r.assetTags.isEmpty ? BKTagOption.defaults : r.assetTags
         index = 0
         fillForm()
+        photoLinks = [:]
+        linksLoadedAt = Date()
+    }
+
+    // MARK: - Photo links
+    // A photo link dies after 15 minutes (server: ReceiptImageLinks::TTL), but this model stays in memory for hours and
+    // a card's photo is only fetched when the card is shown (Tim, 2026-11-10: blank photos at 7:55 on links from 6:04).
+    // So links get re-issued while the card is in use. Only the links: where you are and what you typed are left alone.
+
+    nonisolated static let linkRefreshAge: TimeInterval = 600
+
+    /// Re-issued links by expense id; empty straight after a full load.
+    @Published private(set) var photoLinks: [Int: String] = [:]
+    private var linksLoadedAt: Date?
+    private var refreshingLinks = false
+
+    func photoLink(expenseId: Int, arrivedWith link: String?) -> String? { photoLinks[expenseId] ?? link }
+
+    func refreshPhotoLinksIfOld() async {
+        guard let at = linksLoadedAt, Date().timeIntervalSince(at) >= Self.linkRefreshAge,
+              !refreshingLinks, loading == nil else { return }
+        refreshingLinks = true
+        defer { refreshingLinks = false }
+        do {
+            let r = try await api.loadQueue()
+            guard r.ok else {
+                AppDiagnostics.shared.record(category: "PennyCardViewModel",
+                                             message: "Photo link refresh: " + (r.error ?? "response ok=false; server returned no error field."))
+                return
+            }
+            guard linksLoadedAt == at else { return }   // a full load landed meanwhile; its links are newer
+            for m in r.dupes.flatMap(\.members) { if let p = m.receiptPath { photoLinks[m.id] = p } }
+            for it in r.queue { if let u = it.imageURL { photoLinks[it.expenseId] = u } }
+            linksLoadedAt = Date()
+        } catch {
+            AppDiagnostics.shared.record(category: "PennyCardViewModel", message: "Photo link refresh: " + ErrorDetails.describe(error))
+        }
     }
 
     /// Opens the form on the current receipt: your saved draft if any, else Penny's read.
@@ -600,6 +637,8 @@ final class PennyCardViewModel: ObservableObject {
         fillForm()
         message = saved
         messageIsError = savedIsError
+        photoLinks = [:]
+        linksLoadedAt = Date()
     }
 
     private func show(_ text: String, error: Bool) {
