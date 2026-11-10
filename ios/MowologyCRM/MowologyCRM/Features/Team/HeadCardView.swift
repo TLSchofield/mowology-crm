@@ -66,6 +66,7 @@ struct HeadCardView: View {
                                   waiting: HeadSpineLogic.count(vm.unpinned.count, "to pin")) { unpinnedSection }
                     }
                 }
+                if vm.head == "yui" { YuiJobsNode(model: vm.yuiJobs) }
                 if vm.head == "mia" {
                     if vm.card?.canApprove == true, !vm.miaSuggestions.isEmpty {
                         SpineNode(slug: "mia", id: "suggestions", title: "Suggestions", symbol: "envelope.fill",

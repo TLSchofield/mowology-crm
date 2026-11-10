@@ -185,6 +185,9 @@
 		04ADBD8227D60684D3E114D1 /* ReceiptCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1E7CEBFCF8EA9921483CEA4 /* ReceiptCameraView.swift */; };
 		EAC6FF3AB99854195DB15F47 /* ReceiptSteadyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20ED7D7CCD650C26AF73140 /* ReceiptSteadyGate.swift */; };
 		1BBFCDF535B9F7AC304B4E5C /* Server.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5882047C6D052F47162AF64C /* Server.swift */; };
+		919AE68A18F17469583AC4E5 /* YuiJobsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1982D3108473258C21742AF6 /* YuiJobsModels.swift */; };
+		7328437E5B5202BC6519F682 /* YuiJobsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E5A3F21C0623420F54B1E6 /* YuiJobsViewModel.swift */; };
+		4BE78723A4D6BC413F5893F0 /* YuiJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */; };
 		C7B39B432A0464EF8FDA9E43 /* SubcontractBoardSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */; };
 /* End PBXBuildFile section */
 
@@ -369,6 +372,9 @@
 		C1E7CEBFCF8EA9921483CEA4 /* ReceiptCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCameraView.swift; sourceTree = "<group>"; };
 		F20ED7D7CCD650C26AF73140 /* ReceiptSteadyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSteadyGate.swift; sourceTree = "<group>"; };
 		5882047C6D052F47162AF64C /* Server.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Server.swift; sourceTree = "<group>"; };
+		1982D3108473258C21742AF6 /* YuiJobsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YuiJobsModels.swift; sourceTree = "<group>"; };
+		69E5A3F21C0623420F54B1E6 /* YuiJobsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YuiJobsViewModel.swift; sourceTree = "<group>"; };
+		60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YuiJobsView.swift; sourceTree = "<group>"; };
 		5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubcontractBoardSection.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -609,6 +615,7 @@
 				B5177F1C8674CC7A5FEEDCBA /* KnowledgeModels.swift */,
 				6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */,
 				117A4FD03D24B6E7D73B9346 /* TaskModels.swift */,
+				1982D3108473258C21742AF6 /* YuiJobsModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -679,6 +686,8 @@
 				585B8CC87031C9A67635F6EE /* HeadSpine.swift */,
 				6ED0B07B54AD7A5116F79DB0 /* HeadSpineLogic.swift */,
 				E2E4BED54D8AB95AE564880F /* HeadSpineDemo.swift */,
+				69E5A3F21C0623420F54B1E6 /* YuiJobsViewModel.swift */,
+				60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */,
 				5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */,
 			);
 			path = Team;
@@ -995,6 +1004,9 @@
 				04ADBD8227D60684D3E114D1 /* ReceiptCameraView.swift in Sources */,
 				EAC6FF3AB99854195DB15F47 /* ReceiptSteadyGate.swift in Sources */,
 				1BBFCDF535B9F7AC304B4E5C /* Server.swift in Sources */,
+				919AE68A18F17469583AC4E5 /* YuiJobsModels.swift in Sources */,
+				7328437E5B5202BC6519F682 /* YuiJobsViewModel.swift in Sources */,
+				4BE78723A4D6BC413F5893F0 /* YuiJobsView.swift in Sources */,
 				C7B39B432A0464EF8FDA9E43 /* SubcontractBoardSection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1069,7 +1081,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.137;
+				MARKETING_VERSION = 1.3.138;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -1155,7 +1167,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.137;
+				MARKETING_VERSION = 1.3.138;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

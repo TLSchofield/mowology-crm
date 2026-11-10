@@ -29,6 +29,7 @@
 | Clues (strata, roles, details) | unverified | under her card (`clues-card.js`, `app/Modules/Comms/Api/clues.php`) | `ClueService` | iPhone unverified |
 | Badges / brain | brain on the face row (team-mobile) | photo, badges, brain on card | `YuiBadgeService::badges()`, `YuiBrainService::learned()` | — |
 | Customer texts in the history | via `sales_messages` | via `sales_messages` | `TextBridgeService::ingest()` | — |
+| Decision carousel (statement, who is this, unanswered reply) | carousel on Yui's Team card, 1.3.138 (`YuiJobsView.swift`), team-mobile `yui_jobs` / `yui_act` | web card sections; desktop strip from the navigation chat | `YuiJobAdapter::jobs()`, actions `YuiActions::dispatch()` | desktop strip not built yet |
 | Push notifications | APNs (`ApnsService::send()`) | Android FCM (`FcmService::send()`), status unverified | `PushDispatcher::drainQueue()` | Yui sends none yet |
 
 When you change a row, change the date in this file's heading.
