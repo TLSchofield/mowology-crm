@@ -39235,6 +39235,7 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-yui-who-quiet { margin-top: 8px; border-top: 1px dashed var(--mw-ink-200); padding-top: 8px; font-size: .8rem; color: var(--mw-ink-700); }
 .mw-yui-who-quiet summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--mw-ink-700); text-decoration: underline; }
 .mw-yui-who-undo { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 14px; font-weight: 600; }
+.mw-yui-stmt-warn { display: block; margin-top: 6px; color: var(--mw-orange); font-weight: 600; }
 .mw-yui-who-q { padding: 4px 0; min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 991.98px) {
     .mw-yui { grid-template-columns: 1fr; }

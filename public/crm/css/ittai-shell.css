@@ -151,16 +151,17 @@ body.it-shell.it-shell .it-pg[aria-current="page"]::after { content: ""; flex: 1
 body.it-shell.it-shell .it-grp.is-live::after { content: ""; position: absolute; right: 27px; width: 2px; margin-right: -0.5px; top: var(--it-live-top, 0px); height: var(--it-live, 0px); background: var(--it-brand); z-index: 1; pointer-events: none; }
 
 /* ── The square head card beside the row (JS places it; 1024 px and up only) ── */
-/* The head card, expanded to the LEFT of the spine (Tim, 2026-11-10): the same square rounded card as before —
-   portrait on top, name, role, state, the head's current line — sitting in the sidebar's flow under the head's
-   row, spanning the text column up to the spine; the pages move down beneath it. Flyouts (rail) stay on <body>. */
+/* The head card: the same square rounded card — portrait on top, name, role, state, the head's current line —
+   floating CENTRED on the rail line beside the head's row (Tim, 2026-11-10). A spacer in the sidebar keeps its
+   room, so the pages move down beneath it; the row's small portrait steps aside while it is open (one face). */
 body.it-shell.it-shell .it-grp { display: flex; flex-direction: column; }
 body.it-shell.it-shell .it-grp > .it-grow { order: 0; }
-body.it-shell.it-shell .it-grp > .it-hp { order: 1; }
+body.it-shell.it-shell .it-grp > .it-hp-space { order: 1; flex: none; margin: 2px 0 10px; }
 body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
+body.it-shell.it-shell .it-hp-space[hidden] { display: none; }
 body.it-shell.it-shell .it-hp {
-  display: none; position: static; margin: 2px 27px 10px 12px; padding: 14px 12px 16px;   /* its right edge sits on the rail line */
-  flex-direction: column; align-items: center; gap: 2px; text-align: center;
+  display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 200px;
+  flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px;
   background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; box-shadow: var(--it-shadow-menu);
   opacity: 0; transform: translateY(-6px);
   transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete;
@@ -170,11 +171,10 @@ body.it-shell.it-shell .it-hp.is-open {
   transition: opacity 180ms ease-out, transform 180ms ease-out, display 180ms allow-discrete;
 }
 @starting-style { body.it-shell.it-shell .it-hp.is-open { opacity: 0; transform: translateY(-6px); } }
-@media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open { display: none !important; } }
+body.it-shell.it-shell .it-hp:not([data-placed]) { visibility: hidden; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open, body.it-shell.it-shell .it-hp-space { display: none !important; } }
 body.it-shell.it-shell .it-pt-lg { width: 44px; height: 44px; margin: 0 auto 2px; }
-/* The card is the head enlarged: while it is open the row's small portrait steps aside (one face, not two) */
 body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
-body.it-shell.it-shell .it-hp { position: relative; z-index: 2; }
 body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
 body.it-shell.it-shell .it-hpd { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 body.it-shell.it-shell .it-hp .it-s { margin-top: 2px; }
@@ -219,7 +219,7 @@ body.it-shell.it-shell .sidebar.collapsed .it-grp.is-sel .it-grow { background: 
 body.it-shell.it-shell .sidebar.collapsed .it-grp.is-here::before,
 body.it-shell.it-shell .sidebar.collapsed .it-grp.is-sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--it-tenant-mark); z-index: 1; }
 body.it-shell.it-shell .sidebar.collapsed .it-pcard { display: flex; justify-content: center; padding: 8px 0; height: 56px; }
-body.it-shell.it-shell.it-rail .it-hp { display: none !important; }
+body.it-shell.it-shell.it-rail .it-hp, body.it-shell.it-shell .sidebar.collapsed .it-hp-space { display: none !important; }
 body.it-shell.it-shell .it-fly {
   display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: min(272px, calc(100vw - 160px)); padding-bottom: 4px; overflow: hidden;
   background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 10px; box-shadow: var(--it-shadow-menu);
@@ -425,41 +425,111 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 
 /* The job strip: a head's job across the top of her pages (Penny's duplicate receipt). A hairline rail runs
    through the middle: what the two receipts say, the two photos, the two answers, then where it lands. */
-.it-job { margin: 0 0 24px; padding: 16px 24px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job { margin: 0; padding: 12px 20px 8px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job[hidden], .it-job [hidden] { display: none; }
 .it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
 .it-job-c { margin-left: auto; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--it-meta); }
-.it-job-rail { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 24px; align-items: center; }
-.it-job-rail::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--it-line); z-index: 0; pointer-events: none; }
-.it-job-rail > * { position: relative; z-index: 1; }
-.it-job-cols { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; overflow-x: auto; }
-.it-job-col { display: grid; grid-template-rows: 20px 28px 20px 16px; justify-items: center; row-gap: 6px; min-width: 96px; font-variant-numeric: tabular-nums; }
-.it-job-top { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); white-space: nowrap; }
-.it-job-bot { font-size: 14px; line-height: 20px; color: var(--it-text); white-space: nowrap; }
-.it-job-lbl { font-size: 12px; line-height: 16px; color: var(--it-meta); }
-.it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); }
+/* Kaname's space, always there at the top of the main page (Tim, 2026-11-10): her count and line, and the way to her brief */
+body.it-shell.it-shell .it-kan-space { display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 0 0 16px; padding: 0 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); font-size: 14px; line-height: 20px; }
+body.it-shell.it-shell .it-kan-space img { width: 28px; height: 28px; border-radius: var(--it-radius-full); object-fit: cover; box-shadow: 0 0 0 2px var(--it-line); flex: none; }
+body.it-shell.it-shell .it-kan-space b { font-weight: 600; }
+body.it-shell.it-shell .it-kan-space .it-kan-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-meta); }
+body.it-shell.it-shell .it-kan-space .it-kan-open { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; color: var(--it-text); }
+body.it-shell.it-shell .it-kan-space .it-kan-open:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+
+/* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
+body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-job-outer { margin-left: 0; } }
+/* The decision and the picture are two cards side by side: the strip left, the graph in its own right column */
+.it-job-outer { container-type: inline-size; margin: 0 0 24px; }
+.it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 360px; column-gap: 24px; align-items: start; }
+/* the horizontal flow needs its width: under 1360 px of content the graph goes below the strip */
+@container (max-width: 1420px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
+.it-job-body { display: block; }
+.it-job-rail { position: relative; }
+.it-job-viz { margin: 0; padding: 16px 24px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job-viz figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
+.it-job-viz figcaption b { font-weight: 600; }
+.it-job-viz figcaption span { color: var(--it-meta); font-variant-numeric: tabular-nums; }
+.it-job-viz svg { display: block; width: 100%; height: auto; }
+.it-job-viz .it-viz-bar { fill: var(--it-sunk); stroke: var(--it-line); stroke-width: 1; }
+.it-job-viz .it-viz-now { fill: var(--it-tenant); }
+.it-job-viz .it-viz-lbl { font: 500 12px/16px var(--it-font-sans); fill: var(--it-meta); }
+.it-job-viz-gst { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); font-variant-numeric: tabular-nums; }
+.it-job-viz-gst span { color: var(--it-meta); }
+.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-brand); box-sizing: border-box; }
+.it-job-link-stub { height: 0; border-top-width: 2px; margin-top: -1px; }
+.it-job-link { border-left-width: 2px; border-bottom-width: 2px; margin-left: -1px; margin-bottom: -1px; }
+.it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
+.it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
+.it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 20px; min-width: 0; }
+/* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
+.it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
+.it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
+/* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 20px 10px 20px 30px; margin-left: -22px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
+.it-job-conf { z-index: 2; }
+/* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
+.it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.it-job-cols { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-lblcol { justify-items: start; min-width: 0; }
+.it-job-keeplbl { font-weight: 600; color: var(--it-brand); }
+.it-job-copylbl { font-weight: 600; color: var(--it-meta); }
+.it-job-m { width: 28px; height: 28px; }
+/* the confidence triangle: on the rail, right after the Receipts anchor (as on the phone, below its top anchor) */
+.it-job-conf { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-mastered); flex: none; }
+.it-job-conf .it-si { fill: var(--it-knowledge-mastered); stroke: none; }
+/* the line circles every icon: a surface gap, then a ring in the line's colour */
+.it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); box-shadow: 0 0 0 3px var(--it-surface), 0 0 0 4px var(--it-line); }
 .it-job-disc-same { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
 .it-job-disc-differs { background: var(--it-sunk); border: 2px solid var(--it-status-attention); color: var(--it-status-attention); }
 .it-job-disc-missing { background: var(--it-sunk); border: 2px solid var(--it-meta); color: var(--it-meta); }
 .it-job-disc-info { background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
-.it-job-imgs { display: flex; gap: 12px; }
-.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; max-width: 96px; }
-.it-job-fig img, .it-job-noimg { display: block; width: 96px; height: 72px; object-fit: cover; border-radius: 8px; background: var(--it-sunk); }
+.it-job-imgs { min-width: 104px; row-gap: 22px; }
+.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 104px; }
+.it-job-imgs .it-job-fig:first-child { align-self: end; }
+.it-job-imgs .it-job-fig:last-child { align-self: start; }
+.it-job-fig img, .it-job-noimg { display: block; width: 104px; aspect-ratio: 4 / 3; height: auto; object-fit: cover; border-radius: 10px; background: var(--it-sunk); }
 .it-job-fig.is-keep img, .it-job-fig.is-keep .it-job-noimg { outline: 2px solid var(--it-brand); outline-offset: 0; }
 .it-job-fig figcaption { font-size: 12px; line-height: 16px; color: var(--it-meta); text-align: center; }
 .it-job-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
-.it-job-acts { display: grid; gap: 8px; min-width: 160px; }
-.it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 24px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
+.it-job-acts { min-width: 148px; }
+.it-job-acts .it-btn-fill { align-self: end; }
+.it-job-acts .it-btn-line { align-self: start; }
+.it-job-acts .it-btn { width: 100%; }
+.it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 16px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
 .it-job .it-btn .it-job-ic { grid-row: 1 / span 2; width: 20px; height: 20px; }
+.it-job .it-btn-fill .it-job-ic { transform: rotate(90deg); }   /* the merge arrow points along the horizontal flow */
 .it-job .it-btn b { font-weight: 600; }
 .it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
 .it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
 .it-job .it-btn-line { background: var(--it-surface); border-color: var(--it-brand); color: var(--it-brand); }
 .it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
-.it-job-anchor { display: grid; justify-items: center; gap: 4px; min-width: 48px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
+.it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
 .it-job-anchor:hover { color: var(--it-text); text-decoration: none; }
-.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); }
+.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
+.it-ad-fill { background: var(--it-brand); color: var(--it-on-tenant); }
+.it-ad-sm { width: 36px; height: 36px; }
+/* View, on the rail between the two receipts */
+.it-job-view { position: relative; display: flex; flex-direction: column; align-items: center; background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 12px; line-height: 16px; color: var(--it-meta); cursor: pointer; min-width: 44px; min-height: 44px; justify-content: center; }
+.it-job-view > span:last-child { position: absolute; top: calc(100% - 2px); white-space: nowrap; }
+.it-job-view:hover .it-ad { background: var(--it-selected); }
+.it-job-view:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; border-radius: 8px; }
+.it-job-dlg { border: 0; border-radius: 14px; padding: 16px; max-width: min(1200px, 92vw); background: var(--it-surface); color: var(--it-text); box-shadow: var(--it-shadow-dialog); font-family: var(--it-font-sans); }
+.it-job-dlg::backdrop { background: color-mix(in srgb, var(--it-text) 40%, transparent); }
+.it-job-dlg-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.it-job-dlg-fig { margin: 0; display: grid; justify-items: center; gap: 8px; }
+.it-job-dlg-fig img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 10px; background: var(--it-sunk); }
+.it-job-dlg-fig.is-keep img { outline: 2px solid var(--it-brand); outline-offset: 0; }
+.it-job-dlg-fig figcaption { font-size: 14px; line-height: 20px; color: var(--it-meta); text-align: center; }
+.it-job-dlg-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
+.it-job-dlg-close { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 2px solid var(--it-brand); border-radius: 10px; background: var(--it-surface); color: var(--it-brand); font: inherit; font-weight: 600; cursor: pointer; }
+.it-job-dlg-close:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
@@ -467,10 +537,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 @keyframes it-job-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 .it-job .it-btn:focus-visible, .it-job-skip:focus-visible, .it-job-undo:focus-visible, .it-job-anchor:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 @container (max-width: 900px) {
-  .it-job-rail { grid-template-columns: minmax(0, 1fr); }
-  .it-job-rail::before { display: none; }
-  .it-job-acts { grid-template-columns: 1fr 1fr; }
-  .it-job-anchor { justify-self: start; grid-auto-flow: column; align-items: center; gap: 8px; }
+  .it-job-rail { gap: 16px; }
 }
 
 /* Reduced motion: nothing slides, fades or rotates; open things simply appear */

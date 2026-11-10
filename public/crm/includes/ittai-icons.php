@@ -26,6 +26,8 @@ function itIconSprite(): void
 <symbol id="it-w-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/></symbol>
 <symbol id="it-w-merge" viewBox="0 0 24 24"><path d="M6 20l6-8 6 8M12 12V4M9 7l3-3 3 3"/></symbol>
 <symbol id="it-w-split" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/></symbol>
+<symbol id="it-w-copies" viewBox="0 0 24 24"><path d="M8 7.5h9a2 2 0 0 1 2 2V20H10a2 2 0 0 1-2-2zM5 16.5V6a2 2 0 0 1 2-2h8"/></symbol>
+<symbol id="it-w-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
 <symbol id="it-w-book" viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3zM5 16.5a3 3 0 0 1 3-3h11M9 8h6"/></symbol>
 </defs></svg>
 <?php

@@ -5,6 +5,7 @@
  * GET  ?mode=desk     Her five sections (inbox, promises, accounts, renewals, arrears), each
  *                     sendable item with a suggested email + text, the thread for replies,
  *                     her numbers and how many Claude drafts are left today.
+ * GET  ?mode=jobs     Her decisions as one queue of cards (YuiJobAdapter).
  * GET  ?mode=brief    Her brief for Charlie (same contract as every head).
  * POST {mode: 'draft', key, csrf_token}     Claude drafts a reply to a client message — Tim's
  *                     click only, inbox items only, capped per day.
@@ -75,6 +76,11 @@ try {
     $gone = ['ok' => false, 'message' => 'That one is no longer on my list — refresh.'];
 
     switch ($mode) {
+        case 'jobs':   // Yui's decisions, one card at a time (desktop strip, iPhone carousel)
+            require_once APP_ROOT . '/Modules/Comms/Services/YuiJobAdapter.php';
+            echo json_encode(['ok' => true, 'jobs' => YuiJobAdapter::jobs($db, $name)]);
+            break;
+
         case 'desk':
             $out = ['ok' => true, 'name' => $name] + $desk->desk($name);
             $who = new InboundQuestionService($db);

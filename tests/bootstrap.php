@@ -126,6 +126,8 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAcceptedRisks.php
 require_once __DIR__ . '/../app/Modules/Comms/Services/InboundIdentityService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiStatementOffer.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
@@ -231,6 +233,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/CityParcelService.ph
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoAutoPlaceService.php';  // Otto's own pins + lot borders
 require_once __DIR__ . '/../app/Modules/Comms/Services/BuildingManagerService.php';    // Yui: who manages a building
 require_once __DIR__ . '/../app/Modules/Comms/Services/InboundQuestionService.php';   // Yui: Who is this?
+require_once __DIR__ . '/../app/Modules/Comms/Services/InboundAlertService.php';   // Yui: Who is this?
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptFactsService.php';   // printed receipt facts (1227); StopEvidence uses its parser
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptParserScoreService.php';
@@ -410,6 +413,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberPriceHistory.p
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberQuoteHistory.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpensePulseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';

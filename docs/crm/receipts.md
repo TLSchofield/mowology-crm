@@ -680,3 +680,9 @@ job; `public/crm/includes/ittai-job.php` prints it; `public/crm/js/ittai-job.js`
 requests as the web Penny card (`dupe_merge`, `not_dupe`, `unmerge` with kind `undo`), with Undo for 6 s after a merge.
 Skip writes nothing. The cheap gate is two waiting receipts with the same total within three days — not Penny's
 "possible twin" questions, which cover approved receipts only.
+
+**2026-11-10 later:** the strip's comparison is the phone's table kept vertical (kept left, waiting right, the spine down the
+middle with each disc on the line at its row, the gold confidence triangle at the top where the line from Penny's card
+arrives). Beside the decision, `ExpensePulseService` draws the one picture a solo operator needs: six months of approved
+spend with this month marked, and the quarter's GST on receipts to claim. Above both, on every shell page, Kaname's space
+(`includes/ittai-kaname-space.php`): her count, her line, the way to her brief.
