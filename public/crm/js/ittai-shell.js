@@ -176,10 +176,12 @@
             var card = strip ? cards[strip.getAttribute('data-head')] : null;
             if (!rail || !card || !card.classList.contains('is-open') || isRail()) { link.hidden = stub.hidden = true; return; }
             var cr = card.getBoundingClientRect(), rr = rail.getBoundingClientRect();
-            var cy = cr.top + cr.height / 2, ry = rr.top + rr.height / 2, x0 = cr.right + 16;
+            // The line ends at the confidence triangle at the top of the table's spine.
+            var conf = rail.querySelector('.it-job-conf') || rail.querySelector('.it-job-col');
+            var tr = conf ? conf.getBoundingClientRect() : rr;
+            var cy = cr.top + cr.height / 2, ry = tr.top + tr.height / 2, x0 = cr.right + 16;
             if (rr.bottom < 0 || rr.top > window.innerHeight) { link.hidden = stub.hidden = true; return; }
-            var col = rail.querySelector('.it-job-col');
-            var endX = col ? col.getBoundingClientRect().left : rr.left;
+            var endX = tr.left;
             // The card overlaps the strip's edge (the usual case): the rail simply emerges from under the card,
             // a straight navy line at the rail's height from the card's right edge to the first disc.
             if (ry >= cr.top + 8 && ry <= cr.bottom - 8 && cr.right < endX - 4) {
@@ -190,10 +192,10 @@
                 return;
             }
             link.classList.remove('is-flat');
-            if (rr.left <= x0 + 8) { link.hidden = stub.hidden = true; return; }
+            if (endX <= x0 + 8) { link.hidden = stub.hidden = true; return; }
             stub.hidden = link.hidden = false;
             stub.style.left = Math.round(cr.right) + 'px'; stub.style.top = Math.round(cy) + 'px'; stub.style.width = '16px';
-            link.style.left = Math.round(x0) + 'px'; link.style.width = Math.round(rr.left - x0) + 'px';
+            link.style.left = Math.round(x0) + 'px'; link.style.width = Math.round(endX - x0) + 'px';
             link.style.top = Math.round(Math.min(cy, ry)) + 'px'; link.style.height = Math.max(0, Math.round(Math.abs(cy - ry))) + 'px';
             link.classList.toggle('is-up', ry < cy);
         }
