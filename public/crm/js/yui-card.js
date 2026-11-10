@@ -218,7 +218,7 @@
             '<div class="mw-yui-who-main"><b>' + esc(it.name) + '</b> <small class="mw-yui-meta">' + esc(it.addr) + '</small>' +
             (it.subject ? '<div>' + esc(it.subject) + '</div>' : '') +
             (it.snippet ? '<q>' + esc(it.snippet) + '</q>' : '') +
-            '<small class="mw-yui-meta">' + esc(ago(it.at)) + '</small>' +
+            '<small class="mw-yui-meta">' + esc(ago(it.at)) + (it.more ? ' · ' + esc(it.more) + ' earlier from them, answered together' : '') + '</small>' +
             (it.why ? '<small class="mw-yui-who-why">Why I think so: ' + esc(it.why) + '</small>' : '') + '</div>' +
             '<div class="mw-yui-who-form">' +
               '<label class="mw-sam-lbl">First name<input class="mw-sam-in" data-wf="first" value="' + esc(st.first) + '"></label>' +

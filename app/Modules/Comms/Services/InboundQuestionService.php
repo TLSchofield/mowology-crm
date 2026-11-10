@@ -51,17 +51,24 @@ final class InboundQuestionService
     public function questions(int $limit = 20): array
     {
         $st = $this->db->prepare("SELECT * FROM inbound_unplaced WHERE status = 'open' AND kind = 'person' AND strength IN ('medium', 'weak')
-                                  ORDER BY sent_at DESC, id DESC LIMIT " . max(1, min(100, $limit)));
+                                  ORDER BY sent_at DESC, id DESC LIMIT 500");
         $st->execute();
-        $out = [];
+        // One question per person: their newest email asks it, and answering it settles the rest (confirm / notClient close them all).
+        $byAddr = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $a = strtolower(trim((string)$r['from_addr']));
+            if (isset($byAddr[$a])) { $byAddr[$a]['more']++; continue; }
+            $byAddr[$a] = $r + ['more' => 0];
+        }
+        $out = [];
+        foreach (array_slice(array_values($byAddr), 0, max(1, min(100, $limit))) as $r) {
             $cands = $this->candidates($r);
             $suggest = $r['client_id'] !== null ? (int)$r['client_id'] : (count($cands) === 1 ? $cands[0]['client_id'] : null);
             [$first, $last] = EmailLeadService::splitName((string)($r['from_name'] ?? ''), (string)$r['from_addr']);
             $out[] = ['id' => (int)$r['id'], 'name' => trim((string)($r['from_name'] ?? '')) !== '' ? (string)$r['from_name'] : (string)$r['from_addr'],
                 'addr' => (string)$r['from_addr'], 'subject' => (string)$r['subject'], 'snippet' => (string)($r['snippet'] ?? ''), 'at' => $r['sent_at'],
                 'why' => self::why((string)$r['evidence']), 'suggested_client_id' => $suggest, 'candidates' => $cands,
-                'first_name' => $first, 'last_name' => $last];
+                'first_name' => $first, 'last_name' => $last, 'more' => (int)$r['more']];
         }
         return $out;
     }
