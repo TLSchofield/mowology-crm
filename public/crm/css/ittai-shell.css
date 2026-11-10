@@ -26,7 +26,7 @@ body.it-shell.it-shell .it-sidebar .sidebar-content {
   border-right: 0;
 }
 body.it-shell.it-shell .it-sidebar a { color: var(--it-text); text-decoration: none; }
-body.it-shell.it-shell .it-sidebar ul { list-style: none; margin: 0; padding: 0; }
+body.it-shell .it-sidebar ul { list-style: none; margin: 0; padding: 0; }   /* weak on purpose: .it-subs sets its own padding */
 /* Low specificity on purpose: every button rule below (.it-grow, .it-sf, .it-cb) must outrank this reset. On 2026-11-10 it
    zeroed the head rows' padding and pushed the portraits half out of the sidebar on production. */
 body.it-shell .it-sidebar button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; }
@@ -145,9 +145,11 @@ body.it-shell.it-shell .it-pg {
 body.it-shell.it-shell .it-pl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.it-shell.it-shell .it-pg[aria-current="page"] { background: var(--it-selected); font-weight: 500; }
 body.it-shell.it-shell .it-pg[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--it-tenant-mark); }
-/* The live page draws its line to its head: across to the spine, then up the spine to the portrait (JS sets --it-live-top / --it-live) */
-body.it-shell.it-shell .it-pg[aria-current="page"]::after { content: ""; position: absolute; right: -29px; top: 50%; width: 29px; height: 2px; margin-top: -1px; background: var(--it-tenant-mark); }
-body.it-shell.it-shell .it-grp.is-live::after { content: ""; position: absolute; right: 27px; width: 2px; margin-right: -0.5px; top: var(--it-live-top, 0px); height: var(--it-live, 0px); background: var(--it-tenant-mark); z-index: 1; pointer-events: none; }
+/* The live page draws its line to its head: across to the spine, then up the spine to the portrait (JS sets --it-live-top / --it-live).
+   Ittai navy, not the tenant colour: the wiring is Ittai's, the selected row is the tenant's (Tim, 2026-11-10). */
+body.it-shell.it-shell .it-pg[aria-current="page"] .it-pl { flex: 0 1 auto; }   /* the label shrinks to its text so the line starts right after it */
+body.it-shell.it-shell .it-pg[aria-current="page"]::after { content: ""; flex: 1 1 auto; min-width: 12px; height: 2px; margin: 0 -41px 0 4px; background: var(--it-brand); }
+body.it-shell.it-shell .it-grp.is-live::after { content: ""; position: absolute; right: 27px; width: 2px; margin-right: -0.5px; top: var(--it-live-top, 0px); height: var(--it-live, 0px); background: var(--it-brand); z-index: 1; pointer-events: none; }
 
 /* ── The square head card beside the row (JS places it; 1024 px and up only) ── */
 /* The card IS the portrait, enlarged (Tim, 2026-11-10): it grows from the portrait's circle on the spine to the
