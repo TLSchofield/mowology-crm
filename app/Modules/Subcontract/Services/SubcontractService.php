@@ -62,7 +62,9 @@ class SubcontractService
         $visit->execute([$visitId]);
         $row = $visit->fetch(PDO::FETCH_ASSOC);
         if (!$row) throw new InvalidArgumentException('That visit no longer exists.');
-        if (in_array($row['status'], ['completed', 'cancelled'], true)) throw new InvalidArgumentException('This visit is already closed.');
+        // Work already done off the system: the visit may be closed, and the link only asks for proof and the bill.
+        $alreadyDone = !empty($options['already_done']);
+        if ($row['status'] === 'cancelled' || ($row['status'] === 'completed' && !$alreadyDone)) throw new InvalidArgumentException('This visit is already closed.');
 
         $company = $this->db->prepare("SELECT id FROM subcontractors WHERE id = ? AND is_active = 1");
         $company->execute([$subcontractorId]);
@@ -77,8 +79,8 @@ class SubcontractService
         $this->db->prepare("
             INSERT INTO subcontract_jobs
                 (subcontractor_id, visit_id, plan_id, token_hash, token_preview, expires_at, agreed_amount, note_to_sub,
-                 share_client_name, share_client_phone, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 share_client_name, share_client_phone, after_the_fact, work_status, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ")->execute([
             $subcontractorId, $visitId, (int)$row['plan_id'], hash('sha256', $token), substr($token, 0, 8),
             SubcontractRules::expiryFrom($this->now()),
@@ -86,6 +88,8 @@ class SubcontractService
             trim((string)($options['note'] ?? '')) ?: null,
             array_key_exists('share_client_name', $options) && !$options['share_client_name'] ? 0 : 1,
             array_key_exists('share_client_phone', $options) && !$options['share_client_phone'] ? 0 : 1,
+            $alreadyDone ? 1 : 0,
+            $alreadyDone ? 'started' : 'sent',
             $ownerId,
         ]);
         $jobId = (int)$this->db->lastInsertId();
@@ -158,6 +162,14 @@ class SubcontractService
         }
         if ($to === 'started')  { $set[] = 'started_at = ?';  $params[] = $now; }
         if ($to === 'finished') { $set[] = 'finished_at = ?'; $params[] = $now; }
+        $afterTheFact = !empty($job['after_the_fact']);
+        if ($to === 'finished' && $afterTheFact) {
+            $doneOn = (string)($input['done_on'] ?? '');
+            $parsed = DateTime::createFromFormat('Y-m-d', $doneOn);
+            if (!$parsed || $parsed->format('Y-m-d') !== $doneOn || $doneOn > substr($now, 0, 10)) return ['ok' => false, 'error' => 'Enter the day you did the work.'];
+            $set[] = 'planned_date = ?';
+            $params[] = $doneOn;
+        }
         if (in_array($to, ['declined'], true)) { $set[] = 'expires_at = ?'; $params[] = SubcontractRules::expiryFrom($now, true); }
 
         $params[] = $id;
@@ -169,7 +181,7 @@ class SubcontractService
         $reading = $this->reading($visitId, $input, in_array($to, ['started', 'finished'], true));
         $this->event($id, $visitId, $to, 'sub', null, trim((string)($input['note'] ?? '')) ?: null, $reading);
         if ($to === 'started') $this->hooks->visitInProgress($visitId, $ownerId);
-        $this->notifyOwner($job, $to);
+        $this->notifyOwner($job, $to === 'finished' && $afterTheFact ? 'proof_sent' : $to);
         return ['ok' => true];
     }
 

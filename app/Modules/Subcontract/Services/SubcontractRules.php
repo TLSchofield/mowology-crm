@@ -13,6 +13,7 @@ final class SubcontractRules
 {
     public const WORK_STATUSES = ['sent', 'accepted', 'declined', 'scheduled', 'on_way', 'started', 'finished', 'cancelled'];
     public const BILL_STATUSES = ['none', 'sent', 'approved', 'paid', 'returned'];
+    private const HAS_THE_JOB = ['accepted', 'scheduled', 'on_way', 'started', 'finished'];
 
     /** A step tapped by mistake can be taken back for this long, until the owner has accepted the work. */
     public const UNDO_MINUTES = 10;
@@ -57,7 +58,7 @@ final class SubcontractRules
             case 'accepted':  return 'pick_day';
             case 'scheduled': return 'on_my_way';
             case 'on_way':    return 'start';
-            case 'started':   return 'finish';
+            case 'started':   return !empty($job['after_the_fact']) ? 'send_proof' : 'finish';
             case 'finished':
                 if ($bill === 'none' || $bill === 'returned') return 'send_bill';
                 if ($bill === 'sent') return 'bill_waiting';
@@ -134,7 +135,10 @@ final class SubcontractRules
             'date'          => (string)($job['planned_date'] ?? $context['scheduled_date'] ?? ''),
             'address'       => $address,
             'client_name'   => $clientName,
-            'client_phone'  => !empty($job['share_client_phone']) ? (string)($context['contact_phone'] ?? '') : '',
+            // She arranges the visit with the client, so she gets the number once she has taken the job, not before.
+            'client_phone'  => !empty($job['share_client_phone']) && empty($job['after_the_fact']) && in_array($job['work_status'] ?? '', self::HAS_THE_JOB, true)
+                ? (string)($context['contact_phone'] ?? '') : '',
+            'after_the_fact' => !empty($job['after_the_fact']),
             'work_items'    => array_values(array_filter(array_map(static fn ($w) => trim((string)$w), $workItems), 'strlen')),
             'note'          => (string)($job['note_to_sub'] ?? ''),
             'agreed_amount' => ($job['agreed_amount'] ?? null) !== null && $job['agreed_amount'] !== '' ? (float)$job['agreed_amount'] : null,
@@ -154,9 +158,10 @@ final class SubcontractRules
             'on_way'    => 'is on the way to',
             'started'   => 'started at',
             'finished'  => 'finished at',
+            'proof_sent' => 'sent proof of work for',
             'bill_sent' => 'sent a bill for',
         ];
         if (!isset($words[$event])) return null;
-        return [$event === 'finished' ? 'Ready for your OK' : 'Subcontract', trim("{$company} {$words[$event]} {$place}")];
+        return [in_array($event, ['finished', 'proof_sent'], true) ? 'Ready for your OK' : 'Subcontract', trim("{$company} {$words[$event]} {$place}")];
     }
 }

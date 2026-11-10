@@ -55,7 +55,7 @@ final class SubcontractRulesTest extends TestCase
 
     public function testPagePayloadCarriesOnlyWhatSheMaySee(): void
     {
-        $job = ['work_status' => 'sent', 'bill_status' => 'none', 'share_client_name' => 1, 'share_client_phone' => 1, 'agreed_amount' => '250.00',
+        $job = ['work_status' => 'accepted', 'bill_status' => 'none', 'share_client_name' => 1, 'share_client_phone' => 1, 'agreed_amount' => '250.00',
                 'note_to_sub' => 'Gate is on the left', 'price_per_visit' => '999.00', 'token_hash' => 'SECRET-HASH', 'bill_expense_id' => 77];
         $context = ['plan_title' => 'Fall cleanup', 'scheduled_date' => '2026-11-14', 'property_address' => '12 Oak St', 'property_city' => 'Vancouver',
                     'contact_first_name' => 'Pat', 'contact_last_name' => 'Lee', 'contact_phone' => '604-555-0100', 'contact_email' => 'client@example.com',
@@ -71,17 +71,34 @@ final class SubcontractRulesTest extends TestCase
         foreach (['999', '888', '777', 'client@example.com', '1 Money Rd', 'Visa', 'SECRET-HASH'] as $secret) {
             $this->assertStringNotContainsString($secret, $flat);
         }
-        $this->assertSame(['next_step', 'work_status', 'bill_status', 'can_undo', 'title', 'date', 'address', 'client_name', 'client_phone', 'work_items',
+        $this->assertSame(['next_step', 'work_status', 'bill_status', 'can_undo', 'title', 'date', 'address', 'client_name', 'client_phone', 'after_the_fact', 'work_items',
                            'note', 'agreed_amount', 'started_at', 'finished_at', 'work_accepted', 'paid_at'], array_keys($page),
                           'a new field on her page must be added here on purpose');
     }
 
     public function testClientDetailsObeyTheOwnersSwitches(): void
     {
-        $job = ['work_status' => 'sent', 'share_client_name' => 0, 'share_client_phone' => 0];
+        $job = ['work_status' => 'accepted', 'share_client_name' => 0, 'share_client_phone' => 0];
         $page = SubcontractRules::pagePayload($job, ['contact_first_name' => 'Pat', 'contact_last_name' => 'Lee', 'contact_phone' => '604-555-0100'], [], self::NOW);
         $this->assertSame('', $page['client_name']);
         $this->assertSame('', $page['client_phone']);
+    }
+
+    /** @dataProvider phoneByStatus */
+    public function testShePhonesTheClientOnlyOnceSheHasTheJob(string $status, string $expected): void
+    {
+        $job = ['work_status' => $status, 'share_client_name' => 1, 'share_client_phone' => 1];
+        $page = SubcontractRules::pagePayload($job, ['contact_phone' => '604-555-0100'], [], self::NOW);
+        $this->assertSame($expected, $page['client_phone']);
+    }
+
+    public static function phoneByStatus(): array
+    {
+        return [
+            ['sent', ''], ['declined', ''], ['cancelled', ''],
+            ['accepted', '604-555-0100'], ['scheduled', '604-555-0100'], ['on_way', '604-555-0100'],
+            ['started', '604-555-0100'], ['finished', '604-555-0100'],
+        ];
     }
 
     public function testOnSiteAllowsForARoughReading(): void

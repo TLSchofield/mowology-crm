@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS subcontract_jobs (
   note_to_sub         TEXT NULL,
   share_client_name   TINYINT(1) NOT NULL DEFAULT 1,
   share_client_phone  TINYINT(1) NOT NULL DEFAULT 1,
+  after_the_fact      TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = the work was already done off the system; the link asks for proof and the bill',
   work_status         VARCHAR(12) NOT NULL DEFAULT 'sent' COMMENT 'sent accepted declined scheduled on_way started finished cancelled',
   status_changed_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   planned_date        DATE NULL,

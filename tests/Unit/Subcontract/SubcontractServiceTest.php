@@ -27,7 +27,7 @@ final class SubcontractServiceTest extends TestCase
         $db->exec("CREATE TABLE plan_line_items (id INTEGER PRIMARY KEY, plan_id INT, description TEXT, service_type TEXT, sort_order INT DEFAULT 0)");
         $db->exec("CREATE TABLE vendors (id INTEGER PRIMARY KEY, name TEXT, default_accounting_category TEXT, phone TEXT)");
         $db->exec("CREATE TABLE subcontractors (id INTEGER PRIMARY KEY, company_name TEXT UNIQUE, contact_name TEXT, email TEXT, phone TEXT, vendor_id INT, on_ittai INT DEFAULT 0, is_active INT DEFAULT 1, created_by INT, created_at TEXT DEFAULT '2026-11-10')");
-        $db->exec("CREATE TABLE subcontract_jobs (id INTEGER PRIMARY KEY, subcontractor_id INT, visit_id INT, plan_id INT, token_hash TEXT UNIQUE, token_preview TEXT, expires_at TEXT, revoked_at TEXT, last_opened_at TEXT, open_count INT DEFAULT 0, agreed_amount REAL, note_to_sub TEXT, share_client_name INT DEFAULT 1, share_client_phone INT DEFAULT 1, work_status TEXT DEFAULT 'sent', status_changed_at TEXT DEFAULT '2026-11-10 12:00:00', planned_date TEXT, started_at TEXT, finished_at TEXT, work_accepted_at TEXT, work_accepted_by INT, bill_status TEXT DEFAULT 'none', bill_amount REAL, bill_gst REAL, bill_invoice_no TEXT, bill_expense_id INT, bill_paid_at TEXT, created_by INT, created_at TEXT DEFAULT '2026-11-10')");
+        $db->exec("CREATE TABLE subcontract_jobs (id INTEGER PRIMARY KEY, subcontractor_id INT, visit_id INT, plan_id INT, token_hash TEXT UNIQUE, token_preview TEXT, expires_at TEXT, revoked_at TEXT, last_opened_at TEXT, open_count INT DEFAULT 0, agreed_amount REAL, note_to_sub TEXT, share_client_name INT DEFAULT 1, share_client_phone INT DEFAULT 1, after_the_fact INT DEFAULT 0, work_status TEXT DEFAULT 'sent', status_changed_at TEXT DEFAULT '2026-11-10 12:00:00', planned_date TEXT, started_at TEXT, finished_at TEXT, work_accepted_at TEXT, work_accepted_by INT, bill_status TEXT DEFAULT 'none', bill_amount REAL, bill_gst REAL, bill_invoice_no TEXT, bill_expense_id INT, bill_paid_at TEXT, created_by INT, created_at TEXT DEFAULT '2026-11-10')");
         $db->exec("CREATE TABLE subcontract_events (id INTEGER PRIMARY KEY, job_id INT, visit_id INT, event_type TEXT, actor TEXT, user_id INT, note TEXT, latitude REAL, longitude REAL, accuracy_m INT, on_site INT, created_at TEXT)");
         $db->exec("INSERT INTO contacts VALUES (5, 'Pat', 'Lee', '604-555-0100')");
         $db->exec("INSERT INTO properties VALUES (3, '12 Oak St', 'Vancouver', 49.2828, -123.1208, 5)");
@@ -160,6 +160,29 @@ final class SubcontractServiceTest extends TestCase
         $started = $this->db->query("SELECT on_site, latitude FROM subcontract_events WHERE event_type = 'started'")->fetch();
         $this->assertSame(1, (int)$started['on_site']);
         $this->assertNotNull($started['latitude']);
+    }
+
+    public function testWorkAlreadyDoneAsksOnlyForProofAndTheBill(): void
+    {
+        $sent = $this->send(12, ['already_done' => true]);
+        $job = $this->fresh($sent['token']);
+        $page = $this->svc->page($job);
+        $this->assertSame('send_proof', $page['next_step']);
+        $this->assertTrue($page['after_the_fact']);
+        $this->assertSame('', $page['client_phone'], 'nothing to arrange, so no number');
+
+        $this->assertFalse($this->svc->act($job, 'finish', ['done_on' => '2026-12-01'])['ok'], 'not a future day');
+        $this->assertFalse($this->svc->act($job, 'finish')['ok'], 'the day is required');
+        $this->assertTrue($this->svc->act($this->fresh($sent['token']), 'finish', ['done_on' => '2026-11-02', 'note' => 'Blew out 6 zones'])['ok']);
+
+        $job = $this->fresh($sent['token']);
+        $this->assertSame('finished', $job['work_status']);
+        $this->assertSame('2026-11-02', $job['planned_date']);
+        $this->assertSame('send_bill', $this->svc->page($job)['next_step']);
+        $this->assertSame([], $this->callsNamed('in_progress'), 'a finished visit is not reopened');
+        $this->assertSame([['push', 'Green Co sent proof of work for 12 Oak St']], $this->callsNamed('push'));
+
+        $this->assertTrue($this->svc->acceptWork($sent['job_id'], 1)['ok']);
     }
 
     public function testLocationIsOnlyKeptAtStartAndFinish(): void
