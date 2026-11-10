@@ -102,8 +102,9 @@ if (!empty($itShell)):
             $__ws    = (string)($__hd['workspace'] ?? '');
             $__ring  = 'it-pt it-pt-' . ($__st !== '' ? $__st : 'none');
             $__isOpen = ($__slug === $__itOpen);
-            $__sel   = false;
-            if ($__ws !== '') foreach ($__items as $__i) { if ($__i['href'] === $__ws && $__i['key'] === $activePage) $__sel = true; }
+            // The head you are with (the group holding this page) keeps its card open on every page, so a page
+            // click never dismisses it and the live line runs from the page up into the card (Tim, 2026-11-10).
+            $__sel   = (bool)$__here;
             $__aria  = $__name . ', AI, ' . $__role . ($__word !== '' ? '. ' . $__word . '.' : '.');
             $__stHtml = $__word !== ''
                 ? '<span class="it-s it-s-' . $__st . '"><svg class="it-si" width="12" height="12" aria-hidden="true"><use href="#it-st-' . $__st . '"/></svg>' . $__h($__word) . '</span>'
