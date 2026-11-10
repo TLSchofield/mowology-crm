@@ -99,12 +99,15 @@ $__ijViz = static function (?array $p): string {
 };
 itIconSprite();
 ?>
+<div class="it-job-wrap">
 <section class="it-job" data-head="penny" aria-label="Penny's job">
   <h2 class="it-job-t"><span class="it-job-tt"><?= h($__ij['title']) ?></span> <span class="it-tag">AI</span><span class="it-job-c"><?= h($__ij['confidence']) ?></span></h2>
-  <div class="it-job-body"><?= $__ijRail($__ij) ?><?= $__ijViz($__ijPulse ?? null) ?></div>
+  <div class="it-job-body"><?= $__ijRail($__ij) ?></div>
   <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
   <template class="it-job-tpl"><?= $__ijRail(null) ?></template>
   <script type="application/json" class="it-job-data"><?= json_encode($__ijJobs, $__ijFlags) ?></script>
 </section>
+<?= $__ijViz($__ijPulse ?? null) ?>
+</div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/ittai-job.js') : '/crm/js/ittai-job.js' ?>" defer></script>
