@@ -168,10 +168,11 @@ class PennyJobAdapter
         $issued = $dates ? 'Issued ' . $d($dates[0]) . (count($dates) > 1 && $d(end($dates)) !== $d($dates[0]) ? ' – ' . $d(end($dates)) : '') : '–';
         // Column 4: the bank memo against the invoice list — same when the number is on the transfer
         $memo = trim((string)($et['memo'] ?? ''));
-        $memoTop = $memo !== '' ? (mb_strlen($memo) > 26 ? mb_substr($memo, 0, 25) . '…' : $memo) : 'No memo';
+        // the year is never needed to read an invoice number: "Invoice 2026 0485" shows as "Invoice 0485" (the full memo stays in the title)
+        $memoShown = (string)preg_replace('/\b(INV[\s-]*)?20\d{2}[\s-]+(\d{3,})\b/i', '$1$2', $memo);
+        $memoTop = $memoShown !== '' ? (mb_strlen($memoShown) > 26 ? mb_substr($memoShown, 0, 25) . '…' : $memoShown) : 'No memo';
         $shortNos = array_map(fn($no) => preg_match('/(\d{3,})$/', $no, $m) ? $m[1] : $no, $numbers);
-        // one invoice reads as the memo writes it ("Invoice 2026 0485"), so an exact match looks exact
-        $list = $n === 1 ? trim(str_replace('-', ' ', (string)preg_replace('/^INV-/i', '', $numbers[0]))) : ($n > 3 ? implode(', ', array_slice($shortNos, 0, 2)) . ' +' . ($n - 2) : implode(', ', $shortNos));
+        $list = $n > 3 ? implode(', ', array_slice($shortNos, 0, 2)) . ' +' . ($n - 2) : implode(', ', $shortNos);
         $memoState = in_array($kind, ['named', 'named_check'], true) || (string)($et['match_method'] ?? '') === 'invoice_number' ? 'same' : 'info';
 
         $columns = [
