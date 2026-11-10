@@ -1,0 +1,80 @@
+/* Subcontract job page. Ittai v1.2 tokens with Ittai navy as the action colour: this page sells Ittai, so it wears Ittai's colours, not the sender's. */
+:root {
+  --sj-surface: #FFFFFF; --sj-line: #D9DFDA; --sj-text: #131D17; --sj-meta: #48534C;
+  --sj-action: #233A5E; --sj-on-action: #FFFFFF; --sj-navy: #233A5E; --sj-gold: #A8843A;
+  --sj-complete: #1A5A39; --sj-progress: #2A557E; --sj-attention: #74490D; --sj-blocked: #982A1D;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode="field"]) {
+    --sj-surface: #161E1A; --sj-line: #2C3832; --sj-text: #E9EEEA; --sj-meta: #A3AFA8;
+    --sj-action: #A9B9DA; --sj-on-action: #0F1512; --sj-navy: #A9B9DA; --sj-gold: #C9A65A;
+    --sj-complete: #5AB080; --sj-progress: #8DB3DE; --sj-attention: #DDA853; --sj-blocked: #EC8B7D;
+  }
+}
+:root[data-mode="field"] {
+  --sj-surface: #FFFFFF; --sj-line: #A9B2AD; --sj-text: #0F1512; --sj-meta: #33413A;
+  --sj-action: #233A5E; --sj-on-action: #FFFFFF; --sj-navy: #233A5E; --sj-gold: #A8843A;
+  --sj-complete: #1B5F3C; --sj-progress: #24507A; --sj-attention: #6E4500; --sj-blocked: #8A2418;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--sj-surface); color: var(--sj-text); font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 1rem; line-height: 1.5; }
+.sj { max-width: 560px; margin: 0 auto; padding-bottom: env(safe-area-inset-bottom); }
+.sj h1, .sj h2, .sj p { margin: 0; }
+
+.sj-brand { display: flex; align-items: center; gap: 12px; padding: 20px 16px 0; color: var(--sj-navy); }
+.sj-wordmark .sj-navy { fill: var(--sj-navy); }
+.sj-wordmark .sj-gold { fill: var(--sj-gold); }
+.sj-wordmark .sj-navy-ring { fill: none; stroke: var(--sj-navy); stroke-width: 13; }
+.sj-sun { margin-left: auto; }
+
+.sj-head { padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.sj-title { font-size: 1.375rem; line-height: 1.875rem; font-weight: 600; overflow-wrap: anywhere; }
+.sj-status { display: flex; align-items: center; gap: 4px; font-size: .875rem; line-height: 1.25rem; font-weight: 500; }
+.sj-status svg { flex: none; }
+.sj-status-attention { color: var(--sj-attention); }
+.sj-status-progress { color: var(--sj-progress); }
+.sj-status-complete { color: var(--sj-complete); }
+
+.sj-section { padding: 16px; border-top: 1px solid var(--sj-line); display: flex; flex-direction: column; gap: 8px; }
+.sj-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.sj-baseline { align-items: baseline; }
+.sj-grow { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.sj-pair { flex: none; display: flex; gap: 8px; }
+.sj-meta { font-size: .875rem; line-height: 1.25rem; color: var(--sj-meta); }
+.sj-strong { font-weight: 600; }
+.sj-num { font-variant-numeric: tabular-nums; }
+.sj-h2 { font-size: 1.125rem; line-height: 1.5rem; font-weight: 600; }
+.sj-list { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.sj-record { display: flex; justify-content: space-between; gap: 12px; font-size: .875rem; line-height: 1.25rem; }
+.sj-offer { gap: 12px; }
+.sj-thanks { font-size: .875rem; line-height: 1.25rem; font-weight: 500; color: var(--sj-complete); }
+
+.sj-action { padding: 16px; border-top: 1px solid var(--sj-line); display: flex; flex-direction: column; gap: 12px; }
+.sj-waiting { font-weight: 500; }
+.sj-warn, .sj-error { font-size: .875rem; line-height: 1.25rem; font-weight: 500; color: var(--sj-blocked); }
+.sj-sync { font-size: .875rem; line-height: 1.25rem; color: var(--sj-meta); }
+.sj-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sj-field > span { font-size: .875rem; line-height: 1.25rem; font-weight: 500; }
+.sj-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sj input:not([type="file"]), .sj textarea {
+  width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid var(--sj-line); border-radius: 10px;
+  background: var(--sj-surface); color: var(--sj-text); font: inherit; font-size: 1rem; color-scheme: light dark;
+}
+.sj textarea { padding: 12px; resize: vertical; }
+
+.sj-primary, .sj-btn, .sj-link { font: inherit; cursor: pointer; }
+.sj-primary { width: 100%; min-height: 64px; padding: 8px 16px; border: 0; border-radius: 14px; background: var(--sj-action); color: var(--sj-on-action); font-size: 1.125rem; font-weight: 600; }
+.sj-offer-btn { min-height: 56px; font-size: 1rem; }
+.sj-primary:disabled, .sj-btn:disabled { opacity: .7; cursor: default; }
+.sj-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 16px; border: 1px solid var(--sj-line); border-radius: 10px; background: transparent; color: var(--sj-text); font-size: .875rem; font-weight: 500; text-decoration: none; }
+.sj-wide { width: 100%; }
+.sj-link { min-height: 48px; padding: 0 4px; border: 0; background: transparent; color: var(--sj-text); font-size: .875rem; font-weight: 500; text-decoration: underline; }
+.sj-file { position: relative; width: 100%; }
+.sj-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.sj-file:focus-within, .sj a:focus-visible, .sj button:focus-visible, .sj input:focus-visible, .sj textarea:focus-visible { outline: 2px solid var(--sj-progress); outline-offset: 2px; }
+
+@media (min-width: 768px) {
+  .sj { padding-top: 24px; }
+}

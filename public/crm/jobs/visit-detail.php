@@ -236,6 +236,8 @@ $activePage = 'jobs';
   <!-- ── LEFT COLUMN: Timeline + GPS + Photos ── -->
   <div class="col-lg-8">
 
+    <?php if ($isAdmin) include dirname(__DIR__) . '/includes/subcontract-panel.php'; ?>
+
     <!-- ── Timeline Card ──────────────────────────────────────────────── -->
     <div class="card mw-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="clock" class="mr-2"></i>Visit Timeline</h5></div>
