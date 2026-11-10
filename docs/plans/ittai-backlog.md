@@ -15,8 +15,11 @@ button and nothing marks an invoice paid. Each item needs its own plan.
 1. **Pasted payment link** — the business pastes its own Stripe, Square or PayPal page; it becomes the Pay button on the customer
    invoice page when `Tenant::takesCards()` is false and there is no QuickBooks link. The money goes straight to the business,
    and Ittai only sends the client there. Ask the lawyer first (Bank of Canada examples treat a redirect to someone else's
-   checkout as not a payment provider). Marked paid by hand until a provider says otherwise. **Shared:** the rule and the button.
-   **Private:** each business's link.
+   checkout as not a payment provider). **Guided Stripe (Tim 2026-11-10):** the owner opens their own account with our step-by-step
+   help; Ittai never enters their details. **Knowing it's paid:** add the invoice number to the link (`client_reference_id`), the owner
+   pastes a read-only restricted key once, and a 15-minute job reads completed payments (same shape as `QboClientPayService::pullPaid`).
+   A plain link does not know the amount: the client types it, or a write key makes a link per invoice, which is Ittai launching the
+   charge and is the thing we stepped back from. **Shared:** the rule and the button. **Private:** each business's link and key.
 2. **e-Transfer matching for every business** — exists for Mowology only; each business needs its own mailbox and poller
    (`project_etransfer_inbox_poller`). **Shared:** the matching rules. **Private:** the mailbox and payers.
 3. **Two setup paths, not one with a fork.** Measured 2026-11-10 on a fresh local business: 14 screens plus connecting QuickBooks,
