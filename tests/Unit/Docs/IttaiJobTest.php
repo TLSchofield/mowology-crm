@@ -77,7 +77,7 @@ class IttaiJobTest extends TestCase
     public function testEtransferJobCarriesTheFractionAndTheCardsForm(): void
     {
         $inc = $this->src('public/crm/includes/ittai-job.php');
-        foreach (['data-kind="etransfer"', 'data-kind="duplicate"', 'it-job-pieces', 'it-job-frac-n', 'it-job-frac-s', 'it-job-frac-d', 'it-job-lbl', 'it-job-side-', 'hasEtransferWork', 'billing.edit', "\$__ijSvg('bank')"] as $n) {
+        foreach (['data-kind="etransfer"', 'data-kind="duplicate"', 'it-job-pieces', 'it-job-frac-n', 'it-job-frac-s', 'it-job-frac-d', 'it-job-side-', 'hasEtransferWork', 'billing.edit', "\$__ijSvg('bank')"] as $n) {
             $this->assertStringContainsString($n, $inc, $n);
         }
         $this->assertSame(2, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind');
@@ -91,7 +91,7 @@ class IttaiJobTest extends TestCase
         $a = strpos($css, '.it-job-pieces {');
         $this->assertNotFalse($a);
         $block = substr($css, $a, strpos($css, "/* Yui's job strip") - $a);
-        foreach (['.it-job-frac {', '.it-job-frac-s {', 'stroke: var(--it-rail)', '.it-job-lbl {', '.it-job-side-top {', '.it-job-side-bot {', 'var(--it-rail)', 'var(--it-meta)', '[data-kind="etransfer"]'] as $n) {
+        foreach (['.it-job-frac {', '.it-job-frac-s {', 'stroke: var(--it-rail)', '.it-job-side-top {', '.it-job-side-bot {', 'var(--it-rail)', 'var(--it-meta)', '[data-kind="etransfer"]'] as $n) {
             $this->assertStringContainsString($n, $block, $n);
         }
         $this->assertDoesNotMatchRegularExpression('/#[0-9a-fA-F]{3,8}\b/', $block, 'tokens only');

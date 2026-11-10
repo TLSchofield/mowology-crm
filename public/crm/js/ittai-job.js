@@ -178,12 +178,10 @@
             var fn = frac.querySelector('.it-job-frac-n'), fdn = frac.querySelector('.it-job-frac-d');
             if (fn) fn.textContent = String(pm);
             if (fdn) fdn.textContent = String(pt);
-            frac.setAttribute('aria-label', pm + ' of ' + pt + ' pieces in hand');
-        }
-        var lbl = rail.querySelector('.it-job-lbl');
-        if (lbl) {   // "1 invoice + payment": the first word group above the rail, the second below it
-            lbl.textContent = '';
-            String(job.label || '').split(' + ').forEach(function (w) { var s = document.createElement('span'); s.textContent = w; lbl.appendChild(s); });
+            var names = ['Interac email', 'invoice', 'bank deposit'];
+            var say = names.map(function (n, i) { return n + (i < pm ? ' \u2713' : ' not yet'); }).join(' \u00b7 ');
+            frac.setAttribute('aria-label', pm + ' of ' + pt + ': ' + say);
+            frac.setAttribute('title', say);
         }
         side(rail.querySelector('.it-job-side-top'), job.left);
         side(rail.querySelector('.it-job-side-bot'), job.right);

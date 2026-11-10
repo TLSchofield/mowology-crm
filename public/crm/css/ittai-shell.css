@@ -587,7 +587,6 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-frac-d { left: 35px; top: 12px; transform: translateX(-50%); }
 .it-job-frac-s { position: absolute; left: 0; top: 0; overflow: visible; fill: none; stroke: var(--it-rail); stroke-width: 1px; stroke-linejoin: miter; pointer-events: none; }
 .it-job-frac-d { color: var(--it-meta); }
-.it-job-lbl { display: flex; flex-direction: column; justify-content: space-between; height: 44px; max-width: none; white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--it-meta); }
 /* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
 .it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
 /* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */

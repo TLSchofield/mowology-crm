@@ -111,12 +111,18 @@ $__ijSide = static function (array $side, bool $top): string {
     foreach (['who', 'when'] as $k) if (($side[$k] ?? '') !== '') $out .= '<span>' . h((string)$side[$k]) . '</span>';
     return $out . '</span>';
 };
-/** The fraction from the phone: how many of the three pieces (email, invoice, bank deposit) are already in hand, and the match's name. */
-$__ijPieces = static function (?array $j): string {
+/** What the 2/3 counts, in the lower card's own words: the Interac email, the invoice, the bank deposit. */
+$__ijPiecesText = static function (int $m): string {
+    $out = [];
+    foreach (['Interac email', 'invoice', 'bank deposit'] as $i => $name) $out[] = $name . ($i < $m ? ' ✓' : ' not yet');
+    return implode(' · ', $out);
+};
+/** The inferred fraction (SPEC-v1.2): an equilateral tent on the rail, the whole inside, the count beside it. No words: hover or a screen reader names the three pieces. */
+$__ijPieces = static function (?array $j) use ($__ijPiecesText): string {
     $m = (int)($j['pieces']['matched'] ?? 0); $t = (int)($j['pieces']['total'] ?? 3);
-    return '<div class="it-job-pieces"><span class="it-job-frac" role="img" aria-label="' . h($m . ' of ' . $t . ' pieces in hand') . '">'
-        . '<b class="it-job-frac-n">' . $m . '</b><svg class="it-job-frac-s" aria-hidden="true" viewBox="0 0 72 72" width="72" height="72"><path d="M0 36.5H14L35 .5 56 36.5H72"/></svg><b class="it-job-frac-d">' . $t . '</b></span>'
-        . '<span class="it-job-lbl">' . implode('', array_map(fn($w) => '<span>' . h($w) . '</span>', explode(' + ', (string)($j['label'] ?? '')))) . '</span></div>';
+    $say = $__ijPiecesText($m);
+    return '<div class="it-job-pieces"><span class="it-job-frac" role="img" aria-label="' . h($m . ' of ' . $t . ': ' . $say) . '" title="' . h($say) . '">'
+        . '<b class="it-job-frac-n">' . $m . '</b><svg class="it-job-frac-s" aria-hidden="true" viewBox="0 0 72 72" width="72" height="72"><path d="M0 36.5H14L35 .5 56 36.5H72"/></svg><b class="it-job-frac-d">' . $t . '</b></span></div>';
 };
 // The e-Transfer rail (Tim's phone reference, 2026-11-10): Bank → the fraction and the match's name → the triangle →
 // the frame: e-Transfer above the rail, invoice(s) below, a disc per fact where they meet → Record payment → Ledger.
