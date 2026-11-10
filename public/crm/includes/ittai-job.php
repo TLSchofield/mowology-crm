@@ -157,7 +157,7 @@ $__ijViz = static function (?array $p): string {
                . '<text x="' . ($x + $bw / 2) . '" y="112" text-anchor="middle" class="it-viz-lbl">' . h($m['label']) . '</text>';
     }
     $money = static fn(float $v): string => '$' . number_format($v, $v >= 1000 ? 0 : 2);
-    return '<figure class="it-job-viz"><figcaption><b>Spend, last 6 months</b><span>' . h($money((float)$p['this_month'])) . ' this month</span></figcaption>'
+    return '<figure class="it-job-viz"><span class="it-ad it-ad-sm it-job-viz-node" aria-hidden="true">' . $__ijSvg('chart') . '</span><figcaption><b>Spend, last 6 months</b><span>' . h($money((float)$p['this_month'])) . ' this month</span></figcaption>'
         . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="Approved receipts by month, last six months">' . $bars . '</svg>'
         . '<p class="it-job-viz-gst"><b>' . h($money((float)$p['quarter_gst'])) . '</b> GST on receipts in ' . h($p['quarter_label']) . ' <span>— claim it back</span></p></figure>';
 };

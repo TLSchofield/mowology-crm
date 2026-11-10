@@ -462,6 +462,12 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-outer { --it-rail: var(--it-line); --it-rail: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
 .it-job-rail { position: relative; }
 .it-job-viz { margin: 0; padding: 16px 20px; min-width: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
+/* The rail runs on past the Ledger into the graph (Tim, 2026-11-10): a chart icon sits on the graph card's left edge at the
+   rail's height (ittai-job.js sets --it-rail-y), with the line crossing the gap to it from the strip's right edge. */
+.it-job-viz { position: relative; }
+.it-job-viz::before { content: ""; position: absolute; left: -45px; width: 45px; top: var(--it-rail-y, 50%); height: 1px; background: var(--it-rail); pointer-events: none; }
+.it-job-viz-node { position: absolute; left: -18px; top: var(--it-rail-y, 50%); transform: translateY(-50%); z-index: 1; }
+.it-job-viz-node .it-job-ic { width: 20px; height: 20px; }
 .it-job-viz figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
 .it-job-viz figcaption b { font-weight: 600; }
 .it-job-viz figcaption span { color: var(--it-meta); font-variant-numeric: tabular-nums; }

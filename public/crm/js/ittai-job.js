@@ -419,6 +419,11 @@
             var was = wrap.classList.contains('is-solo');
             wrap.classList.remove('is-solo');
             var tight = rail.scrollWidth > rail.clientWidth + 1;
+            if (!tight) {   // the chart icon sits at the rail's height on the graph card
+                var lead = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
+                var viz = wrap.querySelector(':scope > .it-job-viz');
+                if (lead && viz) viz.style.setProperty('--it-rail-y', Math.round(lead.getBoundingClientRect().top + lead.getBoundingClientRect().height / 2 - viz.getBoundingClientRect().top) + 'px');
+            }
             wrap.classList.toggle('is-solo', tight);
             if (tight !== was) window.dispatchEvent(new Event('resize'));   // the head card's line re-finds the strip
         };
