@@ -77,12 +77,24 @@
         layer.className = 'it-layer';
         document.body.appendChild(layer);
         var cards = {}, flies = {};
+        // The card floats on <body>, CENTRED on the rail line (Tim, 2026-11-10); a spacer in the group keeps
+        // its room so the pages move down beneath it and the live line meets its bottom edge.
+        var spaces = {};
         groups.forEach(function (g) {
             var k = g.getAttribute('data-head');
             var c = g.querySelector('.it-hp'), f = g.querySelector('.it-fly');
-            if (c) cards[k] = c;
+            if (c) {
+                var sp = document.createElement('div');
+                sp.className = 'it-hp-space';
+                sp.hidden = true;
+                c.parentNode.insertBefore(sp, c);
+                layer.appendChild(c);
+                cards[k] = c;
+                spaces[k] = sp;
+            }
             if (f) { layer.appendChild(f); flies[k] = f; }
         });
+        function spaceOf(g) { return spaces[g.getAttribute('data-head')]; }
 
         function isRail() { return sb.classList.contains('collapsed'); }
         function rowOf(g) { return g.querySelector('.it-grow'); }
@@ -99,9 +111,9 @@
                 if (!acc || acc.hidden || !pg || !pt || isRail()) return;
                 var gr = g.getBoundingClientRect(), pr = pt.getBoundingClientRect(), r = pg.getBoundingClientRect();
                 // The line feeds the expanded card when there is one (its bottom edge), else the portrait's centre.
-                var card = cardOf(g);
-                var top = (card && card.classList.contains('is-open') && card.offsetParent)
-                    ? card.getBoundingClientRect().bottom - gr.top
+                var sp = spaceOf(g);
+                var top = (sp && !sp.hidden)
+                    ? sp.getBoundingClientRect().bottom - gr.top
                     : pr.top + pr.height / 2 - gr.top;
                 var end = r.top + r.height / 2 - gr.top;
                 if (end <= top) return;
@@ -121,7 +133,13 @@
             setChev(g, open);
         }
         function closeCards() {
-            groups.forEach(function (g) { var c = cardOf(g); if (c) c.classList.remove('is-open'); g.classList.remove('has-card'); });
+            groups.forEach(function (g) {
+                var c = cardOf(g), sp = spaceOf(g);
+                if (c) c.classList.remove('is-open');
+                if (sp) sp.hidden = true;
+                g.classList.remove('has-card');
+            });
+            measureLive();
         }
         function closeFlies() {
             clearTimeout(flyTimer);
@@ -129,17 +147,28 @@
         }
 
         // The card is in flow now (nothing to place); kept as a hook for callers and for a future floating variant.
-        function placeCard(g) { /* in flow */ }
+        // Centred on the spine (28 px in from the sidebar's edge), level with its spacer in the sidebar.
+        function placeCard(g) {
+            var c = cardOf(g), sp = spaceOf(g);
+            if (!c || !sp || isRail() || !c.classList.contains('is-open')) return;
+            var w = c.offsetWidth || 200, h = c.offsetHeight || 200;
+            sp.style.height = h + 'px';
+            var sr = sp.getBoundingClientRect(), sb0 = sb.getBoundingClientRect();
+            c.style.top = Math.round(sr.top) + 'px';
+            c.style.left = Math.round(sb0.right - 28 - w / 2) + 'px';
+            c.setAttribute('data-placed', '1');
+        }
         function replaceOpenCards() {
             groups.forEach(function (g) { var c = cardOf(g); if (c && c.classList.contains('is-open')) placeCard(g); });
         }
         function openCard(g) {
             closeCards();
-            placeCard(g);
-            var c = cardOf(g);
-            if (!c) return;
+            var c = cardOf(g), sp = spaceOf(g);
+            if (!c || !sp) return;
+            sp.hidden = false;
             c.classList.add('is-open');
             g.classList.add('has-card');
+            placeCard(g);
             measureLive();
         }
 
