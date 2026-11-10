@@ -426,7 +426,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 
 /* The job strip: a head's job across the top of her pages (Penny's duplicate receipt). A hairline rail runs
    through the middle: what the two receipts say, the two photos, the two answers, then where it lands. */
-.it-job { margin: 0; padding: 12px 20px 8px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job { margin: 0; padding: 8px 20px 6px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job[hidden], .it-job [hidden] { display: none; }
 .it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
 .it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
@@ -449,6 +449,8 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 /* The decision and the picture are two cards side by side: the strip left, the graph in its own right column */
 .it-job-outer { container-type: inline-size; margin: 0 0 24px; }
 .it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; column-gap: 24px; align-items: start; }
+/* no picture yet (Yui): the strip takes the whole row */
+.it-job-wrap:has(> .it-job-viz[hidden]) { grid-template-columns: minmax(0, 1fr); }
 /* the graph stays to the right on every desktop width (Tim); a tight strip scrolls its rail instead */
 @media (max-width: 1023px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
@@ -469,12 +471,12 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 2px; margin-top: -1px; }
 .it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 2px; margin: -1px 0 0; }
 .it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
-.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 20px; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-bottom: 16px; min-width: 0; overflow-x: auto; overflow-y: hidden; }
 /* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
 .it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
 .it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
 /* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
-.it-job-split { display: flex; align-items: center; gap: 10px; padding: 20px 10px 20px 40px; margin-left: -32px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 12px 10px 12px 40px; margin-left: -32px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
 .it-job-conf { z-index: 2; }
 /* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
 .it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
@@ -494,13 +496,13 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-disc-differs { background: var(--it-sunk); border: 2px solid var(--it-status-attention); color: var(--it-status-attention); }
 .it-job-disc-missing { background: var(--it-sunk); border: 2px solid var(--it-meta); color: var(--it-meta); }
 .it-job-disc-info { background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
-.it-job-imgs { min-width: 104px; row-gap: 22px; }
-.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 104px; }
+.it-job-imgs { min-width: 96px; row-gap: 10px; }
+.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 96px; }
 .it-job-imgs .it-job-fig:first-child { align-self: end; }
 .it-job-imgs .it-job-fig:last-child { align-self: start; }
-.it-job-fig img, .it-job-noimg { display: block; width: 104px; aspect-ratio: 4 / 3; height: auto; object-fit: cover; border-radius: 10px; background: var(--it-sunk); }
+.it-job-fig img, .it-job-noimg { display: block; width: 48px; aspect-ratio: 4 / 3; height: auto; object-fit: cover; border-radius: 10px; background: var(--it-sunk); }
 .it-job-fig.is-keep img, .it-job-fig.is-keep .it-job-noimg { outline: 2px solid var(--it-brand); outline-offset: 0; }
-.it-job-fig figcaption { font-size: 12px; line-height: 16px; color: var(--it-meta); text-align: center; }
+.it-job-fig figcaption { font-size: 12px; line-height: 16px; color: var(--it-meta); text-align: center; max-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .it-job-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
 .it-job-acts { min-width: 148px; }
 .it-job-acts .it-btn-fill { align-self: end; }
@@ -544,6 +546,30 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 @container (max-width: 900px) {
   .it-job-rail { gap: 16px; }
 }
+
+/* Yui's job strip: a message on the left, the form that answers it on the right */
+.it-job-yui .it-job-split { padding-top: 16px; padding-bottom: 16px; }
+.it-job-left { min-width: 240px; max-width: 320px; justify-items: start; grid-template-rows: none; }
+.it-job-what { display: grid; gap: 2px; justify-items: start; }
+.it-job-who { font-size: 14px; line-height: 20px; font-weight: 600; }
+.it-job-at { font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-subj { font-size: 14px; line-height: 20px; font-weight: 500; }
+.it-job-quote { margin: 0; font-size: 14px; line-height: 20px; color: var(--it-text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.it-job-addr, .it-job-why { margin: 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-more { margin: 0; padding: 0; list-style: none; }
+.it-job-more li { font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-right { min-width: 300px; max-width: 360px; display: block; }
+.it-job-form { display: grid; gap: 8px; }
+.it-job-form label { display: grid; gap: 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-ctl { min-height: 44px; padding: 0 12px; border: var(--it-stroke-hairline) solid var(--it-meta); border-radius: 10px; background: var(--it-surface); color: var(--it-text); font: inherit; font-size: 14px; }
+textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
+.it-job-warn { display: flex; gap: 6px; align-items: center; margin: 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--it-status-attention); }
+.it-job-found { list-style: none; margin: 0; padding: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 10px; max-height: 176px; overflow: auto; }
+.it-job-found:empty { display: none; }
+.it-job-found button { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 0 12px; background: none; border: 0; font: inherit; font-size: 14px; color: var(--it-text); text-align: left; cursor: pointer; }
+.it-job-found button:hover { background: var(--it-selected); }
+.it-job-draft { display: inline-flex; align-items: center; justify-self: start; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; font-size: 14px; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-ctl:focus-visible, .it-job-found button:focus-visible, .it-job-draft:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 
 /* Reduced motion: nothing slides, fades or rotates; open things simply appear */
 @media (prefers-reduced-motion: reduce) {
