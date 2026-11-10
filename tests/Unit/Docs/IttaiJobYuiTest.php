@@ -80,7 +80,7 @@ class IttaiJobYuiTest extends TestCase
         $this->assertStringContainsString('<summary>Earlier in the thread</summary>', $inc);
         $this->assertStringContainsString("JSON.parse(JSON.stringify(card.read))", $js, 'the exact read request the card carries');
         $this->assertStringContainsString("put('.it-job-fulltext', l.text || '')", $js, 'the full short text shows before the fetch');
-        $this->assertStringContainsString("queue[0].key !== token", $js, 'a late answer never lands on the next card');
+        $this->assertStringContainsString("queue[0]._rid !== token", $js, 'a late answer never lands on the next card');
         $this->assertDoesNotMatchRegularExpression('/innerHTML|insertAdjacentHTML/', $js);
     }
 }

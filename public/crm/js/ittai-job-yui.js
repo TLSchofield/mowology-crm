@@ -213,9 +213,9 @@
         q('.it-job-read').hidden = true;
         if (!card.read || typeof card.read !== 'object') return;
         put('.it-job-fullmeta', 'Reading the mailbox…');
-        var token = card.key;
+        var token = card._rid;
         post(card.api || api, JSON.parse(JSON.stringify(card.read))).then(function (d) {
-            if (!queue[0] || queue[0].key !== token) return;   // the card moved on meanwhile
+            if (!queue[0] || queue[0]._rid !== token) return;   // the card moved on meanwhile
             if (!(d && d.ok)) { put('.it-job-fullmeta', (d && (d.message || d.error)) || 'Could not read the mailbox — this is what Yui kept.'); return; }
             if (d.text) put('.it-job-fulltext', String(d.text));
             var ear = q('.it-job-earlier');
@@ -234,9 +234,11 @@
         else if (t.closest('.it-job-readless')) readLess();
     });
 
+    var renderSeq = 0;
     function render() {
         var card = queue[0];
         if (!card) return;
+        card._rid = ++renderSeq;   // a late mailbox answer is matched to the render it was asked from, never to the next card
         put('.it-job-tt', card.title);
         var l = card.left || {};
         put('.it-job-who', l.name);
