@@ -70,7 +70,7 @@ $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__
     $keepLabel = (string)(($j['keep'] ?? [])['label'] ?? '');
     $copyLabel = (string)(($j['copy'] ?? [])['label'] ?? '');
     return '<div class="it-job-rail"><div class="it-job-cmp">'
-        . '<div class="it-job-lead"><span class="it-job-conf" role="img" aria-label="Penny proposes; your approval decides"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span></div>'
+        . '<div class="it-job-lead"></div>'
         . '<div class="it-job-hd"><span class="it-job-l it-job-keeplbl">' . h($keepLabel) . '</span><span class="it-job-m"></span><span class="it-job-r it-job-copylbl">' . h($copyLabel) . '</span></div>'
         . '<ol class="it-job-rows">' . $rows . '</ol>'
         . '<div class="it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true) . '<span class="it-job-m"></span>' . $__ijFig((array)($j['copy'] ?? []), false) . '</div>'
@@ -110,4 +110,6 @@ itIconSprite();
 </section>
 <?= $__ijViz($__ijPulse ?? null) ?>
 </div>
+<?php /* The confidence triangle sits on the line between the head's card and the decision (JS places it) */ ?>
+<span class="it-job-conf" data-head="penny" role="img" aria-label="Penny proposes; your approval decides" hidden><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>
 <script src="<?= function_exists('_av') ? _av('/crm/js/ittai-job.js') : '/crm/js/ittai-job.js' ?>" defer></script>
