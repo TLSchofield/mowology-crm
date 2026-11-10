@@ -156,6 +156,25 @@ final class SubcontractRulesTest extends TestCase
         $this->assertSame([2, 3, 1], array_column($rows, 'job_id'));
     }
 
+    public function testKanameHearsWhatNeedsYouFirstThenTheDaysNews(): void
+    {
+        $row = ['job_id' => 1, 'company' => 'Fern Tree Gardens', 'title' => 'Fall clean up', 'address' => '3757 Puget Drive', 'url' => '/v', 'action' => null,
+                'at' => 'Took it', 'last' => 'Took the job', 'last_at' => '2026-11-10 11:29:00'];
+        $news = SubcontractRules::briefItems([$row], self::NOW);
+        $this->assertSame('Fern Tree Gardens: took the job, Fall clean up at 3757 Puget Drive.', $news[0]['text']);
+        $this->assertSame(3, $news[0]['priority']);
+        $this->assertSame([], SubcontractRules::briefItems([['last_at' => '2026-11-09 10:00:00'] + $row], self::NOW), 'news is a day old at most');
+        $this->assertSame([], SubcontractRules::briefItems([['last' => 'Link sent'] + $row], self::NOW), 'your own clicks are not news');
+
+        $finished = ['job_id' => 2, 'action' => 'accept', 'company' => 'University Landscapers inc.', 'title' => 'Sprinkler blowout', 'address' => '70 West 18th Avenue',
+                     'at' => 'Photos in', 'last' => 'Finished', 'last_at' => '2026-11-08 09:00:00'] + $row;
+        $both = SubcontractRules::briefItems([$row, $finished], self::NOW);
+        $this->assertSame(1, $both[1]['priority']);
+        $this->assertSame('otto:sub:2:accept', $both[1]['key']);
+        $this->assertSame('University Landscapers inc. finished Sprinkler blowout at 70 West 18th Avenue. Accept the work?', SubcontractRules::spaceLine([$row, $finished], self::NOW)['text']);
+        $this->assertNull(SubcontractRules::spaceLine([], self::NOW));
+    }
+
     public function testOnSiteAllowsForARoughReading(): void
     {
         $this->assertTrue(SubcontractRules::onSite(49.2827, -123.1207, 20, 49.2828, -123.1208));

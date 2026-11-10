@@ -254,6 +254,11 @@ class OpsDeskService
             require_once __DIR__ . '/OttoHarvestService.php';
             foreach ((new OttoHarvestService($this->db, $this->today))->briefItems() as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only */ }
+        // Jobs given to other companies: what needs the owner (Accept, Mark paid, a refusal), then the day's news.
+        try {
+            require_once dirname(__DIR__, 2) . '/Subcontract/Services/SubcontractService.php';
+            foreach ((new SubcontractService($this->db))->briefItems() as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only (migration 1448) */ }
         $out = OttoRules::sortItems($out);
         return ['head' => 'otto', 'headline' => $headline, 'items' => $out, 'count' => count($out)];
     }

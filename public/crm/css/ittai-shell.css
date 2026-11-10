@@ -437,6 +437,10 @@ body.it-shell.it-shell .it-kan-space b { font-weight: 600; }
 body.it-shell.it-shell .it-kan-space .it-kan-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-meta); }
 body.it-shell.it-shell .it-kan-space .it-kan-open { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; color: var(--it-text); }
 body.it-shell.it-shell .it-kan-space .it-kan-open:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+body.it-shell.it-shell .it-kan-space .it-kan-sub { display: inline-flex; align-items: center; min-height: 44px; max-width: 45%; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-text); font-weight: 500; text-decoration: none; border-left: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.it-shell .it-kan-space .it-kan-sub:hover { text-decoration: underline; }
+body.it-shell.it-shell .it-kan-space .it-kan-sub:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+@media (max-width: 640px) { body.it-shell.it-shell .it-kan-space .it-kan-sub { display: none; } }
 
 /* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
 body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
