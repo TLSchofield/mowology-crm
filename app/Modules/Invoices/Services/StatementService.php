@@ -143,12 +143,13 @@ class StatementService
     /** All invoices billable to a contact: direct, via their properties, or their plans. */
     /**
      * What this contact's statement draws on: the account names, how many properties, and the account of the newest invoice
-     * still owing (else the newest). One building on two account records (a person filed twice) is still one client.
-     * @return array{accounts: string[], properties: int, name: string}
+     * still owing (else the newest). same_place: every invoice is on one property AND billed to one company, the only proof
+     * that two account records are one client filed twice (property alone is not: a landlord and a tenant share one).
+     * @return array{accounts: string[], same_place: bool, name: string}
      */
     public function coverage(int $contactId): array
     {
-        $names = []; $props = []; $owing = null; $newest = null;
+        $names = []; $props = []; $cos = []; $owing = null; $newest = null;
         foreach ($this->getContactInvoices($contactId) as $i) {
             $id = (int)($i['client_id'] ?? 0);
             if (!isset($names[$id])) {
@@ -161,10 +162,12 @@ class StatementService
                 $names[$id] = $name !== '' ? $name : 'your account';
             }
             $props[(int)($i['property_id'] ?? 0)] = true;
+            $cos[(int)($i['company_id'] ?? 0)] = true;
             $newest = $names[$id];
             if ((float)($i['balance_due'] ?? 0) > 0) $owing = $names[$id];
         }
-        return ['accounts' => array_values($names), 'properties' => count($props), 'name' => (string)($owing ?? $newest ?? '')];
+        $same = count($props) === 1 && !isset($props[0]) && count($cos) === 1 && !isset($cos[0]);
+        return ['accounts' => array_values($names), 'same_place' => $same, 'name' => (string)($owing ?? $newest ?? '')];
     }
 
     /** The statement PDF: ['success'=>bool, 'path'=>, 'filename'=>, 'error'=>]. Web requests only (CRM_INCLUDES). */
@@ -201,7 +204,7 @@ class StatementService
             $params  = array_merge($params, $planIds);
         }
         $stmt = $this->db->prepare("
-            SELECT DISTINCT i.id, i.client_id, i.property_id, i.invoice_number, i.status, i.total, i.balance_due,
+            SELECT DISTINCT i.id, i.client_id, i.property_id, i.company_id, i.invoice_number, i.status, i.total, i.balance_due,
                    i.issue_date, i.due_date, i.amount_paid, i.payment_method, i.paid_at
             FROM invoices i
             WHERE (" . implode(' OR ', $where) . ")

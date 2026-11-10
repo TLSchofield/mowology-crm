@@ -37,7 +37,7 @@ final class YuiStatementOffer
         $no = fn(string $why) => ['offer' => false, 'why' => $why, 'closing' => $closing, 'label' => $label, 'account' => '', 'recipients' => []];
         if (!empty($in['hold'])) return $no('That message needs a phone call first.');
         if (!$accounts) return $no('There are no invoices on file to put on a statement.');
-        if (count($accounts) > 1 && (int)($in['properties'] ?? 2) > 1) return $no('Their invoices are on ' . count($accounts) . ' accounts, so one statement would show one client another\'s balance. Use the statement page.');
+        if (count($accounts) > 1 && empty($in['same_place'])) return $no('Their invoices are on ' . count($accounts) . ' accounts, so one statement would show one client another\'s balance. Use the statement page.');
 
         $fileAddr = strtolower(trim((string)($in['on_file']['email'] ?? '')));
         $askAddr = strtolower(trim((string)($in['asker']['email'] ?? '')));
@@ -83,7 +83,7 @@ final class YuiStatementOffer
             $name = trim((string)($m['from_name'] ?? ''));
             $cov = $svc->coverage($contactId);
             $offer = self::decide(['hold' => !empty($item['hold']), 'closing' => (float)$data['ledger']['closing'], 'label' => (string)$data['period']['label'],
-                'accounts' => $cov['accounts'], 'properties' => $cov['properties'], 'name' => $cov['name'], 'asker' => ['name' => $name, 'email' => (string)$m['from_addr']],
+                'accounts' => $cov['accounts'], 'same_place' => $cov['same_place'], 'name' => $cov['name'], 'asker' => ['name' => $name, 'email' => (string)$m['from_addr']],
                 'on_file' => ['name' => (string)($data['recipient']['name'] ?? ''), 'email' => (string)($data['recipient']['email'] ?? '')]]);
             [$first] = $name !== '' ? EmailLeadService::splitName($name, (string)$m['from_addr']) : [''];   // never "Hi Rperera" from an address
             $offer['draft'] = $offer['offer'] ? self::draft($offer, $first, (string)$m['subject'], $owner) : null;

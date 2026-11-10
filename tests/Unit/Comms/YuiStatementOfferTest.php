@@ -65,14 +65,14 @@ class YuiStatementOfferTest extends TestCase
 
     public function test_one_building_filed_under_two_accounts_is_still_one_client(): void
     {
-        $o = YuiStatementOffer::decide($this->input(['accounts' => ['Pat Lee', 'Acme Holdings Ltd'], 'properties' => 1, 'name' => 'Acme Holdings Ltd']));
+        $o = YuiStatementOffer::decide($this->input(['accounts' => ['Pat Lee', 'Acme Holdings Ltd'], 'same_place' => true, 'name' => 'Acme Holdings Ltd']));
         $this->assertTrue($o['offer']);
         $this->assertSame('Acme Holdings Ltd', $o['account']);
     }
 
     public function test_several_accounts_are_refused(): void
     {
-        $o = YuiStatementOffer::decide($this->input(['accounts' => ['Strata One', 'Strata Two'], 'properties' => 2]));
+        $o = YuiStatementOffer::decide($this->input(['accounts' => ['Strata One', 'Strata Two'], 'same_place' => false]));
         $this->assertFalse($o['offer']);
         $this->assertStringContainsString('2 accounts', (string)$o['why']);
         $this->assertSame([], $o['recipients']);

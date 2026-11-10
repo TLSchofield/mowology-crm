@@ -219,11 +219,20 @@ class YuiDraftService
             return ['ok' => false, 'message' => 'That one is already going out — give it a minute.'];
         }
         // The statement is built here, from the books, never from anything the browser sent. No PDF, no email.
+        // The note Tim read quotes the balance from when the card loaded: if a payment has landed since, it would contradict the PDF.
         $attachment = null;
         if ($isStatement) {
-            require_once APP_ROOT . '/Modules/Invoices/Services/StatementService.php';
-            $statements = new StatementService($this->db);
-            $pdf = $statements->pdf($statements->getStatementData((int)$item['contact_id'], null, null, true));
+            try {
+                require_once APP_ROOT . '/Modules/Invoices/Services/StatementService.php';
+                $statements = new StatementService($this->db);
+                $data = $statements->getStatementData((int)$item['contact_id'], null, null, true);
+                if (round((float)$data['ledger']['closing'], 2) !== round((float)($in['closing'] ?? -1), 2)) {
+                    return ['ok' => false, 'message' => 'The balance has changed since you opened this. Reload the card and check the note.'];
+                }
+                $pdf = $statements->pdf($data);
+            } catch (Throwable $e) {
+                $pdf = ['success' => false];
+            }
             if (empty($pdf['success'])) return ['ok' => false, 'message' => "I couldn't build the statement, so nothing was sent."];
             $attachment = (string)$pdf['path'];
         }
@@ -234,6 +243,7 @@ class YuiDraftService
             $channel === 'email' ? $subject : null, $keepBody, null, null);
 
         $r = $channel === 'sms' ? sendSms($dest, $body) : sendEmail($dest, $subject, $this->emailHtml($body), $attachment);
+        if ($attachment !== null && is_file($attachment)) @unlink($attachment);   // a client's balance does not stay on disk
         $ok = !empty($r['success']);
         if ($ok) $this->logMessage($cid, $channel, $dest, $subject, $keepBody);   // history first: it is what stops a resend
 

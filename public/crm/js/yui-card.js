@@ -330,7 +330,8 @@
         var o = it.statement, list = o.recipients || [];
         var pick = null;
         list.forEach(function (r) { if (r.email === st.recipient) pick = r; });
-        if (!pick) { pick = list[0]; st.recipient = pick.email; }
+        // Someone not on file is offered, never chosen for Tim: the default is the person on file when there is one.
+        if (!pick) { pick = list.filter(function (r) { return r.on_file; })[0] || list[0]; st.recipient = pick.email; }
         return '<div class="mw-sam-count">Statement attached · ' + esc(o.account) + ' · ' + esc(o.label) + ' · <b>' + esc(money2(o.closing)) + '</b></div>' +
             '<label class="mw-sam-lbl">Send to<select class="mw-sam-in" data-f="recipient">' + list.map(function (r) {
                 return '<option value="' + esc(r.email) + '"' + (r.email === st.recipient ? ' selected' : '') + '>' + esc(r.name) + ' · ' + esc(r.email) + (r.on_file ? ' · on file' : '') + '</option>';
@@ -394,7 +395,6 @@
 
         if (act === 'write') { variant[key] = null; open = open === key ? null : key; render(); return; }
         if (act === 'statement') { var open2 = open === key && variant[key] === 'statement'; variant[key] = 'statement'; state(it).channel = 'email'; open = open2 ? null : key; render(); return; }
-        if (act === 'write') { variant[key] = null; }
         if (act === 'autopay') { var was = open === key && variant[key] === 'autopay'; variant[key] = 'autopay'; open = was ? null : key; render(); return; }
         if (act === 'close') { open = null; render(); return; }
 
@@ -425,7 +425,7 @@
             var st = state(it), sms = st.channel === 'sms';
             post({ mode: 'send', key: key, channel: st.channel, subject: sms ? '' : st.subject, body: sms ? st.sms : st.body,
                    suggested_body: sms ? st.suggested_sms : st.suggested_body, drafted_by: st.drafted_by,
-                   template: variant[key] || '', recipient: st.recipient || '' }).then(function (d) {
+                   template: variant[key] || '', recipient: st.recipient || '', closing: it.statement ? it.statement.closing : null }).then(function (d) {
                 if (d && d.ok) { drop(key); if (stats) stats.sent_30 = (stats.sent_30 || 0) + 1; renderTop(); done(d.message); }
                 else done(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t go out — try again.');
             }).catch(function () { done('Network error — nothing was sent. Try again.'); });
