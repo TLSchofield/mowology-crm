@@ -53,14 +53,15 @@ $__ijFig = static function (array $side, bool $keep): string {
 };
 // The rail for one job; null prints the empty skeleton the script clones for the next job.
 $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__ijFig, $__ijFlags): string {
-    // The phone's table, kept vertical so the hand learns it: kept on the left, waiting on the right, the spine down
-    // the middle, each disc on the line at its row's hairline; the confidence triangle at the top of the spine.
-    $rows = '';
+    // The phone's sentence read left to right (Tim, 2026-11-10): the line from the head's card runs on as the rail;
+    // kept receipt ABOVE it, waiting receipt BELOW, each disc on the rail where the two still touch; the receipts and
+    // the two choices stacked the same way; the line comes back together into the Ledger at the end.
+    $cols = '';
     foreach ((array)($j['columns'] ?? []) as $c) {
         $st = (string)$c['state'];
-        $rows .= '<li class="it-job-row"><span class="it-job-l">' . h($c['top']) . '</span>'
+        $cols .= '<li class="it-job-col"><span class="it-job-top">' . h($c['top']) . '</span>'
             . '<span class="it-job-disc it-job-disc-' . h($st) . '" role="img" aria-label="' . h($c['label'] . ': ' . ($__ijWord[$st] ?? 'info')) . '">' . $__ijSvg($__ijIcon[$st] ?? 'info') . '</span>'
-            . '<span class="it-job-r">' . h($c['bottom']) . '</span></li>';
+            . '<span class="it-job-bot">' . h($c['bottom']) . '</span></li>';
     }
     $btn = static function (string $cls, string $icon, ?array $a) use ($__ijSvg, $__ijFlags): string {
         return '<button type="button" class="it-btn ' . $cls . '"' . ($a ? ' data-request="' . h(json_encode($a['request'], $__ijFlags)) . '"' : '') . '>'
@@ -69,14 +70,15 @@ $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__
     $anchor = (array)($j['anchor'] ?? ['label' => 'Ledger', 'href' => '/crm/ledger/']);
     $keepLabel = (string)(($j['keep'] ?? [])['label'] ?? '');
     $copyLabel = (string)(($j['copy'] ?? [])['label'] ?? '');
-    return '<div class="it-job-rail"><div class="it-job-cmp">'
-        . '<div class="it-job-lead"></div>'
-        . '<div class="it-job-hd"><span class="it-job-l it-job-keeplbl">' . h($keepLabel) . '</span><span class="it-job-m"></span><span class="it-job-r it-job-copylbl">' . h($copyLabel) . '</span></div>'
-        . '<ol class="it-job-rows">' . $rows . '</ol>'
-        . '<div class="it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true) . '<span class="it-job-m"></span>' . $__ijFig((array)($j['copy'] ?? []), false) . '</div>'
-        . '<div class="it-job-acts">' . $btn('it-btn-fill', 'merge', $j['primary'] ?? null) . '<span class="it-job-m"></span>' . $btn('it-btn-line', 'split', $j['secondary'] ?? null) . '</div>'
+    return '<div class="it-job-rail">'
+        . '<a class="it-job-anchor it-job-anchor-start" href="/crm/receipts-review_appstack.php"><span class="it-ad it-ad-fill">' . $__ijSvg('copies') . '</span><span>Receipts</span></a>'
+        . '<span class="it-job-conf" role="img" aria-label="Penny proposes; your approval decides"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>'
+        . '<div class="it-job-col it-job-lblcol"><span class="it-job-top it-job-keeplbl">' . h($keepLabel) . '</span><span class="it-job-m"></span><span class="it-job-bot it-job-copylbl">' . h($copyLabel) . '</span></div>'
+        . '<ol class="it-job-cols">' . $cols . '</ol>'
+        . '<div class="it-job-col it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true) . '<span class="it-job-m"></span>' . $__ijFig((array)($j['copy'] ?? []), false) . '</div>'
+        . '<div class="it-job-col it-job-acts">' . $btn('it-btn-fill', 'merge', $j['primary'] ?? null) . '<span class="it-job-m"></span>' . $btn('it-btn-line', 'split', $j['secondary'] ?? null) . '</div>'
         . '<a class="it-job-anchor" href="' . h($anchor['href']) . '"><span class="it-ad">' . $__ijSvg('book') . '</span><span>' . h($anchor['label']) . '</span></a>'
-        . '</div></div>';
+        . '</div>';
 };
 $__ij = $__ijJobs[0];
 // The one picture beside the decision (Tim, 2026-11-10): six months of approved spend, this month marked, and the
@@ -99,7 +101,7 @@ $__ijViz = static function (?array $p): string {
 };
 itIconSprite();
 ?>
-<div class="it-job-wrap">
+<div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job" data-head="penny" aria-label="Penny's job">
   <h2 class="it-job-t"><span class="it-job-tt"><?= h($__ij['title']) ?></span> <span class="it-tag">AI</span><span class="it-job-c"><?= h($__ij['confidence']) ?></span></h2>
   <div class="it-job-body"><?= $__ijRail($__ij) ?></div>
@@ -109,7 +111,5 @@ itIconSprite();
   <script type="application/json" class="it-job-data"><?= json_encode($__ijJobs, $__ijFlags) ?></script>
 </section>
 <?= $__ijViz($__ijPulse ?? null) ?>
-</div>
-<?php /* The confidence triangle sits on the line between the head's card and the decision (JS places it) */ ?>
-<span class="it-job-conf" data-head="penny" role="img" aria-label="Penny proposes; your approval decides" hidden><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>
+</div></div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/ittai-job.js') : '/crm/js/ittai-job.js' ?>" defer></script>
