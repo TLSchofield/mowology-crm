@@ -82,6 +82,18 @@ class InboundQuestionServiceTest extends TestCase
         $this->assertSame(1, $this->rows('contacts', "id = $cid"));
     }
 
+    public function testSomeoneWhoWroteManyTimesIsOneQuestion(): void
+    {
+        $this->row('pat@x.test', 'Pat Lee', ['sent_at' => '2026-11-01 10:00:00', 'subject' => 'Older']);
+        $this->row('pat@x.test', 'Pat Lee', ['sent_at' => '2026-11-05 10:00:00', 'subject' => 'Newest']);
+        $this->row('kim@y.test', 'Kim Fox', ['sent_at' => '2026-11-03 10:00:00']);
+        $q = $this->svc->questions();
+        $this->assertCount(2, $q);
+        $this->assertSame('Newest', $q[0]['subject']);
+        $this->assertSame(1, $q[0]['more']);
+        $this->assertSame(0, $q[1]['more']);
+    }
+
     public function testANewPersonBecomesAContactWithNoConsentAtAll(): void
     {
         $id = $this->row('pat@acme-holdings.test');
