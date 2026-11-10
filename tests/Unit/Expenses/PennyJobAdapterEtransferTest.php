@@ -134,6 +134,10 @@ class PennyJobAdapterEtransferTest extends TestCase
         $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'leftover', 'lines' => []])));
         $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'none', 'lines' => []])));
         $this->assertFalse(PennyJobAdapter::proposes($this->read(['lines' => []])));
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['kind' => 'named_check'])), 'memo names invoices that do not add up or are unclear: the card');
+        $this->assertFalse(PennyJobAdapter::proposes($this->read(['credit' => ['amount' => 50.0, 'with_record' => true, 'already_paid' => []]])), 'more than the invoice owes: the card offers the credit');
+        $this->assertTrue(PennyJobAdapter::proposes($this->read(['credit' => ['amount' => 50.0, 'with_record' => false, 'already_paid' => []]])), 'a part-recorded leftover credit does not block a proposal with lines');
+        $this->assertTrue(PennyJobAdapter::proposes($this->read(['kind' => 'likely'])));
     }
 
     public function testSureOfMatch(): void

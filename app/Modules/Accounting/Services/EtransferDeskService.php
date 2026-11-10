@@ -64,10 +64,15 @@ class EtransferDeskService
         // EtransferInboxService::namedInvoices(), the invoices page asks the same). 2026-11-05.
         $named = $active > 0 ? $this->inbox->namedInvoices($et['memo'] ?? null, $active) : null;
 
+        // A "medium" match is the one open invoice whose balance equals the transfer to the cent (matchInvoice step 2):
+        // that invoice is the proposal, never an oldest-first spread over the payer's other invoices (the Invoices card's
+        // $exactMatch guard, 2026-10-23: John Hughes' $1,890.00 cleared INV-2026-0465 exactly and the spread named ten).
+        // Missing here until 2026-11-10 (review of the job strip): Penny's card and the strip proposed the spread.
+        $exact = self::exactMatch($et, (string)$conf, $matchedNo, $active);
         $duplicate = null; $spread = []; $value = null;
         if (!$named && !$hasInvoice && $active > 0) {
             $duplicate = $this->inbox->findLikelyDuplicatePayment($et['sender_name'] ?? null, $active, $et['email_date'] ?? null);
-            if (!$duplicate) {
+            if (!$duplicate && !$exact) {
                 $spread = $this->inbox->suggestFifoAllocation($et['sender_name'] ?? null, $active);
                 if (!$spread) $value = $this->inbox->suggestFifoAllocationByValue($active, $et['sender_name'] ?? null, $et['memo'] ?? null);
             }
@@ -140,6 +145,16 @@ class EtransferDeskService
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Pure (tested): the "medium" match IS the proposal — one open invoice whose balance equals the transfer to the
+     * cent — so no oldest-first spread is offered over it (the Invoices card's $exactMatch, 2026-10-23).
+     */
+    public static function exactMatch(array $et, string $conf, string $matchedNo, float $active): bool
+    {
+        return $conf === 'medium' && !empty($et['matched_invoice_id']) && $matchedNo !== ''
+            && abs((float)($et['matched_balance'] ?? 0) - $active) < 0.01;
+    }
 
     /** Pure (tested): a payment bigger than the invoice it names. */
     public static function sayOver(string $sender, float $active, array $line, float $over, array $alreadyPaid): string

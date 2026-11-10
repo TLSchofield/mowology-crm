@@ -91,7 +91,7 @@ class PennyJobAdapter
             $desk = new EtransferDeskService($db);
             $rows = $inbox->listPending();
             $out = [];
-            foreach (array_slice($rows, 0, 25) as $et) {
+            foreach (array_slice($rows, 0, 10) as $et) {   // the desk queue's cap: each read costs a few queries
                 $read = $desk->read($et);
                 if (!self::proposes($read)) continue;
                 $facts = $inbox->invoiceFacts(array_map(fn($l) => (string)$l['invoice'], $read['lines']));
@@ -104,11 +104,19 @@ class PennyJobAdapter
         }
     }
 
-    /** Pure: does Penny's reading of a transfer carry an invoice she proposes recording it against? */
+    /**
+     * Pure: does Penny's reading of a transfer carry an invoice the strip may offer Record for, in one press?
+     * Not when she thinks it is already recorded (duplicate), has nothing to propose (leftover, none), when the memo
+     * names invoices that do not add up or are unclear (named_check: the card shows what is over, short or ambiguous),
+     * or when the transfer is more than the one invoice owes (credit.with_record: the card offers "record and keep
+     * the rest as credit"; a plain record would leave it part-recorded). Those stay on the card (review, 2026-11-10).
+     */
     public static function proposes(array $read): bool
     {
         if (empty($read['lines']) || !is_array($read['lines'])) return false;
-        return !in_array((string)($read['kind'] ?? ''), ['duplicate', 'leftover', 'none'], true);
+        if (in_array((string)($read['kind'] ?? ''), ['duplicate', 'leftover', 'none', 'named_check'], true)) return false;
+        if (!empty($read['credit']['with_record'])) return false;
+        return true;
     }
 
     /**
