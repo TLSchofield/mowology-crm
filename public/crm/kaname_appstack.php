@@ -8,7 +8,20 @@ requireLogin();
 $user = getCurrentUser();
 
 require_once APP_ROOT . '/Services/HeadIdentity.php';
+require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
 require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadNavService.php';
+
+// The brief is the owner's (the Action Board's gate): anyone else goes back to the dashboard.
+try {
+    $__desk = new CharlieDeskService(getDB());
+    $__owner = $__desk->ready() && $__desk->isOwner((array)$user);
+} catch (Throwable $__e) {
+    $__owner = false;
+}
+if (!$__owner) {
+    header('Location: /crm/dashboard_appstack.php', true, 302);
+    exit;
+}
 require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/KanameWorkspaceService.php';
 
 $__chief = HeadIdentity::chiefName();

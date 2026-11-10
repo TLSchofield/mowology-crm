@@ -64,11 +64,20 @@ class IttaiShellTest extends TestCase
         $this->assertSame($n, preg_match_all('/it-s it-s-[^\n]*<use href="#it-st-/', $b), 'a state is never colour alone: each state span carries its glyph');
     }
 
-    public function testClassicAndLedgerBranchesAreUntouched(): void
+    /** Everything outside the it-shell block (the Ledger-only and classic menus) carries none of the new markup. */
+    public function testClassicAndLedgerBranchesCarryNoneOfTheNewMarkup(): void
     {
         $s = $this->src('public/crm/includes/appstack_sidebar.php');
-        $this->assertStringContainsString('_idFromName', $s);
-        $this->assertStringContainsString('mwLedgerPages', $s);
+        $a = strpos($s, 'if (!empty($itShell)):');
+        $b = strpos($s, '<?php return; endif;', $a);
+        $this->assertNotFalse($a);
+        $this->assertNotFalse($b);
+        $outside = substr($s, 0, $a) . substr($s, $b);
+        $this->assertStringContainsString('mwLedgerPages', $outside);
+        $this->assertStringContainsString('_idFromName', $outside);
+        foreach (['it-grp', 'it-hp', 'it-fly', 'HeadNavService', 'itIconSprite', 'it-pcard'] as $new) {
+            $this->assertStringNotContainsString($new, $outside, $new . ' must stay inside the it-shell block');
+        }
     }
 
     public function testKanameLivesOnlyInTheHeadBlocks(): void

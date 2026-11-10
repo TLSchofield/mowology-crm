@@ -215,7 +215,8 @@
                 if (sel) window.requestAnimationFrame(function () { openCard(sel); });
             }
         }
-        try { if (window.localStorage.getItem(RAIL_KEY) === '1') sb.classList.add('collapsed'); } catch (e) { /* private mode */ }
+        var desktop = !window.matchMedia || window.matchMedia('(min-width: 992px)').matches;
+        try { if (desktop && window.localStorage.getItem(RAIL_KEY) === '1') sb.classList.add('collapsed'); } catch (e) { /* private mode */ }
         if (cb) cb.addEventListener('click', function () { sb.classList.toggle('collapsed'); });
         document.querySelectorAll('.sidebar-toggle').forEach(function (t) {
             t.addEventListener('click', function () {

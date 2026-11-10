@@ -35,7 +35,8 @@ body.it-shell.it-shell .it-sidebar .it-ch { color: var(--it-meta); width: 16px; 
 
 /* AppStack hides the sidebar off-canvas under 992 px; the phone has its own menu */
 @media (max-width: 991.98px) {
-  body.it-shell.it-shell .sidebar.it-sidebar { margin-left: -280px; }
+  body.it-shell.it-shell .sidebar.it-sidebar,
+  body.it-shell.it-shell .sidebar.it-sidebar.collapsed { width: 280px; min-width: 280px; max-width: 280px; margin-left: -280px; }
   body.it-shell.it-shell .sidebar.it-sidebar.toggled { margin-left: 0; }
 }
 
@@ -178,7 +179,7 @@ body.it-shell.it-shell .it-pt2 span { display: block; font-size: 13px; line-heig
 @media (min-width: 992px) { body.it-shell.it-shell .navbar .sidebar-toggle { display: none; } }
 
 /* ── The rail: 72 px, one 52 px button per head, a flyout for its pages ── */
-body.it-shell.it-shell .sidebar.it-sidebar.collapsed { width: 72px; min-width: 72px; max-width: 72px; margin-left: 0; }
+@media (min-width: 992px) { body.it-shell.it-shell .sidebar.it-sidebar.collapsed { width: 72px; min-width: 72px; max-width: 72px; margin-left: 0; } }
 body.it-shell.it-shell .sidebar.collapsed .it-wm,
 body.it-shell.it-shell .sidebar.collapsed .it-grow > .it-gt,
 body.it-shell.it-shell .sidebar.collapsed .it-grow > .it-s,
@@ -352,6 +353,7 @@ body.it-shell.it-shell .mw-mobile-clock-btn { background: var(--it-tenant); colo
 .it-design .it-ws { background: var(--it-page); }
 .it-ws { --it-gap: 216px; padding: 24px 24px 48px 0; min-width: 0; font-family: var(--it-font-sans); color: var(--it-text); }
 @media (max-width: 1023px) { .it-ws { --it-gap: 0px; padding-left: 12px; } }
+body:not(.it-shell) .it-ws { --it-gap: 0px; }   /* beside the classic sidebar there is no card to clear */
 body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; padding: 0; }
 .it-ws ul { list-style: none; margin: 0; padding: 0; }

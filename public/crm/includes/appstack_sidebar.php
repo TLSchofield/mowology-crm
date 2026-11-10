@@ -50,11 +50,18 @@ require_once __DIR__ . '/nav-items.php';   // $navItems + badge counts, shared w
 // follow the Ittai v1.2 Six + One. Same items, permissions and badges as the classic menu below.
 if (!empty($itShell)):
     $__h = static function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
-    $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage);
+    // The brief behind the state words and Kaname's page is the owner's (same gate as the Action Board).
+    $__itOwner = false;
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+        $__itDesk = new CharlieDeskService(getDB());
+        $__itOwner = $__itDesk->ready() && $__itDesk->isOwner((array)$user);
+    } catch (Throwable $__e) { /* not the owner, then */ }
+    $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, $__itOwner);
     $__itNav = ['heads' => []];
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadNavService.php';
-        $__itNav = HeadNavService::forShell(getDB());
+        $__itNav = HeadNavService::forShell(getDB(), $__itOwner);
     } catch (Throwable $__e) { /* the menu still works without the state words */ }
     require_once APP_ROOT . '/Services/BusinessIdentity.php';
     require_once __DIR__ . '/ittai-icons.php';

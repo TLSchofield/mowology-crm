@@ -69,7 +69,8 @@ class KanameWorkspaceServiceTest extends TestCase
     {
         $b = KanameWorkspaceService::brief(null, '2026-11-10 07:45:10', [], $this->now);
         $this->assertSame('Morning brief · Tue 10 Nov', $b['heading']);
-        $this->assertSame('as of 7:45', $b['as_of']);
+        $this->assertSame('as of 7:45 am', $b['as_of']);
+        $this->assertSame('as of Sun 8 Nov, 9:15 pm', KanameWorkspaceService::brief(null, '2026-11-08 21:15:00', [], $this->now)['as_of'], 'an old copy carries its date');
         $this->assertSame('', KanameWorkspaceService::brief(null, null, [], $this->now)['as_of']);
     }
 

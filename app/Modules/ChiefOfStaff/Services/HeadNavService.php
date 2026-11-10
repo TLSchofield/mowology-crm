@@ -60,13 +60,20 @@ class HeadNavService
         return $out;
     }
 
-    /** @return array{heads: array, built_at: ?string} */
-    public static function forShell(PDO $db): array
+    /**
+     * The brief is the owner's (the same gate as the dashboard's Action Board): anyone else gets the
+     * menu with no state words or lines. A copy older than HeadBriefReadyService::MAX_AGE_SECONDS
+     * (the cron has stopped) is not shown either — a day-old "Needs approval" is a guess.
+     * @return array{heads: array, built_at: ?string}
+     */
+    public static function forShell(PDO $db, bool $owner = true): array
     {
+        if (!$owner) return ['heads' => self::shape(null, null), 'built_at' => null];
         try {
             require_once __DIR__ . '/HeadBriefReadyService.php';
             $svc = new HeadBriefReadyService($db);
             $c = $svc->get('charlie');
+            if ($c !== null && HeadBriefReadyService::state($c['built_at'], time()) === 'stale') $c = null;
             return ['heads' => self::shape($c['brief'] ?? null, $svc->today()), 'built_at' => $c['built_at'] ?? null];
         } catch (Throwable $e) {
             error_log('HeadNavService: ' . get_class($e));

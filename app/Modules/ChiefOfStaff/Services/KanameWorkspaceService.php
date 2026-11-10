@@ -58,9 +58,12 @@ class KanameWorkspaceService
             if (count($done) >= self::HANDLED_CAP) break;
         }
         $ts = $builtAt !== null && $builtAt !== '' ? strtotime($builtAt) : false;
+        // An old copy (the cron stopped) says so: the date joins the time when it is not today's.
+        $asOf = '';
+        if ($ts) $asOf = 'as of ' . (date('Y-m-d', $ts) === date('Y-m-d', $now) ? '' : date('D j M', $ts) . ', ') . date('g:i a', $ts);
         return [
             'heading'    => 'Morning brief · ' . date('D j M', $now),
-            'as_of'      => $ts ? 'as of ' . date('g:i', $ts) : '',
+            'as_of'      => $asOf,
             'need_you'   => array_slice($need, 0, self::CAP),
             'also'       => array_slice($also, 0, self::CAP),
             'handled'    => $done,
