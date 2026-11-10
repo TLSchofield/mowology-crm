@@ -55,6 +55,7 @@ try {
                 'share_client_name' => !empty($input['share_client_name']),
                 'share_client_phone' => !empty($input['share_client_phone']),
                 'already_done' => !empty($input['already_done']),
+                'bill_received' => !empty($input['bill_received']),
             ]);
             $reply(['ok' => true, 'job_id' => $sent['job_id'], 'link' => $linkFor($sent['token'])]);
         case 'new_link':
@@ -67,8 +68,11 @@ try {
             if (strpos($link, rtrim(PortalBrand::appUrl(), '/') . '/customer/sub-job.php?t=') !== 0) $reply(['ok' => false, 'error' => 'Create the link first.'], 422);
             $business = PortalBrand::displayName();
             $safe = htmlspecialchars($link, ENT_QUOTES, 'UTF-8');
-            $html = '<p>' . htmlspecialchars($business, ENT_QUOTES, 'UTF-8') . ' has a job for you. The address, the work and what you need to do next are here:</p><p><a href="' . $safe . '">Open the job</a></p>';
-            $reply(sendCrmEmail($to, 'A job from ' . $business, $html) ? ['ok' => true] : ['ok' => false, 'error' => 'The email did not send. Copy the link instead.']);
+            $thanks = !empty($input['bill_received']);
+            $html = $thanks
+                ? '<p>Thanks for the invoice. We just need the photos of the work. You can add them here:</p><p><a href="' . $safe . '">Add your photos</a></p>'
+                : '<p>' . htmlspecialchars($business, ENT_QUOTES, 'UTF-8') . ' has a job for you. The address, the work and what you need to do next are here:</p><p><a href="' . $safe . '">Open the job</a></p>';
+            $reply(sendCrmEmail($to, $thanks ? 'Thanks for your invoice: photos needed' : 'A job from ' . $business, $html) ? ['ok' => true] : ['ok' => false, 'error' => 'The email did not send. Copy the link instead.']);
         case 'accept':
             $reply($service->acceptWork($jobId, $userId));
         case 'mark_paid':

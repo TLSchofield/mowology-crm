@@ -68,6 +68,12 @@ final class SubcontractRules
         }
     }
 
+    /** Work done off the system whose invoice the owner already has: the link asks only for photos. */
+    public static function billOnFile(array $job): bool
+    {
+        return !empty($job['after_the_fact']) && empty($job['bill_expense_id']) && (string)($job['bill_status'] ?? 'none') !== 'none' && (string)($job['bill_status'] ?? '') !== 'returned';
+    }
+
     public static function isClosed(array $job): bool
     {
         return in_array(self::nextStep($job), ['closed', 'done'], true);
@@ -180,6 +186,7 @@ final class SubcontractRules
             'client_phone'  => !empty($job['share_client_phone']) && empty($job['after_the_fact']) && in_array($job['work_status'] ?? '', self::HAS_THE_JOB, true)
                 ? (string)($context['contact_phone'] ?? '') : '',
             'after_the_fact' => !empty($job['after_the_fact']),
+            'bill_received' => self::billOnFile($job),
             'work_items'    => array_values(array_filter(array_map(static fn ($w) => trim((string)$w), $workItems), 'strlen')),
             'note'          => (string)($job['note_to_sub'] ?? ''),
             'agreed_amount' => ($job['agreed_amount'] ?? null) !== null && $job['agreed_amount'] !== '' ? (float)$job['agreed_amount'] : null,

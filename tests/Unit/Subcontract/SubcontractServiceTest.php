@@ -299,6 +299,27 @@ final class SubcontractServiceTest extends TestCase
         $this->assertSame([['recost', 10]], $this->callsNamed('recost'));
     }
 
+    public function testAnInvoiceAlreadyInHandAsksOnlyForPhotos(): void
+    {
+        $sent = $this->send(12, ['already_done' => true, 'bill_received' => true]);
+        $job = $this->fresh($sent['token']);
+        $page = $this->svc->page($job);
+        $this->assertTrue($page['bill_received']);
+        $this->assertSame('send_proof', $page['next_step']);
+
+        $this->db->exec("DELETE FROM subcontract_files");
+        $this->assertFalse($this->svc->act($job, 'finish', ['note' => 'Trust me, it is all done'])['ok'], 'a note is not a photo here');
+        $this->db->exec("INSERT INTO subcontract_files (job_id, kind, stored_name, mime_type, size_bytes) VALUES ({$sent['job_id']}, 'photo', 'a.jpg', 'image/jpeg', 10)");
+        $this->assertTrue($this->svc->act($this->fresh($sent['token']), 'finish')['ok'], 'no day needed, their invoice has it');
+
+        $job = $this->fresh($sent['token']);
+        $this->assertSame('bill_waiting', $this->svc->page($job)['next_step']);
+        $this->assertFalse($this->svc->submitBill($job, ['amount' => '100', 'gst' => '5'])['ok'], 'no second bill');
+        $this->assertFalse($this->svc->markPaid($sent['job_id'], 1)['ok'], 'accept first');
+        $this->svc->acceptWork($sent['job_id'], 1);
+        $this->assertTrue($this->svc->markPaid($sent['job_id'], 1)['ok']);
+    }
+
     public function testLocationIsOnlyKeptAtStartAndFinish(): void
     {
         $sent = $this->send();

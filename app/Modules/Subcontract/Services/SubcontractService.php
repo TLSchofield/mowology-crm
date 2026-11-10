@@ -81,8 +81,8 @@ class SubcontractService
         $this->db->prepare("
             INSERT INTO subcontract_jobs
                 (subcontractor_id, visit_id, plan_id, token_hash, token_preview, expires_at, agreed_amount, note_to_sub,
-                 share_client_name, share_client_phone, after_the_fact, work_status, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 share_client_name, share_client_phone, after_the_fact, work_status, bill_status, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ")->execute([
             $subcontractorId, $visitId, (int)$row['plan_id'], hash('sha256', $token), substr($token, 0, 8),
             SubcontractRules::expiryFrom($this->now()),
@@ -92,6 +92,7 @@ class SubcontractService
             array_key_exists('share_client_phone', $options) && !$options['share_client_phone'] ? 0 : 1,
             $alreadyDone ? 1 : 0,
             $alreadyDone ? 'started' : 'sent',
+            $alreadyDone && !empty($options['bill_received']) ? 'sent' : 'none',
             $ownerId,
         ]);
         $jobId = (int)$this->db->lastInsertId();
@@ -173,7 +174,8 @@ class SubcontractService
         if ($to === 'started')  { $set[] = 'started_at = ?';  $params[] = $now; }
         if ($to === 'finished') { $set[] = 'finished_at = ?'; $params[] = $now; }
         $afterTheFact = !empty($job['after_the_fact']);
-        if ($to === 'finished' && $afterTheFact) {
+        $billOnFile = SubcontractRules::billOnFile($job);
+        if ($to === 'finished' && $afterTheFact && !$billOnFile) {
             $doneOn = (string)($input['done_on'] ?? '');
             $parsed = DateTime::createFromFormat('Y-m-d', $doneOn);
             if (!$parsed || $parsed->format('Y-m-d') !== $doneOn || $doneOn > substr($now, 0, 10)) return ['ok' => false, 'error' => 'Enter the day you did the work.'];
@@ -183,7 +185,7 @@ class SubcontractService
         if (in_array($to, ['declined'], true)) { $set[] = 'expires_at = ?'; $params[] = SubcontractRules::expiryFrom($now, true); }
 
         if ($to === 'finished') {
-            $problem = SubcontractRules::proofProblem($afterTheFact, count($this->files($id, 'photo')), (string)($input['note'] ?? ''));
+            $problem = SubcontractRules::proofProblem($afterTheFact && !$billOnFile, count($this->files($id, 'photo')), (string)($input['note'] ?? ''));
             if ($problem !== null) return ['ok' => false, 'error' => $problem];
         }
 
@@ -300,9 +302,9 @@ class SubcontractService
         if (!$job) return ['ok' => false, 'error' => 'Job not found.'];
         $job = $this->syncBill($job);
         if (empty($job['work_accepted_at'])) return ['ok' => false, 'error' => 'Accept the work first.'];
-        if ((string)$job['bill_status'] !== 'approved') return ['ok' => false, 'error' => 'Approve the bill with Penny first.'];
+        if ((string)$job['bill_status'] !== 'approved' && !SubcontractRules::billOnFile($job)) return ['ok' => false, 'error' => 'Approve the bill with Penny first.'];
         $now = $this->now();
-        $stmt = $this->db->prepare("UPDATE subcontract_jobs SET bill_status = 'paid', bill_paid_at = ?, expires_at = ? WHERE id = ? AND bill_status = 'approved'");
+        $stmt = $this->db->prepare("UPDATE subcontract_jobs SET bill_status = 'paid', bill_paid_at = ?, expires_at = ? WHERE id = ? AND bill_status IN ('approved', 'sent')");
         $stmt->execute([$now, SubcontractRules::expiryFrom($now, true), $jobId]);
         if ($stmt->rowCount() !== 1) return ['ok' => false, 'error' => 'This bill has already been marked paid.'];
         $this->event($jobId, (int)$job['visit_id'], 'paid', 'staff', $userId);

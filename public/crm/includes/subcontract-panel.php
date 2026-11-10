@@ -54,6 +54,7 @@ $__minutes = $__j ? SubcontractRules::minutesOnJob($__j['started_at'] ?? null, $
       <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="mw-sub-share-name" checked><label class="form-check-label" for="mw-sub-share-name">Show the client's name</label></div>
       <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="mw-sub-share-phone" checked><label class="form-check-label" for="mw-sub-share-phone">Show the client's phone, once they take the job</label></div>
       <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="mw-sub-done"><label class="form-check-label" for="mw-sub-done">Already done: just ask for proof of work and the bill</label></div>
+      <div class="form-check mb-3" id="mw-sub-bill-row" hidden><input class="form-check-input" type="checkbox" id="mw-sub-bill-received"><label class="form-check-label" for="mw-sub-bill-received">We already have their invoice: just ask for photos</label></div>
       <p class="small text-muted">They always see the address and the work. They never see your price, billing, the client's email or other jobs.</p>
       <p class="small mb-2" id="mw-sub-to" role="status"></p>
       <button type="submit" class="btn btn-primary btn-block" id="mw-sub-email-job">Email this job</button>
@@ -67,10 +68,12 @@ $__minutes = $__j ? SubcontractRules::minutesOnJob($__j['started_at'] ?? null, $
         <button type="button" class="btn btn-primary btn-block mb-2" data-sub-action="accept">Accept the work</button>
         <p class="small text-muted">This completes the visit. Any client follow-up goes out only after you accept.</p>
       <?php endif; ?>
-      <?php if (!empty($__j['work_accepted_at']) && $__j['bill_status'] === 'approved'): ?>
+      <?php if (!empty($__j['work_accepted_at']) && ($__j['bill_status'] === 'approved' || SubcontractRules::billOnFile($__j))): ?>
         <button type="button" class="btn btn-primary btn-block mb-2" data-sub-action="mark_paid">Mark paid</button>
       <?php endif; ?>
-      <?php if ($__j['bill_status'] === 'sent'): ?>
+      <?php if (SubcontractRules::billOnFile($__j)): ?>
+        <p class="small mb-2">Their invoice is already with you. This link only asks for photos.</p>
+      <?php elseif ($__j['bill_status'] === 'sent'): ?>
         <p class="small mb-2">Bill: $<?= h(number_format((float)$__j['bill_amount'] + (float)$__j['bill_gst'], 2)) ?> incl. GST, waiting in Penny's review<?= !empty($__j['bill_invoice_no']) ? ' (their invoice ' . h($__j['bill_invoice_no']) . ')' : '' ?>.</p>
       <?php endif; ?>
 
@@ -121,4 +124,4 @@ $__minutes = $__j ? SubcontractRules::minutesOnJob($__j['started_at'] ?? null, $
     <p class="small text-muted mt-3 mb-0">So far: <?= (int)$__sub['counts']['invited'] ?> sent, <?= (int)$__sub['counts']['opened'] ?> opened, <?= (int)$__sub['counts']['asked'] ?> asked about Ittai.</p>
   </div>
 </div>
-<script src="/crm/js/subcontract-panel.js?v=2" defer></script>
+<script src="/crm/js/subcontract-panel.js?v=3" defer></script>

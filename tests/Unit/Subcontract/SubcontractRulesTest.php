@@ -71,7 +71,7 @@ final class SubcontractRulesTest extends TestCase
         foreach (['999', '888', '777', 'client@example.com', '1 Money Rd', 'Visa', 'SECRET-HASH'] as $secret) {
             $this->assertStringNotContainsString($secret, $flat);
         }
-        $this->assertSame(['next_step', 'work_status', 'bill_status', 'can_undo', 'title', 'date', 'address', 'client_name', 'client_phone', 'after_the_fact', 'work_items',
+        $this->assertSame(['next_step', 'work_status', 'bill_status', 'can_undo', 'title', 'date', 'address', 'client_name', 'client_phone', 'after_the_fact', 'bill_received', 'work_items',
                            'note', 'agreed_amount', 'started_at', 'finished_at', 'work_accepted', 'paid_at'], array_keys($page),
                           'a new field on her page must be added here on purpose');
     }
