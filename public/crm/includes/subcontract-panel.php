@@ -124,4 +124,4 @@ $__minutes = $__j ? SubcontractRules::minutesOnJob($__j['started_at'] ?? null, $
     <p class="small text-muted mt-3 mb-0">So far: <?= (int)$__sub['counts']['invited'] ?> sent, <?= (int)$__sub['counts']['opened'] ?> opened, <?= (int)$__sub['counts']['asked'] ?> asked about Ittai.</p>
   </div>
 </div>
-<script src="/crm/js/subcontract-panel.js?v=3" defer></script>
+<script src="/crm/js/subcontract-panel.js?v=4" defer></script>
