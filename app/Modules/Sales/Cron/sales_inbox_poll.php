@@ -169,6 +169,14 @@ if ($placing) {
         . ($unknown['later'] > 0 ? ", {$unknown['later']} left for the next poll (time budget)" : '') . ($unknown['error'] > 0 ? ", {$unknown['error']} failed" : '') . '.';
 }
 
+// Yui (2026-11-10): tell the owner a client wrote. Additive: never fails the poll (the service catches everything).
+try {
+    require_once APP_ROOT . '/Modules/Comms/Services/InboundAlertService.php';
+    (new InboundAlertService(getDB()))->run();
+} catch (Throwable $e) {
+    error_log('[inbound alert] ' . $e->getMessage());
+}
+
 // Yui's supplier rule (SupplierInboxService, migration 1320): supplier mail at office@ and iCloud —
 // account applications go to Otto to fill, the city's licence email is filed. Additive: never
 // fails Sam's poll.
