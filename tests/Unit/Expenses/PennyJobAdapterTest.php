@@ -78,7 +78,7 @@ class PennyJobAdapterTest extends TestCase
         $g = $this->group(['copy_ids' => [301, 302], 'merge_label' => 'all into #278']);
         $j = PennyJobAdapter::fromGroup($g, 1, 1);
         $this->assertSame([301, 302], $j['primary']['request']['copy_ids']);
-        $this->assertSame('all into #278', $j['primary']['sub']);
+        $this->assertSame('all into #278 · 2 copies', $j['primary']['sub'], 'the label says how many copies the merge sets aside');
         $this->assertCount(2, $j['undo']['requests']);
         $this->assertSame('dup:278:301-302', $j['key']);
     }

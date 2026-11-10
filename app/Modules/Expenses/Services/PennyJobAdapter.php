@@ -21,10 +21,13 @@ class PennyJobAdapter
         try {
             self::load();
             $in = "'" . implode("','", DuplicateReceiptService::WAITING) . "'";
-            $s = $db->query("SELECT 1 FROM expenses e1 JOIN expenses e2 ON e2.id > e1.id
-                             AND ABS(e2.total - e1.total) < 0.01
-                             AND ABS(DATEDIFF(e2.expense_date, e1.expense_date)) <= 3
-                             WHERE e1.status IN ($in) AND e2.status IN ($in) LIMIT 1");
+            // Bounded like pairsInLine(): the newest 200 waiting receipts, so a big backlog cannot make every
+            // Penny page pay for an unindexed self-join (review, 2026-11-10).
+            $s = $db->query("SELECT 1 FROM (SELECT id, total, expense_date FROM expenses WHERE status IN ($in) ORDER BY id DESC LIMIT 200) e1
+                             JOIN (SELECT id, total, expense_date FROM expenses WHERE status IN ($in) ORDER BY id DESC LIMIT 200) e2
+                               ON e2.id > e1.id AND ABS(e2.total - e1.total) < 0.01
+                              AND ABS(DATEDIFF(e2.expense_date, e1.expense_date)) <= 3
+                             LIMIT 1");
             return (bool)$s->fetchColumn();
         } catch (Throwable $e) {
             error_log('PennyJobAdapter::hasWork: ' . $e->getMessage());
@@ -99,7 +102,8 @@ class PennyJobAdapter
             'keep'       => $side($keepAt, $keepId),
             'copy'       => $side($copyAt, $copyId),
             'columns'    => $columns,
-            'primary'    => ['label' => 'Merge', 'sub' => $mergeLabel !== '' ? $mergeLabel : 'into #' . $keepId,
+            // The strip shows the first copy; when the merge would set aside more, the label says how many (review, 2026-11-10).
+            'primary'    => ['label' => 'Merge', 'sub' => ($mergeLabel !== '' ? $mergeLabel : 'into #' . $keepId) . (count($copyIds) > 1 ? ' · ' . count($copyIds) . ' copies' : ''),
                              'request' => ['mode' => 'dupe_merge', 'keep_id' => $keepId, 'copy_ids' => $copyIds]],
             'secondary'  => ['label' => 'Different', 'sub' => count($members) > 2 ? 'keep them all' : 'keep both',
                              'request' => ['mode' => 'not_dupe', 'pairs' => $pairs]],

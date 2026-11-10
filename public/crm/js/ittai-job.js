@@ -75,6 +75,7 @@
         });
     }
 
+    var coolTimer = null;
     function setBusy(on) {
         busy = on;
         Array.prototype.forEach.call(root.querySelectorAll('.it-btn, .it-job-skip'), function (b) { b.disabled = on; });
@@ -150,8 +151,13 @@
         n.textContent = '1 of ' + total;
         var skip = foot.querySelector('.it-job-skip');
         if (skip) skip.hidden = total < 2;
-        var first = rail.querySelector('.it-btn-fill');
-        if (first) first.focus({ preventScroll: true });
+        // Never land focus on a money button: a held Enter or a double tap would merge a pair the owner
+        // has not looked at (review, 2026-11-10). Focus the title; the buttons wake after a short pause.
+        var tt = root.querySelector('.it-job-tt');
+        if (tt) { tt.setAttribute('tabindex', '-1'); tt.focus({ preventScroll: true }); }
+        setBusy(true);
+        clearTimeout(coolTimer);
+        coolTimer = setTimeout(function () { setBusy(false); }, 600);
     }
 
     /** Nothing left: say so politely, keep the Undo for its 6 s, then take the strip away. */
@@ -203,15 +209,23 @@
         if (busy || !job) return;
         clearTimeout(undoTimer);
         setBusy(true);
-        var bad = null;
+        var bad = null, done = 0;
         job.undo.requests.reduce(function (p, r) {
             return p.then(function () {
                 if (bad) return null;
-                return post(r).then(function (d) { if (!(d && d.ok)) bad = d || {}; });
+                return post(r).then(function (d) { if (d && d.ok) done++; else bad = d || {}; });
             });
         }, Promise.resolve()).then(function () {
             setBusy(false);
-            if (bad) { say(bad.message || bad.error || 'Could not undo — try again', false); return; }
+            if (bad) {
+                // A copy that did come back is no longer merged: forget its request so a retry does not resend it,
+                // and keep the strip until the owner has read the message.
+                job.undo.requests = job.undo.requests.slice(done);
+                say(bad.message || bad.error || 'Could not undo — try again', job.undo.requests.length > 0);
+                if (!job.undo.requests.length) lastMerged = null;
+                undoTimer = setTimeout(function () { if (root.classList.contains('is-done') && root.parentNode) root.parentNode.removeChild(root); }, UNDO_MS);
+                return;
+            }
             lastMerged = null;
             queue.unshift(job);
             reopen();
