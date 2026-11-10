@@ -14,6 +14,12 @@ $__ksWord = (string)($__ksHead['word'] ?? '');
 $__ksState = (string)($__ksHead['state'] ?? '');
 $__ksLine = trim((string)($__ksHead['line'] ?? ''));
 if ($__ksLine === '') $__ksLine = $__ksWord === '' ? 'Nothing is waiting on you.' : '';
+// Jobs given to other companies: what needs you, else the day's news (Tim, 2026-11-10: "kaname should know this").
+$__ksSub = null;
+try {
+    require_once APP_ROOT . '/Modules/Subcontract/Services/SubcontractService.php';
+    $__ksSub = (new SubcontractService(getDB()))->spaceLine();
+} catch (Throwable $__e) { /* tables not on this business yet */ }
 require_once __DIR__ . '/ittai-icons.php';
 itIconSprite();
 ?>
@@ -22,5 +28,6 @@ itIconSprite();
   <b><?= h($__ksName) ?></b><span class="it-tag">AI</span>
   <?php if ($__ksWord !== '' && $__ksState !== ''): ?><span class="it-s it-s-<?= h($__ksState) ?>"><svg class="it-si" width="12" height="12" aria-hidden="true"><use href="#it-st-<?= h($__ksState) ?>"/></svg><?= h($__ksWord) ?></span><?php endif; ?>
   <span class="it-kan-line"><?= h($__ksLine) ?></span>
+  <?php if ($__ksSub): ?><a class="it-kan-sub" href="<?= h($__ksSub['url']) ?>" title="<?= h($__ksSub['text']) ?>"><?= h($__ksSub['text']) ?></a><?php endif; ?>
   <a class="it-kan-open" href="/crm/kaname_appstack.php">Open the brief</a>
 </section>

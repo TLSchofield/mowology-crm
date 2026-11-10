@@ -152,6 +152,46 @@ final class SubcontractRules
         return $rows;
     }
 
+    /** Board steps that are the other company's news (not the owner's own clicks), for Kaname. */
+    private const NEWS_WORDS = ['Opened the link', 'Took the job', 'Said no', 'Day arranged', 'On the way', 'Started', 'Finished', 'Sent a bill'];
+
+    /**
+     * Kaname's lines from the board (through Otto's brief): what needs the owner first (priority 1), then the other
+     * company's news from the last day (priority 3). Keys change with the stage, so a "Not now" doesn't hide the next step.
+     * @return list<array{key:string, kind:string, text:string, url:string, priority:int, value:null, since:string}>
+     */
+    public static function briefItems(array $board, string $now): array
+    {
+        $out = [];
+        foreach ($board as $r) {
+            $job = (string)($r['title'] !== '' ? $r['title'] : 'the job') . ($r['address'] !== '' ? ' at ' . $r['address'] : '');
+            $ask = [
+                'accept' => $r['company'] . ' finished ' . $job . '. Accept the work?',
+                'mark_paid' => 'Mark ' . $r['company'] . ' paid for ' . $job . '?',
+                'dismiss' => $r['company'] . ' won\'t do ' . $job . '. Find someone else?',
+            ][$r['action'] ?? ''] ?? null;
+            if ($ask !== null) {
+                $out[] = ['key' => 'otto:sub:' . $r['job_id'] . ':' . $r['action'], 'kind' => 'subcontract', 'text' => $ask, 'url' => $r['url'],
+                          'priority' => 1, 'value' => null, 'since' => substr((string)$r['last_at'], 0, 10)];
+                continue;
+            }
+            if (in_array($r['last'], self::NEWS_WORDS, true) && strtotime($now) - (int)strtotime((string)$r['last_at']) < 86400) {
+                $out[] = ['key' => 'otto:sub:' . $r['job_id'] . ':' . $r['at'], 'kind' => 'subcontract_news', 'text' => $r['company'] . ': ' . lcfirst($r['last']) . ', ' . $job . '.',
+                          'url' => $r['url'], 'priority' => 3, 'value' => null, 'since' => substr((string)$r['last_at'], 0, 10)];
+            }
+        }
+        return $out;
+    }
+
+    /** The one subcontract line in Kaname's space at the top of every page: what needs the owner, else the freshest news. */
+    public static function spaceLine(array $board, string $now): ?array
+    {
+        $items = self::briefItems($board, $now);
+        if (!$items) return null;
+        usort($items, static fn ($a, $b) => $a['priority'] <=> $b['priority']);
+        return ['text' => $items[0]['text'], 'url' => $items[0]['url']];
+    }
+
     /** Work done off the system whose invoice the owner already has: the link asks only for photos. */
     public static function billOnFile(array $job): bool
     {
