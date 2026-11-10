@@ -58,6 +58,16 @@ if (!empty($itShell)):
         $__itOwner = $__itDesk->ready() && $__itDesk->isOwner((array)$user);
     } catch (Throwable $__e) { /* not the owner, then */ }
     $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, $__itOwner);
+    // The head you are with sits second, right under Kaname, so the open list and the card always land in the
+    // same place (Tim, 2026-11-10); the others keep the Six + One order. The phone menu keeps the fixed order.
+    $__itFirst = []; $__itHere = []; $__itRest = [];
+    foreach ($__itBlocks as $__b) {
+        if ($__b['slug'] === 'charlie') $__itFirst[] = $__b;
+        elseif (!empty($__b['here'])) $__itHere[] = $__b;
+        else $__itRest[] = $__b;
+    }
+    $__itBlocks = array_merge($__itFirst, $__itHere, $__itRest);
+    unset($__itFirst, $__itHere, $__itRest, $__b);
     $__itNav = ['heads' => []];
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadNavService.php';
