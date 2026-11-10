@@ -12,7 +12,20 @@ trades first. The AI back office is the edge.
 Ittai no longer depends on invoicing as its centre: clients, the schedule and the crew's day are the core, and the invoice is
 the handoff at the end. Without QuickBooks a business can still invoice, show How to Pay and keep its books, but has no Pay
 button and nothing marks an invoice paid. Each item needs its own plan.
-1. **Pasted payment link** — the business pastes its own Stripe, Square or PayPal page; it becomes the Pay button on the customer
+**Order (Tim, 2026-11-10):** Ittai is business operations and organising the owner, measured by making the owner money. Invoicing is a
+bonus, not the primary, so setup comes first and the two payment items follow it.
+1. **Two setup paths, not one with a fork.** Measured 2026-11-10 on a fresh local business: 14 screens plus connecting QuickBooks,
+   never asks what work they do, ends on an empty day. Symphony by Wix started in two tapped answers and about 3 minutes, but 45 minutes
+   later still lacked the business name, phone and email, and its quotes and regulars stayed empty until a Wix site and calendar were connected.
+   - **Has something:** fetch it, then "Are these your clients?" (keep or skip). Order: QuickBooks, phone contacts, Google Business
+     (fills name, address, phone), Outlook, Gmail once Google's yearly assessment is priced, Facebook/Instagram messages, WhatsApp.
+   - **Has nothing:** "Who's your next job for, and when?" A client and a schedule entry from one real job; the price can wait.
+   - **Both end on the schedule** (Tim started on Jobber with scheduling). Check how many steps one new job takes today.
+   - **Ask when it matters:** business name before the first thing goes to a client, GST at the first invoice, payroll at the first
+     employee, accountant when there is something to show, quiet hours before the first notification. Terms stay up front.
+   - **Empty cards sell the next step:** each says what will appear there and has one button to fill it (seen in Symphony).
+   - **Owed first:** a business creating itself (today Tim provisions it and adds its Intuit address by hand), iPhone sign-up.
+2. **Pasted payment link** — the business pastes its own Stripe, Square or PayPal page; it becomes the Pay button on the customer
    invoice page when `Tenant::takesCards()` is false and there is no QuickBooks link. The money goes straight to the business,
    and Ittai only sends the client there. Ask the lawyer first (Bank of Canada examples treat a redirect to someone else's
    checkout as not a payment provider). **Guided Stripe (Tim 2026-11-10):** the owner opens their own account with our step-by-step
@@ -22,17 +35,8 @@ button and nothing marks an invoice paid. Each item needs its own plan.
    still edit the amount, so record what was actually paid and flag a difference. **The client's view:** the invoice page comes first, Pay opens
    Stripe with the amount filled and the owner's logo, and the link's redirect (`{CHECKOUT_SESSION_ID}`, UTM codes) returns them to the invoice
    showing it paid. Stripe's page cannot show the invoice number. Not yet tried in Stripe's test mode. **Shared:** the rule and the button. **Private:** each business's link and key.
-2. **e-Transfer matching for every business** — exists for Mowology only; each business needs its own mailbox and poller
+3. **e-Transfer matching for every business** — exists for Mowology only; each business needs its own mailbox and poller
    (`project_etransfer_inbox_poller`). **Shared:** the matching rules. **Private:** the mailbox and payers.
-3. **Two setup paths, not one with a fork.** Measured 2026-11-10 on a fresh local business: 14 screens plus connecting QuickBooks,
-   never asks what work they do, ends on an empty day. Symphony by Wix took two tapped answers and about 3 minutes.
-   - **Has something:** fetch it, then "Are these your clients?" (keep or skip). Order: QuickBooks, phone contacts, Google Business
-     (fills name, address, phone), Outlook, Gmail once Google's yearly assessment is priced, Facebook/Instagram messages, WhatsApp.
-   - **Has nothing:** "Who's your next job for, and when?" A client and a schedule entry from one real job; the price can wait.
-   - **Both end on the schedule** (Tim started on Jobber with scheduling). Check how many steps one new job takes today.
-   - **Ask when it matters:** business name before the first thing goes to a client, GST at the first invoice, payroll at the first
-     employee, accountant when there is something to show, quiet hours before the first notification. Terms stay up front.
-   - **Owed first:** a business creating itself (today Tim provisions it and adds its Intuit address by hand), iPhone sign-up.
 
 ## Build queue (Tim, 2026-11-05: "Queue all other items") — in order, one at a time after the payment thank-you
 1. ~~e-Transfer memos naming invoices without the year~~ — DONE (b13a1aa95, seen 2026-11-06).
