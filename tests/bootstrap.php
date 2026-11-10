@@ -128,6 +128,7 @@ require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiAutopayOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiStatementOffer.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiMessageService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiActions.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';

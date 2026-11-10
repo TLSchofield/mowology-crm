@@ -12,7 +12,7 @@ declare(strict_types=1);
 final class YuiActions
 {
     /** Modes the phone may ask for. */
-    public const PHONE_MODES = ['send', 'handled', 'who_confirm', 'who_not', 'who_undo', 'draft', 'who_accounts', 'contact_add'];
+    public const PHONE_MODES = ['send', 'handled', 'who_confirm', 'who_not', 'who_undo', 'draft', 'who_accounts', 'contact_add', 'message'];
 
     /** @return array<string, mixed> */
     public static function dispatch(PDO $db, string $mode, array $input, array $user, string $owner): array
@@ -64,6 +64,12 @@ final class YuiActions
                                           mb_substr(trim((string)($input['last_name'] ?? '')), 0, 100), (string)$n['email']);
             }
 
+            case 'message': {   // the whole email behind a card in the queue, read-only from its mailbox
+                require_once __DIR__ . '/YuiMessageService.php';
+                $row = YuiMessageService::rowFor($db, $key, (int)($input['id'] ?? 0));
+                return $row ? YuiMessageService::read($row) : $gone;
+            }
+
             case 'draft': {
                 $item = $desk->find($key, $owner);
                 return $item ? $drafts->draftReply($item, $owner, (int)$user['id']) : $gone;
@@ -93,6 +99,9 @@ final class YuiActions
         if (!in_array($mode, self::PHONE_MODES, true)) return null;
         if ($mode === 'who_accounts') {   // a search, no card behind it
             return ['mode' => 'who_accounts', 'q' => mb_substr(trim((string)($fields['q'] ?? $request['q'] ?? '')), 0, 60)];
+        }
+        if ($mode === 'message') {   // reading only; rowFor() itself accepts only a card in the current queue
+            return ['mode' => 'message', 'key' => mb_substr((string)($request['key'] ?? ''), 0, 120), 'id' => (int)($request['id'] ?? 0)];
         }
         if ($mode === 'who_undo') {   // the answered card has left the queue; undo() itself only reverses a decision under a day old
             $id = (int)($request['id'] ?? 0);

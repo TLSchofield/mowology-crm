@@ -45,7 +45,12 @@ final class YuiJobAdapter
         }
         $all = array_merge($stmt, $yes, array_map([self::class, 'fromQuestion'], $questions), $other);
         $n = count($all);
-        foreach ($all as $i => &$j) { $j['index'] = $i + 1; $j['total'] = $n; }
+        foreach ($all as $i => &$j) {
+            $j['index'] = $i + 1; $j['total'] = $n;
+            // "Read the whole email": fetched from the mailbox only when asked (YuiMessageService).
+            $j['read'] = strpos((string)$j['key'], 'who:') === 0
+                ? ['mode' => 'message', 'id' => (int)substr((string)$j['key'], 4)] : ['mode' => 'message', 'key' => (string)$j['key']];
+        }
         unset($j);
         return $all;
     }
