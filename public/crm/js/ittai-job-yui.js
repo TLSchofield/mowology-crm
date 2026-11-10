@@ -118,6 +118,7 @@
         sel.addEventListener('change', setWarn);
         sel.addEventListener('change', greet);
         setWarn();
+        greetName = null;
         greet();
     }
 
@@ -125,6 +126,7 @@
      * The greeting follows the address: a statement drafted "Hi Candace," but addressed to Sandra went out wrong
      * (Tim, 2026-11-10). Only the first line's name is touched, and only while the owner has not edited the body.
      */
+    var greetName = null;   // the name the draft (or greet itself) wrote on line 1; anything else is the owner's
     function greet() {
         var sel = field('recipient'), body = field('body');
         if (!sel || !body || sel.selectedIndex < 0) return;
@@ -133,8 +135,11 @@
         var first = label.split(' · ')[0].trim().split(/\s+/)[0] || '';
         if (!first || first.indexOf('@') >= 0) return;
         var m = /^(Hi|Hello|Dear)\s+([^,\n]+),/.exec(body.value);
-        if (!m || m[2] === first) return;
-        body.value = body.value.replace(m[0], m[1] + ' ' + first + ',');
+        if (!m) return;
+        if (greetName === null) greetName = m[2];           // first sight: the draft's own greeting
+        if (m[2] !== greetName || m[2] === first) return;    // the owner rewrote it: leave it alone
+        body.value = body.value.replace(m[0], function () { return m[1] + ' ' + first + ','; });
+        greetName = first;
     }
 
     function buildWho(card) {

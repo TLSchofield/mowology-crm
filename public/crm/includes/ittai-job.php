@@ -56,7 +56,7 @@ $__ijFig = static function (array $side, bool $keep): string {
 $__ijConf = static function (string $sure, string $line): string {
     $sure = in_array($sure, ['forming', 'held', 'earned'], true) ? $sure : 'forming';
     $sym = $sure === 'earned' ? 'it-st-approval' : 'it-st-approval-' . $sure;
-    $label = 'Penny proposes; your approval decides. ' . ($sure !== 'forming' && $line !== '' ? $line : 'First time with this vendor.');
+    $label = 'Penny proposes; your approval decides. ' . ($sure === 'forming' ? 'First time with this vendor.' : ($line !== '' ? $line : 'Her record with this vendor is short.'));
     return '<span class="it-job-conf is-' . $sure . '" role="img" aria-label="' . h($label) . '" title="' . h($label) . '"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#' . $sym . '"/></svg></span>';
 };
 $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__ijFig, $__ijFlags, $__ijConf): string {

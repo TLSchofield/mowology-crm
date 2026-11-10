@@ -456,7 +456,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 /* the graph stays to the right on every desktop width (Tim); a tight strip scrolls its rail instead */
 @media (max-width: 1023px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
 .it-job-body { display: block; }
-.it-job-outer { --it-rail: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
+.it-job-outer { --it-rail: var(--it-line); --it-rail: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
 .it-job-rail { position: relative; }
 .it-job-viz { margin: 0; padding: 16px 20px; min-width: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
 .it-job-viz figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
@@ -469,7 +469,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-viz-gst { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); font-variant-numeric: tabular-nums; }
 .it-job-viz-gst span { color: var(--it-meta); }
 /* The feeder from the head's card is the rail itself continued: the same 1 px hairline (Tim: navy was too heavy) */
-.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); box-sizing: border-box; }
+.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-line); border-color: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); box-sizing: border-box; }
 .it-job-link-stub { height: 0; border-top-width: 1px; }
 .it-job-link { border-left-width: 1px; border-bottom-width: 1px; }
 .it-job-link.is-up { border-bottom-width: 0; border-top-width: 1px; }

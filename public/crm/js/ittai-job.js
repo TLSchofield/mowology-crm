@@ -144,7 +144,7 @@
             conf.classList.add('is-' + sure);
             var use = conf.querySelector('use');
             if (use) use.setAttribute('href', '#it-st-approval' + (sure === 'earned' ? '' : '-' + sure));
-            var lbl = 'Penny proposes; your approval decides. ' + (sure !== 'forming' && job.confidence ? job.confidence : 'First time with this vendor.');
+            var lbl = 'Penny proposes; your approval decides. ' + (sure === 'forming' ? 'First time with this vendor.' : (job.confidence || 'Her record with this vendor is short.'));
             conf.setAttribute('aria-label', lbl);
             conf.setAttribute('title', lbl);
         }
