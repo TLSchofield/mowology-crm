@@ -109,4 +109,23 @@ class IttaiShellTest extends TestCase
         $this->assertStringContainsString("'--it-live'", $js);
         $this->assertStringContainsString('it-layer', $js, 'cards and flyouts are moved to <body>');
     }
+
+    /**
+     * LOCKED by Tim, 2026-11-10 ("lock that positioning"): the head card floats CENTRED on the rail line beside
+     * the head's row, a spacer in the sidebar keeps its room so the pages move down beneath it, the row's portrait
+     * hides while the card is open (one face), and the live page's line ends at the card's bottom edge.
+     * Change this geometry only on Tim's word, and change this test in the same commit.
+     */
+    public function testHeadCardGeometryIsLocked(): void
+    {
+        $js = $this->src('public/crm/js/ittai-shell.js');
+        $this->assertStringContainsString("sb0.right - 28 - w / 2", $js, 'card centred on the spine (28 px in from the sidebar edge)');
+        $this->assertStringContainsString("sp.getBoundingClientRect().bottom - gr.top", $js, 'the live line ends at the spacer (card) bottom');
+        $this->assertStringContainsString("sp.className = 'it-hp-space'", $js, 'a spacer keeps the card\'s room in the sidebar');
+        $this->assertStringContainsString("layer.appendChild(c)", $js, 'the card floats on <body>, not inside the sidebar');
+        $css = $this->src('public/crm/css/ittai-shell.css');
+        $this->assertMatchesRegularExpression('/\.it-hp\s*\{[^}]*position:\s*fixed[^}]*width:\s*200px/s', $css, 'floating 200 px square card');
+        $this->assertStringContainsString('.it-grp.has-card .it-grow .it-pt { visibility: hidden; }', $css, 'one face while the card is open');
+        $this->assertStringContainsString('.it-grp > .it-hp-space { order: 1;', $css, 'the spacer sits between the row and the pages');
+    }
 }
