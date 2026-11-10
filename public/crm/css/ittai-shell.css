@@ -509,6 +509,22 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-anchor:hover { color: var(--it-text); text-decoration: none; }
 .it-ad { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
 .it-ad-fill { background: var(--it-brand); color: var(--it-on-tenant); }
+.it-ad-sm { width: 36px; height: 36px; }
+/* View, on the rail between the two receipts */
+.it-job-view { position: relative; display: flex; flex-direction: column; align-items: center; background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 12px; line-height: 16px; color: var(--it-meta); cursor: pointer; min-width: 44px; min-height: 44px; justify-content: center; }
+.it-job-view > span:last-child { position: absolute; top: calc(100% - 2px); white-space: nowrap; }
+.it-job-view:hover .it-ad { background: var(--it-selected); }
+.it-job-view:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; border-radius: 8px; }
+.it-job-dlg { border: 0; border-radius: 14px; padding: 16px; max-width: min(1200px, 92vw); background: var(--it-surface); color: var(--it-text); box-shadow: var(--it-shadow-dialog); font-family: var(--it-font-sans); }
+.it-job-dlg::backdrop { background: color-mix(in srgb, var(--it-text) 40%, transparent); }
+.it-job-dlg-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.it-job-dlg-fig { margin: 0; display: grid; justify-items: center; gap: 8px; }
+.it-job-dlg-fig img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 10px; background: var(--it-sunk); }
+.it-job-dlg-fig.is-keep img { outline: 2px solid var(--it-brand); outline-offset: 0; }
+.it-job-dlg-fig figcaption { font-size: 14px; line-height: 20px; color: var(--it-meta); text-align: center; }
+.it-job-dlg-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
+.it-job-dlg-close { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 2px solid var(--it-brand); border-radius: 10px; background: var(--it-surface); color: var(--it-brand); font: inherit; font-weight: 600; cursor: pointer; }
+.it-job-dlg-close:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 .it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

@@ -132,9 +132,10 @@
         if (kl) kl.textContent = (job.keep && job.keep.label) || '';
         if (cl) cl.textContent = (job.copy && job.copy.label) || '';
         var imgs = rail.querySelector('.it-job-imgs');
+        var viewBtn = imgs.querySelector('.it-job-view');
         imgs.textContent = '';
         imgs.appendChild(figure(job.keep, true));
-        imgs.appendChild(el('span', 'it-job-m'));
+        if (viewBtn) imgs.appendChild(viewBtn);
         imgs.appendChild(figure(job.copy, false));
         fillButton(rail.querySelector('.it-btn-fill'), job.primary);
         fillButton(rail.querySelector('.it-btn-line'), job.secondary);
@@ -244,9 +245,25 @@
         render();
     }
 
+    /** Both receipts large, side by side, for a visual check (Tim, 2026-11-10). */
+    var dlg = root.querySelector('.it-job-dlg');
+    function view() {
+        var job = queue[0];
+        if (!dlg || !job || typeof dlg.showModal !== 'function') return;
+        var figs = dlg.querySelectorAll('.it-job-dlg-fig');
+        [job.keep, job.copy].forEach(function (side, i) {
+            var f = figs[i]; if (!f) return;
+            var img = f.querySelector('img'), cap = f.querySelector('figcaption');
+            if (side && side.image) { img.setAttribute('src', side.image); img.hidden = false; } else { img.removeAttribute('src'); img.hidden = true; }
+            cap.textContent = ((side && side.label) || '') + (side && side.who ? ' · ' + side.who : '') + (side && !side.image ? ' · no photo' : '');
+        });
+        dlg.showModal();
+    }
+
     root.addEventListener('click', function (e) {
         var t = e.target;
         if (!t || !t.closest) return;
+        if (t.closest('.it-job-view')) { view(); return; }
         var b = t.closest('.it-btn[data-request]');
         if (b && root.contains(b)) { settle(b); return; }
         if (t.closest('.it-job-skip')) { skip(); return; }

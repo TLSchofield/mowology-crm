@@ -75,7 +75,9 @@ $__ijRail = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg, $__
         . '<span class="it-job-conf" role="img" aria-label="Penny proposes; your approval decides"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval"/></svg></span>'
         . '<div class="it-job-col it-job-lblcol"><span class="it-job-top it-job-keeplbl">' . h($keepLabel) . '</span><span class="it-job-m"></span><span class="it-job-bot it-job-copylbl">' . h($copyLabel) . '</span></div>'
         . '<ol class="it-job-cols">' . $cols . '</ol>'
-        . '<div class="it-job-col it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true) . '<span class="it-job-m"></span>' . $__ijFig((array)($j['copy'] ?? []), false) . '</div>'
+        . '<div class="it-job-col it-job-imgs">' . $__ijFig((array)($j['keep'] ?? []), true)
+        . '<button type="button" class="it-job-view" aria-label="View both receipts side by side"><span class="it-ad it-ad-sm">' . $__ijSvg('eye') . '</span><span>View</span></button>'
+        . $__ijFig((array)($j['copy'] ?? []), false) . '</div>'
         . '<div class="it-job-col it-job-acts">' . $btn('it-btn-fill', 'merge', $j['primary'] ?? null) . '<span class="it-job-m"></span>' . $btn('it-btn-line', 'split', $j['secondary'] ?? null) . '</div>'
         . '<a class="it-job-anchor" href="' . h($anchor['href']) . '"><span class="it-ad">' . $__ijSvg('book') . '</span><span>' . h($anchor['label']) . '</span></a>'
         . '</div>';
@@ -108,6 +110,13 @@ itIconSprite();
   <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
   <template class="it-job-tpl"><?= $__ijRail(null) ?></template>
+  <dialog class="it-job-dlg" aria-label="Both receipts">
+    <div class="it-job-dlg-body">
+      <figure class="it-job-dlg-fig is-keep"><img alt="" src=""><figcaption></figcaption></figure>
+      <figure class="it-job-dlg-fig"><img alt="" src=""><figcaption></figcaption></figure>
+    </div>
+    <form method="dialog"><button type="submit" class="it-job-dlg-close">Close</button></form>
+  </dialog>
   <script type="application/json" class="it-job-data"><?= json_encode($__ijJobs, $__ijFlags) ?></script>
 </section>
 <?= $__ijViz($__ijPulse ?? null) ?>
