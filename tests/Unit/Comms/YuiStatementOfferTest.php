@@ -43,17 +43,39 @@ class YuiStatementOfferTest extends TestCase
     private function input(array $over = []): array
     {
         return array_merge(['closing' => 420.38, 'label' => 'All outstanding', 'accounts' => ['Acme Holdings Ltd'],
-            'asker' => ['name' => 'Pat Lee', 'email' => 'Pat@Firm.test'], 'on_file' => ['name' => 'Kim Fox', 'email' => 'kim@firm.test']], $over);
+            'asker' => ['name' => 'Pat Lee', 'email' => 'Pat@Firm.test'], 'on_file' => ['name' => 'Kim Fox', 'email' => 'kim@firm.test'],
+            'asker_known' => true, 'client_id' => 7, 'name' => 'Acme Holdings Ltd'], $over);
     }
 
-    public function test_someone_not_on_file_is_offered_and_labelled(): void
+    public function test_someone_on_the_account_is_offered_first(): void
     {
         $o = YuiStatementOffer::decide($this->input());
         $this->assertTrue($o['offer']);
         $this->assertSame('pat@firm.test', $o['recipients'][0]['email']);
-        $this->assertFalse($o['recipients'][0]['on_file']);
+        $this->assertTrue($o['recipients'][0]['on_file']);
         $this->assertSame('kim@firm.test', $o['recipients'][1]['email']);
-        $this->assertTrue($o['recipients'][1]['on_file']);
+    }
+
+    public function test_someone_not_on_file_is_added_before_any_statement(): void
+    {
+        $o = YuiStatementOffer::decide($this->input(['asker_known' => false]));
+        $this->assertFalse($o['offer']);
+        $this->assertSame([], $o['recipients']);
+        $this->assertSame(['name' => 'Pat Lee', 'email' => 'pat@firm.test', 'client_id' => 7, 'account' => 'Acme Holdings Ltd'], $o['needs_contact']);
+    }
+
+    public function test_the_contact_step_is_a_who_card_that_only_names_the_person(): void
+    {
+        $it = ['key' => 'yui:reply:9:x', 'name' => 'Kim', 'subject' => 'Amount Owing', 'quote' => 'What is owing?', 'at' => '2026-11-09 10:00:00',
+               'statement' => YuiStatementOffer::decide($this->input(['asker_known' => false]))];
+        $j = YuiJobAdapter::queue([$it], [])[0];
+        $this->assertSame('who', $j['kind']);
+        $this->assertSame('pat@firm.test', $j['left']['addr']);
+        $this->assertSame('Pat Lee', $j['left']['name']);
+        $this->assertSame(['mode' => 'contact_add', 'key' => 'yui:reply:9:x'], $j['primary']['request']);
+        $this->assertSame([['client_id' => 7, 'name' => 'Acme Holdings Ltd']], $j['right']['candidates']);
+        $this->assertSame(['mode' => 'contact_add', 'key' => 'yui:reply:9:x', 'first_name' => 'Pat', 'last_name' => 'Lee'],
+            YuiActions::phoneRequest([$j], ['mode' => 'contact_add', 'key' => 'yui:reply:9:x'], ['first_name' => 'Pat', 'last_name' => 'Lee', 'email' => 'evil@x.test']));
     }
 
     public function test_the_person_on_file_appears_once(): void

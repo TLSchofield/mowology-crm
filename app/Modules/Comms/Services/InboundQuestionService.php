@@ -172,29 +172,11 @@ final class InboundQuestionService
               'rule_key' => null, 'rule_created' => null, 'rule_replaced' => null];
         $this->db->beginTransaction();
         try {
-            // 1. the person
-            $cs = $this->db->prepare("SELECT id FROM contacts WHERE LOWER(TRIM(email)) = ? AND merged_into_id IS NULL ORDER BY id LIMIT 1");
-            $cs->execute([$addr]);
-            $contactId = (int)$cs->fetchColumn();
-            if ($contactId === 0) {
-                $this->db->prepare("INSERT INTO contacts (first_name, last_name, email, is_active, prospect_status, preferred_contact_method,
-                        consent_source, notes, receive_sms, receive_marketing, consent_quote_followup, consent_marketing_email, consent_sms)
-                    VALUES (?, ?, ?, 1, 'client', 'email', 'inbox_confirmed', 'Added from an email they sent to the office', 0, 0, 0, 0, 0)")
-                    ->execute([$first, $last, $addr]);
-                $contactId = (int)$this->db->lastInsertId();
-                $d['contact_created'] = true;
-            }
+            // 1 + 2. the person, on the account
+            [$contactId, $created, $linkId] = $this->attach($clientId, $first, $last, $addr);
+            $d['contact_created'] = $created;
             $d['contact_id'] = $contactId;
-
-            // 2. on the account
-            $ended = $this->hasEndedOn() ? ' AND ended_on IS NULL' : '';
-            $ls = $this->db->prepare("SELECT id FROM client_contacts WHERE client_id = ? AND contact_id = ?{$ended} LIMIT 1");
-            $ls->execute([$clientId, $contactId]);
-            if (!$ls->fetchColumn()) {
-                $this->db->prepare("INSERT INTO client_contacts (client_id, contact_id, role, is_primary, receives_invoices, receives_notifications)
-                                    VALUES (?, ?, 'billing', 0, 0, 0)")->execute([$clientId, $contactId]);
-                $d['link_created'] = (int)$this->db->lastInsertId();
-            }
+            $d['link_created'] = $linkId;
 
             // 3. this message and any other open mail from the same address
             $os = $this->db->prepare("SELECT * FROM inbound_unplaced WHERE status = 'open' AND kind = 'person' AND LOWER(from_addr) = ? ORDER BY id");
@@ -339,6 +321,64 @@ final class InboundQuestionService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The person with this address on the account: their contact (made with no consent of any kind when new) and a
+     * current link to the account. Runs inside the caller's transaction. @return array{0:int, 1:bool, 2:?int} contact, made, link made
+     */
+    private function attach(int $clientId, string $first, string $last, string $addr): array
+    {
+        $created = false;
+        $cs = $this->db->prepare("SELECT id FROM contacts WHERE LOWER(TRIM(email)) = ? AND merged_into_id IS NULL ORDER BY id LIMIT 1");
+        $cs->execute([$addr]);
+        $contactId = (int)$cs->fetchColumn();
+        if ($contactId === 0) {
+            $this->db->prepare("INSERT INTO contacts (first_name, last_name, email, is_active, prospect_status, preferred_contact_method,
+                    consent_source, notes, receive_sms, receive_marketing, consent_quote_followup, consent_marketing_email, consent_sms)
+                VALUES (?, ?, ?, 1, 'client', 'email', 'inbox_confirmed', 'Added from an email they sent to the office', 0, 0, 0, 0, 0)")
+                ->execute([$first, $last, $addr]);
+            $contactId = (int)$this->db->lastInsertId();
+            $created = true;
+        }
+        $linkId = null;
+        $ended = $this->hasEndedOn() ? ' AND ended_on IS NULL' : '';
+        $ls = $this->db->prepare("SELECT id FROM client_contacts WHERE client_id = ? AND contact_id = ?{$ended} LIMIT 1");
+        $ls->execute([$clientId, $contactId]);
+        if (!$ls->fetchColumn()) {
+            $this->db->prepare("INSERT INTO client_contacts (client_id, contact_id, role, is_primary, receives_invoices, receives_notifications)
+                                VALUES (?, ?, 'billing', 0, 0, 0)")->execute([$clientId, $contactId]);
+            $linkId = (int)$this->db->lastInsertId();
+        }
+        return [$contactId, $created, $linkId];
+    }
+
+    /**
+     * Someone who wrote about an account but is not on file for it (a statement request from a firm's other person):
+     * add them, so the statement can go to them as a known contact. Tim confirms the name and sees the address first.
+     * @return array{ok: bool, message: string}
+     */
+    public function addToAccount(int $clientId, string $first, string $last, string $email): array
+    {
+        $first = mb_substr(trim($first), 0, 100);
+        $last = mb_substr(trim($last), 0, 100);
+        $addr = strtolower(trim($email));
+        if ($first === '') return $this->no('Add a first name first.');
+        if (!filter_var($addr, FILTER_VALIDATE_EMAIL)) return $this->no('That email address does not look right.');
+        $st = $this->db->prepare("SELECT display_name FROM clients WHERE id = ? AND (status = 'active' OR status IS NULL)");
+        $st->execute([$clientId]);
+        $account = $st->fetchColumn();
+        if ($account === false) return $this->no('I can\'t find that account.');
+        $this->db->beginTransaction();
+        try {
+            $this->attach($clientId, $first, $last, $addr);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            error_log('[who] add to account: ' . $e->getMessage());
+            return $this->no('That didn\'t save — nothing changed. Try again.');
+        }
+        return ['ok' => true, 'message' => trim($first . ' ' . $last) . ' is on ' . $account . ' now. The statement is next.'];
+    }
 
     /** Write a rule, remembering in $d whether it was new or replaced an older one. */
     private function putRule(array &$d, string $key, string $verdict, ?int $clientId, ?int $contactId, int $userId): void

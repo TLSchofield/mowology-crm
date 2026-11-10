@@ -12,7 +12,7 @@ declare(strict_types=1);
 final class YuiActions
 {
     /** Modes the phone may ask for. */
-    public const PHONE_MODES = ['send', 'handled', 'who_confirm', 'who_not', 'who_undo', 'draft', 'who_accounts'];
+    public const PHONE_MODES = ['send', 'handled', 'who_confirm', 'who_not', 'who_undo', 'draft', 'who_accounts', 'contact_add'];
 
     /** @return array<string, mixed> */
     public static function dispatch(PDO $db, string $mode, array $input, array $user, string $owner): array
@@ -53,6 +53,15 @@ final class YuiActions
                                          mb_substr(trim((string)($input['last_name'] ?? '')), 0, 100), $uid);
                 }
                 return $mode === 'who_not' ? $who->notClient($wid, $uid) : $who->undo($wid, $uid);
+            }
+
+            case 'contact_add': {   // the account and the address are the server's; only the name comes from the person
+                $item = $desk->find($key, $owner);
+                $n = $item['statement']['needs_contact'] ?? null;
+                if (!$n) return $gone;
+                $who = new InboundQuestionService($db);
+                return $who->addToAccount((int)$n['client_id'], mb_substr(trim((string)($input['first_name'] ?? '')), 0, 100),
+                                          mb_substr(trim((string)($input['last_name'] ?? '')), 0, 100), (string)$n['email']);
             }
 
             case 'draft': {
@@ -110,7 +119,7 @@ final class YuiActions
     /** Only the primary action takes the card's editable fields; handled / not-a-client / undo / draft just name the item. */
     private static function mergesInto(string $mode, string $field): bool
     {
-        return in_array($mode, ['send', 'who_confirm'], true);
+        return in_array($mode, ['send', 'who_confirm', 'contact_add'], true);
     }
 
     /** @return array{job: array<string, mixed>, request: array<string, mixed>}|null the card owning this request and the card's own copy of it */
