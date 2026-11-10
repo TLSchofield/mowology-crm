@@ -55,7 +55,9 @@ $__minutes = $__j ? SubcontractRules::minutesOnJob($__j['started_at'] ?? null, $
       <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="mw-sub-share-phone" checked><label class="form-check-label" for="mw-sub-share-phone">Show the client's phone, once they take the job</label></div>
       <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="mw-sub-done"><label class="form-check-label" for="mw-sub-done">Already done: just ask for proof of work and the bill</label></div>
       <p class="small text-muted">They always see the address and the work. They never see your price, billing, the client's email or other jobs.</p>
-      <button type="submit" class="btn btn-primary btn-block">Create the link</button>
+      <p class="small mb-2" id="mw-sub-to" role="status"></p>
+      <button type="submit" class="btn btn-primary btn-block" id="mw-sub-email-job">Email this job</button>
+      <button type="button" class="btn btn-outline-secondary btn-block mt-2" id="mw-sub-link-only">Just create a link to share</button>
     </form>
     <?php else: ?>
       <p class="mb-1"><strong><?= h($__j['company_name']) ?></strong><?= !empty($__j['contact_name']) ? ' · ' . h($__j['contact_name']) : '' ?></p>
@@ -119,4 +121,4 @@ $__minutes = $__j ? SubcontractRules::minutesOnJob($__j['started_at'] ?? null, $
     <p class="small text-muted mt-3 mb-0">So far: <?= (int)$__sub['counts']['invited'] ?> sent, <?= (int)$__sub['counts']['opened'] ?> opened, <?= (int)$__sub['counts']['asked'] ?> asked about Ittai.</p>
   </div>
 </div>
-<script src="/crm/js/subcontract-panel.js?v=1" defer></script>
+<script src="/crm/js/subcontract-panel.js?v=2" defer></script>
