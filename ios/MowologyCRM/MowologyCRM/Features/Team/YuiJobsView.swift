@@ -82,6 +82,7 @@ struct YuiJobCard: View {
     @ObservedObject var model: YuiJobsViewModel
     let job: YuiJob
     @State private var pickingAccount = false
+    @State private var earlierOpen = false
 
     private var busy: Bool { model.busyKey == job.key }
 
@@ -136,14 +137,62 @@ struct YuiJobCard: View {
             if !job.left.subject.isEmpty {
                 Text(job.left.subject).font(appStyle.font(.footnote, weight: .semibold))
             }
-            if !job.left.text.isEmpty {
-                Text(job.left.text).font(appStyle.font(.footnote))
-                    .lineLimit(10)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            leftText
             if let addr = job.left.addr { Text(addr).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
             if !job.left.at.isEmpty { Text(job.left.at).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
             if let more = job.left.more { Text(more).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+        }
+    }
+
+    /// Their words in full (never clamped); once loaded, the whole email scrolls here inside the card.
+    @ViewBuilder private var leftText: some View {
+        if let full = model.fullEmails[job.key] {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(full.text).font(appStyle.font(.footnote))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !full.earlier.isEmpty {
+                        DisclosureGroup(isExpanded: $earlierOpen) {
+                            Text(full.earlier).font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } label: {
+                            Text("Earlier in the thread").font(appStyle.font(.footnote, weight: .semibold))
+                                .frame(minHeight: 44, alignment: .leading)
+                        }
+                        .tint(appStyle.tenant)
+                    }
+                    if !full.message.isEmpty {
+                        Text(full.message).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 320)
+            Button("Show less") { earlierOpen = false; model.showLess(job) }
+                .buttonStyle(.it(.ghost))
+        } else {
+            if !job.left.text.isEmpty {
+                Text(job.left.text).font(appStyle.font(.footnote))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if job.readRequest != nil {
+                Button { Task { await model.readWhole(job) } } label: {
+                    HStack(spacing: 6) {
+                        if model.reading == job.key { ProgressView() }
+                        Text("Read the whole email").multilineTextAlignment(.leading)
+                    }
+                    .frame(minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.it(.ghost))
+                .disabled(model.reading != nil)
+                if let e = model.readErrors[job.key] {
+                    Label(e, systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.blocked)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 
@@ -427,6 +476,7 @@ private final class DemoYuiAPI: YuiJobsAPI {
         let json = """
         {"ok":true,"jobs":[
          {"kind":"statement","key":"s1","title":"Send a statement","why":"Client A asked for their balance.","index":1,"total":3,
+          "read":{"mode":"message","key":"s1"},
           "left":{"name":"Client A","subject":"Balance?","text":"Could you send me what I owe so far this season? Thanks.","at":"Today, 9:12","more":2},
           "right":{"account":"Client A Strata","label":"Nov 2026","closing":"$1,240.00","recipients":[{"email":"pat@example.com","name":"Pat Example","on_file":true},{"email":"clienta@example.com","name":"","on_file":false}],"recipient":"pat@example.com","subject":"Your statement, November","body":"Hi Pat, here is your statement. Thank you."},
           "fields":["recipient","subject","body"],
@@ -440,6 +490,7 @@ private final class DemoYuiAPI: YuiJobsAPI {
           "secondary":{"label":"Not a client","sub":"Ignore this sender","request":{"mode":"who_not","id":5}},
           "undo":{"request":{"mode":"who_undo","id":5}},"search":{"mode":"who_accounts"}},
          {"kind":"reply","key":"r1","title":"Reply to Client B","why":"They asked about a Thursday visit.","index":3,"total":3,
+          "read":{"mode":"message","key":"r1"},
           "left":{"name":"Client B","subject":"Thursday","text":"Is Thursday still on for the lawn? It looks wet out.","at":"Today, 7:55"},
           "right":{"to":{"name":"Client B","email":"clientb@example.com"},"subject":"Re: Thursday","body":"","can_draft":true},
           "fields":["subject","body"],
@@ -464,6 +515,12 @@ private final class DemoYuiAPI: YuiJobsAPI {
         switch mode {
         case "who_accounts":
             return YuiActResponse(ok: true, accounts: [YuiCandidate(json: 21, "Client C"), YuiCandidate(json: 22, "Client D")])
+        case "message":
+            let para = "Hi, I am writing about the lawn and the hedges along the back fence. They have grown a lot since the last visit and the strata council would like them neat before the holiday meeting. "
+            return YuiActResponse(ok: true, message: "Read from the office mailbox.",
+                                  text: String(repeating: para, count: 8) + "\n\nThanks, Client B",
+                                  earlier: "On Monday you wrote: We can come Thursday if the weather holds.\n\nOn Friday I wrote: Could you also look at the front beds?",
+                                  fromMailbox: "office")
         case "draft":
             return YuiActResponse(ok: true, body: "Hi, yes, Thursday is still on. We will check the lawn that morning and let you know if it is too wet.")
         case "who_undo":
