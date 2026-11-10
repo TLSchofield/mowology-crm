@@ -573,6 +573,14 @@ class YuiDeskService
         return ['sections' => $out, 'stats' => $this->stats(), 'drafts_left' => $drafts->claudeLeft()];
     }
 
+    /** The inbox items as the card has them (statement offers and drafts included), for the decision carousel. */
+    public function inboxCards(string $owner): array
+    {
+        require_once __DIR__ . '/YuiDraftService.php';
+        $drafts = new YuiDraftService($this->db);
+        return array_map(fn($it) => $this->forCard($it, $owner, $drafts), $this->inbox());
+    }
+
     /** One item by key, as the card has it (the server never trusts the browser's copy). */
     public function find(string $key, string $owner): ?array
     {

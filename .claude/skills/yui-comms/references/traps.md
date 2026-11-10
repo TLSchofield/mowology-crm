@@ -149,3 +149,9 @@ non-free domain. Strong = company + address, or a numbered company alone, on ONE
 `inbound_unplaced` (migration 1446). Only when `ops_settings.inbox_place_unknown` is on. **Rule:** a name or domain in an
 email is evidence of the account, not proof of who wrote it; evidence at two accounts is "weak", never a guess. Run
 `scripts/inbox-replay.php` through `prod-run.sh` and read every placement before switching on.
+
+## 2026-11-10 — One reply quoting invoice numbers broke Yui's whole card
+`UnclaimedReplyService` gives a reply's `invoices` as bare numbers; overdue accounts give rows. `YuiRules::vars()` read
+`$i['number']`, so the desk threw from the moment a placed reply quoted two invoice numbers (06:58 to about 11:30). **Rule:** a
+field shared by several sections takes every shape it can arrive in, and a new kind of stored mail gets a desk load test
+before the switch goes on.
