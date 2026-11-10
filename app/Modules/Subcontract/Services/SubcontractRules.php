@@ -68,6 +68,90 @@ final class SubcontractRules
         }
     }
 
+    /** Staff wording for the timeline and the board. */
+    public const EVENT_WORDS = ['sent' => 'Link sent', 'opened' => 'Opened the link', 'accepted' => 'Took the job', 'declined' => 'Said no',
+        'scheduled' => 'Day arranged', 'on_way' => 'On the way', 'started' => 'Started', 'finished' => 'Finished', 'undo' => 'Took back a step',
+        'work_accepted' => 'You accepted the work', 'bill_sent' => 'Sent a bill', 'bill_approved' => 'Bill approved', 'bill_returned' => 'Bill sent back',
+        'paid' => 'Marked paid', 'cancelled' => 'Cancelled', 'new_link' => 'New link sent', 'ittai_interest' => 'Asked about Ittai'];
+    /** A paid job leaves the board this long after it was paid. */
+    public const BOARD_PAID_DAYS = 14;
+
+    /**
+     * The stages of one job for the board, in order, each reached or not, and which one it is at now.
+     * Three tracks: a new job; work already done (proof, then the bill); and work done whose invoice is already in hand (photos only).
+     * @param list<string> $events event types recorded for the job
+     * @return array{kind:string, stages:list<array{key:string, label:string, reached:bool, current:bool}>, at:string}
+     */
+    public static function stages(array $job, array $events): array
+    {
+        $status = (string)($job['work_status'] ?? 'sent');
+        $order = ['sent', 'accepted', 'scheduled', 'on_way', 'started', 'finished'];
+        $past = static function (string $stage) use ($status, $order): bool {
+            $i = array_search($status, $order, true);
+            return $i !== false && $i >= array_search($stage, $order, true);
+        };
+        $opened = (int)($job['open_count'] ?? 0) > 0 || in_array('opened', $events, true);
+        $finished = $past('finished');
+        $accepted = !empty($job['work_accepted_at']);
+        $bill = in_array((string)($job['bill_status'] ?? 'none'), ['sent', 'approved', 'paid'], true);
+        $paid = (string)($job['bill_status'] ?? '') === 'paid';
+
+        if (self::billOnFile($job) || ($paid && !empty($job['after_the_fact']) && empty($job['bill_expense_id']))) {
+            $kind = 'photos';
+            $track = [['sent', 'Asked', true], ['opened', 'Opened', $opened || $finished], ['finished', 'Photos in', $finished],
+                      ['work_accepted', 'You accepted', $accepted], ['paid', 'Paid', $paid]];
+        } elseif (!empty($job['after_the_fact'])) {
+            $kind = 'done';
+            $track = [['sent', 'Asked', true], ['opened', 'Opened', $opened || $finished], ['finished', 'Proof in', $finished],
+                      ['work_accepted', 'You accepted', $accepted], ['bill', 'Bill in', $bill], ['paid', 'Paid', $paid]];
+        } else {
+            $kind = 'new';
+            $track = [['sent', 'Sent', true], ['opened', 'Opened', $opened || $past('accepted')], ['accepted', 'Took it', $past('accepted')],
+                      ['scheduled', 'Day set', $past('scheduled')], ['on_way', 'On the way', $past('on_way')], ['started', 'Started', $past('started')],
+                      ['finished', 'Finished', $finished], ['work_accepted', 'You accepted', $accepted], ['bill', 'Bill in', $bill], ['paid', 'Paid', $paid]];
+        }
+        $last = 0;
+        foreach ($track as $i => $t) if ($t[2]) $last = $i;
+        $stages = [];
+        foreach ($track as $i => $t) $stages[] = ['key' => $t[0], 'label' => $t[1], 'reached' => $t[2], 'current' => $i === $last];
+        $at = in_array($status, ['declined', 'cancelled'], true) ? ($status === 'declined' ? 'Said no' : 'Cancelled') : $track[$last][1];
+        return ['kind' => $kind, 'stages' => $stages, 'at' => $at];
+    }
+
+    /** What the owner should do now: accept | mark_paid | penny | dismiss, or null when the job is with them. */
+    public static function ownerAction(array $job): ?string
+    {
+        $status = (string)($job['work_status'] ?? '');
+        if (in_array($status, ['declined', 'cancelled'], true)) return 'dismiss';
+        if ($status === 'finished' && empty($job['work_accepted_at'])) return 'accept';
+        $bill = (string)($job['bill_status'] ?? 'none');
+        if (!empty($job['work_accepted_at']) && $bill !== 'paid' && ($bill === 'approved' || self::billOnFile($job))) return 'mark_paid';
+        if ($bill === 'sent' && !self::billOnFile($job)) return 'penny';
+        return null;
+    }
+
+    /** Should the job still be on the board? Paid jobs leave after BOARD_PAID_DAYS; dismissed ones at once. */
+    public static function onBoard(array $job, array $events, string $now): bool
+    {
+        if (in_array('dismissed', $events, true)) return false;
+        if ((string)($job['bill_status'] ?? '') === 'paid') {
+            $paid = strtotime((string)($job['bill_paid_at'] ?? ''));
+            return $paid !== false && strtotime($now) - $paid < self::BOARD_PAID_DAYS * 86400;
+        }
+        return true;
+    }
+
+    /** Waiting on the owner first, then the most recent activity. Rows need 'action' and 'last_at'. */
+    public static function boardOrder(array $rows): array
+    {
+        usort($rows, static function (array $a, array $b): int {
+            $wa = in_array($a['action'] ?? null, ['accept', 'mark_paid', 'dismiss'], true) ? 0 : 1;
+            $wb = in_array($b['action'] ?? null, ['accept', 'mark_paid', 'dismiss'], true) ? 0 : 1;
+            return $wa <=> $wb ?: strcmp((string)($b['last_at'] ?? ''), (string)($a['last_at'] ?? ''));
+        });
+        return $rows;
+    }
+
     /** Work done off the system whose invoice the owner already has: the link asks only for photos. */
     public static function billOnFile(array $job): bool
     {

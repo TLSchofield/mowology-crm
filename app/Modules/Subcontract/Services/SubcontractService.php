@@ -339,6 +339,54 @@ class SubcontractService
         return ['invited' => $count('sent'), 'opened' => $count('opened'), 'panel_seen' => $count('panel_seen'), 'asked' => $count('ittai_interest')];
     }
 
+    /**
+     * Every subcontract job still on the board, waiting-on-you first, with its stages. Staff only: carries
+     * links to their photos, never the client's price or email.
+     */
+    public function board(): array
+    {
+        $jobs = $this->db->query("
+            SELECT j.*, s.company_name, jp.title AS plan_title, p.address AS property_address
+            FROM subcontract_jobs j
+            JOIN subcontractors s ON s.id = j.subcontractor_id
+            LEFT JOIN job_plans jp ON jp.id = j.plan_id
+            LEFT JOIN properties p ON p.id = jp.property_id
+            ORDER BY j.id DESC LIMIT 60
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        $now = $this->now();
+        $rows = [];
+        foreach ($jobs as $job) {
+            $job = $this->syncBill($job);
+            $timeline = $this->timeline((int)$job['id']);
+            $types = array_column($timeline, 'event_type');
+            if (!SubcontractRules::onBoard($job, $types, $now)) continue;
+            $last = null;
+            foreach (array_reverse($timeline) as $ev) {
+                if (isset(SubcontractRules::EVENT_WORDS[$ev['event_type']])) { $last = $ev; break; }
+            }
+            $stages = SubcontractRules::stages($job, $types);
+            $rows[] = [
+                'job_id' => (int)$job['id'], 'visit_id' => (int)$job['visit_id'],
+                'company' => (string)$job['company_name'], 'title' => (string)($job['plan_title'] ?? ''), 'address' => (string)($job['property_address'] ?? ''),
+                'kind' => $stages['kind'], 'stages' => $stages['stages'], 'at' => $stages['at'],
+                'last' => $last ? SubcontractRules::EVENT_WORDS[$last['event_type']] : null, 'last_at' => $last['created_at'] ?? $job['created_at'],
+                'action' => SubcontractRules::ownerAction($job),
+                'photos' => array_map(static fn ($f) => '/crm/api/subcontract.php?mode=file&id=' . (int)$f['id'], $this->files((int)$job['id'], 'photo')),
+                'url' => '/crm/jobs/visit-detail.php?id=' . (int)$job['visit_id'] . '#mw-sub',
+            ];
+        }
+        return SubcontractRules::boardOrder($rows);
+    }
+
+    /** Take a declined or cancelled job off the board once the owner has dealt with it. */
+    public function dismiss(int $jobId, int $userId): array
+    {
+        $job = $this->find($jobId);
+        if (!$job || !in_array((string)$job['work_status'], ['declined', 'cancelled'], true)) return ['ok' => false, 'error' => 'Only a job they said no to, or one you cancelled, can be cleared.'];
+        if (!$this->hasEvent($jobId, 'dismissed')) $this->event($jobId, (int)$job['visit_id'], 'dismissed', 'staff', $userId);
+        return ['ok' => true];
+    }
+
     /** Stop a job and kill its link. Work already finished stays on record. */
     public function cancel(int $jobId, int $userId): bool
     {

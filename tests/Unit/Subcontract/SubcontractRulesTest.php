@@ -101,6 +101,61 @@ final class SubcontractRulesTest extends TestCase
         ];
     }
 
+    private function current(array $stages): string
+    {
+        foreach ($stages['stages'] as $s) if ($s['current']) return $s['label'];
+        return '';
+    }
+
+    public function testANewJobWalksItsTrack(): void
+    {
+        $job = ['work_status' => 'sent', 'bill_status' => 'none', 'open_count' => 0];
+        $this->assertSame('Sent', $this->current(SubcontractRules::stages($job, ['sent'])));
+        $this->assertSame('Opened', $this->current(SubcontractRules::stages(['open_count' => 1] + $job, ['sent', 'opened'])));
+        $this->assertSame('Day set', $this->current(SubcontractRules::stages(['work_status' => 'scheduled'] + $job, [])));
+        $this->assertSame('Started', $this->current(SubcontractRules::stages(['work_status' => 'started'] + $job, [])), 'skipping On the way still shows Started');
+        $all = SubcontractRules::stages(['work_status' => 'finished', 'work_accepted_at' => 'x', 'bill_status' => 'paid'] + $job, []);
+        $this->assertSame('Paid', $this->current($all));
+        $this->assertSame('new', $all['kind']);
+        $this->assertCount(10, $all['stages']);
+    }
+
+    public function testWorkAlreadyDoneHasTheShortTracks(): void
+    {
+        $done = SubcontractRules::stages(['work_status' => 'started', 'after_the_fact' => 1, 'bill_status' => 'none'], []);
+        $this->assertSame('done', $done['kind']);
+        $this->assertSame(['Asked', 'Opened', 'Proof in', 'You accepted', 'Bill in', 'Paid'], array_column($done['stages'], 'label'));
+        $photos = SubcontractRules::stages(['work_status' => 'finished', 'after_the_fact' => 1, 'bill_status' => 'sent'], []);
+        $this->assertSame('photos', $photos['kind']);
+        $this->assertSame('Photos in', $this->current($photos));
+        $paid = SubcontractRules::stages(['work_status' => 'finished', 'after_the_fact' => 1, 'bill_status' => 'paid', 'work_accepted_at' => 'x'], []);
+        $this->assertSame('photos', $paid['kind'], 'stays on the photos track once paid');
+    }
+
+    public function testWhatTheOwnerDoesNext(): void
+    {
+        $this->assertSame('accept', SubcontractRules::ownerAction(['work_status' => 'finished']));
+        $this->assertSame('penny', SubcontractRules::ownerAction(['work_status' => 'finished', 'work_accepted_at' => 'x', 'bill_status' => 'sent', 'bill_expense_id' => 4]));
+        $this->assertSame('mark_paid', SubcontractRules::ownerAction(['work_status' => 'finished', 'work_accepted_at' => 'x', 'bill_status' => 'approved']));
+        $this->assertSame('mark_paid', SubcontractRules::ownerAction(['work_status' => 'finished', 'work_accepted_at' => 'x', 'bill_status' => 'sent', 'after_the_fact' => 1]));
+        $this->assertSame('dismiss', SubcontractRules::ownerAction(['work_status' => 'declined']));
+        $this->assertNull(SubcontractRules::ownerAction(['work_status' => 'sent', 'bill_status' => 'none']));
+        $this->assertNull(SubcontractRules::ownerAction(['work_status' => 'finished', 'work_accepted_at' => 'x', 'bill_status' => 'paid']));
+    }
+
+    public function testBoardKeepsPaidJobsTwoWeeksAndOrdersWaitingFirst(): void
+    {
+        $this->assertTrue(SubcontractRules::onBoard(['bill_status' => 'paid', 'bill_paid_at' => '2026-11-01 12:00:00'], [], self::NOW));
+        $this->assertFalse(SubcontractRules::onBoard(['bill_status' => 'paid', 'bill_paid_at' => '2026-10-20 12:00:00'], [], self::NOW));
+        $this->assertFalse(SubcontractRules::onBoard(['work_status' => 'declined'], ['declined', 'dismissed'], self::NOW));
+        $rows = SubcontractRules::boardOrder([
+            ['job_id' => 1, 'action' => null, 'last_at' => '2026-11-10 11:00:00'],
+            ['job_id' => 2, 'action' => 'accept', 'last_at' => '2026-11-09 08:00:00'],
+            ['job_id' => 3, 'action' => 'penny', 'last_at' => '2026-11-10 11:30:00'],
+        ]);
+        $this->assertSame([2, 3, 1], array_column($rows, 'job_id'));
+    }
+
     public function testOnSiteAllowsForARoughReading(): void
     {
         $this->assertTrue(SubcontractRules::onSite(49.2827, -123.1207, 20, 49.2828, -123.1208));

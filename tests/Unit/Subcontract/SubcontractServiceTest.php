@@ -320,6 +320,35 @@ final class SubcontractServiceTest extends TestCase
         $this->assertTrue($this->svc->markPaid($sent['job_id'], 1)['ok']);
     }
 
+    public function testTheBoardShowsEachJobItsStageAndNoClientDetails(): void
+    {
+        $this->db->exec("ALTER TABLE job_plans ADD COLUMN price_per_visit REAL");
+        $this->db->exec("UPDATE job_plans SET price_per_visit = 999");
+        $a = $this->finished();
+        $b = $this->send(11);
+        $board = $this->svc->board();
+        $this->assertSame([$a['job_id'], $b['job_id']], array_column($board, 'job_id'), 'waiting on you first');
+        $this->assertSame('accept', $board[0]['action']);
+        $this->assertSame('Finished', $board[0]['at']);
+        $this->assertSame('Green Co', $board[0]['company']);
+        $this->assertSame('12 Oak St', $board[0]['address']);
+        $this->assertCount(1, $board[0]['photos']);
+        $flat = json_encode($board);
+        $this->assertStringNotContainsString('999', $flat);
+        $this->assertStringNotContainsString('604-555-0100', $flat);
+        $this->assertStringNotContainsString('token', $flat);
+    }
+
+    public function testADeclinedJobLeavesTheBoardOnceCleared(): void
+    {
+        $sent = $this->send();
+        $this->svc->act($this->fresh($sent['token']), 'decline');
+        $this->assertSame('dismiss', $this->svc->board()[0]['action']);
+        $this->assertFalse($this->svc->dismiss($this->send(11)['job_id'], 1)['ok'], 'a live job is not cleared');
+        $this->assertTrue($this->svc->dismiss($sent['job_id'], 1)['ok']);
+        $this->assertNotContains($sent['job_id'], array_column($this->svc->board(), 'job_id'));
+    }
+
     public function testLocationIsOnlyKeptAtStartAndFinish(): void
     {
         $sent = $this->send();
