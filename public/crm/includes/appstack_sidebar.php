@@ -118,20 +118,20 @@ if (!empty($itShell)):
         ?>
             <li class="it-grp<?php echo $__sel ? ' is-sel' : ''; ?><?php echo $__here ? ' is-here' : ''; ?><?php echo $__slug === 'charlie' ? ' it-kan' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" data-workspace="<?php echo $__h($__ws); ?>">
                 <button type="button" class="it-grow" aria-expanded="<?php echo $__isOpen ? 'true' : 'false'; ?>" aria-controls="it-acc-<?php echo $__h($__slug); ?>" aria-label="<?php echo $__h($__aria); ?>">
+                    <?php /* Round 7 (Tim's sketch, 2026-11-10): name on the left, the portrait on the spine at the right; the state is
+                             the ring and glyph (the word stays in the aria-label and on the card); Kaname carries the owner's count. */ ?>
+                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span><?php if ($__slug === 'charlie' && (int)($__hd['needs_you'] ?? 0) > 0): ?><span class="it-chip it-chip-need"><?php echo $__h($__word); ?></span><?php endif; ?></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
                     <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"><?php if ($__st !== ''): ?><svg class="it-bd it-bd-<?php echo $__st; ?>" width="16" height="16" aria-hidden="true"><use href="#it-st-<?php echo $__st; ?>"/></svg><?php endif; ?></span>
-                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
-                    <?php echo $__stHtml; ?>
-                    <svg class="it-ch it-ic" width="16" height="16" aria-hidden="true"><use href="#it-i-<?php echo $__isOpen ? 'down' : 'right'; ?>"/></svg>
                 </button>
                 <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
-                <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
+                <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
                     <span class="<?php echo $__ring; ?> it-pt-lg"><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
                     <span class="it-hpn"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span>
                     <span class="it-hpd"><?php echo $__h($__role); ?></span>
                     <?php echo $__stHtml; ?>
                     <?php if ($__line !== ''): ?><p class="it-hpl"><?php echo $__h($__line); ?></p><?php endif; ?>
                 </div>
-                <div class="it-fly" role="group" aria-label="<?php echo $__h($__name . ', ' . $__role); ?>">
+                <div class="it-fly" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', ' . $__role); ?>">
                     <div class="it-fh">
                         <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"></span>
                         <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span><span class="it-l2"><?php echo $__h($__role); ?></span></span>
