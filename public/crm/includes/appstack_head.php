@@ -247,3 +247,4 @@ function _av(string $webPath): string {
 
       <main class="content">
         <div class="container-fluid p-0">
+<?php if (!empty($itShell)) include __DIR__ . '/ittai-job.php'; ?>

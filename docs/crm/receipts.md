@@ -668,3 +668,15 @@ bank-linked > approved > linked > has a photo > oldest (ReceiptReviewService::ke
 copies; **Merge into #keeper** = DuplicateReceiptService::removeCopies (refused unless one duplicate group now); **Not a
 duplicate** dismisses every pair the copy is in. Ittai v1.2: ittai-review.css (tokens only) via $extraHead, receipt-review.js.
 
+
+## Desktop job strip (Ittai design, 2026-11-10)
+
+With the `it_design` cookie on, Penny's pages (Invoices, Payroll, Accounting, Expenses, …) show a job strip across the
+top of the content when two waiting receipts look like one purchase: the facts along a horizontal rail with the iPhone's
+discs (same / differs / missing), the two receipts, **Merge into #kept** (filled), **Different, keep both** (outline),
+the Ledger anchor, "1 of N" and Skip. Shown only to the owner with `expenses.approve`, only when there is something to
+do. `app/Modules/Expenses/Services/PennyJobAdapter.php` shapes `DuplicateReceiptService::presentGroups()` into a generic
+job; `public/crm/includes/ittai-job.php` prints it; `public/crm/js/ittai-job.js` posts the same `bookkeeper.php`
+requests as the web Penny card (`dupe_merge`, `not_dupe`, `unmerge` with kind `undo`), with Undo for 6 s after a merge.
+Skip writes nothing. The cheap gate is two waiting receipts with the same total within three days — not Penny's
+"possible twin" questions, which cover approved receipts only.

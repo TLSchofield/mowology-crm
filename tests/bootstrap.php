@@ -409,6 +409,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberLedgerService.
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberPriceHistory.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberQuoteHistory.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';

@@ -7,6 +7,8 @@ covers:
   - app/Services/Receipts/*
   - app/Services/Pdf/PdfFormFiller.php
   - app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php
+  - public/crm/includes/ittai-job.php
+  - public/crm/js/ittai-job.js
   - public/crm/accounting/*
   - app/Modules/Ledger/*
   - public/crm/ledger/*
@@ -20,7 +22,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Receipts/*
   - database/migrations/*
 metadata:
-  version: 1.3.11
+  version: 1.3.12
   created: 2026-10-11
   owner: Tim Schofield (Mowology) — tax facts to be confirmed by Steve Lim CPA (Sit Lim CPA)
 ---
