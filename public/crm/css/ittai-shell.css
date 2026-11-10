@@ -437,6 +437,10 @@ body.it-shell.it-shell .it-kan-space b { font-weight: 600; }
 body.it-shell.it-shell .it-kan-space .it-kan-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-meta); }
 body.it-shell.it-shell .it-kan-space .it-kan-open { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; color: var(--it-text); }
 body.it-shell.it-shell .it-kan-space .it-kan-open:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+body.it-shell.it-shell .it-kan-space .it-kan-sub { display: inline-flex; align-items: center; min-height: 44px; max-width: 45%; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--it-text); font-weight: 500; text-decoration: none; border-left: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.it-shell .it-kan-space .it-kan-sub:hover { text-decoration: underline; }
+body.it-shell.it-shell .it-kan-space .it-kan-sub:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+@media (max-width: 640px) { body.it-shell.it-shell .it-kan-space .it-kan-sub { display: none; } }
 
 /* The strip starts clear of the head's card (the card overhangs the sidebar by 72 px): room for its rail to run from the card */
 body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
@@ -469,7 +473,7 @@ body.it-shell.it-shell .it-job-outer { margin-left: 96px; }
 .it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-line); pointer-events: none; }
 .it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
 /* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
-.it-job-split { display: flex; align-items: center; gap: 10px; padding: 20px 10px 20px 30px; margin-left: -22px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 20px 10px 20px 40px; margin-left: -32px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; }
 .it-job-conf { z-index: 2; }
 /* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
 .it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }

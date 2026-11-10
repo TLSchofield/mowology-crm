@@ -343,7 +343,7 @@ class SubcontractService
      * Every subcontract job still on the board, waiting-on-you first, with its stages. Staff only: carries
      * links to their photos, never the client's price or email.
      */
-    public function board(bool $withPhotos = true): array
+    public function board(bool $withPhotos = true, bool $sync = true): array
     {
         $now = $this->now();
         // Filtered before the limit, so an old job still waiting on the owner is never pushed off by newer ones.
@@ -374,7 +374,7 @@ class SubcontractService
         }
         $rows = [];
         foreach ($jobs as $job) {
-            $job = $this->syncBill($job);
+            if ($sync) $job = $this->syncBill($job);   // a brief only reads (Kaname calls it every 15 minutes)
             $timeline = $events[(int)$job['id']] ?? [];
             $types = array_column($timeline, 'event_type');
             if (!SubcontractRules::onBoard($job, $types, $now)) continue;
@@ -394,6 +394,18 @@ class SubcontractService
             ];
         }
         return SubcontractRules::boardOrder($rows);
+    }
+
+    /** Kaname's lines from the board, read-only. */
+    public function briefItems(): array
+    {
+        return SubcontractRules::briefItems($this->board(false, false), $this->now());
+    }
+
+    /** The one line for Kaname's space at the top of every page, or null. Read-only. */
+    public function spaceLine(): ?array
+    {
+        return SubcontractRules::spaceLine($this->board(false, false), $this->now());
     }
 
     /** Take a declined or cancelled job off the board once the owner has dealt with it. */
