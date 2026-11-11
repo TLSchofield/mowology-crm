@@ -50,7 +50,8 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertSame('month', $j['kind']);
         $this->assertSame('bank:4411', $j['key']);
         $this->assertSame(['mode' => 'bank_decide', 'transaction_id' => 4411, 'action' => 'approve', 'account_id' => 31, 'suggested_id' => 31], $j['primary']['request']);
-        $this->assertSame(['mode' => 'bank_decide', 'transaction_id' => 4411, 'action' => 'keep', 'suggested_id' => 31], $j['secondary']['request']);
+        $this->assertSame(['mode' => 'choose', 'transaction_id' => 4411, 'suggested_id' => 31], $j['secondary']['request'], 'Wrong account opens the picker; the answer posts bank_decide');
+        $this->assertSame('Wrong account', $j['secondary']['label']);
         $this->assertStringContainsString('March', $j['title']);
         $this->assertStringContainsString('31 bank lines', $j['title']);
         $this->assertSame('forming', $j['sure'], 'a vendor reading is not a record');
@@ -71,7 +72,9 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertSame('Bank line', $bare['left']['label'], 'no account known: the generic name');
         $this->assertSame('No receipt', $bare['right']['when']);
         $found = PennyMonthJobAdapter::fromLine($this->line(['suggestion' => ['account_id' => 31, 'code' => '5200', 'name' => 'Fuel', 'reason' => 'x', 'source' => 'found_receipt', 'expense_id' => 902]]), $month, $discs, 1, 1);
-        $this->assertSame('Receipt found', $found['right']['when']);
+        $this->assertSame('Receipt #902 found · Approve links it', $found['right']['when']);
+        $this->assertSame('5200 + link receipt', $found['primary']['sub'], 'the button says it does more than file a category');
+        $this->assertSame('5200 only', PennyMonthJobAdapter::fromLine($this->line(), $month, $discs, 1, 1)['primary']['sub']);
     }
 
     public function testTheMonthDiscComesAfterTheButtonsWithOneLineFewer(): void
@@ -165,5 +168,28 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertTrue(PennyMonthJobAdapter::inClosedYear('2025-12-30'), 'University Landscapers, Dec 30 2025: its books are in the filed year');
         $this->assertTrue(PennyMonthJobAdapter::inClosedYear(''), 'an unknown date is not trusted');
         $this->assertFalse(PennyMonthJobAdapter::inClosedYear('2026-01-02'));
+    }
+
+    public function testThePayeeLeadsAndTheRefNoiseGoes(): void
+    {
+        $this->assertSame(['kind' => 'e-Transfer debit', 'name' => 'Canev'], PennyMonthJobAdapter::payeeOf('e-Transfer debit Ref 20260318164949668880 Canev'));
+        $this->assertSame(['kind' => 'e-Transfer credit', 'name' => ''], PennyMonthJobAdapter::payeeOf('e-Transfer credit Ref 2026031816'));
+        $this->assertSame(['kind' => '', 'name' => 'POINTOFSALE(THEHOMEDEPOT7043RICHMONDBCCA)'], PennyMonthJobAdapter::payeeOf('POINTOFSALE(THEHOMEDEPOT7043RICHMONDBCCA)'));
+        $line = $this->line(['description' => 'e-Transfer debit Ref 20260318164949668880 Canev']);
+        $j = PennyMonthJobAdapter::fromLine($line, $this->months()[2], [], 1, 1, ['accounts' => [[33, '6120 Vehicle Maintenance']]]);
+        $this->assertSame('e-Transfer debit · Canev', $j['left']['who'], 'the name is not the part that gets cut off');
+        $this->assertSame('Canev', $j['payee']);
+        $this->assertStringContainsString('Shell is a vendor you book as fuel', $j['right']['who'], 'her reason is on the strip, not in a tooltip');
+        $this->assertSame([[33, '6120 Vehicle Maintenance']], $j['accounts']);
+    }
+
+    public function testTheAccountPickerListsTheChart(): void
+    {
+        $this->assertSame([[33, '6120 Vehicle Maintenance'], [29, '5400 Subcontractors']], PennyMonthJobAdapter::accountChoices([
+            ['id' => 33, 'code' => '6120', 'name' => 'Vehicle Maintenance', 'type' => 'expense'],
+            ['id' => 0, 'code' => '9', 'name' => 'x'],
+            ['id' => 29, 'code' => '5400', 'name' => 'Subcontractors', 'type' => 'expense'],
+            ['id' => 30, 'code' => '', 'name' => 'blank'],
+        ]));
     }
 }
