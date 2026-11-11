@@ -250,6 +250,14 @@ Protected CRM page:
     $user = getCurrentUser()           ← returns ['id','email','name','role']
 ```
 
+**Phone sign-in (JWT).** The apps sign in with `POST /api/auth/token.php` at a business's own address, or with
+`POST https://ittai.ca/api/sign-in.php`, which tries every business (2026-11-11). Both run `PhoneSignIn::attempt()`
+(`app/Core/Auth/PhoneSignIn.php`) on that business's database: the same throttle, user check, accountant fence and
+HS256 token, signed with the business's own key and naming it in a `biz` claim that `validateJwtToken()` checks.
+The ittai.ca script runs in directory mode (`ITTAI_DIRECTORY_MODE`): it has no database of its own (`Tenant::db()`
+throws) and opens each business with `Database::forBusiness()` via `BusinessDirectory`. See HOWTO.md
+"Phone sign-in for every business".
+
 ### Session Variables
 
 | Key | Type | Set By |
