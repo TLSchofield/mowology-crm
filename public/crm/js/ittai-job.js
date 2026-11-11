@@ -144,7 +144,7 @@
     /** Draw queue[0]: clone the skeleton of its kind, fill it, swap it in for the old rail. */
     function render() {
         var job = queue[0];
-        var kind = job.kind === 'month' ? 'month' : (job.kind === 'etransfer' ? 'etransfer' : 'duplicate');
+        var kind = job.kind === 'receipt' ? 'receipt' : (job.kind === 'month' ? 'month' : (job.kind === 'etransfer' ? 'etransfer' : 'duplicate'));
         var oldRail = root.querySelector('.it-job-rail');
         var rail = tplFor(kind).content.firstElementChild.cloneNode(true);
         root.setAttribute('data-kind', kind);
@@ -204,6 +204,18 @@
         }
         side(rail.querySelector('.it-job-side-top'), job.left);
         side(rail.querySelector('.it-job-side-bot'), job.right);
+        // the receipt job: its name opens the file in a new tab, as the card's View link does
+        if (kind === 'receipt' && job.left && /^\/crm\//.test(job.left.href || '')) {
+            var rb = rail.querySelector('.it-job-side-top b');
+            if (rb) {
+                var ra = el('a', 'it-job-rc-view', job.left.label || 'Receipt');
+                ra.setAttribute('href', job.left.href);
+                ra.setAttribute('target', '_blank');
+                ra.setAttribute('rel', 'noopener');
+                rb.textContent = '';
+                rb.appendChild(ra);
+            }
+        }
         var start = rail.querySelector('.it-job-anchor-start');
         if (start && job.start) {
             start.setAttribute('href', job.start.href);
@@ -322,27 +334,57 @@
         });
     }
 
+    /** "Not this" on a receipt: the page's full editor for it (refreshes the page when closed, as "Open full editor" does); elsewhere, the Expenses page. */
+    function editReceipt(req) {
+        var id = parseInt(req.expense_id, 10) || 0;
+        if (id && typeof window.editExpense === 'function') {
+            if (window.jQuery) window.jQuery('#expenseModal').one('hidden.bs.modal', function () { window.location.reload(); });
+            window.editExpense(id);
+            return;
+        }
+        window.location.assign('/crm/expenses_appstack.php#receipt-inbox');
+    }
+    /** An approved receipt leaves the card's list too, as its own Approve does (row out, count down), so the two never disagree. */
+    function dropFromCard(id) {
+        var card = document.getElementById('receipt-inbox');
+        var row = card && card.querySelector('.mw-ri-row[data-expense-id="' + String(id).replace(/[^0-9]/g, '') + '"]');
+        if (!row) return;
+        row.remove();
+        var c = card.querySelector('.mw-ri-count');
+        if (c) {
+            var n = Math.max(0, parseInt(c.textContent, 10) - 1);
+            c.textContent = String(n);
+            if (n === 0) card.remove();
+        }
+    }
+
     function settle(btn) {
         if (busy || !queue.length) return;
         var req;
         try { req = JSON.parse(btn.getAttribute('data-request') || ''); } catch (e) { return; }
         var job = queue[0];
         if (req.mode === 'pick') { pick(req); return; }
+        if (req.mode === 'edit') { editReceipt(req); return; }
+        var isApprove = job.kind === 'receipt' && req.action === 'approve';   // the month job's bank lines also say action 'approve'
         var isMerge = req.mode === 'dupe_merge';
         var isRecord = req.action === 'record';
         clearTimeout(undoTimer);
         setBusy(true);
         say('', false);
         post(req, job).then(function (d) {
+            // A receipt already handled elsewhere (merged, cancelled, approved in another tab) is settled: it leaves the strip and the card.
+            var gone = isApprove && d && !d.ok && /already handled|not found/i.test(String(d.message || ''));
+            if (gone) { d = { ok: true, message: 'Already handled.' }; }
             if (!(d && d.ok)) { setBusy(false); say((d && (d.message || d.error)) || 'Could not save — try again', false); return; }
-            var text = d.message || (isMerge ? 'Merged' : (isRecord ? 'Recorded.' : 'Got it — two purchases.'));
+            var text = d.message || (isMerge ? 'Merged' : (isRecord ? 'Recorded.' : (isApprove ? 'Approved.' : 'Got it — two purchases.')));
+            if (isApprove) { dropFromCard(req.expense_id); if (typeof window.loadExpenses === 'function') window.loadExpenses(); }
             if (isRecord && d.fully_allocated === false) {
                 text = 'Part recorded. ' + (typeof d.remaining === 'number' ? '$' + d.remaining.toFixed(2) + ' is still waiting for an invoice — see the card.' : 'The rest is still waiting for an invoice — see the card.');
             }
             var canUndo = isMerge && !!(job.undo && job.undo.requests && job.undo.requests.length);
             // A merge or a recorded payment resolves on screen first (the ink line: the split becomes one line into
             // the Ledger), then the next job or the quiet end.
-            return ((isMerge || isRecord) ? playInk() : Promise.resolve()).then(function () {
+            return ((isMerge || isRecord || isApprove) ? playInk() : Promise.resolve()).then(function () {
                 setBusy(false);
                 queue.shift();
                 lastMerged = canUndo ? job : null;

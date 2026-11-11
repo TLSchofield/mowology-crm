@@ -600,12 +600,16 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 /* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
 .it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
 /* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */
-.it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-rail[data-kind="receipt"] .it-job-cols .it-job-top, .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-bot, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
 .it-job-side { display: grid; justify-items: start; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: nowrap; }
 .it-job-side b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); }
 .it-job-side-top { align-self: end; }
 .it-job-side-bot { align-self: start; }
 .it-job-side-bot b { color: var(--it-brand); }
+/* the receipt job: its name opens the file */
+.it-job-rc-view { color: inherit; text-decoration: underline; text-decoration-color: var(--it-line); text-underline-offset: 3px; }
+.it-job-rc-view:hover, .it-job-rc-view:focus-visible { color: var(--it-brand); text-decoration-color: currentColor; }
+.it-job-rail[data-kind="receipt"] .it-btn-fill .it-job-ic { transform: none; }
 .it-job-sides .it-job-disc-flow { justify-self: start; margin-left: 4px; }
 /* Record points along the flow already: no turned arrow (the duplicate job turns its merge arrow) */
 .it-job-rail[data-kind="etransfer"] .it-btn-fill .it-job-ic { transform: none; }
