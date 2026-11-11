@@ -4012,6 +4012,14 @@ if ($__srOn): ?>
 <?php endif; ?>
 <script src="../js/schedule-pill-workflow.js?v=20261102pins" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
+<?php
+// Jobber-style calendar editing (timeline, drag-resize, add-on-calendar). Off unless ops_settings it_calendar_edit = 1.
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
+if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db)): ?>
+<link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
+<script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?> };</script>
+<script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
+<?php endif; ?>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>
 <?php if ($canFieldCreate): ?>

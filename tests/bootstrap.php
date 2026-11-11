@@ -585,6 +585,8 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookRefreshServ
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CrewAssignmentService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitCarryGuard.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/StopRescheduleService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitResizeService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/CalendarCreateService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherActionGuard.php';

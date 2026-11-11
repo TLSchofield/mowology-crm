@@ -90,6 +90,11 @@ function getCalendarStops(string $startDate, string $endDate, $crewId = null, ?s
     // correlated LIMIT 1 so it can never multiply stop rows; skipped entirely when the
     // table is missing so the schedule still loads.
     require_once dirname(__DIR__, 3) . '/Contacts/Services/OnsiteContactService.php';
+    require_once dirname(__DIR__) . '/VisitResizeService.php';
+    // A visit resized on the calendar carries its own length; everything else uses the plan's.
+    $durSelect = VisitResizeService::columnReady($db)
+        ? 'COALESCE(jv.duration_override_minutes, jp.estimated_duration_minutes) AS estimated_duration_minutes'
+        : 'jp.estimated_duration_minutes';
     $oscSelect = '';
     $oscJoin   = '';
     if ((new OnsiteContactService($db))->isAvailable()) {
@@ -152,7 +157,7 @@ function getCalendarStops(string $startDate, string $endDate, $crewId = null, ?s
             jp.pricing_model,
             jp.contract_id,
             jp.price_per_visit,
-            jp.estimated_duration_minutes,
+            {$durSelect},
             ctr.status AS contract_status,
             ctr.billing_cycle AS contract_billing_cycle,
             COALESCE(jv.is_flagged, 0) AS is_flagged,
