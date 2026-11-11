@@ -10,12 +10,13 @@ covers:
   - public/crm/customer/quote.php
   - public/crm/includes/sam-card.php
   - public/crm/js/sam-card.js
+  - public/crm/includes/ittai-job-sam.php
   - public/crm/includes/closer-panel.php
   - public/crm/js/closer-panel.js
   - ios/MowologyCRM/MowologyCRM/Features/Team/SamCard*
   - ios/MowologyCRM/MowologyCRM/Core/Models/SalesModels.swift
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -113,6 +114,8 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 | Replies no other net caught; clear "yes" | `UnclaimedReplyService::items()`, `UnclaimedReplyService::lane()` | Sam, Kaname |
 | Email enquiries from strangers | `EmailLeadService::score()`, `EmailLeadService::maybes()` | iCloud router, Sam web |
 | Expired quotes: lost / keep / won | `SamQuestionService::answer()` | Sam web + iPhone |
+| Owner declines / reopens a quote (reason from `QuoteService::LOST_REASONS` into `quotes.lost_reason`; sends nothing) | `QuoteService::decline()`, `QuoteService::reopen()` | `public/crm/quotes/view.php` (Decline in More), `app/Modules/Quotes/Api/api-quotes.php` (`decline` / `reopen`), Sam's quote strip |
+| "This quote has gone quiet: follow up or decline" flow line (off unless `ops_settings it_quote_job` = 1; Follow up opens the quote page, never sends) | `QuoteJobAdapter::jobs()` | `public/crm/includes/ittai-job-sam.php`, shared `public/crm/js/ittai-job-mia.js` |
 | Pipeline stage of a contact/company | `PipelineStageService::onEvent()`, `PipelineStageService::sweep()` | quote/plan/invoice events, pipeline sweep |
 | "Quote opened" push | `QuoteViewNotifier::notifyFirstView()` | `public/customer/quote.php` |
 | The Closer's price beside the quote | `CloserService::forQuote()` (read-only) | `app/Modules/Sales/Api/closer.php`, `public/crm/includes/closer-panel.php` |

@@ -4,6 +4,8 @@
  *
  * Actions:
  * - bulk-delete: Permanently delete multiple quotes
+ * - decline:     the owner declines a sent/viewed quote ({id, lost_reason?}); sends nothing (QuoteService::decline)
+ * - reopen:      a declined quote goes back to sent ({id}); sends nothing (QuoteService::reopen)
  *
  * Requires authentication. POST only.
  */
@@ -25,6 +27,7 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -91,6 +94,30 @@ try {
             $db->rollBack();
             throw $e;
         }
+    } elseif ($action === 'decline' || $action === 'reopen') {
+        // The same moves the quote page's Decline / Reopen make (view.php), for Sam's flow line.
+        $id = (int)($input['id'] ?? 0);
+        $svc = new QuoteService($db);
+        $q = $id > 0 ? $svc->getWithContact($id) : null;
+        if (!$q) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Quote not found']);
+            exit;
+        }
+        $reason = (string)($input['lost_reason'] ?? '');
+        $done = $action === 'decline' ? $svc->decline($id, $reason) : $svc->reopen($id);
+        if (!$done) {
+            echo json_encode(['success' => false, 'message' => $action === 'decline'
+                ? 'That quote is not waiting for an answer any more.' : 'That quote is not declined.']);
+            exit;
+        }
+        $new = $action === 'decline' ? 'declined' : 'sent';
+        trackFieldChange('quote', $id, 'status', (string)$q['status'], $new, (int)$user['id']);
+        $why = ($action === 'decline' && isset(QuoteService::LOST_REASONS[$reason])) ? ' (' . QuoteService::LOST_REASONS[$reason] . ')' : '';
+        logActivityExtended((int)$user['id'], $action === 'decline' ? 'Quote declined (flow line)' : 'Quote reopened (flow line)',
+            ($action === 'decline' ? 'Declined' : 'Reopened') . " by {$user['name']} from the flow line{$why}", null, null, $id);
+        echo json_encode(['success' => true, 'message' => $action === 'decline'
+            ? $q['quote_number'] . ' declined. Nothing was sent.' : $q['quote_number'] . ' reopened.']);
     } else {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'Invalid action']);
@@ -99,6 +126,6 @@ try {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Delete failed: ' . ApiResponse::message($e, 'api-quotes')
+        'error' => ($action === 'bulk-delete' ? 'Delete failed: ' : 'Could not save: ') . ApiResponse::message($e, 'api-quotes')
     ]);
 }

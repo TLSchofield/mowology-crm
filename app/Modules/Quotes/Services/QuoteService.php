@@ -509,6 +509,86 @@ class QuoteService
         $this->pipelineStage($quoteId);
     }
 
+    /** Why a quote was lost, as the owner picks it (quotes.lost_reason). */
+    public const LOST_REASONS = [
+        'price'          => 'Price',
+        'timing'         => 'Timing',
+        'went_elsewhere' => 'Went elsewhere',
+        'no_response'    => 'No response',
+        'other'          => 'Other',
+    ];
+
+    /** The owner can decline a quote the client has not answered (sent or opened). Nothing is sent. */
+    public static function canDecline(string $current): bool
+    {
+        return in_array($current, ['sent', 'viewed'], true);
+    }
+
+    /** Only a declined quote reopens, back to sent. */
+    public static function canReopen(string $current): bool
+    {
+        return $current === 'declined';
+    }
+
+    /**
+     * The owner declines a quote on the client's behalf, with an optional reason from LOST_REASONS (anything else is
+     * stored as null). Same state the client's own decline produces, so lists, the pipeline and Sam's follow-ups
+     * (which only read sent/viewed) stop on it. Sends nothing. Returns false when the quote was not open.
+     */
+    public function decline(int $quoteId, string $reason = ''): bool
+    {
+        $reason = isset(self::LOST_REASONS[$reason]) ? $reason : null;
+        // Like the pipeline board's "closed lost": stage and probability follow the status.
+        $n = $this->moveOpenStatus(
+            "UPDATE quotes SET status = 'declined', lost_reason = ?, pipeline_stage = 'closed_lost', probability = 0,
+                    stage_entered_at = NOW(), updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
+            "UPDATE quotes SET status = 'declined', lost_reason = ?, updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
+            [$reason, $quoteId]
+        );
+        if ($n === 0) return false;
+        try {
+            $this->db->prepare("UPDATE quote_requests SET status = 'declined', updated_at = NOW() WHERE quote_id = ?")
+                ->execute([$quoteId]);
+        } catch (\Throwable $e) {
+            error_log('[QuoteService] decline → quote_requests: ' . $e->getMessage());
+        }
+        $this->pipelineStage($quoteId);
+        return true;
+    }
+
+    /** Undo a decline: back to sent, reason cleared. Sends nothing. Returns false when it was not declined. */
+    public function reopen(int $quoteId): bool
+    {
+        $n = $this->moveOpenStatus(
+            "UPDATE quotes SET status = 'sent', lost_reason = NULL, pipeline_stage = 'quoted', probability = 50,
+                    stage_entered_at = NOW(), updated_at = NOW() WHERE id = ? AND status = 'declined'",
+            "UPDATE quotes SET status = 'sent', lost_reason = NULL, updated_at = NOW() WHERE id = ? AND status = 'declined'",
+            [$quoteId]
+        );
+        if ($n === 0) return false;
+        try {
+            $this->db->prepare("UPDATE quote_requests SET status = 'quoted', updated_at = NOW() WHERE quote_id = ? AND status = 'declined'")
+                ->execute([$quoteId]);
+        } catch (\Throwable $e) {
+            error_log('[QuoteService] reopen → quote_requests: ' . $e->getMessage());
+        }
+        $this->pipelineStage($quoteId);
+        return true;
+    }
+
+    /** Runs the update with the pipeline columns; a business without them (pre-1110) gets the plain one. Rows changed. */
+    private function moveOpenStatus(string $withStage, string $plain, array $args): int
+    {
+        try {
+            $s = $this->db->prepare($withStage);
+            $s->execute($args);
+        } catch (\PDOException $e) {
+            $s = $this->db->prepare($plain);
+            $s->execute($args);
+        }
+        return $s->rowCount();
+    }
+
     /**
      * Generic status update (decline, expire, revert to draft, etc.)
      */

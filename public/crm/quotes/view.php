@@ -152,6 +152,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // The owner declines for the client (a phone no, or silence) or undoes it. Same state the client's own decline
+    // makes; sends nothing. QuoteService::decline() / reopen() are the one write path (page + Sam's flow line).
+    if ($action === 'decline' || $action === 'reopen') {
+        $oldStatus = (string)$quote['status'];
+        $reasonKey = (string)($_POST['lost_reason'] ?? '');
+        $done      = $action === 'decline' ? $svc->decline($quoteId, $reasonKey) : $svc->reopen($quoteId);
+        if ($done) {
+            $newStatus = $action === 'decline' ? 'declined' : 'sent';
+            trackFieldChange('quote', $quoteId, 'status', $oldStatus, $newStatus, $user['id']);
+            $why = ($action === 'decline' && isset(QuoteService::LOST_REASONS[$reasonKey])) ? ' (' . QuoteService::LOST_REASONS[$reasonKey] . ')' : '';
+            logActivityExtended($user['id'], $action === 'decline' ? 'Quote declined' : 'Quote reopened',
+                ($action === 'decline' ? 'Declined' : 'Reopened') . " by {$user['name']}{$why}", null, null, $quoteId);
+            $quote       = $svc->getWithContact($quoteId) ?: $quote;
+            $message     = $action === 'decline' ? 'Quote marked declined. Nothing was sent to the client.' : 'Quote reopened (sent).';
+            $messageType = 'success';
+        } else {
+            $message     = $action === 'decline' ? 'Only a sent quote the client has not answered can be declined.' : 'Only a declined quote can be reopened.';
+            $messageType = 'error';
+        }
+    }
+
     if ($action === 'send_followup') {
         $customer              = $svc->resolveContact($quote);
         $customerEmail         = $customer['email'];
@@ -487,282 +508,144 @@ $activePage = 'quotes';
           </div>
           <?php endif; ?>
 
-          <!-- PRODUCTION DEBUG PANELS: Auto-collapse unless there are issues -->
           <?php
-              // Determine if we should show debug panels (resumed below)
-              $showDebug = isset($_GET['debug']) || isset($_GET['_debug']);
-
-              // Check for issues that warrant showing debug info
+              // Contact · SMS consent · Access: one quiet line; it only colours when something needs attention.
               $debugEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
               $debugPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
               $hasEmailIssue = empty($debugEmail);
               $hasPhoneIssue = empty($debugPhone);
-              $hasContactId = !empty($quote['qr_contact_id']);
-              $hasAccessToken = !empty($quote['access_token']);
-
-              // Auto-expand debug if there are issues
-              $autoExpandDebug = $hasEmailIssue || ($hasPhoneIssue && $quote['status'] === 'draft');
-          ?>
-
-          <!-- Contact Info Debug Panel -->
-          <div class="card" style="border-color: <?php echo $hasEmailIssue ? '#dc3545' : '#28a745'; ?>;">
-              <div class="card-header" style="background-color: <?php echo $hasEmailIssue ? '#f8d7da' : '#d4edda'; ?>; cursor: pointer;" onclick="toggleDebugPanel(this, 'contact-debug')">
-                  <h5 style="margin: 0; color: <?php echo $hasEmailIssue ? '#721c24' : '#155724'; ?>;">
-                      <span class="debug-toggle-icon" style="display: inline-block; width: 20px;">▼</span>
-                      📧 Contact Information
-                      <?php if ($hasEmailIssue): ?>
-                          <span class="badge badge-danger ml-2">No Email!</span>
-                      <?php elseif (!$hasPhoneIssue): ?>
-                          <span class="badge badge-success ml-2">✓ Complete</span>
-                      <?php else: ?>
-                          <span class="badge badge-warning ml-2">Missing Phone</span>
-                      <?php endif; ?>
-                  </h5>
-              </div>
-              <div id="contact-debug" class="card-body" style="display: <?php echo ($autoExpandDebug || $showDebug) ? 'block' : 'none'; ?>; font-size: 13px;">
-                  <table style="width: 100%;">
-                      <tr>
-                          <td><strong>Source → Email:</strong></td>
-                          <td>
-                              qr_email: <?php echo htmlspecialchars($quote['qr_email'] ?? '-'); ?><br>
-                              contact_email: <?php echo htmlspecialchars($quote['contact_email'] ?? '-'); ?><br>
-                              prop_contact_email: <?php echo htmlspecialchars($quote['prop_contact_email'] ?? '-'); ?><br>
-                              billing_email: <?php echo htmlspecialchars($quote['billing_email'] ?? '-'); ?>
-                          </td>
-                      </tr>
-                      <tr style="background: #f9f9f9;">
-                          <td><strong>→ FINAL EMAIL:</strong></td>
-                          <td style="color: <?php echo $debugEmail ? '#28a745' : '#dc3545'; ?>; font-weight: bold;">
-                              <?php echo $debugEmail ? htmlspecialchars($debugEmail) : '❌ NO EMAIL (SEND WILL FAIL)'; ?>
-                          </td>
-                      </tr>
-                      <tr>
-                          <td><strong>Source → Phone:</strong></td>
-                          <td>
-                              qr_phone: <?php echo htmlspecialchars($quote['qr_phone'] ?? '-'); ?><br>
-                              contact_phone: <?php echo htmlspecialchars($quote['contact_phone'] ?? '-'); ?><br>
-                              prop_contact_phone: <?php echo htmlspecialchars($quote['prop_contact_phone'] ?? '-'); ?><br>
-                              billing_phone: <?php echo htmlspecialchars($quote['billing_phone'] ?? '-'); ?>
-                          </td>
-                      </tr>
-                      <tr style="background: #f9f9f9;">
-                          <td><strong>→ FINAL PHONE:</strong></td>
-                          <td style="color: <?php echo $debugPhone ? '#28a745' : '#ffc107'; ?>; font-weight: bold;">
-                              <?php echo $debugPhone ? htmlspecialchars($debugPhone) : '⚠️ NO PHONE (SMS WILL NOT SEND)'; ?>
-                          </td>
-                      </tr>
-                  </table>
-              </div>
-          </div>
-
-          <!-- SMS Consent Debug Panel -->
-          <div class="card mt-3" style="border-color: #17a2b8;">
-              <div class="card-header" style="background-color: #d1ecf1; cursor: pointer;" onclick="toggleDebugPanel(this, 'sms-debug')">
-                  <h5 style="margin: 0; color: #0c5460;">
-                      <span class="debug-toggle-icon" style="display: inline-block; width: 20px;">▶</span>
-                      📱 SMS Consent
-                  </h5>
-              </div>
-              <div id="sms-debug" class="card-body" style="display: none; font-size: 13px;">
-                  <?php
-                      // Determine which contact ID is used for SMS consent (same fallback as send logic)
-                      $smsContactId = !empty($quote['qr_contact_id']) ? $quote['qr_contact_id'] : (!empty($quote['contact_id']) ? $quote['contact_id'] : ($quote['prop_contact_id'] ?? null));
-                      $smsContactSource = !empty($quote['qr_contact_id']) ? 'quote request' : (!empty($quote['contact_id']) ? 'primary contact' : (!empty($quote['prop_contact_id']) ? 'property contact' : 'none'));
-                  ?>
-                  <table style="width: 100%;">
-                      <tr>
-                          <td><strong>Contact ID:</strong></td>
-                          <td><?php echo $smsContactId ? htmlspecialchars($smsContactId) . ' (' . $smsContactSource . ')' : '❌ NOT SET'; ?></td>
-                      </tr>
-                      <tr style="background: #f9f9f9;">
-                          <td><strong>SMS Consent:</strong></td>
-                          <td>
-                              <?php if ($smsContactId):
-                                  $smsStmt = $db->prepare("SELECT receive_sms, consent_sms FROM contacts WHERE id = ?");
-                                  $smsStmt->execute([$smsContactId]);
-                                  $smsPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
-                                  $hasSmsConsent = !empty($smsPrefs['receive_sms']) || !empty($smsPrefs['consent_sms']);
-                                  echo $hasSmsConsent ? '✅ OPTED IN' : '❌ NOT CONSENTED (receive_sms=' . ($smsPrefs['receive_sms'] ?? '0') . ', consent_sms=' . ($smsPrefs['consent_sms'] ?? '0') . ')';
-                              else:
-                                  echo '⚠️ Cannot check - no contact_id linked';
-                              endif;
-                              ?>
-                          </td>
-                      </tr>
-                  </table>
-              </div>
-          </div>
-
-          <!-- Token Debug Panel -->
-          <div class="card mt-3" style="border-color: #6c757d;">
-              <div class="card-header" style="background-color: #e2e3e5; cursor: pointer;" onclick="toggleDebugPanel(this, 'token-debug')">
-                  <h5 style="margin: 0; color: #383d41;">
-                      <span class="debug-toggle-icon" style="display: inline-block; width: 20px;">▶</span>
-                      🔐 Access Tokens
-                  </h5>
-              </div>
-              <div id="token-debug" class="card-body" style="display: none; font-size: 13px;">
-                  <table style="width: 100%;">
-                      <tr>
-                          <td><strong>Access Token:</strong></td>
-                          <td><?php echo !empty($quote['access_token']) ? '✅ SET (' . substr($quote['access_token'], 0, 8) . '...)' : '❌ NOT SET'; ?></td>
-                      </tr>
-                      <tr style="background: #f9f9f9;">
-                          <td><strong>Token Expires:</strong></td>
-                          <td><?php echo !empty($quote['token_expires_at']) ? htmlspecialchars($quote['token_expires_at']) : '❌ NOT SET'; ?></td>
-                      </tr>
-                      <tr>
-                          <td><strong>Customer Link:</strong></td>
-                          <td>
-                              <?php if (!empty($quote['access_token'])): ?>
-                                  <code style="background:#f5f5f5; padding:2px 5px; word-break: break-all;">https://<?php echo $_SERVER['HTTP_HOST']; ?>/customer/quote.php?token=<?php echo $quote['access_token']; ?></code>
-                              <?php else: ?>
-                                  Will be generated on first send
-                              <?php endif; ?>
-                          </td>
-                      </tr>
-                  </table>
-              </div>
-          </div>
-
-          <script>
-              function toggleDebugPanel(header, panelId) {
-                  const panel = document.getElementById(panelId);
-                  const icon = header.querySelector('.debug-toggle-icon');
-
-                  if (panel.style.display === 'none') {
-                      panel.style.display = 'block';
-                      icon.textContent = '▼';
-                  } else {
-                      panel.style.display = 'none';
-                      icon.textContent = '▶';
-                  }
+              $smsContactId = !empty($quote['qr_contact_id']) ? $quote['qr_contact_id'] : (!empty($quote['contact_id']) ? $quote['contact_id'] : ($quote['prop_contact_id'] ?? null));
+              $smsContactSource = !empty($quote['qr_contact_id']) ? 'quote request' : (!empty($quote['contact_id']) ? 'primary contact' : (!empty($quote['prop_contact_id']) ? 'property contact' : 'none'));
+              $smsPrefs = null;
+              if ($smsContactId) {
+                  $smsStmt = $db->prepare("SELECT receive_sms, consent_sms FROM contacts WHERE id = ?");
+                  $smsStmt->execute([$smsContactId]);
+                  $smsPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC) ?: null;
               }
-          </script>
+              $hasSmsConsent = $smsPrefs && (!empty($smsPrefs['receive_sms']) || !empty($smsPrefs['consent_sms']));
+              $checksOpen = $hasEmailIssue || isset($_GET['debug']) || isset($_GET['_debug']);
+              $contactState = $hasEmailIssue ? 'bad' : ($hasPhoneIssue && $quote['status'] === 'draft' ? 'warn' : '');
+          ?>
+          <div class="mw-qv-checks<?php echo $checksOpen ? ' is-open' : ''; ?>" id="mwQvChecks">
+              <button type="button" class="mw-qv-checks-bar" onclick="document.getElementById('mwQvChecks').classList.toggle('is-open')" aria-expanded="<?php echo $checksOpen ? 'true' : 'false'; ?>">
+                  <span class="mw-qv-check <?php echo $contactState ? 'is-' . $contactState : ''; ?>">Contact<?php echo $hasEmailIssue ? ': no email' : ($contactState === 'warn' ? ': no phone' : ''); ?></span>
+                  <span class="mw-qv-check-dot" aria-hidden="true">&middot;</span>
+                  <span class="mw-qv-check">SMS consent<?php echo $smsContactId ? ($hasSmsConsent ? ': yes' : ': no') : ': no contact'; ?></span>
+                  <span class="mw-qv-check-dot" aria-hidden="true">&middot;</span>
+                  <span class="mw-qv-check">Access<?php echo empty($quote['access_token']) ? ': link on first send' : ''; ?></span>
+                  <span class="mw-qv-checks-more">Details</span>
+              </button>
+              <div class="mw-qv-checks-panel">
+                  <table class="mw-qv-checks-table">
+                      <tr><th>Email</th><td><?php echo $debugEmail ? htmlspecialchars($debugEmail) : 'None: sending will fail'; ?>
+                          <small>qr <?php echo htmlspecialchars($quote['qr_email'] ?? '-'); ?> · contact <?php echo htmlspecialchars($quote['contact_email'] ?? '-'); ?> · property <?php echo htmlspecialchars($quote['prop_contact_email'] ?? '-'); ?> · billing <?php echo htmlspecialchars($quote['billing_email'] ?? '-'); ?></small></td></tr>
+                      <tr><th>Phone</th><td><?php echo $debugPhone ? htmlspecialchars($debugPhone) : 'None: the text will not send'; ?>
+                          <small>qr <?php echo htmlspecialchars($quote['qr_phone'] ?? '-'); ?> · contact <?php echo htmlspecialchars($quote['contact_phone'] ?? '-'); ?> · property <?php echo htmlspecialchars($quote['prop_contact_phone'] ?? '-'); ?> · billing <?php echo htmlspecialchars($quote['billing_phone'] ?? '-'); ?></small></td></tr>
+                      <tr><th>SMS consent</th><td><?php
+                          if ($smsContactId) {
+                              echo $hasSmsConsent ? 'Opted in' : 'Not consented (receive_sms=' . htmlspecialchars((string)($smsPrefs['receive_sms'] ?? '0')) . ', consent_sms=' . htmlspecialchars((string)($smsPrefs['consent_sms'] ?? '0')) . ')';
+                              echo ' <small>contact ' . htmlspecialchars((string)$smsContactId) . ' (' . $smsContactSource . ')</small>';
+                          } else { echo 'Cannot check: no contact linked'; } ?></td></tr>
+                      <tr><th>Access token</th><td><?php echo !empty($quote['access_token']) ? 'Set (' . htmlspecialchars(substr($quote['access_token'], 0, 8)) . '...)' : 'Not set'; ?>
+                          <small>expires <?php echo !empty($quote['token_expires_at']) ? htmlspecialchars($quote['token_expires_at']) : 'not set'; ?></small></td></tr>
+                  </table>
+              </div>
+          </div>
 
           <!-- Message now shown at top of page -->
 
-          <div class="mw-page-header">
+          <?php
+              $qStatus     = (string)$quote['status'];
+              $qOpen       = in_array($qStatus, ['sent', 'viewed'], true);
+              $daysSent    = $quote['sent_at'] ? (int)floor((time() - strtotime($quote['sent_at'])) / 86400) : 0;
+              $fuCount     = (int)($quote['follow_up_count'] ?? 0);
+              $canFollowUp = $qOpen && $daysSent >= 2;
+              $lostLabel   = QuoteService::LOST_REASONS[(string)($quote['lost_reason'] ?? '')] ?? '';
+              // One primary action by where the quote is; everything else sits in More.
+              $primary = $qStatus === 'draft' ? 'send' : ($canFollowUp ? 'followup' : ($qOpen ? 'resend' : ($qStatus === 'declined' ? 'reopen' : ($qStatus === 'expired' ? 'resend' : 'accepted'))));
+              $postBtn = static function (string $action, string $label, string $icon, string $cls, string $csrf, string $confirm = '') {
+                  return '<form method="POST" class="d-inline"><input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrf) . '">'
+                      . '<input type="hidden" name="action" value="' . $action . '">'
+                      . '<button type="submit" class="' . $cls . '"' . ($confirm !== '' ? ' onclick="return confirm(\'' . htmlspecialchars($confirm, ENT_QUOTES) . '\')"' : '') . '>'
+                      . ($icon !== '' ? '<i data-feather="' . $icon . '" class="mr-1"></i>' : '') . $label . '</button></form>';
+              };
+              $fuLabel = 'Send Follow-Up' . ($fuCount > 0 ? ' <small>(#' . ($fuCount + 1) . ')</small>' : '');
+              $fuConfirm = 'Send a follow-up email to this customer about quote ' . $quote['quote_number'] . '?';
+          ?>
+          <div class="mw-page-header mw-qv-head">
               <div>
                   <h1 class="h3 mb-1"><?php echo htmlspecialchars($quote['quote_number']); ?></h1>
-                  <div>
+                  <div class="mw-qv-sub">
                       <?php echo getStatusBadge($quote['status']); ?>
+                      <?php if ($qStatus === 'declined' && $lostLabel !== ''): ?>
+                          <span class="mw-qv-reason"><?php echo htmlspecialchars($lostLabel); ?></span>
+                      <?php endif; ?>
                       <?php if ($quote['title']): ?>
                           <span class="ml-2 text-muted"><?php echo htmlspecialchars($quote['title']); ?></span>
                       <?php endif; ?>
                   </div>
               </div>
-              <div class="mw-header-actions">
-                  <!-- PDF Actions -->
-                  <a href="../documents/generate_pdf.php?type=quote&id=<?php echo $quoteId; ?>&action=download"
-                     class="btn btn-outline-secondary" title="Download PDF">
-                      <i data-feather="download" class="mr-1"></i> PDF
-                  </a>
-                  <form method="POST" action="../documents/generate_pdf.php?type=quote&id=<?php echo $quoteId; ?>&action=generate" class="d-inline">
-                      <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                      <button type="submit" class="btn btn-outline-secondary" title="Regenerate PDF">
-                          <i data-feather="refresh-cw" class="mr-1"></i> Regenerate PDF
-                      </button>
-                  </form>
-
-                  <a href="create.php?id=<?php echo $quoteId; ?>" class="btn btn-secondary">Edit</a>
-                  <button type="button" class="btn btn-outline-secondary" onclick="openPreviewDrawer()" title="See the quote the way the client sees it">
-                      <i data-feather="eye" class="mr-1"></i> Preview as Client
-                  </button>
-
-                  <?php if ($quote['status'] === 'draft'): ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <input type="hidden" name="action" value="send">
-                          <button type="submit" class="btn btn-primary">
-                              <i data-feather="send" class="mr-1"></i> Send to Customer
-                          </button>
-                      </form>
-                      <button type="button" class="btn btn-outline-success" onclick="showApproveModal()">
-                          <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
-                      </button>
-                  <?php elseif ($quote['status'] === 'sent'): ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <input type="hidden" name="action" value="send">
-                          <button type="submit" class="btn btn-secondary">
-                              <i data-feather="send" class="mr-1"></i> Resend
-                          </button>
-                      </form>
-                      <?php
-                          // Show "Send Follow-Up" when quote is 2+ days old and hasn't been accepted
-                          $daysSent = $quote['sent_at'] ? (int)floor((time() - strtotime($quote['sent_at'])) / 86400) : 0;
-                          if ($daysSent >= 2):
-                      ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <input type="hidden" name="action" value="send_followup">
-                          <button type="submit"
-                                  class="btn btn-warning"
-                                  onclick="return confirm('Send a follow-up email to this customer about quote <?php echo htmlspecialchars($quote['quote_number']); ?>?')">
-                              <i data-feather="bell" class="mr-1"></i> Send Follow-Up
-                              <?php
-                                  $fuCount = (int)($quote['follow_up_count'] ?? 0);
-                                  if ($fuCount > 0): ?><small>(#<?php echo $fuCount + 1; ?>)</small><?php endif;
-                              ?>
-                          </button>
-                      </form>
-                      <?php endif; ?>
-                      <button type="button" class="btn btn-outline-success" onclick="showApproveModal()">
-                          <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
-                      </button>
-                  <?php elseif ($quote['status'] === 'accepted'): ?>
+              <div class="mw-header-actions mw-qv-actions">
+                  <?php if ($primary === 'send'): ?>
+                      <?php echo $postBtn('send', 'Send to Customer', 'send', 'btn btn-primary', $csrfToken); ?>
+                  <?php elseif ($primary === 'followup'): ?>
+                      <?php echo $postBtn('send_followup', $fuLabel, 'bell', 'btn btn-primary', $csrfToken, $fuConfirm); ?>
+                  <?php elseif ($primary === 'resend'): ?>
+                      <?php echo $postBtn('send', $qStatus === 'expired' ? 'Resend Link' : 'Resend', 'send', 'btn btn-primary', $csrfToken); ?>
+                  <?php elseif ($primary === 'reopen'): ?>
+                      <?php echo $postBtn('reopen', 'Reopen', 'rotate-ccw', 'btn btn-primary', $csrfToken, 'Reopen ' . $quote['quote_number'] . '? It goes back to Sent. Nothing is sent to the client.'); ?>
+                  <?php else: ?>
                       <?php if (!empty($quote['is_contract'])): ?>
                           <a href="../contracts/create.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
                               <i data-feather="pen-tool" class="mr-1"></i> Create Contract
                           </a>
                       <?php elseif ($allocNone): ?>
                           <?php if ($quoteIsSingleService): ?>
-                          <!-- Nothing assigned yet, single service → one-click conversion -->
-                          <form method="POST" class="d-inline">
-                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                              <input type="hidden" name="action" value="convert_to_job">
-                              <button type="submit" class="btn btn-primary">
-                                  <i data-feather="zap" class="mr-1"></i> Convert to Job
-                              </button>
-                          </form>
+                              <?php echo $postBtn('convert_to_job', 'Convert to Job', 'zap', 'btn btn-primary', $csrfToken); ?>
                           <?php else: ?>
-                          <!-- Multiple services → assign line items to plans -->
-                          <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
-                              <i data-feather="layers" class="mr-1"></i> Create Plans
-                          </a>
+                              <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
+                                  <i data-feather="layers" class="mr-1"></i> Create Plans
+                              </a>
                           <?php endif; ?>
                       <?php elseif ($allocAvailable > 0): ?>
-                          <!-- Partially assigned → continue allocating the remaining services -->
                           <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
                               <i data-feather="layers" class="mr-1"></i> Assign Remaining (<?php echo (int)$allocAvailable; ?>)
                           </a>
                       <?php else: ?>
-                          <!-- Fully assigned → point to the plans (detail in the card below) -->
                           <a href="#mw-job-plans" class="btn btn-outline-primary">
                               <i data-feather="check-circle" class="mr-1"></i> View Plans (<?php echo count($quotePlans); ?>)
                           </a>
                       <?php endif; ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <input type="hidden" name="action" value="send">
-                          <button type="submit" class="btn btn-outline-secondary">
-                              <i data-feather="send" class="mr-1"></i> Resend Link
-                          </button>
-                      </form>
-                  <?php elseif (in_array($quote['status'], ['declined', 'expired'])): ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <input type="hidden" name="action" value="send">
-                          <button type="submit" class="btn btn-outline-secondary">
-                              <i data-feather="send" class="mr-1"></i> Resend Link
-                          </button>
-                      </form>
                   <?php endif; ?>
 
-                  <button type="button" class="btn btn-outline-danger" onclick="confirmDeleteQuote()">
-                      <i data-feather="trash-2" class="mr-1"></i> Delete
-                  </button>
+                  <div class="dropdown mw-qv-more">
+                      <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">More</button>
+                      <div class="dropdown-menu dropdown-menu-right">
+                          <a class="dropdown-item" href="create.php?id=<?php echo $quoteId; ?>">Edit</a>
+                          <button type="button" class="dropdown-item" onclick="openPreviewDrawer()" title="See the quote the way the client sees it">Preview as Client</button>
+                          <a class="dropdown-item" href="../documents/generate_pdf.php?type=quote&amp;id=<?php echo $quoteId; ?>&amp;action=download">Download PDF</a>
+                          <form method="POST" action="../documents/generate_pdf.php?type=quote&amp;id=<?php echo $quoteId; ?>&amp;action=generate">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <button type="submit" class="dropdown-item">Regenerate PDF</button>
+                          </form>
+                          <?php if ($qOpen && $primary !== 'resend'): ?>
+                              <form method="POST"><input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>"><input type="hidden" name="action" value="send"><button type="submit" class="dropdown-item">Resend</button></form>
+                          <?php elseif ($qStatus === 'accepted' || $qStatus === 'declined'): ?>
+                              <form method="POST"><input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>"><input type="hidden" name="action" value="send"><button type="submit" class="dropdown-item">Resend Link</button></form>
+                          <?php endif; ?>
+                          <?php if ($canFollowUp && $primary !== 'followup'): ?>
+                              <form method="POST"><input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>"><input type="hidden" name="action" value="send_followup"><button type="submit" class="dropdown-item" onclick="return confirm('<?php echo htmlspecialchars($fuConfirm, ENT_QUOTES); ?>')">Send Follow-Up</button></form>
+                          <?php endif; ?>
+                          <?php if (QuoteService::canApproveVerbally($qStatus) && $qStatus !== 'expired'): ?>
+                              <button type="button" class="dropdown-item" onclick="showApproveModal()">Approve (Verbal)</button>
+                          <?php endif; ?>
+                          <?php if (QuoteService::canDecline($qStatus)): ?>
+                              <button type="button" class="dropdown-item" onclick="showDeclineModal()">Decline</button>
+                          <?php endif; ?>
+                          <div class="dropdown-divider"></div>
+                          <button type="button" class="dropdown-item mw-qv-danger" onclick="confirmDeleteQuote()">Delete</button>
+                      </div>
+                  </div>
               </div>
           </div>
 
@@ -770,6 +653,7 @@ $activePage = 'quotes';
               <div>
                   <?php // Otto sits to the left of the customer card when the property is missing a pin, border or measurement
                   $ottoPropertyId = (int)($quote['property_id'] ?? 0);
+                  $ottoOnlyGaps = true;   // on a quote Otto shows up only when the property still lacks a pin, border or measurement
                   ob_start();
                   if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php';
                   $ottoHtml = trim((string)ob_get_clean()); ?>
@@ -827,10 +711,14 @@ $activePage = 'quotes';
                               <span class="mw-detail-label"><?php echo $isResidential ? 'Owner Name' : 'Contact'; ?></span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($contactName); ?></span>
                           </div>
+                          <?php // The Send-to block below already names the recipient and their address: no second copy of it.
+                          $emailInSendTo = $recipientCurrentId && !empty($recipientResolved['email']) && strcasecmp(trim((string)$contactEmail), trim((string)$recipientResolved['email'])) === 0; ?>
+                          <?php if (!$emailInSendTo): ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Email</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($contactEmail); ?></span>
                           </div>
+                          <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Phone</span>
                               <span class="mw-detail-value"><?php echo formatPhone($contactPhone); ?></span>
@@ -1174,10 +1062,6 @@ $activePage = 'quotes';
                       </div>
                       <div class="card-body">
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Status</span>
-                              <span class="mw-detail-value"><?php echo getStatusBadge($quote['status']); ?></span>
-                          </div>
-                          <div class="mw-detail-row">
                               <span class="mw-detail-label">Created</span>
                               <span class="mw-detail-value"><?php echo formatDateTime($quote['created_at']); ?></span>
                           </div>
@@ -1225,11 +1109,12 @@ $activePage = 'quotes';
                               </div>
                           <?php endif; ?>
 
-                          <?php if ($quote['access_token'] && in_array($quote['status'], ['sent', 'accepted'])): ?>
-                              <div class="mt-3">
-                                  <span class="mw-detail-label">Customer Link:</span>
-                                  <div class="mw-customer-link">
-                                      <?php echo "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token']; ?>
+                          <?php if ($quote['access_token'] && in_array($quote['status'], ['sent', 'viewed', 'accepted'])): ?>
+                              <div class="mw-qv-link">
+                                  <label class="mw-detail-label" for="mwCustomerLink">Customer link</label>
+                                  <div class="mw-qv-link-row">
+                                      <input type="text" id="mwCustomerLink" class="form-control form-control-sm" readonly value="<?php echo htmlspecialchars("https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token']); ?>" onfocus="this.select()">
+                                      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copyCustomerLink(this)">Copy</button>
                                   </div>
                               </div>
                           <?php endif; ?>
@@ -1238,7 +1123,7 @@ $activePage = 'quotes';
 
 
                   <!-- Follow-Up Status Card (shown for sent/declined quotes) -->
-                  <?php if (in_array($quote['status'], ['sent', 'declined', 'expired'])): ?>
+                  <?php if (in_array($quote['status'], ['sent', 'viewed', 'declined', 'expired'])): ?>
                   <?php
                       $fuDaysSent    = $quote['sent_at'] ? (int)floor((time() - strtotime($quote['sent_at'])) / 86400) : null;
                       $fuEmailOpened = !empty($quote['email_opened_at']);
@@ -1248,7 +1133,7 @@ $activePage = 'quotes';
 
                       // Urgency colour
                       $fuCardClass = '';
-                      if ($quote['status'] === 'sent' && $fuDaysSent !== null) {
+                      if (in_array($quote['status'], ['sent', 'viewed'], true) && $fuDaysSent !== null) {
                           if ($fuDaysSent >= 7)     $fuCardClass = 'mw-followup-card-urgent';
                           elseif ($fuDaysSent >= 3) $fuCardClass = 'mw-followup-card-warning';
                           else                      $fuCardClass = 'mw-followup-card-ok';
@@ -1429,8 +1314,39 @@ $activePage = 'quotes';
               </div>
           </div>
 
+          <!-- Decline Modal: the owner's own decline; nothing is sent to the client -->
+          <?php if (QuoteService::canDecline((string)$quote['status'])): ?>
+          <div class="modal fade" id="declineModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                  <div class="modal-content">
+                      <form method="POST">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="decline">
+                          <div class="modal-header">
+                              <h5 class="modal-title">Decline <?php echo htmlspecialchars($quote['quote_number']); ?></h5>
+                              <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                          </div>
+                          <div class="modal-body">
+                              <p class="text-muted mb-3">Marks the quote declined and stops the follow-ups. Nothing is sent to the client, and you can reopen it later.</p>
+                              <div class="mw-qv-reasons" role="radiogroup" aria-label="Why it was lost (optional)">
+                                  <?php foreach (QuoteService::LOST_REASONS as $rk => $rl): ?>
+                                  <label class="mw-qv-reason-opt"><input type="radio" name="lost_reason" value="<?php echo htmlspecialchars($rk); ?>"><span><?php echo htmlspecialchars($rl); ?></span></label>
+                                  <?php endforeach; ?>
+                              </div>
+                              <small class="text-muted">Why is optional.</small>
+                          </div>
+                          <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                              <button type="submit" class="btn btn-danger">Decline quote</button>
+                          </div>
+                      </form>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
           <!-- Approve (Verbal) Modal -->
-          <?php if (in_array($quote['status'], ['draft', 'sent'])): ?>
+          <?php if (in_array($quote['status'], ['draft', 'sent', 'viewed'])): ?>
           <div class="modal fade" id="approveModal" tabindex="-1" role="dialog">
               <div class="modal-dialog" role="document">
                   <div class="modal-content">
@@ -1536,6 +1452,21 @@ $activePage = 'quotes';
             // --- Approve Modal ---
             function showApproveModal() {
               $('#approveModal').modal('show');
+            }
+
+            // --- Decline Modal ---
+            function showDeclineModal() {
+              $('#declineModal').modal('show');
+            }
+
+            // --- Copy the customer link ---
+            function copyCustomerLink(btn) {
+              var f = document.getElementById('mwCustomerLink');
+              if (!f) return;
+              f.select();
+              var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1800); };
+              if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(f.value).then(done, function () { document.execCommand('copy'); done(); });
+              else { document.execCommand('copy'); done(); }
             }
 
             // --- Contact Edit Modal ---
