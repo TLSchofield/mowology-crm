@@ -78,6 +78,13 @@ class MiaJobAdapter
         return 'other';
     }
 
+    /** One plain sentence for a post row; the platform's own text stays on hover. */
+    public static function plainReason(string $text): string
+    {
+        if (trim($text) === '') return '';
+        return ['ratio' => "Instagram can't use the picture's shape.", 'login' => 'The login needs reconnecting.', 'other' => 'It did not go out.'][self::classify($text)];
+    }
+
     /** The four-state triangle from a record: none = forming, wrong once or one call = held, 2-4 right = known, 5+ = mastered. */
     public static function sure(array $record): string
     {

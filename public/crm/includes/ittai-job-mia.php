@@ -46,6 +46,7 @@ if (($_GET['it_job_demo'] ?? '') === '1'
         ['crew' => [5, 5], 'hand' => [0, 0]], true, new DateTimeImmutable('now'));
 }
 if (!$__imJobs) return;
+$__miaStripShown = true;   // the page's own red reconnect banner stays quiet while the strip asks
 
 require_once __DIR__ . '/ittai-icons.php';
 $__imFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
