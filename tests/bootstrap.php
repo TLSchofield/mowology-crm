@@ -63,6 +63,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/ClientRhythm.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ComparablePricing.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamSignals.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/RenewalRadar.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ClientTier.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ObjectionReply.php';
