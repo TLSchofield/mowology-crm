@@ -24,3 +24,7 @@
 # /privacy.php and strips trailing slashes — on ittai.ca that looped /privacy ⇄ /privacy/. A RewriteEngine
 # line of its own stops the parent folder's rewrite rules applying here (they are not inherited by default).
 RewriteEngine On
+
+# Private link page (2026-11-11): /g/<48 hex> and its photos. Anything else under /g/ falls through to index.php, which answers 404.
+RewriteRule ^g/([a-f0-9]{48})/?$ g/index.php?t=$1 [L,QSA]
+RewriteRule ^g/([a-f0-9]{48})/i/([a-z0-9-]+\.jpg)$ g/index.php?t=$1&f=$2 [L,QSA]
