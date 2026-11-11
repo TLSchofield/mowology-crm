@@ -25,32 +25,78 @@ class BankLineEvidence
     }
 
     /**
+     * Pure: the merchant of a bank line as a short letters-only stem, so one shop matches across store numbers, spacing and formats
+     * ("POINTOFSALE(THEHOMEDEPOT7259VANCOUVERBCCA)" and "Point of sale THE HOME DEPOT 7042" both → THEHOMEDEPO). The payee of an
+     * e-Transfer is the name after its reference. '' when there is not enough to go on.
+     * (BankImportService::descriptionKey drops a whole merchant when its store number is glued to it: "DAIRYQUEEN27339…" became
+     * "pointofsale", and every card purchase matched every other — measured 2026-11-10.)
+     */
+    public static function stem(string $description): string
+    {
+        $d = strtoupper(trim(preg_replace('/\s+/', ' ', $description) ?? ''));
+        if (preg_match('/^E-?TRANSFER\s+(?:DEBIT|CREDIT)\s+REF\s*\S+\s*(.*)$/', $d, $m)) {
+            $d = $m[1];
+        } else {
+            $d = preg_replace('/^(POINT ?OF ?SALE|PURCHASE|INTERAC|DEBIT)\b/', '', $d) ?? $d;
+            $d = str_replace(['(', ')'], ' ', $d);
+            $cut = preg_match('/\d/', $d, $x, PREG_OFFSET_CAPTURE) ? $x[0][1] : null;   // the store number follows the merchant
+            if ($cut !== null && preg_match('/[A-Z]{4}/', substr($d, 0, $cut))) $d = substr($d, 0, $cut);
+        }
+        $letters = preg_replace('/[^A-Z]/', '', $d) ?? '';
+        return strlen($letters) >= 4 ? substr($letters, 0, 10) : '';
+    }
+
+    /**
+     * Pure: the first vendor on file whose name (letters only, 4+) sits inside the line's text; null when none.
+     * @param list<array{name:string, aliases?:string, default_accounting_category?:string}> $vendors
+     * @return array{name:string, category:string}|null
+     */
+    public static function vendorFor(string $description, array $vendors): ?array
+    {
+        $hay = preg_replace('/[^A-Z]/', '', strtoupper($description)) ?? '';
+        foreach ($vendors as $v) {
+            $names = array_merge([(string)$v['name']], array_map('trim', explode(',', (string)($v['aliases'] ?? ''))));
+            foreach ($names as $n) {
+                $k = preg_replace('/[^A-Z]/', '', strtoupper($n)) ?? '';
+                if (strlen($k) >= 4 && strpos($hay, $k) !== false) return ['name' => (string)$v['name'], 'category' => (string)($v['default_accounting_category'] ?? '')];
+            }
+        }
+        return null;
+    }
+
+    /**
      * @param list<array> $lines BankDeskService::queue() lines
-     * @return array<int, array{earlier: list<array>, receipts: list<array>, recurring: int}> by line id
+     * @return array<int, array{earlier: list<array>, receipts: list<array>, recurring: int, vendor: ?array}> by line id
      */
     public function forLines(array $lines, string $firstMonth): array
     {
         require_once __DIR__ . '/BankImportService.php';
         $out = [];
         $bank = new BankImportService($this->db);
+        $vendors = [];
+        try {
+            $vendors = $this->db->query("SELECT name, aliases, default_accounting_category FROM vendors WHERE name <> '' LIMIT 3000")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { /* no vendors table: none match */ }
         foreach ($lines as $l) {
             $id = (int)$l['id'];
-            $row = ['earlier' => [], 'receipts' => [], 'recurring' => 0];
+            $row = ['earlier' => [], 'receipts' => [], 'recurring' => 0, 'vendor' => self::vendorFor((string)($l['description'] ?? ''), $vendors)];
             try {
-                $key = BankImportService::descriptionKey((string)($l['description'] ?? ''));
-                if (strlen($key) >= 4) {
-                    $first = explode(' ', $key)[0];
+                $stem = self::stem((string)($l['description'] ?? ''));
+                if ($stem !== '') {
+                    // narrowed in SQL on the stem's start with spaces ignored, then compared exactly in PHP
                     $q = $this->db->prepare("SELECT t.id, t.transaction_date, t.amount, t.description, c.code, c.name
                                              FROM accounting_transactions t LEFT JOIN chart_of_accounts c ON c.id = t.account_id
-                                             WHERE t.reference_type = 'bank_import' AND t.id <> ? AND t.description LIKE ?
+                                             WHERE t.reference_type = 'bank_import' AND t.id <> ?
+                                               AND REPLACE(UPPER(t.description), ' ', '') LIKE ?
                                                AND COALESCE(t.status, '') NOT IN ('void', 'deleted')
-                                             ORDER BY t.transaction_date DESC LIMIT " . self::MAX_EARLIER);
-                    $q->execute([$id, '%' . $first . '%']);
+                                             ORDER BY t.transaction_date DESC LIMIT " . (self::MAX_EARLIER * 3));
+                    $q->execute([$id, '%' . substr($stem, 0, 6) . '%']);
                     foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                        if (BankImportService::descriptionKey((string)$r['description']) !== $key) continue;
+                        if (self::stem((string)$r['description']) !== $stem) continue;
                         $row['earlier'][] = ['date' => substr((string)$r['transaction_date'], 0, 10), 'amount' => round((float)$r['amount'], 2),
                                              'account' => trim((string)$r['code'] . ' ' . (string)$r['name'])];
                         if (abs(abs((float)$r['amount']) - abs((float)$l['amount'])) < 0.005) $row['recurring']++;
+                        if (count($row['earlier']) >= self::MAX_EARLIER) break;
                     }
                 }
                 foreach ($bank->candidateExpensesForTransaction($id, 3) as $c) {
@@ -68,7 +114,7 @@ class BankLineEvidence
 
     /**
      * Pure: the evidence as short sentences, most useful first, at most four. A default account (4900 / 6900) is "not sorted".
-     * @param array{earlier?: list<array>, receipts?: list<array>, recurring?: int} $e
+     * @param array{earlier?: list<array>, receipts?: list<array>, recurring?: int, vendor?: ?array} $e
      * @return list<string>
      */
     public static function summarise(array $e, array $defaultCodes = ['4900', '6900']): array
@@ -99,7 +145,8 @@ class BankLineEvidence
         }
         $rec = (int)($e['recurring'] ?? 0);
         if ($rec >= 2) $out[] = 'Same amount ' . ($rec + 1) . ' times — it repeats';
-        $out[] = 'No vendor of yours matches';
+        $v = $e['vendor'] ?? null;
+        $out[] = is_array($v) ? 'Vendor on file: ' . $v['name'] . ($v['category'] !== '' ? ' (usually ' . $v['category'] . ')' : '') : 'No vendor of yours matches';
         return array_slice($out, 0, 4);
     }
 }

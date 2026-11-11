@@ -36,4 +36,28 @@ class BankLineEvidenceTest extends TestCase
         $this->assertContains('Same amount 3 times — it repeats', $s);
         $this->assertLessThanOrEqual(4, count($s));
     }
+
+    public function testTheMerchantStemSurvivesStoreNumbersAndSpacing(): void
+    {
+        $a = BankLineEvidence::stem('POINTOFSALE(THEHOMEDEPOT7259VANCOUVERBCCA)');
+        $b = BankLineEvidence::stem('Point of sale THE HOME DEPOT 7042');
+        $this->assertSame('THEHOMEDEP', $a);
+        $this->assertSame($a, $b, 'one shop across store numbers and formats');
+        $this->assertNotSame(BankLineEvidence::stem('POINTOFSALE(DAIRYQUEEN27339VANCOUVERBCCA)'), BankLineEvidence::stem('POINTOFSALE(SHELLC01018VANCOUVERBCCA)'),
+            'two shops never collapse to "point of sale"');
+        $this->assertSame('DAIRYQUEEN', BankLineEvidence::stem('POINTOFSALE(DAIRYQUEEN27339VANCOUVERBCCA)'));
+        $this->assertSame('SHELLC', BankLineEvidence::stem('POINTOFSALE(SHELLC01018VANCOUVERBCCA)'));
+        $this->assertSame('CANEV', BankLineEvidence::stem('e-Transfer debit Ref 20260318164949668880 Canev'), 'the payee of an e-Transfer is the name after its reference');
+        $this->assertSame('', BankLineEvidence::stem('ATM 12'), 'too little to go on');
+    }
+
+    public function testAVendorOnFileIsFoundInsideTheBankText(): void
+    {
+        $v = [['name' => 'Shell', 'aliases' => '', 'default_accounting_category' => 'Vehicle'], ['name' => 'Home Depot', 'aliases' => 'THE HOME DEPOT', 'default_accounting_category' => 'Materials']];
+        $this->assertSame(['name' => 'Shell', 'category' => 'Vehicle'], BankLineEvidence::vendorFor('POINTOFSALE(SHELLC01018VANCOUVERBCCA)', $v));
+        $this->assertSame('Home Depot', BankLineEvidence::vendorFor('POINTOFSALE(THEHOMEDEPOT7259VANCOUVERBCCA)', $v)['name']);
+        $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(TOZENSUSHIBARVANCOUVERBCCA)', $v));
+        $s = BankLineEvidence::summarise(['earlier' => [], 'receipts' => [], 'recurring' => 0, 'vendor' => ['name' => 'Shell', 'category' => 'Vehicle']]);
+        $this->assertSame('Vendor on file: Shell (usually Vehicle)', $s[2]);
+    }
 }
