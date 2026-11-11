@@ -448,7 +448,11 @@
     var board = null;
     if (tog && tog.parentElement && tog.parentElement.parentElement) {
       (tog.nextElementSibling || tog).insertAdjacentElement('afterend', seg);
-      tog.parentElement.parentElement.insertAdjacentElement('afterend', panel);
+      // Week: the timeline sits right under the page's own weekday + weather rows (they become its column heads),
+      // below the stats banner, so those feeds are part of it instead of stranded underneath.
+      var dh = weekMode && document.querySelector('.mw-calendar-container .mw-calendar-dates-header');
+      if (dh) { dh.insertAdjacentElement('afterend', panel); panel.classList.add('mw-cal-panel--week'); }
+      else tog.parentElement.parentElement.insertAdjacentElement('afterend', panel);
     } else {
       var host = document.querySelector('main.content .container-fluid') || document.querySelector('main.content');
       if (!host) return;
@@ -466,6 +470,9 @@
       board = board || findBoard();
       if (board) board.style.display = tl ? 'none' : '';
       panel.hidden = !tl;
+      if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-header, .mw-calendar-container .mw-calendar-dates-header'), function (r) {
+        r.style.gridTemplateColumns = tl ? '64px repeat(7, minmax(0, 1fr))' : '';
+      });
       [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x.dataset.m === m); });
       try { localStorage.setItem('mw_cal_mode', m); } catch (e) {}
       if (tl) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
