@@ -67,4 +67,43 @@ class QuoteStatusRulesTest extends TestCase
         $this->assertStringContainsString('$120.00', QuoteApprovalService::postAcceptNote('Aeration', 120.0));
         $this->assertStringContainsString('removed', QuoteApprovalService::postAcceptNote('Aeration', 0, true));
     }
+
+    public function test_owner_declines_only_an_unanswered_quote_and_only_a_decline_reopens(): void
+    {
+        foreach (['sent', 'viewed'] as $st) $this->assertTrue(QuoteService::canDecline($st), $st);
+        foreach (['draft', 'accepted', 'declined', 'expired'] as $st) $this->assertFalse(QuoteService::canDecline($st), $st);
+        $this->assertTrue(QuoteService::canReopen('declined'));
+        foreach (['draft', 'sent', 'viewed', 'accepted', 'expired'] as $st) $this->assertFalse(QuoteService::canReopen($st), $st);
+    }
+
+    public function test_loss_reasons_are_the_five_the_owner_picks(): void
+    {
+        $this->assertSame(['price', 'timing', 'went_elsewhere', 'no_response', 'other'], array_keys(QuoteService::LOST_REASONS));
+    }
+
+    public function test_decline_and_reopen_write_through_one_path_and_send_nothing(): void
+    {
+        $db = new PDO('sqlite::memory:');
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->exec("CREATE TABLE quotes (id INTEGER PRIMARY KEY, status TEXT, lost_reason TEXT, pipeline_stage TEXT, probability INT, stage_entered_at TEXT, updated_at TEXT)");
+        $db->exec("CREATE TABLE quote_requests (id INTEGER PRIMARY KEY, quote_id INT, status TEXT, updated_at TEXT)");
+        $db->exec("INSERT INTO quotes (id, status) VALUES (1,'sent'),(2,'accepted'),(3,'viewed')");
+        $db->exec("INSERT INTO quote_requests (id, quote_id, status) VALUES (1,1,'quoted')");
+        $db->sqliteCreateFunction('NOW', fn() => '2026-11-10 10:00:00', 0);
+        $svc = new QuoteService($db);
+
+        $this->assertTrue($svc->decline(1, 'price'));
+        $this->assertSame(['declined', 'price', 'closed_lost'], array_values($db->query("SELECT status, lost_reason, pipeline_stage FROM quotes WHERE id = 1")->fetch(PDO::FETCH_NUM)));
+        $this->assertSame('declined', $db->query("SELECT status FROM quote_requests WHERE quote_id = 1")->fetchColumn());
+        $this->assertFalse($svc->decline(1, 'price'), 'already declined');
+        $this->assertFalse($svc->decline(2, 'price'), 'accepted stays accepted');
+        $this->assertSame('accepted', $db->query("SELECT status FROM quotes WHERE id = 2")->fetchColumn());
+
+        $this->assertTrue($svc->decline(3, 'made up'));
+        $this->assertNull($db->query("SELECT lost_reason FROM quotes WHERE id = 3")->fetchColumn());
+
+        $this->assertTrue($svc->reopen(1));
+        $this->assertSame(['sent', null], array_values($db->query("SELECT status, lost_reason FROM quotes WHERE id = 1")->fetch(PDO::FETCH_NUM)));
+        $this->assertFalse($svc->reopen(2), 'only a declined quote reopens');
+    }
 }

@@ -11,8 +11,17 @@
     var root = document.querySelector('.it-job-mia');
     if (!root) return;
 
+    var WHO = root.getAttribute('data-who') || 'Mia';   // the head whose strip this is (Sam's quote strip shares this script)
     var queue = [];
     try { queue = JSON.parse(root.querySelector('.it-job-data').textContent) || []; } catch (e) { queue = []; }
+    // "Not yet" on a card that offers it: asked again after a day, in this browser.
+    function snoozeKey(card) { return 'it-job-later:' + card.key; }
+    function snoozed(card) {
+        if (!card.later) return false;
+        try { var t = parseInt(window.localStorage.getItem(snoozeKey(card)) || '0', 10); return t > Date.now(); } catch (e) { return false; }
+    }
+    function snooze(card) { try { window.localStorage.setItem(snoozeKey(card), String(Date.now() + 86400000)); } catch (e) { /* no storage: it comes back on reload */ } }
+    queue = queue.filter(function (c) { return !snoozed(c); });
     if (!queue.length) return;
 
     var msgBox = root.querySelector('.it-job-msg');
@@ -111,8 +120,8 @@
         if (why) { if (card.detail) why.setAttribute('title', card.detail); else why.removeAttribute('title'); }
         var conf = q('.it-job-conf');
         var sure = card.sure || 'forming';
-        var words = { forming: 'No record yet.', held: 'Noticed, not yet known: check it.', known: 'Mia knows this kind.', mastered: 'Mia has mastered this kind.' };
-        var label = 'Mia proposes; your decision acts. ' + (words[sure] || '') + (sure !== 'forming' && card.confidence ? ' ' + card.confidence : '');
+        var words = { forming: 'No record yet.', held: 'Noticed, not yet known: check it.', known: WHO + ' knows this kind.', mastered: WHO + ' has mastered this kind.' };
+        var label = WHO + ' proposes; your decision acts. ' + (words[sure] || '') + (sure !== 'forming' && card.confidence ? ' ' + card.confidence : '');
         conf.className = 'it-job-conf is-' + sure;
         conf.setAttribute('aria-label', label);
         conf.setAttribute('title', label);
@@ -142,7 +151,7 @@
         fillButton(btnP, card.primary);
         fillButton(btnS, card.secondary);
         q('.it-job-n').textContent = '1 of ' + queue.length;
-        skipBtn.hidden = queue.length < 2;
+        skipBtn.hidden = queue.length < 2 && !card.later;
 
         var rail = q('.it-job-rail');
         rail.classList.remove('is-enter');
@@ -160,7 +169,7 @@
     function finish(text) {
         root.classList.add('is-done');
         Array.prototype.forEach.call(root.querySelectorAll('.it-job-body, .it-job-foot'), function (n) { n.hidden = true; });
-        say((text ? text + ' ' : '') + 'Mia has nothing else for you.');
+        say((text ? text + ' ' : '') + WHO + ' has nothing else for you.');
         setTimeout(function () { root.hidden = true; }, 3000);
     }
 
@@ -177,7 +186,7 @@
         if (!a.request && a.alt) { queue[0] = a.alt; render(); return; }
         if (!a.request) return;
         var body = JSON.parse(JSON.stringify(a.request.body || {}));
-        if (role === 'primary') {
+        if (role === 'primary' || a.withFields) {
             (card.fields || []).forEach(function (name) { var f = field(name); if (f) body[name] = f.value; });
             if ((card.fields || []).indexOf('scheduled_at') >= 0 && !body.scheduled_at) { say('Pick a time first.'); return; }
             var missing = (card.required || []).filter(function (name) { var f = field(name); return !f || !String(f.value).trim(); });
@@ -198,7 +207,17 @@
     }
 
     function skip() {
-        if (busy || queue.length < 2) return;
+        if (busy) return;
+        var card = queue[0];
+        if (card && card.later) {   // "Not yet": this one waits a day
+            snooze(card);
+            queue.shift();
+            say('');
+            if (!queue.length) { finish('Okay, later.'); return; }
+            render();
+            return;
+        }
+        if (queue.length < 2) return;
         queue.push(queue.shift());
         say('');
         render();
@@ -212,6 +231,7 @@
         if (e.key !== 'Escape') return;
         var t = e.target;
         if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+        if (queue[0] && queue[0].later) return;   // a quiet "Not yet" is a press, never a stray Escape
         skip();
     });
 
