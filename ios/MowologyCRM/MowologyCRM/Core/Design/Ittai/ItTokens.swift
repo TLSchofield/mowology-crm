@@ -205,6 +205,56 @@ enum ItSize {
     static let targetCrewAction: CGFloat = 64
 }
 
+/// The meniscus tab bar numbers (SPEC section 14). iPhone and Android read the same values.
+enum ItMeniscusToken {
+    /// Bar body below its top edge (labels sit here).
+    static let barHeight: CGFloat = 58
+    /// Bead diameter.
+    static let bead: CGFloat = 50
+    /// Ring of page colour between the bead and the notch.
+    static let gap: CGFloat = 6
+    /// How far the bead's top sits above the bar's top edge (above 22 the notch rises over the edge; 20 until iPhone 1.3.84, when the collar touched the selected label).
+    static let rise: CGFloat = 22
+    /// Horizontal run of each shoulder curve where the straight edge bends into the notch.
+    static let shoulder: CGFloat = 14
+    /// Where a shoulder hands over to the arc, in degrees from the bowl's bottom.
+    static let joinAngle: Double = 80
+    /// Slot icons start this far below the bar's edge so labels clear the collar.
+    static let iconTop: CGFloat = 14
+    /// A slot's icon box.
+    static let icon: CGFloat = 22
+    /// The icon inside the bead.
+    static let beadGlyph: CGFloat = 24
+    /// Space between a slot's icon box and its label.
+    static let iconLabelGap: CGFloat = 3
+    /// Slot label size, semibold on the selected slot (the system tab bar's own small label; Large Content Viewer / TalkBack carry large text).
+    static let labelSize: CGFloat = 11
+    /// A slot while it is pressed.
+    static let pressedOpacity: Double = 0.55
+    /// The bead's spring: response (period) in seconds.
+    static let springResponse: Double = 0.38
+    /// The bead's spring: damping ratio.
+    static let springDamping: Double = 0.78
+    /// Closer to the target than this, in slots, counts as landed.
+    static let springRest: Double = 0.002
+    /// A slide never runs longer than this; it lands exactly on the target.
+    static let springCap: Double = 1.5
+    /// The slide is sampled this many times per second and handed to the platform animator whole, so a busy screen cannot stall it.
+    static let sampleRate: Double = 120
+    /// Slots: over the last third of a slot the selected tab's icon turns into its action (Receipts: the camera).
+    static let actionMorph: Double = 0.33
+    /// Slots: the rolling Add + fades in over the first quarter slot on the way to Add.
+    static let rollFade: Double = 0.25
+    /// Slots: below this travel the bead counts as not moving.
+    static let stillEpsilon: Double = 0.01
+    /// Slots: a reselect or a retarget tap only counts once the bead is within this of its slot.
+    static let landing: Double = 0.25
+    /// A slot's icon fades out as the bead covers it and back in as it leaves.
+    static let iconFade: Double = 0.18
+    /// Long-press recognition time on slots that carry a long-press action.
+    static let longPress: Double = 0.45
+}
+
 /// The type scale: size / line height / weight (Inter).
 enum ItTextStyle: CaseIterable {
     case display36

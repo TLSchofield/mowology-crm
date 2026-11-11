@@ -93,10 +93,10 @@ struct ItMeniscusBar: View {
     @State private var longPressed: Int?
 
     /// Bar height below its top edge (labels sit here); the bead rises `rise` above it.
-    static let barHeight: CGFloat = 58
+    static let barHeight = ItMeniscusToken.barHeight
     /// Icons start this far below the bar's edge, so labels start at iconTop + 25 (39 pt): 5 pt clear of the bead's
     /// collar, which ends at ItMeniscusGeometry.depth (34 pt). At 1.3.82 the collar touched the label (Tim's iPhone).
-    static let iconTop: CGFloat = 14
+    static let iconTop = ItMeniscusToken.iconTop
 
     /// The identity currently presented as selected.
     private var on: Int { shown ?? selected }
@@ -221,19 +221,19 @@ struct ItMeniscusBar: View {
             // Every label on one line: the icon has a fixed 22 pt box and a larger one (Kaname's hexagon) grows
             // upwards out of it, and the stack sits at a fixed top instead of being centred — centred, the taller
             // Kaname stack pushed its label 4 pt lower (Tim, 1.3.82).
-            VStack(spacing: 3) {
+            VStack(spacing: ItMeniscusToken.iconLabelGap) {
                 item.icon.image
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 22 * item.iconScale, height: 22 * item.iconScale)
-                    .frame(width: 22, height: 22, alignment: .bottom)
+                    .frame(width: ItMeniscusToken.icon * item.iconScale, height: ItMeniscusToken.icon * item.iconScale)
+                    .frame(width: ItMeniscusToken.icon, height: ItMeniscusToken.icon, alignment: .bottom)
                     .foregroundStyle(style.meta)
                     // The selected tab's icon lives in the bead. A slot the bead passes over is covered by the collar.
                     .opacity(active ? 0 : 1)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: active)
+                    .animation(reduceMotion ? nil : .easeOut(duration: ItMeniscusToken.iconFade), value: active)
                 Text(item.title)
-                    .font(.system(size: 11, weight: active ? .semibold : .medium))
+                    .font(.system(size: ItMeniscusToken.labelSize, weight: active ? .semibold : .medium))
                     .foregroundStyle(active ? style.tenant : style.meta)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -249,7 +249,7 @@ struct ItMeniscusBar: View {
                 if longPressed == item.id { longPressed = nil }
             }
         })
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+        .simultaneousGesture(LongPressGesture(minimumDuration: ItMeniscusToken.longPress).onEnded { _ in
             longPressed = item.id
             onLongPress?(item.id)
         }, including: longPress ? .all : .subviews)
@@ -277,7 +277,7 @@ private struct ItMeniscusSlotStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.55 : 1)
+            .opacity(configuration.isPressed ? ItMeniscusToken.pressedOpacity : 1)
             .onChange(of: configuration.isPressed) { _, pressed in
                 if !pressed { onRelease() }
             }
