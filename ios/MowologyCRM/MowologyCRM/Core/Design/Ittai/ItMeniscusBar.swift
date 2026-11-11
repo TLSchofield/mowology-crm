@@ -214,7 +214,8 @@ struct ItMeniscusBar: View {
     private func slot(_ item: ItMeniscusItem) -> some View {
         let active = item.id == on
         let longPress = onLongPress != nil && item.longPressLabel != nil
-        let position = physicalSlot(forID: item.id).map { $0 + 1 } ?? 1
+        // Reading order, which in right-to-left is the logical order (the first tab sits at the right and is read first).
+        let position = (logicalSlot(forID: item.id) ?? 0) + 1
         return Button {
             tap(item.id)
         } label: {
