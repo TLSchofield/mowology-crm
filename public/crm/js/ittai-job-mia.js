@@ -165,6 +165,33 @@
         skip();
     });
 
+    // The chart gives way, never the strip: when the rail would overflow with the chart beside it, the strip gets the whole row.
+    // The chart's icon sits on its left edge at the rail's height (--it-rail-y), so the line runs on into it.
+    var wrap = root.closest('.it-job-wrap');
+    if (wrap && wrap.querySelector(':scope > .it-job-viz')) {
+        var fitQueued = false;
+        var fit = function () {
+            fitQueued = false;
+            var rail = root.querySelector('.it-job-rail');
+            if (!rail) return;
+            var was = wrap.classList.contains('is-solo');
+            wrap.classList.remove('is-solo');
+            var tight = rail.scrollWidth > rail.clientWidth + 1;
+            if (!tight) {
+                var lead = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
+                var viz = wrap.querySelector(':scope > .it-job-viz');
+                if (lead && viz) viz.style.setProperty('--it-rail-y', Math.round(lead.getBoundingClientRect().top + lead.getBoundingClientRect().height / 2 - viz.getBoundingClientRect().top) + 'px');
+            }
+            wrap.classList.toggle('is-solo', tight);
+            if (tight !== was) window.dispatchEvent(new Event('resize'));
+        };
+        var queueFit = function () { if (!fitQueued) { fitQueued = true; requestAnimationFrame(fit); } };
+        window.addEventListener('resize', queueFit);
+        if ('ResizeObserver' in window && wrap.parentNode) new ResizeObserver(queueFit).observe(wrap.parentNode);
+        if ('MutationObserver' in window) new MutationObserver(queueFit).observe(root, { childList: true, subtree: true });
+        queueFit();
+    }
+
     root.hidden = false;
     render();
 })();

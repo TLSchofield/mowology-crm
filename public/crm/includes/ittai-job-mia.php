@@ -28,6 +28,7 @@ try {
     $__imDesk = new CharlieDeskService($__imDb);
     if (!$__imDesk->ready() || !$__imDesk->isOwner($__imUser)) return;
     require_once APP_ROOT . '/Modules/Marketing/Services/MiaJobAdapter.php';
+    $__imVizData = MiaJobAdapter::viz($__imDb);
     $__imJobs = MiaJobAdapter::jobs($__imDb, $__imUser, !function_exists('userHasPermission') || userHasPermission('marketing.edit'));
 } catch (Throwable $__e) {
     error_log('Mia job strip unavailable: ' . $__e->getMessage());
@@ -44,6 +45,8 @@ if (($_GET['it_job_demo'] ?? '') === '1'
         [['id' => 2, 'caption' => 'We talk a lot about lawns. Clean edges. Fresh cuts. Consistent service.', 'platforms' => 'facebook,instagram', 'scheduled_at' => null, 'auto_generated' => 1, 'created_by_name' => 'Mia', 'thumb_path' => '']],
         [['id' => 3, 'caption' => 'Fall cleanup is booking now.', 'platforms' => 'facebook', 'auto_generated' => 1, 'thumb_path' => '']],
         ['crew' => [5, 5], 'hand' => [0, 0]], true, new DateTimeImmutable('now'));
+    $__imVizData = MiaJobAdapter::shapeViz(['2026-11' => 1, '2026-12' => 2, '2027-01' => 1],
+        [['caption' => 'We talk a lot about lawns. Clean edges.'], ['caption' => 'Mowing season starts'], ['caption' => 'Aeration time'], ['caption' => 'Spring cleanup booking']], new DateTimeImmutable('now'));
 }
 if (!$__imJobs) return;
 $__miaStripShown = true;   // the page's own red reconnect banner stays quiet while the strip asks
@@ -53,9 +56,28 @@ $__imFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 $__imSvg = static function (string $id): string {
     return '<svg class="it-job-ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><use href="#it-w-' . $id . '"/></svg>';
 };
+// The chart the line runs on into: ready posts and posts held for their season, by month (same card as Penny's graph).
+$__imViz = static function (?array $v) use ($__imSvg): string {
+    if (!$v) return '';
+    $w = 288; $h = 120; $pad = 8; $n = count($v['months']); $slot = (int)floor(($w - $pad * 2) / $n); $bw = max(4, (int)floor($slot / 2) - 2);
+    $bars = '';
+    foreach ($v['months'] as $i => $m) {
+        $x = $pad + $i * $slot;
+        foreach ([['ready', 'it-viz-now'], ['held', 'it-viz-bar']] as $j => [$k, $cls]) {
+            $bh = (int)round(($m[$k] / $v['max']) * 80);
+            if ($bh < 1 && $m[$k] > 0) $bh = 1;
+            if ($m[$k] > 0) $bars .= '<rect x="' . ($x + $j * ($bw + 2)) . '" y="' . (96 - $bh) . '" width="' . $bw . '" height="' . max($bh, 2) . '" rx="3" class="' . $cls . '"><title>' . h($m['label'] . ': ' . $m[$k] . ($k === 'held' ? ' held for their season' : ' ready to go out')) . '</title></rect>';
+        }
+        $bars .= '<text x="' . ($x + $bw) . '" y="112" text-anchor="middle" class="it-viz-lbl' . ($m['now'] ? ' it-viz-lbl-now' : '') . '">' . h(substr($m['label'], 0, 1)) . '</text>';
+    }
+    $next = $v['next'] ? ' <span>Next season opens ' . h($v['next']['label']) . ': ' . (int)$v['next']['n'] . ' post' . ($v['next']['n'] === 1 ? '' : 's') . '</span>' : '';
+    return '<figure class="it-job-viz it-job-viz-mia"><span class="it-ad it-ad-sm it-job-viz-node" aria-hidden="true">' . $__imSvg('chart') . '</span><figcaption><b>Posts by month</b><span>' . (int)$v['ready'] . ' ready · ' . (int)$v['held'] . ' held</span></figcaption>'
+        . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="Posts ready to go out and posts held for their season, next twelve months">' . $bars . '</svg>'
+        . '<p class="it-job-viz-gst"><b>' . (int)$v['held'] . '</b> held for their season' . $next . '</p></figure>';
+};
 itIconSprite();
 ?>
-<div class="it-job-outer"><div class="it-job-wrap is-solo">
+<div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job it-job-mia" data-head="mia" aria-label="Mia's job">
   <h2 class="it-vh it-job-tt"></h2>
   <div class="it-job-body"><div class="it-job-rail">
@@ -77,5 +99,6 @@ itIconSprite();
   </template>
   <script type="application/json" class="it-job-data"><?= json_encode($__imJobs, $__imFlags) ?></script>
 </section>
+<?= $__imViz($__imVizData ?? null) ?>
 </div></div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/ittai-job-mia.js') : '/crm/js/ittai-job-mia.js' ?>" defer></script>

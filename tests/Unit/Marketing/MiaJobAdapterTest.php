@@ -135,4 +135,16 @@ class MiaJobAdapterTest extends TestCase
         $d = [['id' => 4, 'caption' => 'Mowing season starts', 'platforms' => 'facebook', 'auto_generated' => 1, 'thumb_path' => 'x.jpg']];
         $this->assertSame([], MiaJobAdapter::queue($this->state(false), [], $w, $d, [], true, $this->now()));
     }
+
+    public function test_the_chart_puts_each_held_post_in_the_month_its_season_opens(): void
+    {
+        $v = MiaJobAdapter::shapeViz(['2026-12' => 2], [['caption' => 'Somewhere soft for the lawn kids to land.'], ['caption' => 'Meet the crew.']], $this->now());
+        $this->assertCount(12, $v['months']);
+        $this->assertSame('Nov', $v['months'][0]['label']);
+        $this->assertSame(2, $v['months'][1]['ready']);
+        $this->assertSame(1, $v['held']);
+        $this->assertSame(1, $v['months'][5]['held'], 'April is the sixth month from November');
+        $this->assertSame(['label' => 'Apr 1', 'n' => 1], $v['next']);
+        $this->assertNull(MiaJobAdapter::shapeViz([], [['caption' => 'Meet the crew.']], $this->now()), 'nothing to draw');
+    }
 }

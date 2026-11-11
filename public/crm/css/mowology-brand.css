@@ -39419,6 +39419,8 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .it-job-mia .it-job-left { max-width: 340px; }
 .it-job-mia .it-job-left, .it-job-mia .it-job-right, .it-job-mia .it-job-fig-col { background: var(--it-surface); }   /* the rail passes behind the words, not through them */
 .it-job-mia .it-btn-fill .it-job-ic { transform: none; }
+.it-job-viz-mia .it-viz-bar { fill: var(--it-surface); stroke: var(--it-meta); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.it-job-viz-mia .it-viz-lbl-now { font-weight: 700; fill: var(--it-text); }
 .it-job-mia .it-job-right[hidden], .it-job-mia .it-job-fig[hidden] { display: none; }
 .it-job-mia .it-job-fig-col:has(.it-job-fig[hidden]) { display: none; }
 

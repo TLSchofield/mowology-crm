@@ -104,14 +104,58 @@ class MiaJobAdapter
     {
         $keys = self::seasonKeys($post);
         if (!$keys) return null;
+        static $running = [];   // day (Y-m-d) => keys of the themes running that day
         $src = new MiaSeasonThemes();
         for ($d = 0; $d <= 366; $d++) {
             $day = $now->modify('+' . $d . ' day');
-            foreach ($src->themesFor($day) as $t) {
-                if (in_array($t['key'], $keys, true)) return $d === 0 ? null : $day;
-            }
+            $k = $day->format('Y-m-d');
+            if (!isset($running[$k])) $running[$k] = array_column($src->themesFor($day), 'key');
+            if (array_intersect($keys, $running[$k])) return $d === 0 ? null : $day;
         }
         return null;
+    }
+
+    /**
+     * The chart beside the strip: the next twelve months, posts ready to go out (scheduled / approved) against posts held
+     * for their season, each held post in the month its season opens. Null when there is nothing to draw.
+     * @param array $scheduledByMonth 'Y-m' => count   @param array $held rows with caption/title/service_type
+     */
+    public static function shapeViz(array $scheduledByMonth, array $held, DateTimeImmutable $now): ?array
+    {
+        $months = [];
+        for ($i = 0; $i < 12; $i++) {
+            $d = $now->modify('first day of this month')->modify('+' . $i . ' month');
+            $months[$d->format('Y-m')] = ['label' => $d->format('M'), 'ready' => (int)($scheduledByMonth[$d->format('Y-m')] ?? 0), 'held' => 0, 'now' => $i === 0];
+        }
+        $heldTotal = 0; $next = null;
+        foreach ($held as $r) {
+            $at = self::heldUntil($r, $now);
+            if (!$at) continue;
+            $heldTotal++;
+            $k = $at->format('Y-m');
+            if (isset($months[$k])) $months[$k]['held']++;
+            if ($next === null || $at < $next['at']) $next = ['at' => $at, 'n' => 0];
+            if ($at == $next['at']) $next['n']++;
+        }
+        $ready = array_sum(array_column($months, 'ready'));
+        if ($ready + $heldTotal === 0) return null;
+        return ['months' => array_values($months), 'max' => max(1, max(array_map(fn($m) => max($m['ready'], $m['held']), $months))),
+                'ready' => $ready, 'held' => $heldTotal, 'next' => $next ? ['label' => $next['at']->format('M j'), 'n' => $next['n']] : null];
+    }
+
+    public static function viz(PDO $db, ?DateTimeImmutable $now = null): ?array
+    {
+        try {
+            $now = $now ?? new DateTimeImmutable('now');
+            $by = [];
+            foreach (self::rows($db, "SELECT DATE_FORMAT(scheduled_at, '%Y-%m') AS ym, COUNT(*) AS n FROM social_posts
+                    WHERE status IN ('scheduled','approved') AND scheduled_at >= " . $db->quote($now->format('Y-m-01 00:00:00')) . " GROUP BY ym") as $r) $by[$r['ym']] = (int)$r['n'];
+            $held = self::rows($db, "SELECT id, title, service_type, caption FROM social_posts WHERE status IN ('draft','pending_approval','failed','publishing') ORDER BY id DESC LIMIT 300");
+            return self::shapeViz($by, $held, $now);
+        } catch (Throwable $e) {
+            error_log('MiaJobAdapter::viz: ' . $e->getMessage());
+            return null;
+        }
     }
 
     /** One line for the posts list: "Held until Apr 1 for its season." or ''. */
