@@ -117,4 +117,26 @@ final class BeforeAfterJobAdapterTest extends TestCase
         for ($i = 1; $i <= 25; $i++) $pairs[] = $this->pair(['id' => $i]);
         $this->assertCount(BeforeAfterJobAdapter::MAX_JOBS, BeforeAfterJobAdapter::jobs($pairs, [0, 0]));
     }
+
+    public function test_a_street_name_or_unit_number_is_caught_even_when_it_is_only_part_of_the_address(): void
+    {
+        $pair = $this->pair(['address' => '12 Oak Street, Vancouver']);
+        $this->assertTrue(BeforeAfterJobAdapter::identifies('Lawn care on Oak Street', $pair));
+        $this->assertTrue(BeforeAfterJobAdapter::identifies('Garden care, Unit 4', $pair));
+        $this->assertFalse(BeforeAfterJobAdapter::identifies('Lawn care in Kitsilano', $pair));
+    }
+
+    public function test_changing_the_service_or_filter_counts_as_an_edit(): void
+    {
+        $o = BeforeAfterJobAdapter::offer($this->pair());
+        $this->assertTrue(BeforeAfterJobAdapter::edited($this->pair(), $o + ['category' => 'garden']));
+        $this->assertFalse(BeforeAfterJobAdapter::edited($this->pair(), $o + ['category' => 'lawn', 'service' => 'Lawn Care']));
+    }
+
+    public function test_the_publish_gate_stays_on_when_the_switch_cannot_be_read(): void
+    {
+        $bad = new class extends PDO { public function __construct() {} #[\ReturnTypeWillChange] public function prepare($q, $o = []) { throw new PDOException('gone'); } };
+        $this->assertTrue(BeforeAfterJobAdapter::gateOn($bad));
+        $this->assertFalse(BeforeAfterJobAdapter::enabled($bad));
+    }
 }

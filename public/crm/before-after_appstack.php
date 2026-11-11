@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit;
                 case 'queue_approve':
                     // With Mia's flow line on, nothing publishes before the owner has checked the photos (server-side, so no page can skip it).
-                    if ($flow && !$ba->privacyChecked($pairId)) {
+                    if (BeforeAfterJobAdapter::gateOn($db) && !$ba->privacyChecked($pairId)) {
                         echo json_encode(['success' => false, 'error' => 'Check the photos for faces, house numbers and licence plates first']);
                         exit;
                     }
@@ -115,6 +115,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pair_id = (int)($_POST['pair_id'] ?? 0);
+            if ($pair_id && $published) {
+                // A pair still waiting in the queue goes live only through the same gates as Approve: client agreement
+                // where needed, and (flow line on) the photo check.
+                $waiting = $baCheck->pendingPair($pair_id);
+                if ($waiting) {
+                    require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
+                    $gate = BeforeAfterService::canApprove($waiting);
+                    if (!$gate['ok'] || (BeforeAfterJobAdapter::gateOn($db) && !$baCheck->privacyChecked($pair_id))) {
+                        echo json_encode(['success' => false, 'error' => $gate['ok'] ? 'Check the photos for faces, house numbers and licence plates first' : $gate['reason']]);
+                        exit;
+                    }
+                }
+            }
             if ($pair_id) {
                 // A hand-made pair is the manager's own decision: publishing it IS the approval.
                 $stmt = $db->prepare("

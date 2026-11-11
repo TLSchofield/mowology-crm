@@ -31,6 +31,22 @@ final class BeforeAfterJobAdapter
         }
     }
 
+    /**
+     * The gate the server enforces on publishing: ON unless the switch is readable and not '1'. A failed read must not
+     * let an unchecked pair through, so an error counts as on. (enabled() above is for what the page shows.)
+     */
+    public static function gateOn(PDO $db): bool
+    {
+        try {
+            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([self::SETTING]);
+            $v = $s->fetchColumn();
+            return $v !== false && (string)$v === '1';
+        } catch (Throwable $e) {
+            return true;
+        }
+    }
+
     /** @return list<array> one card per waiting pair, the next step only. [] when off or on any failure. */
     public static function load(PDO $db): array
     {
@@ -120,6 +136,11 @@ final class BeforeAfterJobAdapter
         if (preg_match('/\b\d{2,5}\b/', $text)) return true;
         $street = trim((string)($pair['address'] ?? ''));
         if ($street !== '' && stripos($text, $street) !== false) return true;
+        // A street name or unit number on its own ("Oak Street", "Unit 4"): the part of the address before the first comma.
+        $first = trim(explode(',', $street)[0]);
+        $name  = trim((string)preg_replace('/^[\d\s\-#]+/', '', $first));
+        if (mb_strlen($name) >= 4 && stripos($text, $name) !== false) return true;
+        if (preg_match('/\b(unit|suite|apt|apartment|#)\s*\d+/i', $text)) return true;
         return false;
     }
 
@@ -129,6 +150,9 @@ final class BeforeAfterJobAdapter
         $o = self::offer($pair);
         foreach (['label', 'area', 'alt_before', 'alt_after'] as $k) {
             if (trim((string)($submitted[$k] ?? '')) !== $o[$k]) return true;
+        }
+        foreach (['service', 'category'] as $k) {   // changing what the pair is filed under is an edit too
+            if (isset($submitted[$k]) && trim((string)$submitted[$k]) !== trim((string)($pair[$k] ?? ''))) return true;
         }
         return false;
     }
