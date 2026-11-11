@@ -8,6 +8,14 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Plant report for the client (Tim, 2026-11-11) — queued
+
+Tim: the Work Record's plant lines "could become a client report that either sits on the portal or is emailed". Today the crew's Work Record shows
+each plant's own photo and a "now is a good time to divide or move it" note (`PlantLineInfoService`, read-only, from approved care cards). The client
+version reuses it: per plant, its photo, what was done on which visit (`plant_work_log`, already read by the visit report and the portal), and what is in season next.
+Open: portal-only or emailed too (email goes through `sendCrmEmail`, with a PDF if it is the invoice-style send); which notes a client may see (care-card tips are
+internal until Tim approves wording); photos of client properties on the portal need the same token rules as the visit photos. Needs its own plan before code.
+
 ## Subcontracting — what is left after the web version (live 2026-11-10)
 - Native iPhone card (timeline, Accept), schedule card label, Otto line when a job is close and not yet accepted.
 - Their photos onto the visit record on Accept; their invoice attached to the expense in Penny.
