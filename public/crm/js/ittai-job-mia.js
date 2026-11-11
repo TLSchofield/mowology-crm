@@ -63,6 +63,31 @@
         if (parts[1]) parts[1].textContent = a.sub || '';
     }
 
+    /** Listing cards: the master record against what the site shows. Only the comparison goes in the rows (textContent, no HTML). */
+    function renderCompare(rows, link) {
+        var ul = q('.it-job-cmp');
+        var open = q('.it-job-open');
+        if (ul) {
+            ul.textContent = '';
+            (rows || []).forEach(function (r) {
+                var li = document.createElement('li');
+                li.className = 'is-' + r.state;
+                var k = document.createElement('b'); k.textContent = r.k;
+                var mark = document.createElement('i'); mark.setAttribute('aria-hidden', 'true');
+                mark.textContent = r.state === 'ok' ? '\u2713' : (r.state === 'diff' ? '\u2260' : '');
+                var v = document.createElement('span');
+                v.textContent = r.state === 'diff' ? r.site + ' (master: ' + r.master + ')' : (r.state === 'master' ? r.master : (r.site || r.master));
+                li.appendChild(k); li.appendChild(mark); li.appendChild(v);
+                ul.appendChild(li);
+            });
+            ul.hidden = !(rows && rows.length);
+        }
+        if (open) {
+            open.hidden = !link;
+            if (link) { open.textContent = link.label; open.href = link.href; }
+        }
+    }
+
     function render() {
         var card = queue[0];
         if (!card) return;
@@ -72,6 +97,7 @@
         var places = (p.platforms || []).map(function (k) { return PLACE[k] || k; }).join(' · ');
         put('.it-job-at', [places, p.when].filter(Boolean).join(' · '));
         put('.it-job-quote', p.caption);
+        renderCompare(card.compare, card.link);
         put('.it-job-why', card.why);
         var why = q('.it-job-why');
         if (why) { if (card.detail) why.setAttribute('title', card.detail); else why.removeAttribute('title'); }
@@ -91,8 +117,9 @@
         var tpl = q('.it-job-tpl-' + card.kind);
         if (tpl) {
             form.appendChild(tpl.content.cloneNode(true));
+            Object.keys(card.right || {}).forEach(function (name) { var f = field(name); if (f && name !== 'min') f.value = card.right[name] || ''; });
             var when = field('scheduled_at');
-            if (when && card.right) { when.value = card.right.scheduled_at || ''; if (card.right.min) when.min = card.right.min; }
+            if (when && card.right && card.right.min) when.min = card.right.min;
         }
         q('.it-job-right').hidden = !tpl;
 
@@ -129,6 +156,9 @@
         if (!a) return;
         if (a.skip) { skip(); return; }
         if (a.href) { window.location.href = a.href; return; }
+        // Open the site's own page in a new tab, then ask the follow-up. Nothing is sent: only the answer changes anything.
+        if (a.open) { window.open(a.open, '_blank', 'noopener'); if (a.alt) { queue[0] = a.alt; render(); } return; }
+        if (!a.request && a.alt) { queue[0] = a.alt; render(); return; }
         if (!a.request) return;
         var body = JSON.parse(JSON.stringify(a.request.body || {}));
         if (role === 'primary') {

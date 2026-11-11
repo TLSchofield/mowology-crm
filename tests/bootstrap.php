@@ -176,6 +176,7 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/TrackingLinks.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaListingJobs.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';

@@ -39423,6 +39423,16 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .it-job-viz-mia .it-viz-lbl-now { font-weight: 700; fill: var(--it-text); }
 .it-job-mia .it-job-right[hidden], .it-job-mia .it-job-fig[hidden] { display: none; }
 .it-job-mia .it-job-fig-col:has(.it-job-fig[hidden]) { display: none; }
+.it-job-mia .it-job-cmp { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: .84rem; color: var(--it-text); }
+.it-job-mia .it-job-cmp li { display: grid; grid-template-columns: 6.4em 1.2em 1fr; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+.it-job-mia .it-job-cmp b { font-weight: 600; color: var(--it-meta); }
+.it-job-mia .it-job-cmp i { font-style: normal; font-weight: 700; }
+.it-job-mia .it-job-cmp .is-ok i { color: var(--it-complete); }
+.it-job-mia .it-job-cmp .is-diff i { color: var(--it-attention); }
+.it-job-mia .it-job-cmp[hidden], .it-job-mia .it-job-open[hidden] { display: none; }
+.it-job-mia .it-job-open { display: inline-block; margin-top: 8px; font-size: .84rem; color: var(--it-text); text-decoration: underline; }
+.mw-lst-setup { margin-top: 4px; }
+.mw-lst-setup summary { cursor: pointer; margin-bottom: 8px; }
 
 /* Listings page */
 .mw-lst-nap { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }

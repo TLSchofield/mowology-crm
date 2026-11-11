@@ -11,7 +11,8 @@
  */
 if (empty($itShell)) return;
 if (!defined('APP_ROOT')) return;
-if ((string)($activePage ?? '') !== 'social') return;
+$__imPage = (string)($activePage ?? '');
+if ($__imPage !== 'social' && $__imPage !== 'listings') return;   // Posts: her posts; Listings: her connections (MiaListingJobs, off unless mia_listing_job_enabled)
 try {
     require_once __DIR__ . '/nav-items.php';
     $__imUser = (array)($user ?? (function_exists('getCurrentUser') ? getCurrentUser() : []) ?? []);
@@ -21,15 +22,25 @@ try {
     }
     if (!$__imHere) return;
     // approve / retry / the reconnect link all ask for marketing.approve; Schedule asks for marketing.edit.
-    if (function_exists('userHasPermission') && !userHasPermission('marketing.approve')) return;
+    // The Listings page lets marketing.edit or marketing.approve save (listings.php $canEdit); Posts needs approve.
+    if (function_exists('userHasPermission')) {
+        if ($__imPage === 'social' && !userHasPermission('marketing.approve')) return;
+        if ($__imPage === 'listings' && !(userHasPermission('marketing.edit') || userHasPermission('marketing.approve'))) return;
+    }
     require_once APP_ROOT . '/Services/HeadIdentity.php';
     require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
     $__imDb = getDB();
     $__imDesk = new CharlieDeskService($__imDb);
     if (!$__imDesk->ready() || !$__imDesk->isOwner($__imUser)) return;
     require_once APP_ROOT . '/Modules/Marketing/Services/MiaJobAdapter.php';
-    $__imVizData = MiaJobAdapter::viz($__imDb);
-    $__imJobs = MiaJobAdapter::jobs($__imDb, $__imUser, !function_exists('userHasPermission') || userHasPermission('marketing.edit'));
+    if ($__imPage === 'listings') {
+        require_once APP_ROOT . '/Modules/Marketing/Services/MiaListingJobs.php';
+        $__imVizData = null;
+        $__imJobs = MiaListingJobs::jobs($__imDb, true);
+    } else {
+        $__imVizData = MiaJobAdapter::viz($__imDb);
+        $__imJobs = MiaJobAdapter::jobs($__imDb, $__imUser, !function_exists('userHasPermission') || userHasPermission('marketing.edit'));
+    }
 } catch (Throwable $__e) {
     error_log('Mia job strip unavailable: ' . $__e->getMessage());
     return;
@@ -38,6 +49,21 @@ try {
 if (($_GET['it_job_demo'] ?? '') === '1'
     && in_array(strtok((string)($_SERVER['HTTP_HOST'] ?? ''), ':'), ['127.0.0.1', 'localhost'], true)
     && in_array((string)($_SERVER['REMOTE_ADDR'] ?? ''), ['127.0.0.1', '::1'], true)) {   // the Host header is the client's; the address is not
+  if ($__imPage === 'listings') {
+    require_once APP_ROOT . '/Modules/Marketing/Services/MiaListingJobs.php';
+    $__imM = ['name' => 'Mowology Landscaping', 'address' => '2845 West 15th Ave Vancouver V6K 3A1', 'phone' => '778 846 9273', 'website' => 'mowology.ca', 'email' => '', 'hours' => 'Mon–Fri 08:00–17:00', 'categories' => 'Landscaper; Lawn care service; Snow removal service'];
+    $__imR = static function (array $o) { return $o + ['id' => 1, 'site_key' => 'x', 'site_name' => 'Site', 'claim_url' => 'https://example.test/claim', 'status' => 'unknown', 'profile_url' => null, 'review_count' => null, 'rating' => null,
+        'listed_name' => null, 'listed_address' => null, 'listed_phone' => null, 'listed_website' => null, 'notes' => null, 'is_optional' => 0, 'last_checked' => null, 'stale' => true, 'nap' => ['status' => 'unchecked', 'fields' => [], 'issues' => []]]; };
+    $__imS = ['status' => 'connected', 'reason' => '', 'label' => '', 'account' => ''];
+    $__imJobs = MiaListingJobs::queue($__imM, [
+        $__imR(['id' => 9, 'site_key' => 'gbp', 'site_name' => 'Google Business Profile', 'claim_url' => 'https://business.google.com/', 'status' => 'verified', 'last_checked' => '2026-09-28']),
+        $__imR(['id' => 2, 'site_key' => 'apple', 'site_name' => 'Apple Business Connect']),
+        $__imR(['id' => 4, 'site_key' => 'facebook', 'site_name' => 'Facebook', 'status' => 'claimed', 'profile_url' => 'https://example.test/fb']),
+        $__imR(['id' => 8, 'site_key' => 'yelp', 'site_name' => 'Yelp', 'status' => 'claimed', 'profile_url' => 'https://example.test/yelp', 'listed_name' => 'Mowology Landscaping', 'listed_address' => '1 Other St Vancouver', 'listed_phone' => '778-846-9273', 'listed_website' => 'mowology.ca', 'last_checked' => '2026-11-01', 'nap' => ['status' => 'mismatch', 'fields' => [], 'issues' => ['x']]]),
+    ], ['name' => 'Mowology Landscaping', 'address' => '2845 West 15th Ave, Vancouver, BC, V6K 3A1', 'phone' => '604 555 0100', 'website' => 'https://mowology.ca/', 'hours' => 'Mon–Fri 08:00–17:00', 'categories' => 'Landscaper; Lawn care service', 'at' => (new DateTimeImmutable('now'))->format('Y-m-d H:i:s')],
+        [4 => ['called' => 3, 'agreed' => 3], 8 => ['called' => 5, 'agreed' => 5]],
+        ['facebook' => $__imS, 'instagram' => $__imS, 'gbp' => $__imS, 'needs_reconnect' => false], false, true, new DateTimeImmutable('now'));
+  } else {
     $__imJobs = MiaJobAdapter::queue(
         ['needs_reconnect' => false, 'message' => '', 'action_url' => SocialConnectionState::RECONNECT_URL],
         [['id' => 1, 'caption' => 'Crew on-site. Work getting done. Strata and commercial grounds maintenance across Vancouver.', 'platforms' => 'facebook,instagram', 'thumb_path' => '',
@@ -47,9 +73,10 @@ if (($_GET['it_job_demo'] ?? '') === '1'
         ['crew' => [5, 5], 'hand' => [0, 0]], true, new DateTimeImmutable('now'));
     $__imVizData = MiaJobAdapter::shapeViz(['2026-11' => 1, '2026-12' => 2, '2027-01' => 1],
         [['caption' => 'We talk a lot about lawns. Clean edges.'], ['caption' => 'Mowing season starts'], ['caption' => 'Aeration time'], ['caption' => 'Spring cleanup booking']], new DateTimeImmutable('now'));
+  }
 }
 if (!$__imJobs) return;
-$__miaStripShown = true;   // the page's own red reconnect banner stays quiet while the strip asks
+if ($__imPage === 'social') $__miaStripShown = true;   // the page's own red reconnect banner stays quiet while the strip asks
 
 require_once __DIR__ . '/ittai-icons.php';
 $__imFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
@@ -81,19 +108,26 @@ itIconSprite();
 <section class="it-job it-job-mia" data-head="mia" aria-label="Mia's job">
   <h2 class="it-vh it-job-tt"></h2>
   <div class="it-job-body"><div class="it-job-rail">
-    <a class="it-job-anchor it-job-anchor-start" href="/crm/marketing/social.php"><span class="it-ad it-ad-fill"><?= $__imSvg('eye') ?></span><span>Posts</span></a>
+    <a class="it-job-anchor it-job-anchor-start" href="<?= $__imPage === 'listings' ? '/crm/marketing/listings.php' : '/crm/marketing/social.php' ?>"><span class="it-ad it-ad-fill"><?= $__imSvg($__imPage === 'listings' ? 'check' : 'eye') ?></span><span><?= $__imPage === 'listings' ? 'Master' : 'Posts' ?></span></a>
     <span class="it-job-conf is-forming" role="img"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval-forming"/></svg></span>
     <div class="it-job-split">
-      <div class="it-job-col it-job-left"><div class="it-job-what"><b class="it-job-who"></b><span class="it-job-at"></span><p class="it-job-quote"></p><p class="it-job-why"></p></div></div>
+      <div class="it-job-col it-job-left"><div class="it-job-what"><b class="it-job-who"></b><span class="it-job-at"></span><p class="it-job-quote"></p><ul class="it-job-cmp" hidden></ul><a class="it-job-open" href="#" target="_blank" rel="noopener" hidden></a><p class="it-job-why"></p></div></div>
       <div class="it-job-col it-job-fig-col"><figure class="it-job-fig" hidden><img alt="" src=""></figure></div>
       <span class="it-job-disc it-job-disc-info" role="img" aria-label="becomes"><?= $__imSvg('arrow') ?></span>
       <div class="it-job-col it-job-right"><form class="it-job-form" novalidate></form></div>
       <div class="it-job-col it-job-acts"><button type="button" class="it-btn it-btn-fill" data-role="primary"><?= $__imSvg('check') ?><b></b><span></span></button><span class="it-job-m"></span><button type="button" class="it-btn it-btn-line" data-role="secondary"><?= $__imSvg('arrow') ?><b></b><span></span></button></div>
     </div>
-    <a class="it-job-anchor it-job-anchor-end" href="/crm/marketing/social-calendar.php"><span class="it-ad"><?= $__imSvg('chart') ?></span><span>Calendar</span></a>
+    <?php if ($__imPage === 'listings'): ?><a class="it-job-anchor it-job-anchor-end" href="/crm/marketing/mia.php"><span class="it-ad"><?= $__imSvg('eye') ?></span><span>Mia</span></a>
+    <?php else: ?><a class="it-job-anchor it-job-anchor-end" href="/crm/marketing/social-calendar.php"><span class="it-ad"><?= $__imSvg('chart') ?></span><span>Calendar</span></a><?php endif; ?>
   </div></div>
   <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Skip for now</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
+  <template class="it-job-tpl-listing_enter">
+    <label>Name <input name="listed_name" class="it-ctl"></label>
+    <label>Address <input name="listed_address" class="it-ctl"></label>
+    <label>Phone <input name="listed_phone" class="it-ctl"></label>
+    <label>Website <input name="listed_website" class="it-ctl"></label>
+  </template>
   <template class="it-job-tpl-schedule">
     <label>When it goes out <input name="scheduled_at" type="datetime-local" class="it-ctl"></label>
   </template>
