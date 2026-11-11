@@ -57,6 +57,10 @@ class BankLineEvidenceTest extends TestCase
         $this->assertSame(['name' => 'Shell', 'category' => 'Vehicle'], BankLineEvidence::vendorFor('POINTOFSALE(SHELLC01018VANCOUVERBCCA)', $v));
         $this->assertSame('Home Depot', BankLineEvidence::vendorFor('POINTOFSALE(THEHOMEDEPOT7259VANCOUVERBCCA)', $v)['name']);
         $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(TOZENSUSHIBARVANCOUVERBCCA)', $v));
+        $frag = [['name' => 'STORE #: 43016', 'aliases' => '', 'default_accounting_category' => ''], ['name' => 'SANS', 'aliases' => '', 'default_accounting_category' => '']];
+        $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(APPLESTORER280VANCOUVERBCCA)', $frag), 'a name found inside the text, not at its start, is a coincidence');
+        $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(CITYOFVANPARKSANSVANCOUVERBCCA)', $frag));
+        $this->assertSame('CANEV', BankLineEvidence::vendorFor('e-Transfer debit Ref 20260318164949668880 Canev', [['name' => 'CANEV', 'aliases' => '', 'default_accounting_category' => 'Vehicle']])['name']);
         $junk = [['name' => 'City of Vancouver Landfill', 'aliases' => 'Vancouver Landfill,city of,push', 'default_accounting_category' => 'Disposal'], ['name' => 'CHEVRON', 'aliases' => 'pnty,date:', 'default_accounting_category' => '']];
         $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(CITYOFVANPARKSANSVANCOUVERBCCA)', $junk), 'a fragment alias ("city of") is not a vendor');
         $this->assertSame('City of Vancouver Landfill', BankLineEvidence::vendorFor('POINTOFSALE(VANCOUVERLANDFILL1VANCOUVERBCCA)', $junk)['name'], 'a long alias counts');
