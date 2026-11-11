@@ -149,22 +149,31 @@ $__ijRailEt = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols, $
         . $__ijEnd($j)
         . '</div>';
 };
-// Month balancing rail (2026-11-10): the e-Transfer rail's frame, with one disc per month where the fraction sits.
-$__ijMonths = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg): string {
-    $li = '';
-    foreach ((array)($j['months'] ?? []) as $m) {
-        $st = (string)$m['state'];
-        $li .= '<li class="it-job-mo' . (!empty($m['focus']) ? ' is-focus' : '') . (!empty($m['carried']) ? ' is-carried' : '') . '"><span class="it-job-top">' . h($m['top']) . '</span>'
-            . '<span class="it-job-disc it-job-disc-' . h($st) . '" role="img" aria-label="' . h($m['label'] . ': ' . $m['bottom'] . (!empty($m['carried']) ? ' (carried from the month before)' : '')) . '" title="' . h($m['label'] . ': ' . $m['bottom'] . (!empty($m['carried']) ? ' (carried from the month before)' : '')) . '">' . $__ijSvg($__ijIcon[$st] ?? 'info') . '</span>'
-            . '<span class="it-job-bot">' . h($m['bottom']) . '</span></li>';
-    }
-    return '<ol class="it-job-months" aria-label="The months, oldest first">' . $li . '</ol>';
+// Month balancing rail (2026-11-10): the e-Transfer rail's frame; after the two buttons comes the month's disc (what the month
+// stands at once this line is settled), then the Ledger. The other months are a quiet row in the foot.
+$__ijGlyph = ['same' => '✓', 'differs' => '≠', 'missing' => '✗', 'info' => 'ℹ'];
+$__ijAfter = static function (?array $j) use ($__ijIcon, $__ijSvg): string {
+    $m = (array)($j['after'] ?? []);
+    if ($j !== null && !$m) return '';
+    $st = (string)($m['state'] ?? 'info');
+    $lbl = trim((string)($m['label'] ?? '') . ': ' . (string)($m['bottom'] ?? '') . (!empty($m['carried']) ? ' (carried from the month before)' : ''), ': ');
+    return '<div class="it-job-col it-job-after"><span class="it-job-top">' . h($m['top'] ?? '') . '</span>'
+        . '<span class="it-job-disc it-job-disc-' . h($st) . '" role="img" aria-label="' . h($lbl) . '" title="' . h($lbl) . '">' . $__ijSvg($__ijIcon[$st] ?? 'info') . '</span>'
+        . '<span class="it-job-bot">' . h($m['bottom'] ?? '') . '</span></div>';
 };
-$__ijRailMonth = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols, $__ijActs, $__ijEnd, $__ijSide, $__ijMonths): string {
+$__ijMonthRow = static function (?array $j) use ($__ijGlyph): string {
+    $out = '';
+    foreach ((array)($j['months'] ?? []) as $m) {
+        $cls = 'it-job-mchip' . (!empty($m['focus']) ? ' is-focus' : '') . (!empty($m['carried']) ? ' is-carried' : '');
+        $t = $m['label'] . ': ' . $m['bottom'] . (!empty($m['carried']) ? ' (carried from the month before)' : '');
+        $out .= '<span class="' . $cls . '" title="' . h($t) . '">' . h($m['top']) . ' ' . ($__ijGlyph[$m['state']] ?? '') . '</span>';
+    }
+    return $out;
+};
+$__ijRailMonth = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols, $__ijActs, $__ijEnd, $__ijSide, $__ijAfter): string {
     $start = (array)($j['start'] ?? ['label' => 'Bank', 'href' => '/crm/accounting/bank-balance-check.php']);
     return '<div class="it-job-rail" data-kind="month">'
         . '<a class="it-job-anchor it-job-anchor-start" href="' . h($start['href']) . '"><span class="it-ad it-ad-fill">' . $__ijSvg('bank') . '</span><span>' . h($start['label']) . '</span></a>'
-        . $__ijMonths($j)
         . $__ijConf((string)($j['sure'] ?? 'forming'), (string)($j['confidence'] ?? ''))
         . '<div class="it-job-split">'
         . '<div class="it-job-col it-job-lblcol it-job-sides">' . $__ijSide((array)($j['left'] ?? []), true)
@@ -173,6 +182,7 @@ $__ijRailMonth = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols
         . $__ijCols($j)
         . $__ijActs($j, 'check', 'x')
         . '</div>'
+        . $__ijAfter($j)
         . $__ijEnd($j)
         . '</div>';
 };
@@ -201,7 +211,7 @@ itIconSprite();
 <section class="it-job" data-head="penny" data-kind="<?= h((string)($__ij['kind'] ?? '')) ?>" aria-label="Penny's job">
   <h2 class="it-vh it-job-tt"><?= h($__ij['title']) ?></h2>
   <div class="it-job-body"><?= ($__ij['kind'] ?? '') === 'month' ? $__ijRailMonth($__ij) : (($__ij['kind'] ?? '') === 'etransfer' ? $__ijRailEt($__ij) : $__ijRail($__ij)) ?></div>
-  <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?></p>
+  <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?><span class="it-job-mrow" aria-label="The months, oldest first"><?= ($__ij['kind'] ?? '') === 'month' ? $__ijMonthRow($__ij) : '' ?></span></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
   <template class="it-job-tpl" data-kind="duplicate"><?= $__ijRail(null) ?></template>
   <template class="it-job-tpl" data-kind="etransfer"><?= $__ijRailEt(null) ?></template>

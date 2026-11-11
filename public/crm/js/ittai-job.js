@@ -184,22 +184,32 @@
             frac.setAttribute('aria-label', pm + ' of ' + pt + ': ' + say);
             frac.setAttribute('title', say);
         }
-        // the month job: one disc per month along the line
-        var mos = rail.querySelector('.it-job-months');
-        if (mos) {
-            mos.textContent = '';
+        // the month job: the month's disc after the buttons (what it stands at once this line is settled)
+        var aft = rail.querySelector('.it-job-after');
+        if (aft && !job.after) aft.hidden = true;
+        if (aft && job.after) {
+            var am = job.after;
+            var albl = am.label + ': ' + am.bottom + (am.carried ? ' (carried from the month before)' : '');
+            var at = aft.querySelector('.it-job-top'), ab = aft.querySelector('.it-job-bot'), ad = aft.querySelector('.it-job-disc');
+            if (at) at.textContent = am.top || '';
+            if (ab) ab.textContent = am.bottom || '';
+            if (ad) {
+                ad.className = 'it-job-disc it-job-disc-' + am.state;
+                ad.setAttribute('aria-label', albl);
+                ad.setAttribute('title', albl);
+                ad.textContent = '';
+                ad.appendChild(icon(ICON[am.state] || 'info'));
+            }
+        }
+        // ... and the other months, a quiet row in the foot
+        var mrow = foot.querySelector('.it-job-mrow');
+        if (mrow) {
+            mrow.textContent = '';
+            var GL = { same: '\u2713', differs: '\u2260', missing: '\u2717', info: '\u2139' };
             (job.months || []).forEach(function (m) {
-                var li = el('li', 'it-job-mo' + (m.focus ? ' is-focus' : '') + (m.carried ? ' is-carried' : ''));
-                var mlbl = m.label + ': ' + m.bottom + (m.carried ? ' (carried from the month before)' : '');
-                li.appendChild(el('span', 'it-job-top', m.top));
-                var md = el('span', 'it-job-disc it-job-disc-' + m.state);
-                md.setAttribute('role', 'img');
-                md.setAttribute('aria-label', mlbl);
-                md.setAttribute('title', mlbl);
-                md.appendChild(icon(ICON[m.state] || 'info'));
-                li.appendChild(md);
-                li.appendChild(el('span', 'it-job-bot', m.bottom));
-                mos.appendChild(li);
+                var c = el('span', 'it-job-mchip' + (m.focus ? ' is-focus' : '') + (m.carried ? ' is-carried' : ''), m.top + ' ' + (GL[m.state] || ''));
+                c.setAttribute('title', m.label + ': ' + m.bottom + (m.carried ? ' (carried from the month before)' : ''));
+                mrow.appendChild(c);
             });
         }
         side(rail.querySelector('.it-job-side-top'), job.left);
