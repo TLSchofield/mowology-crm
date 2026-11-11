@@ -71,6 +71,7 @@ try {
                 'estimated_duration'  => (int)($v['estimated_duration'] ?? 0),
                 'visit_status'        => $v['visit_status'] ?? 'scheduled',
                 'scheduled_time_start'=> $v['scheduled_time_start'] ?? null,
+                'scheduled_time_end'  => $v['scheduled_time_end'] ?? null,
             ];
         }
         $stops[] = [

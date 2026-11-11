@@ -193,6 +193,27 @@ if ($urlContactId && $urlPropertyId) {
     }
 }
 
+// From the calendar's "More Options": only a property is known — take its site contact.
+if ($urlPropertyId && !$urlContactId && empty($prefill)) {
+    $pcStmt = $db->prepare("SELECT site_contact_id FROM properties WHERE id = ?");
+    $pcStmt->execute([$urlPropertyId]);
+    $siteContactId = (int)$pcStmt->fetchColumn();
+    if ($siteContactId) {
+        $cpStmt = $db->prepare("
+            SELECT c.id AS contact_id, c.first_name, c.last_name, p.id AS property_id, p.address, p.city
+            FROM contacts c, properties p WHERE c.id = ? AND p.id = ?");
+        $cpStmt->execute([$siteContactId, $urlPropertyId]);
+        if ($cpData = $cpStmt->fetch(PDO::FETCH_ASSOC)) {
+            $prefill = [
+                'contact_id'       => $cpData['contact_id'],
+                'contact_name'     => trim($cpData['first_name'] . ' ' . $cpData['last_name']),
+                'property_id'      => $cpData['property_id'],
+                'property_address' => $cpData['address'] . ', ' . $cpData['city'],
+            ];
+        }
+    }
+}
+
 // Check if creating from quote
 $quoteId = isset($_GET['quote_id']) ? intval($_GET['quote_id']) : 0;
 
@@ -1405,4 +1426,15 @@ $activePage = 'jobs';
           })();
           </script>
 
+<script>
+// Values typed in the calendar popover (schedule "More Options") — fill the matching fields once.
+(function () {
+  var q = new URLSearchParams(window.location.search);
+  function set(sel, v) { var el = document.querySelector(sel); if (el && v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); } }
+  set('input[name="title"]', q.get('cal_title'));
+  set('input[name="plan_start_date"]', q.get('cal_date'));
+  set('input[name="default_time_start"]', q.get('cal_start'));
+  set('input[name="default_time_end"]', q.get('cal_end'));
+})();
+</script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
