@@ -35,7 +35,8 @@
     var SVGNS = 'http://www.w3.org/2000/svg';
 
     try { queue = JSON.parse(dataEl ? dataEl.textContent : '[]') || []; } catch (e) { queue = []; }
-    if (!queue.length) return;
+    // No jobs: the line rests (the include prints it bare). Only the layout below runs; nothing to draw or post.
+    var resting = !queue.length;
 
     function el(tag, cls, text) {
         var n = document.createElement(tag);
@@ -273,13 +274,19 @@
         coolTimer = setTimeout(function () { setBusy(false); }, 600);
     }
 
-    /** Nothing left: say so politely, keep the Undo for its 6 s, then take the strip away. */
+    /** Nothing left: the line settles back to its resting state ("Nothing to decide"), keeping the Undo for its 6 s. It is never removed. */
     function finish(text, withUndo) {
-        root.classList.add('is-done');
-        Array.prototype.forEach.call(root.querySelectorAll('.it-job-rail, .it-job-foot, .it-job-t'), function (n) { n.hidden = true; });
-        say((text ? text + ' ' : '') + 'Penny has nothing else for you.', withUndo);
+        var rail = root.querySelector('.it-job-rail');
+        if (rail) rail.replaceWith(tplFor('idle').content.firstElementChild.cloneNode(true));
+        root.setAttribute('data-kind', 'idle');
+        var tt = root.querySelector('.it-job-tt');
+        if (tt) tt.textContent = 'Penny has nothing to decide';
+        if (foot) foot.hidden = true;
+        if (tt) { tt.setAttribute('tabindex', '-1'); tt.focus({ preventScroll: true }); }   // the pressed button went with the old rail
+        say(text || '', withUndo);
         clearTimeout(undoTimer);
-        undoTimer = setTimeout(function () { if (root.parentNode) root.parentNode.removeChild(root); }, withUndo ? UNDO_MS : 3000);
+        if (withUndo) undoTimer = setTimeout(function () { lastMerged = null; say(text || '', false); }, UNDO_MS);
+        window.dispatchEvent(new Event('resize'));   // the head card's line re-finds the rail
     }
     function reopen() {
         root.classList.remove('is-done');
@@ -431,7 +438,7 @@
                 job.undo.requests = job.undo.requests.slice(done);
                 say(bad.message || bad.error || 'Could not undo — try again', job.undo.requests.length > 0);
                 if (!job.undo.requests.length) lastMerged = null;
-                undoTimer = setTimeout(function () { if (root.classList.contains('is-done') && root.parentNode) root.parentNode.removeChild(root); }, UNDO_MS);
+                undoTimer = setTimeout(function () { say('', false); }, UNDO_MS);
                 return;
             }
             lastMerged = null;

@@ -88,6 +88,18 @@ class IttaiJobTest extends TestCase
         $this->assertStringNotContainsString("'dismiss'", $ad);
     }
 
+    /** The line is always there (Tim, 2026-11-10): no jobs renders the bare resting line, and finishing settles back to it instead of removing the strip. */
+    public function testTheLineRestsInsteadOfDisappearing(): void
+    {
+        $inc = $this->src('public/crm/includes/ittai-job.php');
+        $js = $this->src('public/crm/js/ittai-job.js');
+        $this->assertStringNotContainsString('if (!$__ijJobs) return;', $inc, 'no jobs no longer means no strip');
+        foreach (['$__ijRailIdle', 'Nothing to decide', 'data-kind="idle"'] as $n) $this->assertStringContainsString($n, $inc, $n);
+        $this->assertStringContainsString("tplFor('idle')", $js);
+        $this->assertStringNotContainsString('Penny has nothing else for you', $js);
+        $this->assertStringNotContainsString("root.parentNode.removeChild(root); }, withUndo", $js, 'the strip is never removed after the last job');
+    }
+
     /** Penny's e-Transfer job: the fraction and its label on the rail, two templates, the card's own form posted by the script. */
     public function testEtransferJobCarriesTheFractionAndTheCardsForm(): void
     {
@@ -95,7 +107,7 @@ class IttaiJobTest extends TestCase
         foreach (['data-kind="etransfer"', 'data-kind="duplicate"', 'it-job-pieces', 'it-job-frac-n', 'it-job-frac-s', 'it-job-frac-d', 'it-job-side-', 'hasEtransferWork', 'billing.edit', "\$__ijSvg('bank')"] as $n) {
             $this->assertStringContainsString($n, $inc, $n);
         }
-        $this->assertSame(4, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind (duplicate, etransfer, month, receipt)');
+        $this->assertSame(5, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind (duplicate, etransfer, month, receipt) and the resting line');
         $this->assertSame(1, substr_count($inc, 'it-btn-fill'), 'the one filled button is built in one place for both kinds');
         $js = $this->src('public/crm/js/ittai-job.js');
         foreach (['new FormData()', "k + '[]'", "transport === 'form'", "req.action === 'record'", "req.mode === 'pick'", 'fully_allocated', 'it-job-frac-n', 'tplFor('] as $n) {

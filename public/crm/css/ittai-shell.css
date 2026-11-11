@@ -683,3 +683,8 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 .it-job-mchip { font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }
 .it-job-mchip.is-carried { opacity: .6; }
 .it-job-mchip.is-focus { color: var(--it-text); font-weight: 600; opacity: 1; }
+
+/* The resting line (Tim, 2026-11-10): the line is always there; with nothing to decide it runs bare from the Bank to the Ledger.
+   The caption sits on the line (surface behind it) and speaks only for Penny's queue, never for the books. */
+.it-job-rail[data-kind="idle"] { justify-content: flex-start; min-height: 100px; }   /* tall enough for the anchors' labels, which hang below the icons */
+.it-job-idle { flex: none; margin: 0 auto; padding: 0 14px; background: var(--it-surface); font-size: 14px; line-height: 24px; color: var(--it-meta); }
