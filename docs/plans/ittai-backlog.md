@@ -650,3 +650,14 @@ rule. **Private:** each business's own prices.
 - Penny's card now re-issues its 15-minute photo links (1.3.137). The Receipts tab, a receipt's detail screen and the full-screen pager hold the same kind of link and do not. Answered duplicate cards keep their old links too. No 403 from those yet; check the access log before building anything.
 
 - **Yui decision carousel (Tim, 2026-11-10):** like Penny's expenses carousel: one decision at a time, "Who is this?", statement requests and unanswered client replies as cards. Web and iPhone. Plan to bring to Tim once the statement job is live.
+
+## iOS meniscus bar: Codex audit 2026-11-11 (read-only; refactor is behaviour-preserving, these stay here)
+Audit by Codex (`scripts/codex-ios-build.sh audit`), judged by Claude against `Architecture/iOS-Swift-Standards-Checklist.md` in the vault. The refactor takes only what changes no behaviour (tests, tokens, slot identity, force unwrap, main-actor, smoothness tool). **Deferred, each needs Tim's call or a device check:**
+- **Bar labels are fixed 11 pt, scaled down to 8.8 pt** (`ItMeniscusBar.swift:184-187`); below the 12 pt token minimum and they do not follow Dynamic Type. Large Content Viewer is there (the system tab bar's own answer), so this is a design decision: scaled caption with an accessibility-size layout, or keep.
+- **Add dial cannot scroll** in landscape / Split View / accessibility sizes (`AddDial.swift`, about 328 pt of rows).
+- **Keyboard:** the bar vanishes on show/hide booleans, not the keyboard's frame, duration and curve (`MainTabView.swift:204`); already in the "bar leaves with the keyboard's curve" backlog item.
+- **Tenant colour contrast** is trusted, not enforced, for the 11 pt selected label and the bead glyph; enforce in token generation, add Increase Contrast treatment.
+- **Haptics** only on Schedule reselect; decide the rule on a device.
+- **RTL:** slot geometry assumes physical-left for index 0; the app ships `en` only today, so a future item (logical-to-physical slot mapping is in the refactor as a pure, tested function).
+- **Frame-rate range** requests 80 to 120 Hz minimum on 60 Hz devices (`ItMeniscusMotion.swift:285`): harmless, verify on both display classes.
+- **Human checks still Tim's:** spring feel at 60/120 Hz, whether the one-turn-later screen switch feels immediate under load, the 0.25-slot reselect threshold, VoiceOver order, Large Content Viewer, Full Keyboard Access, Display Zoom, landscape/iPad reach of the Add dial.

@@ -96,7 +96,7 @@ copy_swift_tree() { # <source> <destination> <scope path> ...
 }
 
 mkdir -p "$COPY"
-copied="$(copy_swift_tree "$REAL" "$COPY" "${SCOPE[@]}" ios/CLAUDE.md)"
+copied="$(copy_swift_tree "$REAL" "$COPY" "${SCOPE[@]}" ios/MowologyCRM/CLAUDE.md ios/LogicTests/run.sh ios/LogicTests/test_swift_bridge.py)"
 [ "$copied" -gt 0 ] || { log "nothing copied — nothing sent"; exit 3; }
 export SANITIZE_REPO="$REPO"
 sanitize_names "$COPY" || exit 3
@@ -109,7 +109,7 @@ git -C "$COPY" add -A
 git -C "$COPY" -c user.name="Codex ios build" -c user.email="codex@mowology.local" commit -q -m baseline
 CODEX_BASE="$(git -C "$COPY" rev-parse HEAD)"
 
-RULES="NON-INTERACTIVE. Mowology/Ittai iPhone app: SwiftUI, minimum iOS 17.0, Swift 5.9 (Xcode 15.2: no iOS 18 or Swift 6 APIs, no macros beyond what 5.9 has). Read ios/CLAUDE.md first. Follow the Swift API Design Guidelines and idiomatic SwiftUI (value types, @State/@Binding/@Observable only where needed, no force unwraps or try! outside tests, no retain cycles, main-actor correctness, structured concurrency). Respect Dynamic Type, VoiceOver, Reduce Motion, Large Content Viewer, right-to-left and every size class. Design tokens come from ItTokens (generated from docs/design/ittai-v1.2/tokens.json): never hard-code a colour or a metric that has a token. No client names, no secrets, no new dependencies, no new files unless the task says so (new files must be registered in the Xcode project by Claude), never change project.yml, Info.plist, entitlements or signing. You cannot run the app: reason about behaviour from the code, and keep tests (ios/LogicTests) for every pure rule. Behaviour you cannot prove unchanged must not change."
+RULES="NON-INTERACTIVE. Mowology/Ittai iPhone app: SwiftUI, minimum iOS 17.0, Swift 5.9 (Xcode 15.2: no iOS 18 or Swift 6 APIs, no macros beyond what 5.9 has). Read ios/MowologyCRM/CLAUDE.md first. Follow the Swift API Design Guidelines and idiomatic SwiftUI (value types, @State/@Binding/@Observable only where needed, no force unwraps or try! outside tests, no retain cycles, main-actor correctness, structured concurrency). Respect Dynamic Type, VoiceOver, Reduce Motion, Large Content Viewer, right-to-left and every size class. Design tokens come from ItTokens (generated from docs/design/ittai-v1.2/tokens.json): never hard-code a colour or a metric that has a token. No client names, no secrets, no new dependencies, no new files unless the task says so (new files must be registered in the Xcode project by Claude), never change project.yml, Info.plist, entitlements or signing. You cannot run the app: reason about behaviour from the code, and keep tests (ios/LogicTests) for every pure rule. Behaviour you cannot prove unchanged must not change."
 
 codex_call() { # <json-log> <codex args...>
   local logfile="$1" rc=0; shift
