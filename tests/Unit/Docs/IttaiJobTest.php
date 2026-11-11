@@ -27,7 +27,7 @@ class IttaiJobTest extends TestCase
         $this->assertStringContainsString('get-csrf.php', $js);
         $this->assertStringContainsString('prefers-reduced-motion', $js);
         $this->assertStringContainsString('function playInk()', $js, "the merge's resolution: the ink line");
-        $this->assertStringContainsString("((isMerge || isRecord) ? playInk() : Promise.resolve())", $js, 'a merge or a recorded payment draws the ink; Different and Not this invoice are immediate');
+        $this->assertStringContainsString("((isMerge || isRecord || isApprove) ? playInk() : Promise.resolve())", $js, 'a merge or a recorded payment draws the ink; Different and Not this invoice are immediate');
         $this->assertStringContainsString('/crm/api/bookkeeper.php', $js);
     }
 
@@ -75,6 +75,19 @@ class IttaiJobTest extends TestCase
         foreach (['is-forming', 'is-held', 'is-known', 'is-mastered', 'First time with this vendor.'] as $n) $this->assertStringContainsString($n, $js, $n);
     }
 
+    /** Penny's receipt job: its own rail and skeleton, Approve posts the Expenses card's own form, Not this opens the editor and never dismisses. */
+    public function testReceiptJobIsWiredToTheCardsEndpoint(): void
+    {
+        $inc = $this->src('public/crm/includes/ittai-job.php');
+        foreach (['data-kind="receipt"', '$__ijRailReceipt', 'PennyReceiptJobAdapter::jobs', "expenses.edit"] as $n) $this->assertStringContainsString($n, $inc, $n);
+        $js = $this->src('public/crm/js/ittai-job.js');
+        foreach (["req.action === 'approve'", "req.mode === 'edit'", 'function editReceipt(', 'function dropFromCard('] as $n) $this->assertStringContainsString($n, $js, $n);
+        $this->assertStringNotContainsString("action: 'dismiss'", $js, 'dismissing stays a deliberate click on the card');
+        $ad = $this->src('app/Modules/Expenses/Services/PennyReceiptJobAdapter.php');
+        $this->assertStringContainsString('/crm/api/receipt-inbox-confirm.php', $ad);
+        $this->assertStringNotContainsString("'dismiss'", $ad);
+    }
+
     /** Penny's e-Transfer job: the fraction and its label on the rail, two templates, the card's own form posted by the script. */
     public function testEtransferJobCarriesTheFractionAndTheCardsForm(): void
     {
@@ -82,7 +95,7 @@ class IttaiJobTest extends TestCase
         foreach (['data-kind="etransfer"', 'data-kind="duplicate"', 'it-job-pieces', 'it-job-frac-n', 'it-job-frac-s', 'it-job-frac-d', 'it-job-side-', 'hasEtransferWork', 'billing.edit', "\$__ijSvg('bank')"] as $n) {
             $this->assertStringContainsString($n, $inc, $n);
         }
-        $this->assertSame(3, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind (duplicate, etransfer, month)');
+        $this->assertSame(4, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind (duplicate, etransfer, month, receipt)');
         $this->assertSame(1, substr_count($inc, 'it-btn-fill'), 'the one filled button is built in one place for both kinds');
         $js = $this->src('public/crm/js/ittai-job.js');
         foreach (['new FormData()', "k + '[]'", "transport === 'form'", "req.action === 'record'", "req.mode === 'pick'", 'fully_allocated', 'it-job-frac-n', 'tplFor('] as $n) {
@@ -103,7 +116,7 @@ class IttaiJobTest extends TestCase
     public function testHeadIncludesTheStripOnlyInTheIttaiShell(): void
     {
         $head = $this->src('public/crm/includes/appstack_head.php');
-        $this->assertMatchesRegularExpression('/if \(!empty\(\$itShell\)\) \{ include __DIR__ \. \'\/ittai-kaname-band\.php\'; include __DIR__ \. \'\/ittai-job\.php\'; include __DIR__ \. \'\/ittai-job-yui\.php\'; include __DIR__ \. \'\/ittai-job-mia\.php\'; \}/', $head, "Kaname's line off her row, then the head's job strips, only in the shell");
+        $this->assertMatchesRegularExpression('/if \(!empty\(\$itShell\)\) \{ include __DIR__ \. \'\/ittai-kaname-band\.php\'; include __DIR__ \. \'\/ittai-job\.php\'; include __DIR__ \. \'\/ittai-job-yui\.php\'; include __DIR__ \. \'\/ittai-job-mia\.php\'; include __DIR__ \. \'\/ittai-job-mia-ba\.php\'; \}/', $head, "Kaname's line off her row, then the head's job strips, only in the shell");
         $this->assertStringNotContainsString('ittai-kaname-space', $head, 'the page band is gone: one Kaname, in the topbar');
         $this->assertGreaterThan(strpos($head, '<div class="container-fluid p-0">'), strpos($head, 'ittai-job.php'));
     }

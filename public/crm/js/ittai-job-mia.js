@@ -48,6 +48,14 @@
         });
     }
 
+    /** A page-form request (Before & After: the page's own queue_* actions): form fields plus csrf_token, answered with JSON. */
+    function postForm(url, body) {
+        var fd = new FormData();
+        Object.keys(body || {}).forEach(function (k) { fd.append(k, body[k]); });
+        fd.append('csrf_token', root.getAttribute('data-csrf') || token());
+        return fetch(url, { method: 'POST', credentials: 'same-origin', body: fd }).then(function (r) { return r.json(); });
+    }
+
     function setBusy(on) {
         busy = on;
         Array.prototype.forEach.call(root.querySelectorAll('.it-btn, .it-job-skip'), function (b) { b.disabled = on; });
@@ -63,6 +71,31 @@
         if (parts[1]) parts[1].textContent = a.sub || '';
     }
 
+    /** Listing cards: the master record against what the site shows. Only the comparison goes in the rows (textContent, no HTML). */
+    function renderCompare(rows, link) {
+        var ul = q('.it-job-cmp');
+        var open = q('.it-job-open');
+        if (ul) {
+            ul.textContent = '';
+            (rows || []).forEach(function (r) {
+                var li = document.createElement('li');
+                li.className = 'is-' + r.state;
+                var k = document.createElement('b'); k.textContent = r.k;
+                var mark = document.createElement('i'); mark.setAttribute('aria-hidden', 'true');
+                mark.textContent = r.state === 'ok' ? '\u2713' : (r.state === 'diff' ? '\u2260' : '');
+                var v = document.createElement('span');
+                v.textContent = r.state === 'diff' ? r.site + ' (master: ' + r.master + ')' : (r.state === 'master' ? r.master : (r.site || r.master));
+                li.appendChild(k); li.appendChild(mark); li.appendChild(v);
+                ul.appendChild(li);
+            });
+            ul.hidden = !(rows && rows.length);
+        }
+        if (open) {
+            open.hidden = !link;
+            if (link) { open.textContent = link.label; open.href = link.href; }
+        }
+    }
+
     function render() {
         var card = queue[0];
         if (!card) return;
@@ -72,6 +105,7 @@
         var places = (p.platforms || []).map(function (k) { return PLACE[k] || k; }).join(' · ');
         put('.it-job-at', [places, p.when].filter(Boolean).join(' · '));
         put('.it-job-quote', p.caption);
+        renderCompare(card.compare, card.link);
         put('.it-job-why', card.why);
         var why = q('.it-job-why');
         if (why) { if (card.detail) why.setAttribute('title', card.detail); else why.removeAttribute('title'); }
@@ -84,15 +118,24 @@
         conf.setAttribute('title', label);
         conf.querySelector('use').setAttribute('href', '#' + (sure === 'known' ? 'it-st-approval' : 'it-st-approval-' + sure));
 
-        var fig = q('.it-job-fig');
-        if (p.thumb) { fig.querySelector('img').src = p.thumb; fig.hidden = false; } else { fig.hidden = true; }
+        var thumbs = p.thumbs || (p.thumb ? [p.thumb] : []);
+        Array.prototype.forEach.call(root.querySelectorAll('.it-job-fig'), function (fig, i) {
+            var src = thumbs[i];
+            if (src) {
+                fig.querySelector('img').src = src;
+                var link = fig.querySelector('a');
+                if (link) link.href = src;
+                fig.hidden = false;
+            } else { fig.hidden = true; }
+        });
 
         form.textContent = '';
         var tpl = q('.it-job-tpl-' + card.kind);
         if (tpl) {
             form.appendChild(tpl.content.cloneNode(true));
+            Object.keys(card.right || {}).forEach(function (name) { var f = field(name); if (f && name !== 'min') f.value = card.right[name] || ''; });
             var when = field('scheduled_at');
-            if (when && card.right) { when.value = card.right.scheduled_at || ''; if (card.right.min) when.min = card.right.min; }
+            if (when && card.right && card.right.min) when.min = card.right.min;
         }
         q('.it-job-right').hidden = !tpl;
 
@@ -129,17 +172,24 @@
         if (!a) return;
         if (a.skip) { skip(); return; }
         if (a.href) { window.location.href = a.href; return; }
+        // Open the site's own page in a new tab, then ask the follow-up. Nothing is sent: only the answer changes anything.
+        if (a.open) { window.open(a.open, '_blank', 'noopener'); if (a.alt) { queue[0] = a.alt; render(); } return; }
+        if (!a.request && a.alt) { queue[0] = a.alt; render(); return; }
         if (!a.request) return;
         var body = JSON.parse(JSON.stringify(a.request.body || {}));
         if (role === 'primary') {
             (card.fields || []).forEach(function (name) { var f = field(name); if (f) body[name] = f.value; });
             if ((card.fields || []).indexOf('scheduled_at') >= 0 && !body.scheduled_at) { say('Pick a time first.'); return; }
+            var missing = (card.required || []).filter(function (name) { var f = field(name); return !f || !String(f.value).trim(); });
+            if (missing.length) { say(card.requiredMsg || 'Fill that in first.'); var m = field(missing[0]); if (m) m.focus(); return; }
         }
         setBusy(true);
         say('');
-        post(a.request.url, body).then(function (d) {
+        (a.request.form ? postForm(a.request.url, body) : post(a.request.url, body)).then(function (d) {
             if (!(d && d.success)) { setBusy(false); say((d && (d.message || d.error)) || 'Could not save. Try again.'); return; }
             var text = d.message || 'Done.';
+            window.dispatchEvent(new CustomEvent('mw:job-done', { detail: { request: body, response: d } }));   // a page may follow (Before & After rows)
+            if (d.next) { queue[0] = d.next; setBusy(false); render(); say(text); return; }   // the same pair, its next step
             queue.shift();
             if (!queue.length) { setBusy(false); finish(text); return; }
             render();

@@ -59,6 +59,30 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertCount(1, $j['columns'], 'the frame names both sides: no repeated text in a column');
     }
 
+    public function testTheFrameSaysWhichAccountAndWhatTheEvidenceIs(): void
+    {
+        $month = $this->months()[2];
+        $discs = PennyMonthJobAdapter::monthDiscs($this->months(), '2026-03');
+        $j = PennyMonthJobAdapter::fromLine($this->line(), $month, $discs, 1, 1, ['account' => '1010 Chequing Account', 'earlier' => 3]);
+        $this->assertSame('1010 Chequing Account', $j['left']['label']);
+        $this->assertSame('No receipt · 3 earlier on 5200', $j['right']['when']);
+        $this->assertSame('246 days', $j['columns'][0]['top']);
+        $bare = PennyMonthJobAdapter::fromLine($this->line(), $month, $discs, 1, 1);
+        $this->assertSame('Bank line', $bare['left']['label'], 'no account known: the generic name');
+        $this->assertSame('No receipt', $bare['right']['when']);
+        $found = PennyMonthJobAdapter::fromLine($this->line(['suggestion' => ['account_id' => 31, 'code' => '5200', 'name' => 'Fuel', 'reason' => 'x', 'source' => 'found_receipt', 'expense_id' => 902]]), $month, $discs, 1, 1);
+        $this->assertSame('Receipt found', $found['right']['when']);
+    }
+
+    public function testTheMonthDiscComesAfterTheButtonsWithOneLineFewer(): void
+    {
+        $j = PennyMonthJobAdapter::fromLine($this->line(), $this->months()[2], PennyMonthJobAdapter::monthDiscs($this->months(), '2026-03'), 1, 1);
+        $this->assertSame('March', $j['after']['label']);
+        $this->assertSame('30 lines left', $j['after']['top']);
+        $this->assertSame('−15.37', $j['after']['bottom']);
+        $this->assertSame('differs', $j['after']['state']);
+    }
+
     public function testAFoundReceiptIsLinkedByTheSameRequest(): void
     {
         $l = $this->line(['suggestion' => ['account_id' => 31, 'code' => '5200', 'name' => 'Fuel', 'reason' => 'Matches your Shell receipt', 'source' => 'found_receipt', 'expense_id' => 902]]);

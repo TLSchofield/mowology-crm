@@ -15,6 +15,8 @@ requirePermission('marketing.view');
 
 require_once APP_ROOT . '/Modules/Marketing/Services/ListingsService.php';
 require_once APP_ROOT . '/Modules/Social/Services/GbpService.php';
+require_once APP_ROOT . '/Modules/Social/Services/SocialConnectionState.php';
+require_once APP_ROOT . '/Modules/Marketing/Services/MiaListingJobs.php';
 
 $pageTitle  = 'Listings';
 $activePage = 'listings';
@@ -23,6 +25,13 @@ $db         = getDB();
 $svc        = new ListingsService($db);
 $flash      = '';
 $flashBad   = false;
+
+// Mia's job strip sends the page's own forms as JSON and reads the same flash text back (no other write path).
+$viaJson = $_SERVER['REQUEST_METHOD'] === 'POST' && stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') !== false;
+if ($viaJson) {
+    $__body = json_decode((string)file_get_contents('php://input'), true);
+    $_POST = is_array($__body) ? $__body : [];
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit || !verifyCSRFToken($_POST['csrf_token'] ?? '')) {
@@ -52,6 +61,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+if ($viaJson) {
+    header('Content-Type: application/json');
+    echo json_encode(['success' => !$flashBad && $flash !== '', 'message' => $flash]);
+    exit;
+}
+
 $ready    = $svc->ready();
 $master   = $svc->master();
 $rows     = $ready ? $svc->all() : [];
@@ -60,6 +75,9 @@ $approved = false;
 try {
     $approved = (string)$db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'gbp_api_approved'")->fetchColumn() === '1';
 } catch (Throwable $e) {}
+$googleRead = MiaListingJobs::googleRead($db);
+$conn = SocialConnectionState::fromAccounts(SocialConnectionState::load($db));
+$gbpLive = $gbpMode['mode'] === 'live';
 $csrf = generateCSRFToken();
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -108,6 +126,7 @@ $csrf = generateCSRFToken();
             </div>
             <div class="card-body">
               <p class="mb-2"><?= h($gbpMode['reason']) ?></p>
+              <?php if ($gbpLive): ?><details class="mw-lst-setup"><summary class="mw-lst-muted">Setup</summary><?php endif; ?>
               <ol class="mb-3">
                 <?php foreach ($gbpMode['steps'] as $st): ?>
                 <li class="<?= $st['done'] ? 'text-muted' : '' ?>"><?= h($st['text']) ?>
@@ -125,13 +144,14 @@ $csrf = generateCSRFToken();
                 <button class="btn btn-sm btn-outline-secondary">Save</button>
               </form>
               <?php endif; ?>
+              <?php if ($gbpLive): ?></details><?php endif; ?>
             </div>
           </div>
 
           <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="card-title mb-0">Directories</h5>
-              <span class="mw-lst-muted">Re-check each one every <?= (int)ListingsService::STALE_DAYS ?> days. Mia reminds you monthly to check Houzz and Yelp.</span>
+              <span class="mw-lst-muted">Re-check each one every <?= (int)ListingsService::STALE_DAYS ?> days; Mia reminds you monthly about Houzz and Yelp.</span>
             </div>
             <?php if (!$ready): ?>
             <div class="card-body"><p class="mb-0">Run migration 1201 (marketing_listings) to start tracking listings.</p></div>
@@ -143,13 +163,19 @@ $csrf = generateCSRFToken();
                 <?php foreach ($rows as $r): $nap = $r['nap']; ?>
                   <tr>
                     <td><strong><?= h($r['site_name']) ?></strong><?php if ((int)$r['is_optional']): ?><span class="mw-lst-optional">optional</span><?php endif; ?></td>
-                    <td><span class="mw-lst-status is-<?= h($r['status']) ?>"><?= h(ListingsService::STATUSES[$r['status']] ?? $r['status']) ?></span></td>
+                    <td><span class="mw-lst-status is-<?= h($r['status']) ?>"><?= h(ListingsService::STATUSES[$r['status']] ?? $r['status']) ?></span>
+                      <?php $__cs = $conn[$r['site_key']]['status'] ?? ''; if (in_array($r['site_key'], ['facebook', 'instagram'], true) && $__cs && $__cs !== 'connected'): ?><span class="mw-lst-status is-not_claimed" title="<?= h((string)($conn[$r['site_key']]['reason'] ?? '')) ?>"><?= $__cs === 'reconnect' ? 'Login expired' : 'Not connected' ?></span><?php endif; ?></td>
                     <td><?php if ($r['profile_url']): ?><a href="<?= h($r['profile_url']) ?>" target="_blank" rel="noopener">View</a><?php elseif ($r['claim_url']): ?><a href="<?= h($r['claim_url']) ?>" target="_blank" rel="noopener">Claim</a><?php else: ?>—<?php endif; ?></td>
                     <td><?= $r['review_count'] !== null ? (int)$r['review_count'] . ($r['rating'] !== null ? ' · ' . h(number_format((float)$r['rating'], 1)) . '★' : '') : '<span class="mw-lst-muted">—</span>' ?></td>
                     <td>
-                      <?php if ($nap['status'] === 'match'): ?><span class="mw-lst-napok">Matches</span>
+                      <?php $__gread = ($r['site_key'] === 'gbp' && $gbpLive && $googleRead && MiaListingJobs::googleFresh($googleRead, ['last_checked' => null], new DateTimeImmutable('now'))) ? MiaListingJobs::compareRows($master, $googleRead, true) : null; ?>
+                      <?php if ($__gread !== null && $nap['status'] === 'unchecked'): ?>
+                        <?php $__gd = array_column(array_filter($__gread, fn($x) => $x['state'] === 'diff'), 'k'); ?>
+                        <?php if ($__gd): ?><span class="mw-lst-napbad" title="Read from Google <?= h(date('M j', strtotime((string)$googleRead['at']))) ?>">Differs: <?= h(strtolower(implode(', ', $__gd))) ?></span>
+                        <?php else: ?><span class="mw-lst-napok" title="Read from Google <?= h(date('M j', strtotime((string)$googleRead['at']))) ?>">Matches</span><?php endif; ?>
+                      <?php elseif ($nap['status'] === 'match'): ?><span class="mw-lst-napok">Matches</span>
                       <?php elseif ($nap['status'] === 'mismatch'): ?><span class="mw-lst-napbad" title="<?= h(implode('; ', $nap['issues'])) ?>">Differs: <?= h(implode(', ', array_keys(array_filter($nap['fields'], fn($f) => $f === 'differs')))) ?></span>
-                      <?php else: ?><span class="mw-lst-muted">Not entered</span><?php endif; ?>
+                      <?php else: ?><span class="mw-lst-muted">—</span><?php endif; ?>
                     </td>
                     <td><?= $r['last_checked'] ? h(date('M j, Y', strtotime((string)$r['last_checked']))) : '<span class="mw-lst-muted">Never</span>' ?><?= $r['stale'] && $r['last_checked'] ? ' <span class="mw-lst-muted">(due)</span>' : '' ?></td>
                     <td><?php if ($canEdit): ?><button type="button" class="btn btn-sm btn-outline-secondary" data-toggle="collapse" data-target="#lstEdit<?= (int)$r['id'] ?>">Update</button><?php endif; ?></td>
@@ -192,3 +218,14 @@ $csrf = generateCSRFToken();
           </div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
+<?php
+// Mia reads Google once a day for the strip's comparison, after the page is on its way (a slow Google never holds the page).
+if ($gbpLive && $canEdit && MiaListingJobs::enabled($db)) {
+    ignore_user_abort(true);
+    if (session_status() === PHP_SESSION_ACTIVE) { session_write_close(); }   // a slow Google must not hold the session lock
+    if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
+    elseif (function_exists('litespeed_finish_request')) { litespeed_finish_request(); }
+    else { return; }
+    MiaListingJobs::refreshGoogle($db);
+}
+
