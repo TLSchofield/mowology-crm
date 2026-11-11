@@ -70,7 +70,8 @@ class PennyMonthJobAdapter
             foreach ($months as $m) {
                 if (!empty($m['locked']) || !empty($m['ready']) || (int)($m['bank_lines'] ?? 0) < 1) continue;
                 $all = $desk->queue(30, (string)$m['month']);
-                $lines = array_slice(array_values(array_filter($all, [self::class, 'proposes'])), 0, self::MAX_LINES);
+                $lines = array_values(array_filter($all, [self::class, 'proposes']));
+                $lines = array_slice(self::withoutClosedYearReceipts($db, $lines), 0, self::MAX_LINES);
                 if (!$lines) continue;
                 // the live count (the months summary is up to CACHE_SECONDS old): the queue holds at most 30
                 if (count($all) < 30) $m['bank_lines'] = count($all);
@@ -217,6 +218,38 @@ class PennyMonthJobAdapter
             'index'      => $index,
             'total'      => $total,
         ];
+    }
+
+    /**
+     * A line whose "found" receipt is dated before this ledger's first month (FY2025: filed, locked, receipts there are never booked
+     * again) is NOT offered here: linking it reverses the line's own entry and the receipt has no 2026 entry to stand in for it, so
+     * the month's books drift from the bank by the amount (seen 2026-11-10, University Landscapers $157.50: receipt of Dec 30 2025,
+     * Approve moved January's books $157.50 off the bank). Such a line stays on the Bank card, where the choice is made knowingly.
+     */
+    public static function withoutClosedYearReceipts(PDO $db, array $lines): array
+    {
+        $ids = [];
+        foreach ($lines as $l) if (!empty($l['suggestion']['expense_id'])) $ids[] = (int)$l['suggestion']['expense_id'];
+        if (!$ids) return $lines;
+        try {
+            self::load();
+            $q = $db->query("SELECT id, expense_date FROM expenses WHERE id IN (" . implode(',', array_unique($ids)) . ")");
+            $dates = [];
+            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $dates[(int)$r['id']] = (string)$r['expense_date'];
+        } catch (Throwable $e) {
+            error_log('PennyMonthJobAdapter::withoutClosedYearReceipts: ' . $e->getMessage());
+            return array_values(array_filter($lines, static fn($l) => empty($l['suggestion']['expense_id'])));   // unsure: leave receipt links to the card
+        }
+        return array_values(array_filter($lines, static function ($l) use ($dates): bool {
+            $eid = (int)($l['suggestion']['expense_id'] ?? 0);
+            return $eid === 0 || !self::inClosedYear($dates[$eid] ?? '');
+        }));
+    }
+
+    /** Pure: is this expense date before the ledger's first month (MonthCloseService::FIRST), or unknown? */
+    public static function inClosedYear(string $expenseDate): bool
+    {
+        return !preg_match('/^\d{4}-\d{2}/', $expenseDate) || substr($expenseDate, 0, 7) < MonthCloseService::FIRST;
     }
 
     /** The months summary, kept CACHE_SECONDS in ops_settings: only what the rail and the blockers need. */

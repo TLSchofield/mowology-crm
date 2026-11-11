@@ -158,4 +158,12 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertSame('on the list', $j['after']['top']);
         $this->assertSame([], $j['columns']);
     }
+
+    public function testAReceiptFromTheClosedYearIsNeverOfferedAsALink(): void
+    {
+        require_once __DIR__ . '/../../../app/Modules/Accounting/Services/MonthCloseService.php';
+        $this->assertTrue(PennyMonthJobAdapter::inClosedYear('2025-12-30'), 'University Landscapers, Dec 30 2025: its books are in the filed year');
+        $this->assertTrue(PennyMonthJobAdapter::inClosedYear(''), 'an unknown date is not trusted');
+        $this->assertFalse(PennyMonthJobAdapter::inClosedYear('2026-01-02'));
+    }
 }
