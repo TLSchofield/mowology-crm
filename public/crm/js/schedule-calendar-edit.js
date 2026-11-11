@@ -47,18 +47,18 @@
 
   // ── toast with optional Undo ──────────────────────────────
   var toastEl;
-  function toast(msg, undo, kind) {
+  function toast(msg, undo, kind, actionLabel) {
     if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'mw-cal-toast'; toastEl.setAttribute('role', 'status'); document.body.appendChild(toastEl); }
     toastEl.className = 'mw-cal-toast mw-cal-toast--show' + (kind === 'error' ? ' mw-cal-toast--error' : '');
     toastEl.innerHTML = '<span></span>';
     toastEl.firstChild.textContent = msg;
     if (undo) {
-      var b = document.createElement('button'); b.type = 'button'; b.textContent = 'Undo';
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = actionLabel || 'Undo';
       b.addEventListener('click', function () { toastEl.className = 'mw-cal-toast'; undo(); });
       toastEl.appendChild(b);
     }
     clearTimeout(toast._t);
-    toast._t = setTimeout(function () { toastEl.className = 'mw-cal-toast'; }, undo ? 9000 : 4000);
+    toast._t = setTimeout(function () { toastEl.className = 'mw-cal-toast'; }, actionLabel ? 14000 : (undo ? 9000 : 4000));
   }
 
   // ── Timeline (day view) ───────────────────────────────────
@@ -84,7 +84,7 @@
       if (!c) return;
       (s.visits || []).forEach(function (v) {
         var st = toMin(v.scheduled_time_start) != null ? toMin(v.scheduled_time_start) : toMin(s.estimated_arrival);
-        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.contact_name || s.company_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '' };
+        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.contact_name || s.company_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '', dur: v.estimated_duration || 60 };
         if (st == null) { c.anytime.push(item); return; }
         var en = toMin(v.scheduled_time_end);
         if (en == null || en <= st) en = st + (v.estimated_duration || 60);
@@ -96,14 +96,29 @@
     return order.sort(function (a, b) { return (a === 0) - (b === 0) || cols[a].name.localeCompare(cols[b].name); }).map(function (k) { return cols[k]; });
   }
 
+  // Overlapping blocks in one column sit side by side (like Jobber) instead of printing over each other.
+  function layoutLanes(blocks) {
+    blocks.sort(function (a, b) { return a.start - b.start || b.end - a.end; });
+    var cluster = [], clusterEnd = -1;
+    function flush() { var n = 0; cluster.forEach(function (x) { n = Math.max(n, x.lane + 1); }); cluster.forEach(function (x) { x.lanes = n; }); cluster = []; }
+    blocks.forEach(function (b) {
+      if (b.start >= clusterEnd) { flush(); clusterEnd = -1; }
+      var used = {}; cluster.forEach(function (x) { if (x.end > b.start) used[x.lane] = true; });
+      var l = 0; while (used[l]) l++;
+      b.lane = l; cluster.push(b); clusterEnd = Math.max(clusterEnd, b.end);
+    });
+    flush();
+  }
+
   function render() {
     crewCols = buildBlocks();
+    crewCols.forEach(function (c) { layoutLanes(c.blocks); });
     if (!crewCols.length) crewCols = [{ id: 0, date: cfg.date, name: 'Unassigned', blocks: [], anytime: [] }];
     var hours = '';
     for (var m = DAY_START; m < DAY_END; m += 60) hours += '<div class="mw-cal-hour" style="height:' + (60 * PX_PER_MIN) + 'px">' + label(m) + '</div>';
     var h = '<div class="mw-cal-head"><div class="mw-cal-gutter"></div>' + crewCols.map(function (c) { return '<div class="mw-cal-colhead">' + esc(c.name) + '</div>'; }).join('') + '</div>';
     h += '<div class="mw-cal-any"><div class="mw-cal-gutter">Anytime</div>' + crewCols.map(function (c) {
-      return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip">' + esc(a.title) + '</span>'; }).join('') + '</div>';
+      return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip' + (a.status === 'scheduled' ? ' mw-cal-chip--drag' : '') + '" data-visit="' + a.visitId + '" title="Drag onto the timeline to give it a time">' + esc(a.title) + '</span>'; }).join('') + '</div>';
     }).join('') + '</div>';
     h += '<div class="mw-cal-body"><div class="mw-cal-gutter">' + hours + '</div>' + crewCols.map(function (c, i) {
       return '<div class="mw-cal-col" data-ci="' + i + '" style="height:' + ((DAY_END - DAY_START) * PX_PER_MIN) + 'px">' + c.blocks.map(blockHtml).join('') + '</div>';
@@ -115,7 +130,7 @@
   function blockHtml(b) {
     var top = (b.start - DAY_START) * PX_PER_MIN, ht = Math.max(MIN_LEN, b.end - b.start) * PX_PER_MIN;
     var live = b.status === 'scheduled';
-    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" style="top:' + top + 'px;height:' + ht + 'px">' +
+    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--top"></div>' : '') +
       '<div class="mw-cal-btitle">' + esc(b.title) + '</div><div class="mw-cal-bmeta">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
       '<div class="mw-cal-bmeta">' + esc((weekMode && b.crew ? b.crew + ' \u00b7 ' : '') + (b.addr || '')) + '</div>' +
@@ -144,6 +159,8 @@
     var grid = panel.querySelector('.mw-cal-grid');
     grid.addEventListener('pointerdown', function (e) {
       if (e.button) return;
+      var chipEl = e.target.closest('.mw-cal-chip--drag');
+      if (chipEl) { startChipDrag(e, chipEl); return; }
       var colEl = e.target.closest('.mw-cal-col'); if (!colEl) return;
       var block = e.target.closest('.mw-cal-block');
       var rect = colEl.getBoundingClientRect();
@@ -164,6 +181,64 @@
       }
     });
   }
+  function findAnytime(id) { var f = null; crewCols.forEach(function (c) { c.anytime.forEach(function (a) { if (a.visitId === id) f = a; }); }); return f; }
+
+  // Drag an "Anytime" visit onto an hour to give it a time (same day: resize endpoint; other day: reschedule first).
+  function startChipDrag(e, chipEl) {
+    var item = findAnytime(+chipEl.dataset.visit); if (!item) return;
+    e.preventDefault();
+    var ghost = chipEl.cloneNode(true); ghost.className = 'mw-cal-chip mw-cal-chipghost'; document.body.appendChild(ghost);
+    var mark = document.createElement('div'); mark.className = 'mw-cal-ghost'; mark.hidden = true;
+    var target = null;
+    function place(ev) {
+      ghost.style.left = (ev.clientX + 8) + 'px'; ghost.style.top = (ev.clientY + 8) + 'px';
+      target = null; mark.hidden = true;
+      var cols = panel.querySelectorAll('.mw-cal-col');
+      for (var i = 0; i < cols.length; i++) {
+        var r = cols[i].getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX < r.right && ev.clientY >= r.top && ev.clientY < r.bottom) {
+          var m = Math.max(DAY_START, Math.min(1425, snap(DAY_START + (ev.clientY - r.top) / PX_PER_MIN)));
+          target = { ci: i, start: m };
+          if (mark.parentNode !== cols[i]) cols[i].appendChild(mark);
+          mark.hidden = false; mark.style.top = ((m - DAY_START) * PX_PER_MIN) + 'px'; mark.style.height = (Math.min(item.dur, 1440 - m) * PX_PER_MIN) + 'px';
+          break;
+        }
+      }
+    }
+    function done() { document.removeEventListener('pointermove', place); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', cancel); ghost.remove(); mark.remove(); }
+    function cancel() { done(); }
+    function up() { var t = target; done(); if (t) commitChip(item, weekMode ? crewCols[t.ci].date : item.date, t.start); }
+    place(e);
+    document.addEventListener('pointermove', place); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', cancel);
+  }
+
+  function commitChip(item, date, start, force) {
+    var end = Math.min(1425, start + item.dur), moved = date !== item.date;
+    if (moved && scheduledCount(item.stopId) > 1) { toast('This stop has more than one visit, so it cannot change day here.', null, 'error'); return; }
+    var first = moved ? post(MOVE_API, { stop_id: item.stopId, new_date: date, force: !!force }) : Promise.resolve({ success: true });
+    first.then(function (r) {
+      if (r.warning) { refresh(); toast(r.message || 'Please confirm.', function () { commitChip(item, date, start, true); }, 'error', 'Move anyway'); return; }
+      if (r.error || r._status >= 400) { toast(r.error || 'Could not save that change.', null, 'error'); return refresh(); }
+      return post(EDIT_API, { action: 'resize', visit_id: item.visitId, start: hhmm(start), end: hhmm(end), force: !!force }).then(function (r2) {
+        if (r2.warning) {
+          var c = r2.conflicts && r2.conflicts[0];
+          refresh();
+          toast('This overlaps another visit for the same person' + (c ? ' (' + c.start + '\u2013' + c.end + ')' : '') + '.', function () { commitChip(item, date, start, true); }, 'error', 'Keep anyway');
+          return;
+        }
+        if (r2.error || r2._status >= 400) { toast(r2.error || 'Could not save that change.', null, 'error'); return refresh(); }
+        patchDayCards(r2.day_cards);
+        var prev = r2.previous || {};
+        toast('Scheduled for ' + label(start), function () {
+          post(EDIT_API, { action: 'undo', visit_id: item.visitId, previous: prev }).then(function () {
+            return moved ? post(MOVE_API, { stop_id: item.stopId, new_date: item.date, force: true }) : null;
+          }).then(function (u) { if (u && u.day_cards) patchDayCards(u.day_cards); refresh(); toast('Change undone'); });
+        });
+        refresh();
+      });
+    }).catch(function () { toast('Network problem: nothing was saved.', null, 'error'); refresh(); });
+  }
+
   function scheduledCount(stopId) {
     var n = 0;
     stopsData.forEach(function (s) { if (s.stop_id === stopId) (s.visits || []).forEach(function (v) { if (v.visit_status === 'scheduled') n++; }); });
@@ -207,10 +282,12 @@
       ? post(MOVE_API, { stop_id: b.stopId, new_date: toDate, new_time: hhmm(ns) + ':00', force: !!force })
       : post(EDIT_API, { action: 'resize', visit_id: b.visitId, start: hhmm(ns), end: hhmm(ne), force: force });
     req.then(function (r) {
-      if (r.warning && mode !== 'move') {
-        var c = r.conflicts[0];
-        if (window.confirm('This overlaps another visit for the same person (' + c.start + '–' + c.end + '). Keep it anyway?')) return commit(b, mode, ns, ne, true, toDate);
-        return refresh();
+      if (r.warning) {
+        var c = r.conflicts && r.conflicts[0];
+        var ask = c ? 'This overlaps another visit for the same person (' + c.start + '\u2013' + c.end + ').' : (r.message || 'Please confirm.');
+        refresh();
+        toast(ask, function () { commit(b, mode, ns, ne, true, toDate); }, 'error', mode === 'move' ? 'Move anyway' : 'Keep anyway');
+        return;
       }
       if (r.error || r._status >= 400) { toast(r.error || 'Could not save that change.', null, 'error'); return refresh(); }
       patchDayCards(r.day_cards);
@@ -365,25 +442,37 @@
   // ── mount ─────────────────────────────────────────────────
   function mountDay() {
     var tog = document.querySelector('.mw-dv-view-toggle');
-    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'mw-cal-toggle'; btn.textContent = 'Timeline'; btn.setAttribute('aria-expanded', 'false');
-    btn.title = 'Hour view: drag a block\'s edge to change its length, drag it to move, click an empty slot to add a job';
     panel = document.createElement('div'); panel.className = 'mw-cal-panel'; panel.hidden = true; panel.innerHTML = '<div class="mw-cal-grid"></div>';
+    var seg = document.createElement('div'); seg.className = 'mw-cal-seg'; seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Schedule layout');
+    seg.innerHTML = '<button type="button" data-m="cards" class="on">Cards</button><button type="button" data-m="timeline">Timeline</button>';
+    var board = null;
     if (tog && tog.parentElement && tog.parentElement.parentElement) {
-      // Next to Week / Day / List View, with the timeline opening just under that header row.
-      var after = tog.nextElementSibling || tog;
-      after.insertAdjacentElement('afterend', btn);
+      (tog.nextElementSibling || tog).insertAdjacentElement('afterend', seg);
       tog.parentElement.parentElement.insertAdjacentElement('afterend', panel);
     } else {
       var host = document.querySelector('main.content .container-fluid') || document.querySelector('main.content');
       if (!host) return;
-      var bar = document.createElement('div'); bar.className = 'mw-cal-bar'; bar.appendChild(btn);
+      var bar = document.createElement('div'); bar.className = 'mw-cal-bar'; bar.appendChild(seg);
       host.insertBefore(panel, host.firstChild); host.insertBefore(bar, panel);
     }
-    var open = false, bound = false;
-    btn.addEventListener('click', function () {
-      open = !open; panel.hidden = !open; btn.setAttribute('aria-expanded', open ? 'true' : 'false'); btn.classList.toggle('on', open);
-      if (open) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } panel.scrollIntoView({ block: 'nearest' }); }
-    });
+    // The cards board is what the timeline replaces: the 7 day columns (week) or the stop list + map (day).
+    function findBoard() {
+      if (weekMode) { var c = document.querySelector('.mw-day-column'); return c ? c.parentElement : null; }
+      return document.querySelector('.mw-dv-container');
+    }
+    var bound = false;
+    function setMode(m) {
+      var tl = m === 'timeline';
+      board = board || findBoard();
+      if (board) board.style.display = tl ? 'none' : '';
+      panel.hidden = !tl;
+      [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x.dataset.m === m); });
+      try { localStorage.setItem('mw_cal_mode', m); } catch (e) {}
+      if (tl) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
+    }
+    seg.addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
+    var saved = null; try { saved = localStorage.getItem('mw_cal_mode'); } catch (e) {}
+    if (saved === 'timeline') setMode('timeline');
   }
 
   function mountWeek() {

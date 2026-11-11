@@ -15,9 +15,9 @@
 .mw-cal-hour { border-top: 1px solid var(--mw-light); box-sizing: border-box; }
 .mw-cal-body { position: relative; }
 .mw-cal-col { position: relative; background-image: linear-gradient(var(--mw-light) 1px, transparent 1px); background-size: 100% 48px; cursor: crosshair; touch-action: pan-y; }
-.mw-cal-block { position: absolute; left: 3px; right: 3px; background: var(--mw-green); color: white; border-radius: 6px; padding: 4px 8px; overflow: hidden; cursor: grab; box-sizing: border-box; font-size: 12px; user-select: none; touch-action: none; }
+.mw-cal-block { position: absolute; z-index: 1; background: var(--mw-green); color: white; border-radius: 6px; padding: 4px 8px; overflow: hidden; cursor: grab; box-sizing: border-box; font-size: 12px; user-select: none; touch-action: none; }
 .mw-cal-block--drag { opacity: .85; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); z-index: 4; cursor: grabbing; }
-.mw-cal-block--locked { background: var(--mw-light); color: var(--mw-forest); cursor: default; }
+.mw-cal-block--locked { background: var(--mw-light); color: var(--mw-forest); cursor: default; z-index: 0; }
 .mw-cal-btitle { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mw-cal-bmeta { opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mw-cal-edge { position: absolute; left: 0; right: 0; height: 8px; cursor: ns-resize; }
@@ -56,3 +56,11 @@
 .mw-cal-toast--error { background: var(--mw-orange); }
 .mw-cal-toast button { border: 0; background: none; color: var(--mw-lime); font-weight: 700; cursor: pointer; }
 @media (max-width: 600px) { .mw-cal-hint { display: none; } .mw-cal-colhead, .mw-cal-anycell, .mw-cal-col { min-width: 120px; } }
+
+.mw-cal-chip--drag { cursor: grab; touch-action: none; user-select: none; }
+.mw-cal-chip--drag:hover { background: var(--mw-green); color: white; }
+.mw-cal-chipghost { position: fixed; z-index: 1100; pointer-events: none; background: var(--mw-green); color: white; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); }
+
+.mw-cal-seg { display: inline-flex; border: 1px solid var(--mw-green); border-radius: 6px; overflow: hidden; margin-left: 8px; vertical-align: middle; }
+.mw-cal-seg button { border: 0; background: white; color: var(--mw-green); padding: 5px 12px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.mw-cal-seg button.on { background: var(--mw-green); color: white; }
