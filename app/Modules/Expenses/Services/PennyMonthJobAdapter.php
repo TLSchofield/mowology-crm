@@ -70,7 +70,8 @@ class PennyMonthJobAdapter
             foreach ($months as $m) {
                 if (!empty($m['locked']) || !empty($m['ready']) || (int)($m['bank_lines'] ?? 0) < 1) continue;
                 $all = $desk->queue(30, (string)$m['month']);
-                $lines = array_values(array_filter($all, [self::class, 'proposes']));
+                // A line she can propose for, and a line she cannot place (it gets the evidence panel and the picker instead of Approve)
+                $lines = array_values(array_filter($all, static fn($l) => self::proposes($l) || self::unplaced($l)));
                 $lines = array_slice(self::withoutClosedYearReceipts($db, $lines), 0, self::MAX_LINES);
                 if (!$lines) continue;
                 // the live count (the months summary is up to CACHE_SECONDS old): the queue holds at most 30
@@ -78,8 +79,16 @@ class PennyMonthJobAdapter
                 $discs = self::monthDiscs($months, (string)$m['month']);
                 $facts = self::factsFor($db, $lines);
                 $accounts = self::accountChoices($desk->accounts());
+                $bare = array_values(array_filter($lines, static fn($l) => self::unplaced($l)));
+                $evidence = $bare ? (new BankLineEvidence($db))->forLines($bare, MonthCloseService::FIRST) : [];
+                $guideLeft = self::guideLeft($db);
                 // the chart rides on the first job only (the picker reads whichever job holds it)
-                foreach ($lines as $i => $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, ($facts[(int)$l['id']] ?? []) + ['accounts' => $i === 0 ? $accounts : []]);
+                foreach ($lines as $i => $l) {
+                    $f = ($facts[(int)$l['id']] ?? []) + ['accounts' => $i === 0 ? $accounts : []];
+                    $out[] = self::unplaced($l)
+                        ? self::fromUnplaced($l, $m, $discs, 0, 0, $f + ['evidence' => BankLineEvidence::summarise($evidence[(int)$l['id']] ?? []), 'guide_left' => $guideLeft])
+                        : self::fromLine($l, $m, $discs, 0, 0, $f);
+                }
                 break;
             }
             // Nothing to sort: the oldest gap Penny cannot match goes on the accountant's list (a question, never an email)
@@ -448,9 +457,52 @@ class PennyMonthJobAdapter
         return mb_strlen($s) > $n ? mb_substr($s, 0, $n - 1) . '…' : $s;
     }
 
+    /** Pure: a line Penny has no account for, that the strip can still help with (not a Stripe payout, not a client's payment). */
+    public static function unplaced(array $line): bool
+    {
+        $s = $line['suggestion'] ?? null;
+        if (is_array($s) && !empty($s['account_id'])) return false;
+        return empty($line['stripe']) && empty($line['client_payment']);
+    }
+
+    /** How many "Ask Penny" lookups are left today (BankGuidanceService), 0 when it is not set up. */
+    public static function guideLeft(PDO $db): int
+    {
+        try {
+            require_once __DIR__ . '/../../Accounting/Services/BankGuidanceService.php';
+            $st = (new BankGuidanceService($db))->status();
+            return !empty($st['ready']) ? (int)($st['left'] ?? 0) : 0;
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * One line Penny cannot place → the strip's job: the evidence the books hold, then Choose account (the picker: "What is <payee>?")
+     * or Ask Penny (bank_guidance, on this press only, its daily allowance shown). No Approve: there is nothing to approve.
+     * Capped or not set up, the second button is Keep it, as the Bank card has it.
+     */
+    public static function fromUnplaced(array $line, array $month, array $discs, int $index, int $total, array $facts = []): array
+    {
+        $j = self::fromLine($line + ['suggestion' => ['account_id' => 0, 'code' => '', 'name' => '', 'reason' => '']], $month, $discs, $index, $total, $facts);
+        $id = (int)$line['id'];
+        $ev = array_values((array)($facts['evidence'] ?? []));
+        $left = (int)($facts['guide_left'] ?? 0);
+        $j['key'] = 'bank:' . $id;
+        $j['confidence'] = 'No account of yours fits this one yet — here is what the books show.';
+        $j['sure'] = 'forming';
+        $j['right'] = ['label' => 'No proposal', 'who' => (string)($ev[0] ?? ''), 'when' => (string)($ev[1] ?? ''), 'more' => array_slice($ev, 2)];
+        $j['primary'] = ['label' => 'Choose account', 'sub' => 'what is it?', 'request' => ['mode' => 'choose', 'transaction_id' => $id, 'suggested_id' => 0]];
+        $j['secondary'] = $left > 0
+            ? ['label' => 'Ask Penny', 'sub' => $left . ' left today', 'request' => ['mode' => 'guide', 'transaction_id' => $id]]
+            : ['label' => 'Keep it', 'sub' => 'as it is', 'request' => ['mode' => 'bank_decide', 'transaction_id' => $id, 'action' => 'keep']];
+        return $j;
+    }
+
     private static function load(): void
     {
         require_once __DIR__ . '/../../Accounting/Services/MonthCloseService.php';
         require_once __DIR__ . '/../../Accounting/Services/BankDeskService.php';
+        require_once __DIR__ . '/../../Accounting/Services/BankLineEvidence.php';
     }
 }

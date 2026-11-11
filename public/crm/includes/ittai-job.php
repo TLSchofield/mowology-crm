@@ -123,6 +123,7 @@ $__ijRail = static function (?array $j) use ($__ijSvg, $__ijFig, $__ijConf, $__i
 $__ijSide = static function (array $side, bool $top): string {
     $out = '<span class="it-job-side it-job-side-' . ($top ? 'top' : 'bot') . '"><b>' . h((string)($side['label'] ?? '')) . '</b>';
     foreach (['who', 'when'] as $k) if (($side[$k] ?? '') !== '') $out .= '<span>' . h((string)$side[$k]) . '</span>';
+    foreach ((array)($side['more'] ?? []) as $m) if ((string)$m !== '') $out .= '<span>' . h((string)$m) . '</span>';   // more lines of evidence (the month job)
     return $out . '</span>';
 };
 /** What the 2/3 counts, in the lower card's own words: the Interac email, the invoice, the bank deposit. */
