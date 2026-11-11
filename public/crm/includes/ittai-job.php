@@ -34,12 +34,19 @@ try {
     // Month balancing (2026-11-10): the oldest open month's bank lines, through bank_decide (expenses.edit); off unless the switch is on.
     require_once APP_ROOT . '/Modules/Expenses/Services/PennyMonthJobAdapter.php';
     $__ijCanMonth = (!function_exists('userHasPermission') || userHasPermission('expenses.edit')) && PennyMonthJobAdapter::hasWork($__ijDb);
-    if (!PennyJobAdapter::hasWork($__ijDb) && !($__ijCanBill && PennyJobAdapter::hasEtransferWork($__ijDb)) && !$__ijCanMonth) return;
+    // Emailed receipts (2026-11-10): Approve posts the Expenses card's own form to receipt-inbox-confirm.php (expenses.edit).
+    require_once APP_ROOT . '/Modules/Expenses/Services/PennyReceiptJobAdapter.php';
+    $__ijCanReceipt = (!function_exists('userHasPermission') || userHasPermission('expenses.edit')) && PennyReceiptJobAdapter::hasWork($__ijDb);
+    if (!PennyJobAdapter::hasWork($__ijDb) && !($__ijCanBill && PennyJobAdapter::hasEtransferWork($__ijDb)) && !$__ijCanMonth && !$__ijCanReceipt) return;
     $__ijJobs = PennyJobAdapter::jobs($__ijDb, $__ijUser, $__ijCanBill);
-    if ($__ijCanMonth) {
-        foreach (PennyMonthJobAdapter::jobs($__ijDb) as $__ijM) $__ijJobs[] = $__ijM;
-        foreach ($__ijJobs as $__ijI => $__ijJ) { $__ijJobs[$__ijI]['index'] = $__ijI + 1; $__ijJobs[$__ijI]['total'] = count($__ijJobs); }
+    if ($__ijCanReceipt) {
+        // after the duplicates (a twin is settled first), before the e-Transfers and the months
+        $__ijAt = 0;
+        foreach ($__ijJobs as $__ijJ) { if (($__ijJ['kind'] ?? '') !== 'duplicate') break; $__ijAt++; }
+        array_splice($__ijJobs, $__ijAt, 0, PennyReceiptJobAdapter::jobs($__ijDb));
     }
+    if ($__ijCanMonth) foreach (PennyMonthJobAdapter::jobs($__ijDb) as $__ijM) $__ijJobs[] = $__ijM;
+    foreach ($__ijJobs as $__ijI => $__ijJ) { $__ijJobs[$__ijI]['index'] = $__ijI + 1; $__ijJobs[$__ijI]['total'] = count($__ijJobs); }
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePulseService.php';
     $__ijPulse = $__ijJobs ? ExpensePulseService::load($__ijDb, time()) : null;
 } catch (Throwable $__e) {
@@ -186,6 +193,28 @@ $__ijRailMonth = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols
         . $__ijEnd($j)
         . '</div>';
 };
+// Receipt rail (2026-11-10): the e-Transfer frame without the fraction — the emailed receipt above the rail (its name opens the file),
+// what Penny read from it below, a disc per fact where they meet → Approve → Ledger.
+$__ijRailReceipt = static function (?array $j) use ($__ijSvg, $__ijConf, $__ijCols, $__ijActs, $__ijEnd, $__ijSide): string {
+    $start = (array)($j['start'] ?? ['label' => 'Receipt', 'href' => '/crm/expenses_appstack.php#receipt-inbox']);
+    $left = (array)($j['left'] ?? []);
+    $top = $__ijSide($left, true);
+    if (($left['href'] ?? '') !== '' && preg_match('#^/crm/#', (string)$left['href'])) {
+        $top = str_replace('<b>' . h((string)($left['label'] ?? '')) . '</b>', '<b><a class="it-job-rc-view" href="' . h((string)$left['href']) . '" target="_blank" rel="noopener">' . h((string)($left['label'] ?? '')) . '</a></b>', $top);
+    }
+    return '<div class="it-job-rail" data-kind="receipt">'
+        . '<a class="it-job-anchor it-job-anchor-start" href="' . h($start['href']) . '"><span class="it-ad it-ad-fill">' . $__ijSvg('mail') . '</span><span>' . h($start['label']) . '</span></a>'
+        . $__ijConf((string)($j['sure'] ?? 'forming'), (string)($j['confidence'] ?? ''))
+        . '<div class="it-job-split">'
+        . '<div class="it-job-col it-job-lblcol it-job-sides">' . $top
+        . '<span class="it-job-disc it-job-disc-info it-job-disc-flow" aria-hidden="true">' . $__ijSvg('arrow') . '</span>'
+        . $__ijSide((array)($j['right'] ?? []), false) . '</div>'
+        . $__ijCols($j)
+        . $__ijActs($j, 'check', 'x')
+        . '</div>'
+        . $__ijEnd($j)
+        . '</div>';
+};
 $__ij = $__ijJobs[0];
 // The one picture beside the decision (Tim, 2026-11-10): six months of approved spend, this month marked, and the
 // quarter's GST on receipts — what a solo operator needs to know while deciding. Tokens only; bars are inline SVG.
@@ -210,12 +239,13 @@ itIconSprite();
 <div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job" data-head="penny" data-kind="<?= h((string)($__ij['kind'] ?? '')) ?>" aria-label="Penny's job">
   <h2 class="it-vh it-job-tt"><?= h($__ij['title']) ?></h2>
-  <div class="it-job-body"><?= ($__ij['kind'] ?? '') === 'month' ? $__ijRailMonth($__ij) : (($__ij['kind'] ?? '') === 'etransfer' ? $__ijRailEt($__ij) : $__ijRail($__ij)) ?></div>
+  <div class="it-job-body"><?= ($__ij['kind'] ?? '') === 'receipt' ? $__ijRailReceipt($__ij) : (($__ij['kind'] ?? '') === 'month' ? $__ijRailMonth($__ij) : (($__ij['kind'] ?? '') === 'etransfer' ? $__ijRailEt($__ij) : $__ijRail($__ij))) ?></div>
   <p class="it-job-foot"><span class="it-job-n">1 of <?= (int)$__ij['total'] ?></span><?php if ((int)$__ij['total'] > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?><span class="it-job-mrow" aria-label="The months, oldest first"><?= ($__ij['kind'] ?? '') === 'month' ? $__ijMonthRow($__ij) : '' ?></span></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
   <template class="it-job-tpl" data-kind="duplicate"><?= $__ijRail(null) ?></template>
   <template class="it-job-tpl" data-kind="etransfer"><?= $__ijRailEt(null) ?></template>
   <template class="it-job-tpl" data-kind="month"><?= $__ijRailMonth(null) ?></template>
+  <template class="it-job-tpl" data-kind="receipt"><?= $__ijRailReceipt(null) ?></template>
   <dialog class="it-job-dlg" aria-label="Both receipts">
     <div class="it-job-dlg-body">
       <figure class="it-job-dlg-fig is-keep"><img alt="" src=""><figcaption></figcaption></figure>

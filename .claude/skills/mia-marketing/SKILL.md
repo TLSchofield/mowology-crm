@@ -130,6 +130,7 @@ the task:
 | Social drafts from crew photos | `MiaSocialService::draftWeek()` → `SocialDraftPipeline` | weekly cron |
 | Publishing social posts | `SocialPublisher::enqueuePost()` + `app/Modules/Social/Cron/social_publisher.php` | editor, cron |
 | Meta tokens and health | `SocialEncryption::decrypt()`, `SocialAccountHealth::sweep()`, `SocialConnectionState`, `MetaService::graphVersion()` | publisher, social page, Kaname |
+| Mia's decisions on the Social Posts page (reconnect, failed post and why, approve, schedule) as the flow-line strip | `MiaJobAdapter::queue()` (buttons post the page's own `posts.php` approve / retry / schedule; no new write path) | `public/crm/includes/ittai-job-mia.php`, `public/crm/js/ittai-job-mia.js` |
 | Picking a photo for any channel | `MediaPickerService::pick()` / `MediaPickerService::markUsed()` | email, GBP, social |
 | Tagging photos (service, season, privacy, consent) | `MediaTagService` + `MediaTagRules` | uploads, daily cron |
 | Search Console weekly watch | `WebsiteWatchService::run()` + `WebsiteWatchRules` | weekly cron |

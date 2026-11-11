@@ -43,6 +43,7 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialPublisher.php';
+require_once APP_ROOT . '/Modules/Marketing/Services/MiaJobAdapter.php';
 require_once APP_ROOT . '/Core/Uploads.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -103,6 +104,7 @@ try {
             // Attach first media thumbnail
             foreach ($posts as &$p) {
                 $p['platforms'] = $p['platforms'] ? explode(',', $p['platforms']) : [];
+                $p['hold_note'] = MiaJobAdapter::holdNote($p);
                 $thumb = $db->prepare("
                     SELECT ma.file_path FROM social_post_media spm
                     JOIN media_assets ma ON ma.id = spm.media_id
@@ -218,6 +220,8 @@ try {
             foreach ($posts as &$p) {
                 $p['platforms'] = $p['platforms'] ? explode(',', $p['platforms']) : [];
                 $p['thumb_url'] = $p['thumb_path'] ? '/' . ltrim($p['thumb_path'], '/') : null;
+                $p['fail_short'] = MiaJobAdapter::plainReason((string)($p['fail_reason'] ?? ''));
+                $p['hold_note'] = MiaJobAdapter::holdNote($p);
                 unset($p['thumb_path']);
             }
             unset($p);

@@ -175,6 +175,7 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaThanksService.php'
 require_once __DIR__ . '/../app/Modules/Marketing/Services/TrackingLinks.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBadgeService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';
@@ -417,6 +418,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberQuoteHistory.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyMonthJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptAmountRules.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptDateCheck.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyReceiptJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpensePulseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
