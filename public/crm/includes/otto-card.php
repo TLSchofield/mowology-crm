@@ -102,6 +102,8 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
 
   <div class="mw-otto-say"><?= h($__oSay) ?></div>
 
+  <?php if (is_file(__DIR__ . '/subcontract-board.php')) include __DIR__ . '/subcontract-board.php'; // jobs given to other companies, by stage ?>
+
   <div class="mw-otto-stats">
     <div class="mw-otto-stat">
       <div class="mw-k">Today</div>

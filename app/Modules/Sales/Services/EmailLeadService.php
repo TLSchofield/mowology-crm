@@ -89,11 +89,13 @@ class EmailLeadService
         'investment'          => '/\binvest(?:ment|or|ors|ing)?\b(?!\s+propert)|\bacquisition\b|\bbuy your business\b/i',
         'loan offer'          => '/\bloan\b|\bfunding\b|\bline of credit\b|\bmerchant cash\b|\bfinancing (?:offer|options)\b/i',
         'free audit/demo'     => '/\bfree (?:audit|trial|demo|sample|mockup)\b|\bbook a (?:call|demo)\b|\b15[- ]minute (?:call|chat)\b/i',
+        'selling an app'      => '/\(?\bapps?\b\)?\s+(?:samples?|prices?|pricing|portfolio)\b|\bbuilding an app\b|\bexpert in\b.{0,60}\bapps?\b/is',
+        'link request'        => '/\ba resource for your\b|\bguest post\b|\bbacklinks?\b|\blink (?:exchange|insertion)\b/i',
         'unsubscribe footer'  => '/\bunsubscribe\b|\bopt[- ]out\b|\bremove you from\b|\bno longer (?:wish|want) to receive\b/i',
     ];
 
     /** Pitch signals that are decisive on their own. */
-    private const PITCH_DECISIVE = ['pitch in subject', 'marketing sender', 'bulk mail headers', 'unsubscribe footer'];
+    public const PITCH_DECISIVE = ['pitch in subject', 'marketing sender', 'bulk mail headers', 'unsubscribe footer', 'selling an app', 'link request'];
 
     /** Free-mail domains: never "marketing-looking", whatever the name. */
     private const FREE_MAIL = ['gmail', 'googlemail', 'outlook', 'hotmail', 'live', 'msn', 'yahoo', 'icloud', 'me', 'mac',

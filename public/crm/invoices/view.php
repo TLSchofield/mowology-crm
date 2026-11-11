@@ -779,7 +779,7 @@ $csrfToken = generateCSRFToken();
 // Refund button: admin, paid through Stripe, and migration 1380 has run (amount_refunded exists).
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRefundService.php';
 $refundableAmount = 0.0;
-if (isAdmin()
+if (isAdmin() && Tenant::takesCards()
     && ($invoice['payment_method'] ?? '') === 'stripe'
     && !empty($invoice['stripe_payment_intent_id'])
     && array_key_exists('amount_refunded', $invoice)) {

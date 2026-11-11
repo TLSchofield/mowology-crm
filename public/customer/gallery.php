@@ -15,6 +15,7 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 require_once APP_ROOT . '/Core/Uploads.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
@@ -149,7 +150,7 @@ if (!$error && $contact) {
 
 $clientName = $contact ? trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? '')) : '';
 $year       = date('Y');
-$siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+$siteUrl    = PortalBrand::homeUrl();
 $annJson    = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : '{}';
 
 $serviceLabels = [
@@ -168,7 +169,7 @@ $serviceLabels = [
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Your Photo Gallery — Mowology Landscaping</title>
+  <title>Your Photo Gallery — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
@@ -416,7 +417,7 @@ $serviceLabels = [
     </svg>
     <h2>Gallery Unavailable</h2>
     <p><?= htmlspecialchars($error) ?></p>
-    <p style="margin-top:16px;"><a href="<?= htmlspecialchars($siteUrl) ?>">&#8592; Return to Mowology.ca</a></p>
+    <p style="margin-top:16px;"><a href="<?= htmlspecialchars($siteUrl) ?>">&#8592; Return to <?= htmlspecialchars(PortalBrand::websiteLabel()) ?></a></p>
   </div>
 </div>
 <?php else: ?>
@@ -430,7 +431,7 @@ $serviceLabels = [
         <svg viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 19.82L5.71 21l1-2.3A4.49 4.49 0 0 0 8 19c9-3 6.17-8 2-10zm0 0a5 5 0 0 1 5 5"/></svg>
       </div>
       <div>
-        <div class="gal-brand">Mowology Landscaping</div>
+        <div class="gal-brand"><?= htmlspecialchars(PortalBrand::displayName()) ?></div>
       </div>
     </div>
     <div class="gal-title">Your Photo Gallery</div>
@@ -581,9 +582,9 @@ $serviceLabels = [
   </div><!-- /gal-body -->
 
   <div class="gal-footer">
-    <a href="<?= htmlspecialchars($siteUrl) ?>">Mowology Landscaping</a>
-    &middot; <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
-    &copy; <?= $year ?> Mowology Landscaping. This gallery is private &mdash; please do not share.
+    <a href="<?= htmlspecialchars($siteUrl) ?>"><?= htmlspecialchars(PortalBrand::displayName()) ?></a>
+    <?php if (PortalBrand::emailLinkHtml() !== ''): ?>&middot; <?= PortalBrand::emailLinkHtml() ?><?php endif; ?><br>
+    &copy; <?= $year ?> <?= htmlspecialchars(PortalBrand::displayName()) ?>. This gallery is private &mdash; please do not share.
   </div>
 
 </div><!-- /gal-wrap -->
@@ -794,7 +795,7 @@ window.mwToggleConsent = function(photoId, btn) {
 
 window.mwShowConsentHelp = function() {
   alert(
-    'Click the \u2606 star on any photo to allow Mowology to use it in our public portfolio.\n\n' +
+    'Click the \u2606 star on any photo to allow ' + <?= json_encode(PortalBrand::name(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?> + ' to use it in our public portfolio.\n\n' +
     'Starred photos (\u2605) show your home\u2019s transformations to help others discover our work. ' +
     'We never include identifying details. You can turn this off anytime.'
   );

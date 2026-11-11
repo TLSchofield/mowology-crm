@@ -24,6 +24,10 @@ try {
     if (empty($__pg['property']) || (empty($__pg['missing']) && !$__pg['pin'])) {
         return;
     }
+    // A page can ask for the card only when something is missing (quotes/view.php): no map for a finished property.
+    if (!empty($ottoOnlyGaps) && empty($__pg['missing'])) {
+        return;
+    }
     $__pgId      = (int)$__pg['property']['id'];
     $__pgMissing = $__pg['missing'];
     $__pgSay     = PropertyReadinessService::message($__pgMissing);

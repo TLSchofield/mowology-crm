@@ -105,7 +105,8 @@ function verify_recaptcha(string $token, string $secretKey, ?string $remoteIp = 
             error_log('reCAPTCHA verify: site lookup failed — ' . $e->getMessage());
         }
     }
-    $siteUrl = PublicFormSecurity::recaptchaSiteUrl($siteUrl);
+    // A business on its own ittai.ca address: its registered address, or every token fails as 'hostname mismatch' (2026-11-09).
+    $siteUrl = PublicFormSecurity::recaptchaSiteUrl($siteUrl, class_exists('Tenant') ? Tenant::appUrl() : '');
     if (!empty($json['success']) && !PublicFormSecurity::isAllowedRecaptchaHostname(
         (string)($json['hostname'] ?? ''),
         $siteUrl,

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/VisitResizeService.php';
+
 /**
  * Moves a calendar stop (and its linked scheduled visits) to another date.
  * Shared by the CRM web endpoint (desktop drag-and-drop, mobile "Move" button)
@@ -46,8 +48,10 @@ class StopRescheduleService
             return null;
         }
 
+        $dur = VisitResizeService::columnReady($this->db)
+            ? 'COALESCE(jv.duration_override_minutes, jp.estimated_duration_minutes)' : 'jp.estimated_duration_minutes';
         $capStmt = $this->db->prepare("
-            SELECT COALESCE(SUM(jp.estimated_duration_minutes), 0) AS existing_min
+            SELECT COALESCE(SUM({$dur}), 0) AS existing_min
             FROM calendar_stops cs
             JOIN job_visits jv ON jv.stop_id = cs.id
                 AND jv.status NOT IN ('cancelled', 'skipped', 'completed')
@@ -60,7 +64,7 @@ class StopRescheduleService
         $existingMin = (int)$capStmt->fetchColumn();
 
         $stopStmt = $this->db->prepare("
-            SELECT COALESCE(SUM(jp.estimated_duration_minutes), 0) AS stop_min
+            SELECT COALESCE(SUM({$dur}), 0) AS stop_min
             FROM job_visits jv
             JOIN job_plans jp ON jv.plan_id = jp.id
             WHERE jv.stop_id = ?
@@ -181,6 +185,9 @@ class StopRescheduleService
                     "UPDATE calendar_stops SET " . implode(', ', $setClauses) . " WHERE id = ?"
                 )->execute($params);
 
+                if ($newTime) {
+                    $this->shiftEnds($stopId, (string)$newTime);
+                }
                 $visitUpdate = "UPDATE job_visits SET original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date), scheduled_date = ?";
                 $visitParams = [$newDate];
                 if ($newTime) {
@@ -253,11 +260,34 @@ class StopRescheduleService
         } catch (PDOException $e) {
             // very old schema without the junction table
         }
+        if ($newTime) {
+            $this->shiftEnds($oldId, (string)$newTime);
+        }
         $sql = "UPDATE job_visits SET stop_id = ?, original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date), scheduled_date = ?" . ($newTime ? ", scheduled_time_start = ?" : "")
              . ", updated_at = NOW() WHERE stop_id = ? AND status = 'scheduled'";
         $params = $newTime ? [$newId, $newDate, $newTime, $oldId] : [$newId, $newDate, $oldId];
         $this->db->prepare($sql)->execute($params);
         return [$newId, $routeOrder];
+    }
+
+    /**
+     * A moved visit keeps its length: slide scheduled_time_end by the same amount as the start.
+     * (Before 2026-11-10 only the start moved, so a visit moved to 14:00 could still end at 10:00.)
+     */
+    private function shiftEnds(int $stopId, string $newStart): void
+    {
+        $sel = $this->db->prepare("SELECT id, scheduled_time_start, scheduled_time_end FROM job_visits WHERE stop_id = ? AND status = 'scheduled'");
+        $sel->execute([$stopId]);
+        $upd = $this->db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?");
+        foreach ($sel->fetchAll(PDO::FETCH_ASSOC) as $v) {
+            if (!$v['scheduled_time_start'] || !$v['scheduled_time_end']) {
+                continue;
+            }
+            $end = VisitResizeService::shiftedEnd($v['scheduled_time_start'], $v['scheduled_time_end'], $newStart);
+            if ($end !== null && $end !== $v['scheduled_time_end']) {
+                $upd->execute([$end, (int)$v['id']]);
+            }
+        }
     }
 
     /**

@@ -26,9 +26,13 @@ class EtransferInboxService
     /** Invoice statuses that can still receive a payment. */
     private const PAYABLE = ['sent', 'viewed', 'partial', 'overdue'];
 
+    public const CANDIDATE_MIN = 30;
+
     private PDO $db;
 
     private ?bool $senderVerifiedCol = null;
+
+    private ?array $payableInvoiceCache = null;
 
     /** etransfer_notifications.sender_verified exists (migration 1340). */
     protected function hasSenderVerified(): bool
@@ -271,6 +275,33 @@ class EtransferInboxService
     private static function shortPattern(int $n): string
     {
         return 'INV-%-' . str_pad((string)$n, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * What the job strip shows on the invoice side of a pending e-Transfer (PennyJobAdapter::fromTransfer):
+     * number, issue date, what is owing and who the invoice is for, keyed by invoice number. Read-only.
+     * @return array<string, array{invoice_number:string, invoice_date:?string, balance_due:float, payer_name:?string}>
+     */
+    public function invoiceFacts(array $numbers): array
+    {
+        $numbers = array_values(array_unique(array_filter(array_map('strval', $numbers), fn($n) => $n !== '')));
+        if (!$numbers) return [];
+        $stmt = $this->db->prepare(
+            "SELECT i.invoice_number, i.invoice_date, i.balance_due, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number IN (" . implode(',', array_fill(0, count($numbers), '?')) . ")"
+        );
+        $stmt->execute($numbers);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $out[(string)$r['invoice_number']] = [
+                'invoice_number' => (string)$r['invoice_number'],
+                'invoice_date'   => $r['invoice_date'] ?? null,
+                'balance_due'    => (float)($r['balance_due'] ?? 0),
+                'payer_name'     => $r['payer_name'] !== null ? (string)$r['payer_name'] : null,
+            ];
+        }
+        return $out;
     }
 
     /** The invoice a year-less number means (see pickShortMatch), or null. */
@@ -612,9 +643,12 @@ class EtransferInboxService
     /** All open invoices with their resolved payer name, oldest-due first — shared by both FIFO suggestion methods. */
     private function payableInvoicesWithPayer(): array
     {
+        if ($this->payableInvoiceCache !== null) {
+            return $this->payableInvoiceCache;
+        }
         $placeholders = implode(',', array_fill(0, count(self::PAYABLE), '?'));
         $stmt = $this->db->prepare(
-            "SELECT i.id, i.invoice_number, i.balance_due,
+            "SELECT i.id, i.invoice_number, i.balance_due, i.invoice_date,
                     " . self::PAYER_NAME_SQL . " AS payer_name,
                     COALESCE(i.due_date, i.invoice_date) AS order_date
                FROM invoices i
@@ -624,7 +658,71 @@ class EtransferInboxService
               ORDER BY order_date ASC, i.id ASC"
         );
         $stmt->execute(self::PAYABLE);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $this->payableInvoiceCache = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->payableInvoiceCache;
+    }
+
+    /** Score one open invoice as a possible destination for an e-Transfer. Pure. */
+    public static function scoreCandidate(array $inv, ?string $sender, float $amount, ?string $memo, bool $paysFor): int
+    {
+        $balance = round((float)($inv['balance_due'] ?? 0), 2);
+        $amount = round($amount, 2);
+        $difference = abs($balance - $amount);
+        if ($difference < 0.005) $score = 60;
+        elseif ($difference <= 0.105) $score = 50;
+        elseif ($balance < $amount) $score = 10;
+        else $score = 5;
+
+        if ($paysFor) {
+            $score += 40;
+        } else {
+            $stop = ['PLAN', 'STRATA', 'LTD', 'INC', 'CORP', 'MR', 'MRS', 'THE', 'AND'];
+            $words = static function (?string $name) use ($stop): array {
+                return array_values(array_filter(self::nameWords((string)$name), static fn($word) => strlen($word) >= 3 && !in_array($word, $stop, true)));
+            };
+            if (array_intersect($words($sender), $words((string)($inv['payer_name'] ?? '')))) $score += 15;
+        }
+
+        $number = strtoupper((string)($inv['invoice_number'] ?? ''));
+        $memo = (string)$memo;
+        $named = in_array($number, self::extractInvoiceNumbers($memo), true);
+        // a bare run of digits names an invoice only when the memo says "invoice"/"inv"/"#" or the run is zero-padded like the
+        // sequence ("0465"): "Deposit for 1234 Main St" must not point at INV-2026-1234.
+        if (!$named && preg_match_all('/\b\d{3,}\b/', $memo, $matches)) {
+            $says = (bool)preg_match('/\binv(?:oice)?s?\b|#/i', $memo);
+            foreach ($matches[0] as $digits) {
+                if (($says || $digits[0] === '0') && substr($number, -strlen($digits)) === $digits) { $named = true; break; }
+            }
+        }
+        if ($named) $score += 60;
+        return $score;
+    }
+
+    /** The best open invoices to offer when Penny has no single proposal. */
+    public function candidateInvoices(?string $sender, float $amount, ?string $memo, array $exclude = [], int $limit = 3): array
+    {
+        if ($amount <= 0 || $limit <= 0) return [];
+        $excluded = array_fill_keys(array_map('strval', $exclude), true);
+        $out = [];
+        foreach ($this->payableInvoicesWithPayer() as $inv) {
+            $number = (string)$inv['invoice_number'];
+            if (isset($excluded[$number])) continue;
+            $score = self::scoreCandidate($inv, $sender, $amount, $memo, $this->paysFor($sender, (string)($inv['payer_name'] ?? '')));
+            if ($score < self::CANDIDATE_MIN) continue;
+            $out[] = [
+                'invoice_number' => $number,
+                'payer_name' => (string)($inv['payer_name'] ?? ''),
+                'balance_due' => (float)$inv['balance_due'],
+                'invoice_date' => $inv['invoice_date'] ?? null,
+                'score' => $score,
+                '_order_date' => (string)($inv['order_date'] ?? ''),
+            ];
+        }
+        usort($out, static fn($a, $b) => $b['score'] <=> $a['score'] ?: (strcmp($a['_order_date'], $b['_order_date']) ?: strcmp($a['invoice_number'], $b['invoice_number'])));   // total order: usort is not stable before PHP 8
+        $out = array_slice($out, 0, $limit);
+        foreach ($out as &$row) unset($row['_order_date']);
+        unset($row);
+        return $out;
     }
 
     /** Greedily apply $amount across $invoices in the order given (already oldest-first), each topped up to its balance. */
@@ -770,6 +868,18 @@ class EtransferInboxService
             } catch (Throwable $e) { /* before migration 1132 */ }
         }
         return isset($this->learnedPayers[self::normalizeName($sender)][self::normalizeName($payer)]);
+    }
+
+    /** How many of this sender's transfers the owner has recorded in full (an undone one is no longer 'recorded'). */
+    public function timesRecordedFrom(?string $sender): int
+    {
+        $sender = trim((string)$sender);
+        if ($sender === '') return 0;
+        try {
+            $st = $this->db->prepare("SELECT COUNT(*) FROM etransfer_notifications WHERE sender_name = ? AND status = 'recorded'");
+            $st->execute([$sender]);
+            return (int)$st->fetchColumn();
+        } catch (Throwable $e) { return 0; }
     }
 
     /** Same person by the matcher's own rule (exact, or same first and last name). */

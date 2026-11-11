@@ -512,7 +512,9 @@ class YuiRules
     {
         $to = (array)($item['to'] ?? []);
         $inv = (array)($item['invoices'] ?? []);
-        $numbers = array_map(fn($i) => $i['number'], $inv);
+        // Overdue accounts carry invoice rows; a client reply carries the bare numbers it mentions (UnclaimedReplyService). Take both:
+        // one shape here broke Yui's whole card the day a placed reply quoted two invoice numbers (2026-11-10).
+        $numbers = array_values(array_filter(array_map(fn($i) => is_array($i) ? (string)($i['number'] ?? '') : (string)$i, $inv), 'strlen'));
         $list = count($numbers) <= 1 ? 'invoice ' . ($numbers[0] ?? '')
             : 'invoices ' . implode(', ', array_slice($numbers, 0, -1)) . ' and ' . end($numbers);
         $subject = UnclaimedReplyService::cleanSubject((string)($item['subject'] ?? ''));

@@ -184,6 +184,9 @@ enum APIEndpoint {
     case teamHeadBriefReady(head: String)
     /// GET /api/team/team-mobile?mode=brains — every head's brain, for the face row's flip.
     case teamBrains
+    /// GET /api/team/team-mobile?mode=yui_jobs — Yui's decision cards (JWT, billing.edit). Her answers POST to
+    /// `.teamHeadAction` as { mode: "yui_act", request, fields }.
+    case teamYuiJobs
     /// Penny's owner-confirmed vendor knowledge and one vendor's learned items.
     case pennyKnowledge
     case pennyKnowledgeItems(key: String)
@@ -515,6 +518,10 @@ enum APIEndpoint {
         case .ottoMissedReviewAction:
             return URL(string: "\(baseURLString)/schedule/missed-review")
 
+        case .teamYuiJobs:
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "yui_jobs")]
+            return components?.url
         case .teamBrains:
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "brains")]
@@ -769,6 +776,7 @@ enum APIEndpoint {
              .teamHeadBrief,
              .teamHeadBriefReady,
              .teamBrains,
+             .teamYuiJobs,
              .pennyKnowledge,
              .pennyKnowledgeItems,
              .businessIdentityCurrent,
@@ -878,6 +886,7 @@ enum APIEndpoint {
              .teamHeadBrief,
              .teamHeadBriefReady,
              .teamBrains,
+             .teamYuiJobs,
              .pennyKnowledge,
              .pennyKnowledgeItems,
              .ottoMissedReview,

@@ -131,7 +131,7 @@ $activePage = 'accounting';
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
         <h1 class="h3 mb-0">QuickBooks Online</h1>
-        <p class="text-muted mb-0 small">Keep QuickBooks — Ittai does the typing. This step connects and reads only; nothing is sent to QuickBooks yet.</p>
+        <p class="text-muted mb-0 small">Keep QuickBooks — Ittai does the typing. Once sending is on, your invoices and receipts go to QuickBooks, and Ittai sees when an invoice is paid there.</p>
     </div>
     <div class="d-flex gap-2">
         <a href="/crm/onboarding/index.php" class="btn btn-sm btn-outline-primary">Onboarding map</a>

@@ -2267,6 +2267,10 @@ if ($apiKey) {
                               <button class="mw-dv-btn-skip"
                                       data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                       title="Skip this stop — not done today">Skip</button>
+                              <?php if (!empty($stop['visits'][0]['visit_id']) && userHasPermission('jobs.edit')): ?>
+                              <a class="mw-dv-btn-sub" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$stop['visits'][0]['visit_id']; ?>#mw-sub"
+                                 title="Give this job to another company">Subcontract</a>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2449,6 +2453,10 @@ if ($apiKey) {
                               <button class="mw-dv-btn-skip"
                                       data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                       title="Skip this stop — not done today">Skip</button>
+                              <?php if (!empty($stop['visits'][0]['visit_id']) && userHasPermission('jobs.edit')): ?>
+                              <a class="mw-dv-btn-sub" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$stop['visits'][0]['visit_id']; ?>#mw-sub"
+                                 title="Give this job to another company">Subcontract</a>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -4004,6 +4012,14 @@ if ($__srOn): ?>
 <?php endif; ?>
 <script src="../js/schedule-pill-workflow.js?v=20261102pins" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
+<?php
+// Jobber-style calendar editing (timeline, drag-resize, add-on-calendar). Off unless ops_settings it_calendar_edit = 1.
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
+if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db)): ?>
+<link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
+<script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?> };</script>
+<script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
+<?php endif; ?>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>
 <?php if ($canFieldCreate): ?>

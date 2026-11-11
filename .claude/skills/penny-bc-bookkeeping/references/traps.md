@@ -910,3 +910,24 @@ now needs `namedOnPaper`; intake no longer back-fills phone or website (`VendorD
 Any 4xx counted as the server's answer about the photo and the file was removed, so a hosting 403/404 or a full disk (PHP answers 400)
 could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, and a refusal keeps the photo for Try again / Discard.
 
+## QuickBooks payments for other businesses (2026-11-09)
+
+- `invoices.payment_method` is an ENUM without `quickbooks`, and Mowology already has 9 blank values in it, so changing the ENUM can fail. `QboClientPayService` passes `'other'` to `applyAllocation()` and then sets `invoice_payment_allocations.method` (a VARCHAR) to `quickbooks`.
+- Never compare QuickBooks' paid amount with `invoices.amount_paid`. Account credit is in `amount_paid` but not in QuickBooks. Compare with the payments linked in `qbo_links`.
+- QuickBooks returns `InvoiceLink` even with online payment off, and that page cannot take a payment. Show it only when the invoice reads back with online payment allowed (`QboClientPayService::payUrl`).
+- Total minus Balance also falls for a QuickBooks credit memo, which would be recorded as a payment. Ittai originates these invoices, so credit memos belong in Ittai.
+- A `prod-run` preview that touches QuickBooks can renew its sign-in and then roll the new token back. Use `--commit`, and never `return` from a snippet (nothing prints).
+
+## The flow line and the month's books (2026-11-10)
+
+- A month's books-against-bank difference is CUMULATIVE (books minus bank at month end), so a gap born in January shows on every later month. Mark a figure equal to the month before as carried; never ask about it again as a new gap (`PennyMonthJobAdapter::monthDiscs()` / `askMonth()`).
+- Sorting bank lines (Approve moves a line between expense accounts) clears the "lines to sort" blocker but never moves the bank balance: a month with $0 lines left can still be off the bank. The strip's resting caption is "Nothing to decide", never "all clear".
+- `accounting_transactions.bank_account` is empty on bank imports. The account a line came out of is the 1010/1020/1025/2400 side of its journal entry (`journal_entries` source `bank_import`, live: `reversed_by_entry_id IS NULL AND status = 'posted'`).
+- "Keep it" on the Bank card files a `bank_line_reviews` row, which removes the line from the waiting queue: it counts as sorted without a category change.
+- January 2026 chequing sits $7.01 above the bank because filed FY2025 cash ($11,017.00) is $7.01 above the Dec 31 statements ($11,009.99 = 1010 2,679.92 + 1025 8,329.38 + 1020 0.69; the card is not cash). It is question 7 for Ricole, not a bug in the importer: only she can say whether a Jan 1 correcting entry may be posted. Measured 2026-11-10.
+- Nothing goes to Ricole until Tim says so (held since 2026-10-13); the in-app list (`accountant_questions`) is where questions wait, and it is hidden from the accountant's own login.
+
+
+### Linking a closed-year receipt to a bank line moves the month off the bank (2026-11-10)
+- University Landscapers $157.50: the Jan 20 2026 e-Transfer debit matched receipt #474 dated Dec 30 2025 (FY2025: filed, locked, receipts there are never booked again, so it has NO journal entry). `BankDeskService::decide()` with an `expense_id` calls `move()` with `journal = false`, which reverses the line's own entry on the promise that the receipt's entry stands in for it. Here there is none: January's chequing books went from +$7.01 to +$164.51 over the bank (all later months shifted by the same $157.50).
+- **Rule:** never link a bank line to a receipt dated before the ledger's first month (`PennyMonthJobAdapter::withoutClosedYearReceipts()` keeps such lines off the flow line). The Bank card still offers it: check the receipt date first. The right treatment of a Jan payment for a Dec 30 bill is to settle the payable (Dr 2000 Accounts Payable / Cr 1010), if the bill is in the filed A/P — confirm with the accountant.

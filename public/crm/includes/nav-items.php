@@ -119,7 +119,7 @@ if (!function_exists('mwIttaiNavBlocks')) {
      * badges as the classic menu; a page with no move stays with its section's head; Admin is Ada's.
      * @return array<int, array{slug: string, name: string, role: string, kanji: string, means: string, here: bool, items: array}>
      */
-    function mwIttaiNavBlocks(array $navItems, array $user, string $activePage): array
+    function mwIttaiNavBlocks(array $navItems, array $user, string $activePage, bool $ownerPages = false): array
     {
         $heads = [
             'charlie' => [class_exists('HeadIdentity') ? HeadIdentity::chiefName() : 'Kaname', 'Chief of Staff', '統', 'unite, coordinate'],
@@ -135,6 +135,9 @@ if (!function_exists('mwIttaiNavBlocks')) {
         $can = static fn(string $p): bool => !function_exists('userHasPermission') || userHasPermission($p);
         $groups = array_fill_keys(array_keys($heads), []);
         $section = 'charlie';
+        // Kaname's workspace is the first page in Kaname's block (round-6 sidebar) — the owner's brief, so only for
+        // the owner (the desktop sidebar passes CharlieDeskService::isOwner); the classic menu never lists it.
+        if ($ownerPages) $groups['charlie'][] = ['key' => 'kaname', 'label' => 'Morning brief', 'icon' => 'sunrise', 'href' => '/crm/kaname_appstack.php'];
         foreach ($navItems as $it) {
             if (($it['type'] ?? '') === 'header') { $section = $it['head'] ?? $section; continue; }
             if (isset($it['perm']) && !$can($it['perm'])) continue;

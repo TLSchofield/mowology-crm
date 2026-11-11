@@ -26,6 +26,17 @@ $jr   = new JournalBrowserService($db);
 $latest = $jr->search(JournalBrowserService::normalizeFilters(['per' => 50]));
 $entryCount = (int)$latest['total'];
 
+// The accountant's questions list (2026-11-10): the owner's and admin's only (an accountant login does not see it); nothing here is sent.
+$aqOpen = [];
+if (userHasPermission('users.manage')) {
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/AccountantQuestionService.php';
+        $aqOpen = (new AccountantQuestionService($db))->open();
+    } catch (Throwable $e) {
+        error_log('Ledger overview: accountant questions: ' . $e->getMessage());
+    }
+}
+
 $pageTitle = 'Ledger';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -80,6 +91,22 @@ $pageTitle = 'Ledger';
       ['A/R and A/P control balances (aging stub)', 'As at ' . $today, ['report' => 'aging', 'as_of' => $today], ['xlsx', 'csv']],
   ];
   ?>
+  <?php if ($aqOpen): ?>
+  <h2 class="mw-ledger-h2">For the accountant (<?= count($aqOpen) ?>)</h2>
+  <div class="mw-ledger-tablewrap">
+    <table class="mw-ledger-table">
+      <thead><tr><th scope="col">Month</th><th scope="col">Account</th><th scope="col" class="mw-num">Books vs bank</th><th scope="col" class="mw-ledger-memo">Question</th></tr></thead>
+      <tbody>
+      <?php foreach ($aqOpen as $q): ?>
+        <tr><td class="mw-nowrap"><?= h((string)$q['month']) ?></td><td><?= h((string)$q['account']) ?></td>
+          <td class="mw-num"><?= h(number_format((float)$q['amount'], 2)) ?></td><td class="mw-ledger-memo"><?= h((string)$q['question']) ?></td></tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <p class="mw-ledger-explain mw-ledger-small">Questions Penny could not settle from the books. Nothing is sent to the accountant until you say so.</p>
+  <?php endif; ?>
+
   <h2 class="mw-ledger-h2">Exports — FY<?= (int)$year ?> to date</h2>
   <div class="mw-ledger-tablewrap mw-ledger-tablewrap--auto">
     <table class="mw-ledger-table mw-ledger-table--exports">

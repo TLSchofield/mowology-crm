@@ -66,7 +66,10 @@ class PublicCspTest extends TestCase
         $head = (string)file_get_contents(self::root() . '/includes/head.php');
         $this->assertStringContainsString('MwCsp::send()', $head);
         foreach (glob(self::root() . '/customer/*.php') as $f) {
-            $this->assertStringContainsString('MwCsp::send()', (string)file_get_contents($f), basename($f));
+            $src = (string)file_get_contents($f);
+            // A file that only redirects (customer/index.php, 2026-10-16) sends no markup, so it needs no policy.
+            if (strpos($src, "header('Location:") !== false && strpos($src, '<', 5) === false) continue;
+            $this->assertStringContainsString('MwCsp::send()', $src, basename($f));
         }
         $ht = (string)file_get_contents(self::root() . '/.htaccess');
         $this->assertMatchesRegularExpression('/Header always set Content-Security-Policy "[^"]+" env=!MW_NONCE_CSP/', $ht);

@@ -112,6 +112,47 @@ class ExpenseApprovalServiceTest extends TestCase
         $this->assertSame('ios_receipt_actions', $gate->calls[0]['source']);
     }
 
+    // ── "Already booked — file it" (a receipt dated in a filed year) ─────
+
+    private function fileDb(array $row): PDO
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt($row));
+        return $db;
+    }
+
+    public function test_file_as_booked_sets_it_aside_through_the_gate_and_posts_nothing(): void
+    {
+        $gate = new ExpenseGateSpy();
+        $r = (new ExpenseApprovalService($this->fileDb(['id' => 7, 'status' => 'draft', 'expense_date' => '2025-05-12', 'created_by' => 5]), $gate))->fileAsBooked(7, ['id' => 9]);
+        $this->assertTrue($r['success']);
+        $this->assertCount(1, $gate->calls);
+        $this->assertSame('rejected', $gate->calls[0]['changes']['status']);
+        $this->assertSame('reject', $gate->calls[0]['opts']['transition']);
+        $this->assertSame('file_booked', $gate->calls[0]['source']);
+        $this->assertStringContainsString('2025', $gate->calls[0]['changes']['rejection_reason']);
+    }
+
+    public function test_file_as_booked_refuses_a_receipt_from_the_open_year_or_one_already_decided(): void
+    {
+        foreach ([['draft', '2026-03-01', 'only for a receipt dated in a year'], ['approved', '2025-05-12', 'still open'], ['rejected', '2025-05-12', 'still open']] as [$st, $d, $msg]) {
+            $gate = new ExpenseGateSpy();
+            try {
+                (new ExpenseApprovalService($this->fileDb(['id' => 7, 'status' => $st, 'expense_date' => $d, 'created_by' => 5]), $gate))->fileAsBooked(7, ['id' => 9]);
+                $this->fail("$st $d should be refused");
+            } catch (Exception $e) {
+                $this->assertStringContainsString($msg, $e->getMessage());
+            }
+            $this->assertSame([], $gate->calls, 'nothing changed');
+        }
+    }
+
+    public function test_file_as_booked_keeps_the_self_approval_rule(): void
+    {
+        $this->expectExceptionMessage('Cannot approve your own expense');
+        (new ExpenseApprovalService($this->fileDb(['id' => 7, 'status' => 'draft', 'expense_date' => '2025-05-12', 'created_by' => 9, 'can_approve_own_expenses' => 0]), new ExpenseGateSpy()))->fileAsBooked(7, ['id' => 9]);
+    }
+
     private function makeColumnStmt(mixed $columnReturn): PDOStatement
     {
         $s = $this->createMock(PDOStatement::class);

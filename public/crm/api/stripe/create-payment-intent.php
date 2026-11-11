@@ -29,6 +29,7 @@ require_once dirname(__DIR__, 3) . '/vendor/autoload.php';
 require_once dirname(__DIR__, 3) . '/app/Modules/Invoices/Services/PaymentIntentGuard.php';
 
 header('Content-Type: application/json');
+if (!Tenant::takesCards()) { http_response_code(403); echo json_encode(['error' => 'Card payments are not available here.']); exit; }
 
 // Only allow POST from XHR
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

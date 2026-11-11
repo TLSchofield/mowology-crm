@@ -47,7 +47,7 @@ if ($action === 'pdf' || $action === 'email') {
     require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
     require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
     $gen = new PdfGenerator();
-    $pdf = $gen->generateStatementPdf($data);
+    $pdf = (new StatementService($db))->pdf($data);
     if (empty($pdf['success'])) { http_response_code(500); die('PDF generation failed: ' . h($pdf['error'] ?? '')); }
 
     if ($action === 'pdf') {

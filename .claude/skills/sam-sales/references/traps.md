@@ -2,6 +2,15 @@
 
 Add a new entry the same day a mistake is found: date, what happened, the signature, the rule.
 
+## 2026-11-10 — The owner could not decline a Sent quote
+**What happened:** the quote page offered only Approve (Verbal) and Delete on a Sent quote; `declined` existed only as the
+client's own answer (`public/customer/quote.php`) and the pipeline board's "closed lost". The header row held eight buttons
+and three debug bars. Also, `viewed` quotes got no Resend / Approve / Follow-Up buttons (the page tested `sent` only).
+**Rule:** the owner's decline is `QuoteService::decline()` only (page and flow line both); Sam's follow-up queue and verbal
+approval already read only sent/viewed, so `declined` stops nudges with no extra code. Decline sends nothing; the strip's
+Follow up only opens the page. Never decline, nudge or re-sign a contract quote (`is_contract`) from the strip. The strip's
+confidence counts declines made from it (`activity_log` action `Quote declined (flow line)`) that are still declined.
+
 ## 2026-11-04 — Two boxes named `qbox`, and a class that already meant something
 **What happened:** `sam-card.js` declared `var qbox` twice (questions `#mw-sq`, then quiet clients
 `#mw-sam-quiet`); the second won, so Sam's expired-quote questions rendered into the quiet-clients

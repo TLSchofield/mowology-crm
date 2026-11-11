@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $db = getDB();
 
     // Queue decisions are a manager's call (portfolio.edit); staff can view the page.
-    if (in_array($action, ['queue_approve', 'queue_reject', 'queue_consent', 'queue_unpublish'], true)) {
+    if (in_array($action, ['queue_approve', 'queue_reject', 'queue_consent', 'queue_unpublish', 'queue_privacy'], true)) {
         if (!userHasPermission('portfolio.edit')) {
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'Only a manager can approve website photos']);
@@ -35,22 +35,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
         require_once APP_ROOT . '/Services/Media/MediaVariantGenerator.php';
+        require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
+        require_once APP_ROOT . '/Modules/Marketing/Services/VoiceProfile.php';
         $ba     = new BeforeAfterService($db);
         $pairId = (int)($_POST['pair_id'] ?? 0);
+        $flow   = BeforeAfterJobAdapter::enabled($db);   // Mia's strip: privacy check, then her offered text, then publish
+        // The strip's next step for this pair (null when there is none): the card that replaces the one just decided.
+        $nextCard = function () use ($ba, $pairId, $flow) {
+            if (!$flow || ($_POST['strip'] ?? '') !== '1') return null;
+            $row = $ba->pendingPair($pairId);
+            return $row ? BeforeAfterJobAdapter::cardFor($row, $ba->offerRecord()) : null;
+        };
         try {
             switch ($action) {
+                case 'queue_privacy':
+                    if (!$flow) { echo json_encode(['success' => false, 'error' => 'The photo check is switched off']); exit; }
+                    $ba->recordPrivacyCheck($pairId, (int)$user['id']);
+                    if (!$ba->privacyChecked($pairId)) { echo json_encode(['success' => false, 'error' => 'Could not record the check. The page needs its database update first']); exit; }
+                    echo json_encode(['success' => true, 'message' => 'Photos checked.', 'next' => $nextCard()]);
+                    exit;
                 case 'queue_consent':
                     $ba->recordConsent($pairId, (int)$user['id'], (string)($_POST['note'] ?? ''));
-                    echo json_encode(['success' => true]);
+                    echo json_encode(['success' => true, 'message' => 'Agreement recorded.', 'next' => $nextCard()]);
                     exit;
                 case 'queue_approve':
+                    // With Mia's flow line on, nothing publishes before the owner has checked the photos (server-side, so no page can skip it).
+                    if (BeforeAfterJobAdapter::gateOn($db) && !$ba->privacyChecked($pairId)) {
+                        echo json_encode(['success' => false, 'error' => 'Check the photos for faces, house numbers and licence plates first']);
+                        exit;
+                    }
                     $fields = array_intersect_key($_POST, array_flip(['label', 'service', 'category', 'area', 'alt_before', 'alt_after']));
+                    $before = ($flow && ($_POST['offered'] ?? '') === '1') ? $ba->pendingPair($pairId) : null;
                     $pair   = $ba->approve($pairId, (int)$user['id'], $fields);
-                    echo json_encode(['success' => true, 'pair' => $pair]);
+                    if ($before) {   // her record: was the text she offered published as it was?
+                        $ba->recordOfferState($pairId, BeforeAfterJobAdapter::edited($before, $fields) ? 'edited' : 'unedited');
+                    }
+                    echo json_encode(['success' => true, 'pair' => $pair, 'message' => 'On the website.']);
                     exit;
                 case 'queue_reject':
                     $ba->reject($pairId, (int)$user['id'], (string)($_POST['reason'] ?? ''));
-                    echo json_encode(['success' => true]);
+                    echo json_encode(['success' => true, 'message' => 'Set aside. Not for the website.']);
                     exit;
                 case 'queue_unpublish':
                     $ba->unpublish($pairId, (int)$user['id'], (string)($_POST['reason'] ?? 'Unpublished'));
@@ -91,6 +115,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pair_id = (int)($_POST['pair_id'] ?? 0);
+            if ($pair_id && $published) {
+                // A pair still waiting in the queue goes live only through the same gates as Approve: client agreement
+                // where needed, and (flow line on) the photo check.
+                $waiting = $baCheck->pendingPair($pair_id);
+                if ($waiting) {
+                    require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
+                    $gate = BeforeAfterService::canApprove($waiting);
+                    if (!$gate['ok'] || (BeforeAfterJobAdapter::gateOn($db) && !$baCheck->privacyChecked($pair_id))) {
+                        echo json_encode(['success' => false, 'error' => $gate['ok'] ? 'Check the photos for faces, house numbers and licence plates first' : $gate['reason']]);
+                        exit;
+                    }
+                }
+            }
             if ($pair_id) {
                 // A hand-made pair is the manager's own decision: publishing it IS the approval.
                 $stmt = $db->prepare("
@@ -144,13 +181,21 @@ $csrfToken = generateCSRFToken();
 require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
 $canApprove = function_exists('userHasPermission') ? userHasPermission('portfolio.edit') : (($user['role'] ?? '') === 'admin');
 $pendingPairs = [];
+$livePairs    = [];
+$parkedPairs  = [];
 $pairCounts   = ['pending' => 0, 'approved' => 0, 'rejected' => 0];
+$flow         = false;   // Mia's flow line (ops_settings ba_flowline): photo check, then her offered text, then publish
 try {
     $db = getDB();
     $baService = new BeforeAfterService($db);
     $baService->sweepEndorsed();          // catch endorsements made before the after photo existed
     $pendingPairs = $baService->pending();
     $pairCounts   = $baService->counts();
+    $livePairs    = $baService->decided(BeforeAfterService::STATUS_APPROVED);
+    $parkedPairs  = $baService->decided(BeforeAfterService::STATUS_REJECTED);
+    require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
+    require_once APP_ROOT . '/Modules/Marketing/Services/VoiceProfile.php';
+    $flow = BeforeAfterJobAdapter::enabled($db);
 } catch (Throwable $e) {
     // ba_pairs predates migration 1118 — the queue is simply empty until it runs
     error_log('before-after queue unavailable: ' . $e->getMessage());
@@ -169,132 +214,163 @@ try {
           </div>
 
           <!-- ── Awaiting approval: endorsed visits, decided by a manager ───────── -->
-          <div class="card mb-3 mw-baq" id="baQueue">
-            <div class="card-header d-flex align-items-center justify-content-between">
-              <h5 class="card-title mb-0">
-                <i data-feather="heart" class="mr-2 mw-baq-heart"></i>
-                Awaiting approval
-                <span class="badge badge-warning ml-2" id="baQueueCount"><?= count($pendingPairs) ?></span>
-              </h5>
+          <div class="card mb-3 mw-baq" id="baQueue" data-flow="<?= $flow ? '1' : '0' ?>">
+            <div class="card-header d-flex align-items-center justify-content-between flex-wrap">
+              <div class="mw-baq-tabs" role="tablist">
+                <button type="button" class="mw-baq-tab is-active" data-tab="waiting" role="tab">Waiting <span class="badge badge-warning ml-1" id="baQueueCount"><?= count($pendingPairs) ?></span></button>
+                <button type="button" class="mw-baq-tab" data-tab="live" role="tab">On the website <span class="badge badge-light ml-1" id="baLiveCount"><?= (int)$pairCounts['approved'] ?></span></button>
+                <button type="button" class="mw-baq-tab" data-tab="parked" role="tab">Not for the website <span class="badge badge-light ml-1" id="baParkedCount"><?= (int)$pairCounts['rejected'] ?></span></button>
+              </div>
               <small class="text-muted">
-                <?= (int)$pairCounts['approved'] ?> on the website
-                <?php if (!$canApprove): ?> · view only — a manager approves<?php endif; ?>
+                <?php if (!$canApprove): ?>View only. A manager approves.<?php elseif (!$flow): ?>Check each pair for faces, house numbers and licence plates before approving.<?php endif; ?>
               </small>
             </div>
+
+            <div class="mw-baq-pane" data-pane="waiting">
             <?php if (empty($pendingPairs)): ?>
-            <div class="card-body text-center text-muted py-4" id="baQueueEmpty">
-              <i data-feather="heart" class="mw-baq-empty-icon"></i>
-              Nothing waiting.<br>
-              <small>When crew endorse a visit with a before and an after photo, it appears here for approval.</small>
-            </div>
+              <div class="card-body text-center text-muted py-4" id="baQueueEmpty">
+                <i data-feather="heart" class="mw-baq-empty-icon"></i>
+                Nothing waiting.<br>
+                <small>When crew endorse a visit with a before and an after photo, it appears here for approval.</small>
+              </div>
             <?php else: ?>
-            <div class="card-body p-0">
               <?php foreach ($pendingPairs as $q):
                 $needsConsent = ($q['consent_state'] === BeforeAfterService::CONSENT_NEEDED);
                 $hasConsent   = ($q['consent_state'] === BeforeAfterService::CONSENT_RECORDED);
+                $checked      = trim((string)($q['privacy_checked_at'] ?? '')) !== '';
                 $when = !empty($q['completed_at']) ? $q['completed_at'] : ($q['scheduled_date'] ?? $q['queued_at']);
+                // With the flow line on, the fields start as Mia's offer (same builders, nothing that names the client).
+                $v = $flow ? BeforeAfterJobAdapter::offer($q) : ['label' => $q['label'], 'area' => $q['area'], 'alt_before' => $q['alt_before'], 'alt_after' => $q['alt_after']];
+                if ($needsConsent)      $state = 'Needs the client\'s agreement first';
+                elseif ($flow && !$checked) $state = 'Photos not checked yet';
+                elseif ($flow)          $state = 'Photos checked. Ready for Mia\'s text';
+                else                    $state = $hasConsent ? 'Client agreed. Ready to approve' : 'Ready to approve';
               ?>
-              <div class="mw-baq-row" data-pair-id="<?= (int)$q['id'] ?>" data-consent="<?= $needsConsent ? 'needed' : 'ok' ?>">
+              <div class="mw-baq-row" data-pair-id="<?= (int)$q['id'] ?>" data-consent="<?= $needsConsent ? 'needed' : 'ok' ?>" data-privacy="<?= $checked ? 'ok' : 'todo' ?>">
                 <div class="mw-baq-photos">
                   <figure class="mw-baq-photo">
-                    <img src="<?= h($q['before_url']) ?>" alt="Before" loading="lazy">
+                    <a href="<?= h($q['before_url']) ?>" target="_blank" rel="noopener"><img src="<?= h($q['before_url']) ?>" alt="Before" loading="lazy"></a>
                     <figcaption>Before</figcaption>
                   </figure>
                   <figure class="mw-baq-photo">
-                    <img src="<?= h($q['after_url']) ?>" alt="After" loading="lazy">
+                    <a href="<?= h($q['after_url']) ?>" target="_blank" rel="noopener"><img src="<?= h($q['after_url']) ?>" alt="After" loading="lazy"></a>
                     <figcaption>After</figcaption>
                   </figure>
                 </div>
-                <div class="mw-baq-form">
-                  <div class="mw-baq-private">
-                    <strong><?= h($q['property_name'] ?: $q['address'] ?: 'Property') ?></strong>
-                    <?php if (!empty($q['address']) && $q['property_name']): ?><span class="text-muted"> · <?= h($q['address']) ?></span><?php endif; ?>
-                    <span class="text-muted"> · <?= h($q['visit_number'] ?: ('Visit #' . (int)$q['visit_id'])) ?> · <?= $when ? date('M j, Y', strtotime($when)) : '' ?></span>
-                    <?php if (!empty($q['queued_by_name'])): ?><span class="text-muted"> · endorsed by <?= h($q['queued_by_name']) ?></span><?php endif; ?>
-                    <span class="badge badge-light ml-1" title="Office only — never shown on the website">private</span>
-                  </div>
+                <div class="mw-baq-main">
+                  <div class="mw-baq-title"><?= h($v['label'] ?: ($q['service'] ?: 'Untitled pair')) ?></div>
+                  <div class="mw-baq-state q-state"><?= h($state) ?></div>
 
-                  <div class="form-row">
-                    <div class="col-md-6 mb-2">
-                      <label class="mw-baq-label">Public label</label>
-                      <input type="text" class="form-control form-control-sm q-label" value="<?= h($q['label']) ?>" maxlength="120">
+                  <?php if ($needsConsent): ?>
+                  <div class="mw-baq-consent">
+                    <span>Strata or managed property: the client must agree before this goes on the website.</span>
+                    <?php if ($canApprove): ?>
+                    <div class="mw-baq-consent-row mt-2">
+                      <input type="text" class="form-control form-control-sm q-consent-note" placeholder="How they agreed, e.g. Email from Ron 21 Sep">
+                      <button type="button" class="btn btn-sm btn-outline-primary q-consent-btn">Record agreement</button>
                     </div>
-                    <div class="col-md-3 mb-2">
-                      <label class="mw-baq-label">Service</label>
-                      <input type="text" class="form-control form-control-sm q-service" value="<?= h($q['service']) ?>" maxlength="100">
-                    </div>
-                    <div class="col-md-3 mb-2">
-                      <label class="mw-baq-label">Neighbourhood</label>
-                      <input type="text" class="form-control form-control-sm q-area" value="<?= h($q['area']) ?>" maxlength="80" placeholder="e.g. Kitsilano">
-                    </div>
-                  </div>
-                  <div class="form-row">
-                    <div class="col-md-3 mb-2">
-                      <label class="mw-baq-label">Website filter</label>
-                      <select class="form-control form-control-sm q-category">
-                        <?php foreach (BeforeAfterService::CATEGORIES as $cat): ?>
-                        <option value="<?= $cat ?>"<?= $q['category'] === $cat ? ' selected' : '' ?>><?= ucfirst($cat) ?></option>
-                        <?php endforeach; ?>
-                      </select>
-                    </div>
-                    <div class="col-md-9 mb-2">
-                      <label class="mw-baq-label">Image descriptions (alt text, read by Google)</label>
-                      <div class="d-flex" style="gap:6px">
-                        <input type="text" class="form-control form-control-sm q-alt-before" value="<?= h($q['alt_before']) ?>" maxlength="160">
-                        <input type="text" class="form-control form-control-sm q-alt-after" value="<?= h($q['alt_after']) ?>" maxlength="160">
-                      </div>
-                    </div>
-                  </div>
-
-                  <?php if ($needsConsent || $hasConsent): ?>
-                  <div class="mw-baq-consent<?= $hasConsent ? ' is-recorded' : '' ?>">
-                    <?php if ($hasConsent): ?>
-                      <i data-feather="check-circle"></i> Client agreed — <?= h($q['consent_note']) ?>
-                    <?php else: ?>
-                      <i data-feather="alert-circle"></i>
-                      <span>Strata / managed property — the client must agree before this goes on the website.</span>
-                      <?php if ($canApprove): ?>
-                      <div class="d-flex mt-2" style="gap:6px">
-                        <input type="text" class="form-control form-control-sm q-consent-note" placeholder="How they agreed, e.g. Email from Ron 21 Sep">
-                        <button class="btn btn-sm btn-outline-primary q-consent-btn">Record agreement</button>
-                      </div>
-                      <?php endif; ?>
                     <?php endif; ?>
                   </div>
-                  <?php else: ?>
-                  <div class="mw-baq-consent is-clear">
-                    <i data-feather="eye"></i> Residential — check for faces, house numbers and licence plates, then approve.
-                  </div>
+                  <?php elseif ($hasConsent): ?>
+                  <div class="mw-baq-consent is-recorded"><i data-feather="check-circle"></i> Client agreed: <?= h($q['consent_note']) ?></div>
                   <?php endif; ?>
 
                   <?php if ($canApprove): ?>
                   <div class="mw-baq-actions">
-                    <button class="btn btn-success q-approve-btn"<?= $needsConsent ? ' disabled title="Record the client\'s agreement first"' : '' ?>>
-                      <i data-feather="globe" class="mr-1"></i> Approve &amp; publish
+                    <?php if ($flow && !$checked): ?>
+                    <button type="button" class="btn btn-success q-privacy-btn"><i data-feather="eye" class="mr-1"></i> Photos checked</button>
+                    <?php endif; ?>
+                    <button type="button" class="btn btn-success q-approve-btn"<?= ($flow && !$checked) ? ' hidden' : '' ?><?= $needsConsent ? ' disabled title="Record the client\'s agreement first"' : '' ?>>
+                      <i data-feather="globe" class="mr-1"></i> <span class="q-approve-label">Approve &amp; publish</span>
                     </button>
-                    <button class="btn btn-outline-secondary q-reject-btn">Not for the website</button>
+                    <button type="button" class="btn btn-outline-secondary q-reject-btn">Not for the website</button>
+                    <button type="button" class="btn btn-link q-edit-btn" aria-expanded="false">Edit</button>
                     <span class="q-status text-muted small ml-2"></span>
                   </div>
+                  <?php else: ?>
+                  <div class="mw-baq-actions"><button type="button" class="btn btn-link q-edit-btn" aria-expanded="false">Details</button></div>
                   <?php endif; ?>
+
+                  <div class="mw-baq-detail" hidden>
+                    <div class="mw-baq-private">
+                      <strong><?= h($q['property_name'] ?: $q['address'] ?: 'Property') ?></strong>
+                      <?php if (!empty($q['address']) && $q['property_name']): ?><span class="text-muted"> · <?= h($q['address']) ?></span><?php endif; ?>
+                      <span class="text-muted"> · <?= h($q['visit_number'] ?: ('Visit #' . (int)$q['visit_id'])) ?> · <?= $when ? date('M j, Y', strtotime($when)) : '' ?></span>
+                      <?php if (!empty($q['queued_by_name'])): ?><span class="text-muted"> · endorsed by <?= h($q['queued_by_name']) ?></span><?php endif; ?>
+                      <span class="badge badge-light ml-1" title="Office only, never shown on the website">private</span>
+                    </div>
+                    <div class="form-row">
+                      <div class="col-md-6 mb-2">
+                        <label class="mw-baq-label">Public label</label>
+                        <input type="text" class="form-control form-control-sm q-label" value="<?= h($v['label']) ?>" maxlength="120">
+                      </div>
+                      <div class="col-md-3 mb-2">
+                        <label class="mw-baq-label">Service</label>
+                        <input type="text" class="form-control form-control-sm q-service" value="<?= h($q['service']) ?>" maxlength="100">
+                      </div>
+                      <div class="col-md-3 mb-2">
+                        <label class="mw-baq-label">Neighbourhood</label>
+                        <input type="text" class="form-control form-control-sm q-area" value="<?= h($v['area']) ?>" maxlength="80" placeholder="e.g. Kitsilano">
+                      </div>
+                    </div>
+                    <div class="form-row">
+                      <div class="col-md-3 mb-2">
+                        <label class="mw-baq-label">Website filter</label>
+                        <select class="form-control form-control-sm q-category">
+                          <?php foreach (BeforeAfterService::CATEGORIES as $cat): ?>
+                          <option value="<?= $cat ?>"<?= $q['category'] === $cat ? ' selected' : '' ?>><?= ucfirst($cat) ?></option>
+                          <?php endforeach; ?>
+                        </select>
+                      </div>
+                      <div class="col-md-9 mb-2">
+                        <label class="mw-baq-label">Image descriptions (alt text, read by Google)</label>
+                        <div class="mw-baq-alts">
+                          <input type="text" class="form-control form-control-sm q-alt-before" value="<?= h($v['alt_before']) ?>" maxlength="160">
+                          <input type="text" class="form-control form-control-sm q-alt-after" value="<?= h($v['alt_after']) ?>" maxlength="160">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <?php endforeach; ?>
-            </div>
             <?php endif; ?>
+            </div>
+
+            <?php foreach ([['live', $livePairs, 'Nothing on the website from here yet.'], ['parked', $parkedPairs, 'Nothing set aside.']] as [$paneKey, $paneRows, $paneEmpty]): ?>
+            <div class="mw-baq-pane" data-pane="<?= $paneKey ?>" hidden>
+              <?php if (!$paneRows): ?>
+              <div class="card-body text-center text-muted py-4"><?= h($paneEmpty) ?></div>
+              <?php else: foreach ($paneRows as $r): ?>
+              <div class="mw-baq-row mw-baq-row-compact">
+                <div class="mw-baq-photos">
+                  <figure class="mw-baq-photo"><img src="<?= h($r['before_url']) ?>" alt="Before" loading="lazy"></figure>
+                  <figure class="mw-baq-photo"><img src="<?= h($r['after_url']) ?>" alt="After" loading="lazy"></figure>
+                </div>
+                <div class="mw-baq-main">
+                  <div class="mw-baq-title"><?= h($r['label'] ?: 'Untitled pair') ?></div>
+                  <div class="mw-baq-state"><?= $paneKey === 'live'
+                      ? 'On the website' . (!empty($r['approved_at']) ? ' since ' . date('M j, Y', strtotime($r['approved_at'])) : '')
+                      : 'Not for the website' . (!empty($r['rejected_reason']) ? ': ' . h($r['rejected_reason']) : '') ?></div>
+                </div>
+              </div>
+              <?php endforeach; endif; ?>
+            </div>
+            <?php endforeach; ?>
           </div>
 
           <!-- Toolbar -->
           <div class="card mb-3">
-            <div class="card-body py-2 d-flex align-items-center flex-wrap" style="gap:10px">
+            <div class="card-body py-2 d-flex align-items-center flex-wrap mw-ba-toolbar">
               <span class="mw-ba-toolbar-label">Filter:</span>
-              <select class="form-control form-control-sm mw-ba-filter" id="filterService" style="width:auto">
+              <select class="form-control form-control-sm mw-ba-filter" id="filterService">
                 <option value="">All Services</option>
                 <option value="Lawn Restoration">Lawn</option>
                 <option value="Garden Restoration">Garden</option>
                 <option value="Seasonal Cleanup">Cleanup</option>
                 <option value="Strata Maintenance">Strata</option>
               </select>
-              <select class="form-control form-control-sm mw-ba-filter" id="filterStatus" style="width:auto">
+              <select class="form-control form-control-sm mw-ba-filter" id="filterStatus">
                 <option value="">All Statuses</option>
                 <option value="1">Published</option>
                 <option value="0">Draft</option>
@@ -311,11 +387,11 @@ try {
             <div class="card">
               <div class="card-header d-flex align-items-center justify-content-between">
                 <h5 class="card-title mb-0">Transformation Pairs</h5>
-                <span class="text-muted" style="font-size:0.78rem">Drag to reorder</span>
+                <span class="text-muted mw-ba-hint">Drag to reorder</span>
               </div>
               <div class="mw-ba-pairs-list" id="baPairsList">
                 <div class="mw-ba-empty">
-                  <i data-feather="image" style="width:40px;height:40px;stroke:#d1d5db;display:block;margin:0 auto 1rem"></i>
+                  <i data-feather="image" class="mw-ba-empty-ico"></i>
                   Loading pairs&hellip;
                 </div>
               </div>
@@ -336,7 +412,7 @@ try {
                     <button class="mw-ba-tab" data-pick="after">After Photo</button>
                   </div>
                   <div class="mw-ba-pick-grid" id="pickGrid">
-                    <div class="mw-ba-empty" style="grid-column:1/-1;padding:1rem">
+                    <div class="mw-ba-empty mw-ba-empty-wide">
                       Loading media&hellip;
                     </div>
                   </div>
@@ -347,14 +423,14 @@ try {
                   <div class="mw-ba-preview-slot mw-ba-preview-slot--before" id="prevBefore">
                     <span class="mw-ba-preview-badge">Before</span>
                     <div class="mw-ba-preview-placeholder">
-                      <i data-feather="image" style="width:24px;height:24px;stroke:#d1d5db"></i>
+                      <i data-feather="image" class="mw-ba-ph-ico"></i>
                       <span>Select photo</span>
                     </div>
                   </div>
                   <div class="mw-ba-preview-slot mw-ba-preview-slot--after" id="prevAfter">
                     <span class="mw-ba-preview-badge">After</span>
                     <div class="mw-ba-preview-placeholder">
-                      <i data-feather="image" style="width:24px;height:24px;stroke:#d1d5db"></i>
+                      <i data-feather="image" class="mw-ba-ph-ico"></i>
                       <span>Select photo</span>
                     </div>
                   </div>
@@ -396,7 +472,7 @@ try {
                   </select>
                 </div>
               </div>
-              <div class="card-footer d-flex" style="gap:8px">
+              <div class="card-footer d-flex mw-ba-footer">
                 <button class="btn btn-light flex-fill" id="btnCancel">Cancel</button>
                 <button class="btn btn-success flex-fill" id="btnSave">Save Pair</button>
               </div>
@@ -407,10 +483,11 @@ try {
 
           <script>
           (function() {
-            // ── Approval queue: consent → approve / reject ────────────────────
+            // ── Approval queue: tabs, photo check, consent → (Mia's text) → approve / reject ──
             var CSRF  = <?= json_encode($csrfToken) ?>;
             var queue = document.getElementById('baQueue');
             if (!queue) return;
+            var FLOW = queue.dataset.flow === '1';   // Mia's flow line: nothing publishes before the photos are checked and her text is read
 
             function post(fields) {
               var fd = new FormData();
@@ -423,23 +500,71 @@ try {
               var s = row.querySelector('.q-status');
               if (!s) return;
               s.textContent = text;
-              s.style.color = ok ? 'var(--mw-green)' : 'var(--mw-orange)';
+              s.classList.toggle('is-ok', !!ok);
+              s.classList.toggle('is-bad', !ok);
             }
-            function settle(row, text) {
+            function state(row, text) { var n = row.querySelector('.q-state'); if (n) n.textContent = text; }
+            function bump(id, by) {
+              var badge = document.getElementById(id);
+              if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent, 10) + by);
+            }
+            function settle(row, text, countId) {
               status(row, text, true);
               row.classList.add('is-done');
-              var badge = document.getElementById('baQueueCount');
-              if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent, 10) - 1);
+              bump('baQueueCount', -1);
+              if (countId) bump(countId, 1);
               setTimeout(function() { row.remove(); }, 900);
               if (typeof fetchPairs === 'function') fetchPairs();
             }
+            function openDetail(row, open) {
+              var d = row.querySelector('.mw-baq-detail'), b = row.querySelector('.q-edit-btn');
+              if (d) d.hidden = !open;
+              if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            function consentRecorded(row, note) {
+              var box = row.querySelector('.mw-baq-consent');
+              if (box) { box.classList.add('is-recorded'); box.innerHTML = '<i data-feather="check-circle"></i> Client agreed: ' + escHtml(note); }
+              row.dataset.consent = 'ok';
+              var ok = row.querySelector('.q-approve-btn');
+              if (ok) { ok.disabled = false; ok.removeAttribute('title'); }
+              state(row, FLOW && row.dataset.privacy !== 'ok' ? 'Photos not checked yet' : (FLOW ? 'Photos checked. Ready for Mia\'s text' : 'Client agreed. Ready to approve'));
+              if (typeof feather !== 'undefined') feather.replace();
+            }
+            function photosChecked(row) {
+              row.dataset.privacy = 'ok';
+              var p = row.querySelector('.q-privacy-btn'); if (p) p.remove();
+              var ok = row.querySelector('.q-approve-btn'); if (ok) ok.hidden = false;
+              state(row, row.dataset.consent === 'needed' ? 'Needs the client\'s agreement first' : 'Photos checked. Ready for Mia\'s text');
+            }
+
+            // Tabs: Waiting / On the website / Not for the website
+            queue.querySelectorAll('.mw-baq-tab').forEach(function(tab) {
+              tab.addEventListener('click', function() {
+                queue.querySelectorAll('.mw-baq-tab').forEach(function(t) { t.classList.toggle('is-active', t === tab); });
+                queue.querySelectorAll('.mw-baq-pane').forEach(function(p) { p.hidden = p.dataset.pane !== tab.dataset.tab; });
+              });
+            });
 
             queue.addEventListener('click', function(e) {
               var btn = e.target.closest('button');
               if (!btn) return;
               var row = rowOf(btn);
-              if (!row) return;
+              if (!row || !row.dataset.pairId) return;
               var pairId = row.dataset.pairId;
+
+              if (btn.classList.contains('q-edit-btn')) {
+                openDetail(row, row.querySelector('.mw-baq-detail').hidden);
+                return;
+              }
+
+              if (btn.classList.contains('q-privacy-btn')) {
+                btn.disabled = true;
+                post({ action: 'queue_privacy', pair_id: pairId }).then(function(d) {
+                  if (!d.success) { btn.disabled = false; status(row, d.error || 'Could not record', false); return; }
+                  photosChecked(row);
+                }).catch(function() { btn.disabled = false; status(row, 'Network error', false); });
+                return;
+              }
 
               if (btn.classList.contains('q-consent-btn')) {
                 var note = row.querySelector('.q-consent-note').value.trim();
@@ -447,28 +572,32 @@ try {
                 btn.disabled = true;
                 post({ action: 'queue_consent', pair_id: pairId, note: note }).then(function(d) {
                   if (!d.success) { btn.disabled = false; alert(d.error || 'Could not record'); return; }
-                  var box = row.querySelector('.mw-baq-consent');
-                  box.classList.add('is-recorded');
-                  box.innerHTML = '<i data-feather="check-circle"></i> Client agreed — ' + escHtml(note);
-                  row.dataset.consent = 'ok';
-                  var ok = row.querySelector('.q-approve-btn');
-                  if (ok) { ok.disabled = false; ok.removeAttribute('title'); }
-                  if (typeof feather !== 'undefined') feather.replace();
+                  consentRecorded(row, note);
                 });
                 return;
               }
 
               if (btn.classList.contains('q-approve-btn')) {
+                // Flow line on: the first press offers Mia's text (the fields are open, ready to change); the second publishes it.
+                if (FLOW && !row.dataset.offered) {
+                  row.dataset.offered = '1';
+                  openDetail(row, true);
+                  btn.querySelector('.q-approve-label').textContent = 'Publish';
+                  state(row, 'Mia\'s text is below. Change anything you like, then press Publish.');
+                  return;
+                }
                 btn.disabled = true;
                 status(row, 'Publishing…', true);
-                post({
+                var body = {
                   action: 'queue_approve', pair_id: pairId,
                   label: row.querySelector('.q-label').value, service: row.querySelector('.q-service').value,
                   area: row.querySelector('.q-area').value, category: row.querySelector('.q-category').value,
                   alt_before: row.querySelector('.q-alt-before').value, alt_after: row.querySelector('.q-alt-after').value
-                }).then(function(d) {
+                };
+                if (FLOW) body.offered = '1';
+                post(body).then(function(d) {
                   if (!d.success) { btn.disabled = false; status(row, d.error || 'Error', false); return; }
-                  settle(row, '✓ On the website');
+                  settle(row, '✓ On the website', 'baLiveCount');
                 }).catch(function() { btn.disabled = false; status(row, 'Network error', false); });
                 return;
               }
@@ -479,9 +608,19 @@ try {
                 btn.disabled = true;
                 post({ action: 'queue_reject', pair_id: pairId, reason: reason }).then(function(d) {
                   if (!d.success) { btn.disabled = false; status(row, d.error || 'Error', false); return; }
-                  settle(row, 'Parked');
+                  settle(row, 'Parked', 'baParkedCount');
                 });
               }
+            });
+
+            // Mia's strip decided a step for a pair: the card below follows (the strip sent the page's own request).
+            window.addEventListener('mw:job-done', function(e) {
+              var d = e.detail || {}, req = d.request || {}, row = queue.querySelector('.mw-baq-row[data-pair-id="' + req.pair_id + '"]');
+              if (!row || !d.response || !d.response.success) return;
+              if (req.action === 'queue_privacy') photosChecked(row);
+              else if (req.action === 'queue_consent') consentRecorded(row, req.note || 'recorded');
+              else if (req.action === 'queue_approve') settle(row, '✓ On the website', 'baLiveCount');
+              else if (req.action === 'queue_reject') settle(row, 'Parked', 'baParkedCount');
             });
 
             function escHtml(str) {
@@ -561,7 +700,7 @@ try {
 
               if (!filtered.length) {
                 list.innerHTML = '<div class="mw-ba-empty">' +
-                  '<i data-feather="image" style="width:40px;height:40px;stroke:#d1d5db;display:block;margin:0 auto 1rem"></i>' +
+                  '<i data-feather="image" class="mw-ba-empty-ico"></i>' +
                   'No pairs yet &mdash; click <strong>+ New Pair</strong> to get started</div>';
                 if (window.feather) feather.replace();
                 return;
@@ -569,7 +708,7 @@ try {
 
               list.innerHTML = filtered.map(function(p) {
                 return '<div class="mw-ba-pair-row" data-id="' + p.id + '" draggable="true">' +
-                  '<div class="mw-ba-pair-drag"><i data-feather="menu" style="width:14px;height:14px;color:#d1d5db"></i></div>' +
+                  '<div class="mw-ba-pair-drag"><i data-feather="menu" class="mw-ba-grip-ico"></i></div>' +
                   '<div class="mw-ba-pair-imgs">' +
                     '<div class="mw-ba-pair-thumb mw-ba-pair-thumb--before" style="background-image:url(\'' + escAttr(p.before_thumb || '') + '\')">' +
                       '<span class="mw-ba-thumb-badge mw-ba-thumb-badge--before">B</span></div>' +
@@ -584,8 +723,8 @@ try {
                     '<span class="badge badge-' + (p.published ? 'success' : 'secondary') + '">' + (p.published ? 'Live' : 'Draft') + '</span>' +
                   '</div>' +
                   '<div class="mw-ba-pair-actions">' +
-                    '<button class="btn btn-sm btn-outline-secondary" data-action="edit" data-id="' + p.id + '" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px"></i></button>' +
-                    '<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="' + p.id + '" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-secondary" data-action="edit" data-id="' + p.id + '" title="Edit"><i data-feather="edit-2" class="mw-ba-btn-ico"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="' + p.id + '" title="Delete"><i data-feather="trash-2" class="mw-ba-btn-ico"></i></button>' +
                   '</div>' +
                 '</div>';
               }).join('');
@@ -611,7 +750,7 @@ try {
             function renderPickGrid() {
               var grid = document.getElementById('pickGrid');
               if (!mediaList.length) {
-                grid.innerHTML = '<div style="grid-column:1/-1;padding:1rem;text-align:center;color:#9ca3af;font-size:0.8rem">' +
+                grid.innerHTML = '<div class="mw-ba-empty mw-ba-empty-wide">' +
                   'No photos found in media library yet.<br>Upload via the Media Library page.</div>';
                 return;
               }

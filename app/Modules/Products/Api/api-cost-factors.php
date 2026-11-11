@@ -283,6 +283,18 @@ try {
         echo json_encode(['success' => true, 'message' => 'Default cost factors seeded', 'count' => count($defaults)]);
 
     // ── List overhead items ────────────────────────────────────
+    // ── Penny's suggestions (read-only; Accept goes through save-overhead / save-overhead-item) ──
+    } elseif ($action === 'get-overhead-suggestions') {
+        // Exposes ledger totals, so it needs the same permission as editing the page.
+        if (!userHasPermission('products.edit')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Permission denied']);
+            exit;
+        }
+        require_once APP_ROOT . '/Modules/Accounting/Services/OverheadSuggestionService.php';
+        $suggestions = (new OverheadSuggestionService($db))->suggestions();
+        echo json_encode(['success' => true] + $suggestions);
+
     } elseif ($action === 'list-overhead-items') {
         $includeInactive = isset($_GET['inactive']) && $_GET['inactive'] === '1';
         $hasExpenseLink = $db->query("SHOW TABLES LIKE 'expenses'")->rowCount() > 0 &&

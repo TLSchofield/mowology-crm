@@ -41,7 +41,7 @@ cp "$ROOT/ios/LogicTests/HeadSpineTests.swift" "$OUT/main.swift"
 run headspine "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
 
 cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
-run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$OUT/main.swift"
+run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" "$OUT/main.swift"
 
 # Ittai v1.2 design layer: contrast in light/dark/field, precedence, frozen symbol ladder, hexagon tap areas.
 cp "$ROOT/ios/LogicTests/IttaiDesignTests.swift" "$OUT/main.swift"

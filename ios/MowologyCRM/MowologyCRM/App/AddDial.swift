@@ -10,6 +10,7 @@
 
 import SwiftUI
 
+/// Identifies one creation action offered by the Add dial.
 enum AddDialItem: CaseIterable, Identifiable {
     case job, client, task, quote, invoice
 
@@ -42,8 +43,10 @@ enum AddDialItem: CaseIterable, Identifiable {
     }
 }
 
+/// Presents creation actions in a column aligned with the Add tab's physical slot.
 struct AddDial: View {
     @Environment(\.itAppStyle) private var style
+    @Environment(\.layoutDirection) private var layoutDirection
 
     /// The Add slot and how many slots the bar has, so the column rises straight above the bead.
     let slot: Int
@@ -56,7 +59,10 @@ struct AddDial: View {
 
     var body: some View {
         GeometryReader { geo in
-            let beadX = ItMeniscusGeometry.beadX(CGFloat(slot), count: slotCount, width: geo.size.width)
+            let physicalSlot = ItMeniscusGeometry.physicalSlotIndex(
+                slot, count: slotCount, isRightToLeft: layoutDirection == .rightToLeft
+            )
+            let beadX = ItMeniscusGeometry.beadX(CGFloat(physicalSlot), count: slotCount, width: geo.size.width)
             ZStack(alignment: .bottomTrailing) {
                 // A light veil, not a dark scrim: the screen stays readable behind the menu.
                 Rectangle()

@@ -15,6 +15,7 @@ header('Cache-Control: no-store');
 header('Referrer-Policy: no-referrer');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send();
 require_once APP_ROOT . '/Modules/Contacts/Services/PortalEmailChangeService.php';
@@ -30,14 +31,14 @@ $message = '';
 try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $done = $token !== '' ? $svc->confirm($token, (string)($_SERVER['REMOTE_ADDR'] ?? '')) : null;
-        if ($done === null) $message = 'This link has expired or was already used. Please make the change again from your portal, or call (778) 846-9273.';
+        if ($done === null) $message = 'This link has expired or was already used. Please make the change again from your portal, or ' . PortalBrand::callPhrase() . '.';
     } else {
         $pending = $token !== '' ? $svc->pending($token) : null;
-        if ($pending === null) $message = 'This link has expired or was already used. Please make the change again from your portal, or call (778) 846-9273.';
+        if ($pending === null) $message = 'This link has expired or was already used. Please make the change again from your portal, or ' . PortalBrand::callPhrase() . '.';
     }
 } catch (Throwable $e) {
     error_log('confirm-email: ' . $e->getMessage());
-    $message = 'Something went wrong. Please call (778) 846-9273.';
+    $message = 'Something went wrong. Please ' . PortalBrand::callPhrase() . '.';
 }
 ?>
 <!DOCTYPE html>
@@ -45,7 +46,7 @@ try {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Confirm Your Email — Mowology Landscaping</title>
+  <title>Confirm Your Email — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="stylesheet" href="/customer/portal.css">
 </head>
@@ -57,7 +58,7 @@ try {
         <?php if ($done !== null): ?>
           Done — we'll use <?= htmlspecialchars($done) ?> from now on.
         <?php elseif ($pending !== null): ?>
-          Use <?= htmlspecialchars((string)$pending['new_email']) ?> for your Mowology invoices and updates?
+          Use <?= htmlspecialchars((string)$pending['new_email']) ?> for your <?= htmlspecialchars(PortalBrand::name()) ?> invoices and updates?
         <?php else: ?>
           <?= htmlspecialchars($message) ?>
         <?php endif; ?>

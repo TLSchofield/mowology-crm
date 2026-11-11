@@ -18,6 +18,8 @@
  * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
  * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, guidance_id?, csrf_token}
  *                      → {ok, message, bulk?: {count, total, payee, account_id, account, from, to}, rule_id?}
+ * POST {mode: 'accountant_question', month: 'YYYY-MM', action?: add|drop, csrf_token}  Add a month's unmatched books-against-bank gap
+ *                      to the accountant's list (AccountantQuestionService; admin only; nothing is sent), or leave it alone.
  * POST {mode: 'bank_bulk_apply', transaction_id, account_id, csrf_token}  "Also put the other N lines from <payee> on
  *                      <account>": moves each unreviewed line of that payee with its journal entry (BankLineMoveService).
  * POST {mode: 'bank_rule_off', rule_id, csrf_token}  Undo "I'll file these myself": the learned rule stops.
@@ -311,6 +313,25 @@ try {
                 }
             }
             echo json_encode((new StatementCloseService($db))->lockMonth($ym, (int)$user['id']));
+            break;
+        }
+
+        case 'accountant_question': {
+            // The flow line's "Add to list" / "Leave it" for a month's unmatched gap (2026-11-10). Nothing is sent to anyone:
+            // the question's words are written from the books by the service, the press only names the month.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!isAdmin()) throw new RuntimeException('Only an admin can add to the accountant\'s list');
+            require_once APP_ROOT . '/Modules/Accounting/Services/AccountantQuestionService.php';
+            $aq = new AccountantQuestionService($db);
+            $ym = (string)($input['month'] ?? '');
+            $key = AccountantQuestionService::keyFor($ym);
+            if (!$aq->ready()) { echo json_encode(['ok' => false, 'message' => 'Needs migration 1451']); break; }
+            if ($aq->has($key)) { echo json_encode(['ok' => true, 'already' => true, 'message' => 'Already on the accountant\'s list.']); break; }
+            $draft = $aq->draftFor($ym);
+            if ($draft === null) { echo json_encode(['ok' => false, 'message' => $ym . ' isn\'t off the bank any more — nothing added.']); break; }
+            echo json_encode(($input['action'] ?? 'add') === 'drop'
+                ? $aq->drop($key, $draft['month'], $draft['account'], $draft['amount'], (int)$user['id'])
+                : $aq->add($key, $draft['month'], $draft['account'], $draft['amount'], $draft['question'], $draft['evidence'], (int)$user['id']));
             break;
         }
 

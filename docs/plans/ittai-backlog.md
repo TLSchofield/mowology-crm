@@ -8,6 +8,43 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Subcontracting — what is left after the web version (live 2026-11-10)
+- Native iPhone card (timeline, Accept), schedule card label, Otto line when a job is close and not yet accepted.
+- Their photos onto the visit record on Accept; their invoice attached to the expense in Penny.
+- Plan-level profit: stop adding estimated labour on a subcontracted visit.
+- Hold WorkSafeBC clearance and insurance per subcontractor.
+- A subcontractor who is also on Ittai: the job lands in their schedule and their invoice arrives as the bill (separate databases, needs a handshake between businesses).
+
+## How a business starts and gets paid (Tim, 2026-11-10) — before the first real business
+Ittai no longer depends on invoicing as its centre: clients, the schedule and the crew's day are the core, and the invoice is
+the handoff at the end. Without QuickBooks a business can still invoice, show How to Pay and keep its books, but has no Pay
+button and nothing marks an invoice paid. Each item needs its own plan.
+**Order (Tim, 2026-11-10):** Ittai is business operations and organising the owner, measured by making the owner money. Invoicing is a
+bonus, not the primary, so setup comes first and the two payment items follow it.
+1. **Two setup paths, not one with a fork.** Measured 2026-11-10 on a fresh local business: 14 screens plus connecting QuickBooks,
+   never asks what work they do, ends on an empty day. Symphony by Wix started in two tapped answers and about 3 minutes, but 45 minutes
+   later still lacked the business name, phone and email, and its quotes and regulars stayed empty until a Wix site and calendar were connected.
+   - **Has something:** fetch it, then "Are these your clients?" (keep or skip). Order: QuickBooks, phone contacts, Google Business
+     (fills name, address, phone), Outlook, Gmail once Google's yearly assessment is priced, Facebook/Instagram messages, WhatsApp.
+   - **Has nothing:** "Who's your next job for, and when?" A client and a schedule entry from one real job; the price can wait.
+   - **Both end on the schedule** (Tim started on Jobber with scheduling). Check how many steps one new job takes today.
+   - **Ask when it matters:** business name before the first thing goes to a client, GST at the first invoice, payroll at the first
+     employee, accountant when there is something to show, quiet hours before the first notification. Terms stay up front.
+   - **Empty cards sell the next step:** each says what will appear there and has one button to fill it (seen in Symphony).
+   - **Owed first:** a business creating itself (today Tim provisions it and adds its Intuit address by hand), iPhone sign-up.
+2. **Pasted payment link** — the business pastes its own Stripe, Square or PayPal page; it becomes the Pay button on the customer
+   invoice page when `Tenant::takesCards()` is false and there is no QuickBooks link. The money goes straight to the business,
+   and Ittai only sends the client there. Ask the lawyer first (Bank of Canada examples treat a redirect to someone else's
+   checkout as not a payment provider). **Guided Stripe (Tim 2026-11-10):** the owner opens their own account with our step-by-step
+   help; Ittai never enters their details. **Knowing it's paid:** add the invoice number to the link (`client_reference_id`), the owner
+   pastes a read-only restricted key once, and a 15-minute job reads completed payments (same shape as `QboClientPayService::pullPaid`).
+   One "customer chooses amount" link serves every invoice: Ittai adds `prefilled_amount` and `prefilled_email`, no write key. The client can
+   still edit the amount, so record what was actually paid and flag a difference. **The client's view:** the invoice page comes first, Pay opens
+   Stripe with the amount filled and the owner's logo, and the link's redirect (`{CHECKOUT_SESSION_ID}`, UTM codes) returns them to the invoice
+   showing it paid. Stripe's page cannot show the invoice number. Not yet tried in Stripe's test mode. **Shared:** the rule and the button. **Private:** each business's link and key.
+3. **e-Transfer matching for every business** — exists for Mowology only; each business needs its own mailbox and poller
+   (`project_etransfer_inbox_poller`). **Shared:** the matching rules. **Private:** the mailbox and payers.
+
 ## Build queue (Tim, 2026-11-05: "Queue all other items") — in order, one at a time after the payment thank-you
 1. ~~e-Transfer memos naming invoices without the year~~ — DONE (b13a1aa95, seen 2026-11-06).
 2. ~~Duplicate receipts on the phone~~ — BUILT 2026-11-06: Merge / Different square buttons, Penny's verdict + per-vendor record, facts side by side, Undo, Split off (iOS 1.3.89, web card, `expense_merges` migration 1442 — to run). Left: synchronised zoom across the two photos; web "Also on this purchase"; Penny asking per vendor for level 3 once her record is long.
@@ -580,7 +617,12 @@ Shape to plan (own chat, plan first): (1) per product, find candidates (the dire
 ## Found when live code came back into git (security audit fix 3, 2026-11-09)
 - **LookbackService calls the model directly** (`app/Modules/Accounting/Services/LookbackService.php:977`), skipping LlmGateway's retry, kill switch and cost log. `NoDirectAnthropicCallsTest` carries a dated exception for it; route the call through `LlmGateway::send()` and remove the exception.
 - **Old tests not adopted:** `EtransferNudgeServiceTest` and `InvoiceServiceTest` on the old branches are older than the live services and fail against them (nudge copy now reads the address from settings; `ensurePaymentIntent` has a lock). Both services have no current test.
-- **Left server-only, for the delete list:** `/customer/invoice-v2.php`, `/crm/api/test-invoice-create.php`, `/crm/api/salt-manual-trigger.php` (the last echoes a raw exception message; `invoice-v2.php` sends no CSP).
+- **Left server-only, for the delete list:** `/customer/invoice-v2.php`, `/crm/api/test-invoice-create.php` (`invoice-v2.php` sends no CSP). `/crm/api/salt-manual-trigger.php` turned out to be the live backend of `/crm/salt/trigger.php` (admin-only, CSRF), so it came into git as the server runs it (B3); it returns exception messages in its JSON to the admin — tidy when the salt page is next touched.
+- **Test-tenant outbound gate never deployed** (B2, branch `claude/test-tenant`, now on GitHub): `app/Core/OutboundGuard.php`, `TenantIdentity.php` and the gate calls in 36 senders, crons and Stripe files. Only its `IdempotencyGuard` was live, and that came in through `claude/server-idempotency`. The rest was not adopted (not live; its scan test would fail without the wiring). Merge it on its own when a test tenant is wanted.
+- **MiaLlmGateway calls the model directly** (`app/Modules/Marketing/Services/MiaLlmGateway.php`), like LookbackService; dated exception in `NoDirectAnthropicCallsTest`. Route it through `LlmGateway::send()` and remove the exception.
+- **B2 branch tests older than the live code, not adopted** (each service now lacks that check): `ReceiptAiHardeningTest` (whole file: tests `ReceiptBookkeeperService::sanitize()`, which the live service does not have — the live prompt-injection hardening took another shape); `ReceiptProfileTest` ×3 (exact prompt wording; `tax_unchecked` for a province without rates — the live `ReceiptProfile` never sets it, worth a look); `MiaRecommendationWriterTest` ×2 (expected the monthly cap to be checked before the model call; live code reports the model error first — worth a look); `MiaWorkspacePageTest` ×2 (CSS token guards against a later page than the one deployed); `VisitCompletionLaborTest` ×1 (asserted the source of an older `VisitCompletionService`).
+- **`claude/mia-autonomous-marketing-913456` is now the only copy of Mia's website work history** (52 commits); the 46 live files are in `feature/language`. The branch's docs (`docs/marketing/*`) came with it.
+
 
 ## Otto warns the owner about weather and public holidays, per business (Tim, 2026-11-09)
 - Tim was not told by Otto (app or push) that heavy rain was forecast for Tue 2026-11-10 with Wed 2026-11-11 a public holiday, so Tuesday's jobs had to move to Thursday. "Otto should be the one telling me."
@@ -597,3 +639,27 @@ numbers are tuned on real receipts, then copy them. **Shared:** the rule and the
 iPhone 1.3.135 offers "Last charged $X" under the price box (`FieldJobService::lastPrice`, `?mode=last_price`). The server
 side is shared; Android and the web overlay (`public/crm/js/field-job.js`) still need the button. **Shared:** the matching
 rule. **Private:** each business's own prices.
+
+## Getting paid without cards: what is left (Tim 2026-11-09)
+- A pasted payment link: moved up to "How a business starts and gets paid" at the top of this file (2026-11-10).
+- Intuit's official Connect button still needs the artwork pack from Tim's developer sign-in (see above).
+- The pay link has only been seen with online payment off (the test company has no QuickBooks Payments). Prove the real page on a live QuickBooks once Production keys arrive.
+
+
+## iPhone photo links that expire while the screen is open (2026-11-10)
+- Penny's card now re-issues its 15-minute photo links (1.3.137). The Receipts tab, a receipt's detail screen and the full-screen pager hold the same kind of link and do not. Answered duplicate cards keep their old links too. No 403 from those yet; check the access log before building anything.
+
+- **Yui decision carousel (Tim, 2026-11-10):** like Penny's expenses carousel: one decision at a time, "Who is this?", statement requests and unanswered client replies as cards. Web and iPhone. Plan to bring to Tim once the statement job is live.
+
+## iOS meniscus bar: Codex audit 2026-11-11 (read-only; refactor is behaviour-preserving, these stay here)
+Audit by Codex (`scripts/codex-ios-build.sh audit`), judged by Claude against `Architecture/iOS-Swift-Standards-Checklist.md` in the vault. The refactor takes only what changes no behaviour (tests, tokens, slot identity, force unwrap, main-actor, smoothness tool). **Deferred, each needs Tim's call or a device check:**
+- **Bar labels are fixed 11 pt, scaled down to 8.8 pt** (`ItMeniscusBar.swift:184-187`); below the 12 pt token minimum and they do not follow Dynamic Type. Large Content Viewer is there (the system tab bar's own answer), so this is a design decision: scaled caption with an accessibility-size layout, or keep.
+- **Add dial cannot scroll** in landscape / Split View / accessibility sizes (`AddDial.swift`, about 328 pt of rows).
+- **Keyboard:** the bar vanishes on show/hide booleans, not the keyboard's frame, duration and curve (`MainTabView.swift:204`); already in the "bar leaves with the keyboard's curve" backlog item.
+- **Tenant colour contrast** is trusted, not enforced, for the 11 pt selected label and the bead glyph; enforce in token generation, add Increase Contrast treatment.
+- **Haptics** only on Schedule reselect; decide the rule on a device.
+- **RTL:** slot geometry assumes physical-left for index 0; the app ships `en` only today, so a future item (logical-to-physical slot mapping is in the refactor as a pure, tested function).
+- **Frame-rate range** requests 80 to 120 Hz minimum on 60 Hz devices (`ItMeniscusMotion.swift:285`): harmless, verify on both display classes.
+- **Human checks still Tim's:** spring feel at 60/120 Hz, whether the one-turn-later screen switch feels immediate under load, the 0.25-slot reselect threshold, VoiceOver order, Large Content Viewer, Full Keyboard Access, Display Zoom, landscape/iPad reach of the Add dial.
+- **Refactor round 1 DONE 2026-11-11 (committed locally, not pushed, no TestFlight):** Codex wrote it (`codex-ios-build.sh`), Claude reviewed. Identity vs slot mapping (`slotIndex(forID:in:)`), RTL slot mapping (`physicalSlotIndex`), Kaname force unwrap removed, drawn fallback when a system symbol is missing, geometry tests for 3 to 6 tabs and spring/threshold edges. **Proved against the simulator:** the four demo screens (admin, add, crew, receipts) are pixel-identical to the pre-refactor build outside the status-bar clock; the stall demo's longest freeze is 16 ms in both. **Caught in review (Codex would have shipped them):** it swapped vector `Image(systemName:)` for a rasterised `UIImage` (icon edges moved), and it rewrote `bar-smoothness.py` to read the nominal frame rate, which misreads the simulator's variable-rate recordings ("STALLED" on a smooth video): reverted. **Left for later:** a frame-rate-aware smoothness tool (must be proven on real `simctl` recordings, which drop frames), `@MainActor` on the motion types (Codex could not verify call sites without the project), tokens for the bar's numbers (next step with the design spec).
+- **Meniscus design spec + tokens DONE 2026-11-11 (committed locally, not pushed):** `SPEC-v1.2.md` section 14; `tokens.json` → `meniscus` (23 numbers) generated into `ItMeniscusToken`; iPhone geometry, bar and motion read the tokens (same numbers; simulator screens pixel-identical once the Add dial has settled, stall demo longest freeze 16 ms); `MeniscusTokensTest` fails if iPhone re-hardcodes a number or Android's `MeniscusGeometry.kt` drifts (equal today). **Next:** Android audit and refactor (Codex via `codex-build.sh`, `codex/native`), moving Android to generated Kotlin tokens (`ittai-kotlin-tokens.mjs` lives in the Android repo), confirming each behaviour in section 14 or listing the gap. Not tokenised yet: the Add dial's own numbers, the label minimum scale, the Reduce Motion dissolve, the Add roll turns per slot (not verified on Android).

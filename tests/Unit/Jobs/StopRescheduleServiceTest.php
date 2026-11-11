@@ -21,7 +21,7 @@ final class StopRescheduleServiceTest extends TestCase
         $this->db->sqliteCreateFunction('NOW', static fn () => '2026-09-29 08:00:00', 0);
 
         $this->db->exec("CREATE TABLE calendar_stops (id INTEGER PRIMARY KEY, crew_id INT, property_id INT, stop_date TEXT, route_order INT, estimated_arrival TEXT, estimated_departure TEXT, status TEXT, updated_at TEXT)");
-        $this->db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, visit_number TEXT, stop_id INT, plan_id INT, status TEXT, original_scheduled_date TEXT, scheduled_date TEXT, scheduled_time_start TEXT, sequence_index INT, assigned_crew_id INT, status_changed_at TEXT, completed_at TEXT, completion_notes TEXT, updated_at TEXT)");
+        $this->db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, visit_number TEXT, stop_id INT, plan_id INT, status TEXT, original_scheduled_date TEXT, scheduled_date TEXT, scheduled_time_start TEXT, scheduled_time_end TEXT, sequence_index INT, assigned_crew_id INT, status_changed_at TEXT, completed_at TEXT, completion_notes TEXT, updated_at TEXT)");
         $this->db->exec("CREATE TABLE job_plans (id INTEGER PRIMARY KEY, plan_number TEXT, estimated_duration_minutes INT)");
         // VisitCarryGuard looks for After photos before a move (2026-10-27).
         $this->db->exec("CREATE TABLE media_links (id INTEGER PRIMARY KEY, media_id INT, context_type TEXT, context_id INT, category TEXT)");
@@ -205,5 +205,14 @@ final class StopRescheduleServiceTest extends TestCase
         $this->assertSame([], $result['fresh_visit_ids']);
         $this->assertSame('scheduled', $this->visit(200)['status']);
         $this->assertSame('2026-10-09', $this->visit(200)['scheduled_date']);
+    }
+
+    public function testMovingWithATimeKeepsTheVisitsLength(): void
+    {
+        $this->db->exec("UPDATE job_visits SET scheduled_time_start = '09:00:00', scheduled_time_end = '10:30:00' WHERE id = 200");
+        (new StopRescheduleService($this->db))->reschedule(100, '2026-10-06', 1, '14:00:00', false);
+        $v = $this->db->query("SELECT scheduled_time_start, scheduled_time_end FROM job_visits WHERE id = 200")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('14:00:00', $v['scheduled_time_start']);
+        $this->assertSame('15:30:00', $v['scheduled_time_end']);
     }
 }

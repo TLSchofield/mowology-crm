@@ -485,6 +485,19 @@ class QboSyncTest extends TestCase
         $this->assertStringContainsString('requestid=ittai-1-inv-10-r1', $inv[0]['url']);
     }
 
+    public function test_a_payment_that_came_from_quickbooks_never_goes_back(): void
+    {
+        $db = $this->db();
+        $this->autoOn($db);
+        $db->exec("UPDATE invoice_payment_allocations SET amount = 200.00");
+        $this->sync($db)->runQueue();
+        $db->exec("INSERT INTO invoice_payment_allocations (id, invoice_id, amount, payment_date, created_at) VALUES (101, 10, 216.06, '2026-10-21', '2026-10-21 09:00:00')");
+        QboLinkService::save($db, 1, '777', 'payment', 'alloc:101', '88', null, 'r', 'from_qbo', 216.06, 'Paid in QuickBooks', '2026-10-21 09:00:00');
+        $this->assertSame([], $this->sync($db)->due());
+        $this->sync($db)->sendInvoice(10);
+        $this->assertSame([], array_column($this->sent, 'entity'));
+    }
+
     public function test_a_payment_after_the_invoice_is_picked_up_by_the_next_run(): void
     {
         $db = $this->db();

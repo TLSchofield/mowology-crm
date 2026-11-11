@@ -144,6 +144,24 @@ class ReceiptInboxServiceTest extends TestCase
         $this->assertFalse($ok(null, 'Receipt'));
     }
 
+    /** 2026-10-22: a signed quote forwarded from the owner's own address became an "Emailed receipt". */
+    public function test_our_own_documents_are_not_receipts_even_when_forwarded_by_us(): void
+    {
+        $own = ['mowology@icloud.com']; $clients = [];
+        $ok = fn($from, $subj, $file = 'a.pdf') => ReceiptInboxService::isOfficeReceipt($from, $subj, $file, $own, $clients);
+        $this->assertFalse($ok('mowology@icloud.com', 'Fwd: Snow Removal - 2025/2026 - Signed quotes', 'quote.pdf'));
+        $this->assertFalse($ok('mowology@icloud.com', 'Fwd: lunch', 'QUO-2026-0062.pdf'), 'our document number');
+        $this->assertFalse($ok('mowology@icloud.com', 'Fwd: your service contract', 'CTR-2026-0048.pdf'));
+        $this->assertFalse($ok('mowology@icloud.com', 'Proposal for the strata'));
+        // still receipts: a vendor invoice that mentions a quote, and ordinary owner forwards
+        $this->assertTrue($ok('mowology@icloud.com', 'Fwd: Invoice 8841 (re your quote Q-55)', 'inv8841.pdf'));
+        $this->assertTrue($ok('mowology@icloud.com', 'Fwd: Receipt from Dunbar Lumber'));
+        $this->assertTrue($ok('mowology@icloud.com', 'Fwd: lunch'));
+        $this->assertTrue($ok('ap@supplier.ca', 'Statement', 'INV-2026-4471.pdf'), 'INV- is not treated as ours');
+        $this->assertTrue(ReceiptInboxService::isOwnDocument('Signed Quotes'));
+        $this->assertFalse(ReceiptInboxService::isOwnDocument('Your Telus bill is ready'));
+    }
+
     public function test_a_receipt_that_is_the_email_itself(): void
     {
         $own = ['mowology@icloud.com']; $clients = ['strata@example.com'];

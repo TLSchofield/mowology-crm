@@ -573,6 +573,14 @@ class YuiDeskService
         return ['sections' => $out, 'stats' => $this->stats(), 'drafts_left' => $drafts->claudeLeft()];
     }
 
+    /** The inbox items as the card has them (statement offers and drafts included), for the decision carousel. */
+    public function inboxCards(string $owner): array
+    {
+        require_once __DIR__ . '/YuiDraftService.php';
+        $drafts = new YuiDraftService($this->db);
+        return array_map(fn($it) => $this->forCard($it, $owner, $drafts), $this->inbox());
+    }
+
     /** One item by key, as the card has it (the server never trusts the browser's copy). */
     public function find(string $key, string $owner): ?array
     {
@@ -604,7 +612,16 @@ class YuiDeskService
                 $it['draft_autopay'] = YuiRules::draft(['template' => 'autopay'] + $it, $owner, $drafts->learned('autopay'));
             }
         }
-        if (($it['section'] ?? '') === 'inbox') $it['thread'] = $drafts->thread((int)$it['contact_id'], 4);
+        if (($it['section'] ?? '') === 'inbox') {
+            $it['thread'] = $drafts->thread((int)$it['contact_id'], 4);
+            require_once __DIR__ . '/YuiStatementOffer.php';
+            $offer = YuiStatementOffer::load($this->db, $it, $owner);
+            if ($offer !== null) {
+                $it['draft_statement'] = $offer['draft'];
+                unset($offer['draft']);
+                $it['statement'] = $offer;
+            }
+        }
         unset($it['message_key']);
         return $it;
     }

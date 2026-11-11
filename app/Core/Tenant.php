@@ -220,6 +220,15 @@ final class Tenant
         return self::key() === self::DEFAULT;
     }
 
+    /**
+     * Only the original business takes cards, from its own customers. Ittai launches no charges for other
+     * businesses: their clients pay on QuickBooks' own page (Bank of Canada RPAA scenarios; Tim 2026-11-09).
+     */
+    public static function takesCards(): bool
+    {
+        return self::isDefault();
+    }
+
     /** Pure registry-config resolver: only an explicit boolean true marks a business as a test business. */
     public static function isTestCfg(array $cfg): bool
     {
@@ -270,6 +279,14 @@ final class Tenant
         // (password resets included) to another business or an outside address (Codex 2026-10-23).
         $hosts = array_map('strtolower', (array)($cfg['hosts'] ?? []));
         return in_array(strtolower($m[1]), $hosts, true) ? $u : '';
+    }
+
+    /** This business's own registered address, for links when no app_url is set; '' for the default tenant. */
+    public static function ownAddress(): string
+    {
+        if (self::isDefault()) return '';
+        $host = (string)(((array)(self::$current['cfg']['hosts'] ?? []))[0] ?? '');
+        return preg_match('/^[a-z0-9.-]+$/i', $host) ? 'https://' . strtolower($host) : '';
     }
 
     /** Tests only. */

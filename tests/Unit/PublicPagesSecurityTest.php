@@ -40,6 +40,11 @@ final class PublicPagesSecurityTest extends TestCase
         self::assertSame('https://mowology.ca', PublicFormSecurity::recaptchaSiteUrl(null));
         self::assertSame('https://mowology.ca', PublicFormSecurity::recaptchaSiteUrl(''));
         self::assertSame('https://talkinghands.ca', PublicFormSecurity::recaptchaSiteUrl('https://talkinghands.ca'));
+        // A business on its own address is checked against that address; the original business (no app_url) is unchanged.
+        self::assertSame('https://rehearsal2.ittai.ca', PublicFormSecurity::recaptchaSiteUrl('https://mowology.ca', 'https://rehearsal2.ittai.ca'));
+        self::assertSame('https://mowology.ca', PublicFormSecurity::recaptchaSiteUrl('https://mowology.ca', ''));
+        self::assertTrue(PublicFormSecurity::isAllowedRecaptchaHostname('rehearsal2.ittai.ca', PublicFormSecurity::recaptchaSiteUrl(null, 'https://rehearsal2.ittai.ca'), 'rehearsal2.ittai.ca'));
+        self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('other.ittai.ca', PublicFormSecurity::recaptchaSiteUrl(null, 'https://rehearsal2.ittai.ca'), 'other.ittai.ca'));
         self::assertTrue(PublicFormSecurity::isAllowedRecaptchaHostname('mowology.ca', PublicFormSecurity::recaptchaSiteUrl(null), 'mowology.ca'));
         self::assertFalse(PublicFormSecurity::isAllowedRecaptchaHostname('attacker.example', PublicFormSecurity::recaptchaSiteUrl(null), 'attacker.example'));
     }

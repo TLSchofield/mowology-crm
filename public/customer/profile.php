@@ -12,6 +12,7 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
@@ -44,7 +45,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Details — Mowology Landscaping</title>
+  <title>Your Details — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="stylesheet" href="/customer/portal.css">
 </head>
@@ -127,7 +128,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     <?php endif; ?>
 
     <div class="portal-footer">
-      Questions? Call <a href="tel:7788469273">(778) 846-9273</a> &mdash; &copy; <?= date('Y') ?> Mowology
+      <?php if (PortalBrand::questionsHtml() !== ''): ?><?= PortalBrand::questionsHtml() ?> &mdash; <?php endif; ?>&copy; <?= date('Y') ?> <?= htmlspecialchars(PortalBrand::name()) ?>
     </div>
   </div>
 

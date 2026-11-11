@@ -7,6 +7,8 @@ $pageTitle = 'Landscaping & Grounds Maintenance Vancouver | Mowology';
 $pageDescription = 'Professional landscaping and grounds maintenance services in Vancouver, Burnaby & Richmond. Specializing in strata properties and residential gardens.';
 $pageKeywords = 'landscaping Vancouver, strata landscaping, property management landscaping, residential landscaping, grounds maintenance, Burnaby landscaping, Richmond landscaping';
 $activeNav = 'home';
+// Proves to Mia (Search & Website) that this site is ours. Remove this line to withdraw her permission to look at the site.
+$extraHead = '<meta name="ittai-mia-verification" content="a5a214b5d9e491547de5172f87a4ee5a">';
 
 $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 

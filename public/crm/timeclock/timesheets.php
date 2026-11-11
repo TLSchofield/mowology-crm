@@ -36,6 +36,9 @@ if ($filterWeek && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filterWeek)) {
     $params[] = $filterWeek;
 }
 
+// Trucks are vehicles, not employees: never listed for review or payroll.
+$where[] = "IFNULL(u.device_type, 'personal') <> 'truck'";
+
 $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 $stmt = $db->prepare("
@@ -52,7 +55,10 @@ $stmt->execute($params);
 $timesheets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get staff for filter dropdown
-$staff = getStaffMembers();
+$truckIds = array_map('intval', $db->query("SELECT id FROM users WHERE device_type = 'truck'")->fetchAll(PDO::FETCH_COLUMN));
+$staff = array_values(array_filter(getStaffMembers(), function ($s) use ($truckIds) {
+    return !in_array((int)$s['id'], $truckIds, true);
+}));
 
 $pageTitle = 'Timesheets';
 $activePage = 'timesheets';
@@ -64,6 +70,7 @@ $activePage = 'timesheets';
         <h1 class="mw-page-title">Timesheets</h1>
     </div>
     <div class="mw-page-actions">
+        <a href="/crm/timeclock/timesheet-week.php" class="btn btn-sm btn-primary">Week view</a>
         <a href="/crm/timeclock/my-schedule.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="arrow-left"></i> My Schedule
         </a>

@@ -104,6 +104,19 @@ if ($e):
         <dl class="mw-ledger-fields"><?php foreach ($b['fields'] as $k => $v): if ($v === null || $v === '') continue; ?>
           <div><dt><?= h((string)$k) ?></dt><dd><?= $fmtVal($k, $v) ?></dd></div><?php endforeach; ?></dl>
       <?php endif; ?>
+      <?php if (!empty($e['documents'])): ?>
+        <h4>Supporting documents</h4>
+        <ul class="mw-ledger-docs">
+          <?php foreach ($e['documents'] as $d): ?>
+          <li>
+            <strong>Receipt #<?= (int)$d['expense_id'] ?></strong> — <?= h($d['vendor']) ?>, <?= h($d['expense_date']) ?>, $<?= number_format((float)$d['total'], 2) ?>
+            <span class="mw-ledger-doc-status">(<?= h($d['status']) ?>; <?= h($d['relation_label']) ?>)</span>
+            <?php if (!empty($d['note'])): ?><br><small><?= h((string)$d['note']) ?></small><?php endif; ?>
+            <?php if (!empty($d['image_url'])): ?><br><a class="mw-ledger-receipt" href="<?= h($d['image_url']) ?>" target="_blank" rel="noopener"><img src="<?= h($d['image_url']) ?>" alt="Receipt photo" loading="lazy"></a><?php endif; ?>
+          </li>
+          <?php endforeach; ?>
+        </ul>
+      <?php endif; ?>
       <?php if (!empty($src['invoice_id']) && $canSeeInvoices && !$ledgerIsAccountant): ?>
         <p><a href="/crm/invoices/view.php?id=<?= (int)$src['invoice_id'] ?>">Open the invoice</a></p>
       <?php endif; ?>

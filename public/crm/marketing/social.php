@@ -55,7 +55,7 @@ try {
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
           <!-- Page Header -->
-          <div class="d-flex justify-content-between align-items-center mb-4">
+          <div class="d-flex justify-content-between align-items-center flex-wrap mb-4 mw-soc-head">
               <div>
                   <h1 class="h3 mb-0">Social Marketing</h1>
                   <p class="text-muted mb-0">
@@ -64,13 +64,13 @@ try {
                       <strong class="text-dark">Social Posts</strong>
                   </p>
               </div>
-              <div class="d-flex gap-2">
+              <div class="d-flex flex-wrap mw-soc-head-actions">
                   <?php if ($canEdit): ?>
                   <a href="/crm/marketing/social-post-wizard.php" class="btn btn-success mw-soc-btn-new">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                       New Post
                       <?php if ($autoDraftCount > 0): ?>
-                      <span class="badge badge-pill ml-1" style="background:var(--mw-lime);color:#1a3a2a;font-size:11px"><?php echo $autoDraftCount; ?> AI</span>
+                      <span class="badge badge-pill ml-1 mw-soc-ai-badge"><?php echo $autoDraftCount; ?> AI</span>
                       <?php endif; ?>
                   </a>
                   <?php endif; ?>
@@ -96,7 +96,7 @@ try {
               require_once APP_ROOT . '/Modules/Social/Services/SocialConnectionState.php';
               $__socState = SocialConnectionState::fromAccounts(SocialConnectionState::load(getDB()));
           } catch (Throwable $e) { /* banner is a bonus */ }
-          if (!empty($__socState['needs_reconnect'])): ?>
+          if (!empty($__socState['needs_reconnect']) && empty($__miaStripShown)): ?>
           <div class="mw-soc-reconnect" role="alert">
               <p><strong>Reconnect Facebook.</strong> <?php echo h(preg_replace('/^Reconnect Facebook — /', '', $__socState['message'])); ?></p>
               <?php if ($canApprove): ?>
@@ -105,78 +105,30 @@ try {
           </div>
           <?php endif; ?>
 
-          <!-- KPI Stats — 6 tiles -->
-          <div class="mw-soc-stats-row mb-4" id="socStats">
-              <div class="mw-soc-stat-card">
-                  <div class="mw-soc-stat-icon mw-soc-icon-green">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  </div>
-                  <div>
-                      <div class="mw-soc-stat-num" id="statPublished">—</div>
-                      <div class="mw-soc-stat-lbl">Published This Month</div>
-                      <div id="trendPublished"></div>
-                  </div>
+          <!-- KPI Stats — one quiet row -->
+          <div class="mw-soc-statbar mb-4" id="socStats">
+              <?php foreach ([['statPublished', 'Published this month', 'trendPublished'], ['statScheduled', 'Scheduled', ''], ['statPending', 'Pending approval', ''],
+                              ['statImpressions', 'Impressions', 'trendImpressions'], ['statReach', 'Total reach', 'trendReach'], ['statLikes', 'Likes', 'trendLikes']] as [$__sid, $__slbl, $__strend]): ?>
+              <div class="mw-soc-stat">
+                  <div class="mw-soc-stat-num" id="<?php echo $__sid; ?>">—</div>
+                  <div class="mw-soc-stat-lbl"><?php echo h($__slbl); ?></div>
+                  <?php if ($__strend !== ''): ?><div id="<?php echo $__strend; ?>"></div><?php endif; ?>
               </div>
-              <div class="mw-soc-stat-card">
-                  <div class="mw-soc-stat-icon mw-soc-icon-blue">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  </div>
-                  <div>
-                      <div class="mw-soc-stat-num" id="statImpressions">—</div>
-                      <div class="mw-soc-stat-lbl">Impressions</div>
-                      <div id="trendImpressions"></div>
-                  </div>
-              </div>
-              <div class="mw-soc-stat-card">
-                  <div class="mw-soc-stat-icon mw-soc-icon-purple">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                  </div>
-                  <div>
-                      <div class="mw-soc-stat-num" id="statReach">—</div>
-                      <div class="mw-soc-stat-lbl">Total Reach</div>
-                      <div id="trendReach"></div>
-                  </div>
-              </div>
-              <div class="mw-soc-stat-card">
-                  <div class="mw-soc-stat-icon mw-soc-icon-orange">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  </div>
-                  <div>
-                      <div class="mw-soc-stat-num" id="statPending">—</div>
-                      <div class="mw-soc-stat-lbl">Pending Approval</div>
-                  </div>
-              </div>
-              <div class="mw-soc-stat-card">
-                  <div class="mw-soc-stat-icon mw-soc-icon-red">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                  </div>
-                  <div>
-                      <div class="mw-soc-stat-num" id="statLikes">—</div>
-                      <div class="mw-soc-stat-lbl">Likes</div>
-                      <div id="trendLikes"></div>
-                  </div>
-              </div>
-              <div class="mw-soc-stat-card">
-                  <div class="mw-soc-stat-icon mw-soc-icon-blue">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                  </div>
-                  <div>
-                      <div class="mw-soc-stat-num" id="statScheduled">—</div>
-                      <div class="mw-soc-stat-lbl">Scheduled</div>
-                  </div>
-              </div>
+              <?php endforeach; ?>
           </div>
 
-          <!-- Top Post Spotlight (populated by JS when data exists) -->
-          <div class="mw-soc-top-post-strip" id="topPostStrip" style="display:none;">
-              <div style="font-size:1.4rem;flex-shrink:0;line-height:1;">&#9733;</div>
-              <div style="flex:1;min-width:0;">
-                  <div class="mw-soc-top-post-label">Top Post This Month</div>
-                  <div class="mw-soc-top-post-caption" id="topPostCaption"></div>
-                  <div id="topPostPlatforms" class="mt-1" style="display:flex;gap:4px;"></div>
+          <!-- Top Post — a card, shown when there is one -->
+          <div class="card mb-4 mw-soc-top-post" id="topPostStrip" hidden>
+              <div class="card-body">
+                  <svg class="mw-soc-top-post-star" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  <div class="mw-soc-top-post-main">
+                      <div class="mw-soc-top-post-label">Top post this month</div>
+                      <div class="mw-soc-top-post-caption" id="topPostCaption"></div>
+                      <div id="topPostPlatforms" class="mw-soc-top-post-platforms"></div>
+                  </div>
+                  <div class="mw-soc-top-post-metrics" id="topPostMetrics"></div>
+                  <a class="btn btn-sm btn-outline-success" id="topPostLink" href="#">View</a>
               </div>
-              <div class="mw-soc-top-post-metrics" id="topPostMetrics"></div>
-              <a class="btn btn-sm btn-outline-success ml-2" id="topPostLink" href="#" style="flex-shrink:0;">View</a>
           </div>
 
           <!-- Visual Format Decision Tree -->
@@ -185,12 +137,11 @@ try {
                    aria-expanded="false" aria-controls="dtreeBody">
                   <span class="mw-dtree-header-text">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                      Not sure which format? Use our decision tree
+                      Which format fits this post?
                   </span>
                   <svg class="mw-dtree-caret" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
               <div class="card-body mw-dtree-hidden" id="dtreeBody">
-                  <p class="text-muted mw-dtree-intro">Answer a few quick questions and we'll point you to the Motion ad format that fits this post.</p>
                   <div class="mw-dtree-crumbs" id="dtreeCrumbs"></div>
                   <div id="dtreeStage"></div>
               </div>
@@ -203,37 +154,30 @@ try {
 
                   <!-- Upcoming Scheduled -->
                   <div class="card mb-4">
-                      <div class="card-header" style="flex-wrap:wrap;gap:8px;">
-                          <div class="d-flex justify-content-between align-items-center w-100">
-                              <div class="d-flex align-items-center gap-2">
-                                  <h5 class="mb-0 mr-3">
-                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                      Posts
-                                  </h5>
-                                  <div class="mw-soc-post-tabs" id="postTabs">
-                                      <button class="mw-soc-post-tab active" data-tab="scheduled" onclick="switchPostTab('scheduled',this)">Scheduled</button>
-                                      <button class="mw-soc-post-tab" data-tab="draft" onclick="switchPostTab('draft',this)">Drafts<?php if ($autoDraftCount > 0): ?> <span class="mw-soc-tab-badge"><?php echo $autoDraftCount; ?></span><?php endif; ?></button>
-                                      <button class="mw-soc-post-tab" data-tab="published" onclick="switchPostTab('published',this)">Published</button>
-                                  </div>
-                              </div>
-                              <div class="d-flex gap-2 align-items-center">
-                                  <?php if (userHasPermission('marketing.approve')): ?>
-                                  <button class="btn btn-sm btn-outline-primary" id="btnRunPublisher" onclick="runPublisher()">
-                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                      Publish Now
-                                  </button>
-                                  <?php endif; ?>
-                                  <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Calendar</a>
-                              </div>
+                      <div class="card-header mw-soc-posts-head">
+                          <div class="mw-soc-post-tabs" id="postTabs" role="tablist">
+                              <button type="button" class="mw-soc-post-tab active" role="tab" data-tab="scheduled" onclick="switchPostTab('scheduled',this)">Scheduled</button>
+                              <button type="button" class="mw-soc-post-tab" role="tab" data-tab="draft" onclick="switchPostTab('draft',this)">Drafts<?php if ($autoDraftCount > 0): ?> <span class="mw-soc-tab-badge"><?php echo $autoDraftCount; ?></span><?php endif; ?></button>
+                              <button type="button" class="mw-soc-post-tab" role="tab" data-tab="published" onclick="switchPostTab('published',this)">Published</button>
                           </div>
-                          <!-- 7-day Activity Pulse -->
-                          <div class="mw-soc-pulse-strip w-100" id="pulseStrip"></div>
+                          <div class="mw-soc-posts-tools">
+                              <?php if ($canEdit): ?>
+                              <a href="/crm/marketing/social-library.php" class="mw-soc-link">Templates</a>
+                              <?php endif; ?>
+                              <?php if ($canApprove): ?>
+                              <button class="btn btn-sm btn-outline-primary" id="btnRunPublisher" onclick="runPublisher()">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                  Publish Now
+                              </button>
+                              <?php endif; ?>
+                          </div>
                       </div>
                       <div class="card-body p-0" id="upcomingList">
                           <div class="mw-soc-loading">Loading...</div>
                       </div>
                   </div>
 
+                  <?php if (empty($__miaStripShown)): // without Mia's strip (classic shell, or not the owner) the page keeps its own cards ?>
                   <!-- Failed Posts -->
                   <div class="card mb-4" id="failedCard" style="display:none;">
                       <div class="card-header d-flex justify-content-between align-items-center">
@@ -258,13 +202,14 @@ try {
                       <div class="card-body p-0" id="approvalList"></div>
                   </div>
                   <?php endif; ?>
+                  <?php endif; ?>
 
                   <!-- Flagged Visits Awaiting Social Draft (Phase 3) -->
                   <?php if (!empty($flaggedVisitsPendingDraft) && $canEdit): ?>
                   <div class="card mb-4">
-                      <div class="card-header d-flex justify-content-between align-items-center"
-                           style="cursor:pointer" data-toggle="collapse" data-target="#flaggedVisitsBody" aria-expanded="false">
-                          <h5 class="mb-0" style="color:var(--mw-orange)">
+                      <div class="card-header d-flex justify-content-between align-items-center mw-soc-collapse-head"
+                           data-toggle="collapse" data-target="#flaggedVisitsBody" aria-expanded="false">
+                          <h5 class="mb-0 mw-soc-flag-title">
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
                               Flagged Visits — Awaiting Social Draft
                           </h5>
@@ -286,7 +231,7 @@ try {
                                       </div>
                                       <button class="btn btn-sm btn-outline-success"
                                               onclick="generateDraftForVisit(<?php echo (int)$fv['visit_id']; ?>, this)"
-                                              style="white-space:nowrap">
+                                             >
                                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                                           Generate Draft
                                       </button>
@@ -303,35 +248,6 @@ try {
               <!-- Right: Quick Actions + Platform Status -->
               <div class="col-lg-4">
 
-                  <!-- Quick Actions -->
-                  <div class="card mb-4">
-                      <div class="card-header"><h5 class="mb-0">Quick Actions</h5></div>
-                      <div class="card-body">
-                          <div class="mw-soc-quick-actions">
-                              <?php if ($canEdit): ?>
-                              <a href="/crm/marketing/social-post-editor.php" class="mw-soc-quick-btn mw-soc-quick-new">
-                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                  <span>New Post</span>
-                              </a>
-                              <a href="/crm/marketing/social-library.php" class="mw-soc-quick-btn">
-                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                  <span>Templates</span>
-                              </a>
-                              <?php endif; ?>
-                              <?php if ($canApprove): ?>
-                              <a href="/crm/marketing/social-accounts.php" class="mw-soc-quick-btn">
-                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
-                                  <span>Connect Account</span>
-                              </a>
-                              <?php endif; ?>
-                              <a href="/crm/marketing/social-calendar.php" class="mw-soc-quick-btn">
-                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                  <span>Calendar</span>
-                              </a>
-                          </div>
-                      </div>
-                  </div>
-
                   <!-- Connected Platforms -->
                   <div class="card mb-4">
                       <div class="card-header d-flex justify-content-between align-items-center">
@@ -345,23 +261,6 @@ try {
                       </div>
                   </div>
 
-                  <!-- Mini Calendar -->
-                  <div class="card mb-4">
-                      <div class="card-header d-flex justify-content-between align-items-center">
-                          <h5 class="mb-0" id="miniCalTitle">Loading…</h5>
-                          <div style="display:flex;gap:4px;">
-                              <button class="btn btn-sm btn-outline-secondary" onclick="miniCalNav(-1)" title="Previous month">&lsaquo;</button>
-                              <button class="btn btn-sm btn-outline-secondary" onclick="miniCalNav(1)"  title="Next month">&rsaquo;</button>
-                          </div>
-                      </div>
-                      <div class="card-body p-0 mw-soc-mini-cal" id="miniCalBody">
-                          <div class="mw-soc-loading">Loading…</div>
-                      </div>
-                      <div class="card-footer text-center" style="background:none;border-top:1px solid #f1f3f5;padding:8px;">
-                          <a href="/crm/marketing/social-calendar.php" class="small text-muted">Open full calendar →</a>
-                      </div>
-                  </div>
-
                   <!-- Schedule Density — next 12 months -->
                   <div class="card mb-4">
                       <div class="card-header d-flex justify-content-between align-items-center">
@@ -370,14 +269,14 @@ try {
                               Schedule Fill
                           </h5>
                           <?php if ($canApprove): ?>
-                          <span class="text-muted" style="font-size:.72rem;">next 12 months</span>
+                          <span class="text-muted mw-soc-density-note">next 12 months</span>
                           <?php endif; ?>
                       </div>
-                      <div class="card-body" style="padding:12px 16px 10px;">
-                          <div id="densityRow" style="display:flex;gap:4px;align-items:flex-end;overflow-x:hidden;">
-                              <div style="width:100%;font-size:.75rem;color:#adb5bd;">Loading…</div>
+                      <div class="card-body mw-soc-density">
+                          <div id="densityRow" class="mw-soc-density-row">
+                              <div class="mw-soc-density-loading">Loading…</div>
                           </div>
-                          <p class="text-muted mb-0 mt-2" style="font-size:.7rem;">Bars show scheduled posts vs seasonal target. Create a Campaign from any post to auto-fill gaps.</p>
+                          <p class="text-muted mb-0 mt-2 mw-soc-density-note">Bars show scheduled posts vs seasonal target. Create a Campaign from any post to auto-fill gaps.</p>
                       </div>
                   </div>
 
@@ -390,12 +289,6 @@ try {
 
               var csrf       = '<?php echo generateCSRFToken(); ?>';
               var canApprove = <?php echo json_encode($canApprove); ?>;
-
-              // Mini-calendar state
-              var miniCalYear  = new Date().getFullYear();
-              var miniCalMonth = new Date().getMonth() + 1;
-              var monthNames   = ['January','February','March','April','May','June',
-                                  'July','August','September','October','November','December'];
 
               function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
@@ -445,19 +338,14 @@ try {
                           renderTrend('trendReach',       s.total_reach,        s.prev_reach);
                           renderTrend('trendLikes',       s.total_likes,        s.prev_likes);
 
-                          // Activity pulse
-                          if (data.activity_pulse && data.activity_pulse.length) {
-                              renderPulse(data.activity_pulse);
-                          }
-
                           // Show failed / approval cards
-                          if (s.failed_posts > 0) {
-                              document.getElementById('failedCard').style.display = '';
-                              document.getElementById('failedBadge').textContent = s.failed_posts;
+                          if (s.failed_posts > 0 && document.getElementById('failedCard')) {
+                              if (document.getElementById('failedCard')) document.getElementById('failedCard').style.display = '';
+                              if (document.getElementById('failedBadge')) document.getElementById('failedBadge').textContent = s.failed_posts;
                               loadFailed();
                           }
-                          if (s.pending_approval > 0 && canApprove) {
-                              document.getElementById('approvalCard').style.display = '';
+                          if (s.pending_approval > 0 && canApprove && document.getElementById('approvalCard')) {
+                              if (document.getElementById('approvalCard')) document.getElementById('approvalCard').style.display = '';
                               loadPendingApproval();
                           }
                       });
@@ -478,39 +366,6 @@ try {
                   el.innerHTML = '<span class="mw-soc-trend ' + cls + '">' + arrow + ' ' + lbl + '</span>';
               }
 
-              // ── Activity Pulse renderer (current week Sun→Sat) ────
-              function renderPulse(days) {
-                  var el = document.getElementById('pulseStrip');
-                  if (!el) return;
-                  var letters  = ['S','M','T','W','T','F','S'];
-                  var todayStr = (function() {
-                      var t = new Date();
-                      return t.getFullYear() + '-'
-                           + (t.getMonth() < 9 ? '0' : '') + (t.getMonth() + 1) + '-'
-                           + (t.getDate()  < 10 ? '0' : '') + t.getDate();
-                  })();
-                  var html = '';
-                  days.forEach(function(d) {
-                      var dt      = new Date(d.date + 'T12:00:00');
-                      var ltr     = letters[dt.getDay()];
-                      var isToday = (d.date === todayStr);
-                      var pub     = parseInt(d.published, 10);
-                      var sch     = parseInt(d.scheduled, 10);
-                      var cls     = pub > 0 ? 'mw-soc-pulse-dot-published'
-                                  : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
-                                  : 'mw-soc-pulse-dot-empty';
-                      var title   = d.date + (pub > 0 ? ' — ' + pub + ' published'
-                                  : sch > 0 ? ' — ' + sch + ' scheduled' : '');
-                      var todayCls   = isToday ? ' mw-soc-pulse-today' : '';
-                      var todayStyle = isToday ? 'font-weight:700;color:#212529;' : '';
-                      html += '<div class="mw-soc-pulse-day' + todayCls + '">'
-                           +  '<span class="mw-soc-pulse-lbl" style="' + todayStyle + '">' + esc(ltr) + '</span>'
-                           +  '<span class="mw-soc-pulse-dot ' + cls + '" title="' + esc(title) + '"></span>'
-                           + '</div>';
-                  });
-                  el.innerHTML = html;
-              }
-
               // ── Top Post Spotlight ─────────────────────────────────
               function loadTopPost() {
                   fetch('/crm/api/social/metrics.php?action=top-posts&limit=1')
@@ -529,73 +384,13 @@ try {
                           }).join('');
                           document.getElementById('topPostPlatforms').innerHTML = pills;
                           document.getElementById('topPostMetrics').innerHTML =
-                              '<span class="mw-soc-top-post-metric">&#128065; ' + fmt(imp) + '</span>' +
-                              '<span class="mw-soc-top-post-metric">&#10084; ' + fmt(lk)  + '</span>' +
-                              '<span class="mw-soc-top-post-metric">&#128200; ' + er + '</span>';
+                              '<span class="mw-soc-top-post-metric"><b>' + fmt(imp) + '</b> views</span>' +
+                              '<span class="mw-soc-top-post-metric"><b>' + fmt(lk) + '</b> likes</span>' +
+                              '<span class="mw-soc-top-post-metric"><b>' + er + '</b> engaged</span>';
                           document.getElementById('topPostLink').href = '/crm/marketing/social-post-editor.php?id=' + p.id;
-                          document.getElementById('topPostStrip').style.display = '';
+                          document.getElementById('topPostStrip').hidden = false;
                       });
               }
-
-              // ── Mini Calendar ──────────────────────────────────────
-              function loadMiniCalendar(year, month) {
-                  var el = document.getElementById('miniCalBody');
-                  var ti = document.getElementById('miniCalTitle');
-                  if (!el) return;
-                  el.innerHTML = '<div class="mw-soc-loading">Loading…</div>';
-                  if (ti) { ti.textContent = monthNames[month - 1] + ' ' + year; }
-
-                  fetch('/crm/api/social/posts.php?action=calendar&year=' + year + '&month=' + month)
-                      .then(function(r) { return r.json(); })
-                      .then(function(data) {
-                          if (!data.success) { el.innerHTML = '<div class="p-3 text-muted small">Could not load.</div>'; return; }
-                          var cal      = data.calendar || {};
-                          var today    = new Date();
-                          var todayStr = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
-                          var firstDow = new Date(year, month - 1, 1).getDay();
-                          var daysInM  = new Date(year, month, 0).getDate();
-
-                          var dow = '<div class="mw-soc-cal-dow">';
-                          ['S','M','T','W','T','F','S'].forEach(function(d) { dow += '<div>' + d + '</div>'; });
-                          dow += '</div>';
-
-                          var grid = '<div class="mw-soc-cal-grid">';
-                          for (var e = 0; e < firstDow; e++) {
-                              grid += '<div class="mw-soc-cal-cell mw-soc-cal-empty"></div>';
-                          }
-                          for (var day = 1; day <= daysInM; day++) {
-                              var ds    = year + '-' + pad(month) + '-' + pad(day);
-                              var posts = cal[ds] || [];
-                              var cls   = 'mw-soc-cal-cell' + (ds === todayStr ? ' mw-soc-cal-today' : '');
-                              var dots  = '';
-                              if (posts.length) {
-                                  dots = '<div class="mw-soc-cal-dots">';
-                                  posts.slice(0, 4).forEach(function(p) {
-                                      var dc = p.status === 'published' ? 'mw-soc-dot-published'
-                                             : (p.status === 'scheduled' || p.status === 'approved') ? 'mw-soc-dot-scheduled'
-                                             : 'mw-soc-dot-draft';
-                                      dots += '<span class="mw-soc-cal-dot ' + dc + '" title="' + esc(p.status) + '"></span>';
-                                  });
-                                  if (posts.length > 4) {
-                                      dots += '<span class="mw-soc-cal-dot" style="background:#ced4da;" title="' + (posts.length - 4) + ' more"></span>';
-                                  }
-                                  dots += '</div>';
-                              }
-                              grid += '<div class="' + cls + '" onclick="window.location.href=\'/crm/marketing/social-calendar.php?date=' + ds + '\'">'
-                                    + '<div class="mw-soc-cal-day-num">' + day + '</div>'
-                                    + dots + '</div>';
-                          }
-                          grid += '</div>';
-                          el.innerHTML = dow + grid;
-                      });
-              }
-
-              window.miniCalNav = function(dir) {
-                  miniCalMonth += dir;
-                  if (miniCalMonth > 12) { miniCalMonth = 1; miniCalYear++; }
-                  if (miniCalMonth < 1)  { miniCalMonth = 12; miniCalYear--; }
-                  loadMiniCalendar(miniCalYear, miniCalMonth);
-              };
 
               // ── Post tab switcher ──────────────────────────────────
               var currentPostTab = 'scheduled';
@@ -644,12 +439,15 @@ try {
                               html += '  <div class="mw-soc-upcoming-meta">' + statusBadge(p.status) + platforms + '</div>';
                               html += '  <div class="mw-soc-upcoming-caption">' + esc(truncate(p.caption, 80)) + '</div>';
                               if (p.fail_reason) {
-                                  html += '  <div class="text-danger small mt-1" style="font-size:0.8rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' + esc(p.fail_reason) + '</div>';
+                                  html += '  <div class="mw-soc-upcoming-fail" title="' + esc(p.fail_reason) + '">' + esc(p.fail_short || 'Did not go out.') + '</div>';
+                              }
+                              if (p.hold_note) {
+                                  html += '  <div class="mw-soc-upcoming-hold">' + esc(p.hold_note) + '</div>';
                               }
                               html += '  <div class="mw-soc-upcoming-time">' + timeStr + '</div>';
                               html += '</div>';
                               html += '<div class="mw-soc-upcoming-actions">';
-                              var isRetryable = (p.status === 'publishing' || (p.status === 'published' && p.fail_reason));
+                              var isRetryable = !p.hold_note && (p.status === 'publishing' || (p.status === 'published' && p.fail_reason));   // a post held for its season has no one-press send
                               if (isRetryable && <?php echo json_encode($canApprove); ?>) {
                                   html += '  <button class="btn btn-sm btn-outline-danger mr-1" onclick="retryPost(' + p.id + ')">Retry</button>';
                               }
@@ -680,7 +478,7 @@ try {
                               }
                               html += '</div>';
                           });
-                          document.getElementById('failedList').innerHTML = html;
+                          var fl = document.getElementById('failedList'); if (fl) fl.innerHTML = html;
                       });
               }
 
@@ -703,7 +501,7 @@ try {
                               html += '  </div>';
                               html += '</div>';
                           });
-                          document.getElementById('approvalList').innerHTML = html;
+                          var al = document.getElementById('approvalList'); if (al) al.innerHTML = html;
                       });
               }
 
@@ -732,7 +530,12 @@ try {
                               html += '    <div class="mw-soc-platform-name">' + esc(a.location_name_display || a.account_name) + '</div>';
                               html += '    <div class="small ' + healthClass + '">' + healthLabel + '</div>';
                               html += '  </div>';
-                              html += '  <span class="badge badge-' + (a.is_active ? 'success' : 'secondary') + '">' + (a.is_active ? 'On' : 'Off') + '</span>';
+                              var reconnectUrl = {facebook: '/crm/api/social/accounts.php?action=oauth-init&platform=facebook', instagram: '/crm/api/social/accounts.php?action=oauth-init&platform=facebook', gbp: '/crm/api/social/accounts.php?action=oauth-init&platform=gbp'}[a.platform] || '/crm/marketing/social-accounts.php';
+                              if (a.token_health === 'expired' && canApprove) {
+                                  html += '  <a class="btn btn-sm btn-success" href="' + reconnectUrl + '">Reconnect</a>';
+                              } else {
+                                  html += '  <span class="badge badge-' + (a.is_active ? 'success' : 'secondary') + '">' + (a.is_active ? 'On' : 'Off') + '</span>';
+                              }
                               html += '</div>';
                           });
                           el.innerHTML = html;
@@ -749,7 +552,7 @@ try {
                   }).then(function(r) { return r.json(); }).then(function(data) {
                       if (data.success) {
                           loadStats();
-                          loadFailed();
+                          loadUpcoming();
                       } else {
                           alert('Error: ' + (data.error || 'Unknown'));
                       }
@@ -768,7 +571,6 @@ try {
                       if (btn) { btn.disabled = false; btn.innerHTML = icon + 'Publish Now'; }
                       loadStats();
                       loadUpcoming();
-                      loadFailed();
                       // Build a detailed result message
                       var msg = data.message || (data.error ? 'Error: ' + data.error : 'Done');
                       if (data.results && data.results.length) {
@@ -850,16 +652,14 @@ try {
                               var pct    = d.target > 0 ? Math.min(100, Math.round(d.count / d.target * 100)) : 0;
                               var mo     = shortMonths[parseInt(d.month.split('-')[1], 10) - 1];
                               var barH   = Math.max(3, Math.round(pct * 0.36)); // 0–36px range
-                              var bgCol  = d.count > 0 ? 'var(--mw-green)' : '#e9ecef';
                               var ctTxt  = d.count > 0 ? String(d.count) : '';
                               var tip    = d.month + ': ' + d.count + '/' + d.target;
-                              // Each column: flex column, center-aligned, fixed width ~8.33%
-                              html += '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;" title="' + esc(tip) + '">'
-                                   +  '<span style="font-size:.6rem;color:#6c757d;font-weight:700;line-height:1;">' + esc(ctTxt) + '</span>'
-                                   +  '<div style="width:100%;height:36px;display:flex;align-items:flex-end;">'
-                                   +  '<div style="width:100%;height:' + barH + 'px;background:' + bgCol + ';border-radius:2px 2px 0 0;min-height:3px;"></div>'
+                              html += '<div class="mw-soc-density-col" title="' + esc(tip) + '">'
+                                   +  '<span class="mw-soc-density-ct">' + esc(ctTxt) + '</span>'
+                                   +  '<div class="mw-soc-density-track">'
+                                   +  '<div class="mw-soc-density-bar' + (d.count > 0 ? ' is-on' : '') + '" style="height:' + barH + 'px;"></div>'
                                    +  '</div>'
-                                   +  '<span style="font-size:.58rem;color:#adb5bd;font-weight:600;text-transform:uppercase;white-space:nowrap;overflow:hidden;">' + esc(mo.charAt(0)) + '</span>'
+                                   +  '<span class="mw-soc-density-mo">' + esc(mo.charAt(0)) + '</span>'
                                    +  '</div>';
                           });
                           el.innerHTML = html;
@@ -871,7 +671,6 @@ try {
               loadUpcoming();
               loadPlatforms();
               loadTopPost();
-              loadMiniCalendar(miniCalYear, miniCalMonth);
               loadDensity();
           })();
           </script>

@@ -11,6 +11,7 @@ header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 require_once APP_ROOT . '/Modules/PublicForms/Services/PublicFormSecurity.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
@@ -217,8 +218,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && in_array($_POST['
     $error = $isAdminPreview
         ? 'Preview mode: the quote cannot be accepted or declined here.'
         : ($quotePastValid
-            ? 'This quote has expired. Please call us at (778) 846-9273 and we will refresh it for you.'
-            : 'This quote can no longer be answered online. Please reload the page or call us at (778) 846-9273.');
+            ? 'This quote has expired. Please ' . PortalBrand::callPhrase() . ' and we will refresh it for you.'
+            : 'This quote can no longer be answered online. Please reload the page or ' . PortalBrand::callPhrase() . '.');
     $_POST['action'] = '';
 }
 
@@ -342,11 +343,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                 } catch (Throwable $e) {
                     error_log('[quote approval] portal: ' . $e->getMessage());
                 }
+                $crmBase = PortalBrand::appUrl();
                 $snowSetupHtml = '';
                 if ($snowSetup && $snowSetup['status'] === 'done') {
                     $snowSetupHtml = "<p style='margin:20px 0 0;'><strong>Set up automatically:</strong> contract and daily Salt &amp; Snow route plan. "
-                                   . "<a href='https://mowology.ca/crm/contracts/view.php?id=" . (int)$snowSetup['contract_id'] . "'>Open the contract</a> · "
-                                   . "<a href='https://mowology.ca/crm/jobs/view.php?id=" . (int)$snowSetup['plan_id'] . "'>Open the route plan</a></p>";
+                                   . "<a href='" . $crmBase . "/crm/contracts/view.php?id=" . (int)$snowSetup['contract_id'] . "'>Open the contract</a> · "
+                                   . "<a href='" . $crmBase . "/crm/jobs/view.php?id=" . (int)$snowSetup['plan_id'] . "'>Open the route plan</a></p>";
                 } elseif ($snowSetup && in_array($snowSetup['status'], ['failed', 'skipped'], true)) {
                     $snowSetupHtml = "<p style='margin:20px 0 0;color:#e85d04;'><strong>Contract NOT set up automatically</strong>: "
                                    . htmlspecialchars((string)($snowSetup['detail'] ?? 'unknown reason')) . ". Use Create Contract on the quote.</p>";
@@ -370,7 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                             {$snowSetupHtml}
                             " . ($declinedLabels ? "<p style='margin:20px 0 0;'><strong>Not included (the client unticked):</strong> " . htmlspecialchars(implode(', ', $declinedLabels)) . "</p>" : '') . "
                             <div style='text-align: center; margin-top: 25px;'>
-                                <a href='https://mowology.ca/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
+                                <a href='{$crmBase}/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
                             </div>
                         </div>
                     </div>
@@ -451,7 +453,7 @@ if (!empty($quote)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote <?php echo !empty($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> — Mowology</title>
+    <title>Quote <?php echo !empty($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> — <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
     <script src="/assets/vendor/signature_pad/signature_pad.umd.min.js"></script>
@@ -459,7 +461,7 @@ if (!empty($quote)) {
 <body>
 
 <header class="portal-header">
-    <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="portal-logo-img">
+    <?= PortalBrand::logoImgHtml() ?>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Quote</span>
     <?php if ($clientNameForHeader): ?>
@@ -484,7 +486,7 @@ if (!empty($quote)) {
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:#cdddd6;margin:0 auto 16px;display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <h2>Quote Not Found</h2>
             <p><?php echo htmlspecialchars($error); ?></p>
-            <p style="margin-top:12px;">Contact us at <a href="tel:7788469273">(778) 846-9273</a></p>
+            <?php if (PortalBrand::contactHtml() !== ''): ?><p style="margin-top:12px;">Contact us at <?= PortalBrand::contactHtml() ?></p><?php endif; ?>
         </div>
 
     <?php elseif (!empty($quote)): ?>
@@ -746,7 +748,7 @@ if (!empty($quote)) {
             <div class="portal-info-card">
                 <div class="portal-info-card-header">This quote has expired</div>
                 <div class="portal-info-card-body">
-                    <p>It was good until <?php echo htmlspecialchars(date('F j, Y', strtotime($quote['valid_until']))); ?>. Prices may have changed since. Call us at (778) 846-9273 or reply to our email and we will send you a fresh one.</p>
+                    <p>It was good until <?php echo htmlspecialchars(date('F j, Y', strtotime($quote['valid_until']))); ?>. Prices may have changed since. <?php echo htmlspecialchars(ucfirst(PortalBrand::callPhrase())); ?> or reply to our email and we will send you a fresh one.</p>
                 </div>
             </div>
         <?php elseif ($quote['status'] === 'sent'): ?>
@@ -811,7 +813,7 @@ if (!empty($quote)) {
                             <div class="portal-checkbox-row">
                                 <input type="checkbox" name="agree_terms" id="agreeTerms" required>
                                 <label for="agreeTerms">
-                                    I have read and agree to the terms and conditions above. I authorize Mowology to perform the services described in this quote.
+                                    I have read and agree to the terms and conditions above. I authorize <?= htmlspecialchars(PortalBrand::name()) ?> to perform the services described in this quote.
                                 </label>
                             </div>
 
@@ -860,7 +862,7 @@ if (!empty($quote)) {
     <?php endif; ?>
 
     <div class="portal-footer">
-        Questions? Call <a href="tel:7788469273">(778) 846-9273</a> &mdash; &copy; <?php echo date('Y'); ?> Mowology
+        <?php if (PortalBrand::questionsHtml() !== ''): ?><?= PortalBrand::questionsHtml() ?> &mdash; <?php endif; ?>&copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::name()) ?>
     </div>
 
 </div>

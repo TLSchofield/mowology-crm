@@ -668,3 +668,36 @@ bank-linked > approved > linked > has a photo > oldest (ReceiptReviewService::ke
 copies; **Merge into #keeper** = DuplicateReceiptService::removeCopies (refused unless one duplicate group now); **Not a
 duplicate** dismisses every pair the copy is in. Ittai v1.2: ittai-review.css (tokens only) via $extraHead, receipt-review.js.
 
+
+## Desktop job strip (Ittai design, 2026-11-10)
+
+With the `it_design` cookie on, Penny's pages (Invoices, Payroll, Accounting, Expenses, …) show a job strip across the
+top of the content when two waiting receipts look like one purchase: the facts along a horizontal rail with the iPhone's
+discs (same / differs / missing), the two receipts, **Merge into #kept** (filled), **Different, keep both** (outline),
+the Ledger anchor, "1 of N" and Skip. Shown only to the owner with `expenses.approve`, only when there is something to
+do. `app/Modules/Expenses/Services/PennyJobAdapter.php` shapes `DuplicateReceiptService::presentGroups()` into a generic
+job; `public/crm/includes/ittai-job.php` prints it; `public/crm/js/ittai-job.js` posts the same `bookkeeper.php`
+requests as the web Penny card (`dupe_merge`, `not_dupe`, `unmerge` with kind `undo`), with Undo for 6 s after a merge.
+Skip writes nothing. The cheap gate is two waiting receipts with the same total within three days — not Penny's
+"possible twin" questions, which cover approved receipts only.
+
+**2026-11-10 later:** the strip's comparison is the phone's table kept vertical (kept left, waiting right, the spine down the
+middle with each disc on the line at its row, the gold confidence triangle at the top where the line from Penny's card
+arrives). Beside the decision, `ExpensePulseService` draws the one picture a solo operator needs: six months of approved
+spend with this month marked, and the quarter's GST on receipts to claim. Above both, on every shell page, Kaname's space
+(`includes/ittai-kaname-space.php`): her count, her line, the way to her brief.
+
+**2026-11-10, after Tim's appraisal:** the approval triangle is as whole as Penny's record with the vendor
+(`PennyJobAdapter::sure()` from `presentGroup()`'s `record`): a broken outline until she has called the vendor once,
+a closed outline while the record is short or blemished, solid gold once she has been right four or more times and
+never wrong. The frame opens on its right and funnels back onto the rail before the Ledger (the split becomes one
+line again); rail, frame and feeder are a step darker than the hairline; the matching value below the rail is dimmed
+so the one difference reads first. The head card is the row enlarged: face, name, role, nothing else. Yui's statement
+greeting follows the chosen address (`ittai-job-yui.js` `greet()`), after a draft greeted Candace while addressed to Sandra.
+
+**2026-11-10, Kaname's band:** her space moved from a card at the top of the page into the fixed top bar
+(`includes/ittai-kaname-band.php`, `KanameBandService`): her face and count, then ONE subject at a time — the newest
+of the last 24 h of `charlie_alerts` (what `CharlieUrgentService` already decided was worth an interruption), else her
+line — a "+N" for further alerts, and a face chip for each head whose ready state is approval or blocked. The one
+search is top right beside Clock In and Receipt; the sidebar search box is gone. A head click opens her first page
+(Penny → Invoices) with her job strip ready; her card is pinned there.

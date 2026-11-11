@@ -19,7 +19,7 @@ import CoreLocation
 
 /// The calls a head card makes. APIClient in the app; a canned stub in previews/renders.
 @MainActor
-protocol TeamHeadAPI {
+protocol TeamHeadAPI: YuiJobsAPI {
     func loadCard(head: String) async throws -> HeadCardResponse
     func send(_ body: [String: Any]) async throws -> HeadActionResponse
     /// Otto's suggestion buttons / auto-log Undo (team-mobile otto_decide | otto_undo_auto).
@@ -61,6 +61,15 @@ struct LiveTeamHeadAPI: TeamHeadAPI {
 
     func ottoMissedSend(_ body: [String: Any]) async throws -> OttoMissedActionResponse {
         try await client.request(.ottoMissedReviewAction, body: body)
+    }
+
+    func yuiJobs() async throws -> YuiJobsResponse {
+        try await client.request(.teamYuiJobs)
+    }
+
+    func yuiAct(request: [String: Any], fields: [String: Any], idempotencyKey: String) async throws -> YuiActResponse {
+        try await client.request(.teamHeadAction, body: ["mode": "yui_act", "request": request, "fields": fields],
+                                 extraHeaders: ["Idempotency-Key": idempotencyKey])
     }
 }
 
@@ -119,6 +128,8 @@ final class HeadCardViewModel: ObservableObject {
     @Published private(set) var ottoTotal = 0
     @Published private(set) var ottoReviewURL = "/crm/ops/otto-review.php"
     @Published private(set) var autolog: OttoAutoLog?
+    /// Otto's Subcontracts carousel (SubcontractService::board), waiting-on-you first.
+    @Published private(set) var subcontracts: [SubcontractCard] = []
     /// Auto-log rows undone from this phone (their outcome line stays).
     @Published private(set) var undoneAuto: Set<Int> = []
     /// The suggestion (or auto-log row, negated id) being sent.
@@ -133,11 +144,14 @@ final class HeadCardViewModel: ObservableObject {
 
     /// Otto's end-of-day missed-visit review (Otto's card only).
     let missedReview: OttoMissedReviewModel
+    /// Yui's decision carousel (Yui's card only; empty for the other heads).
+    let yuiJobs: YuiJobsViewModel
 
     init(head: String, api: TeamHeadAPI, geocoder: AddressGeocoder = AppleAddressGeocoder()) {
         self.head = head
         self.api = api
         self.geocoder = geocoder
+        self.yuiJobs = YuiJobsViewModel(api: api)
         self.missedReview = OttoMissedReviewModel(api: api)
     }
 
@@ -165,6 +179,7 @@ final class HeadCardViewModel: ObservableObject {
                 loadError = r.error ?? "\(head.capitalized) card response ok=false; server returned no error field."
             } else {
                 apply(r)
+                if head == "yui" { await yuiJobs.load() }
             }
         } catch let err as APIError {
             loadError = err.errorDescription
@@ -188,6 +203,7 @@ final class HeadCardViewModel: ObservableObject {
         ottoTotal = r.otto?.total ?? 0
         ottoReviewURL = r.otto?.reviewURL ?? "/crm/ops/otto-review.php"
         autolog = r.otto?.autolog
+        subcontracts = r.subcontracts
         undoneAuto = []
         ottoNotes = [:]
     }
@@ -327,6 +343,15 @@ final class HeadCardViewModel: ObservableObject {
             ottoNotes[s.id] = OttoNote(text: ErrorDetails.describe(error), isError: true)
         }
         return nil
+    }
+
+    /// A Subcontracts button: team-mobile {mode: sub_accept | sub_paid | sub_dismiss, job_id}, the same service calls
+    /// as the web card. The board is read again afterwards so the job shows its new stage.
+    func subcontractAct(_ card: SubcontractCard, mode: String) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": mode, "job_id": card.jobId]) else { return }
+        show(r.message ?? "Done.", error: false)
+        await load()
     }
 
     /// A local problem with the inputs (no times, no minutes), shown under that suggestion.

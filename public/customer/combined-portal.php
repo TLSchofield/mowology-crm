@@ -17,6 +17,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
@@ -151,7 +152,7 @@ function portalFmtMoney(float $n): string {
     return '$' . number_format($n, 2);
 }
 
-$baseUrl    = (defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : 'https://mowology.ca'); // never the Host header
+$baseUrl    = PortalBrand::appUrl(); // never the Host header
 $firstName  = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $fullName   = $contact ? htmlspecialchars(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : '';
 $companyName = $company ? htmlspecialchars($company['company_name']) : '';
@@ -161,7 +162,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>My Accounts — Mowology</title>
+<title>My Accounts — <?= htmlspecialchars(PortalBrand::name()) ?></title>
 <link rel="stylesheet" href="/customer/portal.css">
 <style>
 /* Combined portal — two-column split layout */
@@ -320,7 +321,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
 
 <!-- Portal Header -->
 <header class="portal-header">
-    <span class="portal-logo-text">Mowology</span>
+    <span class="portal-logo-text"><?= htmlspecialchars(PortalBrand::name()) ?></span>
     <span style="flex:1;"></span>
     <span style="font-size:13px;color:var(--p-text-mid);font-weight:500;"><?= $fullName ?></span>
 </header>
@@ -349,6 +350,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
         </div>
 
         <!-- Personal card on file -->
+        <?php if (Tenant::takesCards()): ?>
         <div class="cp-card-row">
             <div class="cp-card-icon">
                 <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -369,6 +371,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
                 <span class="cp-card-autopay">Autopay On</span>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
 
         <!-- Personal balance -->
         <div class="cp-balance">
@@ -426,6 +429,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
         </div>
 
         <!-- Business card on file -->
+        <?php if (Tenant::takesCards()): ?>
         <div class="cp-card-row">
             <div class="cp-card-icon">
                 <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -446,6 +450,7 @@ $companyName = $company ? htmlspecialchars($company['company_name']) : '';
                 <span class="cp-card-autopay">Autopay On</span>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
 
         <!-- Business balance -->
         <div class="cp-balance">

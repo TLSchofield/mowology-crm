@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 
 $token = trim($_GET['token'] ?? '');
 $inline = !empty($_GET['inline']);
@@ -69,7 +70,7 @@ try {
         if (empty($result['success'])) {
             error_log("Customer PDF: generateQuotePdf failed for quote {$quoteId}: " . ($result['error'] ?? 'unknown'));
             http_response_code(500);
-            die('Sorry — we could not produce the quote PDF right now. Please contact Mowology at (778) 846-9273.');
+            die('Sorry — we could not produce the quote PDF right now. ' . PortalBrand::contactSentence());
         }
         $path = $result['path'];
     }
@@ -77,7 +78,7 @@ try {
     if (!$path || !is_readable($path)) {
         error_log("Customer PDF: file missing/unreadable at {$path} for quote {$quoteId}");
         http_response_code(500);
-        die('Sorry — the quote PDF file is unavailable. Please contact Mowology at (778) 846-9273.');
+        die('Sorry — the quote PDF file is unavailable. ' . PortalBrand::contactSentence());
     }
 
     $downloadName = preg_replace('/[^A-Za-z0-9_\-]/', '', $quoteNumber) . '.pdf';
@@ -95,5 +96,5 @@ try {
 } catch (Throwable $e) {
     error_log("Customer PDF endpoint error: " . $e->getMessage());
     http_response_code(500);
-    die('An unexpected error occurred. Please contact Mowology at (778) 846-9273.');
+    die('An unexpected error occurred. ' . PortalBrand::contactSentence());
 }

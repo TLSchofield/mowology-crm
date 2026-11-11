@@ -1,7 +1,8 @@
 <?php
 /**
  * QboSyncService — QuickBooks Online, step 2 (plan 2026-10-20): send an Ittai invoice to QuickBooks,
- * with its customer and its payments. One way: Ittai → QuickBooks. Nothing is read back except ids.
+ * with its customer and its payments. Ittai → QuickBooks; the only thing read back is ids, and the
+ * balance of invoices Ittai sent (QboClientPayService).
  *
  *   customer   the invoice's client (clients.display_name, else the invoice's bill-to name): an
  *              existing QuickBooks customer with that name is used; otherwise one is created.
@@ -184,6 +185,17 @@ class QboSyncService
         $date = substr((string)($inv['issue_date'] ?: ($inv['invoice_date'] ?: $inv['created_at'])), 0, 10);
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $b['TxnDate'] = $date;
         if (!empty($inv['due_date']) && preg_match('/^\d{4}-\d{2}-\d{2}/', (string)$inv['due_date'])) $b['DueDate'] = substr((string)$inv['due_date'], 0, 10);
+        // QuickBooks makes a pay link only for an invoice with the client's email. Setting it sends nothing:
+        // Ittai never asks QuickBooks to email, so the client gets the one email Ittai sends.
+        foreach (Tenant::takesCards() ? [] : ['sent_to_email', 'client_email', 'contact_email', 'company_email'] as $k) {
+            $email = trim((string)($inv[$k] ?? ''));
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $b['BillEmail'] = ['Address' => $email];
+                $b['AllowOnlineCreditCardPayment'] = true;
+                $b['AllowOnlineACHPayment'] = true;
+                break;
+            }
+        }
         return $b;
     }
 
@@ -705,6 +717,11 @@ class QboSyncService
                 $out['failed']++;
             }
             if (count($out['notes']) < 5) $out['notes'][] = $r['message'];
+        }
+        if (!Tenant::takesCards() && $out['stopped'] === null) {
+            require_once __DIR__ . '/QboClientPayService.php';
+            $paid = (new QboClientPayService($this, $this->conn))->pullPaid();
+            $out['notes'] = array_slice(array_merge($out['notes'], $paid['notes']), 0, 5);
         }
         return $out;
     }

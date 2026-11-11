@@ -27,7 +27,7 @@
         <section class="terms-section" id="agreement">
             <h2>1. The agreement</h2>
             <p>These terms are between <strong><?= ITTAI_LEGAL_ENTITY ?></strong>, which operates Ittai (&ldquo;Ittai&rdquo;, &ldquo;we&rdquo;), and the business that signs up (&ldquo;you&rdquo;). By signing in after we ask you to accept them, or by using Ittai, you agree to them on behalf of your business and confirm you have authority to do so.</p>
-            <p>Some features have short add-on terms (payments, accounting, messaging). Where an add-on conflicts with these terms for that feature, the add-on wins.</p>
+            <p>Some features have short add-on terms (accounting, messaging). Where an add-on conflicts with these terms for that feature, the add-on wins.</p>
         </section>
 
         <section class="terms-section" id="accounts">
@@ -83,6 +83,7 @@
         <section class="terms-section" id="third-parties">
             <h2>9. Third-party services</h2>
             <p>Ittai connects to services we do not control, such as payment processors, accounting software, mapping, email and phone carriers. Their own terms apply, we are not responsible for their availability or conduct, and you are responsible for the accounts you connect. You can disconnect a connected service at any time; how we handle data from connected services, including QuickBooks Online, is in our <a href="<?= htmlspecialchars($ittaiPrivacyHref ?? '/ittai-privacy.php', ENT_QUOTES) ?>">privacy policy</a>.</p>
+            <p>Ittai does not process payments for your business. If you use QuickBooks Payments, your clients pay on QuickBooks' own page and the service is provided by Intuit under its terms.</p>
         </section>
 
         <section class="terms-section" id="beta">

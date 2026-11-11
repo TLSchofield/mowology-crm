@@ -5,12 +5,16 @@
  * GET  ?mode=desk     Her five sections (inbox, promises, accounts, renewals, arrears), each
  *                     sendable item with a suggested email + text, the thread for replies,
  *                     her numbers and how many Claude drafts are left today.
+ * GET  ?mode=jobs     Her decisions as one queue of cards (YuiJobAdapter).
  * GET  ?mode=brief    Her brief for Charlie (same contract as every head).
  * POST {mode: 'draft', key, csrf_token}     Claude drafts a reply to a client message — Tim's
  *                     click only, inbox items only, capped per day.
  * POST {mode: 'send', key, channel: email|sms, subject, body, suggested_body, drafted_by, csrf_token}
  *                     Tim sends (CRM messaging functions only). Yui never sends on her own.
  * POST {mode: 'handled', key, csrf_token}   Off the list (and dismissed in Charlie).
+ * "Who is this?" (mail from people not on file; desk gains a top-level `who`, never inside `sections`):
+ * POST {mode: 'who_confirm', id, client_id, first_name, last_name} / {mode: 'who_not', id} / {mode: 'who_undo', id}
+ * GET  ?mode=who_accounts&q=   active accounts by name, for "Another account…".
  *
  * The item is always re-read on the server (key → YuiDeskService::find()), so the recipient
  * comes from the CRM, never from the browser.
@@ -54,50 +58,17 @@ try {
     session_write_close();
 
     require_once APP_ROOT . '/Modules/Comms/Services/YuiDeskService.php';
-    require_once APP_ROOT . '/Modules/Comms/Services/YuiDraftService.php';
-    $desk = new YuiDeskService($db);
+    require_once APP_ROOT . '/Modules/Comms/Services/YuiActions.php';
     $name = SalesDeskService::ownerName((array)$user);
 
     if ($mode === 'brief') {
+        $desk = new YuiDeskService($db);
         echo json_encode(['ok' => true] + $desk->brief($name));
         exit;
     }
-    if (!$desk->ready()) {
-        echo json_encode(['ok' => false, 'error' => 'Migration 1191 has not run yet']);
-        exit;
-    }
-    $drafts = new YuiDraftService($db);
-    $key = substr((string)($input['key'] ?? ''), 0, 120);
-    $gone = ['ok' => false, 'message' => 'That one is no longer on my list — refresh.'];
-
-    switch ($mode) {
-        case 'desk':
-            echo json_encode(['ok' => true, 'name' => $name] + $desk->desk($name));
-            break;
-
-        case 'draft': {
-            $item = $desk->find($key, $name);
-            echo json_encode($item ? $drafts->draftReply($item, $name, (int)$user['id']) : $gone);
-            break;
-        }
-
-        case 'send': {
-            $item = $desk->find($key, $name);
-            echo json_encode($item ? $drafts->send($item, $input, (array)$user, $name) : $gone);
-            break;
-        }
-
-        case 'handled': {
-            if (strpos($key, 'yui:') !== 0) { echo json_encode($gone); break; }
-            $item = $desk->find($key, $name);
-            echo json_encode($drafts->handled($key, (string)($item['kind'] ?? ''), isset($item['contact_id']) ? (int)$item['contact_id'] : null, (array)$user));
-            break;
-        }
-
-        default:
-            http_response_code(400);
-            echo json_encode(['ok' => false, 'error' => 'Unknown mode']);
-    }
+    $out = YuiActions::dispatch($db, $mode, $input + ['q' => (string)($_GET['q'] ?? '')], (array)$user, $name);
+    if (isset($out['_status'])) { http_response_code((int)$out['_status']); unset($out['_status']); }
+    echo json_encode($out);
 } catch (Throwable $e) {
     error_log('[yui] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);

@@ -20,6 +20,12 @@ class QboOAuth
     public const REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
     public const SCOPE      = 'com.intuit.quickbooks.accounting';
 
+    public const DISCOVERY = ['production' => 'https://developer.api.intuit.com/.well-known/openid_configuration',
+                              'sandbox'    => 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration'];
+    public const DISCOVERY_KEYS = ['authorization_endpoint', 'token_endpoint', 'revocation_endpoint'];
+    /** @var array<string,string> addresses read from Intuit's discovery document */
+    private static array $found = [];
+
     private string $clientId;
     private string $clientSecret;
     /** @var callable(string $url, array $headers, string $body): array{status:int, body:string} */
@@ -32,10 +38,55 @@ class QboOAuth
         $this->http = $http ?? [self::class, 'curlPost'];
     }
 
+    /** Intuit's current address for this step; the fixed one when its discovery document could not be read. */
+    private static function endpoint(string $key, string $fixed): string
+    {
+        return self::$found[$key] ?? $fixed;
+    }
+
+    /** Pure (tested): only https addresses under intuit.com are taken from the document. */
+    public static function parseDiscovery(string $json): array
+    {
+        $out = [];
+        $d = json_decode($json, true);
+        foreach (self::DISCOVERY_KEYS as $k) {
+            $u = is_array($d) ? (string)($d[$k] ?? '') : '';
+            $h = strtolower((string)parse_url($u, PHP_URL_HOST));
+            if (strpos($u, 'https://') === 0 && substr($h, -11) === '.intuit.com') $out[$k] = $u;
+        }
+        return $out;
+    }
+
+    /** Reads Intuit's discovery document, once a day at most. Any failure leaves the fixed addresses working. */
+    public static function discover(string $environment, ?callable $fetch = null, ?string $cacheFile = null, ?int $now = null): void
+    {
+        $now = $now ?? time();
+        $cacheFile = $cacheFile ?? sys_get_temp_dir() . '/ittai-qbo-discovery-' . ($environment === 'production' ? 'production' : 'sandbox') . '.json';
+        $cached = is_file($cacheFile) ? (string)file_get_contents($cacheFile) : null;
+        // A failed read is remembered for 10 minutes, so an Intuit outage never slows every page.
+        $fresh = $cached !== null && $now - (int)filemtime($cacheFile) < ($cached === '' ? 600 : 86400);
+        $body = $fresh ? $cached : '';
+        if (!$fresh) {
+            $url = self::DISCOVERY[$environment] ?? self::DISCOVERY['sandbox'];
+            $fetch = $fetch ?? static function (string $u): string {
+                $ch = curl_init($u);
+                curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2]);
+                $out = curl_exec($ch);
+                $ok = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE) === 200;
+                curl_close($ch);
+                return $ok && $out !== false ? (string)$out : '';
+            };
+            $body = (string)$fetch($url);
+            if (count(self::parseDiscovery($body)) !== count(self::DISCOVERY_KEYS)) $body = '';
+            @file_put_contents($cacheFile, $body, LOCK_EX);
+        }
+        self::$found = self::parseDiscovery($body);
+    }
+
     /** Pure (tested). */
     public static function authUrl(string $clientId, string $redirectUri, string $state): string
     {
-        return self::AUTH_URL . '?' . http_build_query([
+        return self::endpoint('authorization_endpoint', self::AUTH_URL) . '?' . http_build_query([
             'client_id'     => $clientId,
             'response_type' => 'code',
             'scope'         => self::SCOPE,
@@ -94,13 +145,13 @@ class QboOAuth
 
     public function revoke(string $token): bool
     {
-        $r = ($this->http)(self::REVOKE_URL, $this->headers('application/json'), (string)json_encode(['token' => $token]));
+        $r = ($this->http)(self::endpoint('revocation_endpoint', self::REVOKE_URL), $this->headers('application/json'), (string)json_encode(['token' => $token]));
         return $r['status'] === 200;
     }
 
     private function tokenCall(array $form, int $now): array
     {
-        $r = ($this->http)(self::TOKEN_URL, $this->headers('application/x-www-form-urlencoded'), http_build_query($form));
+        $r = ($this->http)(self::endpoint('token_endpoint', self::TOKEN_URL), $this->headers('application/x-www-form-urlencoded'), http_build_query($form));
         $t = $r['status'] === 200 ? self::parseTokens($r['body'], $now) : null;
         return $t ? ['ok' => true, 'tokens' => $t] : ['ok' => false, 'error' => self::errorLine($r['status'], $r['body'])];
     }
@@ -117,14 +168,16 @@ class QboOAuth
     /** @return array{status:int, body:string} */
     public static function curlPost(string $url, array $headers, string $body): array
     {
+        $tid = '';
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_HEADERFUNCTION => QboClient::tidCatcher($tid),
         ]);
         $out = curl_exec($ch);
         $status = $out === false ? 0 : (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        return ['status' => $status, 'body' => $out === false ? '' : (string)$out];
+        return ['status' => $status, 'body' => $out === false ? '' : (string)$out, 'tid' => $tid];
     }
 }

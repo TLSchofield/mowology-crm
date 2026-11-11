@@ -41,3 +41,4 @@ final class MonthCloseServiceTest extends TestCase
         $this->assertSame(['Stripe payouts could not be checked (Stripe could not be read: key)'], $b);
     }
 }
+
