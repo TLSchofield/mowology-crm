@@ -71,7 +71,9 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertSame('Bank line', $bare['left']['label'], 'no account known: the generic name');
         $this->assertSame('No receipt', $bare['right']['when']);
         $found = PennyMonthJobAdapter::fromLine($this->line(['suggestion' => ['account_id' => 31, 'code' => '5200', 'name' => 'Fuel', 'reason' => 'x', 'source' => 'found_receipt', 'expense_id' => 902]]), $month, $discs, 1, 1);
-        $this->assertSame('Receipt found', $found['right']['when']);
+        $this->assertSame('Receipt #902 found · Approve links it', $found['right']['when']);
+        $this->assertSame('5200 + link receipt', $found['primary']['sub'], 'the button says it does more than file a category');
+        $this->assertSame('5200 only', PennyMonthJobAdapter::fromLine($this->line(), $month, $discs, 1, 1)['primary']['sub']);
     }
 
     public function testTheMonthDiscComesAfterTheButtonsWithOneLineFewer(): void

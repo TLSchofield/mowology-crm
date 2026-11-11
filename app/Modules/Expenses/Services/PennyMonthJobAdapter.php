@@ -365,7 +365,9 @@ class PennyMonthJobAdapter
 
         // The evidence, honestly: a receipt only when she found one; otherwise what the earlier lines like it say.
         $earlier = (int)($facts['earlier'] ?? 0);
-        $evidence = !empty($s['expense_id']) ? 'Receipt found'
+        // Approving with a receipt does MORE than file a category: it links the receipt and the bank line is then counted once
+        // through the receipt (BankDeskService::decide). The words say so (Tim, 2026-11-10: "I thought I was just changing its category").
+        $evidence = !empty($s['expense_id']) ? 'Receipt #' . (int)$s['expense_id'] . ' found · Approve links it'
             : ('No receipt' . ($earlier > 0 ? ' · ' . $earlier . ' earlier on ' . (string)$s['code'] : ''));
         $account = trim((string)($facts['account'] ?? ''));
         // After this press, the focus month still stands at its difference, with one line fewer
@@ -397,7 +399,7 @@ class PennyMonthJobAdapter
             'columns'    => [
                 ['label' => 'Waiting', 'top' => $ageText, 'bottom' => '', 'state' => $ageClass === 'investigate' ? 'missing' : 'info'],
             ],
-            'primary'    => ['label' => 'Approve', 'sub' => (string)$s['code'], 'request' => $request],
+            'primary'    => ['label' => 'Approve', 'sub' => (string)$s['code'] . (!empty($s['expense_id']) ? ' + link receipt' : ' only'), 'request' => $request],
             'secondary'  => ['label' => 'Keep it', 'sub' => 'as it is',
                              'request' => ['mode' => 'bank_decide', 'transaction_id' => $id, 'action' => 'keep', 'suggested_id' => (int)$s['account_id']]],
             'undo'       => null,
