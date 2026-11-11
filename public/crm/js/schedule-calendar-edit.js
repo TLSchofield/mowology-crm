@@ -345,16 +345,25 @@
 
   // ── mount ─────────────────────────────────────────────────
   function mountDay() {
-    var host = document.querySelector('main.content .container-fluid') || document.querySelector('main.content');
-    if (!host) return;
-    var bar = document.createElement('div'); bar.className = 'mw-cal-bar';
-    bar.innerHTML = '<button type="button" class="mw-cal-toggle" aria-expanded="false">Timeline</button><span class="mw-cal-hint">Drag a block\'s edge to change its length, drag a block to move it, click an empty slot to add a job.</span>';
+    var tog = document.querySelector('.mw-dv-view-toggle');
+    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'mw-cal-toggle'; btn.textContent = 'Timeline'; btn.setAttribute('aria-expanded', 'false');
+    btn.title = 'Hour view: drag a block\'s edge to change its length, drag it to move, click an empty slot to add a job';
     panel = document.createElement('div'); panel.className = 'mw-cal-panel'; panel.hidden = true; panel.innerHTML = '<div class="mw-cal-grid"></div>';
-    host.insertBefore(panel, host.firstChild); host.insertBefore(bar, panel);
+    if (tog && tog.parentElement && tog.parentElement.parentElement) {
+      // Next to Week / Day / List View, with the timeline opening just under that header row.
+      var after = tog.nextElementSibling || tog;
+      after.insertAdjacentElement('afterend', btn);
+      tog.parentElement.parentElement.insertAdjacentElement('afterend', panel);
+    } else {
+      var host = document.querySelector('main.content .container-fluid') || document.querySelector('main.content');
+      if (!host) return;
+      var bar = document.createElement('div'); bar.className = 'mw-cal-bar'; bar.appendChild(btn);
+      host.insertBefore(panel, host.firstChild); host.insertBefore(bar, panel);
+    }
     var open = false, bound = false;
-    bar.querySelector('.mw-cal-toggle').addEventListener('click', function () {
-      open = !open; panel.hidden = !open; this.setAttribute('aria-expanded', open ? 'true' : 'false'); this.classList.toggle('on', open);
-      if (open) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
+    btn.addEventListener('click', function () {
+      open = !open; panel.hidden = !open; btn.setAttribute('aria-expanded', open ? 'true' : 'false'); btn.classList.toggle('on', open);
+      if (open) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } panel.scrollIntoView({ block: 'nearest' }); }
     });
   }
 
