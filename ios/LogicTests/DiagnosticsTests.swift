@@ -105,6 +105,17 @@ struct DiagnosticsChecks {
         let label = ErrorDetails.request(request)
         check(label == "POST https://example.com/api/test?mode=status", "Request label includes only method, route and permitted selectors")
         check(!label.contains("private") && !label.contains("hidden-token") && !label.contains("password"), "Request labels never contain body, headers, credentials or private query values")
+        // The screen draws rows, never the whole log as one view: a one-megabyte crash payload must not reach a text view whole.
+        let big = String(repeating: "x", count: 1_000_000)
+        let rows = DiagnosticsDisplay.entries(from: "header\nold line\n2026-11-11T09:00:00Z [apple.diagnostic] " + big + "\nnewest line\n")
+        check(rows.count == 4 && rows[0].text == "newest line" && rows[0].omittedCharacters == 0, "Rows run newest first")
+        check(rows[1].text.count == 600 && rows[1].omittedCharacters > 999_000, "A megabyte line is cut, and says how much was left out")
+        check(rows[3].text == "header", "The oldest line is last")
+        var many = ""
+        for n in 1...500 { many += "line-" + String(n) + "\n" }
+        let shownRows = DiagnosticsDisplay.entries(from: many)
+        check(shownRows.count == 200 && shownRows[0].text == "line-500" && shownRows[199].text == "line-301", "Only the newest 200 entries are drawn")
+        check(DiagnosticsDisplay.entries(from: "").isEmpty && DiagnosticsDisplay.entries(from: "\n\n").isEmpty, "An empty log has no rows")
         print("Diagnostics checks passed")
     }
 }
