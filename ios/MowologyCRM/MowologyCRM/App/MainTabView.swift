@@ -37,6 +37,7 @@ final class ReadyBriefStore: ObservableObject {
 
 struct MainTabView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.layoutDirection) private var layoutDirection
 
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
@@ -146,7 +147,14 @@ struct MainTabView: View {
                     // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
                     .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
                     // Where this tab's bead sits: its screen's centre line runs into it (SPEC §13).
-                    .environment(\.itTabSlot, ItTabSlot(index: barTabs.firstIndex(of: tab) ?? 0, count: barTabs.count))
+                    .environment(\.itTabSlot, ItTabSlot(
+                        index: ItMeniscusGeometry.physicalSlotIndex(
+                            barTabs.firstIndex(of: tab) ?? 0,
+                            count: barTabs.count,
+                            isRightToLeft: layoutDirection == .rightToLeft
+                        ),
+                        count: barTabs.count
+                    ))
                     .environment(\.openTimeClock, { addOpen = false; selectedTab = .time })
                     // The veil blocks touches; this keeps VoiceOver out of the screen behind the Add dial too.
                     .accessibilityHidden(addOpen)
@@ -357,8 +365,18 @@ private enum KanameTabIcon {
     static let image: UIImage = {
         let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
         renderer.scale = UIScreen.main.scale
-        return (renderer.uiImage ?? UIImage(systemName: "hexagon")!)
-            .withRenderingMode(.alwaysTemplate)
+        if let image = renderer.uiImage ?? UIImage(systemName: "hexagon") {
+            return image.withRenderingMode(.alwaysTemplate)
+        }
+        return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28)).image { context in
+            let glyphColour = UIColor(ItPalette(.light).text)
+            glyphColour.setStroke()
+            glyphColour.setFill()
+            let path = UIBezierPath(ovalIn: CGRect(x: 3, y: 3, width: 22, height: 22))
+            path.lineWidth = 2
+            path.stroke()
+            context.cgContext.fillEllipse(in: CGRect(x: 13, y: 13, width: 2, height: 2))
+        }.withRenderingMode(.alwaysTemplate)
     }()
 }
 

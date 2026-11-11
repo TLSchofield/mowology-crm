@@ -12,6 +12,16 @@ import CoreGraphics
 import Foundation
 
 enum ItMeniscusGeometry {
+    /// Returns the array slot occupied by an item identity, or `nil` when the identity is unknown.
+    static func slotIndex(forID id: Int, in ids: [Int]) -> Int? {
+        ids.firstIndex(of: id)
+    }
+
+    /// Converts a logical leading-to-trailing slot into its physical left-to-right index.
+    static func physicalSlotIndex(_ logicalIndex: Int, count: Int, isRightToLeft: Bool) -> Int {
+        isRightToLeft ? count - logicalIndex - 1 : logicalIndex
+    }
+
     /// Bead diameter.
     static let bead: CGFloat = 50
     /// Ring of page colour between the bead and the notch.
