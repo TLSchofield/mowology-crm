@@ -82,7 +82,7 @@ class IttaiJobTest extends TestCase
         foreach (['data-kind="etransfer"', 'data-kind="duplicate"', 'it-job-pieces', 'it-job-frac-n', 'it-job-frac-s', 'it-job-frac-d', 'it-job-side-', 'hasEtransferWork', 'billing.edit', "\$__ijSvg('bank')"] as $n) {
             $this->assertStringContainsString($n, $inc, $n);
         }
-        $this->assertSame(2, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind');
+        $this->assertSame(3, substr_count($inc, '<template class="it-job-tpl"'), 'one skeleton per kind (duplicate, etransfer, month)');
         $this->assertSame(1, substr_count($inc, 'it-btn-fill'), 'the one filled button is built in one place for both kinds');
         $js = $this->src('public/crm/js/ittai-job.js');
         foreach (['new FormData()', "k + '[]'", "transport === 'form'", "req.action === 'record'", "req.mode === 'pick'", 'fully_allocated', 'it-job-frac-n', 'tplFor('] as $n) {
