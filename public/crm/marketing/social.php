@@ -447,7 +447,7 @@ try {
                               html += '  <div class="mw-soc-upcoming-time">' + timeStr + '</div>';
                               html += '</div>';
                               html += '<div class="mw-soc-upcoming-actions">';
-                              var isRetryable = (p.status === 'publishing' || (p.status === 'published' && p.fail_reason));
+                              var isRetryable = !p.hold_note && (p.status === 'publishing' || (p.status === 'published' && p.fail_reason));   // a post held for its season has no one-press send
                               if (isRetryable && <?php echo json_encode($canApprove); ?>) {
                                   html += '  <button class="btn btn-sm btn-outline-danger mr-1" onclick="retryPost(' + p.id + ')">Retry</button>';
                               }
