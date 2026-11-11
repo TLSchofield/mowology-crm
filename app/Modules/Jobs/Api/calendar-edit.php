@@ -28,6 +28,7 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
     require_once CRM_INCLUDES . '/weather-service.php';
+    require_once dirname(CRM_INCLUDES) . '/modules/weather/weather-rules.php'; // computeDayBattleCard() needs it
     require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/CalendarCreateService.php';
 
