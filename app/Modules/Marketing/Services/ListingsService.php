@@ -100,7 +100,20 @@ class ListingsService
             mb_substr(trim((string)($in['notes'] ?? '')), 0, 2000) ?: null,
             date('Y-m-d'), $userId ?: null, $id,
         ]);
+        $this->logCheck($id, (string)($in['job_result'] ?? ''), $userId);
         return ['ok' => true, 'nap' => $nap];
+    }
+
+    /** Mia's record with a listing: only decisions made on her strip carry job_result (MiaListingJobs::records reads it). */
+    private function logCheck(int $id, string $result, int $userId): void
+    {
+        if (!in_array($result, ['confirmed', 'changed', 'fixed', 'claimed'], true)) return;
+        try {
+            $this->db->prepare("INSERT INTO marketing_listing_checks (listing_id, result, user_id) VALUES (?, ?, ?)")
+                ->execute([$id, $result, $userId ?: null]);
+        } catch (Throwable $e) {
+            error_log('ListingsService::logCheck: ' . $e->getMessage());   // the table may not exist yet; the save itself stands
+        }
     }
 
     public function saveCategories(string $categories): void
@@ -186,7 +199,7 @@ class ListingsService
         $map = ['street' => 'st', 'avenue' => 'ave', 'av' => 'ave', 'road' => 'rd', 'drive' => 'dr', 'boulevard' => 'blvd',
                 'place' => 'pl', 'crescent' => 'cres', 'court' => 'ct', 'highway' => 'hwy', 'lane' => 'ln',
                 'west' => 'w', 'east' => 'e', 'north' => 'n', 'south' => 's', 'suite' => 'unit', 'ste' => 'unit', '#' => 'unit',
-                'british columbia' => 'bc', 'canada' => ''];
+                'british columbia' => 'bc', 'canada' => '', 'bc' => ''];   // the province is optional: the master has none and Google adds it
         $s = ' ' . preg_replace('/\s+/', ' ', $s) . ' ';
         foreach ($map as $from => $to) {
             $s = str_replace(' ' . $from . ' ', ' ' . $to . ' ', $s);

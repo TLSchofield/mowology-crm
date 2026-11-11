@@ -74,7 +74,8 @@ class PennyMonthJobAdapter
                 // the live count (the months summary is up to CACHE_SECONDS old): the queue holds at most 30
                 if (count($all) < 30) $m['bank_lines'] = count($all);
                 $discs = self::monthDiscs($months, (string)$m['month']);
-                foreach ($lines as $l) $out[] = self::fromLine($l, $m, $discs, 0, 0);
+                $facts = self::factsFor($db, $lines);
+                foreach ($lines as $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, $facts[(int)$l['id']] ?? []);
                 break;
             }
             return $out;
@@ -82,6 +83,36 @@ class PennyMonthJobAdapter
             error_log('PennyMonthJobAdapter::jobs: ' . $e->getMessage());
             return [];
         }
+    }
+
+    /**
+     * What a line's own evidence is, read from the books for the lines about to be offered: the account it came out of
+     * (the journal entry's bank or card side — accounting_transactions.bank_account is empty on imports), how many earlier
+     * lines with exactly this description are already filed on the account she proposes, and nothing else:
+     * a receipt is evidence only when she says she found one (suggestion.expense_id). Two cheap queries per line; [] on failure.
+     * @return array<int, array{account:string, earlier:int}>
+     */
+    public static function factsFor(PDO $db, array $lines): array
+    {
+        $out = [];
+        try {
+            foreach ($lines as $l) {
+                $id = (int)$l['id'];
+                $acct = '';
+                $q = $db->prepare("SELECT c.code, c.name FROM journal_entries e JOIN journal_lines jl ON jl.entry_id = e.id
+                                   JOIN chart_of_accounts c ON c.id = jl.account_id
+                                   WHERE e.source_type = 'bank_import' AND e.source_id = ? AND e.reversed_by_entry_id IS NULL AND e.status = 'posted'
+                                   AND c.code IN ('1010', '1020', '1025', '2400') ORDER BY e.id DESC LIMIT 1");
+                $q->execute([$id]);
+                if ($r = $q->fetch(PDO::FETCH_ASSOC)) $acct = $r['code'] . ' ' . $r['name'];
+                $e = $db->prepare("SELECT COUNT(*) FROM accounting_transactions WHERE reference_type = 'bank_import' AND description = ? AND account_id = ? AND id <> ? AND transaction_date <= ?");
+                $e->execute([(string)($l['description'] ?? ''), (int)($l['suggestion']['account_id'] ?? 0), $id, (string)($l['date'] ?? date('Y-m-d'))]);
+                $out[$id] = ['account' => $acct, 'earlier' => (int)$e->fetchColumn()];
+            }
+        } catch (Throwable $e) {
+            error_log('PennyMonthJobAdapter::factsFor: ' . $e->getMessage());
+        }
+        return $out;
     }
 
     /** The months summary, kept CACHE_SECONDS in ops_settings: only what the rail and the blockers need. */
@@ -178,7 +209,7 @@ class PennyMonthJobAdapter
      * The frame names both sides (the bank line above the rail, her account below), so the columns carry only the
      * comparison: the account it is on now against the one she proposes, and how long it has waited.
      */
-    public static function fromLine(array $line, array $month, array $discs, int $index, int $total): array
+    public static function fromLine(array $line, array $month, array $discs, int $index, int $total, array $facts = []): array
     {
         $s = (array)$line['suggestion'];
         $id = (int)$line['id'];
@@ -189,10 +220,25 @@ class PennyMonthJobAdapter
         $proposed = trim((string)$s['code'] . ' ' . (string)$s['name']);
         $date = !empty($line['date']) ? date('M j', strtotime((string)$line['date'])) : '';
         $age = (array)($line['age'] ?? []);
-        $ageText = (string)($age['age'] ?? '');
+        $days = (int)($age['age'] ?? 0);
+        $ageText = $days > 0 ? $days . ' day' . ($days === 1 ? '' : 's') : '';
         $ageClass = (string)($age['class'] ?? '');
         $monthName = date('F', strtotime($month['month'] . '-01'));
         $left = (int)($month['bank_lines'] ?? 0);
+
+        // The evidence, honestly: a receipt only when she found one; otherwise what the earlier lines like it say.
+        $earlier = (int)($facts['earlier'] ?? 0);
+        $evidence = !empty($s['expense_id']) ? 'Receipt found'
+            : ('No receipt' . ($earlier > 0 ? ' · ' . $earlier . ' earlier on ' . (string)$s['code'] : ''));
+        $account = trim((string)($facts['account'] ?? ''));
+        // After this press, the focus month still stands at its difference, with one line fewer
+        $after = [];
+        foreach ($discs as $d) if (!empty($d['focus'])) $after = $d;
+        $afterLeft = max(0, $left - 1);
+        if ($after) {
+            $after['top'] = $afterLeft === 0 ? 'no lines left' : $afterLeft . ' line' . ($afterLeft === 1 ? '' : 's') . ' left';
+            $after['label'] = $monthName;
+        }
 
         $request = ['mode' => 'bank_decide', 'transaction_id' => $id, 'action' => 'approve',
                     'account_id' => (int)$s['account_id'], 'suggested_id' => (int)$s['account_id']];
@@ -206,9 +252,10 @@ class PennyMonthJobAdapter
             'confidence' => trim((string)($s['reason'] ?? '')),
             'sure'       => self::sureOf($s),
             'months'     => $discs,
-            'left'       => ['label' => 'Bank line', 'who' => self::clip((string)($line['description'] ?? ''), 34),
+            'after'      => $after ?: null,
+            'left'       => ['label' => $account !== '' ? $account : 'Bank line', 'who' => self::clip((string)($line['description'] ?? ''), 34),
                              'when' => trim($date . ' · ' . ($isIn ? '+' : '−') . $money . ' · now ' . $current, ' ·')],
-            'right'      => ['label' => $proposed, 'who' => 'Penny proposes', 'when' => ''],
+            'right'      => ['label' => $proposed, 'who' => 'Penny proposes', 'when' => $evidence],
             // the frame names both sides (the line and where it is now, her account), so the one column is the comparison: how long it has waited
             'columns'    => [
                 ['label' => 'Waiting', 'top' => $ageText, 'bottom' => '', 'state' => $ageClass === 'investigate' ? 'missing' : 'info'],

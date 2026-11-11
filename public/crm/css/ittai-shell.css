@@ -600,12 +600,16 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 /* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
 .it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
 /* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */
-.it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-rail[data-kind="receipt"] .it-job-cols .it-job-top, .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-bot, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
 .it-job-side { display: grid; justify-items: start; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: nowrap; }
 .it-job-side b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); }
 .it-job-side-top { align-self: end; }
 .it-job-side-bot { align-self: start; }
 .it-job-side-bot b { color: var(--it-brand); }
+/* the receipt job: its name opens the file */
+.it-job-rc-view { color: inherit; text-decoration: underline; text-decoration-color: var(--it-line); text-underline-offset: 3px; }
+.it-job-rc-view:hover, .it-job-rc-view:focus-visible { color: var(--it-brand); text-decoration-color: currentColor; }
+.it-job-rail[data-kind="receipt"] .it-btn-fill .it-job-ic { transform: none; }
 .it-job-sides .it-job-disc-flow { justify-self: start; margin-left: 4px; }
 /* Record points along the flow already: no turned arrow (the duplicate job turns its merge arrow) */
 .it-job-rail[data-kind="etransfer"] .it-btn-fill .it-job-ic { transform: none; }
@@ -668,16 +672,14 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
   }
 }
 
-/* Penny's month-balancing job (Tim, 2026-11-10): the e-Transfer frame, with one disc per month along the rail where the
-   fraction sits (✓ exact or locked, ≠ the difference, ✗ lines or receipts still open, ℹ waiting). The month being worked is marked. */
-.it-job-months { display: flex; gap: 2px; list-style: none; margin: 0; padding: 0 8px; background: var(--it-surface); }
-.it-job-mo { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 52px; padding: 0 2px; font-variant-numeric: tabular-nums; }
-.it-job-mo .it-job-top { font-size: 13px; color: var(--it-meta); }
-.it-job-mo .it-job-bot { font-size: 12px; line-height: 16px; color: var(--it-meta); max-width: 64px; overflow: hidden; text-overflow: ellipsis; }
-.it-job-mo.is-focus .it-job-top { color: var(--it-text); font-weight: 600; }
-.it-job-mo.is-focus .it-job-bot { color: var(--it-text); }
+/* Penny's month-balancing job (Tim, 2026-11-10): the e-Transfer frame; after the two buttons the month's disc (what the month stands at
+   once this line is settled: ✓ exact, ≠ the difference, ✗ lines or receipts open, ℹ waiting), then the Ledger. The other months are a quiet row in the foot. */
+.it-job-after { min-width: 96px; }
+.it-job-after .it-job-top, .it-job-after .it-job-bot { color: var(--it-meta); font-size: 13px; }
 .it-job-rail[data-kind="month"] .it-job-cols .it-job-top, .it-job-rail[data-kind="month"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
 .it-job-rail[data-kind="month"] .it-btn-fill .it-job-ic { transform: none; }
-.it-job-mo.is-carried .it-job-bot { opacity: .6; }
-.it-job-mo { min-width: 46px; }
-.it-job-months { gap: 0; padding: 0 4px; }
+.it-job-mrow { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; margin-left: 16px; color: var(--it-meta); }
+.it-job-mrow:empty { display: none; }
+.it-job-mchip { font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.it-job-mchip.is-carried { opacity: .6; }
+.it-job-mchip.is-focus { color: var(--it-text); font-weight: 600; opacity: 1; }
