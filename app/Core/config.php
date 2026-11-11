@@ -132,8 +132,23 @@ if (!class_exists('Database')) {
             if (self::$pdo instanceof PDO) {
                 return self::$pdo;
             }
-            [, $tenantUser, $tenantPass] = Tenant::db();   // the install's user unless the tenant has its own
-            return self::$pdo = self::connect(DB_HOST, $tenantUser, $tenantPass);
+            [$tenantDb, $tenantUser, $tenantPass] = Tenant::db();   // the install's user unless the tenant has its own
+            return self::$pdo = self::connect(DB_HOST, $tenantDb, $tenantUser, $tenantPass);
+        }
+
+        /**
+         * A NEW connection to one named business's database, with the app's everyday user (never the DDL one)
+         * and the same options as pdo(). Never cached and never this request's getDB(): the phone sign-in
+         * directory on ittai.ca opens each business in turn (2026-11-11). Unknown key → InvalidArgumentException.
+         */
+        public static function forBusiness(string $key): PDO
+        {
+            foreach (Tenant::businesses() as $b) {
+                if ($b['key'] !== $key) continue;
+                [$name, $user, $pass] = $b['db'];
+                return self::connect(DB_HOST, $name, $user, $pass);
+            }
+            throw new InvalidArgumentException('Unknown business');
         }
 
         /** True when secrets.php names a separate schema-owning user. */
@@ -152,7 +167,7 @@ if (!class_exists('Database')) {
                 return self::$ddl;
             }
             $host = defined('DB_DDL_HOST') && (string)DB_DDL_HOST !== '' ? DB_DDL_HOST : DB_HOST;
-            return self::$ddl = self::connect($host, DB_DDL_USER, DB_DDL_PASS);
+            return self::$ddl = self::connect($host, Tenant::db()[0], DB_DDL_USER, DB_DDL_PASS);
         }
 
         /**
@@ -169,6 +184,7 @@ if (!class_exists('Database')) {
 
         private static function connect(
             string $host,
+            string $dbName,   // the tenant's own database (DB_NAME for the original business)
             string $user,
             // Kept out of stack traces (PHP 8.2+; a comment to older PHP — keep it on its own line).
             #[\SensitiveParameter]
@@ -180,7 +196,7 @@ if (!class_exists('Database')) {
             $dsn = sprintf(
                 'mysql:host=%s;dbname=%s;charset=%s',
                 $host,
-                Tenant::db()[0],   // the tenant's own database (DB_NAME for the original business)
+                $dbName,
                 $charset
             );
 

@@ -101,144 +101,54 @@ if ($credential === '' || $password === '') {
     echo json_encode(['error' => 'Email (or username) and password are required']);
     exit;
 }
-// Keep $email alias for rate-limiting calls below
-$email = $credential;
 
-// ── Rate limiting ──────────────────────────────────────────────────────────
+// ── Sign in ────────────────────────────────────────────────────────────────
+// The credential check and the token live in PhoneSignIn (2026-11-11), shared with the ittai.ca sign-in
+// directory. Same checks, same order, same answers as before; the token now also names its business (biz).
 require_once APP_ROOT . '/Core/Auth/auth.php';
+require_once APP_ROOT . '/Core/Auth/PhoneSignIn.php';
 
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-if (isLoginRateLimited($email, $ip)) {
+try {
+    $db = getDB();
+} catch (Throwable $e) {
+    // As before: with no database the throttle could not be read, and it fails closed.
+    error_log('isLoginRateLimited() error — refusing login: ' . $e->getMessage());
     http_response_code(429);
     echo json_encode(['error' => 'Too many login attempts. Try again in 10 minutes.']);
     exit;
 }
 
-// ── Credential validation ──────────────────────────────────────────────────
-try {
-    $db = getDB();
+$result = PhoneSignIn::attempt($db, Tenant::key(), $credential, $password, $audience, $ip);
 
-    $stmt = $db->prepare("
-        SELECT id, email, password_hash, full_name, role, is_active
-        FROM users
-        WHERE LOWER(email) = ? OR LOWER(username) = ?
-        LIMIT 1
-    ");
-    $stmt->execute([$credential, $credential]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // Check active — treat NULL/missing is_active as active (matches web login behaviour)
-    if ($user && isset($user['is_active']) && (int)$user['is_active'] === 0) {
-        $user = false; // explicitly deactivated
-    }
-
-} catch (Throwable $e) {
-    error_log('[BlueMoon/token] DB error: ' . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['error' => 'Server error. Please try again.']);
-    exit;
+switch ($result['status']) {
+    case 'ok':
+        http_response_code(200);
+        echo json_encode([
+            'token'      => $result['token'],
+            'user'       => $result['user'],
+            'expires_in' => $result['expires_in'],
+        ]);
+        exit;
+    case 'rate_limited':
+        http_response_code(429);
+        echo json_encode(['error' => 'Too many login attempts. Try again in 10 minutes.']);
+        exit;
+    case 'invalid':
+        http_response_code(401);
+        echo json_encode(['error' => 'Invalid credentials']);
+        exit;
+    case 'web_only':
+        http_response_code(403);
+        echo json_encode(['error' => 'This login works on the website only.']);
+        exit;
+    case 'not_configured':
+        http_response_code(500);
+        echo json_encode(['error' => 'Sign-in is not configured on the server', 'code' => 'jwt_secret_missing']);
+        exit;
+    default:   // 'error'
+        http_response_code(500);
+        echo json_encode(['error' => 'Server error. Please try again.']);
+        exit;
 }
-
-if (!$user || !isset($user['password_hash']) || !password_verify($password, (string)$user['password_hash'])) {
-    recordFailedLogin($email, $ip);
-    http_response_code(401);
-    echo json_encode(['error' => 'Invalid credentials']);
-    exit;
-}
-
-// The outside accountant's login is web-only and confined to the Ledger — never an app token (2026-10-13).
-if (!AccountantFence::jwtAllowed((string)($user['role'] ?? ''))) {
-    http_response_code(403);
-    echo json_encode(['error' => 'This login works on the website only.']);
-    exit;
-}
-
-// ── Success — clear rate limit, log activity ───────────────────────────────
-clearLoginAttempts($email, $ip);
-
-try {
-    $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1")
-       ->execute([(int)$user['id']]);
-
-    $loginAction = $audience === 'mobile' ? 'iOS app login' : 'BlueMoon web login';
-    $db->prepare("
-        INSERT INTO activity_log (user_id, action, details, ip_address)
-        VALUES (?, ?, ?, ?)
-    ")->execute([(int)$user['id'], $loginAction, 'JWT issued', $ip]);
-
-} catch (Throwable $e) {
-    // Non-fatal — log but continue
-    error_log('[BlueMoon/token] Post-auth logging error: ' . $e->getMessage());
-}
-
-// ── Build JWT (hand-rolled, no dependency) ─────────────────────────────────
-// No fallback key (Fable review 2026-10-12): without a real secret, sign nothing.
-if (!defined('BLUEMOON_JWT_SECRET') || strlen((string)BLUEMOON_JWT_SECRET) < 32) {
-    error_log('token.php: BLUEMOON_JWT_SECRET missing or too short — refusing to issue tokens');
-    http_response_code(500);
-    echo json_encode(['error' => 'Sign-in is not configured on the server', 'code' => 'jwt_secret_missing']);
-    exit;
-}
-// The same key validateJwtToken() checks: each business its own, derived from this secret (Ittai, 2026-10-23).
-$secret = (class_exists('Tenant') && !Tenant::isDefault())
-    ? hash_hmac('sha256', 'tenant:' . Tenant::key(), (string)BLUEMOON_JWT_SECRET)
-    : (string)BLUEMOON_JWT_SECRET;
-
-$header  = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
-$now     = time();
-// Mobile tokens live 30 days — crew must survive server outages and long
-// weekends without being forced to re-authenticate. Web tokens stay short.
-$aud = $audience === 'mobile' ? 'ios' : 'bluemoon';
-$ttl = $audience === 'mobile' ? (30 * 24 * 3600) : (8 * 3600);
-
-$payload = base64url_encode(json_encode([
-    'iss'   => 'mowology',
-    'aud'   => $aud,
-    'sub'   => (string)$user['id'],
-    'email' => (string)$user['email'],
-    'name'  => (string)($user['full_name'] ?? ''),
-    'role'  => (string)($user['role'] ?? 'user'),
-    'iat'   => $now,
-    'exp'   => $now + $ttl,
-    // A password change or reset invalidates this token (Fable review 2026-10-12; JwtAuth checks it).
-    'pwd_v' => substr(hash('sha256', (string)$user['password_hash']), 0, 8),
-]));
-
-$signature = base64url_encode(
-    hash_hmac('sha256', $header . '.' . $payload, $secret, true)
-);
-
-$token = $header . '.' . $payload . '.' . $signature;
-
-// ── Respond ────────────────────────────────────────────────────────────────
-// The app greets the business and its chief of staff by their shown names (Claudia walk 1, 2026-11-03: the
-// Android day screen still said "Charlie"). Both helpers never throw; empty means "use your default".
-$businessName = $chiefName = '';
-try {
-    require_once APP_ROOT . '/Services/BusinessIdentity.php';
-    require_once APP_ROOT . '/Services/HeadIdentity.php';
-    $businessName = (string)(BusinessIdentity::get($db)['name'] ?? '');
-    $chiefName = HeadIdentity::chiefName($db);
-} catch (Throwable $e) { error_log('[token] identity names: ' . get_class($e)); }
-http_response_code(200);
-echo json_encode([
-    'token' => $token,
-    'user'  => [
-        'id'    => (int)$user['id'],
-        'email' => (string)$user['email'],
-        'name'  => (string)($user['full_name'] ?? ''),
-        'role'  => (string)($user['role'] ?? 'user'),
-        'business_name' => $businessName,
-        'chief_name'    => $chiefName,
-    ],
-    'expires_in' => $ttl,
-]);
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function base64url_encode(string $data): string {
-    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
-}
-
-

@@ -203,6 +203,32 @@ If the endpoint needs business logic beyond simple CRUD, create a service class 
 
 ---
 
+## Phone sign-in for every business
+
+Every business has its own database and its own users, so a phone that only knows an email cannot tell where to sign in.
+`https://ittai.ca/api/sign-in.php` (file `public/ittai.ca/api/sign-in.php`, 2026-11-11) tries the password at every
+business on the install and answers with that business's address and a token issued FOR it. A business's own
+`/api/auth/token.php` still works exactly as before; both use `app/Core/Auth/PhoneSignIn.php`.
+
+- **Request:** `POST`, JSON `{ "email", "password", "audience": "mobile", "business"?: "<key>" }`.
+- **One match:** `200 { business: {key, name, app_url, test}, token, user, expires_in }` — the app keeps `app_url` and talks only to it.
+- **Several matches:** `200 { choose: true, businesses: [{key, name, app_url, test}, …] }` with no tokens — the app asks
+  which one and sends the same request again with `business` set.
+- **Failures:** `401 Invalid credentials`, `429` too many attempts, `400` email/password missing, `405` not POST.
+  A failure never says which businesses exist.
+- **The original business's address:** Tim adds one line to `public/app_config/tenants.php` on the server:
+  `$ITTAI_DEFAULT_APP_URL = 'https://mowology.ca';`. Each registered business uses its own `app_url`, which must be one
+  of its own `hosts`.
+- **A business with no address** (no `$ITTAI_DEFAULT_APP_URL`, or an `app_url` that is missing or not its own host) is
+  skipped with a log line `[directory] skipped <key>: no app address` — the app could not reach it anyway. A business
+  whose database will not open is skipped the same way and never blocks the others.
+- Tokens carry `biz` (the business key); `validateJwtToken()` refuses a token whose `biz` is another business.
+- Cost: one bcrypt check per business per attempt. Past a few dozen businesses, add a stored email → business index.
+- Code: `BusinessDirectory` (`app/Modules/Auth/Services/`), `Tenant::businesses()`, `Database::forBusiness()`;
+  tests in `tests/Unit/Auth/`.
+
+---
+
 ## Deployment
 
 See `DEPLOYMENT.md` for FTP credentials, lftp commands, and the full deploy workflow.
