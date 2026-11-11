@@ -1,0 +1,547 @@
+<?php
+/**
+ * CharlieAskService — "Ask Charlie": the owner types a question about the business
+ * ("has Linda's quote been sent?") and Charlie answers from CRM data. iOS Team tab first.
+ *
+ * Read-only and on-click only:
+ *   - Context is looked up HERE with prepared statements — names, streets and quote/invoice
+ *     numbers taken from the question are matched against contacts, companies and
+ *     properties, then their recent quotes, invoices and visits are read. The model never
+ *     writes SQL and never sees anything but this compact context.
+ *   - Nothing matched → Charlie says so without calling Claude (free, not counted).
+ *   - A daily cap (ops_settings charlie_ask_daily_cap, default 30 calls).
+ *   - Every ask is logged in charlie_asks with tokens and cost (migration 1215).
+ *   - Counts and totals from the other heads (Otto's truck log and cost facts, Penny's receipts,
+ *     the schedule) are answered first by CharlieFactAnswerer with plain SQL — free, not counted
+ *     against the cap, logged with source 'facts'. When it isn't sure, the same summaries are
+ *     added to Claude's context (counts and totals, never raw rows).
+ *   - Every answer ends with where it came from ("— from Otto's truck log").
+ * Claude is called over HTTP the way BankGuidanceService does (no SDK on the FTP-deployed
+ * host); tests inject a fake transport.
+ *
+ * No namespace / no autoloader in production: require_once and `new`.
+ */
+require_once __DIR__ . '/CharlieFactAnswerer.php';
+require_once __DIR__ . '/CharliePaymentStory.php';
+require_once __DIR__ . '/CharlieAnswerStyle.php';
+require_once dirname(__DIR__, 2) . '/Search/Services/ClientFactAnswerer.php';
+require_once dirname(__DIR__, 3) . '/Services/Llm/LlmGateway.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadIdentity.php';
+
+class CharlieAskService
+{
+    public const API_URL     = 'https://api.anthropic.com/v1/messages';
+    public const MODEL       = 'claude-sonnet-5-5';
+    /** USD per million tokens (Claude Sonnet list prices, as BankGuidanceService). */
+    public const PRICE_IN    = 3.0;
+    public const PRICE_OUT   = 15.0;
+    public const CAP_KEY     = 'charlie_ask_daily_cap';
+    public const DEFAULT_CAP = 30;
+    public const QUESTION_MAX = 300;
+    public const MAX_TERMS   = 4;
+    public const ROWS        = 6;
+
+    public const SYSTEM_PROMPT = <<<'TXT'
+You are {CHIEF}, Chief of Staff for {BUSINESS}. The owner asks you quick questions about his customers from his phone.
+
+Answer ONLY from the CRM records you are given. They are everything the CRM holds that matched his question; if the answer isn't in them, say plainly that you can't see it in the CRM and what you did find. Never guess or invent names, dates, amounts or statuses.
+
+How to read the records:
+- quote status: draft = not sent yet; sent = sent (sent_at is when); viewed = the customer opened it; accepted = won; declined / expired = lost.
+- invoice: balance_due > 0 means still owing; paid_at is when it was paid; overdue = past its due date and unpaid.
+- visits: scheduled = coming up; completed = done.
+- Several people can share a first name — if more than one matches, say which one you mean or list them briefly.
+- facts: counts and totals already worked out from Otto's truck log and cost facts, Penny's receipts and the schedule, for the period named. Trust them as given; don't recount.
+
+Reply in {CHIEF}'s voice: plain, short, friendly, first person, to the owner. At most 4 short sentences, plain text, no markdown, no bullet points. Use real dates (e.g. "Oct 3") and amounts ($1,240). You can't change anything in the CRM — you only look things up.
+TXT;
+
+    /** The system prompt with the chief of staff's shown name filled in (the owner may rename them). */
+    public static function systemPrompt(): string
+    {
+        require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+        return strtr(self::SYSTEM_PROMPT, ['{CHIEF}' => HeadIdentity::chiefName(), '{BUSINESS}' => BusinessIdentity::describe()]);
+    }
+
+    /** Words that are never a name or a street. */
+    public const STOP = [
+        'the', 'and', 'for', 'has', 'have', 'had', 'been', 'was', 'were', 'are', 'is', 'did', 'does', 'do', 'what', 'when', 'where',
+        'which', 'who', 'whom', 'why', 'how', 'much', 'many', 'any', 'all', 'our', 'their', 'his', 'her', 'hers', 'they', 'them', 'she',
+        'him', 'you', 'your', 'can', 'could', 'would', 'should', 'will', 'still', 'yet', 'already', 'last', 'next', 'this', 'that',
+        'with', 'from', 'about', 'there', 'here', 'out', 'not', 'get', 'got', 'give', 'tell', 'show', 'find', 'check', 'please',
+        'quote', 'quotes', 'invoice', 'invoices', 'bill', 'bills', 'job', 'jobs', 'visit', 'visits', 'client', 'clients', 'customer',
+        'customers', 'sent', 'send', 'paid', 'pay', 'owe', 'owes', 'owing', 'due', 'overdue', 'accepted', 'signed', 'booked', 'scheduled',
+        'today', 'tomorrow', 'yesterday', 'week', 'month', 'year', 'mow', 'mowing', 'lawn', 'cut', 'service', 'balance', 'status',
+        'money', 'amount', 'total', 'new', 'old', 'open', 'outstanding', 'charlie', 'mowology', 'street', 'avenue', 'road', 'drive',
+        'place', 'house', 'property', 'properties', 'address', 'contact', 'contacts', 'company', 'companies', 'strata', 'building',
+    ];
+
+    private PDO $db;
+    /** @var callable|null fn(array $requestBody): array{code: int, body: string} — injected in tests */
+    private $transport;
+    private ?string $today;
+    private CharlieFactAnswerer $facts;
+
+    public function __construct(PDO $db, ?callable $transport = null, ?string $today = null, ?CharlieFactAnswerer $facts = null)
+    {
+        $this->db = $db;
+        $this->transport = $transport;
+        $this->today = $today;
+        $this->facts = $facts ?? new CharlieFactAnswerer($db, $today);
+    }
+
+    private function today(): string { return $this->today ?? date('Y-m-d'); }
+
+    public function ready(): bool
+    {
+        try {
+            $this->db->query("SELECT 1 FROM charlie_asks LIMIT 1");
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function hasKey(): bool
+    {
+        return $this->transport !== null || (defined('ANTHROPIC_API_KEY') && ANTHROPIC_API_KEY !== '');
+    }
+
+    // ── Cap ──────────────────────────────────────────────────────────────────
+
+    public function dailyCap(): int
+    {
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([self::CAP_KEY]);
+            $v = $s->fetchColumn();
+            if ($v !== false && is_numeric($v)) return max(0, (int)$v);
+        } catch (Throwable $e) { /* no ops_settings → default */ }
+        return self::DEFAULT_CAP;
+    }
+
+    /** Claude calls made today (answers with nothing matched are free and don't count). */
+    public function callsToday(): int
+    {
+        try {
+            $s = $this->db->prepare("SELECT COUNT(*) FROM charlie_asks WHERE source = 'claude' AND created_at >= ?");
+            $s->execute([$this->today() . ' 00:00:00']);
+            return (int)$s->fetchColumn();
+        } catch (Throwable $e) {
+            return PHP_INT_MAX;   // can't count → don't spend
+        }
+    }
+
+    /** For the card: {ready, cap, used, left}. */
+    public function status(): array
+    {
+        if (!$this->ready()) return ['ready' => false, 'cap' => 0, 'used' => 0, 'left' => 0];
+        $cap = $this->dailyCap();
+        $used = $this->callsToday();
+        return ['ready' => $this->hasKey(), 'cap' => $cap, 'used' => min($used, $cap), 'left' => self::capLeft($cap, $used)];
+    }
+
+    // ── Ask ──────────────────────────────────────────────────────────────────
+
+    /** @return array{ok: bool, answer?: string, message?: string, source?: string, left: int, capped?: bool} */
+    public function ask(string $question, int $userId): array
+    {
+        if (!$this->ready()) return ['ok' => false, 'message' => 'Ask ' . HeadIdentity::chiefName() . ' needs migration 1215.', 'left' => 0];
+        $question = self::cleanQuestion($question);
+        if (mb_strlen($question) < 3) return ['ok' => false, 'message' => 'Type a question first.', 'left' => $this->status()['left']];
+
+        // Counts and totals from the other heads: plain SQL, no model, not counted.
+        $fact = null;
+        try {
+            $fact = $this->facts->answer($question);
+        } catch (Throwable $e) {
+            error_log('Charlie facts: ' . $e->getMessage());
+        }
+        if ($fact) {
+            $this->record($question, [$fact['about']], ['facts' => $fact['head']], 'facts', $fact['answer'], null, 0, 0, null, $userId);
+            return ['ok' => true, 'answer' => $fact['answer'], 'source' => 'facts', 'left' => $this->status()['left']];
+        }
+
+        // One client's quote / balance / next visit / last message (ClientFactAnswerer): plain SQL with Open / Call /
+        // Text / Email buttons. After the heads' facts, so a truck-log or receipt question keeps its answer.
+        try {
+            $clientFact = (new ClientFactAnswerer($this->db, $this->today()))->answer($question, static function (string $permission): bool { return true; });
+        } catch (Throwable $e) {
+            $clientFact = null;
+            error_log('Charlie client facts: ' . $e->getMessage());
+        }
+        if ($clientFact) {
+            $this->record($question, [$clientFact['about']['name']], ['client' => $clientFact['about']['id']], 'facts', $clientFact['answer'], null, 0, 0, null, $userId);
+            return ['ok' => true, 'answer' => $clientFact['answer'], 'source' => 'facts', 'actions' => $clientFact['actions'], 'left' => $this->status()['left']];
+        }
+
+        $terms = self::terms($question);
+        $ctx = $this->context($terms);
+        $summary = $this->facts->summary($question);
+        $from = array_sum(self::matched($ctx)) > 0 ? ['the CRM'] : [];
+        if ($summary) {
+            $ctx['facts'] = $summary['lines'];
+            foreach ($summary['heads'] as $h) $from[] = CharlieFactAnswerer::FROM[$h];
+        }
+        $matched = self::matched($ctx);
+        // Why money is owed (reminders, card/autopay, delivery, what they said), worked out in code: the model phrases it.
+        $story = CharliePaymentStory::forMatches($this->db, $ctx, $this->today());
+        if ($story) $ctx['payment_story'] = $story;
+        // A cached answer is only valid while the facts behind it are the same (a reminder going out or a payment landing changes them).
+        $reuseKey = $matched + ($story ? ['story' => substr(md5(json_encode(array_column($story, 'signals'))), 0, 8)] : []);
+
+        // Nothing in the CRM matched: say so for free.
+        if (array_sum($matched) === 0) {
+            $answer = $terms
+                ? "I can't find anyone or anything matching " . self::quoteList($terms) . " in the CRM. Try a last name, a street, or a quote or invoice number."
+                : "I need a name, a street, or a quote or invoice number to look up. Who is this about?";
+            $this->record($question, $terms, $matched, 'none', $answer, null, 0, 0, null, $userId);
+            return ['ok' => true, 'answer' => $answer, 'source' => 'none', 'left' => $this->status()['left']];
+        }
+
+        // The same question about the same records within the hour: his last answer, no new call (D6, 2026-10-15).
+        if ($prev = $this->recentAnswer($question, $reuseKey)) {
+            $this->record($question, $terms, $matched, 'reused', $prev['answer'], null, 0, 0, null, $userId);
+            $mins = max(1, (int)round((time() - strtotime((string)$prev['created_at'])) / 60));
+            $answer = $prev['answer'] . "\n— my answer from {$mins} minute" . ($mins === 1 ? '' : 's') . ' ago (nothing new matched since)';
+            return ['ok' => true, 'answer' => $answer, 'source' => 'reused', 'left' => $this->status()['left']];
+        }
+
+        if (!$this->hasKey()) return ['ok' => false, 'message' => 'No Anthropic key set up, so I can\'t answer questions yet.', 'left' => 0];
+        $cap = $this->dailyCap();
+        $used = $this->callsToday();
+        if (!self::canCall($cap, $used)) {
+            return ['ok' => false, 'capped' => true, 'left' => 0,
+                    'message' => "That's today's {$cap} questions used up. Ask me again tomorrow, or look it up in the CRM."];
+        }
+
+        $res = $this->send(self::buildRequest(self::buildPrompt($question, $ctx, $this->today())));
+        $error = null;
+        $answer = null;
+        $usage = [];
+        if ($res['code'] !== 200) {
+            $error = 'HTTP ' . $res['code'];
+        } else {
+            $resp = json_decode($res['body'], true) ?: [];
+            $usage = $resp['usage'] ?? [];
+            $answer = self::textOf($resp);
+            if (($resp['stop_reason'] ?? '') === 'refusal') $error = 'Declined';
+            elseif ($answer === '') $error = 'Empty answer';
+        }
+        $in = (int)($usage['input_tokens'] ?? 0) + (int)($usage['cache_read_input_tokens'] ?? 0) + (int)($usage['cache_creation_input_tokens'] ?? 0);
+        $out = (int)($usage['output_tokens'] ?? 0);
+        // The style rules are in the prompt, but a prompt is a request, not a guarantee: if the answer reads like a ledger
+        // (lists, invoice numbers, a guessed pronoun), ask once for a rewrite and keep whichever reads better.
+        $detail = CharlieAnswerStyle::wantsDetail($question);
+        $problems = $error ? [] : CharlieAnswerStyle::check((string)$answer, $detail);
+        if ($problems) {
+            $r2 = $this->send(self::buildRetryRequest(self::buildPrompt($question, $ctx, $this->today()), (string)$answer, $problems));
+            if ($r2['code'] === 200) {
+                $resp2 = json_decode($r2['body'], true) ?: [];
+                $a2 = self::textOf($resp2);
+                $u2 = $resp2['usage'] ?? [];
+                $in += (int)($u2['input_tokens'] ?? 0) + (int)($u2['cache_read_input_tokens'] ?? 0) + (int)($u2['cache_creation_input_tokens'] ?? 0);
+                $out += (int)($u2['output_tokens'] ?? 0);
+                if (($resp2['stop_reason'] ?? '') !== 'refusal' && $a2 !== '' && count(CharlieAnswerStyle::check($a2, $detail)) < count($problems)) $answer = $a2;
+            }
+        }
+        $this->record($question, $terms, $reuseKey, 'claude', $error ? null : $answer, self::MODEL, $in, $out, $error, $userId);
+        if ($error) {
+            error_log('Charlie ask: ' . $error);
+            return ['ok' => false, 'message' => 'I couldn\'t answer that just now (' . $error . '). Try again in a minute.',
+                    'left' => self::capLeft($cap, $used + 1)];
+        }
+        // "from the CRM" is noise; name a source only when it is something else (Otto's trip log, Penny's receipts …).
+        $others = array_values(array_diff(array_unique($from), ['the CRM']));
+        if ($others) $answer .= "\n— from " . implode(' and ', $others);
+        return ['ok' => true, 'answer' => $answer, 'source' => 'claude', 'left' => self::capLeft($cap, $used + 1)];
+    }
+
+    public const REUSE_MINUTES = 60;
+
+    /** A Claude answer to the same question (same words, same matched records) in the last REUSE_MINUTES. */
+    private function recentAnswer(string $question, array $matched): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT answer, created_at FROM charlie_asks WHERE source = 'claude' AND error IS NULL AND answer IS NOT NULL
+                                     AND question = ? AND matched = ? AND created_at >= ? ORDER BY id DESC LIMIT 1");
+            $s->execute([$question, mb_substr(json_encode($matched), 0, 255), date('Y-m-d H:i:s', time() - self::REUSE_MINUTES * 60)]);
+            return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function record(string $q, array $terms, array $matched, string $source, ?string $answer, ?string $model, int $in, int $out, ?string $error, int $userId): void
+    {
+        try {
+            $this->db->prepare("INSERT INTO charlie_asks (question, terms, matched, source, answer, model, input_tokens, output_tokens, cost_usd, error, requested_by, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+               ->execute([$q, mb_substr(implode(', ', $terms), 0, 255), mb_substr(json_encode($matched), 0, 255), $source, $answer, $model,
+                          $in, $out, self::cost($in, $out), $error ? substr($error, 0, 255) : null, $userId ?: null, date('Y-m-d H:i:s')]);
+        } catch (Throwable $e) {
+            error_log('Charlie ask log: ' . $e->getMessage());
+        }
+    }
+
+    private function send(array $body): array
+    {
+        // One door for every model call (retry, kill switch, cost log): app/Services/Llm/LlmGateway.php.
+        $r = LlmGateway::send($body, [
+            'head' => 'charlie', 'skill' => 'ask', 'db' => $this->db,
+            'timeout' => 60, 'transport' => $this->transport,
+        ]);
+        return ['code' => $r['code'], 'body' => $r['body']];
+    }
+
+    // ── Context (read-only, prepared statements only) ───────────────────────
+
+    /**
+     * What the CRM holds for the question's terms.
+     * @return array{contacts: array, companies: array, properties: array, quotes: array, invoices: array, visits: array}
+     */
+    public function context(array $terms): array
+    {
+        $ctx = ['contacts' => [], 'companies' => [], 'properties' => [], 'quotes' => [], 'invoices' => [], 'visits' => []];
+        $names = array_values(array_filter($terms, fn($t) => !self::isDocNumber($t)));
+        $docs = array_values(array_filter($terms, fn($t) => self::isDocNumber($t)));
+        $lim = self::ROWS;
+
+        foreach ($names as $term) {
+            // "lindas" is how a phone leaves "Linda's": when the word finds nothing, try it without the s (2026-11-05).
+            foreach (self::nameForms($term) as $t) {
+                $contacts = $this->rows(
+                    "SELECT id, first_name, last_name, email, phone FROM contacts WHERE first_name LIKE ? OR last_name LIKE ? ORDER BY id DESC LIMIT {$lim}",
+                    [$t . '%', $t . '%']);
+                $companies = $this->rows(
+                    "SELECT id, company_name FROM companies WHERE company_name LIKE ? ORDER BY id DESC LIMIT 4", ['%' . $t . '%']);
+                // A bare number is a house number (start of the address); a word can be anywhere in it.
+                $like = preg_match('/^\d+$/', $t) ? $t . ' %' : '%' . $t . '%';
+                $properties = $this->rows(
+                    "SELECT id, address, city FROM properties WHERE address LIKE ? ORDER BY id DESC LIMIT 4", [$like]);
+                $ctx['contacts'] = array_merge($ctx['contacts'], $contacts);
+                $ctx['companies'] = array_merge($ctx['companies'], $companies);
+                $ctx['properties'] = array_merge($ctx['properties'], $properties);
+                if ($contacts || $companies || $properties) break;
+            }
+        }
+        foreach (['contacts', 'companies', 'properties'] as $k) $ctx[$k] = self::uniqueById($ctx[$k], $k === 'contacts' ? 8 : 6);
+
+        $amt = "COALESCE(NULLIF(q.total_amount, 0), q.amount, 0)";
+        $qCols = "q.id, q.quote_number, q.title, q.status, {$amt} AS amount, q.created_at, q.sent_at, q.viewed_at, q.accepted_at, q.valid_until, q.contact_id, q.company_id, q.property_id";
+        $iCols = "i.id, i.invoice_number, i.status, i.total, i.balance_due, i.issue_date, i.due_date, i.paid_at, i.contact_id, i.company_id, i.property_id";
+
+        foreach ($docs as $d) {
+            $ctx['quotes'] = array_merge($ctx['quotes'], $this->rows("SELECT {$qCols} FROM quotes q WHERE q.quote_number = ?", [$d]));
+            $ctx['invoices'] = array_merge($ctx['invoices'], $this->rows("SELECT {$iCols} FROM invoices i WHERE i.invoice_number = ?", [$d]));
+        }
+
+        $cIds = array_map(fn($r) => (int)$r['id'], $ctx['contacts']);
+        $coIds = array_map(fn($r) => (int)$r['id'], $ctx['companies']);
+        $pIds = array_map(fn($r) => (int)$r['id'], $ctx['properties']);
+        [$where, $args] = self::ownerFilter($cIds, $coIds, $pIds);
+        if ($where !== '') {
+            $ctx['quotes'] = array_merge($ctx['quotes'], $this->rows(
+                "SELECT {$qCols} FROM quotes q WHERE " . str_replace('#', 'q', $where) . " ORDER BY q.id DESC LIMIT 8", $args));
+            $ctx['invoices'] = array_merge($ctx['invoices'], $this->rows(
+                "SELECT {$iCols} FROM invoices i WHERE " . str_replace('#', 'i', $where) . " ORDER BY i.id DESC LIMIT 8", $args));
+        }
+        $ctx['quotes'] = self::uniqueById($ctx['quotes'], 8);
+        $ctx['invoices'] = self::uniqueById($ctx['invoices'], 8);
+
+        // Visits at the matched properties and the ones on those quotes/invoices.
+        foreach (array_merge($ctx['quotes'], $ctx['invoices']) as $r) if (!empty($r['property_id'])) $pIds[] = (int)$r['property_id'];
+        $pIds = array_slice(array_values(array_unique($pIds)), 0, 8);
+        if ($pIds) {
+            $in = implode(',', array_fill(0, count($pIds), '?'));
+            $vCols = "v.id, v.scheduled_date, v.status, p.service_type, p.property_id";
+            $next = $this->rows("SELECT {$vCols} FROM job_visits v JOIN job_plans p ON p.id = v.plan_id
+                                 WHERE p.property_id IN ({$in}) AND v.scheduled_date >= ? AND v.status = 'scheduled'
+                                 ORDER BY v.scheduled_date LIMIT 4", array_merge($pIds, [$this->today()]));
+            $last = $this->rows("SELECT {$vCols} FROM job_visits v JOIN job_plans p ON p.id = v.plan_id
+                                 WHERE p.property_id IN ({$in}) AND v.scheduled_date <= ? AND v.status = 'completed'
+                                 ORDER BY v.scheduled_date DESC LIMIT 4", array_merge($pIds, [$this->today()]));
+            $ctx['visits'] = array_merge($last, $next);
+            // The visits' properties, so their addresses can be named.
+            $have = array_map(fn($r) => (int)$r['id'], $ctx['properties']);
+            $missing = array_values(array_diff($pIds, $have));
+            if ($missing) {
+                $in2 = implode(',', array_fill(0, count($missing), '?'));
+                $ctx['properties'] = array_merge($ctx['properties'], $this->rows("SELECT id, address, city FROM properties WHERE id IN ({$in2})", $missing));
+            }
+        }
+        return $ctx;
+    }
+
+    /** One guarded read: a column missing on this schema drops that piece, never the answer. */
+    private function rows(string $sql, array $args): array
+    {
+        try {
+            $s = $this->db->prepare($sql);
+            $s->execute($args);
+            return $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            error_log('Charlie ask context: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    // ── Pure (unit tested) ───────────────────────────────────────────────────
+
+    public static function cleanQuestion(string $q): string
+    {
+        return mb_substr(trim(preg_replace('/\s+/u', ' ', $q)), 0, self::QUESTION_MAX);
+    }
+
+    /**
+     * Names, streets and document numbers in the question, at most MAX_TERMS.
+     * "Has Linda's quote been sent?" → ['Linda']; "is INV-2026-0042 paid" → ['INV-2026-0042'].
+     * Capitalised words win when there are any; otherwise every word that isn't a stop word.
+     * @return string[]
+     */
+    public static function terms(string $q): array
+    {
+        $docs = [];
+        if (preg_match_all('/\b(?:QUO|INV|JOB)-\d{4}-\d{3,6}\b/i', $q, $m)) {
+            foreach ($m[0] as $d) $docs[] = strtoupper($d);
+            $q = preg_replace('/\b(?:QUO|INV|JOB)-\d{4}-\d{3,6}\b/i', ' ', $q);
+        }
+        preg_match_all("/[\\p{L}\\d][\\p{L}\\d'’\\-]*/u", $q, $m);
+        $caps = [];
+        $all = [];
+        foreach ($m[0] as $w) {
+            $w = preg_replace("/['’]s$/u", '', $w);
+            $w = trim($w, "'’-");
+            $lower = mb_strtolower($w);
+            if (mb_strlen($w) < 3 && !preg_match('/^\d+$/', $w)) continue;
+            if (in_array($lower, self::STOP, true)) continue;
+            if (preg_match('/^\d+$/', $w) && mb_strlen($w) < 2) continue;
+            $all[$lower] = $w;
+            if (preg_match('/^\p{Lu}/u', $w) || preg_match('/\d/', $w)) $caps[$lower] = $w;
+        }
+        $words = array_values($caps ?: $all);
+        return array_slice(array_merge(array_values(array_unique($docs)), $words), 0, self::MAX_TERMS);
+    }
+
+    /**
+     * The spellings to look a name up by, in order: as typed, then without a trailing s ("lindas" → "linda") for a
+     * word of 4+ letters. Numbers and short words are looked up as typed only.
+     * @return string[]
+     */
+    public static function nameForms(string $t): array
+    {
+        $forms = [$t];
+        if (mb_strlen($t) >= 4 && preg_match('/^\p{L}+s$/iu', $t) && !preg_match('/ss$/iu', $t)) $forms[] = mb_substr($t, 0, -1);
+        return $forms;
+    }
+
+    public static function isDocNumber(string $t): bool
+    {
+        return (bool)preg_match('/^(?:QUO|INV|JOB)-\d{4}-\d{3,6}$/', $t);
+    }
+
+    /**
+     * WHERE clause matching rows owned by any of the ids ('#' stands for the table alias).
+     * @return array{0: string, 1: int[]}
+     */
+    public static function ownerFilter(array $contactIds, array $companyIds, array $propertyIds): array
+    {
+        $parts = [];
+        $args = [];
+        foreach (['contact_id' => $contactIds, 'company_id' => $companyIds, 'property_id' => $propertyIds] as $col => $ids) {
+            $ids = array_values(array_unique(array_map('intval', $ids)));
+            if (!$ids) continue;
+            $parts[] = "#.{$col} IN (" . implode(',', array_fill(0, count($ids), '?')) . ')';
+            $args = array_merge($args, $ids);
+        }
+        return [$parts ? '(' . implode(' OR ', $parts) . ')' : '', $args];
+    }
+
+    public static function uniqueById(array $rows, int $max): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            $id = (int)($r['id'] ?? 0);
+            if ($id && !isset($out[$id])) $out[$id] = $r;
+        }
+        return array_slice(array_values($out), 0, $max);
+    }
+
+    /** @return array<string, int> how many of each kind matched */
+    public static function matched(array $ctx): array
+    {
+        $out = [];
+        foreach (['contacts', 'companies', 'properties', 'quotes', 'invoices', 'visits'] as $k) $out[$k] = count((array)($ctx[$k] ?? []));
+        if (!empty($ctx['facts'])) $out['facts'] = count((array)$ctx['facts']);
+        return $out;
+    }
+
+    public static function buildPrompt(string $question, array $ctx, string $today): string
+    {
+        $records = [];
+        foreach ($ctx as $k => $rows) {
+            if (!$rows) continue;
+            $records[$k] = $k === 'facts' ? array_values($rows) : array_map(fn($r) => array_filter($r, fn($v) => $v !== null && $v !== ''), $rows);
+        }
+        return "Today is {$today}.\n\nThe owner asks: \"{$question}\"\n\nCRM records that matched (contact_id / company_id / property_id link them):\n"
+            . json_encode($records, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+
+    public static function buildRequest(string $prompt): array
+    {
+        return self::withStyle([
+            'model'      => self::MODEL,
+            'max_tokens' => 600,
+            'system'     => [['type' => 'text', 'text' => self::systemPrompt(), 'cache_control' => ['type' => 'ephemeral']]],
+            'messages'   => [['role' => 'user', 'content' => [['type' => 'text', 'text' => $prompt]]]],
+        ]);
+    }
+
+    /** The same question again, with the first answer and what was wrong with it: say it the way a person would. */
+    public static function buildRetryRequest(string $prompt, string $firstAnswer, array $problems): array
+    {
+        $req = self::buildRequest($prompt);
+        $req['messages'][] = ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => $firstAnswer]]];
+        $req['messages'][] = ['role' => 'user', 'content' => [['type' => 'text', 'text' =>
+            'That reads like a ledger (' . implode('; ', $problems) . '). Say it again the way you would out loud to the owner: the answer first, then the one reason that explains it, under 60 words, no lists, no invoice numbers, no he/she. Same facts only.']]];
+        return $req;
+    }
+
+    /** The speaking-style rules go in as a second cached system block; answers are short, so the output cap is lower. */
+    private static function withStyle(array $req): array
+    {
+        $req['system'][] = ['type' => 'text', 'text' => CharlieAnswerStyle::PROMPT, 'cache_control' => ['type' => 'ephemeral']];
+        $req['max_tokens'] = 400;
+        return $req;
+    }
+
+    /** The answer's text blocks, joined and trimmed. */
+    public static function textOf(array $resp): string
+    {
+        $t = '';
+        foreach ((array)($resp['content'] ?? []) as $b) {
+            if (($b['type'] ?? '') === 'text') $t .= (string)($b['text'] ?? '');
+        }
+        return trim($t);
+    }
+
+    public static function quoteList(array $terms): string
+    {
+        return implode(' or ', array_map(fn($t) => '"' . $t . '"', $terms));
+    }
+
+    public static function capLeft(int $cap, int $used): int
+    {
+        return max(0, $cap - max(0, $used));
+    }
+
+    public static function canCall(int $cap, int $used): bool
+    {
+        return self::capLeft($cap, $used) > 0;
+    }
+
+    public static function cost(int $in, int $out): float
+    {
+        return round($in / 1e6 * self::PRICE_IN + $out / 1e6 * self::PRICE_OUT, 5);
+    }
+}

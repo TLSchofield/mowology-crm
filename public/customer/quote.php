@@ -7,8 +7,14 @@
 
 // Allow CORS for signature pad
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Modules/PublicForms/Services/PublicFormSecurity.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once dirname(__DIR__) . '/includes/notifications.php';
 
 $db = getDB();
@@ -25,6 +31,7 @@ if ($previewQuoteId > 0) {
         header('Location: /loginAuth/login.php?redirect=' . urlencode($_SERVER['REQUEST_URI']));
         exit;
     }
+    requirePermission('billing.view');
     $isAdminPreview = true;
 
     $stmt = $db->prepare("
@@ -111,7 +118,18 @@ if (empty($token)) {
         $quote = null;
         $error = 'This quote link has expired or is invalid. Please contact us for a new quote.';
     } else {
+        // A browser logged in to the CRM is staff (Tim checking the page), not the customer:
+        // it isn't counted as a view and never pushes. See QuoteViewNotifier.
+        $__staffViewer = false;
+        try {
+            require_once APP_ROOT . '/Modules/Sales/Services/QuoteViewNotifier.php';
+            $__staffViewer = QuoteViewNotifier::isStaffViewer();
+        } catch (Throwable $e) {
+            error_log('Quote view staff check failed: ' . $e->getMessage());
+        }
+
         // Update view tracking — first-view timestamp + rolling last_viewed_at + count
+        if (!$__staffViewer) {
         try {
             $stmt = $db->prepare("
                 UPDATE quotes
@@ -125,16 +143,89 @@ if (empty($token)) {
             // Non-critical — silently skip if column missing
             error_log("Quote view tracking update failed: " . $e->getMessage());
         }
+        }
+
+        // Sam: "<customer> just opened <quote>" to the owner's iPhone — first counted view
+        // only ($quote is the row from before this view). Sent after the page is flushed so
+        // the customer never waits on APNs; errors go to error_log only.
+        try {
+            if (class_exists('QuoteViewNotifier')
+                && QuoteViewNotifier::decide($quote, $__staffViewer, time())['notify']) {
+                $__pushQuoteId = (int)$quote['id'];
+                register_shutdown_function(static function () use ($__pushQuoteId) {
+                    try {
+                        ignore_user_abort(true);
+                        if (function_exists('fastcgi_finish_request')) {
+                            fastcgi_finish_request();
+                        } elseif (function_exists('litespeed_finish_request')) {
+                            litespeed_finish_request();
+                        }
+                        (new QuoteViewNotifier(getDB()))->notifyFirstView($__pushQuoteId);
+                    } catch (Throwable $e) {
+                        error_log('Sam quote-view push failed: ' . $e->getMessage());
+                    }
+                });
+            }
+        } catch (Throwable $e) {
+            error_log('Sam quote-view push not scheduled: ' . $e->getMessage());
+        }
 
         // Get line items
         $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
         $stmt->execute([$quote['id']]);
         $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Photos the crew took on site, if this quote came from a field
+        // recommendation. Showing them is the whole point of the feature — the
+        // client sees exactly what prompted the suggestion.
+        try {
+            $recoStmt = $db->prepare("
+                SELECT ma.file_path, mv.file_path AS thumb_url
+                FROM field_observations fo
+                JOIN media_links ml
+                  ON ml.context_type = 'field_observation' AND ml.context_id = fo.id
+                JOIN media_assets ma ON ma.id = ml.media_id AND ma.status <> 'deleted'
+                LEFT JOIN media_variants mv
+                  ON mv.media_id = ma.id AND mv.variant_type = 'thumb_square' AND mv.format = 'jpeg'
+                WHERE fo.quote_id = ?
+                ORDER BY ml.sort_order ASC, ma.id ASC
+            ");
+            $recoStmt->execute([$quote['id']]);
+            $recommendationPhotos = $recoStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            // field_observations may predate migration 1114 — never block the quote.
+            $recommendationPhotos = [];
+        }
     }
 }
 } // end normal token block
 
+// Who may answer online (Fable review 2026-10-12): only the client through their link, only while
+// the quote is sent/viewed and not past valid_until, and only with this page's nonce. The admin
+// preview never accepts or declines (a cross-site POST to ?_preview= used to accept as staff).
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
+$__realStatus = (string)($quote['_real_status'] ?? $quote['status'] ?? '');
+$canAnswerOnline = !empty($quote) && !$isAdminPreview
+    && QuoteService::canAcceptOnline($__realStatus, $quote['valid_until'] ?? null, new DateTimeImmutable('today'));
+$__answerNonce = (!empty($quote) && !$isAdminPreview)
+    ? QuoteService::acceptNonce((int)$quote['id'], (string)($quote['access_token'] ?? ''), QuoteService::formSecret())
+    : '';
+$quotePastValid = !empty($quote) && !empty($quote['valid_until']) && in_array($__realStatus, ['sent', 'viewed'], true)
+    && $quote['valid_until'] < date('Y-m-d');
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && in_array($_POST['action'] ?? '', ['accept', 'decline'], true)
+    && (!$canAnswerOnline || $__answerNonce === '' || !hash_equals($__answerNonce, (string)($_POST['answer_nonce'] ?? '')))) {
+    $error = $isAdminPreview
+        ? 'Preview mode: the quote cannot be accepted or declined here.'
+        : ($quotePastValid
+            ? 'This quote has expired. Please ' . PortalBrand::callPhrase() . ' and we will refresh it for you.'
+            : 'This quote can no longer be answered online. Please reload the page or ' . PortalBrand::callPhrase() . '.');
+    $_POST['action'] = '';
+}
+
 // Handle acceptance
+/** The quote was accepted by another request a moment ago (a double-click). */
+if (!class_exists('QuoteAlreadyAccepted', false)) { class QuoteAlreadyAccepted extends Exception {} }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] !== 'accepted') {
     $action = $_POST['action'] ?? '';
 
@@ -148,9 +239,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
             $error = 'Please enter your name.';
         } elseif (empty($signatureData) || $signatureData === 'data:,') {
             $error = 'Please sign the quote using your mouse or finger.';
+        } elseif (!PublicFormSecurity::isValidSignatureData($signatureData)) {
+            $error = 'The signature is invalid or too large. Please draw it again.';
         } elseif (!$agreedToTerms) {
             $error = 'Please agree to the terms and conditions.';
         } else {
+            // Lines the client unticked before signing (QuoteLineChoiceService): named in the
+            // activity log and the office email so nobody schedules or bills them.
+            $declinedLabels = [];
+            foreach (($lineItems ?? []) as $li) {
+                if (!empty($li['client_declined'])) $declinedLabels[] = trim((string)($li['service_type'] ?: $li['description']));
+            }
             try {
                 $db->beginTransaction();
 
@@ -164,7 +263,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                         accepted_ip_address = ?,
                         signature_data = ?,
                         signature_timestamp = NOW()
-                    WHERE id = ?
+                    WHERE id = ? AND status IN ('sent','viewed')
                 ");
                 $stmt->execute([
                     $signatureName,
@@ -173,6 +272,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                     $signatureData,
                     $quote['id']
                 ]);
+                // A double-click's second request finds it already accepted (Codex review 2026-10-14):
+                // stop here — no second signature, office email or contract setup.
+                if ($stmt->rowCount() === 0) {
+                    throw new QuoteAlreadyAccepted();
+                }
 
                 // Propagate acceptance back to the originating quote_request
                 // so the Quote Requests admin page reflects the real status.
@@ -195,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                     ");
                     $stmt->execute([
                         $quote['id'],
-                        "Accepted by {$signatureName}",
+                        "Accepted by {$signatureName}" . ($declinedLabels ? ' — not included: ' . implode(', ', $declinedLabels) : ''),
                         $_SERVER['REMOTE_ADDR']
                     ]);
                 } catch (Exception $e) {
@@ -205,8 +309,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
 
                 $db->commit();
 
+                // Sam's pipeline stage (an accepted quote makes a client). Never blocks acceptance.
+                try {
+                    require_once APP_ROOT . '/Modules/Sales/Services/PipelineStageService.php';
+                    PipelineStageService::onEvent($db, 'quote', (int)$quote['id']);
+                } catch (Throwable $e) {
+                    error_log('[pipeline] portal accept: ' . $e->getMessage());
+                }
+
                 $quote['status'] = 'accepted';
                 $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
+
+                // A signed snow/salt contract sets itself up: per-visit contract carrying this
+                // signature + a daily route plan (SnowContractService). Runs after the commit and
+                // can never undo or fail the signature; the outcome goes in the office email below.
+                $snowSetup = null;
+                if (!empty($quote['is_contract'])) {
+                    try {
+                        require_once CRM_INCLUDES . '/functions.php';
+                        require_once CRM_INCLUDES . '/plan-functions.php';
+                        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                        $snowSetup = (new SnowContractService($db))->setupFromSignedQuote((int)$quote['id']);
+                    } catch (Throwable $e) {
+                        error_log('Snow contract auto-setup error: ' . $e->getMessage());
+                        $snowSetup = ['status' => 'failed', 'detail' => $e->getMessage()];
+                    }
+                }
+                // Sam's line-by-line summary + a job in the Unscheduled tray (QuoteApprovalService).
+                // After the commit; never blocks or undoes the acceptance.
+                try {
+                    require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+                    (new QuoteApprovalService($db))->afterApproval((int)$quote['id']);
+                } catch (Throwable $e) {
+                    error_log('[quote approval] portal: ' . $e->getMessage());
+                }
+                $crmBase = PortalBrand::appUrl();
+                $snowSetupHtml = '';
+                if ($snowSetup && $snowSetup['status'] === 'done') {
+                    $snowSetupHtml = "<p style='margin:20px 0 0;'><strong>Set up automatically:</strong> contract and daily Salt &amp; Snow route plan. "
+                                   . "<a href='" . $crmBase . "/crm/contracts/view.php?id=" . (int)$snowSetup['contract_id'] . "'>Open the contract</a> · "
+                                   . "<a href='" . $crmBase . "/crm/jobs/view.php?id=" . (int)$snowSetup['plan_id'] . "'>Open the route plan</a></p>";
+                } elseif ($snowSetup && in_array($snowSetup['status'], ['failed', 'skipped'], true)) {
+                    $snowSetupHtml = "<p style='margin:20px 0 0;color:#e85d04;'><strong>Contract NOT set up automatically</strong>: "
+                                   . htmlspecialchars((string)($snowSetup['detail'] ?? 'unknown reason')) . ". Use Create Contract on the quote.</p>";
+                }
 
                 // Send notification email to admin
                 $emailSubject = "Quote {$quote['quote_number']} Accepted!";
@@ -223,8 +369,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Property:</td><td>" . htmlspecialchars(trim(($quote['property_address'] ?? '') . (($quote['property_city'] ?? '') ? ', ' . $quote['property_city'] : ''))) . "</td></tr>
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Amount:</td><td style='font-size: 18px; font-weight: bold; color: #2D8659;'>$" . number_format(floatval($quote['amount']), 2) . "</td></tr>
                             </table>
+                            {$snowSetupHtml}
+                            " . ($declinedLabels ? "<p style='margin:20px 0 0;'><strong>Not included (the client unticked):</strong> " . htmlspecialchars(implode(', ', $declinedLabels)) . "</p>" : '') . "
                             <div style='text-align: center; margin-top: 25px;'>
-                                <a href='https://mowology.ca/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
+                                <a href='{$crmBase}/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
                             </div>
                         </div>
                     </div>
@@ -236,8 +384,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                 $smsMsg = "QUOTE ACCEPTED: {$quote['quote_number']} - $" . number_format(floatval($quote['amount']), 2) . " - " . htmlspecialchars($signatureName);
                 sendSMSNotification($smsMsg);
 
+            } catch (QuoteAlreadyAccepted $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                $error = 'This quote has already been answered.';
             } catch (Exception $e) {
-                $db->rollBack();
+                if ($db->inTransaction()) $db->rollBack();
                 error_log("Quote acceptance error: " . $e->getMessage());
                 $error = 'There was an error processing your acceptance. Please try again.';
             }
@@ -251,28 +402,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
             UPDATE quotes SET
                 status = 'declined',
                 notes_internal = CONCAT(COALESCE(notes_internal, ''), '\n\nDeclined reason: ', ?)
-            WHERE id = ?
+            WHERE id = ? AND status IN ('sent','viewed')
         ");
         $stmt->execute([$declineReason, $quote['id']]);
 
-        // Propagate decline back to quote_request
-        try {
-            $db->prepare("
-                UPDATE quote_requests
-                SET status = 'declined', updated_at = NOW()
-                WHERE quote_id = ?
-            ")->execute([$quote['id']]);
-        } catch (Throwable $e) {
-            error_log("Quote decline → quote_requests propagation error: " . $e->getMessage());
-        }
+        if ($stmt->rowCount() === 0) {
+            $error = 'This quote has already been answered.';
+        } else {
+            // Propagate decline back to quote_request
+            try {
+                $db->prepare("
+                    UPDATE quote_requests
+                    SET status = 'declined', updated_at = NOW()
+                    WHERE quote_id = ?
+                ")->execute([$quote['id']]);
+            } catch (Throwable $e) {
+                error_log("Quote decline → quote_requests propagation error: " . $e->getMessage());
+            }
 
-        $quote['status'] = 'declined';
-        $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
+            $quote['status'] = 'declined';
+            $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
+        }
     }
 }
 
-function formatCurrency($amount) {
-    return '$' . number_format(floatval($amount), 2);
+// Guarded: signing a snow contract loads the CRM functions (which declare the same
+// helper) to set the contract up. An unguarded copy here is a "Cannot redeclare"
+// fatal — the signature commits, then the client sees an error page.
+if (!function_exists('formatCurrency')) {
+    function formatCurrency($amount) {
+        return '$' . number_format(floatval($amount), 2);
+    }
 }
 
 // Build display name for header
@@ -293,15 +453,15 @@ if (!empty($quote)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote <?php echo !empty($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> — Mowology</title>
+    <title>Quote <?php echo !empty($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> — <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
-    <script src="https://unpkg.com/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    <script src="/assets/vendor/signature_pad/signature_pad.umd.min.js"></script>
 </head>
 <body>
 
 <header class="portal-header">
-    <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="portal-logo-img">
+    <?= PortalBrand::logoImgHtml() ?>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Quote</span>
     <?php if ($clientNameForHeader): ?>
@@ -326,7 +486,7 @@ if (!empty($quote)) {
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:#cdddd6;margin:0 auto 16px;display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <h2>Quote Not Found</h2>
             <p><?php echo htmlspecialchars($error); ?></p>
-            <p style="margin-top:12px;">Contact us at <a href="tel:7788469273">(778) 846-9273</a></p>
+            <?php if (PortalBrand::contactHtml() !== ''): ?><p style="margin-top:12px;">Contact us at <?= PortalBrand::contactHtml() ?></p><?php endif; ?>
         </div>
 
     <?php elseif (!empty($quote)): ?>
@@ -380,20 +540,63 @@ if (!empty($quote)) {
             </div>
 
             <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--p-border);">
-                <a href="../crm/documents/generate_pdf.php?type=quote&id=<?php echo (int)$quote['id']; ?>&action=download"
+                <a href="<?php echo $isAdminPreview
+                        ? '../crm/documents/generate_pdf.php?type=quote&id=' . (int)$quote['id'] . '&action=download'
+                        : 'api/quote-pdf.php?token=' . urlencode((string)($quote['access_token'] ?? '')); ?>"
                    class="portal-btn-outline">
                     📄 Download PDF
                 </a>
             </div>
         </div>
 
+        <?php if (!empty($recommendationPhotos)): ?>
+        <!-- What the crew spotted on site -->
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">What our crew noticed</div>
+            <div class="portal-info-card-body">
+                <div class="mw-reco-gallery">
+                    <?php foreach ($recommendationPhotos as $photo):
+                        $full  = $photo['file_path'] ?? '';
+                        $thumb = $photo['thumb_url'] ?: $full;
+                        if (!$full) { continue; }
+                    ?>
+                        <a href="<?php echo htmlspecialchars($full); ?>" target="_blank" rel="noopener">
+                            <img src="<?php echo htmlspecialchars($thumb); ?>"
+                                 alt="Photo taken on site by our crew"
+                                 class="mw-reco-gallery-img" loading="lazy">
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php
+        // The client may untick lines before signing (QuoteLineChoiceService, migration 1315).
+        $lineChoice = false;
+        if (!$previewQuoteId && !empty($quote['id'])) {
+            try {
+                require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+                $lineChoice = (new QuoteLineChoiceService($db))->allowedFor($quote) && count($lineItems ?? []) > 1;
+            } catch (Throwable $e) {
+                error_log('[quote line choice] ' . $e->getMessage());
+            }
+        }
+        $lineCols = $lineChoice ? 4 : 3;
+        ?>
         <!-- Services / Line Items -->
         <div class="portal-info-card">
             <div class="portal-info-card-header">Services</div>
             <div class="portal-info-card-body">
-                <table class="portal-table">
+                <?php if ($lineChoice): ?>
+                <p class="portal-line-choice-hint" id="lineChoiceHint">
+                    Untick anything you don't want. The total updates, and you sign for what's ticked.
+                </p>
+                <?php endif; ?>
+                <table class="portal-table<?php echo $lineChoice ? ' portal-table-choice' : ''; ?>">
                     <thead>
                         <tr>
+                            <?php if ($lineChoice): ?><th class="portal-line-pick"><span class="sr-only">Include</span></th><?php endif; ?>
                             <th>Service</th>
                             <th>Description</th>
                             <th class="right">Amount</th>
@@ -406,7 +609,7 @@ if (!empty($quote)) {
                         foreach (($lineItems ?? []) as $li) {
                             $sn = $li['section_name'] ?? null;
                             if ($sn !== null) {
-                                $sectionTotals[$sn] = ($sectionTotals[$sn] ?? 0) + floatval($li['line_total']);
+                                $sectionTotals[$sn] = ($sectionTotals[$sn] ?? 0) + (empty($li['client_declined']) ? floatval($li['line_total']) : 0);
                             }
                         }
                         $hasSections = !empty($sectionTotals);
@@ -421,7 +624,7 @@ if (!empty($quote)) {
                                 // Emit subtotal for the section we just finished
                                 if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
                             <tr class="portal-table-section-subtotal">
-                                <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                <td colspan="<?php echo $lineCols - 1; ?>"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
                                 <td class="right"><?php echo formatCurrency($currentSectionSum); ?></td>
                             </tr>
                                     <?php endif;
@@ -429,15 +632,30 @@ if (!empty($quote)) {
                                 $currentSectionSum = 0;
                                 if ($itemSection !== null): ?>
                             <tr class="portal-table-section-hdr">
-                                <td colspan="3"><?php echo htmlspecialchars($itemSection); ?></td>
+                                <td colspan="<?php echo $lineCols; ?>"><?php echo htmlspecialchars($itemSection); ?></td>
                             </tr>
                                     <?php endif;
                             endif;
 
-                            $currentSectionSum += floatval($item['line_total']);
+                            $isDeclined = !empty($item['client_declined']);
+                            if (!$isDeclined) $currentSectionSum += floatval($item['line_total']);
                         ?>
-                            <?php $isObsidian = stripos($item['service_type'] ?? '', 'obsidian') !== false; ?>
-                            <tr<?php echo $isObsidian ? ' class="portal-or-row"' : ''; ?>>
+                            <?php
+                            $isObsidian = stripos($item['service_type'] ?? '', 'obsidian') !== false;
+                            $rowClass = trim(($isObsidian ? 'portal-or-row' : '') . ($isDeclined ? ' is-declined' : ''));
+                            ?>
+                            <tr<?php echo $rowClass !== '' ? ' class="' . $rowClass . '"' : ''; ?>>
+                                <?php if ($lineChoice): ?>
+                                <td class="portal-line-pick">
+                                    <?php if (QuoteLineChoiceService::canDecline($item)): ?>
+                                    <input type="checkbox" class="portal-line-cb" data-line-id="<?php echo (int)$item['id']; ?>"
+                                           aria-label="Include <?php echo htmlspecialchars($item['service_type'] ?: 'this service'); ?>"
+                                           <?php echo $isDeclined ? '' : 'checked'; ?>>
+                                    <?php else: ?>
+                                    <input type="checkbox" checked disabled aria-label="Included">
+                                    <?php endif; ?>
+                                </td>
+                                <?php endif; ?>
                                 <td>
                                     <?php if ($isObsidian): ?>
                                         <div class="or-icon or-icon-full" style="width:56px;height:56px;">
@@ -447,7 +665,7 @@ if (!empty($quote)) {
                                         <strong><?php echo htmlspecialchars($item['service_type']); ?></strong>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?></td>
+                                <td><?php echo nl2br(htmlspecialchars($item['description'] ?: '—')); ?><?php if ($isDeclined): ?> <span class="portal-line-declined">Not included</span><?php endif; ?></td>
                                 <td class="right portal-table-num"><?php echo formatCurrency($item['line_total']); ?></td>
                             </tr>
                         <?php endforeach;
@@ -455,7 +673,7 @@ if (!empty($quote)) {
                         // Emit subtotal for the last section
                         if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
                             <tr class="portal-table-section-subtotal">
-                                <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                <td colspan="<?php echo $lineCols - 1; ?>"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
                                 <td class="right"><?php echo formatCurrency($currentSectionSum); ?></td>
                             </tr>
                         <?php endif; ?>
@@ -504,7 +722,7 @@ if (!empty($quote)) {
         <!-- Undo toast (for post-accept adds) -->
         <div class="portal-undo-toast" id="undoToast">
             <span id="undoToastMsg">Added to your order</span>
-            <button type="button" onclick="mwUndoLastAdd()">Undo</button>
+            <button type="button" data-mw-call="mwUndoLastAdd">Undo</button>
         </div>
 
         <!-- Terms & Conditions -->
@@ -526,21 +744,45 @@ if (!empty($quote)) {
         <?php endif; ?>
 
         <!-- Acceptance Section (sent status only) -->
-        <?php if ($quote['status'] === 'sent'): ?>
+        <?php if ($quote['status'] === 'sent' && $quotePastValid && !$isAdminPreview): ?>
             <div class="portal-info-card">
-                <div class="portal-info-card-header">Accept This Quote</div>
+                <div class="portal-info-card-header">This quote has expired</div>
+                <div class="portal-info-card-body">
+                    <p>It was good until <?php echo htmlspecialchars(date('F j, Y', strtotime($quote['valid_until']))); ?>. Prices may have changed since. <?php echo htmlspecialchars(ucfirst(PortalBrand::callPhrase())); ?> or reply to our email and we will send you a fresh one.</p>
+                </div>
+            </div>
+        <?php elseif ($quote['status'] === 'sent'): ?>
+            <div class="portal-info-card">
+                <?php $__sigAddr = trim((string)($quote['property_address'] ?? '')); ?>
+                <div class="portal-info-card-header">Accept This Quote<?php echo $__sigAddr !== '' ? ' &mdash; ' . htmlspecialchars($__sigAddr) : ''; ?></div>
                 <div class="portal-info-card-body">
                     <?php if ($isAdminPreview): ?>
                         <div style="text-align:center;padding:24px;color:var(--p-text-mid);font-style:italic;">
                             ✏️ <strong>Preview mode:</strong> The signature form appears here for your client. Disabled in this preview.
                         </div>
                     <?php else: ?>
-                        <p style="font-size:0.875rem;color:var(--p-text-mid);margin-bottom:22px;">
-                            To accept this quote, please sign below and confirm your details.
-                        </p>
+                        <?php
+                        // Plain step-by-step help: some clients (property managers in their 70s
+                        // among them) read "signature" as a digital certificate and stop here.
+                        require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+                        $__sigCo = EmailWrapper::getCompanyInfo();
+                        ?>
+                        <div style="background:var(--p-green-light, #E8F3F0);border:1px solid var(--p-green, #2D8659);border-radius:10px;padding:16px 18px;margin-bottom:22px;font-size:1.02rem;line-height:1.6;color:var(--p-text, #0D3B2E);">
+                            <div style="font-weight:700;font-size:1.1rem;margin-bottom:6px;">How to sign<?php echo $__sigAddr !== '' ? ' for ' . htmlspecialchars($__sigAddr) : ''; ?> (about one minute)</div>
+                            <div style="margin-bottom:10px;">You don't need a digital signature, a certificate or any special program. Signing here is just drawing your name in the box.</div>
+                            <ol style="margin:0 0 10px 20px;padding:0;">
+                                <li style="margin-bottom:6px;"><strong>Check your name</strong> below. It is filled in for you.</li>
+                                <li style="margin-bottom:6px;"><strong>Draw your signature in the white box.</strong> On a computer, hold the mouse button down and move the mouse. On a phone or tablet, use your finger. Any mark is fine; it doesn't need to be neat. To try again, press <em>Clear Signature</em>.</li>
+                                <li style="margin-bottom:6px;"><strong>Tick the box</strong> that says you agree to the terms.</li>
+                                <li style="margin-bottom:6px;"><strong>Press the green button</strong> at the bottom.</li>
+                            </ol>
+                            <div>A thank-you message shows when it's done. Stuck? Call <?php echo htmlspecialchars($__sigCo['company_phone'] ?? ''); ?> or reply to our email and we'll take care of it with you.</div>
+                        </div>
+                        <?php unset($__sigCo); ?>
 
                         <form method="POST" id="acceptForm">
                             <input type="hidden" name="action" value="accept">
+                            <input type="hidden" name="answer_nonce" value="<?php echo htmlspecialchars($__answerNonce); ?>">
                             <input type="hidden" name="signature_data" id="signatureData">
 
                             <div class="portal-form-group">
@@ -561,7 +803,7 @@ if (!empty($quote)) {
                                 <label class="portal-form-label">Your Signature *</label>
                                 <div class="portal-sig-wrap">
                                     <canvas id="signaturePad" class="portal-sig-canvas"></canvas>
-                                    <div class="portal-sig-placeholder" id="sigPlaceholder">Sign here with mouse or finger</div>
+                                    <div class="portal-sig-placeholder" id="sigPlaceholder" style="font-size:1.05rem;">Draw your signature here: hold the mouse button down and move, or use your finger</div>
                                     <div class="portal-sig-actions">
                                         <button type="button" class="portal-sig-clear" id="clearSignature">Clear Signature</button>
                                     </div>
@@ -571,7 +813,7 @@ if (!empty($quote)) {
                             <div class="portal-checkbox-row">
                                 <input type="checkbox" name="agree_terms" id="agreeTerms" required>
                                 <label for="agreeTerms">
-                                    I have read and agree to the terms and conditions above. I authorize Mowology to perform the services described in this quote.
+                                    I have read and agree to the terms and conditions above. I authorize <?= htmlspecialchars(PortalBrand::name()) ?> to perform the services described in this quote.
                                 </label>
                             </div>
 
@@ -581,12 +823,13 @@ if (!empty($quote)) {
                         </form>
 
                         <div class="portal-decline-section">
-                            <button class="portal-decline-toggle" onclick="document.getElementById('declineForm').classList.toggle('show')">
+                            <button class="portal-decline-toggle" data-mw-toggle="declineForm">
                                 Not interested? Let us know
                             </button>
 
                             <form method="POST" class="portal-decline-form" id="declineForm">
                                 <input type="hidden" name="action" value="decline">
+                                <input type="hidden" name="answer_nonce" value="<?php echo htmlspecialchars($__answerNonce); ?>">
                                 <div class="portal-form-group">
                                     <label class="portal-form-label">Reason (optional)</label>
                                     <textarea name="decline_reason" class="portal-form-input portal-form-textarea"
@@ -619,13 +862,53 @@ if (!empty($quote)) {
     <?php endif; ?>
 
     <div class="portal-footer">
-        Questions? Call <a href="tel:7788469273">(778) 846-9273</a> &mdash; &copy; <?php echo date('Y'); ?> Mowology
+        <?php if (PortalBrand::questionsHtml() !== ''): ?><?= PortalBrand::questionsHtml() ?> &mdash; <?php endif; ?>&copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::name()) ?>
     </div>
 
 </div>
 
 <?php if (!empty($quote) && in_array($quote['status'], ['sent', 'accepted'])): ?>
-<script>
+<?php if (!empty($lineChoice)): ?>
+<script<?= MwCsp::attr() ?>>
+    // ── The client unticks lines they don't want (QuoteLineChoiceService) ──────
+    (function () {
+        var token = <?php echo json_encode($token ?? ''); ?>;
+        var money = function (v) { return '$' + Number(v).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+        document.querySelectorAll('.portal-line-cb').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                var row = cb.closest('tr');
+                var declined = !cb.checked;
+                var fd = new FormData();
+                fd.append('token', token);
+                fd.append('action', 'line-choice');
+                fd.append('line_item_id', cb.getAttribute('data-line-id'));
+                fd.append('declined', declined ? '1' : '');
+                cb.disabled = true;
+                fetch('api/quote-upsell.php', { method: 'POST', body: fd })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d.success) throw new Error(d.error || 'Could not update the quote.');
+                        if (row) row.classList.toggle('is-declined', declined);
+                        var sub = document.getElementById('q-subtotal-val');
+                        var tax = document.getElementById('q-tax-val');
+                        var tot = document.getElementById('q-total-val');
+                        if (sub) sub.textContent = money(d.totals.subtotal);
+                        if (tax) tax.textContent = money(d.totals.tax_amount);
+                        if (tot) tot.textContent = money(d.totals.total);
+                    })
+                    .catch(function (e) {
+                        cb.checked = !declined;   // put it back
+                        alert(e.message || 'Could not update the quote. Please try again.');
+                    })
+                    .then(function () { cb.disabled = false; });
+            });
+        });
+    })();
+</script>
+<?php endif; ?>
+<script<?= MwCsp::attr() ?>>
+    // JSON args for data-mw-call buttons (mw-csp-actions.js) — no inline handlers under the CSP.
+    function mwArgsAttr(a) { return JSON.stringify(a).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
     // ── Signature Pad ─────────────────────────────────────────────────────────
     <?php if (!$isAdminPreview): ?>
     var canvas = document.getElementById('signaturePad');
@@ -745,7 +1028,7 @@ if (!empty($quote)) {
                     '</div>' +
                     '<div style="text-align:right;">' +
                         '<div style="font-weight:700;color:var(--p-text-dark, #1a202c);">' + fmtMoney(regular) + '</div>' +
-                        '<button type="button" class="portal-post-accept-add-btn" onclick="mwAddUpsell(\'' + domId + '\', this)">+ Add</button>' +
+                        '<button type="button" class="portal-post-accept-add-btn" data-mw-call="mwAddUpsell" data-mw-args="' + mwArgsAttr([domId, '$this']) + '">+ Add</button>' +
                     '</div>' +
                 '</div>';
             }
@@ -755,7 +1038,7 @@ if (!empty($quote)) {
                 (popular ? '<span class="portal-upsell-badge">⭐ Most popular</span>' : '') +
                 '<label class="portal-upsell-toggle">' +
                     '<input type="checkbox" ' + (checked ? 'checked' : '') +
-                    ' onchange="mwToggleUpsell(\'' + domId + '\', this.checked)">' +
+                    ' data-mw-call="mwToggleUpsell" data-mw-on="change" data-mw-args="' + mwArgsAttr([domId, '$checked']) + '">' +
                     '<div class="portal-upsell-info">' +
                         '<strong>' + escText + '</strong>' +
                         (desc ? '<span class="portal-upsell-desc">' + escDesc + '</span>' : '') +
@@ -922,5 +1205,6 @@ if (!empty($quote)) {
 </script>
 <?php endif; ?>
 
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

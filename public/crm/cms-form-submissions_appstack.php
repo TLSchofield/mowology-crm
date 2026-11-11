@@ -17,6 +17,9 @@ $activePage = 'cms';
 
 $db = getDB();
 
+// Tenant: this inbox only shows the current site's enquiries (embed leads from other tenants stay out of it).
+$siteId = function_exists('cms_currentSiteId') ? cms_currentSiteId() : 1;
+
 // Filters
 $filterFormId = trim($_GET['form_id'] ?? '');
 $filterStatus = $_GET['status'] ?? 'all'; // all | new | read
@@ -26,9 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     $action = $_POST['action'] ?? '';
     $subId  = (int)($_POST['id'] ?? 0);
     if ($action === 'mark_read' && $subId) {
-        $db->prepare("UPDATE cms_form_submissions SET status = 'read', read_at = NOW() WHERE id = ?")->execute([$subId]);
+        $db->prepare("UPDATE cms_form_submissions SET status = 'read', read_at = NOW() WHERE id = ? AND site_id = ?")->execute([$subId, $siteId]);
     } elseif ($action === 'delete' && $subId && isAdmin()) {
-        $db->prepare("DELETE FROM cms_form_submissions WHERE id = ?")->execute([$subId]);
+        $db->prepare("DELETE FROM cms_form_submissions WHERE id = ? AND site_id = ?")->execute([$subId, $siteId]);
     }
     header('Location: /crm/cms-form-submissions_appstack.php?' . http_build_query(array_filter(['form_id' => $filterFormId, 'status' => $filterStatus])));
     exit;
@@ -41,14 +44,15 @@ $stats = $db->query("
         SUM(status = 'new') AS unread,
         COUNT(DISTINCT form_id) AS forms
     FROM cms_form_submissions
+    WHERE site_id = " . (int)$siteId . "
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
 // Distinct form IDs for filter dropdown
-$formIds = $db->query("SELECT DISTINCT form_id FROM cms_form_submissions ORDER BY form_id")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$formIds = $db->query("SELECT DISTINCT form_id FROM cms_form_submissions WHERE site_id = " . (int)$siteId . " ORDER BY form_id")->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
 // Build query
-$where  = ['1=1'];
-$params = [];
+$where  = ['site_id = ?'];
+$params = [$siteId];
 if ($filterFormId) {
     $where[]  = 'form_id = ?';
     $params[] = $filterFormId;

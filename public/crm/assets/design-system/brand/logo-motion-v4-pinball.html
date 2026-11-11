@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ittai logo motion — v4 pinball</title>
+<style>
+  :root{--navy:#233A5E;--paper:#F4F5F3;--gold-dark:#C9A65A;--gold-light:#A8843A}
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%}
+  body{font:15px/1.4 Inter,system-ui,sans-serif;background:var(--navy);color:#fff;display:grid;grid-template-rows:1fr auto}
+  body.light{background:var(--paper);color:#131D17}
+  .stage{display:grid;place-items:center;overflow:hidden}
+  svg{width:min(80vw,640px);height:auto;display:block}
+  .bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:center;padding:14px 16px 20px;font-size:14px}
+  .bar button,.bar select{font:inherit;min-height:44px;padding:0 16px;border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer}
+  .bar input[type=range]{width:min(60vw,320px);min-height:44px}
+  .bar label{display:flex;gap:8px;align-items:center;min-height:44px}
+  .t{font-variant-numeric:tabular-nums;min-width:4.5em}
+  body.frame .bar{display:none}
+</style>
+</head>
+<body>
+<div class="stage">
+<svg id="mark" viewBox="-20 -24 220 148" role="img" aria-label="ittai">
+  <g id="cam">
+    <rect id="i1" fill="var(--ink)"/>
+    <rect id="t1" fill="var(--ink)"/>
+    <rect id="t2" fill="var(--ink)"/>
+    <circle id="aRing" cx="118.6" cy="72" r="22.1" fill="none" stroke="var(--ink)" stroke-width="13"/>
+    <rect id="aStem" fill="var(--ink)"/>
+    <rect id="i2" fill="var(--ink)"/>
+    <rect id="bar" fill="var(--gold)"/>
+    <ellipse id="d1" fill="var(--gold)"/>
+    <ellipse id="d2" fill="var(--gold)"/>
+  </g>
+</svg>
+</div>
+<div class="bar">
+  <button id="play">Replay</button>
+  <input id="scrub" type="range" min="0" max="2400" value="0" aria-label="Scrub timeline">
+  <span class="t" id="tlabel">0.00s</span>
+  <label><select id="speed" aria-label="Speed"><option value="0.25">Slow · 9.6 s</option><option value="0.5" selected>Medium · 4.8 s (splash)</option><option value="1">Quick · 2.4 s</option></select></label>
+  <label><input id="light" type="checkbox"> Light page</label>
+  <label><input id="loop" type="checkbox"> Loop</label>
+</div>
+<script>
+const T = 2.4;                       // seconds, then hold
+const $ = id => document.getElementById(id);
+const clamp = v => Math.max(0, Math.min(1, v));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, p) => a + (b - a) * p;
+const ioc = p => p < .5 ? 4*p*p*p : 1 - Math.pow(-2*p + 2, 3) / 2;   // ease in-out cubic
+const oc = p => 1 - Math.pow(1 - p, 3);                               // ease out cubic
+const ob = (p, k = 1.2) => p <= 0 ? 0 : 1 + (k + 1) * Math.pow(p - 1, 3) + k * Math.pow(p - 1, 2);  // ease out with small overshoot
+const setR = (el, x, y, w, h, rx = 0) => { el.setAttribute('x', x); el.setAttribute('y', y); el.setAttribute('width', Math.max(0, w)); el.setAttribute('height', Math.max(0, h)); el.setAttribute('rx', rx); };
+const setE = (el, cx, cy, rx, ry, op = 1) => { el.setAttribute('cx', cx); el.setAttribute('cy', cy); el.setAttribute('rx', rx); el.setAttribute('ry', ry); el.setAttribute('opacity', op); };
+
+// Geometry in wordmark units (baseline y=100). ICON = app icon proportions scaled so a stem is 13 wide.
+const R = 6;                                   // final dot radius
+const ICON = { s1x: 33.5, s2x: 59.5, top: 62.9, barX: 28.8, barY: 70.4, barW: 48.4, barH: 10.2, d1x: 40, d2x: 66, dy: 48.9, dr: 7.9 };
+const WORD = { t1x: 31, t2x: 62, top: 28, barX: 25, barY: 44, barW: 56, barH: 11, i1x: 0, i2x: 165.2, iTop: 44, aStemX: 134.2 };
+
+// A hop from (x0,y0) to (x1,y1) with arc height h; stretch along flight.
+function hop(p, x0, y0, x1, y1, h) {
+  const x = lerp(x0, x1, ioc(p) * .35 + p * .65);
+  const y = lerp(y0, y1, p) - h * 4 * p * (1 - p);
+  const st = Math.sin(Math.PI * p) * .12;      // stretch mid-flight
+  return [x, y, R * (1 - st), R * (1 + st)];
+}
+// Squash on contact: k 0..1, bottom edge pinned at floor.
+function squash(k, cx, floor, amt = .32) {
+  const s = Math.sin(Math.PI * k) * amt;
+  const ry = R * (1 - s), rx = R * (1 + s * .9);
+  return [cx, floor - ry, rx, ry];
+}
+// Spring up from resting-on-stem to hovering dot position, with a small overshoot.
+function rise(k, cx, y0, y1) {
+  const e = 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);  // ease out back
+  const y = lerp(y0, y1, e);
+  const st = Math.sin(Math.PI * Math.min(1, k * 1.6)) * .1;
+  return [cx, y, R * (1 - st), R * (1 + st)];
+}
+
+// Stems: the tt holds as the icon, then flicks up fast like a pinball flipper and stops.
+const FLICK0 = .75, FLICK1 = 1.05;
+const stemTop = t => lerp(ICON.top, WORD.top, oc(seg(t, FLICK0, FLICK1)));
+const DOT_BOTTOM = ICON.dy + ICON.dr;                       // where the rising stem meets the dot
+let TC = FLICK0, lo = FLICK0, hi = FLICK1;                  // strike time, by bisection
+for (let i = 0; i < 40; i++) { TC = (lo + hi) / 2; if (stemTop(TC) > DOT_BOTTOM) lo = TC; else hi = TC; }
+const V0 = 250;                                             // launch speed given by the strike (units/s, up)
+const LAND = 1.55;                                          // both dots land on their i together
+const RING_TOP = 72 - 22.1 - 6.5;                           // outer top of the a ring
+// Ballistic flight from (x0,y0) launched up at v0, landing on (x1,y1) at t1. Returns [x, y, vy].
+function fly(t, t0, x0, y0, v0, t1, x1, y1) {
+  const D = t1 - t0, u = t - t0, gr = 2 * (y1 - y0 + v0 * D) / (D * D);
+  return [lerp(x0, x1, u / D), y0 - v0 * u + .5 * gr * u * u, -v0 + gr * u];
+}
+function flightShape(t, f) {
+  const r = lerp(ICON.dr, R, clamp((t - TC) / .25));
+  let y = f[1];
+  if (t < FLICK1) y = Math.min(y, stemTop(t) - r);          // the flipper is still pushing it
+  const hit = Math.sin(Math.PI * seg(t, TC, TC + .06)) * .3; // squash from the strike
+  const st = Math.min(1, Math.abs(f[2]) / V0) * .14 - hit;  // stretch along fast flight
+  return [f[0], y, r * (1 - st), r * (1 + st)];
+}
+// Landing on the i: squash, a high bounce, squash, then a smaller bounce that settles into place.
+function landing(t, x) {
+  const rest = 44 - R;
+  if (t < LAND + .06) return squash(seg(t, LAND, LAND + .06), x, 44);
+  if (t < LAND + .36) { const p = seg(t, LAND + .06, LAND + .36), st = Math.cos(Math.PI * p) * .08;
+    return [x, rest - 12 * 4 * p * (1 - p), R * (1 - Math.abs(st)), R * (1 + Math.abs(st))]; }
+  if (t < LAND + .41) return squash(seg(t, LAND + .36, LAND + .41), x, 44, .2);
+  return rise(seg(t, LAND + .41, LAND + .7), x, rest, 31.5);
+}
+
+function render(t) {
+  // no fade: frame 0 is the app icon, matching the still launch screen
+
+  // 1. the tt flicks up from icon proportions to wordmark proportions
+  const g = oc(seg(t, FLICK0, FLICK1));
+  const top = stemTop(t);
+  setR($('t1'), lerp(ICON.s1x, WORD.t1x, g), top, 13, 100 - top);
+  setR($('t2'), lerp(ICON.s2x, WORD.t2x, g), top, 13, 100 - top);
+  const bh = lerp(ICON.barH, WORD.barH, g);
+  setR($('bar'), lerp(ICON.barX, WORD.barX, g), lerp(ICON.barY, WORD.barY, g), lerp(ICON.barW, WORD.barW, g), bh, bh / 2);
+
+  // 2. the other letters build first, staggered, each with a small overshoot
+  const i1 = ob(seg(t, .38, .72));
+  setR($('i1'), WORD.i1x, 100 - 56 * i1, 13, 56 * i1);
+  const ring = ob(seg(t, .46, .8), 1.0);                   // the a's ring grows out from its centre
+  $('aRing').setAttribute('transform', `translate(118.6 72) scale(${Math.max(ring, 0.0001)}) translate(-118.6 -72)`);
+  $('aRing').setAttribute('opacity', ring > 0 ? 1 : 0);
+  const as = ob(seg(t, .54, .88));
+  setR($('aStem'), WORD.aStemX, 100 - 56 * as, 13, 56 * as);
+  const i2 = ob(seg(t, .62, .98));
+  setR($('i2'), WORD.i2x, 100 - 56 * i2, 13, 56 * i2);
+
+  // 3. the dots: struck by the flicking t's, the right one ricochets off the a, both double-bounce on their i
+  let d1, d2;
+  if (t < TC) {
+    d1 = [ICON.d1x, ICON.dy, ICON.dr, ICON.dr]; d2 = [ICON.d2x, ICON.dy, ICON.dr, ICON.dr];
+  } else {
+    d1 = t < LAND ? flightShape(t, fly(t, TC, ICON.d1x, ICON.dy, V0, LAND, 6.5, 44 - R)) : landing(t, 6.5);
+    if (t < 1.2) d2 = flightShape(t, fly(t, TC, ICON.d2x, ICON.dy, V0, 1.2, 118.6, RING_TOP - R));
+    else if (t < 1.26) d2 = squash(seg(t, 1.2, 1.26), 118.6, RING_TOP, .26);
+    else if (t < LAND) d2 = hop(seg(t, 1.26, LAND), 118.6, RING_TOP - R, 171.7, 44 - R, 10);
+    else d2 = landing(t, 171.7);
+  }
+  setE($('d1'), ...d1); setE($('d2'), ...d2);
+
+  // 4. camera: start close on the icon, pull out as the letters build, keep flying dots in frame
+  const c = ioc(seg(t, .3, 1.0));
+  const cTop = Math.min(top, d1[1] - d1[3], d2[1] - d2[3]);
+  const autoCy = (cTop + 100) / 2, autoS = Math.min(1.45, 140 / (100 - cTop + 12));
+  const cx = lerp(53, 89.1, c), cy = lerp(autoCy, 62, c), s = lerp(autoS, .92, c);
+  $('cam').setAttribute('transform', `translate(90 50) scale(${s}) translate(${-cx} ${-cy})`);
+
+  $('scrub').value = Math.round(t * 1000);
+  $('tlabel').textContent = t.toFixed(2) + 's';
+}
+
+// Theme: on navy the letters are white with the icon gold; on the light page navy with the darker gold.
+function theme() {
+  const light = $('light').checked;
+  document.body.classList.toggle('light', light);
+  const svg = $('mark');
+  svg.style.setProperty('--ink', light ? 'var(--navy)' : '#fff');
+  svg.style.setProperty('--gold', light ? 'var(--gold-light)' : 'var(--gold-dark)');
+}
+
+let raf, start;
+function play() {
+  cancelAnimationFrame(raf);
+  start = performance.now();
+  const sp = +$('speed').value;
+  const step = now => {
+    let t = (now - start) / 1000 * sp;
+    if (t > T + .5) { if ($('loop').checked) { start = now; t = 0; } else { render(T); return; } }
+    render(Math.min(t, T)); raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+}
+
+const q = new URLSearchParams(location.search);
+if (q.get('light') === '1') $('light').checked = true;
+if (q.has('speed')) $('speed').value = q.get('speed');
+if (q.get('loop') === '1') $('loop').checked = true;
+theme();
+$('light').onchange = theme;
+$('play').onclick = play;
+$('scrub').oninput = e => { cancelAnimationFrame(raf); render(e.target.value / 1000); };
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (q.has('t')) { document.body.classList.add('frame'); render(+q.get('t')); }   // frozen frame for screenshots
+else if (reduced) render(T);
+else play();
+</script>
+</body>
+</html>

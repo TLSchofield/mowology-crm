@@ -1,14 +1,17 @@
 <?php
 /**
  * One-time helper: create a cms_site_users account.
- * Protected by CRM login (requireLogin). Safe to leave in place.
+ * Needs settings.edit (admins and managers) and the CSRF token on POST — until the Fable
+ * review (2026-10-12) any CRM login, crew included, could create a site owner account.
  * Usage: /crm/api/create-site-user.php
  */
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/app/Core/paths.php';
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
+requirePermission('settings.edit');
 
 require_once dirname(__DIR__, 2) . '/app/Modules/CMS/Services/CmsSiteFunctions.php';
 
@@ -20,13 +23,18 @@ $sites = cms_getAllSites();
 $message = '';
 $error   = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) {
+    $error = 'Your session expired. Reload the page and try again.';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $siteId    = (int)($_POST['site_id'] ?? 0);
     $email     = trim($_POST['email'] ?? '');
     $password  = $_POST['password'] ?? '';
     $firstName = trim($_POST['first_name'] ?? '');
     $lastName  = trim($_POST['last_name'] ?? '');
-    $role      = $_POST['role'] ?? 'owner';
+    $role      = (string)($_POST['role'] ?? 'owner');
+    if (!in_array($role, ['owner', 'admin', 'editor', 'viewer'], true)) {
+        $role = 'viewer';
+    }
 
     if (!$siteId || !$email || !$password) {
         $error = 'Site, email, and password are all required.';
@@ -39,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $message = "User &nbsp;<strong>" . htmlspecialchars($email) . "</strong>&nbsp; created (ID $userId) as &nbsp;<strong>$role</strong>&nbsp; for &nbsp;<strong>" . htmlspecialchars($siteName) . "</strong>.";
         } catch (\Throwable $e) {
-            $error = 'Error: ' . $e->getMessage();
+            $error = 'Error: ' . ApiResponse::message($e, 'create-site-user');
         }
     }
 }
@@ -71,6 +79,7 @@ $activePage = 'database';
         <div class="card">
             <div class="card-body">
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCSRFToken()) ?>">
                     <div class="form-group">
                         <label>Site</label>
                         <select name="site_id" class="form-control" required>

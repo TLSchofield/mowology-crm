@@ -24,6 +24,9 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
 
 require_once CRM_INCLUDES . '/functions.php';
 
@@ -38,27 +41,46 @@ function ovLog(string $msg): void {
 }
 
 ovLog("=== Invoice Overdue Cron started ===");
+$cronStart = microtime(true);
+$cronError = null;
 
 try {
     // Mark eligible invoices as overdue:
     //  - status is 'sent', 'viewed', or 'partial'
     //  - due_date has passed
     //  - not already paid
+    // Skip invoices with an e-Transfer already sitting in the pending-review
+    // queue — a customer who's already sent payment shouldn't get flagged
+    // overdue (and trigger downstream reminder automations) just because
+    // staff haven't clicked Record yet.
     $rows = $db->exec("
-        UPDATE invoices
+        UPDATE invoices i
         SET status = 'overdue'
         WHERE status IN ('sent', 'viewed', 'partial')
           AND due_date < CURDATE()
           AND (paid_at IS NULL OR balance_due > 0.01)
+          AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
     ");
     ovLog("Marked {$rows} invoice(s) as overdue");
 
 } catch (Throwable $e) {
     ovLog("ERROR: " . $e->getMessage());
     error_log('[invoice_overdue_cron] ' . $e->getMessage());
+    $cronError = $e->getMessage();
 }
 
 ovLog("=== Done ===");
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('invoice_overdue', $cronError === null ? 'success' : 'error',
+            $cronError === null ? 'Marked ' . ($rows ?? 0) . ' invoice(s) overdue' : 'Marking invoices overdue failed',
+            (int)round((microtime(true) - $cronStart) * 1000), $cronError, PHP_SAPI !== 'cli');
+    } catch (Throwable $e) {
+        error_log('[invoice_overdue_cron] could not record the run — ' . $e->getMessage());
+    }
+}
 
 // If running via web shim, return JSON
 if (PHP_SAPI !== 'cli') {

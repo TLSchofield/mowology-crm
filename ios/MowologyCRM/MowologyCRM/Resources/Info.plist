@@ -9,7 +9,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mowology</string>
+	<string>Ittai</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -19,7 +19,7 @@
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>CFBundleName</key>
-	<string>Mowology CRM</string>
+	<string>Ittai</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -32,22 +32,29 @@
 		<false/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Used to photograph receipts for expense tracking.</string>
+	<string>Used to take before, during and after photos of each job, and to photograph receipts for expense tracking.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Records sound with job videos taken in the app's camera, and listens when you tap the microphone to search by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turns what you say into words in the search box when you tap the microphone. Nothing you say is kept.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to select receipt photos from your library.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Used to send your location to dispatch every 30–120 seconds while you are clocked in, even when the app is in the background.</string>
+	<string>Records your location while you are clocked in — about once a minute between jobs, more often on a client property — even with the app closed. Nothing is recorded while you are off the clock.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Used to log your GPS location when clocking in, starting, and completing jobs.</string>
+	<string>Used to record where you clock in and out, and to find the job sites nearest to you.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Used to detect whether you are walking, driving, or stationary so the app can adjust GPS frequency and save battery during your shift.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
 		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

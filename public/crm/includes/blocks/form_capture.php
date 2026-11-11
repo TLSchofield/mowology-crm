@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Form Capture Block Renderer — P3-D
  *
@@ -95,7 +96,7 @@ $show = array_flip($fields);
     </div>
   </div>
 </section>
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
     var uid = <?php echo json_encode($uniqueId); ?>;
     var form = document.getElementById(uid);

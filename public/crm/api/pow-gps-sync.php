@@ -39,16 +39,24 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 
-    requireLogin();
-    $user = getCurrentUser();
-    // Release session lock immediately — this endpoint never writes to $_SESSION.
-    // Without this, batch GPS syncs hold the session file lock while inserting
-    // many DB rows, blocking concurrent WebView navigations at session_start()
-    // and causing Android ERR_FAILED timeouts that look like logouts.
-    session_write_close();
-    $db   = getDB();
+    // Dual auth: JWT Bearer for iOS native, session cookie for web/Android.
+    $jwtPayload = getJwtUser();
+    if ($jwtPayload !== null) {
+        $user = ['id' => $jwtPayload['id'], 'name' => $jwtPayload['name'], 'role' => $jwtPayload['role']];
+    } else {
+        requireLogin();
+        $user = getCurrentUser();
+        // Release session lock immediately — JWT callers never start a session.
+        // Without this, batch GPS syncs hold the session file lock while inserting
+        // many DB rows, blocking concurrent WebView navigations at session_start()
+        // and causing Android ERR_FAILED timeouts that look like logouts.
+        session_write_close();
+    }
+    $db = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
@@ -73,7 +81,7 @@ try {
 
     // AuthZ: verify this crew member is assigned to the visit (or is admin)
     $stmt = $db->prepare("
-        SELECT v.id, v.assigned_crew_id, v.status, v.locked_at
+        SELECT v.id, v.assigned_crew_id, v.status, v.locked_at, v.scheduled_date, v.started_at, v.completed_at
         FROM job_visits v
         WHERE v.id = ?
     ");
@@ -100,7 +108,7 @@ try {
     }
 
     $points  = $input['points'] ?? [];
-    $result  = insertGpsPoints($db, $visitId, $points);
+    $result  = insertGpsPoints($db, $visitId, $points, gpsWindow($visit));
 
     // Update the cached count on the visit
     $db->prepare("
@@ -121,7 +129,7 @@ try {
     echo json_encode(['error' => 'Database error']);
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'pow-gps-sync')]);
 } catch (Throwable $e) {
     error_log('PoW GPS Sync error: ' . $e->getMessage());
     http_response_code(500);
@@ -133,7 +141,21 @@ try {
  * Deduplicates by (visit_id, ts) within a 1-second window.
  * Validates lat/lng ranges and accuracy threshold (>200m rejected).
  */
-function insertGpsPoints(PDO $db, int $visitId, array $points): array
+/**
+ * When this visit's points can have been taken (Codex review 2026-10-15: any time was accepted, so a route
+ * from another day — or the future — could be shown to the client as proof of this visit). From 10 minutes
+ * before it started (or the start of its day) to 10 minutes after it finished (or the end of the next day,
+ * for overnight salt runs), never later than now + 5 minutes. Travel to and from the site stays out. @return array{0:int,1:int} epoch seconds
+ */
+function gpsWindow(array $visit): array
+{
+    $day   = strtotime((string)($visit['scheduled_date'] ?? '')) ?: time();
+    $from  = !empty($visit['started_at']) ? strtotime((string)$visit['started_at']) - 600 : $day;
+    $to    = !empty($visit['completed_at']) ? strtotime((string)$visit['completed_at']) + 600 : $day + 2 * 86400;
+    return [$from, min($to, time() + 300)];
+}
+
+function insertGpsPoints(PDO $db, int $visitId, array $points, ?array $window = null): array
 {
     if (empty($points)) {
         return ['inserted' => 0, 'skipped' => 0];
@@ -169,7 +191,8 @@ function insertGpsPoints(PDO $db, int $visitId, array $points): array
         // Validate
         if ($lat === null || $lng === null || $tsRaw === 0) { $skipped++; continue; }
         if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) { $skipped++; continue; }
-        if ($accuracy !== null && $accuracy > 200) { $skipped++; continue; } // too inaccurate
+        if ($accuracy !== null && ($accuracy <= 0 || $accuracy > 200)) { $skipped++; continue; } // too inaccurate, or not a real reading
+        if ($window && ((int)($tsRaw / 1000) < $window[0] || (int)($tsRaw / 1000) > $window[1])) { $skipped++; continue; } // not during this visit
 
         // Convert epoch ms → MySQL datetime
         $ts = date('Y-m-d H:i:s', (int)($tsRaw / 1000));

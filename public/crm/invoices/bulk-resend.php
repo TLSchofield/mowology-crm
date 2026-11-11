@@ -7,6 +7,7 @@
  * Max 50 invoices per call. CSRF verified before session_write_close().
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 
@@ -47,9 +48,8 @@ if (count($invoiceIds) > 50) {
     exit;
 }
 
-require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
-require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 
 $db      = getDB();
 $results = [];
@@ -138,20 +138,20 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
             return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false, 'error' => 'No recipients'];
         }
 
-        // Generate PDF
-        $attachPath = null;
-        $pdfGen    = new PdfGenerator();
-        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
-            $attachPath = $pdfResult['path'];
-        } else {
-            $cached = $pdfGen->getPdfPath('invoice', $invoiceId);
-            if ($cached && file_exists($cached)) {
-                $attachPath = $cached;
-            }
+        // Every invoice email carries the PDF (owner rule 2026-10-06): fresh render,
+        // else the cached copy; neither → NOT sent, status and counters untouched.
+        $pdfGate    = new InvoicePdfGate($db);
+        // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
+        require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+        ClientCreditService::applyOnSend($db, $invoiceId);
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        if ($attachPath === null) {
+            $pdfGate->recordBlocked($invoiceId, 'bulk_resend');
+            return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false, 'error' => InvoicePdfGate::NOT_SENT_MESSAGE];
         }
+        $pdfVanished = false;
 
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoiceViewUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
         $companyInfo    = EmailWrapper::getCompanyInfo();
 
         $sentTo = [];
@@ -179,15 +179,23 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
             $billSummary .= '</table>';
 
             $emailBody = EmailWrapper::wrap(
-                $billSummary . $tpl['body_html'],
-                'View &amp; Pay Invoice Online',
+                $billSummary . $tpl['body_html'] . EmailWrapper::paymentInstructionsHtml(),
+                'Pay the invoice',
                 $invoiceViewUrl,
                 $companyInfo
             );
 
             if (!empty($recipient['id'])) {
-                $trackUrl  = 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . (int)$recipient['id'];
+                require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+                $trackUrl = TrackingLinks::invoiceOpenUrl((int)$recipient['id']);
                 $emailBody = str_replace('</body>', '<img src="' . $trackUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>', $emailBody);
+            }
+
+            // The file must still be there now — sendEmail() would silently drop it.
+            if (!$pdfGate->isUsable($attachPath)) {
+                $pdfVanished = true;
+                $pdfGate->recordBlocked($invoiceId, 'bulk_resend', 'PDF vanished before send: ' . $attachPath);
+                break;
             }
 
             $ok = sendCrmEmail($recipient['email_address'], $emailSubject, $emailBody, $attachPath);
@@ -201,7 +209,8 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
         }
 
         if (empty($sentTo)) {
-            return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false, 'error' => 'Email delivery failed'];
+            return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false,
+                    'error' => $pdfVanished ? InvoicePdfGate::NOT_SENT_MESSAGE : 'Email delivery failed'];
         }
 
         // Update invoice counters
@@ -210,8 +219,16 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
             $db->prepare("UPDATE invoices SET resend_count = COALESCE(resend_count,0)+1, last_resent_at = NOW() WHERE id = ?")
                ->execute([$invoiceId]);
         } else {
-            $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?")
+            $db->prepare("UPDATE invoices SET sent_at = NOW(), status = CASE WHEN status IN ('draft','pending') THEN 'sent' ELSE status END WHERE id = ?")
                ->execute([$invoiceId]);
+
+            // Autopay: first-send transition to 'sent' — attempt an off-session
+            // charge if the bill-to is enrolled. See AutopayService::triggerOnSend().
+            $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
+            if (is_file($autopayServicePath)) {
+                require_once $autopayServicePath;
+                AutopayService::triggerOnSend($db, $invoiceId, 'bulk-resend.php');
+            }
         }
 
         $verb        = $isResend ? 'resent' : 'sent';

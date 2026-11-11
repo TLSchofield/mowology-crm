@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * Web shim → app/Modules/CMS/Cron/cms_seo_recalc.php
  * POST /crm/cron/cms-seo-recalc.php (admin only)

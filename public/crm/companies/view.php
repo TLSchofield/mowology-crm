@@ -113,7 +113,7 @@ $typeLabels = ['individual' => 'Individual', 'business' => 'Business', 'strata' 
 $pageTitle = htmlspecialchars($company['company_name']);
 $activePage = 'companies';
 $stripePublishableKey = defined('STRIPE_PUBLISHABLE_KEY') ? STRIPE_PUBLISHABLE_KEY : '';
-$extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
+$extraHead = (Tenant::takesCards() ? '<script src="https://js.stripe.com/v3/" defer></script>' : '')
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . (defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '') . '&libraries=places" defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -316,6 +316,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="send" class="mw-detail-icon"></i></span> Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
+                                        <?php if (Tenant::takesCards()): ?>
                                         <tr>
                                             <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Autopay Card</td>
                                             <td id="mw-company-card-cell">
@@ -339,6 +340,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
+                                        <?php endif; ?>
                                     </table>
                                 </div>
                             </div>
@@ -384,6 +386,18 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                         $roles = [];
                                                         if ($ct['id'] == $company['primary_contact_id']) $roles[] = '<span class="badge badge-primary">Primary</span>';
                                                         if ($ct['id'] == $company['billing_contact_id']) $roles[] = '<span class="badge badge-info">Billing</span>';
+                                                        if (!empty($ct['contact_role'])) {
+                                                            $roleLabels = [
+                                                                'property_manager' => 'Property Manager',
+                                                                'strata_rep'       => 'Strata Rep',
+                                                                'owner'            => 'Owner',
+                                                                'billing_contact'  => 'Billing Contact',
+                                                                'site_supervisor'  => 'Site Supervisor',
+                                                                'other'            => 'Other',
+                                                            ];
+                                                            $rLabel = $roleLabels[$ct['contact_role']] ?? ucfirst(str_replace('_', ' ', $ct['contact_role']));
+                                                            $roles[] = '<span class="badge badge-success">' . htmlspecialchars($rLabel) . '</span>';
+                                                        }
                                                         echo $roles ? implode(' ', $roles) : '<span class="text-muted">—</span>';
                                                         ?>
                                                     </td>
@@ -426,6 +440,12 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                         <span class="badge badge-light">
                                                             <?= htmlspecialchars(ucfirst($prop['relationship_type'] ?? 'owner')) ?>
                                                         </span>
+                                                        <?php // How this property came to be listed (see getCompanyProperties).
+                                                        if (($prop['link_source'] ?? '') === 'inferred' && !empty($prop['linked_via_name'])): ?>
+                                                            <small class="text-muted d-block">via <?= htmlspecialchars($prop['linked_via_name']) ?></small>
+                                                        <?php elseif (($prop['link_source'] ?? '') === 'direct'): ?>
+                                                            <small class="text-muted d-block">set on the property</small>
+                                                        <?php endif; ?>
                                                     </td>
                                                     <td><?= $prop['is_primary'] ? '<span class="text-success">Yes</span>' : '—' ?></td>
                                                     <td>
@@ -446,11 +466,15 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
+                                                        <?php // Only an explicit link can be removed here; the others follow the
+                                                              // property's own fields or its site contact.
+                                                        if (($prop['link_source'] ?? 'explicit') === 'explicit'): ?>
                                                         <button type="button" class="btn btn-sm btn-outline-danger"
                                                                 onclick="unlinkProperty(<?= (int)$prop['id'] ?>)"
                                                                 title="Unlink this property">
                                                             <i data-feather="x" style="width:12px;height:12px;"></i>
                                                         </button>
+                                                        <?php endif; ?>
                                                     </td>
                                                 </tr>
                                             <?php endforeach; ?>
@@ -553,7 +577,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                 <div class="table-responsive">
                                     <table class="table table-hover mb-0">
                                         <thead>
-                                            <tr><th>Invoice #</th><th>Status</th><th>Total</th><th>Balance Due</th><th>Due Date</th><th></th></tr>
+                                            <tr><th>Invoice #</th><th>Status</th><th>Total</th><th>Balance Due</th><th>Payment</th><th>Due Date</th><th></th></tr>
                                         </thead>
                                         <tbody>
                                             <?php foreach ($invoices as $inv): ?>
@@ -562,6 +586,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                     <td><?= getStatusBadge($inv['status'], 'invoice') ?></td>
                                                     <td><?= formatCurrency($inv['total'] ?? $inv['total_amount'] ?? $inv['subtotal'] ?? 0) ?></td>
                                                     <td><?= formatCurrency($inv['balance_due'] ?? 0) ?></td>
+                                                    <td><?= htmlspecialchars(formatPaymentMethod($inv['payment_method'] ?? '', $inv['payment_reference'] ?? '')) ?: '—' ?></td>
                                                     <td><?= $inv['due_date'] ? formatDate($inv['due_date']) : '—' ?></td>
                                                     <td class="text-right">
                                                         <a href="/crm/invoices/view.php?id=<?= $inv['id'] ?>" class="btn btn-sm btn-outline-primary">View</a>
@@ -574,6 +599,28 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                             <?php endif; ?>
                         </div>
                     </div>
+                    <?php
+                    // Price history by service from the Jobber invoice history (migration 1239; read only).
+                    $jobberPrices = [];
+                    try {
+                        require_once APP_ROOT . '/Modules/Accounting/Services/JobberPriceHistory.php';
+                        $jobberPrices = (new JobberPriceHistory($db))->forCompany((int)$companyId);
+                    } catch (Throwable $e) {
+                        $jobberPrices = [];
+                    }
+                    ?>
+                    <?php
+                    $jobberQuotes = [];
+                    try {
+                        require_once APP_ROOT . '/Modules/Accounting/Services/JobberQuoteHistory.php';
+                        $ph = new JobberPriceHistory($db);
+                        $jobberQuotes = (new JobberQuoteHistory($db))->forScope($ph->scopeForCompany((int)$companyId));
+                    } catch (Throwable $e) {
+                        $jobberQuotes = [];
+                    }
+                    ?>
+                    <div class="mt-4"><?php include dirname(__DIR__) . '/includes/jobber_price_history_card.php'; ?></div>
+                    <?php include dirname(__DIR__) . '/includes/jobber_quotes_card.php'; ?>
                 </div>
 
                 <!-- Activity Tab -->

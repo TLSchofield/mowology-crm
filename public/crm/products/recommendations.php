@@ -6,6 +6,8 @@
  * - Approve & send recommendation emails
  * - Edit email before sending
  * - Dismiss with reason
+ * - Ask first (migration 1180): read, edit and send the no-price photo notes the crew
+ *   saved, and set each service's "what we do" sentence (js/field-ask-office.js).
  *
  * @package Mowology CRM
  */
@@ -16,6 +18,15 @@ $user = getCurrentUser();
 
 $pageTitle = 'Field Recommendations';
 $activePage = 'products';
+
+// Ask first is for whoever may send quotes (billing.edit: admin, manager).
+$mwCanAsk = false;
+try {
+    require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
+    $mwCanAsk = FieldAskService::canSend(getDB(), (array)$user);
+} catch (Throwable $e) {
+    $mwCanAsk = false;
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -28,6 +39,22 @@ $activePage = 'products';
                   <p class="text-muted mb-0">Crew field observations that may trigger product recommendation emails.</p>
               </div>
           </div>
+
+          <?php if ($mwCanAsk): ?>
+          <!-- Ask first: crew drafts waiting for a manager, and the per-service wording -->
+          <section class="mw-ask-office" id="mwAskOffice" data-csrf="<?= h(generateCSRFToken()) ?>" hidden>
+              <div class="mw-ask-office-head">
+                  <div>
+                      <h2 class="h5 mb-0">Ask first</h2>
+                      <p class="text-muted mb-0">Photo notes with no price, to the person who decides the work. Nothing goes until you press Send.</p>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="mwAskWordingBtn">Wording per service</button>
+              </div>
+              <div id="mwAskDrafts"></div>
+              <div id="mwAskWording" hidden></div>
+          </section>
+          <script src="<?= function_exists('_av') ? _av('/crm/js/field-ask-office.js') : '/crm/js/field-ask-office.js' ?>" defer></script>
+          <?php endif; ?>
 
           <!-- Stats Bar -->
           <div class="mw-obs-stats" id="obsStats">
@@ -202,10 +229,38 @@ $activePage = 'products';
                           html += '  </div>';
                       }
 
+                      // Everything the crew photographed — the office needs all
+                      // the angles to price the work, not just the cover shot.
+                      if (obs.photos && obs.photos.length) {
+                          html += '  <div class="mw-obs-card-photos">';
+                          obs.photos.forEach(function(photo) {
+                              var src = photo.thumb_url || photo.file_path;
+                              if (!src) return;
+                              html += '<a href="' + escHtml(photo.file_path) + '" target="_blank" rel="noopener">';
+                              html += '<img src="' + escHtml(src) + '" alt="Site photo" class="mw-obs-photo">';
+                              html += '</a>';
+                          });
+                          html += '  </div>';
+                      }
+
+                      if (obs.quote_number) {
+                          html += '  <div class="mw-obs-card-quote">Quote ' + escHtml(obs.quote_number);
+                          if (obs.quote_status) html += ' &middot; ' + escHtml(obs.quote_status);
+                          html += '</div>';
+                      }
+
                       // Actions (admin only, for pending observations)
                       if (isAdmin && obs.status === 'pending') {
                           html += '  <div class="mw-obs-card-actions">';
-                          html += '    <button class="btn btn-sm btn-success" onclick="approveObs(' + obs.id + ')">Approve & Send</button>';
+                          if (obs.recommended_product_id) {
+                              var suggested = obs.recommended_price || obs.product_price || '';
+                              html += '    <label class="mw-obs-price-label">$';
+                              html += '      <input type="number" step="0.01" min="0" class="mw-obs-price" ';
+                              html += '             id="price-' + obs.id + '" value="' + escHtml(String(suggested)) + '">';
+                              html += '    </label>';
+                              html += '    <button class="btn btn-sm btn-success" onclick="approveQuote(' + obs.id + ')">Approve &amp; Send Quote</button>';
+                          }
+                          html += '    <button class="btn btn-sm btn-outline-primary" onclick="approveObs(' + obs.id + ')">Send Info Email</button>';
                           html += '    <button class="btn btn-sm btn-outline-secondary" onclick="dismissObs(' + obs.id + ')">Dismiss</button>';
                           html += '  </div>';
                       }
@@ -264,6 +319,28 @@ $activePage = 'products';
                       }
                   })
                   .catch(function() { alert('Network error'); });
+              };
+
+              // Builds a real Quote from the recommendation and emails it to
+              // whoever authorises spend on that property, then refreshes.
+              window.approveQuote = function(obsId) {
+                  var priceEl = document.getElementById('price-' + obsId);
+                  var price = priceEl ? priceEl.value : '';
+
+                  if (!confirm('Create a quote' + (price ? ' for $' + price : '') + ' and email it to the client?')) return;
+
+                  fetch('/crm/api/field-observations.php?action=approve-quote', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: obsId, price: price, csrf_token: csrf })
+                  })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.message) alert(data.message);
+                      if (!data.success && data.error) showError(data.error);
+                      loadObservations();
+                  })
+                  .catch(function() { showError('Could not create the quote.'); });
               };
 
               window.dismissObs = function(obsId) {

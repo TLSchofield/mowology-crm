@@ -3,7 +3,9 @@ require_once __DIR__ . '/../loginAuth/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
-requirePermission('expenses.view');
+// Revenue and invoice reports: billing.view like every page under /crm/reports/ (Fable audit
+// 2026-10-12 — expenses.view let crew in; migration 607 gives it to staff and viewer).
+requirePermission('billing.view');
 
 $pageTitle  = 'Reports';
 $activePage = 'reports';
@@ -43,6 +45,7 @@ $activePage = 'reports';
                   <p class="text-muted small mb-0">Request to job conversion pipeline</p>
               </a>
 
+              <?php if (userHasPermission('team.edit')): ?>
               <a href="/crm/reports/crew-profitability.php" class="mw-report-card">
                   <div class="mw-report-card-icon" style="background:var(--mw-orange);">
                       <i data-feather="users"></i>
@@ -50,6 +53,7 @@ $activePage = 'reports';
                   <h5>Crew Profitability</h5>
                   <p class="text-muted small mb-0">Revenue and margin by crew member</p>
               </a>
+              <?php endif; ?>
 
               <a href="/crm/reports/client-lifetime-value.php" class="mw-report-card">
                   <div class="mw-report-card-icon" style="background:#14B8A6;">

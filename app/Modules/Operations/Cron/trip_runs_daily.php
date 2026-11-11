@@ -1,0 +1,213 @@
+<?php
+/**
+ * Otto + Penny — price yesterday's dump / supplier runs from the truck trail.
+ *
+ * Splits the day's Trackimo pings into stops and drives (TripSegmentService), prices each
+ * overhead stop (TripCostService: driver's rate + burden, km × truck_cost_per_km, matching
+ * receipts) and stores it in ops_trip_runs.
+ * First Otto asks Penny (StopEvidenceService::learnPlaces): the last 120 days of supplier / dump /
+ * fuel receipts are lined up with the truck stops they came from, and every vendor seen at the same
+ * spot on 2+ days becomes a named place — so stops are named from history, not by Tim. Idempotent: re-running a date rewrites its rows
+ * and keeps the owner's one-man / two-man toggles.
+ * Then (migration 1218) Penny tags each run to the job that caused it (TripAttributionService) and
+ * Otto recomputes the shared cost facts Sam reads (CostFactsService::refresh).
+ *
+ * CLI:  /usr/local/bin/php /home/mowology/public_html/app/Modules/Operations/Cron/trip_runs_daily.php [YYYY-MM-DD [YYYY-MM-DD]]
+ *       one date, or a from–to range for a backfill (max 120 days). Default: yesterday.
+ * Web:  /crm/cron/trip_runs_daily.php (admin only, via _guard.php) ?date=YYYY-MM-DD[&to=YYYY-MM-DD]
+ * cPanel schedule: daily at 1:20 AM (20 1 * * *).
+ * Registry key: trip_runs_daily (public/crm/database_appstack.php) — recordCronRun() on every exit.
+ */
+
+declare(strict_types=1);
+
+$__dir = __DIR__;
+for ($__i = 0; $__i < 5; $__i++) {
+    $__dir = dirname($__dir);
+    if (is_file($__dir . '/app/Core/paths.php')) {
+        require_once $__dir . '/app/Core/paths.php';
+        break;
+    }
+}
+unset($__dir, $__i);
+$__cronStart = microtime(true);
+require_once APP_ROOT . '/Core/config.php';
+
+$__cli = php_sapi_name() === 'cli';
+if ($__cli) {
+    require_once APP_ROOT . '/Core/CronLock.php';
+    \App\Core\CronLock::acquire('trip_runs_daily');
+} else {
+    header('Content-Type: application/json');
+}
+
+require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Services/CrmFunctions.php';   // recordCronRun() — the CLI bootstrap does not load it
+require_once APP_ROOT . '/Modules/Operations/Services/TripCostService.php';
+
+$__finish = static function (string $status, string $summary, ?string $error = null) use ($__cronStart, $__cli): void {
+    if (function_exists('recordCronRun')) {
+        recordCronRun('trip_runs_daily', $status, $summary,
+            (int)round((microtime(true) - $__cronStart) * 1000), $error, !$__cli);
+    }
+    if ($__cli) {
+        echo '[' . date('H:i:s') . "] {$summary}" . ($error ? " — {$error}" : '') . "\n";
+    } else {
+        if ($status === 'error') http_response_code(500);
+        echo json_encode(['success' => $status !== 'error', 'summary' => $summary]);
+    }
+};
+
+$__args = $__cli
+    ? array_values(array_slice($argv ?? [], 1))
+    : array_values(array_filter([(string)($_GET['date'] ?? ''), (string)($_GET['to'] ?? '')]));
+$__from = $__args[0] ?? date('Y-m-d', strtotime('-1 day'));
+$__to = $__args[1] ?? $__from;
+foreach ([$__from, $__to] as $__d) {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $__d) || !strtotime($__d)) {
+        $__finish('error', 'Bad date', 'Expected YYYY-MM-DD, got ' . $__d);
+        exit(1);
+    }
+}
+if ($__to < $__from || (strtotime($__to) - strtotime($__from)) / 86400 > 120) {
+    $__finish('error', 'Bad range', 'From must not be after to, and at most 120 days');
+    exit(1);
+}
+
+try {
+    $svc = new TripCostService(getDB());
+    if (!$svc->ready()) {
+        $__finish('warning', 'Migration 1216 not run yet — nothing to do');
+        exit;
+    }
+    $learned = ['created' => []];
+    try {
+        $learned = $svc->ev->learnPlaces(120);
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] learnPlaces: ' . $e->getMessage());   // pricing still runs
+    }
+    $tot = ['stored' => 0, 'removed' => 0, 'open' => 0, 'unnamed' => 0, 'days' => 0];
+    $__facts = '';
+    for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
+        $r = $svc->process(date('Y-m-d', $t));
+        foreach (['stored', 'removed', 'open', 'unnamed'] as $k) $tot[$k] += $r[$k];
+        $tot['days']++;
+    }
+    // Breaks from the crew phones' GPS (migration 1318) — recorded per shift; additive.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+        $brk = new BreakService(getDB());
+        for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) $brk->run(date('Y-m-d', $t));
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] breaks: ' . $e->getMessage());
+    }
+    // On-site time (migration 1439): durable GPS evidence for Otto's visit-length review.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/VisitDurationService.php';
+        $dur = (new VisitDurationService(getDB()))->measure($__from, $__to);
+        $__facts .= "; time on site: {$dur['measured']} visit(s) measured ({$dur['phone']} phone, {$dur['truck']} truck)";
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] time on site: ' . $e->getMessage());
+    }
+    // Shared facts (migration 1218): Penny tags the runs to jobs, then Otto recomputes the medians
+    // the other heads read. Additive — a failure here never loses the priced runs above.
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/TripAttributionService.php';
+        require_once APP_ROOT . '/Modules/Operations/Services/CostFactsService.php';
+        $attr = new TripAttributionService(getDB());
+        $cf = new CostFactsService(getDB());
+        if ($attr->ready() && $cf->ready()) {
+            $at = ['rows' => 0, 'tagged' => 0];
+            for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
+                $a = $attr->attribute(date('Y-m-d', $t));
+                $at['rows'] += $a['rows'];
+                $at['tagged'] += $a['tagged'];
+            }
+            $f = $cf->refresh();
+            $__facts .= "; {$at['rows']} job cost line(s), {$at['tagged']} receipt(s) tagged to a job, {$f['facts']} cost fact(s)";
+        } else {
+            $__facts .= '; cost facts need migration 1218';
+        }
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] cost facts: ' . $e->getMessage());
+        $__facts .= '; cost facts failed: ' . $e->getMessage();
+    }
+    // Contract sites (migration 1267): Otto logs work done there with nothing scheduled, by himself —
+    // yesterday, or the last 14 days on the first run. Additive: a failure never loses the runs above.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/OttoContractLogService.php';
+        $ocl = new OttoContractLogService(getDB());
+        if ($ocl->ready()) {
+            $p = $ocl->dailyPass();
+            $__facts .= "; contract sites: {$p['logged']} visit(s) logged (" . UnscheduledWorkRules::hours($p['minutes']) . "), {$p['asked']} left to ask over {$p['days']} day(s)";
+        }
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] contract visits: ' . $e->getMessage());
+        $__facts .= '; contract visits failed: ' . $e->getMessage();
+    }
+    // Supplier stops (migration 1359): geocode new supplier addresses once, find the crew's supplier /
+    // fuel stops (phones + truck), match their receipts and leave Otto's job pick on material receipts
+    // with no job (shadow — shown on the receipt editor only). The two days before are re-matched:
+    // receipts get photographed late. Additive: a failure never loses the runs above.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/SupplierJobSuggestService.php';
+        $ss = new SupplierStopService(getDB());
+        if ($ss->ready()) {
+            $geo = $ss->geocodePending();
+            // Store enrichment is cron-only and independent: one unavailable source must not stop the others.
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/VendorLotService.php';
+                $vendorLots = new VendorLotService(getDB());
+                $placed = $vendorLots->placeFromReceipts();
+                $lots = $vendorLots->run();
+                $__facts .= "; store placement: {$placed['placed']} from receipt GPS ({$placed['unmatched']} unmatched cluster(s)); lots: {$lots['stored']} saved, {$lots['refused']} unavailable/refused";
+            } catch (Throwable $e) {
+                error_log('[trip_runs_daily] vendor lots: ' . $e->getMessage());
+                $__facts .= '; store lots failed: ' . $e->getMessage();
+            }
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/VendorHoursService.php';
+                $hours = (new VendorHoursService(getDB()))->run();
+                $__facts .= "; store hours {$hours['status']}: {$hours['saved']} saved of {$hours['checked']} checked";
+            } catch (Throwable $e) {
+                error_log('[trip_runs_daily] vendor hours: ' . $e->getMessage());
+                $__facts .= '; store hours failed: ' . $e->getMessage();
+            }
+            try {
+                if (!isset($vendorLots)) {
+                    require_once APP_ROOT . '/Modules/Operations/Services/VendorLotService.php';
+                    $vendorLots = new VendorLotService(getDB());
+                }
+                $commons = $vendorLots->linkCommons();
+                $__facts .= "; vendor commons: {$commons['linked']} linked of {$commons['checked']} checked";
+            } catch (Throwable $e) {
+                error_log('[trip_runs_daily] vendor commons: ' . $e->getMessage());
+                $__facts .= '; vendor commons failed: ' . $e->getMessage();
+            }
+            $js = new SupplierJobSuggestService(getDB(), $ss);
+            $st = ['stops' => 0, 'with_receipt' => 0, 'suggested' => 0];
+            for ($t = strtotime($__from . ' -2 days'); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
+                $r = $ss->run(date('Y-m-d', $t));
+                $st['stops'] += $r['stops'];
+                $st['with_receipt'] += $r['with_receipt'];
+                $st['suggested'] += $js->refreshDay(date('Y-m-d', $t))['suggested'];
+            }
+            $saved = count(array_filter($geo, fn($g) => $g['result'] === 'saved'));
+            $__facts .= "; supplier stops: {$st['stops']} ({$st['with_receipt']} with a receipt), {$st['suggested']} job pick(s) for Tim"
+                . ($geo ? ", {$saved} of " . count($geo) . ' supplier address(es) geocoded' : '');
+        } else {
+            $__facts .= '; supplier stops need migration 1359';
+        }
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] supplier stops: ' . $e->getMessage());
+        $__facts .= '; supplier stops failed: ' . $e->getMessage();
+    }
+    $span = $__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
+    $__finish('success', "{$span}: {$tot['stored']} overhead stop(s) priced, {$tot['removed']} removed, "
+        . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : '')
+        . ($learned['created'] ? '; Penny named ' . count($learned['created']) . ' place(s) from past receipts: '
+            . implode(', ', array_column($learned['created'], 'name')) : '') . $__facts);
+} catch (Throwable $e) {
+    error_log('[trip_runs_daily] ' . $e->getMessage());
+    $__finish('error', 'Cron failed', $e->getMessage());
+}

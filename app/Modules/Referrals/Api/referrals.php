@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -14,6 +15,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Referrals/Services/ReferralRewardService.php';
 
@@ -21,6 +23,18 @@ header('Content-Type: application/json; charset=utf-8');
 
 requireLogin();
 $user = getCurrentUser();
+
+// Must run before session_write_close() below — verifyCSRFToken() reads
+// $_SESSION, which session_write_close() clears from memory.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+}
+
 session_write_close();
 
 requirePermission('marketing.view');
@@ -155,7 +169,7 @@ try {
             }
 
             $link = ReferralRewardService::getOrCreateLink($contactId, $db);
-            $link['full_url'] = 'https://mowology.ca/quote?referral_code=' . $link['referral_code'];
+            $link['full_url'] = _idSiteUrl() . '/quote?referral_code=' . $link['referral_code'];
 
             echo json_encode(['success' => true, 'link' => $link]);
             break;
@@ -203,7 +217,7 @@ try {
             }
 
             // Also return the products list for the product dropdown
-            $products = $db->query("SELECT id, name, base_price FROM products WHERE is_active = 1 ORDER BY name ASC")
+            $products = $db->query("SELECT id, name, base_price FROM products WHERE active = 1 AND COALESCE(is_archived, 0) = 0 ORDER BY name ASC")
                 ->fetchAll(PDO::FETCH_ASSOC);
 
             echo json_encode(['success' => true, 'settings' => $settings, 'products' => $products]);
@@ -335,5 +349,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'referrals')]);
 }

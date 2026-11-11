@@ -703,17 +703,71 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                         <label>Application Notes</label>
                         <textarea class="form-control" name="application_notes" rows="2" placeholder="Detailed application instructions, storage requirements, etc."></textarea>
                       </div>
+
+                      <!-- Storage / handling read from the label photo (migration 1225) — read-only here -->
+                      <div class="form-group" id="labelCareGroup" hidden>
+                        <label>From the label <small class="text-muted">(read from the photo, word for word)</small></label>
+                        <div class="mw-pp-care" id="labelCareText"></div>
+                      </div>
                     </div>
 
                     <!-- Seasonality & Marketing -->
                     <div class="mw-product-form-section">
                       <h4>Seasonality &amp; Marketing</h4>
                       <p class="text-muted mb-2" style="font-size: 0.85rem;">
-                        Define when this product is best applied and when to start marketing it. Crew sees talking points on their mobile schedule.
+                        Define when this service is active and how many social posts to aim for each month. The campaign scheduler reads this automatically.
                       </p>
 
+                      <!-- Social service type link -->
                       <div class="form-group">
-                        <label>Best Season to Apply</label>
+                        <label>Social Service Type <small class="text-muted ml-1">— links to social templates</small></label>
+                        <input type="text" class="form-control" name="service_type" placeholder="e.g. Fall Cleanup, Lawn Care, Hedge Trimming"
+                               list="serviceTypeList" style="max-width:320px;">
+                        <datalist id="serviceTypeList">
+                          <option value="Lawn Care">
+                          <option value="Hedge Trimming">
+                          <option value="Fall Cleanup">
+                          <option value="Spring Cleanup">
+                          <option value="General Landscaping">
+                          <option value="Snow Removal">
+                          <option value="Fertilizing">
+                          <option value="Aeration">
+                          <option value="Pressure Washing">
+                        </datalist>
+                        <small class="form-text text-muted">Must match the "Service Type" on your social templates exactly.</small>
+                      </div>
+
+                      <!-- Social cadence picker -->
+                      <div class="form-group">
+                        <label>Social Posting Cadence <small class="text-muted ml-1">— posts per month target (0 = skip)</small></label>
+                        <input type="hidden" name="social_cadence" id="socialCadenceHidden">
+                        <div class="mw-cadence-presets mb-2">
+                          <span class="text-muted small mr-1">Presets:</span>
+                          <button type="button" class="btn btn-xs btn-outline-secondary mw-cadence-preset" data-values="0,0,0,0,0,0,0,0,2,4,3,1">🍂 Fall</button>
+                          <button type="button" class="btn btn-xs btn-outline-secondary mw-cadence-preset" data-values="0,1,2,3,4,4,4,3,2,2,1,0">🌱 Spring/Summer</button>
+                          <button type="button" class="btn btn-xs btn-outline-secondary mw-cadence-preset" data-values="1,1,2,2,3,4,4,3,2,2,1,1">🌿 Year-round lawn</button>
+                          <button type="button" class="btn btn-xs btn-outline-secondary mw-cadence-preset" data-values="3,2,1,0,0,0,0,0,0,1,2,4">❄️ Winter</button>
+                          <button type="button" class="btn btn-xs btn-outline-secondary mw-cadence-preset" data-values="0,0,0,0,0,0,0,0,0,0,0,0">✕ Clear</button>
+                        </div>
+                        <div class="mw-cadence-grid" id="cadenceGrid">
+                          <?php
+                          $moLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                          foreach ($moLabels as $mi => $ml): ?>
+                          <div class="mw-cadence-mo">
+                            <span class="mw-cadence-mo-label"><?php echo $ml; ?></span>
+                            <input type="number" min="0" max="5" value="0"
+                                   class="mw-cadence-mo-input form-control"
+                                   data-month="<?php echo $mi; ?>"
+                                   id="cadenceMo<?php echo $mi; ?>">
+                          </div>
+                          <?php endforeach; ?>
+                        </div>
+                        <small class="form-text text-muted mt-1">0 = no posts that month. Values drive campaign autopilot — sets target posts per month for this service.</small>
+                      </div>
+
+                      <!-- Best season (kept for backward compat, synced from cadence) -->
+                      <div class="form-group">
+                        <label>Best Season <small class="text-muted ml-1">— auto-synced from cadence above</small></label>
                         <div class="mw-season-grid" id="bestSeasonGrid">
                           <label class="mw-season-chip"><input type="checkbox" name="season_jan" value="jan"> Jan</label>
                           <label class="mw-season-chip"><input type="checkbox" name="season_feb" value="feb"> Feb</label>
@@ -728,7 +782,6 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                           <label class="mw-season-chip"><input type="checkbox" name="season_nov" value="nov"> Nov</label>
                           <label class="mw-season-chip"><input type="checkbox" name="season_dec" value="dec"> Dec</label>
                         </div>
-                        <small class="form-text text-muted">Select the months when this product/service is best applied or sold.</small>
                       </div>
 
                       <div class="form-group">
@@ -748,9 +801,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                           <option value="11">November</option>
                           <option value="12">December</option>
                         </select>
-                        <small class="form-text text-muted">
-                          On this month, the system will generate a marketing campaign targeting clients who haven't purchased this product.
-                        </small>
+                        <small class="form-text text-muted">Month to trigger upsell campaigns to existing clients.</small>
                       </div>
 
                       <div class="form-group">
@@ -928,6 +979,46 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                               <label class="mw-product-checkbox-label">
                                 <input type="checkbox" name="featured">
                                 Featured
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Crew field recommendations (migration 1114) -->
+                      <hr>
+                      <h6 class="mw-product-section-heading">Field Recommendations</h6>
+                      <p class="text-muted small">
+                        Let crew offer this service straight from the job card. Auto-send
+                        emails the client a quote without office review &mdash; only enable it
+                        for genuinely fixed-price packages.
+                      </p>
+                      <div class="row">
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Chip label</label>
+                            <input type="text" class="form-control" name="field_label"
+                                   maxlength="80" placeholder="e.g. Half Day Cleanup">
+                            <small class="form-text text-muted">Short text on the crew's button. Defaults to the product name.</small>
+                          </div>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Chip order</label>
+                            <input type="number" class="form-control" name="field_sort_order" value="0">
+                          </div>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Availability</label>
+                            <div class="d-flex flex-column mt-2" style="gap: .5rem;">
+                              <label class="mw-product-checkbox-label">
+                                <input type="checkbox" name="field_recommendable">
+                                Offer in the field
+                              </label>
+                              <label class="mw-product-checkbox-label">
+                                <input type="checkbox" name="field_auto_send">
+                                Auto-send quote
                               </label>
                             </div>
                           </div>
@@ -1168,7 +1259,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=add-category', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ name: name, description: desc || null })
               })
               .then(r => r.json())
@@ -1191,7 +1282,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=delete-category', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ id: categoryId })
               })
               .then(r => r.json())
@@ -1292,7 +1383,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=archive-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ id: productId })
               })
               .then(r => r.json())
@@ -1311,7 +1402,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
             function restoreProduct(productId) {
               fetch('api-products.php?action=restore-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ id: productId })
               })
               .then(r => r.json())
@@ -1335,6 +1426,9 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
             function openAddProductModal() {
               document.getElementById('modalTitle').textContent = 'Add New Product/Service';
               document.getElementById('productForm').reset();
+              // reset() keeps a hidden input's value: without this, "Add" after "Edit" saves over the edited product
+              document.querySelector('#productForm [name="id"]').value = '';
+              if (document.getElementById('labelCareGroup')) document.getElementById('labelCareGroup').hidden = true;
               clearProductImage();
               document.getElementById('imageSuggestions').style.display = 'none';
               resetIconSetPicker();
@@ -1351,6 +1445,9 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               document.getElementById('spreaderTestArea').value = '';
               document.getElementById('spreaderCalcResult').innerHTML = '';
               setSelectedSeasons('');
+              setSocialCadence('');
+              var stEl = document.querySelector('[name="service_type"]');
+              if (stEl) stEl.value = '';
               // Reset vendor supply panel for new products
               document.getElementById('vendorSupplyList').innerHTML =
                 '<p class="text-muted small">Save this product first, then vendor links will appear here.</p>';
@@ -1403,6 +1500,14 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               document.getElementById('trackingCustomOptions').style.display =
                 (tLevel === 'heightened' || tLevel === 'custom') ? 'grid' : 'none';
 
+              // Field recommendations (absent until migration 1114 has run)
+              if (form.elements['field_recommendable']) {
+                form.elements['field_recommendable'].checked = product.field_recommendable == 1;
+                form.elements['field_auto_send'].checked = product.field_auto_send == 1;
+                form.elements['field_label'].value = product.field_label || '';
+                form.elements['field_sort_order'].value = product.field_sort_order || 0;
+              }
+
               // Data Sheets & Application fields
               form.elements['sds_sheet_url'].value = product.sds_sheet_url || '';
               form.elements['dilution_rate'].value = product.dilution_rate || '';
@@ -1414,6 +1519,11 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               updateSpreaderCalc();
               form.elements['safety_warnings'].value = product.safety_warnings || '';
               form.elements['application_notes'].value = product.application_notes || '';
+              var lcGroup = document.getElementById('labelCareGroup');
+              if (lcGroup) {
+                lcGroup.hidden = !product.care_notes;
+                document.getElementById('labelCareText').textContent = product.care_notes || '';
+              }
 
               // SDS preview
               if (product.sds_sheet_url) {
@@ -1426,6 +1536,10 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               setSelectedSeasons(product.best_season || '');
               form.elements['trigger_month'].value = product.trigger_month || '';
               form.elements['crew_talking_points'].value = product.crew_talking_points || '';
+              if (form.elements['service_type']) {
+                form.elements['service_type'].value = product.service_type || '';
+              }
+              setSocialCadence(product.social_cadence || '');
 
               // Refresh calculated displays
               updatePricingCalculations();
@@ -1481,6 +1595,10 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               data.featured = form.elements['featured'] && form.elements['featured'].checked ? 1 : 0;
               data.active = form.elements['active'] && form.elements['active'].checked ? 1 : 0;
 
+              // Field recommendations
+              data.field_recommendable = form.elements['field_recommendable'] && form.elements['field_recommendable'].checked ? 1 : 0;
+              data.field_auto_send = form.elements['field_auto_send'] && form.elements['field_auto_send'].checked ? 1 : 0;
+
               // Schedule rollover
               data.auto_rollover = form.elements['auto_rollover'] && form.elements['auto_rollover'].checked ? 1 : 0;
               data.max_rollover_days = form.elements['max_rollover_days'].value || null;
@@ -1507,6 +1625,8 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               data.best_season = getSelectedSeasons() || null;
               data.trigger_month = form.elements['trigger_month'].value || null;
               data.crew_talking_points = form.elements['crew_talking_points'].value || null;
+              data.service_type = form.elements['service_type'] ? (form.elements['service_type'].value || null) : null;
+              data.social_cadence = getSocialCadence() || null;
 
               // Remove individual season_* keys (they were just for the checkbox grid)
               ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].forEach(m => {
@@ -1515,7 +1635,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=save-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify(data)
               })
               .then(r => r.json())
@@ -2051,7 +2171,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=bulk-delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ ids: Array.from(mwProductsBulkSelected) })
               })
               .then(function(r) { return r.json(); })
@@ -2284,7 +2404,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               // Delete all existing pricing rules first, then re-create remaining ones
               const rulesChain = fetch('api-products.php?action=delete-all-pricing-rules', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ product_id: productId })
               })
               .then(r => r.json())
@@ -2295,7 +2415,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                   delete saveData.id;
                   return fetch('api-products.php?action=save-pricing-rule', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify(saveData)
                   }).then(r => r.json());
                 }));
@@ -2304,7 +2424,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               // Delete all existing upsells first, then re-create remaining ones
               const upsellsChain = fetch('api-products.php?action=delete-all-upsells', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ product_id: productId })
               })
               .then(r => r.json())
@@ -2314,7 +2434,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                   delete saveData.id;
                   return fetch('api-products.php?action=save-upsell', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify(saveData)
                   }).then(r => r.json());
                 }));
@@ -2448,6 +2568,76 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               });
             }
 
+            // ── Social cadence picker helpers ─────────────────────────
+            var cadenceMonthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+
+            function getSocialCadence() {
+              var vals = [];
+              for (var i = 0; i < 12; i++) {
+                var el = document.getElementById('cadenceMo' + i);
+                vals.push(el ? (parseInt(el.value, 10) || 0) : 0);
+              }
+              var allZero = vals.every(function(v) { return v === 0; });
+              return allZero ? '' : vals.join(',');
+            }
+
+            function setSocialCadence(cadenceStr) {
+              var vals = cadenceStr ? cadenceStr.split(',').map(function(v) { return parseInt(v, 10) || 0; }) : [];
+              for (var i = 0; i < 12; i++) {
+                var el = document.getElementById('cadenceMo' + i);
+                if (!el) continue;
+                var v = vals[i] !== undefined ? vals[i] : 0;
+                el.value = v;
+                updateCadenceInputStyle(el, v);
+              }
+              syncCadenceToSeasons();
+            }
+
+            function updateCadenceInputStyle(el, v) {
+              // Color the input based on intensity
+              el.style.background = v === 0 ? '#f8f9fa'
+                : v === 1 ? '#d4edda'
+                : v === 2 ? '#b8dfc8'
+                : v === 3 ? '#7dc499'
+                : v >= 4 ? '#2D8659' : '#f8f9fa';
+              el.style.color     = v >= 3 ? '#fff' : (v > 0 ? '#155724' : '#adb5bd');
+              el.style.borderColor = v >= 3 ? '#1A5F4A' : (v > 0 ? '#c3e6cb' : '#dee2e6');
+              el.style.fontWeight = v > 0 ? '700' : '400';
+              el.setAttribute('data-v', v);
+            }
+
+            function syncCadenceToSeasons() {
+              // Keep best_season checkboxes in sync: checked = cadence > 0
+              for (var i = 0; i < 12; i++) {
+                var el = document.getElementById('cadenceMo' + i);
+                var v  = el ? (parseInt(el.value, 10) || 0) : 0;
+                var cb = document.querySelector('#bestSeasonGrid input[value="' + cadenceMonthNames[i] + '"]');
+                if (cb) cb.checked = v > 0;
+              }
+            }
+
+            // Wire up cadence inputs
+            for (var _ci = 0; _ci < 12; _ci++) {
+              (function(idx) {
+                var el = document.getElementById('cadenceMo' + idx);
+                if (!el) return;
+                el.addEventListener('input', function() {
+                  var v = Math.min(5, Math.max(0, parseInt(this.value, 10) || 0));
+                  this.value = v;
+                  updateCadenceInputStyle(this, v);
+                  syncCadenceToSeasons();
+                });
+              })(_ci);
+            }
+
+            // Wire up preset buttons
+            document.querySelectorAll('.mw-cadence-preset').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                var vals = (this.getAttribute('data-values') || '').split(',');
+                setSocialCadence(vals.join(','));
+              });
+            });
+
             // ============================================================
             // Vendor Supply Panel
             // ============================================================
@@ -2518,7 +2708,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               const productId = document.getElementById('productForm').elements['id'].value;
               fetch('api-products.php?action=unlink-vendor-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ vendor_product_id: vendorProductId })
               })
               .then(r => r.json())
@@ -2554,7 +2744,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                   // Link it
                   fetch('api-products.php?action=link-vendor-product', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({ vendor_product_id: data.results[idx].id, product_id: productId })
                   })
                   .then(r => r.json())

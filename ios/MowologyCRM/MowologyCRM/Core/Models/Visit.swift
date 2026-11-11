@@ -19,8 +19,16 @@ struct Visit: Codable, Identifiable, Hashable {
     let scheduledStart: String?
     /// Crew endorsed this visit — drives review request gate + BA marketing.
     let isFlagged: Bool
+    /// Everyone who endorsed this visit, in order. `isFlagged` is the signed-in user's own heart.
+    let endorsedBy: [String]
     /// Client has already left a Google review — shown as "Review received" reward.
     let contactHasReviewed: Bool
+    /// From the plan: per_visit | monthly_flat | seasonal … Contract work is billed by the
+    /// contract, never from a visit, so the completion sheet hides invoicing for it.
+    let pricingModel: String
+    let isContractBilled: Bool
+    /// Last two calendar weeks of this visit's plan + the one-line "last done" summary.
+    let history: ServiceHistory?
 
     var id: Int { visitId }
 
@@ -35,7 +43,11 @@ struct Visit: Codable, Identifiable, Hashable {
         case pricePerVisit        = "price_per_visit"
         case scheduledStart       = "scheduled_start"
         case isFlagged            = "is_flagged"
+        case endorsedBy           = "endorsed_by"
         case contactHasReviewed   = "contact_has_reviewed"
+        case pricingModel         = "pricing_model"
+        case isContractBilled     = "is_contract_billed"
+        case history
     }
 
     // Direct init for previews and unit tests (not used in production decoding).
@@ -43,7 +55,9 @@ struct Visit: Codable, Identifiable, Hashable {
          planTitle: String? = nil, planNumber: String? = nil,
          visitStatus: String = "scheduled", estimatedDuration: Int? = nil,
          pricePerVisit: Double? = nil, scheduledStart: String? = nil,
-         isFlagged: Bool = false, contactHasReviewed: Bool = false) {
+         isFlagged: Bool = false, endorsedBy: [String] = [], contactHasReviewed: Bool = false,
+         pricingModel: String = "per_visit", isContractBilled: Bool = false,
+         history: ServiceHistory? = nil) {
         self.visitId            = visitId
         self.visitNumber        = visitNumber
         self.serviceType        = serviceType
@@ -54,7 +68,11 @@ struct Visit: Codable, Identifiable, Hashable {
         self.pricePerVisit      = pricePerVisit
         self.scheduledStart     = scheduledStart
         self.isFlagged          = isFlagged
+        self.endorsedBy         = endorsedBy
         self.contactHasReviewed = contactHasReviewed
+        self.pricingModel       = pricingModel
+        self.isContractBilled   = isContractBilled
+        self.history            = history
     }
 
     // Graceful decode: older schedule API responses that lack these fields default to false.
@@ -70,10 +88,17 @@ struct Visit: Codable, Identifiable, Hashable {
         pricePerVisit      = try? c.decode(Double.self,  forKey: .pricePerVisit)
         scheduledStart     = try? c.decode(String.self,  forKey: .scheduledStart)
         isFlagged          = (try? c.decode(Bool.self,   forKey: .isFlagged))          ?? false
+        endorsedBy         = (try? c.decode([String].self, forKey: .endorsedBy))       ?? []
         contactHasReviewed = (try? c.decode(Bool.self,   forKey: .contactHasReviewed)) ?? false
+        pricingModel       = (try? c.decode(String.self, forKey: .pricingModel))       ?? "per_visit"
+        isContractBilled   = (try? c.decode(Bool.self,   forKey: .isContractBilled))   ?? false
+        history            = try? c.decode(ServiceHistory.self, forKey: .history)
     }
 
     // MARK: - Computed UI Properties
+
+    /// Can this visit be invoiced on its own? False for contract and monthly-flat work.
+    var isPerVisitBillable: Bool { !isContractBilled && pricingModel == "per_visit" }
 
     /// Maps API status values to SwiftUI Colors for badge rendering.
     var statusColor: Color {
@@ -88,7 +113,10 @@ struct Visit: Codable, Identifiable, Hashable {
     }
 
     /// Human-readable label derived from the snake_case service_type key.
-    var serviceTypeLabel: String {
+    var serviceTypeLabel: String { Self.serviceTypeLabel(serviceType) }
+
+    /// The same label for any service_type key (the pull-forward sheet has no Visit to ask).
+    static func serviceTypeLabel(_ serviceType: String) -> String {
         switch serviceType.lowercased() {
         case "lawn_care":           return "Lawn Care"
         case "hedge_trimming":      return "Hedge Trimming"

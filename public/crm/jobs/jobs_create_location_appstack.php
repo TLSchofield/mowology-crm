@@ -17,13 +17,27 @@ $db = getDB();
 $pageTitle = 'Create Job - Location Aware';
 $activePage = 'jobs';
 $csrfToken = generateCSRFToken();
-$extraHead = <<<'EOF'
-  <meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">
+// (Was a nowdoc, so the meta carried the literal PHP text instead of the token — 2026-10-12.)
+$extraHead = '
+  <meta name="csrf-token" content="' . htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') . '">
   <link href="/crm/jobs/location-job-creation.css" rel="stylesheet">
-EOF;
+';
+
+// ?action= AJAX calls — read safely (an absent action was an "undefined index" warning) and, as
+// state-changing POSTs, require the CSRF token (X-CSRF-Token header or csrf_token field).
+$ajaxAction = isset($_GET['action']) ? (string)$_GET['action'] : '';
+if ($ajaxAction !== '' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $tok = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['csrf_token'] ?? '');
+    if (!verifyCSRFToken($tok)) {
+        header('Content-Type: application/json');
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token', 'code' => 'CSRF_INVALID']);
+        exit;
+    }
+}
 
 // ─── AJAX: Find nearby properties ───
-if ($_GET['action'] === 'find_nearby_properties' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($ajaxAction === 'find_nearby_properties' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
 
     $latitude = floatval($jsonData['latitude'] ?? 0);
@@ -47,7 +61,7 @@ if ($_GET['action'] === 'find_nearby_properties' && $_SERVER['REQUEST_METHOD'] =
 }
 
 // ─── AJAX: Reverse geocode location ───
-if ($_GET['action'] === 'reverse_geocode' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($ajaxAction === 'reverse_geocode' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
 
     $latitude = floatval($jsonData['latitude'] ?? 0);
@@ -70,7 +84,7 @@ if ($_GET['action'] === 'reverse_geocode' && $_SERVER['REQUEST_METHOD'] === 'POS
 }
 
 // ─── AJAX: Create new property from location ───
-if ($_GET['action'] === 'create_property_from_location' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($ajaxAction === 'create_property_from_location' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
@@ -112,7 +126,7 @@ if ($_GET['action'] === 'create_property_from_location' && $_SERVER['REQUEST_MET
 }
 
 // ─── AJAX: Get property details for quick job creation ───
-if ($_GET['action'] === 'get_property_summary' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($ajaxAction === 'get_property_summary' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
     $propertyId = intval($jsonData['property_id'] ?? 0);
 
@@ -122,13 +136,15 @@ if ($_GET['action'] === 'get_property_summary' && $_SERVER['REQUEST_METHOD'] ===
         exit;
     }
 
-    $property = $db->prepare("
+    $propStmt = $db->prepare("
         SELECT p.*, c.company_name, c.id as company_id, c.company_type
         FROM properties p
         JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
         JOIN companies c ON cp.company_id = c.id
         WHERE p.id = ?
-    ")->execute([$propertyId])->fetch(PDO::FETCH_ASSOC);
+    ");
+    $propStmt->execute([$propertyId]);
+    $property = $propStmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$property) {
         http_response_code(404);
@@ -145,7 +161,9 @@ if ($_GET['action'] === 'get_property_summary' && $_SERVER['REQUEST_METHOD'] ===
         AND jp.status IN ('active', 'completed')
         ORDER BY jp.created_at DESC
         LIMIT 5
-    ")->execute([$propertyId])->fetchAll(PDO::FETCH_ASSOC);
+    ");
+    $recentJobs->execute([$propertyId]);
+    $recentJobs = $recentJobs->fetchAll(PDO::FETCH_ASSOC);
 
     // Get available service packages
     $packages = $db->query("
@@ -165,7 +183,7 @@ if ($_GET['action'] === 'get_property_summary' && $_SERVER['REQUEST_METHOD'] ===
 }
 
 // ─── AJAX: Search clients ───
-if ($_GET['action'] === 'search_clients' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($ajaxAction === 'search_clients' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
     $query = trim($jsonData['query'] ?? '');
 
@@ -190,7 +208,7 @@ if ($_GET['action'] === 'search_clients' && $_SERVER['REQUEST_METHOD'] === 'POST
 }
 
 // ─── AJAX: Log crew location for history ───
-if ($_GET['action'] === 'log_crew_location' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($ajaxAction === 'log_crew_location' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
 
     $latitude = floatval($jsonData['latitude'] ?? 0);

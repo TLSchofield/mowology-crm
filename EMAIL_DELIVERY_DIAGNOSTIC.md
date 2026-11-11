@@ -79,8 +79,8 @@ Check if it arrives
 ### Step 2: Check email logs
 ```
 Send a quote from CRM
-Visit: https://mowology.ca/crm/email-logs-viewer.php
-Check what mail() returned
+Read today's file in app/Storage/logs/email/ on the server (cPanel File Manager; not reachable by a web address)
+Each line: time, sent/failed, recipient, subject, how it was sent
 ```
 
 ### Step 3: Contact Hosting Provider

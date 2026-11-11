@@ -3,11 +3,13 @@
  * Custom HTML Block Renderer — Public Site Design System
  *
  * Config: {html_content}
- * WARNING: Admin-only block. Content is output as-is without escaping.
+ * Content is allow-listed by CmsHtmlSanitizer (2026-10-12) — no scripts, handlers or embeds.
  * Only admins should be able to add/edit custom blocks.
  */
 
-$htmlContent = $config['html_content'] ?? '';
+// Allow-listed HTML since 2026-10-12 (Fable review): no scripts, handlers or embeds on the public site.
+require_once APP_ROOT . '/Modules/CMS/Services/CmsHtmlSanitizer.php';
+$htmlContent = CmsHtmlSanitizer::clean((string)($config['html_content'] ?? ''));
 ?>
 
 <section class="slp-section">

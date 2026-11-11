@@ -22,6 +22,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 
 // ─── PHPMailer Loader ────────────────────────────────────────────────
 
@@ -36,7 +37,16 @@ function _loadPhpMailer(): bool
         return $loaded;
     }
 
+    // Already loaded (e.g. by Composer's autoloader) — never require a second copy.
+    if (class_exists(\PHPMailer\PHPMailer\PHPMailer::class, false)) {
+        $loaded = true;
+        return true;
+    }
+
     $possibleBases = [
+        // Composer-managed copy first, so `composer audit` covers the PHPMailer actually in use
+        // (security audit 2026-10-12, dependencies). The older hand-copied folders stay as fallbacks.
+        PUBLIC_ROOT . '/vendor/phpmailer/phpmailer/src',
         PUBLIC_ROOT . '/crm/vendor/phpmailer/src',
         PUBLIC_ROOT . '/vendor/phpmailer/src',
         ($_SERVER['DOCUMENT_ROOT'] ?? '') . '/vendor/phpmailer/src',
@@ -90,11 +100,11 @@ function _createMailer(): ?\PHPMailer\PHPMailer\PHPMailer
             : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
         $mail->CharSet    = 'UTF-8';
         $mail->Encoding   = '8bit';
-        $mail->XMailer    = 'Mowology CRM';
+        $mail->XMailer    = _idFromName() . ' CRM';
 
         // Default addresses
-        $mail->setFrom('no-reply@mowology.ca', 'Mowology');
-        $mail->addReplyTo('office@mowology.ca', 'Mowology');
+        $mail->setFrom(_idFromEmail(), _idFromName());
+        $mail->addReplyTo(_idReplyTo(), _idFromName());
 
         return $mail;
     } catch (\Throwable $e) {
@@ -121,7 +131,7 @@ function sendEmailViaSMTP(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath = null,
-    string $from = 'Mowology'
+    string $from = ''
 ): bool {
     try {
         // Validate email
@@ -168,7 +178,7 @@ function sendCrmEmail(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath = null,
-    string $from = 'Mowology'
+    string $from = ''
 ): bool {
     return sendEmailViaSMTP($to, $subject, $htmlBody, $attachmentPath, $from);
 }
@@ -195,7 +205,7 @@ function _sendViaPhpMailer(
 
     try {
         // Override from name if provided
-        $mail->setFrom('no-reply@mowology.ca', $from);
+        $mail->setFrom(_idFromEmail(), _idFromName($from));
         $mail->addAddress($to);
         $mail->Subject = $subject;
         $mail->isHTML(true);
@@ -254,21 +264,35 @@ function _sendViaPhpMailer(
 /**
  * Send simple HTML email via native mail() (fallback)
  */
+if (!function_exists('_stripHeaderInjection')) {
+    /**
+     * Strip CR/LF (and other control characters) from a value before it's
+     * interpolated into a raw mail() header or subject line, so a request-derived
+     * string can't inject extra headers into the native-mail() fallback path.
+     */
+    function _stripHeaderInjection(string $value): string
+    {
+        return trim(preg_replace('/[\r\n\x00-\x1F]+/', ' ', $value));
+    }
+}
+
 function sendSimpleHtmlEmail(
     string $to,
     string $subject,
     string $htmlBody,
-    string $from = 'Mowology'
+    string $from = ''
 ): bool {
     try {
-        $fromEmail = 'no-reply@mowology.ca';
+        $fromEmail = _idFromEmail();
+        $from      = _stripHeaderInjection(_idFromName($from));
+        $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$from} <{$fromEmail}>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
 
         $subject  = trim($subject);
         $htmlBody = trim($htmlBody);
@@ -302,9 +326,11 @@ function sendEmailWithAttachment(
     string $subject,
     string $htmlBody,
     string $attachmentPath,
-    string $from = 'Mowology'
+    string $from = ''
 ): bool {
     try {
+        $from     = _stripHeaderInjection(_idFromName($from));
+        $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
 
         $fileContent = file_get_contents($attachmentPath);
@@ -329,12 +355,12 @@ function sendEmailWithAttachment(
         $body .= $encodedFile . "\r\n";
         $body .= "--{$boundary}--\r\n";
 
-        $headers = "From: {$from} <office@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers = "From: " . _idFromName($from) . " <" . _idReplyTo() . ">\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
+        $headers .= "Return-Path: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
 
         $subject = trim($subject);
 
@@ -362,7 +388,7 @@ function sendEmailWithAttachment(
  */
 function testEmailConfig(string $testEmail): array
 {
-    $subject = "Mowology CRM Email Test";
+    $subject = _idFromName() . " CRM Email Test";
     $body = "
         <html>
         <body style='font-family: Arial, sans-serif;'>

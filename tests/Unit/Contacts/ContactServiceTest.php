@@ -65,6 +65,53 @@ class ContactServiceTest extends TestCase
         $svc->addNote(1, 'Some note', 'not_a_valid_type', 5);
     }
 
+    // ── addNoteForProperty (crew "Add a note") ───────────────────────────────
+
+    /** @test */
+    public function addNoteForProperty_rejects_empty_or_long_notes_without_touching_the_db(): void
+    {
+        $pdo = $this->mockPdo();
+        $pdo->expects($this->never())->method('prepare');
+        $svc = new ContactService($pdo);
+
+        $empty = $svc->addNoteForProperty(7, "  \n ", 'general', 1);
+        $this->assertFalse($empty['success']);
+        $this->assertSame(400, $empty['status']);
+
+        $long = $svc->addNoteForProperty(7, str_repeat('x', ContactService::NOTE_MAX_CHARS + 1), 'general', 1);
+        $this->assertFalse($long['success']);
+        $this->assertSame(400, $long['status']);
+
+        $noProperty = $svc->addNoteForProperty(0, 'Gate code 1234', 'general', 1);
+        $this->assertSame(400, $noProperty['status']);
+    }
+
+    /** @test */
+    public function addNoteForProperty_is_404_when_the_property_has_no_contact(): void
+    {
+        $pdo  = $this->mockPdo();
+        $stmt = $this->mockStmt(0);
+        $pdo->expects($this->once())->method('prepare')->with($this->stringContains('FROM properties'))->willReturn($stmt);
+
+        $res = (new ContactService($pdo))->addNoteForProperty(7, 'Gate code 1234', 'general', 1);
+        $this->assertFalse($res['success']);
+        $this->assertSame(404, $res['status']);
+    }
+
+    /** @test */
+    public function addNoteForProperty_resolves_the_site_contact_and_inserts(): void
+    {
+        $pdo    = $this->mockPdo();
+        $lookup = $this->mockStmt(42);
+        $insert = $this->mockStmt();
+        $pdo->method('prepare')->willReturnCallback(fn(string $sql) => str_contains($sql, 'FROM properties') ? $lookup : $insert);
+        $insert->expects($this->once())->method('execute')->with([42, 'issue', 'Dog loose in the yard', 5]);
+
+        $res = (new ContactService($pdo))->addNoteForProperty(7, '  Dog loose in the yard ', 'issue', 5);
+        $this->assertTrue($res['success']);
+        $this->assertSame(42, $res['contact_id']);
+    }
+
     // ── updatePropertyCoords ─────────────────────────────────────────────────
 
     /** @test */
@@ -211,6 +258,51 @@ class ContactServiceTest extends TestCase
         $this->assertTrue($result['created']);
     }
 
+    /** @test */
+    public function addOwnPropertyToContact_reuses_an_unowned_match(): void
+    {
+        $pdo = $this->mockPdo();
+        $checkStmt = $this->mockStmt(['id' => 20, 'site_contact_id' => null]);
+        $updateStmt = $this->mockStmt();
+        $pdo->expects($this->exactly(2))->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $updateStmt);
+        $updateStmt->expects($this->once())->method('execute')->with([3, 20]);
+
+        $result = (new ContactService($pdo))->addOwnPropertyToContact(3, ['address' => ' 350 West Georgia St ']);
+
+        $this->assertSame(['property_id' => 20, 'created' => false], $result);
+    }
+
+    /** @test */
+    public function addOwnPropertyToContact_reuses_the_contacts_own_match(): void
+    {
+        $pdo = $this->mockPdo();
+        $pdo->expects($this->once())->method('prepare')->willReturn($this->mockStmt(['id' => 20, 'site_contact_id' => 3]));
+
+        $result = (new ContactService($pdo))->addOwnPropertyToContact(3, ['address' => '350 WEST GEORGIA ST']);
+
+        $this->assertSame(['property_id' => 20, 'created' => false], $result);
+    }
+
+    /** @test */
+    public function addOwnPropertyToContact_inserts_when_the_match_belongs_to_someone_else(): void
+    {
+        $pdo = $this->mockPdo();
+        $checkStmt = $this->mockStmt(false);
+        $insertStmt = $this->mockStmt();
+        $pdo->expects($this->exactly(2))->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $insertStmt);
+        $pdo->method('lastInsertId')->willReturn('42');
+        $insertStmt->expects($this->once())->method('execute')->with([
+            'West Georgia Property', '350 West Georgia St', 'Vancouver', 'BC', 'V6B 6B1', null, null, 3,
+        ]);
+
+        $result = (new ContactService($pdo))->addOwnPropertyToContact(3, [
+            'address' => '350 West Georgia St', 'city' => 'Vancouver', 'province' => '',
+            'postal_code' => 'V6B 6B1', 'property_name' => 'West Georgia Property',
+        ]);
+
+        $this->assertSame(['property_id' => 42, 'created' => true], $result);
+    }
+
     // ── updateContact ─────────────────────────────────────────────────────────
 
     /** @test */
@@ -276,14 +368,22 @@ class ContactServiceTest extends TestCase
         $cntStmt2 = $makeStmt(0); // Company 2: 0 related records → delete
         $passStmt = $makeStmt(0); // DELETE calls (execute only, fetchColumn irrelevant)
 
-        $pdo->method('prepare')
-            ->willReturnOnConsecutiveCalls($cntStmt1, $cntStmt2, $passStmt, $passStmt);
+        $sqls = [];
+        $queue = [$cntStmt1, $cntStmt2];
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use (&$sqls, &$queue, $passStmt) {
+            $sqls[] = preg_replace('/\s+/', ' ', $sql);
+            return $queue ? array_shift($queue) : $passStmt;
+        });
 
         $svc    = new ContactService($pdo);
         $result = $svc->bulkDeleteCompanies([1, 2]);
 
         $this->assertSame(1, $result['deleted']);
         $this->assertSame(1, $result['skipped']);
+        // Audit rows are never deleted (Fable audit #25): the link is cut instead.
+        $all = implode("\n", $sqls);
+        $this->assertStringNotContainsString('DELETE FROM activity_log', $all);
+        $this->assertStringContainsString('UPDATE activity_log SET company_id = NULL WHERE company_id IN (?)', $all);
     }
 
     /** @test */
@@ -297,5 +397,63 @@ class ContactServiceTest extends TestCase
 
         $this->assertSame(0, $result['deleted']);
         $this->assertSame(0, $result['skipped']);
+    }
+
+    // ── updateContactRoleAndEmployer ─────────────────────────────────────────
+
+    /** @test */
+    public function updateContactRoleAndEmployer_updates_with_valid_role(): void
+    {
+        $pdo  = $this->mockPdo();
+        $stmt = $this->mockStmt();
+
+        $pdo->expects($this->once())
+            ->method('prepare')
+            ->with($this->stringContains('UPDATE contacts'))
+            ->willReturn($stmt);
+
+        $stmt->expects($this->once())
+            ->method('execute')
+            ->with(['property_manager', 7, 99]);
+
+        $svc = new ContactService($pdo);
+        $svc->updateContactRoleAndEmployer(99, 'property_manager', 7);
+    }
+
+    /** @test */
+    public function updateContactRoleAndEmployer_nullifies_invalid_role(): void
+    {
+        $pdo  = $this->mockPdo();
+        $stmt = $this->mockStmt();
+
+        $pdo->method('prepare')->willReturn($stmt);
+
+        $stmt->expects($this->once())
+            ->method('execute')
+            ->with([null, null, 5]);
+
+        $svc = new ContactService($pdo);
+        $svc->updateContactRoleAndEmployer(5, 'not_a_valid_role', 0);
+    }
+
+    // ── getManagedProperties ─────────────────────────────────────────────────
+
+    /** @test */
+    public function getManagedProperties_returns_array_when_no_employer(): void
+    {
+        $pdo = $this->mockPdo();
+
+        $ecStmt   = $this->mockStmt(['employer_company_id' => null]);
+        $propStmt = $this->mockStmt([]);
+
+        $pdo->expects($this->exactly(2))
+            ->method('prepare')
+            ->willReturnOnConsecutiveCalls($ecStmt, $propStmt);
+
+        $svc    = new ContactService($pdo);
+        $result = $svc->getManagedProperties(42);
+
+        $this->assertIsArray($result);
+        $this->assertEmpty($result);
     }
 }

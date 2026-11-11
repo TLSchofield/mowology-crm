@@ -12,8 +12,12 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db      = getDB();
+require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
 $error   = '';
 $contact = null;
 
@@ -26,7 +30,7 @@ if ($token === '') {
                preferred_contact_method, receive_marketing, receive_sms,
                portal_token
         FROM contacts
-        WHERE portal_token = ? LIMIT 1
+        WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1
     ");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -41,7 +45,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Details — Mowology Landscaping</title>
+  <title>Your Details — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="stylesheet" href="/customer/portal.css">
 </head>
@@ -62,7 +66,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     <div class="portal-info-card">
       <div class="portal-info-card-header">Contact Information</div>
       <div class="portal-info-card-body">
-        <form id="mwProfileForm" onsubmit="return mwSubmitProfile(event)">
+        <form id="mwProfileForm" data-mw-call="mwSubmitProfile" data-mw-on="submit" data-mw-args='["$event"]'>
           <div class="portal-form-group">
             <label class="portal-form-label">First Name</label>
             <input type="text" class="portal-form-input" id="mwFirstName" value="<?= htmlspecialchars($contact['first_name'] ?? '') ?>" maxlength="80">
@@ -124,11 +128,11 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     <?php endif; ?>
 
     <div class="portal-footer">
-      Questions? Call <a href="tel:7788469273">(778) 846-9273</a> &mdash; &copy; <?= date('Y') ?> Mowology
+      <?php if (PortalBrand::questionsHtml() !== ''): ?><?= PortalBrand::questionsHtml() ?> &mdash; <?php endif; ?>&copy; <?= date('Y') ?> <?= htmlspecialchars(PortalBrand::name()) ?>
     </div>
   </div>
 
-  <script>
+  <script<?= MwCsp::attr() ?>>
   function mwSubmitProfile(e) {
     e.preventDefault();
     var btn = document.getElementById('mwSaveBtn');
@@ -150,7 +154,10 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     fetch('/customer/api/profile-update.php', { method: 'POST', body: formData })
       .then(r => r.json()).then(d => {
         btn.disabled = false; btn.textContent = 'Save Changes';
-        if (d.success) {
+        if (d.success && d.email_pending) {
+          // A new email waits for its confirmation link (security review #14); the field shows the current one.
+          status.innerHTML = '<span style="color:#2D8659;font-weight:600;">&#10003; Saved. Check your new inbox — your email changes once you click the link we sent.</span>';
+        } else if (d.success) {
           status.innerHTML = '<span style="color:#2D8659;font-weight:600;">&#10003; Saved — thank you.</span>';
           setTimeout(function() { status.textContent = ''; }, 5000);
         } else {
@@ -164,5 +171,6 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
     return false;
   }
   </script>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

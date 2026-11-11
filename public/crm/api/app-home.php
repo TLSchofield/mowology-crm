@@ -65,16 +65,31 @@ if ($quizEnabled) {
 $quizDone = false;
 $quizSessionLength = 3;
 if ($quizEnabled) {
-    $lenRow = $db->query(
-        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
-    )->fetch(PDO::FETCH_ASSOC);
-    $quizSessionLength = max(3, (int)($lenRow['setting_value'] ?? 3));
+    try {
+        $lenRow = $db->query(
+            "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
+        )->fetch(PDO::FETCH_ASSOC);
+        $quizSessionLength = max(3, (int)($lenRow['setting_value'] ?? 3));
 
-    $doneStmt = $db->prepare(
-        "SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()"
-    );
-    $doneStmt->execute([$user['id']]);
-    $quizDone = (bool)$doneStmt->fetch();
+        $doneStmt = $db->prepare(
+            "SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()"
+        );
+        $doneStmt->execute([$user['id']]);
+        $quizDone = (bool)$doneStmt->fetch();
+
+        if (!$quizDone) {
+            $exStmt = $db->prepare("SELECT quiz_exempt FROM users WHERE id = ?");
+            $exStmt->execute([$user['id']]);
+            $exRow = $exStmt->fetch(PDO::FETCH_ASSOC);
+            if (!empty($exRow['quiz_exempt'])) {
+                $quizDone = true;
+            }
+        }
+    } catch (Throwable $e) {
+        // quiz_preshift_log table may not exist yet — treat as not done
+        error_log('[app-home] quiz status check failed: ' . $e->getMessage());
+        $quizDone = false;
+    }
 }
 
 // ── 3. Today's revenue + stops ───────────────────────────────────────

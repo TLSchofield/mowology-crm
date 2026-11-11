@@ -7,28 +7,72 @@ import SwiftUI
 import MapKit
 
 struct VisitDetailView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let stop: Stop
     let isAdmin: Bool
     private let authSession: AuthSession
 
     @StateObject private var viewModel: VisitDetailViewModel
+
+    /// A client's special request on these visits (empty while the feature is off).
+    @StateObject private var specialRequests: SpecialRequestStore
+
+    /// The request shown full screen because Start / a photo was tapped before "Got it".
+    /// Presented from THIS screen, never MainTabView, and only on that tap.
+    @State private var gateRequest: SpecialRequest?
     @Environment(\.openURL) private var openURL
+
+    /// The visit being completed via the completion sheet (extras + invoice).
+    @State private var completingVisit: Visit?
+
+    /// The visit the crew is about to skip — drives the reason dialog.
+    @State private var skippingVisit: Visit?
+
+    /// Drives the crew-assignment picker sheet.
+    @State private var isShowingCrewSheet = false
+
+    /// Drives the Move Stop sheet.
+    @State private var isShowingMoveSheet = false
+
+    /// A quick action picked on the schedule card (touch and hold, or ⋯) — run once, here, so the
+    /// special-request gate and every other check is the same as tapping this screen's own buttons.
+    private let onInitialActionRun: () -> Void
+    /// Kept in @State from the first init: the schedule clears its copy on appear, and the redraw that
+    /// follows passes nil — the screen's own copy is what runs.
+    @State private var queuedAction: VisitQuickAction?
+    @State private var isShowingWork = false
+    @State private var scrollTarget: String?
+    @Environment(\.dismiss) private var dismissDetail
 
 
     // MARK: - Init
 
-    init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
+    init(stop: Stop, isAdmin: Bool, authSession: AuthSession,
+         initialAction: VisitQuickAction? = nil, onInitialActionRun: @escaping () -> Void = {}) {
         self.stop        = stop
         self.isAdmin     = isAdmin
         self.authSession = authSession
+        _queuedAction = State(initialValue: initialAction)
+        self.onInitialActionRun = onInitialActionRun
         let client       = APIClient(authSession: authSession)
         _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
+        _specialRequests = StateObject(wrappedValue: SpecialRequestStore(visitIds: stop.visits.map(\.visitId),
+                                                                         apiClient: client))
+    }
+
+    /// Special request gate: true (and the request is shown) when this person hasn't read it yet —
+    /// the caller must NOT start the timer or open the camera on this tap.
+    private func specialRequestBlocks(_ visitId: Int) -> Bool {
+        guard let unread = specialRequests.firstUnread(for: visitId) else { return false }
+        gateRequest = unread
+        return true
     }
 
     // MARK: - Body
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
 
@@ -46,8 +90,16 @@ struct VisitDetailView: View {
                 accessNotesSection
                 visitsSection
 
-                if isAdmin && !stop.crewNames.isEmpty {
+                if let anyVisit = stop.visits.first {
+                    PhotoHistorySection(visitId: anyVisit.visitId,
+                                        apiClient: APIClient(authSession: authSession))
+                }
+
+                if isAdmin {
                     crewSection
+                    if stop.canBeMoved {
+                        moveSection
+                    }
                 }
 
                 Spacer(minLength: 24)
@@ -55,32 +107,133 @@ struct VisitDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
         }
-        .background(Color(.systemGroupedBackground))
+        .onChange(of: scrollTarget) { _, target in
+            guard let target else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { scrollProxy.scrollTo(target, anchor: .top) }
+            scrollTarget = nil
+        }
+        }
+        .background(appStyle.page)
+        .itAppScreen()
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.checkClockStatus() }
+        // One task, in order: the running timer is restored and the special requests loaded BEFORE a
+        // card's quick action runs, so it sees the real status (a stale "scheduled" card must not start twice).
+        .task {
+            await viewModel.restoreActiveTimer()
+            await specialRequests.load()
+            await runInitialAction()
+        }
+        .onAppear {
+            // Cleared at once: if this screen is left before the action runs, it must not run later.
+            if queuedAction != nil { onInitialActionRun() }
+        }
+        .navigationDestination(isPresented: $isShowingWork) {
+            if let visit = stop.visits.first {
+                VisitWorkView(visitId: visit.visitId, authSession: authSession)
+            }
+        }
+        .fullScreenCover(item: $gateRequest) { request in
+            SpecialRequestGateView(
+                request:  request,
+                isSaving: specialRequests.savingId == request.id,
+                onGotIt: {
+                    Task {
+                        await specialRequests.ack(request)
+                        // Next unread one on the same visit, else close — the crew tap Start / camera again.
+                        gateRequest = specialRequests.firstUnread(for: request.visitId)
+                    }
+                },
+                onBack: { gateRequest = nil }
+            )
+        }
+        .sheet(item: $completingVisit) { visit in
+            VisitCompletionSheet(visit: visit, detailVM: viewModel, authSession: authSession)
+        }
+        .sheet(isPresented: $isShowingCrewSheet) {
+            CrewAssignSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $isShowingMoveSheet) {
+            // The stop has left this day — go back to the schedule, which reloads itself.
+            MoveStopSheet(stop: stop, apiClient: APIClient(authSession: authSession)) { _ in
+                dismissDetail()
+            }
+        }
+        .confirmationDialog(
+            "Skip this visit?",
+            isPresented: Binding(
+                get: { skippingVisit != nil },
+                set: { if !$0 { skippingVisit = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: skippingVisit
+        ) { visit in
+            ForEach(Self.skipReasons, id: \.self) { reason in
+                Button(reason, role: .destructive) {
+                    Task { await viewModel.skipVisit(visitId: visit.visitId, reason: reason) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The office will see this visit as skipped, with the reason you pick.")
+        }
     }
+
+    /// Runs the card's quick action once, after the special requests are loaded (the gate needs them).
+    private func runInitialAction() async {
+        guard let action = queuedAction, let visit = stop.visits.first else { return }
+        queuedAction = nil
+        let status = viewModel.status(for: visit).lowercased()
+        switch action {
+        case .start:
+            guard status == "scheduled", !specialRequestBlocks(visit.visitId) else { return }
+            await viewModel.startJob(visitId: visit.visitId)
+            if viewModel.errorMessage?.hasPrefix("Special request") == true {
+                await specialRequests.load()
+                if specialRequestBlocks(visit.visitId) { viewModel.errorMessage = nil }
+            }
+        case .finish:
+            if status == "in_progress" { completingVisit = visit }
+        case .skip:
+            if status == "scheduled" { skippingVisit = visit }
+        case .move:
+            if isAdmin && stop.canBeMoved { isShowingMoveSheet = true }
+        case .notes:
+            isShowingWork = true
+        case .photos:
+            scrollTarget = "photos-\(visit.visitId)"
+        }
+    }
+
+    private static let skipReasons = [
+        "Weather",
+        "No access to property",
+        "Client asked to skip",
+        "Not needed this visit",
+        "Ran out of time"
+    ]
 
     // MARK: - Notice Banner (green — informational)
 
     private func noticeBanner(_ message: String, onDismiss: @escaping () -> Void) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "clock.badge.checkmark.fill")
-                .foregroundStyle(Color.MW.green)
+                .foregroundStyle(appStyle.tenant)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(Color.MW.green)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.tenant)
             Spacer()
             Button { onDismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.MW.green)
+                    .font(appStyle.font(.caption, weight: .bold))
+                    .foregroundStyle(appStyle.tenant)
             }
         }
         .padding(12)
-        .background(Color.MW.green.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.MW.green.opacity(0.25), lineWidth: 1))
+        .background(appStyle.tenant.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.tenant.opacity(0.25), lineWidth: 1))
     }
 
     // MARK: - Error Banner
@@ -88,56 +241,64 @@ struct VisitDetailView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.MW.orange)
+                .foregroundStyle(appStyle.attention)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(Color.MW.orange)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.attention)
             Spacer()
             Button { viewModel.errorMessage = nil } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.MW.orange)
+                    .font(appStyle.font(.caption, weight: .bold))
+                    .foregroundStyle(appStyle.attention)
             }
         }
         .padding(12)
-        .background(Color.MW.orange.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.MW.orange.opacity(0.25), lineWidth: 1))
+        .background(appStyle.attention.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.attention.opacity(0.25), lineWidth: 1))
     }
 
     // MARK: - Compact Property Header
 
+    /// No "Property" header and no street address here — the nav title already shows the
+    /// address, so this card only adds what the title can't: building name/city, arrival,
+    /// directions, and a way to reach the client.
     private var compactPropertySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Property", icon: "house.fill")
-
             VStack(spacing: 0) {
 
-                // Row 1: map-pin icon (tappable) + address/city + arrival + Maps pill
+                // Row 1: map-pin icon (tappable) + building name/city + arrival + Maps pill
                 HStack(spacing: 12) {
                     Button { openInMaps() } label: {
                         Image(systemName: "mappin.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.title2))
+                            .foregroundStyle(appStyle.tenant)
                     }
                     .buttonStyle(.plain)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(stop.propertyAddress)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(stop.propertyCity)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        // Building name only — the client's name gets its own row below.
+                        if let name = stop.propertyName?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
+                            Text(name)
+                                .font(appStyle.font(.subheadline, weight: .bold))
+                                .foregroundStyle(appStyle.text)
+                                .lineLimit(appStyle.isEnabled ? nil : 1)
+                            Text(stop.propertyCity)
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
+                        } else {
+                            Text(stop.propertyCity)
+                                .font(appStyle.font(.subheadline, weight: .bold))
+                                .foregroundStyle(appStyle.text)
+                        }
                     }
 
                     Spacer()
 
                     if let arrival = stop.estimatedArrival {
                         Text(arrival)
-                            .font(.subheadline.monospacedDigit().bold())
-                            .foregroundStyle(Color.MW.green)
+                            .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                            .foregroundStyle(appStyle.tenant)
                     }
 
                     Button { openInMaps() } label: {
@@ -145,11 +306,11 @@ struct VisitDetailView: View {
                             Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
                             Text("Maps")
                         }
-                        .font(.caption.bold())
+                        .font(appStyle.font(.caption, weight: .bold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.MW.green.opacity(0.1))
-                        .foregroundStyle(Color.MW.green)
+                        .background(appStyle.tenant.opacity(0.1))
+                        .foregroundStyle(appStyle.tenant)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -157,49 +318,77 @@ struct VisitDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
 
-                // Row 2: contact name + optional Call pill
-                let displayName = stop.contactName ?? stop.companyName
-                if let name = displayName {
+                // Row 2: who to call from the gate. The on-site contact leads when the
+                // office has set one; the billing client always follows so crew can still
+                // reach the account holder.
+                if let osc = stop.onsiteContact, !osc.name.isEmpty {
                     Divider().padding(.leading, 52)
-
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(Color(.systemGray3))
-
-                        Text(name)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        if let phone = stop.contactPhone, !phone.isEmpty {
-                            let digits = phone.filter { $0.isNumber || $0 == "+" }
-                            Button {
-                                if let url = URL(string: "tel:\(digits)") { openURL(url) }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "phone.fill")
-                                    Text("Call")
-                                }
-                                .font(.caption.bold())
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color.MW.green.opacity(0.1))
-                                .foregroundStyle(Color.MW.green)
-                                .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    contactRow(name: osc.name, tag: "ON SITE", icon: "figure.wave.circle.fill",
+                               iconTint: appStyle.tenant, phone: osc.phone, email: osc.email)
+                }
+                if let name = stop.contactName ?? stop.companyName {
+                    Divider().padding(.leading, 52)
+                    contactRow(name: name, tag: stop.onsiteContact == nil ? nil : "CLIENT",
+                               icon: "person.circle.fill", iconTint: appStyle.color(.meta, legacy: Color(.systemGray3)),
+                               phone: stop.contactPhone, email: stop.contactEmail)
                 }
             }
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(appStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
+    }
+
+    /// One person line: avatar, name (+ optional small role tag), phone and email buttons.
+    /// Phone + email are always drawn so every row reads the same; they only light up
+    /// (and tap) when the office has the detail.
+    private func contactRow(name: String, tag: String?, icon: String, iconTint: Color,
+                            phone: String?, email: String?) -> some View {
+        let digits  = (phone ?? "").filter { $0.isNumber || $0 == "+" }
+        let address = (email ?? "").trimmingCharacters(in: .whitespaces)
+        return HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(appStyle.font(.title2))
+                .foregroundStyle(iconTint)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(appStyle.font(.subheadline, weight: .bold))
+                    .foregroundStyle(appStyle.text)
+                    .lineLimit(appStyle.isEnabled ? nil : 1)
+                if let tag {
+                    Text(tag)
+                        .font(appStyle.font(.caption2, weight: .bold))
+                        .foregroundStyle(appStyle.meta)
+                }
+            }
+
+            Spacer()
+
+            contactActionButton(icon: "phone.fill", label: "Call \(name)", enabled: !digits.isEmpty) {
+                if let url = URL(string: "tel:\(digits)") { openURL(url) }
+            }
+            contactActionButton(icon: "envelope.fill", label: "Email \(name)", enabled: !address.isEmpty) {
+                if let url = URL(string: "mailto:\(address)") { openURL(url) }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    /// Round icon button for reaching the contact. Disabled = greyed, no tap target.
+    private func contactActionButton(icon: String, label: String, enabled: Bool,
+                                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(appStyle.font(.subheadline, weight: .bold))
+                .frame(width: appStyle.isEnabled ? 48 : 36, height: appStyle.isEnabled ? 48 : 36)
+                .background(enabled ? appStyle.tenant.opacity(0.12) : appStyle.sunk)
+                .foregroundStyle(enabled ? appStyle.tenant : appStyle.color(.meta, legacy: Color(.systemGray3)))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Access Notes Section
@@ -219,7 +408,7 @@ struct VisitDetailView: View {
                             icon:        "exclamationmark.triangle.fill",
                             label:       "SITE NOTES",
                             text:        notes,
-                            tint:        Color.MW.orange
+                            tint:        appStyle.attention
                         )
                     }
 
@@ -228,7 +417,7 @@ struct VisitDetailView: View {
                             icon:        "note.text",
                             label:       "TODAY",
                             text:        notes,
-                            tint:        Color.blue
+                            tint:        appStyle.color(.statusProgress, legacy: Color.blue)
                         )
                     }
                 }
@@ -240,17 +429,17 @@ struct VisitDetailView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .foregroundStyle(tint)
-                .font(.subheadline)
+                .font(appStyle.font(.subheadline))
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(label)
-                    .font(.caption2.weight(.semibold))
+                    .font(appStyle.font(.caption2, weight: .semibold))
                     .foregroundStyle(tint)
                     .tracking(0.5)
                 Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.primary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -258,8 +447,8 @@ struct VisitDetailView: View {
         }
         .padding(12)
         .background(tint.opacity(0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(tint.opacity(0.22), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(tint.opacity(0.22), lineWidth: 1))
     }
 
     // MARK: - Visits Section
@@ -283,15 +472,31 @@ struct VisitDetailView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
 
+            // Client's special request — top of the visit card, before anything else.
+            ForEach(specialRequests.requests(for: visit.visitId)) { request in
+                SpecialRequestCard(
+                    request:  request,
+                    isSaving: specialRequests.savingId == request.id,
+                    onRead:   { gateRequest = request },
+                    onAnswer: { outcome, reason, description, minutes in
+                        await specialRequests.answer(request, outcome: outcome, reason: reason,
+                                                     extraDescription: description, extraMinutes: minutes)
+                    }
+                )
+            }
+            if let srError = specialRequests.errorMessage, !specialRequests.requests(for: visit.visitId).isEmpty {
+                Text(srError).font(appStyle.font(.caption)).foregroundStyle(appStyle.color(.statusAttention, legacy: .orange))
+            }
+
             // Title + badge row
             HStack {
                 Text(visit.planTitle ?? visit.serviceTypeLabel)
-                    .font(.subheadline.bold())
+                    .font(appStyle.font(.subheadline, weight: .bold))
 
                 Spacer()
 
                 Text(statusLabelFor(currentStatus))
-                    .font(.caption.bold())
+                    .font(appStyle.font(.caption, weight: .bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(statusColor.opacity(0.15))
@@ -301,47 +506,89 @@ struct VisitDetailView: View {
 
             // Service type
             Label(visit.serviceTypeLabel, systemImage: "tag")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
 
             // Meta row
             HStack(spacing: 16) {
                 if let duration = visit.estimatedDuration {
                     Label("\(duration) min", systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
                 if let price = visit.pricePerVisit {
                     Label(String(format: "$%.2f", price), systemImage: "dollarsign.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
                 if let start = visit.scheduledStart {
                     Label(start, systemImage: "clock.arrow.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
                 }
+            }
+
+            // When was this last done — two calendar weeks of THIS service at this property.
+            if let history = visit.history, !history.weeks.isEmpty {
+                ServiceHistoryGrid(history: history)
             }
 
             // Live elapsed timer
             if isActive {
                 HStack(spacing: 6) {
                     Image(systemName: "timer")
-                        .foregroundStyle(Color.MW.green)
-                        .font(.caption)
+                        .foregroundStyle(appStyle.tenant)
+                        .font(appStyle.font(.caption))
                     Text(viewModel.elapsedFormatted)
-                        .font(.caption.monospacedDigit().bold())
-                        .foregroundStyle(Color.MW.green)
+                        .font(appStyle.font(.title3, weight: .bold).monospacedDigit())
+                        .foregroundStyle(appStyle.tenant)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.MW.green.opacity(0.08))
-                .clipShape(Capsule())
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(appStyle.tenant.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
             }
 
             // MARK: Action CTA — Start Job / Mark Complete
             Divider()
             actionButtons(for: visit, currentStatus: currentStatus)
+
+            // MARK: Work Record — checklist, materials used, notes
+            // Open on completed visits too: materials and notes are often written
+            // up in the truck after the timer is stopped.
+            if ["scheduled", "in_progress", "completed"].contains(currentStatus.lowercased()) {
+                Divider()
+                NavigationLink {
+                    VisitWorkView(visitId: visit.visitId, authSession: authSession)
+                } label: {
+                    HStack {
+                        Label("Checklist, materials & notes", systemImage: "checklist")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(appStyle.font(.footnote, weight: .semibold))
+                            .foregroundStyle(appStyle.meta)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .tint(appStyle.text)
+            }
+
+            // MARK: Crew Service Recommendations
+            // Photograph work that needs doing and offer the client a quote for it.
+            //
+            // Deliberately NOT gated to scheduled/in_progress like the before/after
+            // proof below: crews spot sellable work while packing up and walking the
+            // property, which is usually after they have hit Finish. Gating this the
+            // same way removed the feature at the exact moment it gets used.
+            if ["scheduled", "in_progress", "completed"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                RecommendationSection(
+                    visitId:     visit.visitId,
+                    authSession: authSession
+                )
+            }
 
             // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
@@ -351,55 +598,61 @@ struct VisitDetailView: View {
                 Divider()
                 JobPhotoSection(
                     visitId:       visit.visitId,
-                    isActive:      isActive,
+                    // Started = live timer OR in progress: after an auto-stop (or reopening the
+                    // visit) there is no running timer, but the After photo must still be takeable.
+                    isActive:      isActive || currentStatus.lowercased() == "in_progress",
                     authSession:   authSession,
                     isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,
-                    onFlagToggle:  { await viewModel.toggleFlag(visit) }
+                    endorsedBy:    viewModel.endorsedBy(for: visit),
+                    onFlagToggle:  { await viewModel.toggleFlag(visit) },
+                    captureGate:   { specialRequestBlocks(visit.visitId) },
+                    photosLocked:  specialRequests.firstUnread(for: visit.visitId) != nil
                 )
+                .id("photos-\(visit.visitId)")
 
                 // Review earned strip — visible once the client has actually reviewed.
                 if isVisitFlagged && visit.contactHasReviewed {
                     HStack(spacing: 0) {
                         Image(systemName: "heart.fill")
-                            .foregroundStyle(Color.MW.orange)
-                            .font(.caption)
+                            .foregroundStyle(appStyle.attention)
+                            .font(appStyle.font(.caption))
                             .padding(.trailing, 6)
                         Text("You endorsed this visit · ")
-                            .font(.caption)
-                            .foregroundStyle(Color.MW.dark)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.color(.tenant, legacy: Color.MW.dark))
                         Text("Review received ★★★★★")
-                            .font(.caption.bold())
-                            .foregroundStyle(Color.MW.dark)
+                            .font(appStyle.font(.caption, weight: .bold))
+                            .foregroundStyle(appStyle.color(.tenant, legacy: Color.MW.dark))
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(Color.MW.green.opacity(0.08))
+                    .background(appStyle.tenant.opacity(0.08))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.MW.green.opacity(0.25), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
+                            .stroke(appStyle.tenant.opacity(0.25), lineWidth: 1)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                 }
             }
         }
         .padding(14)
         .background(
             currentStatus.lowercased() == "in_progress"
-                ? Color.MW.green.opacity(0.03)
-                : Color(.systemBackground)
+                ? appStyle.tenant.opacity(0.03)
+                : appStyle.surface
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: appStyle.cornerRadius(12))
                 .stroke(statusColor.opacity(0.2), lineWidth: 1)
         )
         .overlay(alignment: .leading) {
             if currentStatus.lowercased() == "in_progress" {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: appStyle.cornerRadius(2))
                     .frame(width: 4)
-                    .foregroundStyle(Color.MW.green)
+                    .foregroundStyle(appStyle.tenant)
                     .padding(.vertical, 4)
             }
         }
@@ -412,67 +665,90 @@ struct VisitDetailView: View {
         switch currentStatus.lowercased() {
         case "scheduled":
             VStack(spacing: 8) {
-                Button {
-                    Task { await viewModel.startJob(visitId: visit.visitId) }
-                } label: {
-                    Group {
-                        if isThisLoading {
-                            HStack(spacing: 8) {
-                                ProgressView().tint(.white)
-                                Text("Starting…").font(.subheadline.bold())
-                            }
-                        } else {
-                            Label("Start Job", systemImage: "play.fill")
-                                .font(.subheadline.bold())
+                // Two big tiles, the size of the photo squares: easy to hit with gloves on, and
+                // far enough apart that Skip isn't pressed by accident. Start sits on the right,
+                // under the thumb.
+                HStack(spacing: 12) {
+                    Button {
+                        skippingVisit = visit
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: "forward.end.fill")
+                                .font(appStyle.font(.title2))
+                            Text("Skip Visit")
+                                .font(appStyle.font(.subheadline, weight: .semibold))
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 110)
+                        .foregroundStyle(appStyle.meta)
+                        .background(appStyle.sunk)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+                        .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(appStyle.line, lineWidth: 1))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+                    .disabled(isThisLoading)
+
+                    Button {
+                        if specialRequestBlocks(visit.visitId) { return }
+                        Task {
+                            await viewModel.startJob(visitId: visit.visitId)
+                            // The server refused (409): a request was attached since this screen loaded.
+                            if viewModel.errorMessage?.hasPrefix("Special request") == true {
+                                await specialRequests.load()
+                                if specialRequestBlocks(visit.visitId) { viewModel.errorMessage = nil }
+                            }
+                        }
+                    } label: {
+                        VStack(spacing: 6) {
+                            if isThisLoading {
+                                ProgressView().tint(appStyle.onTenant)
+                                Text("Starting…").font(appStyle.font(.headline))
+                            } else {
+                                Image(systemName: "play.fill")
+                                    .font(appStyle.font(.title))
+                                Text("Start Job").font(appStyle.font(.headline))
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 110)
+                        .foregroundStyle(appStyle.onTenant)
+                        .background(appStyle.tenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isThisLoading)
                 }
-                .disabled(isThisLoading)
 
                 // Clock warning — shown only when we know the clock is off.
                 if viewModel.isClockedIn == false {
                     HStack(spacing: 6) {
                         Image(systemName: "clock.badge.exclamationmark.fill")
-                            .font(.caption)
-                            .foregroundStyle(Color.MW.orange)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.attention)
                         Text("Not clocked in — starting this job will clock you in automatically.")
-                            .font(.caption)
-                            .foregroundStyle(Color.MW.orange)
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.attention)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(Color.MW.orange.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.MW.orange.opacity(0.2), lineWidth: 1))
+                    .background(appStyle.attention.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)).stroke(appStyle.attention.opacity(0.2), lineWidth: 1))
                 }
             }
 
         case "in_progress":
             Button {
-                Task { await viewModel.completeJob(visitId: visit.visitId) }
+                completingVisit = visit
             } label: {
-                Group {
-                    if isThisLoading {
-                        HStack(spacing: 8) {
-                            ProgressView().tint(.white)
-                            Text("Completing…").font(.subheadline.bold())
-                        }
-                    } else {
-                        Label("Mark Complete", systemImage: "checkmark.circle.fill")
-                            .font(.subheadline.bold())
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.MW.green)
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
+                Label("Mark Complete", systemImage: "checkmark.circle.fill")
+                    .font(appStyle.font(.subheadline, weight: .bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
+                    .clipShape(Capsule())
             }
             .disabled(isThisLoading)
 
@@ -481,32 +757,76 @@ struct VisitDetailView: View {
         }
     }
 
+    // MARK: - Move Section
+
+    private var moveSection: some View {
+        Button {
+            isShowingMoveSheet = true
+        } label: {
+            HStack {
+                Image(systemName: "calendar.badge.clock")
+                Text("Move to another date")
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
+            }
+            .foregroundStyle(appStyle.tenant)
+            .padding(14)
+            .background(appStyle.surface)
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Crew Section
 
     private var crewSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Crew", icon: "person.2.fill")
-
-            VStack(spacing: 0) {
-                ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
-                    HStack {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundStyle(Color.MW.green)
-                            .font(.title3)
-                        Text(name)
-                            .font(.body)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-
-                    if index < stop.crewNames.count - 1 {
-                        Divider().padding(.leading, 52)
-                    }
+            HStack {
+                sectionHeader("Crew", icon: "person.2.fill")
+                Spacer()
+                Button {
+                    isShowingCrewSheet = true
+                } label: {
+                    Text(viewModel.currentCrewNames.isEmpty ? "Assign" : "Edit")
+                        .font(appStyle.font(.footnote, weight: .semibold))
+                        .foregroundStyle(appStyle.tenant)
                 }
             }
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            if viewModel.currentCrewNames.isEmpty {
+                Text("No crew assigned")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(appStyle.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(viewModel.currentCrewNames.enumerated()), id: \.offset) { index, name in
+                        HStack {
+                            Image(systemName: "person.circle.fill")
+                                .foregroundStyle(appStyle.tenant)
+                                .font(appStyle.font(.title3))
+                            Text(name)
+                                .font(appStyle.font(.body))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                        if index < viewModel.currentCrewNames.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
+                    }
+                }
+                .background(appStyle.surface)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+            }
         }
     }
 
@@ -514,23 +834,25 @@ struct VisitDetailView: View {
 
     private func sectionHeader(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .textCase(.uppercase)
+            .font(appStyle.font(.footnote, weight: .semibold))
+            .foregroundStyle(appStyle.meta)
+            .textCase(appStyle.isEnabled ? nil : .uppercase)
             .padding(.leading, 4)
     }
 
     // MARK: - Status Helpers
 
     private func statusColorFor(_ status: String) -> Color {
+        let legacy: Color
         switch status.lowercased() {
-        case "completed":   return .green
-        case "in_progress": return Color.MW.green
-        case "scheduled":   return .blue
-        case "cancelled":   return .red
-        case "skipped":     return .orange
-        default:            return .gray
+        case "completed":   legacy = appStyle.complete
+        case "in_progress": legacy = appStyle.tenant
+        case "scheduled":   legacy = appStyle.progress
+        case "cancelled":   legacy = appStyle.blocked
+        case "skipped":     legacy = appStyle.attention
+        default:            legacy = .gray
         }
+        return appStyle.statusColor(status, legacy: legacy)
     }
 
     private func statusLabelFor(_ status: String) -> String {
@@ -567,5 +889,77 @@ struct VisitDetailView: View {
                 openURL(url)
             }
         }
+    }
+}
+
+// MARK: - Crew assign sheet
+
+/// Multi-select crew picker for a stop — the mobile mirror of the CRM web schedule
+/// page's crew-assign checkbox modal. Selection order sets the "lead" crew member
+/// (first in the list the server receives), so it's derived from team-member list
+/// order rather than tap order to stay deterministic.
+private struct CrewAssignSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var viewModel: VisitDetailViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedIds: Set<Int> = []
+
+    private var orderedSelection: [Int] {
+        viewModel.teamMembers.map(\.id).filter { selectedIds.contains($0) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(viewModel.teamMembers) { member in
+                Button {
+                    if selectedIds.contains(member.id) {
+                        selectedIds.remove(member.id)
+                    } else {
+                        selectedIds.insert(member.id)
+                    }
+                } label: {
+                    HStack {
+                        Text(member.name).foregroundStyle(appStyle.text)
+                        Spacer()
+                        if selectedIds.contains(member.id) {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(appStyle.tenant)
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if viewModel.teamMembers.isEmpty {
+                    ProgressView()
+                }
+            }
+            .navigationTitle("Assign Crew")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.foregroundStyle(appStyle.tenant)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if viewModel.isCrewActionBusy {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task {
+                                await viewModel.assignCrew(orderedSelection)
+                                dismiss()
+                            }
+                        }
+                        .foregroundStyle(appStyle.tenant)
+                        .fontWeight(.semibold)
+                    }
+                }
+            }
+            .task {
+                selectedIds = Set(viewModel.currentCrewIds)
+                await viewModel.loadTeamMembers()
+            }
+        }
+        .presentationDragIndicator(.visible)
     }
 }

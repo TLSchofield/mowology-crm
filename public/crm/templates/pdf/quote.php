@@ -1,4 +1,5 @@
 <?php
+if (!function_exists('_idFromName') && defined('APP_ROOT')) { require_once APP_ROOT . '/Services/Messaging/IdentityMail.php'; }
 /**
  * Quote PDF Template
  * Rendered by PdfGenerator::generateQuotePdf()
@@ -11,7 +12,13 @@
 $fmt = function($amount) { return '$' . number_format(floatval($amount), 2); };
 $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8'); };
 
-$contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+// Prefer the name resolved by QuoteService::resolveDisplayName() (person →
+// strata/company "C/O" entity). Fall back to the old inline logic if a caller
+// renders this template without the resolved field.
+$contactName = $quote['display_name'] ?? '';
+if ($contactName === '' || $contactName === 'N/A') {
+    $contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+}
 if (empty($contactName)) $contactName = $quote['company_name'] ?? 'Customer';
 
 $propertyLine = $esc($quote['property_address'] ?? '');
@@ -39,7 +46,7 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
 
     .header-table {
         width: 100%;
-        margin-bottom: 30px;
+        margin-bottom: 14px;
     }
 
     .brand-name {
@@ -53,24 +60,6 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         font-size: 8.5pt;
         color: #64748b;
         line-height: 1.6;
-    }
-
-    .doc-title {
-        font-size: 18pt;
-        font-weight: bold;
-        color: #0D3B2E;
-        text-align: right;
-    }
-
-    .doc-meta {
-        font-size: 9pt;
-        color: #64748b;
-        text-align: right;
-        line-height: 1.8;
-    }
-
-    .doc-meta strong {
-        color: #1a1a1a;
     }
 
     .divider {
@@ -97,6 +86,51 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         font-size: 12pt;
         font-weight: bold;
         color: #0D3B2E;
+    }
+
+    .svc-addr-label {
+        font-size: 7pt;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #94a3b8;
+        margin-top: 8px;
+    }
+
+    /* One-line quote meta band */
+    .meta-band {
+        width: 100%;
+        background: #E8F3F0;
+        margin-bottom: 18px;
+    }
+
+    .meta-band td {
+        padding: 8px 12px;
+        vertical-align: middle;
+    }
+
+    .meta-doc {
+        font-size: 10pt;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        color: #0D3B2E;
+    }
+
+    .meta-num {
+        font-size: 10pt;
+        font-weight: bold;
+        color: #2D8659;
+    }
+
+    .meta-title {
+        font-size: 9.5pt;
+        color: #64748b;
+    }
+
+    .meta-right {
+        text-align: right;
+        font-size: 8.5pt;
+        color: #64748b;
     }
 
     /* Line items table */
@@ -248,7 +282,7 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
 <!-- Header: Business info left, Quote info right -->
 <table class="header-table" cellpadding="0" cellspacing="0">
     <tr>
-        <td style="width: 50%; vertical-align: top;">
+        <td style="width: 52%; vertical-align: top;">
             <?php
                 // Build correct logo path for mPDF (requires absolute filesystem paths)
                 $logoPath = $projectRoot ?? dirname(__DIR__, 3);
@@ -269,57 +303,62 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
                 }
             ?>
             <?php if ($logoPath && file_exists($logoPath)): ?>
-                <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="Mowology" style="max-height: 50px; margin-bottom: 8px;">
+                <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="<?php echo htmlspecialchars(_idFromName()); ?>" style="max-height: 50px; margin-bottom: 8px;">
             <?php endif; ?>
-            <div class="brand-name">MOWOLOGY</div>
+            <div class="brand-name"><?php echo htmlspecialchars(strtoupper(_idFromName())); ?></div>
             <div class="brand-info">
-                Vancouver, BC<br>
-                (778) 846-9273<br>
-                office@mowology.ca<br>
-                mowology.ca
+                <?php $__idb = BusinessIdentity::get(); foreach (array_filter([$__idb['address'] ?: trim($__idb['city'] . ($__idb['province'] !== '' ? ', ' . $__idb['province'] : '')), $__idb['phone'], $__idb['email'], preg_replace('#^https?://#', '', _idSiteUrl())]) as $__l) { echo htmlspecialchars($__l) . '<br>'; } ?>
             </div>
         </td>
-        <td style="width: 50%; vertical-align: top;">
-            <div class="doc-title">QUOTE</div>
-            <div class="doc-meta">
-                <strong><?php echo $esc($quote['quote_number']); ?></strong><br>
-                Date: <?php echo $quoteDate; ?><br>
-                <?php if ($validUntil): ?>
-                    Valid Until: <?php echo $validUntil; ?><br>
+        <td style="width: 48%; vertical-align: top;">
+            <!-- Prepared For — top right, frees the vertical space below -->
+            <div class="section-title" style="text-align: right;">Prepared For</div>
+            <div class="client-info" style="text-align: right;">
+                <div class="client-name"><?php echo $esc($contactName); ?></div>
+                <?php
+                    // Show the company on its own line only for a person-at-company.
+                    // Strata quotes show JUST the strata name (no company line).
+                    $showCompany = empty($quote['property_billing_entity'])
+                        && !empty($quote['company_name'])
+                        && $quote['company_name'] !== $contactName
+                        && stripos($contactName, (string)$quote['company_name']) === false;
+                ?>
+                <?php if ($showCompany): ?>
+                    <?php echo $esc($quote['company_name']); ?><br>
                 <?php endif; ?>
-                <span class="status-badge status-<?php echo $esc($quote['status']); ?>">
-                    <?php echo strtoupper($esc($quote['status'])); ?>
-                </span>
+                <div class="svc-addr-label">Service Address</div>
+                <?php echo $propertyLine; ?><br>
+                <?php $pdfEmail = ($quote['display_email'] ?? null) ?: ($quote['contact_email'] ?? null) ?: ($quote['billing_email'] ?? null); ?>
+                <?php $pdfPhone = ($quote['display_phone'] ?? null) ?: ($quote['contact_phone'] ?? null) ?: ($quote['billing_phone'] ?? null); ?>
+                <?php if (!empty($pdfEmail)): ?>
+                    <span style="color: #64748b;"><?php echo $esc($pdfEmail); ?></span><br>
+                <?php endif; ?>
+                <?php if (!empty($pdfPhone)): ?>
+                    <span style="color: #64748b;"><?php echo $esc($pdfPhone); ?></span>
+                <?php endif; ?>
             </div>
         </td>
     </tr>
 </table>
 
-<hr class="divider">
-
-<!-- Prepared For -->
-<div class="section-title">Prepared For</div>
-<div class="client-info">
-    <div class="client-name"><?php echo $esc($contactName); ?></div>
-    <?php if (!empty($quote['company_name']) && $quote['company_name'] !== $contactName): ?>
-        <?php echo $esc($quote['company_name']); ?><br>
-    <?php endif; ?>
-    <?php echo $propertyLine; ?><br>
-    <?php if (!empty($quote['contact_email'] ?: $quote['billing_email'])): ?>
-        <?php echo $esc($quote['contact_email'] ?: $quote['billing_email']); ?><br>
-    <?php endif; ?>
-    <?php if (!empty($quote['contact_phone'] ?: $quote['billing_phone'])): ?>
-        <?php echo $esc($quote['contact_phone'] ?: $quote['billing_phone']); ?>
-    <?php endif; ?>
-</div>
-
-<?php if (!empty($quote['title'])): ?>
-<div style="margin-top: 16px; font-size: 11pt; font-weight: 600; color: #0D3B2E;">
-    <?php echo $esc($quote['title']); ?>
-</div>
-<?php endif; ?>
-
-<hr class="divider">
+<!-- One-line quote meta band (number, title, date, status) -->
+<table class="meta-band" cellpadding="0" cellspacing="0">
+    <tr>
+        <td>
+            <span class="meta-doc">QUOTE</span>
+            <span class="meta-num">&nbsp;&nbsp;<?php echo $esc($quote['quote_number']); ?></span>
+            <?php if (!empty($quote['title'])): ?>
+                <span class="meta-title">&nbsp;&middot;&nbsp; <?php echo $esc($quote['title']); ?></span>
+            <?php endif; ?>
+        </td>
+        <td class="meta-right">
+            <?php echo $quoteDate; ?>
+            <?php if ($validUntil): ?>&nbsp;&middot;&nbsp; Valid <?php echo $validUntil; ?><?php endif; ?>
+            &nbsp;
+            <span class="status-badge status-<?php echo $esc($quote['status']); ?>"><?php echo strtoupper($esc($quote['status'])); ?></span>
+        </td>
+    </tr>
+</table>
 
 <!-- Services / Line Items -->
 <div class="section-title">Services</div>
@@ -338,7 +377,7 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         <?php foreach ($lineItems as $item): ?>
         <tr>
             <td class="service-name"><?php echo $esc($item['service_type']); ?></td>
-            <td class="description"><?php echo $esc($item['description'] ?: '-'); ?></td>
+            <td class="description"><?php echo nl2br($esc($item['description'] ?: '-')); ?></td>
             <td class="right"><?php echo rtrim(rtrim(number_format(floatval($item['quantity']), 2), '0'), '.'); ?></td>
             <td class="right"><?php echo $fmt($item['unit_price']); ?></td>
             <td class="right"><?php echo $fmt($item['line_total']); ?></td>
@@ -390,9 +429,20 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         IP: <?php echo $esc($quote['accepted_ip_address']); ?>
     </div>
 </div>
+<?php elseif (!empty($quote['is_contract'])): ?>
+<!-- Unsigned contract quote — signed online only (owner decision 2026-10-04:
+     no paper). The online acceptance is the contract signature; the contract
+     made from it inherits it. This copy is for the client's records. -->
+<div class="signature-section">
+    <div class="section-title">How to sign</div>
+    <p style="font-size:9pt;color:#475569;margin:0;">
+        This quote is a seasonal service contract. It is signed online: open the link in the email, read the Terms &amp; Conditions,
+        tick that you agree and sign. Your online signature is your signature on the contract. This copy is for your records.
+    </p>
+</div>
 <?php endif; ?>
 
 <!-- Footer -->
 <div class="footer">
-    Mowology &bull; Vancouver, BC &bull; (778) 846-9273 &bull; mowology.ca
+    <?php echo htmlspecialchars(implode(' • ', array_filter([_idFromName(), trim(BusinessIdentity::get()['city'] . (BusinessIdentity::get()['province'] !== '' ? ', ' . BusinessIdentity::get()['province'] : '')), _idPhone(), preg_replace('#^https?://#', '', _idSiteUrl())]))); ?>
 </div>

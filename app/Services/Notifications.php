@@ -8,11 +8,13 @@ if (!function_exists('h')) {
 
 <?php
 /**
- * Mowology Notification System
+ * Notification System
  * Handles email and SMS (via email-to-SMS gateway) notifications
  *
  * Migrated from: public/crm/includes/notifications.php
  */
+
+require_once __DIR__ . '/Messaging/IdentityMail.php';
 
 // Notification configuration
 if (!defined('NOTIFICATION_EMAIL')) {
@@ -31,9 +33,10 @@ if (!defined('NOTIFICATION_SMS_GATEWAY')) {
  * @param string $from Sender email (optional)
  * @return bool Success status
  */
-function sendEmailNotification($to, $subject, $body, $from = 'Mowology <noreply@mowology.ca>') {
+function sendEmailNotification($to, $subject, $body, $from = '') {
+    if ($from === '') $from = _idFromName() . ' <' . _idFromEmail() . '>';
     $headers = "From: {$from}\r\n";
-    $headers .= "Reply-To: office@mowology.ca\r\n";
+    $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
     $headers .= "MIME-Version: 1.0\r\n";
     $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
 
@@ -49,7 +52,7 @@ function sendEmailNotification($to, $subject, $body, $from = 'Mowology <noreply@
  */
 function sendSMSNotification($message) {
     // SMS messages should be plain text and short
-    $headers = "From: Mowology <noreply@mowology.ca>\r\n";
+    $headers = "From: " . _idFromName() . " <" . _idFromEmail() . ">\r\n";
     $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
 
     // Truncate message if too long (SMS limit is ~160 chars)
@@ -168,7 +171,7 @@ function sendQuoteRequestNotifications($data) {
         </div>
 
         <div style='background: #333; color: #999; padding: 20px; text-align: center; font-size: 12px;'>
-            <p style='margin: 0;'>This notification was sent from the Mowology website quote form.</p>
+            <p style='margin: 0;'>This notification was sent from the " . h(_idFromName()) . " website quote form.</p>
             <p style='margin: 5px 0 0;'>" . date('F j, Y \a\t g:i A') . "</p>
         </div>
     </body>

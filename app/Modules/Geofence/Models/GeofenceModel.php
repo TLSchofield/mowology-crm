@@ -336,7 +336,62 @@ function geofenceSaveZone(
         $label, $notes,
         $userId,
     ]);
-    return (int)$db->lastInsertId();
+    $newId = (int)$db->lastInsertId();
+    // A border drawn by a person replaces Otto's default ones (migration 1285) — never the other way round.
+    if ($zoneType === 'arrival_border') {
+        try {
+            $db->prepare("DELETE FROM job_geofences WHERE property_id = ? AND zone_type = 'arrival_border' AND id <> ?
+                          AND border_source IN ('default_hull', 'default_square', 'kept')")
+               ->execute([$propertyId, $newId]);
+        } catch (PDOException $e) { /* border_source column not migrated yet — nothing of Otto's to replace */ }
+    }
+    return $newId;
+}
+
+/**
+ * Update an existing zone's polygon in place (node drag/insert/remove from the
+ * editor). Only geometry is touched — zone_type, plan_id, label, etc. are kept.
+ * Recomputes the closed ring, vertex count, bbox and area. Returns true on update.
+ */
+function geofenceUpdateZonePolygon(int $geofenceId, array $ring): bool {
+    if (count($ring) < 3) {
+        throw new InvalidArgumentException('A polygon must have at least 3 vertices.');
+    }
+    foreach ($ring as $pt) {
+        if (!is_array($pt) || count($pt) < 2 || !is_numeric($pt[0]) || !is_numeric($pt[1])) {
+            throw new InvalidArgumentException('Each point must be [lat, lng].');
+        }
+    }
+
+    $first = $ring[0];
+    $last  = end($ring);
+    if ($first[0] !== $last[0] || $first[1] !== $last[1]) {
+        $ring[] = $first;
+    }
+
+    [$latMin, $latMax, $lngMin, $lngMax] = geofenceBbox($ring);
+    $areaSqm = geofencePolygonArea($ring);
+
+    $db = getDB();
+    $stmt = $db->prepare("
+        UPDATE job_geofences
+        SET polygon_json = ?, vertex_count = ?,
+            bbox_lat_min = ?, bbox_lat_max = ?, bbox_lng_min = ?, bbox_lng_max = ?,
+            area_sqm = ?
+        WHERE id = ?
+    ");
+    $stmt->execute([
+        json_encode($ring),
+        count($ring) - 1,
+        $latMin, $latMax, $lngMin, $lngMax,
+        $areaSqm,
+        $geofenceId,
+    ]);
+    // Edited by hand → it is a drawn border now, whatever Otto started it as (migration 1285).
+    try {
+        $db->prepare("UPDATE job_geofences SET border_source = NULL WHERE id = ?")->execute([$geofenceId]);
+    } catch (PDOException $e) { /* border_source column not migrated yet */ }
+    return $stmt->rowCount() >= 0;
 }
 
 /**
@@ -847,6 +902,19 @@ function geofenceDeriveEvents(int $visitId, int $geofenceId): void {
         }
 
         $prevInZone = $inZone;
+    }
+
+    // Synthetic trailing exit — crew still inside at the last sample.
+    // Without this, the final in-zone segment (clock-out-on-site, the common
+    // case) is never counted in in_zone_seconds.
+    if ($entryTime !== null && !empty($samples)) {
+        $last     = end($samples);
+        $duration = strtotime($last['sampled_at']) - strtotime($entryTime);
+        $insExit->execute([
+            $visitId, $geofenceId,
+            $last['sampled_at'], $last['lat'], $last['lng'], $last['accuracy_m'],
+            max(0, $duration),
+        ]);
     }
 }
 

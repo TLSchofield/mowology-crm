@@ -50,10 +50,13 @@ $nav = [
     </nav>
 
     <div class="sa-sidebar-footer">
-      <a href="/site-admin/api/logout.php" class="sa-nav-item sa-logout">
-        <i data-feather="log-out"></i>
-        <span>Log out</span>
-      </a>
+      <form method="post" action="/site-admin/api/logout.php" class="sa-logout-form">
+        <?= siteCsrfField() ?>
+        <button type="submit" class="sa-nav-item sa-logout">
+          <i data-feather="log-out"></i>
+          <span>Log out</span>
+        </button>
+      </form>
     </div>
   </aside>
 

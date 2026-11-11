@@ -28,6 +28,33 @@ class AccountingService
         $this->db = $db;
     }
 
+    /**
+     * SQL: the row is counted in single-entry reports. A bank line linked to a receipt (matched_expense_id)
+     * whose receipt has its own expense row is the SAME money: the receipt row carries it (its category is
+     * the owner's), so the bank line is left out — it was counted twice (2026-10-12: 29 pairs, $3,565.96
+     * in 2026, e.g. Vital Auto bank line 43028 + receipt row 50823). An import-time match merges into the
+     * receipt row and was never doubled; a linked line whose receipt isn't approved yet still counts.
+     */
+    public static function countedSql(string $a = 't'): string
+    {
+        // A line paid by several receipts (BankLineReceipts, migration 1372): left out once ANY of them has its row —
+        // the receipt rows carry the money. While one is still unapproved the report shows the approved ones only
+        // (as for any unapproved receipt); never the line AND a receipt (Codex re-review 2026-10-16: $318.80 for
+        // a $184.40 debit). A yes/no on the line can't show a part of it; the journal (settleGroupLine) is exact.
+        $group = '';
+        try {
+            require_once __DIR__ . '/BankLineReceipts.php';
+            if (function_exists('getDB') && BankLineReceipts::tableExists(getDB())) {
+                $group = " OR EXISTS (SELECT 1 FROM bank_line_receipts gx JOIN accounting_transactions gm ON gm.reference_type = 'expense'
+                               AND gm.reference_id = gx.expense_id AND gm.type = 'expense' AND gm.status IN ('cleared', 'reconciled')
+                           WHERE gx.transaction_id = {$a}.id)";
+            }
+        } catch (Throwable $e) { /* no database here (unit tests): the single-receipt rule */ }
+        return "NOT ({$a}.reference_type = 'bank_import' AND {$a}.matched_expense_id IS NOT NULL AND (EXISTS (
+                    SELECT 1 FROM accounting_transactions mx WHERE mx.reference_type = 'expense'
+                      AND mx.reference_id = {$a}.matched_expense_id AND mx.type = 'expense' AND mx.status IN ('cleared', 'reconciled'))" . $group . "))";
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // SYNC — pull records from operational tables into unified ledger
     // ══════════════════════════════════════════════════════════════════════════
@@ -43,14 +70,67 @@ class AccountingService
         $ruleResult     = $this->applyRulesToUncategorized();
         $removed        = $this->removeOrphanedTransactions();
 
+        // Phase 1: also post the double-entry journal (additive — never break the
+        // legacy single-entry sync above). Idempotent; safe to run every time.
+        $journalResult = null;
+        try {
+            $ledgerFile = __DIR__ . '/LedgerService.php';
+            $syncFile   = __DIR__ . '/LedgerSyncService.php';
+            if (is_file($ledgerFile) && is_file($syncFile)
+                && $this->db->query("SHOW TABLES LIKE 'journal_entries'")->fetchColumn()) {
+                require_once $ledgerFile;
+                require_once $syncFile;
+                $journalResult = (new LedgerSyncService($this->db, new LedgerService($this->db)))->syncAll();
+            }
+        } catch (\Throwable $e) {
+            error_log('AccountingService::syncAll journal: ' . $e->getMessage());
+            $journalResult = ['error' => $e->getMessage()];
+        }
+
         return [
             'invoices_synced'  => $invoiceResult['synced'],
             'invoices_updated' => $invoiceResult['updated'],
             'expenses_synced'  => $expenseResult['synced'],
             'expenses_updated' => $expenseResult['updated'],
             'rules_applied'    => $ruleResult,
+            'journal'          => $journalResult,
             'removed_orphans'  => $removed,
         ];
+    }
+
+    /**
+     * What the cron must report about the journal part of syncAll() (pure — tested):
+     * ['error', msg] when the journal sync threw, ['warning', msg] when bank lines failed to post,
+     * null when it ran clean. It used to be recorded as 'success' either way (review round 2).
+     */
+    public static function journalProblem($journal): ?array
+    {
+        if (!is_array($journal)) return null;
+        if (!empty($journal['error'])) return ['error', 'Journal sync failed: ' . $journal['error']];
+        $parts = [];
+        foreach (['invoices' => 'invoice', 'expenses' => 'receipt', 'bank_imports' => 'bank line'] as $k => $word) {
+            $n = (int)($journal[$k]['errors'] ?? 0);
+            if ($n > 0) $parts[] = $n . ' ' . $word . ($n === 1 ? '' : 's');
+        }
+        if ($parts) {
+            $first = $journal['invoices']['failures'][0] ?? $journal['expenses']['failures'][0] ?? $journal['bank_imports']['failures'][0] ?? null;
+            return ['warning', implode(', ', $parts) . ' could not be posted to the journal'
+                . ($first ? ' (e.g. ' . $first['source'] . ' #' . $first['id'] . ': ' . $first['reason'] . ')' : '')];
+        }
+        return null;
+    }
+
+    /**
+     * Is this MySQL 1615 "Prepared statement needs to be re-prepared"? (pure — tested)
+     * The shared host's table-definition cache (2000) is always full with other tenants' tables, so a
+     * definition can be evicted between prepare and execute; the nightly sync — the most prepares of any
+     * cron — lost that race 9 times Sep 4 → Oct 13 (cron_runs). It is transient: the cron runs again once.
+     */
+    public static function isReprepareError($e): bool
+    {
+        if ($e instanceof \PDOException && (int)($e->errorInfo[1] ?? 0) === 1615) return true;
+        $msg = $e instanceof \Throwable ? $e->getMessage() : (string)$e;
+        return stripos($msg, 'needs to be re-prepared') !== false || strpos($msg, ' 1615 ') !== false;
     }
 
     /**
@@ -67,6 +147,7 @@ class AccountingService
             DELETE FROM accounting_transactions
             WHERE reference_type = 'expense'
               AND reference_id IS NOT NULL
+              AND " . self::NOT_LOCKED_SQL . "
               AND reference_id NOT IN (
                   SELECT id FROM expenses
                   WHERE status IN ('approved', 'forwarded')
@@ -75,20 +156,37 @@ class AccountingService
         ");
         $removed += $stmt->rowCount();
 
-        // Invoices that are no longer paid/partial
+        // Invoices that are no longer paid/partial (or were refunded in full)
+        $refunded = $this->invoiceRefundedSql('');
         $stmt = $this->db->query("
             DELETE FROM accounting_transactions
             WHERE reference_type = 'invoice'
               AND reference_id IS NOT NULL
+              AND " . self::NOT_LOCKED_SQL . "
               AND reference_id NOT IN (
                   SELECT id FROM invoices
                   WHERE status IN ('paid', 'partial')
-                    AND COALESCE(amount_paid, 0) > 0
+                    AND COALESCE(amount_paid, 0) - {$refunded} > 0
               )
         ");
         $removed += $stmt->rowCount();
 
         return $removed;
+    }
+
+    /** @var bool|null cached: does invoices.amount_refunded exist yet (migration 1380)? */
+    private ?bool $hasRefundColumn = null;
+
+    /**
+     * SQL fragment for an invoice's refunded total. "0" until migration 1380 has
+     * run, so deploying this code before the migration cannot break the ledger sync.
+     */
+    private function invoiceRefundedSql(string $alias): string
+    {
+        if ($this->hasRefundColumn === null) {
+            $this->hasRefundColumn = $this->db->query("SHOW COLUMNS FROM invoices LIKE 'amount_refunded'")->rowCount() > 0;
+        }
+        return $this->hasRefundColumn ? "COALESCE({$alias}amount_refunded, 0)" : '0';
     }
 
     /**
@@ -107,21 +205,48 @@ class AccountingService
         // since this codebase uses job_plans — there is no separate `jobs` table.
         // NOTE: invoices table has no assigned_user_id column — attribution is
         // implicit via the related job_plan / contact.
+        // Net of refunds (invoices.amount_refunded, migration 1380): income is what we
+        // kept, and GST scales with it. With nothing refunded this is exactly the old
+        // amount_paid / tax_amount.
+        $refunded = $this->invoiceRefundedSql('i.');
         $stmt = $this->db->query("
             SELECT
                 i.id,
                 COALESCE(i.paid_at, i.updated_at)   AS transaction_date,
-                COALESCE(i.amount_paid, i.total, 0) AS amount,
-                COALESCE(i.tax_amount, 0)           AS gst_amount,
+                COALESCE(i.amount_paid, i.total, 0) - {$refunded} AS amount,
+                -- GST in proportion to what was kept: paid minus refunded, over the invoice total
+                -- (a half-paid invoice carried its whole GST on half the income — review 2026-10-12).
+                ROUND(COALESCE(i.tax_amount, 0) * LEAST(1, (COALESCE(i.amount_paid, i.total, 0) - {$refunded}) / NULLIF(i.total, 0)), 2) AS gst_amount,
                 i.contact_id,
                 i.notes,
                 i.plan_id                           AS job_id
             FROM invoices i
             WHERE i.status IN ('paid', 'partial')
-              AND COALESCE(i.amount_paid, 0) > 0
+              AND COALESCE(i.amount_paid, 0) - {$refunded} > 0
         ");
 
+        // A CRM invoice recreated from a 2025 Jobber invoice (JobberLedgerService::linkCrmInvoice) only
+        // collects FY2025's receivable: its payment is not 2026 income (the revenue is in the filed
+        // FY2025 numbers). Leave it out, and take out a row an earlier sync / reconciliation wrote.
+        $carryover = [];
+        try {
+            $f = __DIR__ . '/JobberLedgerService.php';
+            if (is_file($f)) {
+                require_once $f;
+                $carryover = array_fill_keys(JobberLedgerService::carryoverInvoiceIds($this->db), true);
+            }
+        } catch (\Throwable $e) { $carryover = []; }
+        if ($carryover) {
+            $ids = array_values(array_map('intval', array_keys($carryover)));
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $locked = "NOT EXISTS (SELECT 1 FROM accounting_periods p WHERE p.year = YEAR(accounting_transactions.transaction_date)"
+                    . " AND p.month = MONTH(accounting_transactions.transaction_date) AND p.status = 'locked')";
+            $this->db->prepare("DELETE FROM accounting_transactions WHERE reference_type = 'invoice' AND type = 'income'"
+                . " AND reference_id IN ({$in}) AND {$locked}")->execute($ids);
+        }
+
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($carryover[(int)$row['id']])) continue;
             $desc = 'Invoice payment';
             if (!empty($row['notes'])) {
                 $desc .= ' — ' . mb_substr(strip_tags($row['notes']), 0, 120);
@@ -167,6 +292,7 @@ class AccountingService
             SELECT id, expense_category_alias
             FROM chart_of_accounts
             WHERE expense_category_alias IS NOT NULL AND is_active = 1
+              AND type NOT IN ('revenue', 'income')
         ")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($aliasRows as $r) {
             $aliasMap[strtolower($r['expense_category_alias'])] = (int)$r['id'];
@@ -275,6 +401,7 @@ class AccountingService
             WHERE t.type = 'expense'
               AND t.transaction_date BETWEEN ? AND ?
               AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
             GROUP BY coa.id, coa.code, coa.name
             ORDER BY coa.display_order
         ");
@@ -312,6 +439,7 @@ class AccountingService
             FROM accounting_transactions t
             WHERE t.transaction_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
               AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
             GROUP BY DATE_FORMAT(t.transaction_date, '%Y-%m')
             ORDER BY month ASC
         ");
@@ -338,13 +466,14 @@ class AccountingService
     {
         $stmt = $this->db->prepare("
             SELECT
-                type,
-                SUM(amount) AS total
-            FROM accounting_transactions
-            WHERE transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
-              AND type IN ('income', 'expense')
-            GROUP BY type
+                t.type,
+                SUM(t.amount) AS total
+            FROM accounting_transactions t
+            WHERE t.transaction_date BETWEEN ? AND ?
+              AND t.status IN ('cleared', 'reconciled')
+              AND t.type IN ('income', 'expense')
+              AND " . self::countedSql('t') . "
+            GROUP BY t.type
         ");
         $stmt->execute([$dateFrom, $dateTo]);
 
@@ -371,14 +500,15 @@ class AccountingService
     {
         $stmt = $this->db->prepare("
             SELECT
-                type,
-                SUM(gst_amount) AS gst_total,
-                SUM(pst_amount) AS pst_total
-            FROM accounting_transactions
-            WHERE transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
-              AND type IN ('income', 'expense')
-            GROUP BY type
+                t.type,
+                SUM(t.gst_amount) AS gst_total,
+                SUM(t.pst_amount) AS pst_total
+            FROM accounting_transactions t
+            WHERE t.transaction_date BETWEEN ? AND ?
+              AND t.status IN ('cleared', 'reconciled')
+              AND t.type IN ('income', 'expense')
+              AND " . self::countedSql('t') . "
+            GROUP BY t.type
         ");
         $stmt->execute([$dateFrom, $dateTo]);
 
@@ -388,9 +518,14 @@ class AccountingService
             $data[$row['type']]['pst'] = (float)$row['pst_total'];
         }
 
-        $gstCollected = $data['income']['gst'];
-        $gstPaidITC   = $data['expense']['gst'];
-        $netGstOwing  = $gstCollected - $gstPaidITC;
+        // GST comes from the one GST calculation (GstReportService, 2026-10-07) so the
+        // dashboard agrees with the GST return: ITCs from approved/posted expenses only,
+        // meals & entertainment limited. PST stays from the ledger.
+        require_once __DIR__ . '/GstReportService.php';
+        $gst = (new GstReportService($this->db))->reportForRange($dateFrom, $dateTo);
+        $gstCollected = $gst['line_103'];
+        $gstPaidITC   = $gst['line_106'];
+        $netGstOwing  = $gst['line_109'];
 
         return [
             'date_from'       => $dateFrom,
@@ -421,6 +556,7 @@ class AccountingService
             LEFT JOIN accounting_transactions t ON t.job_id = jp.id
               AND t.transaction_date BETWEEN ? AND ?
               AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
             LEFT JOIN companies  co ON co.id = jp.company_id
             LEFT JOIN properties p  ON p.id  = jp.property_id
             WHERE jp.status = 'completed'
@@ -432,19 +568,71 @@ class AccountingService
         ");
         $stmt->execute([$dateFrom, $dateTo, $dateFrom, $limit]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->withSplitReceiptShares($rows, $dateFrom, $dateTo);
 
-        return array_map(function ($r) {
+        // Trip overhead (dump / supply runs' time + km) Penny tagged to each job — an additive
+        // read from ops_trip_job_costs (migration 1218), never a journal entry. 0 before the migration.
+        $trips = [];
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/TripAttributionService.php';
+            $trips = (new TripAttributionService($this->db))->overheadForJobs(array_column($rows, 'job_id'));
+        } catch (Throwable $e) { /* no trip overhead */ }
+
+        return array_map(function ($r) use ($trips) {
             $profit = (float)$r['revenue'] - (float)$r['expenses'];
             $margin = (float)$r['revenue'] > 0
                 ? round(($profit / (float)$r['revenue']) * 100, 1)
                 : 0;
+            $trip = $trips[(int)$r['job_id']] ?? ['trip_overhead' => 0.0, 'trip_runs' => 0];
             return array_merge($r, [
                 'revenue'  => (float)$r['revenue'],
                 'expenses' => (float)$r['expenses'],
                 'profit'   => $profit,
                 'margin'   => $margin,
+                'trip_overhead' => $trip['trip_overhead'],
+                'trip_runs'     => $trip['trip_runs'],
+                'profit_after_trips' => round($profit - $trip['trip_overhead'], 2),
             ]);
         }, $rows);
+    }
+
+    /**
+     * A receipt split by line (migration 1233) reaches a job through its share, not through
+     * the whole receipt on the header's job: take the whole receipt back out of each job and
+     * add the job's shares (net + PST + GST not claimable). Lawnboy #412 puts $80.00 of mulch
+     * on Oakridge and the seed on stock. Unchanged when nothing is split (or before 1233).
+     */
+    public function withSplitReceiptShares(array $rows, string $dateFrom, string $dateTo): array
+    {
+        if (!$rows) return $rows;
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ExpenseSplitService.php';
+            $split = new ExpenseSplitService($this->db);
+            if (!$split->ready()) return $rows;
+            $ids = array_values(array_unique(array_map('intval', array_column($rows, 'job_id'))));
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $s = $this->db->prepare("
+                SELECT t.job_id, SUM(t.amount) AS whole
+                FROM accounting_transactions t
+                WHERE t.type = 'expense' AND t.reference_type = 'expense' AND t.job_id IN ({$in})
+                  AND t.transaction_date BETWEEN ? AND ? AND t.status IN ('cleared', 'reconciled')
+                  AND t.reference_id IN (SELECT a.expense_id FROM expense_line_allocations a)
+                GROUP BY t.job_id
+            ");
+            $s->execute(array_merge($ids, [$dateFrom, $dateTo]));
+            $whole = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $whole[(int)$r['job_id']] = (float)$r['whole'];
+            $share = $split->jobCosts($ids, $dateFrom, $dateTo);
+            foreach ($rows as &$r) {
+                $j = (int)$r['job_id'];
+                $r['expenses'] = round((float)$r['expenses'] - ($whole[$j] ?? 0.0) + ($share[$j] ?? 0.0), 2);
+                if (isset($share[$j])) $r['split_receipt_cost'] = $share[$j];
+            }
+            unset($r);
+        } catch (Throwable $e) {
+            error_log('Job profitability split shares: ' . $e->getMessage());
+        }
+        return $rows;
     }
 
     /**
@@ -475,11 +663,12 @@ class AccountingService
     {
         $stmt = $this->db->prepare("
             SELECT
-                SUM(CASE WHEN type = 'income'  THEN amount ELSE 0 END) AS revenue,
-                SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expenses
-            FROM accounting_transactions
-            WHERE transaction_date BETWEEN ? AND ?
-              AND status IN ('cleared', 'reconciled')
+                SUM(CASE WHEN t.type = 'income'  THEN t.amount ELSE 0 END) AS revenue,
+                SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) AS expenses
+            FROM accounting_transactions t
+            WHERE t.transaction_date BETWEEN ? AND ?
+              AND t.status IN ('cleared', 'reconciled')
+              AND " . self::countedSql('t') . "
         ");
         $stmt->execute([$from, $to]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -627,6 +816,7 @@ class AccountingService
 
     public function createManualTransaction(array $data, int $userId): int
     {
+        self::validateManualTransaction($data);
         $stmt = $this->db->prepare("
             INSERT INTO accounting_transactions
                 (transaction_date, type, account_id, amount, gst_amount, pst_amount,
@@ -653,6 +843,19 @@ class AccountingService
         return (int)$this->db->lastInsertId();
     }
 
+    public static function validateManualTransaction(array $data): void
+    {
+        if (!isset($data['amount']) || !is_numeric($data['amount']) || (float)$data['amount'] <= 0) {
+            throw new InvalidArgumentException('Amount must be greater than zero.');
+        }
+        if (!in_array($data['type'] ?? '', ['income', 'expense', 'transfer'], true)) {
+            throw new InvalidArgumentException('Invalid transaction type.');
+        }
+        if (!in_array($data['status'] ?? 'cleared', ['pending', 'cleared', 'reconciled'], true)) {
+            throw new InvalidArgumentException('Invalid transaction status.');
+        }
+    }
+
     public function updateTransaction(int $id, array $data): bool
     {
         $fields  = [];
@@ -675,6 +878,94 @@ class AccountingService
             'UPDATE accounting_transactions SET ' . implode(', ', $fields) . ' WHERE id = ?'
         );
         return $stmt->execute($params);
+    }
+
+    /** A line copied from a bank statement, invoice or expense: these come from the source, not the edit screen. */
+    public const SOURCE_FIELDS = ['amount', 'gst_amount', 'pst_amount', 'transaction_date', 'status'];
+
+    /**
+     * Which source fields an edit would change on a non-manual line (pure — tested).
+     * The edit modal sends every field, so unchanged values are not a change.
+     */
+    public static function blockedChanges(array $current, array $data): array
+    {
+        if (($current['reference_type'] ?? 'manual') === 'manual') return [];
+        $blocked = [];
+        foreach (self::SOURCE_FIELDS as $f) {
+            if (!array_key_exists($f, $data)) continue;
+            $new = $data[$f];
+            $old = $current[$f] ?? null;
+            if (in_array($f, ['amount', 'gst_amount', 'pst_amount'], true)) {
+                if (abs((float)($new === '' || $new === null ? 0 : $new) - (float)($old ?? 0)) < 0.005) continue;
+            } elseif ((string)$new === (string)$old) {
+                continue;
+            }
+            $blocked[] = $f;
+        }
+        return $blocked;
+    }
+
+    private function refuseLocked(?string $date): void
+    {
+        if ($date === null || $date === '') return;
+        require_once __DIR__ . '/LedgerService.php';
+        if ((new LedgerService($this->db))->isLocked($date)) {
+            throw new Exception(substr($date, 0, 7) . " is locked — this transaction can't be changed.", 409);
+        }
+    }
+
+    /** Create a manual line — refused in a locked month. */
+    public function createManualChecked(array $data, int $userId): int
+    {
+        $this->refuseLocked((string)($data['transaction_date'] ?? ''));
+        return $this->createManualTransaction($data, $userId);
+    }
+
+    /**
+     * The edit screen's update (review round 2, 2026-10-12). A locked month can't change; a line from a
+     * bank statement / invoice / expense keeps its amount, tax, date and status (those come from the
+     * source — changing them here bypassed the journal), and a bank line's account moves with its
+     * journal entry through BankLineMoveService.
+     */
+    public function editTransaction(int $id, array $data, int $userId): void
+    {
+        $s = $this->db->prepare("SELECT * FROM accounting_transactions WHERE id = ?");
+        $s->execute([$id]);
+        $cur = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$cur) throw new Exception('Transaction not found', 404);
+        $this->refuseLocked((string)$cur['transaction_date']);
+        if (isset($data['transaction_date']) && $data['transaction_date'] !== '') $this->refuseLocked((string)$data['transaction_date']);
+
+        $blocked = self::blockedChanges($cur, $data);
+        if ($blocked) {
+            throw new Exception('This line comes from a ' . str_replace('_', ' ', (string)$cur['reference_type'])
+                . ' — its ' . implode(', ', str_replace('_', ' ', $blocked))
+                . " can't be edited here. Change the source record (or use Recategorize for the account).", 400);
+        }
+        if (($cur['reference_type'] ?? 'manual') !== 'manual') {
+            foreach (self::SOURCE_FIELDS as $f) unset($data[$f]);
+        }
+        if (($cur['reference_type'] ?? '') === 'bank_import' && isset($data['account_id'])
+            && (int)$data['account_id'] > 0 && (int)$data['account_id'] !== (int)$cur['account_id']) {
+            require_once __DIR__ . '/LedgerService.php';
+            require_once __DIR__ . '/LedgerSyncService.php';
+            require_once __DIR__ . '/BankLineMoveService.php';
+            $moved = (new BankLineMoveService($this->db))->move($id, (int)$data['account_id'], $userId);
+            if (empty($moved['ok'])) throw new Exception($moved['message'] ?? 'Could not move this line', 400);
+        }
+        if (($cur['reference_type'] ?? '') === 'bank_import') unset($data['account_id']);
+        $this->updateTransaction($id, $data);
+    }
+
+    /** Delete a manual line — refused in a locked month. */
+    public function deleteChecked(int $id): bool
+    {
+        $s = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id = ? AND reference_type = 'manual'");
+        $s->execute([$id]);
+        $d = $s->fetchColumn();
+        if ($d === false) return false;
+        $this->refuseLocked((string)$d);
+        return $this->deleteTransaction($id);
     }
 
     public function deleteTransaction(int $id): bool
@@ -734,6 +1025,15 @@ class AccountingService
             return 'inserted';
         }
 
+        // A locked month never changes (Codex review 2026-10-14): the nightly sync rewrote rows in
+        // closed months on this table. Leave a row alone when its stored date or its new date is locked.
+        $cur = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE reference_type = ? AND reference_id = ? LIMIT 1");
+        $cur->execute([$data['reference_type'], $data['reference_id']]);
+        $was = $cur->fetchColumn();
+        if (($was && $this->monthLocked((string)$was)) || $this->monthLocked((string)$data['transaction_date'])) {
+            return 'skipped';
+        }
+
         $stmt = $this->db->prepare("
             INSERT INTO accounting_transactions
                 (transaction_date, type, account_id, amount, gst_amount, pst_amount,
@@ -780,6 +1080,25 @@ class AccountingService
         if ($rowCount === 2) return 'updated';
         return 'skipped';
     }
+
+    /** Is the month of $date locked (accounting_periods)? Same rule as LedgerService::isLocked. */
+    private function monthLocked(string $date): bool
+    {
+        $t = strtotime($date);
+        if (!$t) return false;
+        try {
+            $s = $this->db->prepare("SELECT status FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+            $s->execute([(int)date('Y', $t), (int)date('n', $t)]);
+            return $s->fetchColumn() === 'locked';
+        } catch (\Throwable $e) {
+            return false;   // no periods table yet
+        }
+    }
+
+    /** SQL: the row's month is not locked. */
+    private const NOT_LOCKED_SQL = "NOT EXISTS (SELECT 1 FROM accounting_periods ap WHERE ap.status = 'locked'
+                                      AND ap.year = YEAR(accounting_transactions.transaction_date)
+                                      AND ap.month = MONTH(accounting_transactions.transaction_date))";
 
     private function countUncategorized(): int
     {

@@ -10,6 +10,26 @@ $canEdit = userHasPermission('expenses.edit');
 $canSend = userHasPermission('expenses.send');
 $canApprove = userHasPermission('expenses.approve');
 
+// Emailed receipts awaiting review (source='email_inbox', status='draft').
+require_once dirname(__DIR__) . '/app/Modules/Expenses/Services/ReceiptInboxService.php';
+$pendingReceipts = [];
+$inboxVendors    = [];
+// The one category list (ExpenseConstants) — this copy lacked Safety and Personal (2026-10-15).
+if (!defined('EXPENSE_ACCOUNTING_CATEGORIES')) require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
+$inboxCategories = array_values(EXPENSE_ACCOUNTING_CATEGORIES);
+if ($canEdit) {
+    try {
+        $pendingReceipts = (new ReceiptInboxService(getDB()))->listPending();
+        if (!empty($pendingReceipts)) {
+            $inboxVendors = getDB()->query(
+                "SELECT id, name FROM vendors WHERE is_active = 1 ORDER BY name"
+            )->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } catch (Throwable $e) {
+        error_log('[expenses] receipt inbox load: ' . $e->getMessage());
+    }
+}
+
 // Quick mode: activated from schedule page "Receipt" button
 $quickMode  = ($_GET['mode'] ?? '') === 'quick';
 $returnTo   = $_GET['return'] ?? '';
@@ -22,9 +42,13 @@ $csrfToken = generateCSRFToken();
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260502b" rel="stylesheet">'
-           . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>'
+           . '<script src="/crm/js/offline-receipts.js?v=20261014keep" defer></script>'
+           . '<script src="/crm/js/label-capture.js?v=20261007" defer></script>'
+           . '<script src="/crm/js/expense-split.js?v=20261007" defer></script>'
+           . '<script src="/crm/js/penny-approve.js?v=' . (@filemtime(__DIR__ . '/js/penny-approve.js') ?: '20261014') . '" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- Offline / sync status banner -->
@@ -37,6 +61,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h1 class="mw-page-title">Expenses</h1>
+    <?php if ($canApprove): ?>
+    <a class="btn btn-sm btn-success" href="/crm/receipts-review_appstack.php" title="Check waiting receipts against the paper, the bank line and Penny's read">Review receipts</a>
+    <?php endif; ?>
+    <?php if ($canSend): ?>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="showReceiptExportModal()" title="Bundle confirmed receipts into a ZIP, email it, and free up disk space">
+        <i data-feather="archive" style="width:15px;height:15px;"></i> Export / Archive receipts
+    </button>
+    <?php endif; ?>
     <!-- Team score widget — populated by loadTeamScoreWidget() -->
     <div id="mw-team-score-widget" style="display:none;" class="mw-team-score-widget">
         <a href="/crm/leaderboard_appstack.php" class="mw-tsw-link" title="View full leaderboard">
@@ -48,6 +80,193 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </a>
     </div>
 </div>
+
+<?php if ($canSend): ?>
+<!-- ═══════ EXPORT / ARCHIVE RECEIPTS MODAL ═══════════════════════ -->
+<div class="modal fade" id="receiptExportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Export &amp; Archive Receipts</h5>
+                <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3" style="font-size:13px;">
+                    Bundles <strong>confirmed</strong> receipts (approved or forwarded) into a ZIP, emails it to your
+                    configured recipients, then removes the full-size images from the server to reclaim disk space
+                    (a thumbnail is kept). Leave the dates blank to export everything eligible.
+                </p>
+                <div class="row g-2">
+                    <div class="col">
+                        <label class="form-label">From</label>
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#rxFrom"
+                                data-mw-dp-range-group="receipt-export-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" class="form-control" id="rxFrom" hidden>
+                    </div>
+                    <div class="col">
+                        <label class="form-label">To</label>
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#rxTo"
+                                data-mw-dp-range-group="receipt-export-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" class="form-control" id="rxTo" hidden>
+                    </div>
+                </div>
+                <div id="rxResult" class="mt-3" style="display:none;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="rxSubmit" onclick="submitReceiptExport()">Email &amp; archive</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+function showReceiptExportModal() {
+    document.getElementById('rxResult').style.display = 'none';
+    document.getElementById('rxResult').innerHTML = '';
+    if (window.jQuery) { jQuery('#receiptExportModal').modal('show'); }
+}
+async function submitReceiptExport() {
+    var btn = document.getElementById('rxSubmit');
+    var resEl = document.getElementById('rxResult');
+    var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = 'Working…';
+    resEl.style.display = 'block';
+    resEl.className = 'mt-3 text-muted';
+    resEl.textContent = 'Bundling and emailing receipts — this can take a moment for large ranges…';
+    try {
+        var r = await fetch('/crm/api/receipt-export.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: csrf,
+                date_from: document.getElementById('rxFrom').value || '',
+                date_to: document.getElementById('rxTo').value || ''
+            })
+        });
+        var d = await r.json();
+        if (!d.success) {
+            resEl.className = 'mt-3 text-danger';
+            resEl.textContent = d.error || 'Export failed.';
+        } else {
+            var x = d.result || {};
+            resEl.className = 'mt-3 text-success';
+            if (x.status === 'archived') {
+                var freedMb = ((x.freed_bytes || 0) / 1048576).toFixed(1);
+                resEl.innerHTML = 'Done — archived <strong>' + (x.archived || 0) + '</strong> receipt(s) in '
+                    + (x.zips || 0) + ' ZIP(s), emailed to ' + ((x.recipients || []).length) + ' recipient(s). '
+                    + 'Freed about <strong>' + freedMb + ' MB</strong>.'
+                    + (x.skipped ? ' ' + x.skipped + ' skipped.' : '');
+            } else if (x.status === 'nothing_to_archive') {
+                resEl.className = 'mt-3 text-muted';
+                resEl.textContent = 'No confirmed receipts matched that range.';
+            } else if (x.status === 'no_recipients') {
+                resEl.className = 'mt-3 text-danger';
+                resEl.textContent = 'No export recipients are configured — set them in Settings before archiving.';
+            } else if (x.status === 'email_failed') {
+                resEl.className = 'mt-3 text-danger';
+                resEl.textContent = 'Email delivery failed, so nothing was deleted. Check the email settings and try again.';
+            } else if (x.status === 'disabled') {
+                resEl.className = 'mt-3 text-danger';
+                resEl.textContent = 'Receipt archival is disabled in settings.';
+            } else {
+                resEl.textContent = 'Finished: ' + (x.status || 'ok') + '.';
+            }
+        }
+    } catch (e) {
+        resEl.style.display = 'block';
+        resEl.className = 'mt-3 text-danger';
+        resEl.textContent = 'Request failed: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+    }
+}
+</script>
+<?php endif; ?>
+
+<?php if ($canEdit && !empty($pendingReceipts)): ?>
+<!-- ═══════ EMAILED RECEIPTS — PENDING REVIEW ═══════════════════════ -->
+<div class="card mb-3 mw-receipt-inbox" id="receipt-inbox">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="mw-ri-title">
+            <i data-feather="mail" style="width:16px;height:16px;"></i>
+            Receipts from email — pending review
+            <span class="mw-ri-count"><?php echo count($pendingReceipts); ?></span>
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <?php foreach ($pendingReceipts as $r): ?>
+        <div class="mw-ri-row" data-expense-id="<?php echo (int)$r['id']; ?>">
+            <div class="mw-ri-receipt">
+                <?php if (!empty($r['receipt_media_id'])): ?>
+                    <a href="/crm/api/serve-receipt.php?id=<?php echo (int)$r['receipt_media_id']; ?>" target="_blank" rel="noopener" class="mw-ri-thumb-link">
+                        <i data-feather="<?php echo (strpos((string)$r['receipt_mime'], 'pdf') !== false) ? 'file-text' : 'image'; ?>" style="width:18px;height:18px;"></i>
+                        View
+                    </a>
+                <?php else: ?>
+                    <span class="text-muted small">no file</span>
+                <?php endif; ?>
+                <?php if (!empty($r['inbox_note'])): ?>
+                    <span class="mw-ri-flag" title="<?php echo htmlspecialchars($r['inbox_note']); ?>"><?php echo htmlspecialchars($r['inbox_note']); ?></span>
+                <?php endif; ?>
+                <?php if (!empty($r['sender_email'])): ?>
+                    <span class="mw-ri-from">from <?php echo htmlspecialchars($r['sender_email']); ?></span>
+                <?php endif; ?>
+            </div>
+            <div class="mw-ri-fields">
+                <label>Vendor
+                    <select class="form-select form-select-sm mw-searchable mw-ri-vendor">
+                        <option value="">— select —</option>
+                        <?php foreach ($inboxVendors as $v): ?>
+                            <option value="<?php echo (int)$v['id']; ?>" <?php echo ((int)$r['vendor_id'] === (int)$v['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($v['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Date
+                    <button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#ri-date-<?php echo (int)$r['id']; ?>" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    </button>
+                    <input type="date" id="ri-date-<?php echo (int)$r['id']; ?>" class="form-control form-control-sm mw-ri-date" hidden value="<?php echo htmlspecialchars((string)$r['expense_date']); ?>">
+                </label>
+                <label>Total
+                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-total" value="<?php echo htmlspecialchars(number_format((float)$r['total'], 2, '.', '')); ?>">
+                </label>
+                <label>GST
+                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-gst" value="<?php echo htmlspecialchars(number_format((float)$r['gst_amount'], 2, '.', '')); ?>">
+                </label>
+                <label>PST
+                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-pst" value="<?php echo htmlspecialchars(number_format((float)$r['pst_amount'], 2, '.', '')); ?>">
+                </label>
+                <label>Category
+                    <select class="form-select form-select-sm mw-ri-category">
+                        <option value="">— select —</option>
+                        <?php foreach ($inboxCategories as $c): ?>
+                            <option value="<?php echo htmlspecialchars($c); ?>" <?php echo ((string)$r['accounting_category'] === $c) ? 'selected' : ''; ?>><?php echo htmlspecialchars($c); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            </div>
+            <div class="mw-ri-actions">
+                <button type="button" class="btn btn-sm btn-primary" onclick="approveReceiptInbox(this)">Approve</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="dismissReceiptInbox(this)">Dismiss</button>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
+<script src="/crm/js/receipt-inbox-tools.js?v=20261022a" defer></script>
 
 <?php if ($canEdit): ?>
 <!-- Hidden file inputs (must stay outside hidden containers for mobile access) -->
@@ -121,7 +340,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <label class="form-label small mb-0">Date
                             <span class="mw-confidence-dot" id="confDate" title=""></span>
                         </label>
-                        <input type="date" class="form-control form-control-sm" id="rvDate">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#rvDate" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" class="form-control form-control-sm" id="rvDate" hidden>
                     </div>
                     <div class="col-4">
                         <label class="form-label small mb-0">Amount</label>
@@ -174,6 +398,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             <option value="credit_card">Credit Card</option>
                             <option value="debit">Debit</option>
                             <option value="cash">Cash</option>
+                            <option value="owner_paid">Paid personally (owner)</option>
                             <option value="etransfer">E-Transfer</option>
                             <option value="cheque">Cheque</option>
                         </select>
@@ -199,6 +424,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <span id="rvLineItemsCount">0</span> items detected
                     </button>
                     <div id="rvLineItemsList" style="display:none;">
+                        <div id="rvLineItemsMeta" class="mw-li-meta"></div>
                         <table class="mw-line-items-table w-100"></table>
                     </div>
                 </div>
@@ -337,11 +563,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <div class="row align-items-end g-2">
                 <div class="col-md-2">
                     <label class="form-label small mb-0">From</label>
-                    <input type="date" class="form-control form-control-sm" id="filterDateFrom">
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterDateFrom"
+                            data-mw-dp-range-group="expense-filter-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" class="form-control form-control-sm" id="filterDateFrom" hidden>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small mb-0">To</label>
-                    <input type="date" class="form-control form-control-sm" id="filterDateTo">
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterDateTo"
+                            data-mw-dp-range-group="expense-filter-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" class="form-control form-control-sm" id="filterDateTo" hidden>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small mb-0">Category</label>
@@ -438,11 +676,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <th data-sort="status" onclick="sortExpenses('status')" class="mw-sortable">Status</th>
                         <th class="text-center" title="OCR Confidence">Conf</th>
                         <th>Receipt</th>
+                        <th class="text-center" title="Linked to a bank line">Bank</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody id="expensesTableBody">
-                    <tr><td colspan="10" class="text-center py-4 text-muted">Loading...</td></tr>
+                    <tr><td colspan="11" class="text-center py-4 text-muted">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -695,7 +934,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         Manual
                     </button>
+                    <!-- Product / machine label: same upload + OCR, never an expense (label-capture.js) -->
+                    <button type="button" class="mw-mc-expense-action-chip" onclick="triggerLabelCamera()" title="Photo of a product bag or a machine's nameplate — Penny or Otto will propose adding it">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+                        Label
+                    </button>
                 </div>
+                <div class="mw-lc-status" id="mwLabelStatus" hidden></div>
             </div>
         </div>
 
@@ -729,6 +974,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <!-- Receipt thumbnail — compact strip, tap to view full size -->
             <div class="mw-mc-expense-review-img-compact" id="mobileReceiptWrap" onclick="toggleMobileReceiptExpand()">
                 <img id="mobileReceiptImg" src="" alt="Receipt">
+            </div>
+
+            <!-- Duplicate warnings (exact image hash or same amount/date/vendor). The desktop
+                 card's #rvDuplicateWarning is hidden under the fixed mobile container, so
+                 mobile users never saw either warning before this. -->
+            <div class="mw-mc-expense-dup-warning" id="mobileDuplicateWarning" style="display:none;" role="alert">
+                <div class="mw-mc-expense-dup-warning-body" id="mobileDuplicateList"></div>
+                <button type="button" class="mw-mc-expense-dup-warning-dismiss" onclick="dismissDuplicateWarning('mobile')" aria-label="Dismiss">&times;</button>
             </div>
 
             <div class="mw-mc-expense-review-form">
@@ -785,7 +1038,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="mw-mc-expense-field-row">
                     <div class="mw-mc-expense-field">
                         <label>Date</label>
-                        <input type="date" id="mobileRvDate">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mobileRvDate" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" id="mobileRvDate" hidden>
                     </div>
                     <div class="mw-mc-expense-field">
                         <label>Category</label>
@@ -802,6 +1060,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             <option value="credit_card">Credit Card</option>
                             <option value="debit">Debit</option>
                             <option value="cash">Cash</option>
+                            <option value="owner_paid">Paid personally (owner)</option>
                             <option value="etransfer">E-Transfer</option>
                             <option value="cheque">Cheque</option>
                         </select>
@@ -834,13 +1093,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <span id="mobileLineItemsCount">0</span> items detected
                         <svg class="mw-mc-expense-chevron" id="mobileLineItemsChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
+                    <div class="mw-mc-expense-li-meta" id="mobileLineItemsMeta"></div>
                     <div class="mw-mc-expense-line-items-list" id="mobileLineItemsList" style="display:none;"></div>
                 </div>
 
+                <!-- Mobile is capture-only: the receipt is submitted for desktop review
+                     (status pending_approval). Correcting and sending to accounting is the
+                     admin's job on the desktop — those corrections are the learning signal. -->
                 <div class="mw-mc-expense-save-row">
                     <button type="button" class="mw-mc-expense-save-btn" onclick="mobileSaveExpense(false)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                        Save
+                        Submit for Review
                     </button>
                 </div>
             </div>
@@ -866,7 +1129,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </div>
 
         <!-- Recent Expenses -->
-        <div class="mw-mc-section-label" id="mobileExpenseListLabel">Recent Expenses</div>
+        <div class="mw-mc-section-label-row">
+            <div class="mw-mc-section-label" id="mobileExpenseListLabel">Recent Expenses</div>
+            <div class="mw-mc-section-label-actions">
+                <?php if ($canSend): ?>
+                <button type="button" class="mw-mc-section-action-btn" id="mobileArchiveBtn" onclick="mobileTriggerArchiveExport()" title="Archive & export confirmed receipts to accounting">
+                    <i data-feather="archive" style="width:14px;height:14px;"></i>
+                </button>
+                <?php endif; ?>
+                <?php if ($canApprove): ?>
+                <button type="button" class="mw-mc-section-action-btn" id="mobileSelectToggle" onclick="toggleMobileSelectMode()">Select</button>
+                <?php endif; ?>
+            </div>
+        </div>
         <div id="mobileExpenseList">
             <div class="mw-mc-empty">
                 <div class="mw-mc-empty-icon">
@@ -877,6 +1152,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </div>
 
     </div><!-- /.mw-mc-scroll-area -->
+
+    <!-- Bulk Approve/Reject Bar — shown while select mode has 1+ items checked -->
+    <div class="mw-mc-bulk-action-bar" id="mobileBulkActionBar" style="display:none;">
+        <span class="mw-mc-bulk-count" id="mobileBulkCount">0 selected</span>
+        <div class="mw-mc-bulk-action-buttons">
+            <button type="button" class="mw-mc-bulk-btn mw-mc-bulk-reject" onclick="mobileBulkReject()">Reject</button>
+            <button type="button" class="mw-mc-bulk-btn mw-mc-bulk-approve" onclick="mobileBulkApprove()">Approve</button>
+        </div>
+    </div>
 
     <!-- Fixed Bottom Bar -->
     <div class="mw-mc-bottombar">
@@ -935,16 +1219,27 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
+                        <!-- An emailed receipt (the email itself): shown sandboxed — no scripts, no forms -->
+                        <iframe id="expReceiptFrame" class="mw-modal-receipt-frame" sandbox="" referrerpolicy="no-referrer" title="Emailed receipt" hidden></iframe>
                     </div>
                     <!-- Right: Form Fields -->
                     <div class="col-lg-7" id="expFormCol">
+                        <!-- Penny's read: her pending suggestion where it differs (/crm/js/penny-read.js, PennyReadService) -->
+                        <div id="expPennyRead" hidden></div>
+                        <!-- Otto: the supplier stop this receipt came from + his job pick (/crm/js/supplier-stop.js, SupplierJobSuggestService) -->
+                        <div id="expSupplierStop" hidden></div>
                         <!-- Section: Purchase Details -->
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
                             <div class="row g-3">
                                 <div class="col-md-4">
                                     <label class="form-label">Date <span class="text-danger">*</span></label>
-                                    <input type="date" class="form-control" id="expDate" required>
+                                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#expDate" aria-haspopup="true" aria-expanded="false">
+                                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                    </button>
+                                    <input type="date" class="form-control" id="expDate" required hidden>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Vendor</label>
@@ -960,11 +1255,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                         <option value="credit_card">Credit Card</option>
                                         <option value="debit">Debit</option>
                                         <option value="cash">Cash</option>
+                            <option value="owner_paid">Paid personally (owner)</option>
                                         <option value="etransfer">E-Transfer</option>
                                         <option value="cheque">Cheque</option>
                                     </select>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Section: Matched Transaction -->
+                        <div class="mw-expense-form-section">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="link"></i> Matched Transaction</h6>
+                            <div id="expMatchArea"></div>
                         </div>
 
                         <!-- Section: Amounts -->
@@ -1028,11 +1330,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <div class="col-md-4">
                                     <label class="form-label">Status</label>
                                     <div class="mw-status-toggle-wrap">
-                                        <input type="checkbox" id="expApproved" class="mw-status-toggle-input">
+                                        <input type="checkbox" id="expApproved" class="mw-status-toggle-input" disabled title="Use the Approve/Reject buttons below to change status">
                                         <label for="expApproved" class="mw-status-toggle-label">
                                             <span class="mw-status-toggle-pill">
                                                 <i data-feather="check" class="mw-status-check-icon"></i>
-                                                <span class="mw-status-toggle-text">Approved</span>
+                                                <span class="mw-status-toggle-text" id="expStatusText">Approved</span>
                                             </span>
                                         </label>
                                     </div>
@@ -1136,6 +1438,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             </div>
                             <div id="expLineItemsList">
                                 <table class="mw-line-items-table w-100" id="expLineItemsTable"></table>
+                                <!-- Split by line (migration 1233): drawn by /crm/js/expense-split.js -->
+                                <div id="expSplitPanel"></div>
                                 <!-- Smart Add Item Panel (hidden by default) -->
                                 <div id="expAddItemPanel" class="mw-aip" style="display:none;">
                                     <!-- Search / filter -->
@@ -1165,11 +1469,39 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
             <div class="modal-footer border-0 pt-0">
                 <button type="button" class="btn mw-btn-dismiss" data-dismiss="modal">Cancel</button>
+                <?php if ($canApprove): ?>
+                <button type="button" class="btn btn-outline-danger" id="expRejectBtn" onclick="rejectExpenseFromModal()" style="display:none;">
+                    <i data-feather="x" style="width:16px;height:16px;margin-right:4px;"></i> Reject
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="expFileBookedBtn" onclick="fileBookedFromModal()" style="display:none;"
+                        title="This purchase is already in your filed books: keep the receipt, teach Penny, book nothing">
+                    <i data-feather="archive" style="width:16px;height:16px;margin-right:4px;"></i> Already booked — file it
+                </button>
+                <button type="button" class="btn btn-outline-success" id="expApproveBtn" onclick="approveExpenseFromModal()" style="display:none;">
+                    <i data-feather="check" style="width:16px;height:16px;margin-right:4px;"></i> Approve
+                </button>
+                <div class="btn-group" id="expPersonalGroup" style="display:none;">
+                    <button type="button" class="btn btn-outline-secondary" id="expPersonalBtn" onclick="markPersonalFromModal(null)"
+                            title="Personal: the whole receipt goes on the shareholder's account and no GST is claimed back">Personal</button>
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-toggle="dropdown"
+                            aria-haspopup="true" aria-expanded="false" aria-label="Personal for another shareholder"></button>
+                    <div class="dropdown-menu dropdown-menu-right" id="expPersonalMenu"></div>
+                </div>
+                <?php endif; ?>
+                <?php if ($canSend): ?>
+                <button type="button" class="btn btn-success" id="expSendBtn" onclick="sendExpenseFromModal()" style="display:none;" title="Send to QuickBooks">
+                    <i data-feather="send" style="width:16px;height:16px;margin-right:4px;"></i> Send to Accounting
+                </button>
+                <?php endif; ?>
                 <?php if ($canEdit): ?>
+                <span id="expLockedNote" class="text-muted me-auto" style="display:none;font-size:.8rem;">
+                    <i data-feather="lock" style="width:13px;height:13px;margin-right:3px;"></i>
+                    Sent to accounting — header fields are locked. Line items can still be linked to products (that teaches the parser).
+                </span>
                 <button type="button" class="btn btn-outline-primary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
                     <i data-feather="upload" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
                 </button>
-                <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
+                <button type="button" class="btn btn-primary px-4" id="expSaveBtn" onclick="saveExpense()">
                     <i data-feather="save" style="width:16px;height:16px;margin-right:4px;"></i> Save Expense
                 </button>
                 <?php endif; ?>
@@ -1225,6 +1557,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <input type="text" class="form-control mb-1" id="vendorAddress" placeholder="123 Main St" autocomplete="off">
                     <div id="vendorGeoStatus" style="font-size:0.75rem;margin-bottom:6px;"></div>
                     <input type="text" class="form-control" id="vendorCity" placeholder="City">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="vendorGstNumber">GST number <small class="text-muted">(Penny fills it in from their receipts)</small></label>
+                    <input type="text" class="form-control" id="vendorGstNumber" placeholder="123456789RT0001" maxlength="20">
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Notes</label>
@@ -1367,10 +1703,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 
 <script>
+// Today's date in the visitor's own time zone (toISOString() gives UTC: tomorrow's date after about 4 pm in Vancouver).
+window.localDateYmd = function (date) {
+    var d = date || new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
 (function() {
     'use strict';
 
     let CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    // offline-receipts.js prefers window.CSRF over the token stored with a queued
+    // receipt (the session may have rotated while it sat in IndexedDB) — but this
+    // closure-scoped token was never exposed, so replays always used the stale one.
+    window.CSRF = CSRF;
     const QUICK_MODE  = <?php echo $quickMode  ? 'true' : 'false'; ?>;
     const AUTO_CAMERA = <?php echo $autoCamera ? 'true' : 'false'; ?>;
     const RETURN_TO   = '<?php echo htmlspecialchars($returnTo); ?>';
@@ -1379,6 +1724,116 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
     const CAN_APPROVE = <?php echo $canApprove ? 'true' : 'false'; ?>;
+
+    // Mobile multi-select state — bulk approve/reject from the receipt card list
+    var mobileSelectMode = false;
+    var mobileSelectedIds = new Set();
+    var mobileLastRenderedExpenses = [];
+
+    function toggleMobileSelectMode() {
+        mobileSelectMode = !mobileSelectMode;
+        mobileSelectedIds.clear();
+        renderMobileExpenses(mobileLastRenderedExpenses);
+        updateMobileSelectUI();
+    }
+
+    function toggleMobileExpenseSelect(id) {
+        if (mobileSelectedIds.has(id)) mobileSelectedIds.delete(id);
+        else mobileSelectedIds.add(id);
+        renderMobileExpenses(mobileLastRenderedExpenses);
+        updateMobileSelectUI();
+    }
+
+    function updateMobileSelectUI() {
+        var toggleBtn = document.getElementById('mobileSelectToggle');
+        if (toggleBtn) toggleBtn.textContent = mobileSelectMode ? 'Cancel' : 'Select';
+        var bar = document.getElementById('mobileBulkActionBar');
+        if (!bar) return;
+        var count = mobileSelectedIds.size;
+        if (mobileSelectMode && count > 0) {
+            bar.style.display = 'flex';
+            var countEl = document.getElementById('mobileBulkCount');
+            if (countEl) countEl.textContent = count + ' selected';
+        } else {
+            bar.style.display = 'none';
+        }
+    }
+
+    async function mobileBulkApprove() {
+        if (!mobileSelectedIds.size) return;
+        var ids = Array.from(mobileSelectedIds);
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=batch_approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_ids: ids })
+            });
+            var d = await r.json();
+            if (d.failed && d.failed.length) {
+                mobileToast((d.approved || []).length + ' approved, ' + d.failed.length + ' failed');
+            } else {
+                mobileToast((d.approved || []).length + ' expense(s) approved');
+            }
+            mobileSelectMode = false;
+            mobileSelectedIds.clear();
+            updateMobileSelectUI();
+            loadExpenses();
+        } catch (e) {
+            mobileToast('Bulk approve failed');
+        }
+    }
+
+    async function mobileBulkReject() {
+        if (!mobileSelectedIds.size) return;
+        var reason = prompt('Reason for rejecting ' + mobileSelectedIds.size + ' expense(s):');
+        if (!reason || !reason.trim()) return;
+        var ids = Array.from(mobileSelectedIds);
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=batch_reject', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_ids: ids, rejection_reason: reason.trim() })
+            });
+            var d = await r.json();
+            if (d.failed && d.failed.length) {
+                mobileToast((d.rejected || []).length + ' rejected, ' + d.failed.length + ' failed');
+            } else {
+                mobileToast((d.rejected || []).length + ' expense(s) rejected');
+            }
+            mobileSelectMode = false;
+            mobileSelectedIds.clear();
+            updateMobileSelectUI();
+            loadExpenses();
+        } catch (e) {
+            mobileToast('Bulk reject failed');
+        }
+    }
+
+    // Mobile-reachable trigger for the same manual archive/export ReceiptArchiveService run
+    // the desktop admin has via receipt-export.php — CRA-retention archival previously
+    // required switching to a desktop browser to run.
+    async function mobileTriggerArchiveExport() {
+        if (!confirm('Archive and export all confirmed receipts now? Originals are emailed then removed from the server, keeping a thumbnail.')) return;
+        var btn = document.getElementById('mobileArchiveBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var r = await fetch('/crm/api/receipt-export.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF })
+            });
+            var d = await r.json();
+            if (d.success) {
+                mobileToast('Archive complete');
+            } else {
+                mobileToast(d.error || 'Archive failed', true);
+            }
+        } catch (e) {
+            mobileToast('Archive failed', true);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
 
     // Auto-refresh CSRF token when session has rotated (e.g. re-login on another tab)
     async function refreshCSRF() {
@@ -1550,6 +2005,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     window.triggerCamera = function() {
         cleanupPendingReceiptInput();
 
+        // Pre-tap guard: on native Android the WebView file picker throws
+        // "Access denied" when the app's CAMERA permission is off. If we already
+        // know it's denied, block the doomed picker and show guidance instead.
+        if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()
+            && MwCameraPermission.isDenied()) {
+            MwCameraPermission.showDeniedDialog();
+            return;
+        }
+
         var input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
@@ -1571,6 +2035,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             detachListeners();
             if (input.parentNode) input.parentNode.removeChild(input);
             pendingReceiptInput = null;
+            // No file: on native Android this can be a silent camera-permission
+            // denial (the picker never really opened). Re-check and surface
+            // actionable guidance instead of leaving the user stuck.
+            if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()) {
+                MwCameraPermission.refresh(function(state) {
+                    if (state === 'denied') MwCameraPermission.showDeniedDialog();
+                });
+            }
             window.showExpenseHistory();
         }
 
@@ -1726,18 +2198,28 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (!file) return;
         e.target.value = ''; // Bug #5 fix: reset so the same photo can be re-selected after a failed upload
 
-        // Bug #8 fix: refresh GPS at capture time (non-blocking — updates currentGpsLat/Lng in the
-        // background while compression runs; uses page-load value if GPS hasn't resolved by upload time)
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                function(pos) {
-                    currentGpsLat = pos.coords.latitude;
-                    currentGpsLng = pos.coords.longitude;
-                },
-                function() { /* silently use last-known position */ },
-                { timeout: 8000, enableHighAccuracy: false }
-            );
-        }
+        // Location at capture: fetched while compression runs and awaited (max 4s) before
+        // upload, so the receipt carries where it was photographed — that teaches the
+        // vendor's store location and matches the job. A desktop computer's location is
+        // the office, not the store: send none from non-touch devices.
+        var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+        if (!isTouchDevice) { currentGpsLat = null; currentGpsLng = null; }
+        var gpsAtCapture = (isTouchDevice && navigator.geolocation)
+            ? new Promise(function(resolve) {
+                var done = false;
+                var finish = function() { if (!done) { done = true; resolve(); } };
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) {
+                        currentGpsLat = pos.coords.latitude;
+                        currentGpsLng = pos.coords.longitude;
+                        finish();
+                    },
+                    finish,   // denied/unavailable: fall back to the page-load position
+                    { timeout: 4000, enableHighAccuracy: true, maximumAge: 30000 }
+                );
+                setTimeout(finish, 4500);
+            })
+            : Promise.resolve();
 
         // Show spinner immediately — before compression even starts
         document.getElementById('capturePrompt').style.display = 'none';
@@ -1751,8 +2233,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (mobileCap) mobileCap.style.display = 'none';
         if (mobileSpin) mobileSpin.style.display = 'flex';
 
-        // Phase 2.1: Compress before upload
-        compressReceiptImage(file).then(function(uploadFile) {
+        // Phase 2.1: Compress before upload (location fix resolves alongside)
+        Promise.all([compressReceiptImage(file), gpsAtCapture]).then(function(res) {
+            var uploadFile = res[0];
             if (spinLabel) spinLabel.textContent = 'Uploading…';
 
             // Save to IDB before attempting upload — photo survives any network failure
@@ -1829,6 +2312,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('receiptCaptureCard').style.display = 'none';
         document.getElementById('receiptReviewPanel').style.display = 'block';
 
+        // A fresh capture must always offer Save — undo any batch-mode
+        // (Snap Another / Done) buttons left over from the previous save.
+        restoreSaveButtons();
+
         // Show receipt image preview
         var reader = new FileReader();
         reader.onload = function(e) {
@@ -1873,6 +2360,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         // Date — safeDate() ensures YYYY-MM-DD format for <input type="date">
         document.getElementById('rvDate').value = safeDate(p.date);
+        document.getElementById('rvDate').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('rvDate').dispatchEvent(new Event('change', { bubbles: true }));
         setConfidence('confDate', p.date ? visionConf('date', 70) : 0);
 
         // Vendor
@@ -1943,19 +2432,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('rvJobId').value = s.suggested_job_id;
         }
 
-        // Line items in review panel
-        var lineItems = (p.line_items || []);
+        // Line items in review panel — editable pre-save (rename / "not an item" /
+        // add missed) so every correction is a learning signal for this vendor.
+        var lineItems = normalizeReviewLineItems(p.line_items || []);
         window.currentReviewLineItems = lineItems;
-        var rvLiSection = document.getElementById('rvLineItemsSection');
-        if (lineItems.length > 0 && rvLiSection) {
-            document.getElementById('rvLineItemsCount').textContent = lineItems.length;
-            document.getElementById('rvLineItemsList').querySelector('table').innerHTML =
-                renderLineItemsTable(lineItems, false);
-            document.getElementById('rvLineItemsList').style.display = 'block';
-            rvLiSection.style.display = 'block';
-        } else if (rvLiSection) {
-            rvLiSection.style.display = 'none';
-        }
+        window.currentReviewLineItemsMeta = lineItemsMetaFromParsed(p);
+        renderDesktopReviewLineItems();
 
         // Product matches banner (from vendor product catalog)
         var productMatches = p.product_matches || [];
@@ -2013,7 +2495,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }
 
             // Copy parsed values into mobile form fields
-            var setMobileVal = function(id, val) { var el = document.getElementById(id); if (el && val) el.value = val; };
+            var setMobileVal = function(id, val) {
+                var el = document.getElementById(id);
+                if (!el || !val) return;
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            };
             setMobileVal('mobileRvVendor', s.vendor_name || p.vendor_hint || '');
             setMobileVal('mobileRvVendorId', s.vendor_id || '');
             setMobileVal('mobileRvDate', safeDate(p.date));
@@ -2036,27 +2524,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             setMobileConf('mobileConfTotal', p.total ? 70 : 0);
             setMobileConf('mobileConfVendor', s.vendor_confidence || (p.vendor_hint ? 30 : 0));
 
-            // Mobile line items
-            var mLiSection = document.getElementById('mobileLineItemsSection');
-            var mLiList = document.getElementById('mobileLineItemsList');
-            var mLiCount = document.getElementById('mobileLineItemsCount');
-            var lineItems = (p.line_items || []);
-            window.currentMobileLineItems = lineItems;
-            if (lineItems.length > 0 && mLiSection) {
-                mLiCount.textContent = lineItems.length;
-                mLiList.innerHTML = lineItems.map(function(item) {
-                    var amt = parseFloat(item.amount || item.line_total || 0);
-                    var qty = parseFloat(item.quantity || 1);
-                    var qtyLabel = qty > 1 ? ' <small class="text-muted">x' + qty + '</small>' : '';
-                    return '<div class="mw-mc-expense-line-item">' +
-                        '<span class="mw-mc-expense-line-item-name">' + esc(item.name) + qtyLabel + '</span>' +
-                        '<span class="mw-mc-expense-line-item-amt' + (amt < 0 ? ' mw-mc-expense-line-item-neg' : '') + '">$' + amt.toFixed(2) + '</span>' +
-                    '</div>';
-                }).join('');
-                mLiSection.style.display = 'block';
-            } else if (mLiSection) {
-                mLiSection.style.display = 'none';
-            }
+            // Mobile line items — editable pre-save (tap name to rename, ✕ = not an item,
+            // + add a missed item). Same learning signals as the desktop card.
+            window.currentMobileLineItems = normalizeReviewLineItems(p.line_items || []);
+            window.currentMobileLineItemsMeta = lineItemsMetaFromParsed(p);
+            renderMobileReviewLineItems();
 
             // Store media/ocr refs for mobile save
             mobileReview.dataset.mediaId = data.media_id || '';
@@ -2099,26 +2571,35 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
 
         // ── Warn if exact same image was already uploaded (SHA-256 match) ──
+        hideDuplicateWarning('mobile');
         if (data.duplicate_image) {
+            var dupMsg = '<div class="mw-duplicate-item">' +
+                '<span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
+                '<span class="mw-duplicate-detail"><strong>This exact receipt image was already uploaded.</strong> ' +
+                'You may be about to create a duplicate expense. Please verify before saving.</span>' +
+                '</div>';
             var dupWarn = document.getElementById('rvDuplicateWarning');
             var dupList = document.getElementById('rvDuplicateList');
             if (dupWarn && dupList) {
-                dupList.innerHTML = '<div class="mw-duplicate-item">' +
-                    '<span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
-                    '<span class="mw-duplicate-detail"><strong>This exact receipt image was already uploaded.</strong> ' +
-                    'You may be about to create a duplicate expense. Please verify before saving.</span>' +
-                    '</div>';
+                dupList.innerHTML = dupMsg;
                 dupWarn.style.display = 'block';
-                if (window.feather) feather.replace();
             }
+            var mDupWarn = document.getElementById('mobileDuplicateWarning');
+            var mDupList = document.getElementById('mobileDuplicateList');
+            if (mDupWarn && mDupList) {
+                mDupList.innerHTML = dupMsg;
+                mDupWarn.style.display = 'block';
+            }
+            if (window.feather) feather.replace();
         } else {
             // ── Check for duplicate receipts by amount/date ──
             var dupTotal = p.total ? parseFloat(p.total) : null;
-            var dupDate  = p.date || new Date().toISOString().slice(0, 10);
+            var dupDate  = p.date || localDateYmd();
             var dupVendorName = s.vendor_name || p.vendor_hint || null;
             var dupVendorId   = s.vendor_id || null;
             if (dupTotal && dupTotal > 0) {
                 checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'rv');
+                checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'mobile');
             }
         }
     }
@@ -2169,6 +2650,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var warningEl = document.getElementById(prefix + 'DuplicateWarning');
         var listEl = document.getElementById(prefix + 'DuplicateList');
         if (!warningEl || !listEl) return;
+
+        // Mobile card: compact read-only list (no Merge/View — the desktop merge picker
+        // and edit modal live under the fixed mobile container). Save still proceeds;
+        // the save-time toast is the second nudge, same as before.
+        if (prefix === 'mobile') {
+            listEl.innerHTML = '<div class="mw-duplicate-item"><span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
+                '<span class="mw-duplicate-detail"><strong>Possible duplicate' + (duplicates.length > 1 ? 's' : '') + ':</strong> ' +
+                duplicates.map(function(d) {
+                    var vendorDisplay = d.vendor_name || d.vendor_name_raw || 'Unknown vendor';
+                    return esc(vendorDisplay) + ' — $' + parseFloat(d.total).toFixed(2) + ' on ' + esc(d.expense_date) + ' (' + esc(String(d.status || '').replace('_', ' ')) + ')';
+                }).join('; ') +
+                '</span></div>';
+            warningEl.style.display = 'block';
+            if (window.feather) feather.replace();
+            return;
+        }
 
         listEl.innerHTML = duplicates.map(function(d) {
             var vendorDisplay = d.vendor_name || d.vendor_name_raw || 'Unknown vendor';
@@ -2392,6 +2889,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('rvVendorSearch').value = '';
         document.getElementById('rvVendorId').value = '';
         document.getElementById('rvDate').value = '';
+        document.getElementById('rvDate').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('rvDate').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('rvAmount').value = '';
         document.getElementById('rvGst').value = '0';
         if (document.getElementById('rvPst')) document.getElementById('rvPst').value = '0';
@@ -2423,18 +2922,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     window.saveFromReview = function() { saveReviewExpense(false); };
     window.saveAndSend = function() { saveReviewExpense(true); };
 
+    // One save at a time: a second click while the duplicate check or the save is still
+    // out would create a second expense for the same photo.
+    var reviewSaveInFlight = false;
     async function saveReviewExpense(andSend) {
-        // Prepare line items for saving
-        var liPayload = (window.currentReviewLineItems || []).map(function(li) {
-            return {
-                name: li.name || 'Unknown',
-                quantity: li.quantity || 1,
-                unit_price: li.unit_price || null,
-                line_total: li.amount || li.line_total || 0,
-                sku_raw: li.sku_raw || null,
-                product_id: li.product_id || null,
-            };
-        });
+        if (reviewSaveInFlight) return;
+        reviewSaveInFlight = true;
+        try { await saveReviewExpenseOnce(andSend); } finally { reviewSaveInFlight = false; }
+    }
+
+    async function saveReviewExpenseOnce(andSend) {
+        // Prepare line items for saving — carries ocr_name / removed / manual so the
+        // server records per-vendor lessons from any correction made here.
+        var liPayload = reviewLineItemsPayload('review');
+        var reviewLiSource = (window.currentReviewLineItemsMeta || {}).source || null;
 
         function buildData() {
             return {
@@ -2461,6 +2962,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 ocr_parsed: document.getElementById('intakeOcrParsed').value || null,
                 status: 'draft',
                 line_items: liPayload,
+                line_items_source: reviewLiSource,
             };
         }
 
@@ -2689,11 +3191,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var r = await fetch('/crm/api/expenses.php?' + params);
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+            window.__bankDataThrough = d.bank_data_through || null;
             renderExpenses(d.expenses, d.total, d.page, d.pages, d.per_page);
             renderMobileExpenses(d.expenses);
         } catch(e) {
             document.getElementById('expensesTableBody').innerHTML =
-                '<tr><td colspan="10" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
+                '<tr><td colspan="11" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
         }
     };
 
@@ -2717,6 +3220,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             forwarded: 'bg-success',
         }[e.status] || 'bg-secondary';
 
+        // A copy of a receipt already in a filed year is stored as 'rejected' with a "Filed:" reason; it is not a rejection.
+        var statusLabel = e.status;
+        if (e.status === 'rejected' && /^Filed:/.test(e.rejection_reason || '')) {
+            statusBadge = 'bg-secondary';
+            statusLabel = 'filed';
+        }
+
+        window.__expBank = window.__expBank || {};
+        window.__expBank[e.id] = e;
+        // Bank icon + word (Ittai v1.2 status colours in mowology-brand.css .it-bank): Linked (click to check) /
+        // Missing (booked card receipt, no bank line) / Waiting (newer than the last imported statement) / grey dash (not expected yet).
+        var BANK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>';
+        var bankExpected = (e.status === 'approved' || e.status === 'forwarded' || statusLabel === 'filed')
+            && String(e.payment_method || '').toLowerCase() !== 'cash';
+        var bankWaiting = bankExpected && window.__bankDataThrough && e.expense_date > window.__bankDataThrough;
+        var bankCell = e.bank_line
+            ? '<a href="#" class="it-bank it-bank--linked" onclick="openBankLinkPopup(event,' + e.id + ');return false;" title="Linked to a bank line — click to check">' + BANK_SVG + 'Linked</a>'
+            : (bankWaiting
+                ? '<span class="it-bank it-bank--waiting" title="Waiting for a statement: bank lines are imported only up to ' + esc(window.__bankDataThrough) + '">' + BANK_SVG + 'Waiting</span>'
+            : bankExpected
+                ? '<span class="it-bank it-bank--missing" title="Not linked to a bank line">' + BANK_SVG + 'Missing</span>'
+                : '<span class="it-bank it-bank--idle" title="Not linked to a bank line (not expected yet)">' + BANK_SVG + '&ndash;</span>');
+
         var conf = parseInt(e.match_confidence) || 0;
         var confDot = '';
         if (conf >= 70) confDot = '<span class="mw-conf-dot-sm mw-conf-high" title="High confidence ' + conf + '%"></span>';
@@ -2732,9 +3258,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
         }
 
-        var receiptIcon = e.receipt_path
-            ? '<img src="' + esc(e.receipt_path) + '" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">'
-            : '<span class="mw-receipt-no-img" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+        // A small cached thumbnail, loaded only when the row scrolls into view (full photos ~1.6 MB each);
+        // a PDF or an emailed receipt (the email itself) opens in a new tab from an icon.
+        var receiptIcon;
+        if (e.receipt_path && e.receipt_kind && e.receipt_kind !== 'image') {
+            receiptIcon = '<a href="' + esc(e.receipt_path) + '" target="_blank" rel="noopener" class="mw-receipt-doc" onclick="event.stopPropagation()" title="' + (e.receipt_kind === 'email' ? 'Emailed receipt' : 'PDF receipt') + '">'
+                + '<i data-feather="' + (e.receipt_kind === 'email' ? 'mail' : 'file-text') + '" style="width:16px;height:16px"></i></a>';
+        } else if (e.receipt_path) {
+            receiptIcon = '<img src="' + esc(e.receipt_thumb || e.receipt_path) + '" loading="lazy" decoding="async" alt="Receipt" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">';
+        } else {
+            receiptIcon = '<span class="mw-receipt-no-img" title="No receipt image"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+        }
 
         var actions = '';
         if (e.forwarded_to_accounting) {
@@ -2758,16 +3292,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             '<td>' + (e.job_id
                 ? '<a href="#" class="mw-job-assign-link" onclick="openJobPopover(event,' + e.id + ',' + e.job_id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>'
                 : (CAN_EDIT ? '<a href="#" class="mw-job-assign-link text-muted" onclick="openJobPopover(event,' + e.id + ',null);return false;" title="Assign to job">Assign</a>' : '<span class="text-muted">—</span>')) + '</td>' +
-            '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
+            '<td><span class="badge ' + statusBadge + '"' + (statusLabel === 'filed' ? ' title="' + esc(e.rejection_reason || '') + '"' : '') + '>' + statusLabel + '</span></td>' +
             '<td class="text-center">' + confDot + '</td>' +
             '<td>' + receiptIcon + '</td>' +
+            '<td class="text-center">' + bankCell + '</td>' +
             '<td class="text-end text-nowrap">' + actions + '</td>' +
         '</tr>';
     }
 
     function renderExpenses(expenses, total, page, pages, perPage) {
         var tbody = document.getElementById('expensesTableBody');
-        var colSpan = CAN_EDIT ? 10 : 9;
+        var colSpan = CAN_EDIT ? 11 : 10;
 
         if (!expenses.length) {
             tbody.innerHTML = '<tr><td colspan="' + colSpan + '" class="text-center py-4 text-muted">No expenses found</td></tr>';
@@ -2869,23 +3404,46 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (!vA && !vB) return true; // both anonymous, same total + date
         return false;
     }
+    // "Not a duplicate" is kept on the server (expense_duplicate_dismissals, shared with
+    // Penny's card — /crm/api/bookkeeper.php); sessionStorage stays as the fallback for
+    // users without approve rights or before migration 1127.
+    var serverDismissed = [];
     function getDismissedPairs() {
-        try { return JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]'); } catch(e) { return []; }
+        var local = [];
+        try { local = JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]'); } catch(e) {}
+        return local.concat(serverDismissed);
     }
     function dismissPair(idA, idB) {
         var key = [Math.min(idA, idB), Math.max(idA, idB)].join('_');
         var pairs = getDismissedPairs();
         if (pairs.indexOf(key) === -1) {
-            pairs.push(key);
-            try { sessionStorage.setItem('mw_dup_dismissed', JSON.stringify(pairs)); } catch(e) {}
+            try {
+                var local = JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]');
+                local.push(key);
+                sessionStorage.setItem('mw_dup_dismissed', JSON.stringify(local));
+            } catch(e) {}
         }
+        fetch('/crm/api/bookkeeper.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'not_dupe', pairs: [[idA, idB]], csrf_token: CSRF }) }).catch(function() {});
     }
     function isPairDismissed(idA, idB) {
         var key = [Math.min(idA, idB), Math.max(idA, idB)].join('_');
         return getDismissedPairs().indexOf(key) !== -1;
     }
+    fetch('/crm/api/bookkeeper.php?mode=dismissed_dupes', { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+            if (!d || !d.ok || !d.pairs || !d.pairs.length) return;
+            serverDismissed = d.pairs.map(function(p) { return Math.min(p[0], p[1]) + '_' + Math.max(p[0], p[1]); });
+            if (typeof loadExpenses === 'function') loadExpenses(currentPage);
+        })
+        .catch(function() {});
     function findDuplicateGroups(expenses) {
         var groups = [], inGroupIds = new Set();
+        // A receipt already set aside (rejected, e.g. "Merged into receipt #7") is no longer a copy:
+        // left in, Review & Merge kept picking it as the one to remove and never reached the live
+        // copies — Home Depot $64.26 x4 (2026-10-13).
+        expenses = expenses.filter(function(e) { return e.status !== 'rejected'; });
         for (var i = 0; i < expenses.length; i++) {
             if (inGroupIds.has(expenses[i].id)) continue;
             var group = [expenses[i]];
@@ -2980,9 +3538,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             html += '</tr>';
         });
 
-        // Receipt row — show thumbnails
-        var receiptA = a.receipt_path ? '<img src="' + esc(a.receipt_path) + '" style="max-height:60px;border-radius:4px;">' : '<span class="mw-merge-value-empty">no receipt</span>';
-        var receiptB = b.receipt_path ? '<img src="' + esc(b.receipt_path) + '" style="max-height:60px;border-radius:4px;">' : '<span class="mw-merge-value-empty">no receipt</span>';
+        // Receipt row — the receipt itself, so the two can be compared: a photo, a PDF (shown inline)
+        // or an emailed receipt (sandboxed). A PDF in an <img> showed nothing (2026-10-14).
+        function mergeReceipt(x) {
+            if (!x.receipt_path) return '<span class="mw-merge-value-empty">no receipt</span>';
+            var mime = x.receipt_mime_type || '';
+            var open = '<a href="' + esc(x.receipt_path) + '" target="_blank" rel="noopener" class="d-block small mt-1">Open full size</a>';
+            if (/pdf/i.test(mime)) return '<iframe src="' + esc(x.receipt_path) + '#toolbar=0&view=FitH" class="mw-merge-receipt-frame" title="PDF receipt #' + x.id + '"></iframe>' + open;
+            if (/html/i.test(mime)) return '<iframe src="' + esc(x.receipt_path) + '" sandbox="" referrerpolicy="no-referrer" class="mw-merge-receipt-frame" title="Emailed receipt #' + x.id + '"></iframe>' + open;
+            return '<img src="' + esc(x.receipt_path) + '&thumb=1" alt="Receipt #' + x.id + '" class="mw-merge-receipt-img">' + open;
+        }
+        var receiptA = mergeReceipt(a);
+        var receiptB = mergeReceipt(b);
         var receiptDefault = 'keep';
         if (!a.receipt_path && b.receipt_path) receiptDefault = 'discard';
 
@@ -3172,6 +3739,41 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         loadStats();
     };
 
+    // ── Bank line check popup: is this receipt linked, and does it agree with the line? ──
+    window.openBankLinkPopup = function(evt, expenseId) {
+        evt.stopPropagation();
+        var e = (window.__expBank || {})[expenseId];
+        var old = document.getElementById('bankLinkPopup');
+        if (old) old.remove();
+        if (!e || !e.bank_line) return;
+        var b = e.bank_line;
+        var diff = Math.round((parseFloat(e.total) - parseFloat(b.amount)) * 100) / 100;
+        var verdict = diff === 0
+            ? '<span class="it-bank it-bank--linked">Amounts match</span>'
+            : '<span class="it-bank it-bank--missing" style="white-space:normal">Receipt differs from the line by $' + Math.abs(diff).toFixed(2) + '</span>';
+        var thumb = e.receipt_path && e.receipt_kind === 'image'
+            ? '<img src="' + esc(e.receipt_thumb || e.receipt_path) + '" alt="Receipt" style="width:64px;height:64px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="openLightbox(\'' + esc(e.receipt_path) + '\')">'
+            : '';
+        var pop = document.createElement('div');
+        pop.id = 'bankLinkPopup';
+        pop.style.cssText = 'position:absolute;z-index:1080;width:300px;background:#fff;border:1px solid var(--mw-light);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:12px;font-size:.85rem';
+        pop.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong>Bank line' + (b.extra ? ' (one of several receipts)' : '') + '</strong>'
+            + '<a href="#" onclick="document.getElementById(\'bankLinkPopup\').remove();return false;" style="color:#888;text-decoration:none">&times;</a></div>'
+            + '<div style="display:flex;gap:10px"><div style="flex:1;min-width:0">'
+            + '<div>' + esc(b.date) + ' &middot; <strong>$' + esc(b.amount) + '</strong></div>'
+            + '<div style="color:#666;word-break:break-word">' + esc(b.description) + '</div>'
+            + '<div style="margin-top:6px">Receipt: ' + esc(e.vendor_name || e.vendor_name_raw || '—') + ' &middot; $' + parseFloat(e.total).toFixed(2) + '</div>'
+            + '<div style="margin-top:4px">' + verdict + '</div></div>' + thumb + '</div>';
+        document.body.appendChild(pop);
+        var rect = evt.currentTarget.getBoundingClientRect();
+        pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+        pop.style.left = Math.max(8, Math.min(rect.left + window.scrollX - 140, window.innerWidth - 316)) + 'px';
+    };
+    document.addEventListener('click', function(ev) {
+        var pop = document.getElementById('bankLinkPopup');
+        if (pop && !pop.contains(ev.target)) pop.remove();
+    });
+
     // ── Inline Job Assign Popover ────────────────────────────────
     window.openJobPopover = function(evt, expenseId, currentJobId) {
         evt.stopPropagation();
@@ -3325,18 +3927,49 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expenseId').value = e.id;
             document.getElementById('expReceiptMediaId').value = e.receipt_media_id || '';
             document.getElementById('expDate').value = e.expense_date;
+            document.getElementById('expDate').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('expDate').dispatchEvent(new Event('change', { bubbles: true }));
             document.getElementById('expVendorSearch').value = e.vendor_name || e.vendor_name_raw || '';
             document.getElementById('expVendorId').value = e.vendor_id || '';
             document.getElementById('expPayment').value = e.payment_method || '';
             document.getElementById('expAmount').value = e.amount;
             document.getElementById('expGst').value = e.gst_amount;
             document.getElementById('expTotal').value = e.total;
+            window.mwExpSavedTotal = parseFloat(e.total) || 0;   // Attach is judged on the SAVED total (the server's rule)
             document.getElementById('expAcctCategory').value = e.accounting_category || '';
             document.getElementById('expGbpCategory').value = e.gbp_category || '';
             // Job link — populate the search field display and hidden ID
             var jobSub = [e.job_service_type, e.job_contact_name, e.job_address].filter(Boolean).join(' · ');
             setJobLink(e.job_id || null, e.job_plan_number || (e.job_id ? '#' + e.job_id : null), null, jobSub || null);
-            document.getElementById('expApproved').checked = (e.status === 'approved');
+            document.getElementById('expApproved').checked = (e.status === 'approved' || e.status === 'forwarded');
+            document.getElementById('expStatusText').textContent =
+                e.status === 'approved' ? 'Approved' :
+                e.status === 'forwarded' ? 'Sent' :
+                e.status === 'rejected' ? 'Rejected' :
+                e.status === 'pending_approval' ? 'Pending Approval' : 'Draft';
+            window._currentExpenseStatus = e.status;
+            var approveBtn = document.getElementById('expApproveBtn');
+            var rejectBtn = document.getElementById('expRejectBtn');
+            var sendBtn = document.getElementById('expSendBtn');
+            var canAct = e.status !== 'approved' && e.status !== 'rejected' && e.status !== 'forwarded';
+            if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
+            if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
+            var fileBtn = document.getElementById('expFileBookedBtn');   // only a receipt dated in a filed year
+            if (fileBtn) fileBtn.style.display = (canAct && String(e.expense_date || '') < '2026-01-01') ? '' : 'none';
+            if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
+            var personalGrp = document.getElementById('expPersonalGroup');
+            if (personalGrp) personalGrp.style.display = (e.status === 'rejected' || e.status === 'forwarded' || e.forwarded_to_accounting) ? 'none' : '';
+            if (personalGrp && typeof window.mwPersonalRender === 'function') window.mwPersonalRender();
+            // Once forwarded to accounting the header is read-only server-side — say so up
+            // front instead of letting Save fail with an error toast.
+            var isLocked = (e.status === 'forwarded' || !!e.forwarded_to_accounting);
+            var saveBtn = document.getElementById('expSaveBtn');
+            if (saveBtn) {
+                saveBtn.disabled = isLocked;
+                saveBtn.title = isLocked ? 'Sent to accounting — header fields are locked' : '';
+            }
+            var lockNote = document.getElementById('expLockedNote');
+            if (lockNote) lockNote.style.display = isLocked ? '' : 'none';
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
@@ -3360,7 +3993,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var formCol = document.getElementById('expFormCol');
             var rescanBtn = document.getElementById('expRescanBtn');
             if (e.receipt_path) {
-                document.getElementById('expReceiptImg').src = e.receipt_path;
+                var isEmail = /html/i.test(e.receipt_mime_type || '');
+                var rFrame = document.getElementById('expReceiptFrame');
+                document.getElementById('expReceiptImg').closest('.mw-modal-receipt-preview').hidden = isEmail;
+                if (rFrame) { rFrame.hidden = !isEmail; rFrame.src = isEmail ? e.receipt_path : 'about:blank'; }
+                if (!isEmail) document.getElementById('expReceiptImg').src = e.receipt_path;
                 receiptCol.style.display = 'block';
                 formCol.className = 'col-lg-7';
                 if (rescanBtn) rescanBtn.style.display = '';
@@ -3381,6 +4018,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (liSection) liSection.style.display = (e.receipt_path || lineItems.length > 0) ? 'block' : 'none';
             // Cancel any in-progress add row
             cancelAddLineItem();
+            // Split by line — Penny's per-line job / category / stock, or the split saved.
+            loadExpenseSplit(e.id, e.status === 'forwarded' || !!e.forwarded_to_accounting);
 
             if (e.match_confidence > 0) {
                 document.getElementById('matchConfidenceRow').style.display = 'block';
@@ -3410,12 +4049,176 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 anomalySection.style.display = 'none';
             }
 
+            // Penny's read — her pending suggestion where it differs, with Use hers / Keep mine
+            // (/crm/js/penny-read.js, loaded on first use; PennyReadService).
+            loadPennyRead(e.id);
+            // Otto — the supplier stop on the crew's GPS and his job pick (office only; supplier-stop.js).
+            loadSupplierStop(e.id);
+
+            renderExpenseMatchArea(e);
+
             if (window.feather) feather.replace();
             $('#expenseModal').modal('show');
         } catch(e) { alert('Error: ' + e.message); }
     };
 
-    window.saveExpense = async function() {
+    // ── Matched Transaction (bank ↔ expense manual reconciliation) ────────────
+    // The automatic matcher only runs once, at bank-statement import time, and
+    // only considers approved/forwarded expenses — anything it misses (receipt
+    // still draft at import time, amount/date drift) stays unmatched forever
+    // with no rescan. This lets a user close that gap by hand.
+    function renderExpenseMatchArea(e) {
+        var area = document.getElementById('expMatchArea');
+        if (!area) return;
+        var m = e.matched_transaction;
+        if (m) {
+            area.innerHTML =
+                '<div class="mw-match-item">' +
+                    '<div class="mw-match-info">' +
+                        '<div class="mw-match-desc">' + esc(m.description || 'Bank transaction') + '</div>' +
+                        '<div class="mw-match-meta">' + esc(m.date) + ' &middot; $' + parseFloat(m.amount).toFixed(2) +
+                            (m.bank_account ? ' &middot; ' + esc(m.bank_account) : '') + '</div>' +
+                    '</div>' +
+                    '<div class="mw-match-apply">' +
+                        '<button type="button" class="mw-match-dismiss" onclick="mwDetachExpenseMatch(' + m.transaction_id + ', ' + e.id + ')">Detach</button>' +
+                    '</div>' +
+                '</div>';
+        } else {
+            area.innerHTML =
+                '<div class="text-muted small mb-2">No bank transaction linked yet.</div>' +
+                '<button type="button" class="btn btn-sm btn-outline-primary" onclick="mwFindExpenseMatch(' + e.id + ')">' +
+                    '<i data-feather="search"></i> Find Match</button>';
+            // Look for it straight away when the receipt is opened (Tim, 2026-10-19) — once per opening, after the
+            // form has its amount and date; it only lists candidates, attaching is still a click.
+            window.__mwAutoMatched = window.__mwAutoMatched || {};
+            if (!window.__mwAutoMatched[e.id] || Date.now() - window.__mwAutoMatched[e.id] > 5000) {   // each opening, never a loop
+                window.__mwAutoMatched[e.id] = Date.now();
+                setTimeout(function () { if (document.getElementById('expMatchArea')) window.mwFindExpenseMatch(e.id); }, 150);
+            }
+        }
+        if (window.feather) feather.replace();
+    }
+
+    window.mwFindExpenseMatch = async function(expenseId) {
+        var area = document.getElementById('expMatchArea');
+        if (!area) return;
+        area.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm"></span> Searching&hellip;</div>';
+        try {
+            var fTot = (document.getElementById('expTotal') || {}).value || '';
+            var fDate = (document.getElementById('expDate') || {}).value || '';
+            var r = await fetch('/crm/api/accounting-reconciliation.php?action=expense_candidates&expense_id=' + expenseId
+                + '&total=' + encodeURIComponent(fTot) + '&date=' + encodeURIComponent(fDate));
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'Search failed');
+            if (!d.candidates.length) {
+                area.innerHTML = '<div class="text-muted small mb-2">No matching transactions found.</div>' +
+                    '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="mwFindExpenseMatch(' + expenseId + ')">' +
+                        '<i data-feather="refresh-cw"></i> Retry</button>';
+                if (window.feather) feather.replace();
+                return;
+            }
+            area.innerHTML = d.candidates.map(function(c) {
+                var confClass = c.confidence >= 70 ? 'high' : (c.confidence >= 45 ? 'med' : 'low');
+                var reasonsHtml = (c.reasons || []).map(function(rz) {
+                    return '<span class="mw-match-reason">' + esc(rz) + '</span>';
+                }).join('');
+                return '<div class="mw-match-item">' +
+                    '<span class="mw-conf-badge mw-conf-' + confClass + '">' + c.confidence + '%</span>' +
+                    '<div class="mw-match-info">' +
+                        '<div class="mw-match-desc">' + esc(c.description || 'Bank transaction') + '</div>' +
+                        '<div class="mw-match-meta">' + esc(c.date) + ' &middot; $' + c.amount.toFixed(2) +
+                            (c.bank_account ? ' &middot; ' + esc(c.bank_account) : '') + reasonsHtml +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="mw-match-apply">' +
+                        // Same vendor at another amount / date: the receipt was misread — fill the form from the bank
+                        // line (check the paper, then Save); Attach only once the totals agree (2026-10-15).
+                        (function () {
+                            var agree = function (t) { return Math.abs(c.amount - t) <= Math.max(0.5, t * 0.02) + 0.001; };
+                            var saved = window.mwExpSavedTotal || 0, form = parseFloat(fTot) || 0;
+                            if (agree(saved)) return '<button type="button" class="mw-action-btn mw-action-btn-paid" onclick="mwAttachExpenseMatch(' + c.transaction_id + ', ' + expenseId + ')">Attach</button>';
+                            if (agree(form)) return '<button type="button" class="mw-action-btn" disabled title="Save the new total first">Save, then attach</button>';
+                            // A meal charged more than its receipt by a plausible tip: fill amount + total + a note (the tax is left as printed).
+                            if (c.vendor_only && c.tip) return '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\', ' + c.tip.tip.toFixed(2) + ', ' + c.tip.amount.toFixed(2) + ')">Use $' + c.amount.toFixed(2) + ' with tip</button>';
+                            return c.vendor_only ? '<button type="button" class="mw-action-btn" onclick="mwUseBankLine(' + c.amount.toFixed(2) + ', \'' + esc(c.date) + '\')">Use $' + c.amount.toFixed(2) + '</button>'
+                                                 : '<button type="button" class="mw-action-btn" disabled title="The amounts differ">Totals differ</button>';
+                        })() +
+                    '</div>' +
+                '</div>';
+            }).join('') +
+            '<button type="button" class="mw-match-dismiss mt-2" onclick="editExpense(' + expenseId + ')">Close</button>';
+            if (window.feather) feather.replace();
+        } catch (err) {
+            area.innerHTML = '<div class="text-danger small">Error: ' + esc(err.message) + '</div>';
+        }
+    };
+
+    /** Put a same-vendor bank line's amount and date in the form (nothing saved): check the paper, then Save, then Attach. */
+    window.mwUseBankLine = function(amount, date, tip, preTax) {
+        var t = document.getElementById('expTotal'), d = document.getElementById('expDate');
+        // With a tip: the pre-tax amount takes it (a tip carries no GST or PST) and the notes say so.
+        if (tip && preTax) {
+            var a = document.getElementById('expAmount'), n = document.getElementById('expNotes');
+            if (a) { a.value = Number(preTax).toFixed(2); a.dispatchEvent(new Event('input', { bubbles: true })); a.dispatchEvent(new Event('change', { bubbles: true })); }
+            if (n && n.value.indexOf('Tip $') === -1) n.value = (n.value ? n.value + ' · ' : '') + 'Tip $' + Number(tip).toFixed(2) + ' (bank charge $' + Number(amount).toFixed(2) + ')';
+        }
+        if (t) { t.value = amount; t.dispatchEvent(new Event('input', { bubbles: true })); t.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (d && date) { d.value = date; d.dispatchEvent(new Event('input', { bubbles: true })); d.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (window.mwToast) mwToast(tip && preTax
+            ? 'Added a $' + Number(tip).toFixed(2) + ' tip: pre-tax $' + Number(preTax).toFixed(2) + ', total $' + amount + ' (tax unchanged). Check the receipt, then Save Expense and Attach.'
+            : 'Total set to $' + amount + ' and date to ' + date + ' from the bank — check the receipt, then Save Expense and Attach.');
+    };
+
+    window.mwAttachExpenseMatch = async function(transactionId, expenseId) {
+        try {
+            var r = await fetch('/crm/api/accounting-reconciliation.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'attach_expense', csrf_token: CSRF, transaction_id: transactionId, expense_id: expenseId }),
+            });
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'Attach failed');
+            await editExpense(expenseId);
+        } catch (err) {
+            alert('Attach error: ' + err.message);
+        }
+    };
+
+    window.mwDetachExpenseMatch = async function(transactionId, expenseId) {
+        if (!confirm('Detach this bank transaction from the receipt?')) return;
+        try {
+            var r = await fetch('/crm/api/accounting-reconciliation.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'detach_expense', csrf_token: CSRF, transaction_id: transactionId }),
+            });
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'Detach failed');
+            await editExpense(expenseId);
+        } catch (err) {
+            alert('Detach error: ' + err.message);
+        }
+    };
+
+    /** Split by line in the edit modal (shared MwExpenseSplit — the same as Penny's card). */
+    window._expSplitState = null;
+    async function loadExpenseSplit(expenseId, locked) {
+        var panel = document.getElementById('expSplitPanel');
+        window._expSplitState = null;
+        if (!panel) return;
+        panel.innerHTML = '';
+        if (!window.MwExpenseSplit) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=split&id=' + encodeURIComponent(expenseId), { cache: 'no-store' });
+            var d = await r.json();
+            if (!d || !d.success || !d.ready || String(document.getElementById('expenseId').value) !== String(expenseId)) return;
+            var cats = Array.prototype.map.call(document.getElementById('expAcctCategory').options, function (o) { return o.value; })
+                .filter(function (v) { return v; });
+            window._expSplitState = window.MwExpenseSplit.render(panel, d, { categories: cats, autoOn: false, locked: locked });
+        } catch (err) { /* the split is a bonus — the form works without it */ }
+    }
+
+    window.saveExpense = async function(opts) {
         var id = document.getElementById('expenseId').value;
         function buildData() {
             var d = {
@@ -3434,7 +4237,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 accounting_category: document.getElementById('expAcctCategory').value,
                 gbp_category: document.getElementById('expGbpCategory').value,
                 job_id: document.getElementById('expJobId').value || null,
-                status: document.getElementById('expApproved').checked ? 'approved' : 'draft',
                 description: document.getElementById('expDescription').value,
                 notes: document.getElementById('expNotes').value,
                 odometer_start: document.getElementById('expOdometerStart')?.value || null,
@@ -3443,6 +4245,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 fuel_price_per_litre: document.getElementById('expFuelPrice')?.value || null,
             };
             if (id) d.id = parseInt(id);
+            // Split by line: sent when on, or to end a saved split (the expense gate skips no-ops).
+            var sv = id && window.MwExpenseSplit ? window.MwExpenseSplit.value(window._expSplitState) : null;
+            if (sv) d.split = sv;
             return d;
         }
 
@@ -3455,11 +4260,181 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 });
                 var d = await r.json();
                 if (!d.success) throw new Error(d.error);
+                if (d.warning) alert(d.warning);
             });
+            if (!(opts && opts.keepOpen)) {
+                $('#expenseModal').modal('hide');
+                loadExpenses(currentPage);
+                loadStats();
+            }
+            return true;
+        } catch(e) { alert('Error: ' + e.message); return false; }
+    };
+
+    // "Already booked — file it": save what is on screen (so the corrections teach), then keep the receipt and book nothing.
+    window.fileBookedFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        if (!confirm('This purchase is already in your filed books. Keep the receipt and photo, teach Penny from what is on screen, and book nothing?')) return;
+        if (!(await window.saveExpense({ keepOpen: true }))) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'file_booked', csrf_token: CSRF, id: parseInt(id) }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            $('#expenseModal').modal('hide');
+            loadApprovals();
+            loadExpenses(currentPage);
+            loadStats();
+        } catch (e) { alert('Error: ' + e.message); }
+    };
+
+    /** Penny's read in the edit modal (shared with the iPhone receipt detail via PennyReadService). */
+    function loadPennyRead(expenseId) {
+        var el = document.getElementById('expPennyRead');
+        if (!el) return;
+        var go = function () {
+            window.MwPennyRead.load(el, expenseId, {
+                csrf: CSRF,
+                onDone: function (res) {
+                    if (typeof loadExpenses === 'function') loadExpenses(typeof currentPage !== 'undefined' ? currentPage : 1);
+                    if (res && res.approved) { $('#expenseModal').modal('hide'); } else { window.editExpense(expenseId); }
+                }
+            });
+        };
+        if (window.MwPennyRead) return go();
+        var sc = document.createElement('script');
+        sc.src = '/crm/js/penny-read.js?v=20261013b';
+        sc.onload = go;
+        document.head.appendChild(sc);
+    }
+
+    /** Otto's supplier stop + job pick in the edit modal (SupplierJobSuggestService; shadow mode, one tap). */
+    function loadSupplierStop(expenseId) {
+        var el = document.getElementById('expSupplierStop');
+        if (!el) return;
+        var go = function () {
+            window.MwSupplierStop.load(el, expenseId, {
+                csrf: CSRF,
+                onDone: function () {
+                    if (typeof loadExpenses === 'function') loadExpenses(typeof currentPage !== 'undefined' ? currentPage : 1);
+                    window.editExpense(expenseId);
+                }
+            });
+        };
+        if (window.MwSupplierStop) return go();
+        var sc = document.createElement('script');
+        sc.src = '/crm/js/supplier-stop.js?v=20261013a';
+        sc.onload = go;
+        document.head.appendChild(sc);
+    }
+
+    // ── Approve / Reject / Send from the edit modal ──────────────
+    // These route through the same audited endpoints as the desktop Review Queue
+    // (action:'approve'/'reject', not the generic action:'update') so self-approval
+    // checks and approved_by/approved_at stamping always apply, on any viewport.
+    window.approveExpenseFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        var ok = await window.approveExpense(parseInt(id));
+        if (ok) $('#expenseModal').modal('hide');
+    };
+
+    // ── Personal (2026-10-19): the whole receipt on a shareholder's account, no GST claimed ──
+    // The first shareholder (1300, Tim) is the main button; the others are in its menu. Marks it
+    // through the gate (action:'mark_personal'), then Penny's approve window for an open receipt.
+    var personalChoices = null;
+    function personalLoadChoices() {
+        if (personalChoices) return Promise.resolve(personalChoices);
+        return fetch('/crm/api/expenses.php?action=personal_choices', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { personalChoices = (d && d.success && d.shareholders && d.shareholders.length) ? d.shareholders : [{ name: 'Shareholder', account: '1300' }]; return personalChoices; })
+            .catch(function () { return [{ name: 'Shareholder', account: '1300' }]; });
+    }
+    function personalRender() {
+        personalLoadChoices().then(function (list) {
+            var main = document.getElementById('expPersonalBtn'), menu = document.getElementById('expPersonalMenu');
+            if (!main || !menu) return;
+            main.textContent = 'Personal (' + list[0].name + ')';
+            menu.innerHTML = '';
+            list.slice(1).forEach(function (c) {
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'dropdown-item';
+                b.textContent = 'Personal (' + c.name + ')';
+                b.addEventListener('click', function () { window.markPersonalFromModal(c.account); });
+                menu.appendChild(b);
+            });
+            var split = menu.previousElementSibling;
+            if (split) split.style.display = list.length > 1 ? '' : 'none';
+        });
+    }
+    window.mwPersonalRender = personalRender;   // called when a receipt's window is filled in
+    window.markPersonalFromModal = async function (account) {
+        var id = parseInt(document.getElementById('expenseId').value, 10);
+        if (!id) return;
+        var grp = document.getElementById('expPersonalGroup');
+        if (grp && grp.getAttribute('data-busy') === '1') return;          // one mark at a time
+        var parts = grp ? grp.querySelectorAll('button') : [];
+        if (grp) grp.setAttribute('data-busy', '1');
+        Array.prototype.forEach.call(parts, function (b) { b.disabled = true; });
+        try {
+            var d = await withCSRFRetry(async function () {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark_personal', csrf_token: CSRF, id: id, account: account || '' }),
+                });
+                var j = await r.json();
+                if (!j.success) throw new Error(j.error || 'Not marked personal');
+                return j;
+            });
+            var cat = document.getElementById('expAcctCategory');
+            if (cat) cat.value = 'Personal';
+            if (typeof mwToast === 'function') mwToast('Personal: charged to ' + d.shareholder.name + ' (' + d.shareholder.account + '), no GST claimed');
+            // The window is closed either way: what it holds (an old split, unsaved fields) is no longer
+            // the receipt, and a Save from it would put that back (review 2026-10-19).
+            $('#expenseModal').modal('hide');
+            var st = window._currentExpenseStatus;
+            if (st !== 'approved' && st !== 'forwarded') await window.approveExpense(id);
+            loadExpenses(currentPage);
+        } catch (e) {
+            alert('Error: ' + e.message);
+        } finally {
+            if (grp) grp.removeAttribute('data-busy');
+            Array.prototype.forEach.call(parts, function (b) { b.disabled = false; });
+        }
+    };
+
+    window.rejectExpenseFromModal = function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        $('#expenseModal').modal('hide');
+        window.showRejectModal(parseInt(id));
+    };
+
+    window.sendExpenseFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        var btn = document.getElementById('expSendBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var r = await fetch('/crm/api/receipt-send.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_id: parseInt(id) }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Send failed');
             $('#expenseModal').modal('hide');
             loadExpenses(currentPage);
             loadStats();
-        } catch(e) { alert('Error: ' + e.message); }
+        } catch(e) {
+            alert('Error: ' + e.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     };
 
     // ── Attach Receipt to existing expense ──────────────────────
@@ -3491,6 +4466,35 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 formCol.className = 'col-lg-7';
                 if (rescanBtn) rescanBtn.style.display = '';
                 if (window.feather) feather.replace();
+                // The attached receipt is the source: its amounts replace the form's (Tim, 2026-10-15 — City of
+                // Vancouver read $9.52, the receipt and bank say $10.00). Date and vendor only fill blanks.
+                // Nothing is saved until Save; the toast says what changed.
+                var p = d.parsed || {}, s = d.suggestions || {}, changed = [];
+                var money = function (v) { var n = parseFloat(v); return isFinite(n) && n >= 0 ? n.toFixed(2) : null; };
+                var total = money(p.total);
+                if (total !== null) {
+                    // Parts first, without the auto-sum (a part the reader missed would rewrite the receipt's total);
+                    // a missing subtotal is the total less the taxes; the total goes in last.
+                    var val = function (id) { var f = document.getElementById(id); return f ? (parseFloat(f.value) || 0) : 0; };
+                    var gst = money(p.gst) !== null ? money(p.gst) : val('expGst').toFixed(2);
+                    var pst = money(p.pst) !== null ? money(p.pst) : val('expPst').toFixed(2);
+                    var sub = money(p.subtotal) !== null ? money(p.subtotal)
+                            : Math.max(0, parseFloat(total) - parseFloat(gst) - parseFloat(pst) - val('expRecyclingTax')).toFixed(2);
+                    [['expAmount', sub, 'subtotal'], ['expGst', gst, 'GST'], ['expPst', pst, 'PST'], ['expTotal', total, 'total']].forEach(function (m) {
+                        var f = document.getElementById(m[0]);
+                        if (!f || money(f.value) === m[1]) return;
+                        if (m[2] === 'total') changed.unshift('total ' + (f.value ? '$' + (money(f.value) || f.value) + ' → ' : '') + '$' + m[1]);
+                        f.value = m[1];
+                        f.classList.add('mw-field-updated');
+                    });
+                }
+                if (p.date) { var df = document.getElementById('expDate'); if (df && !df.value) { df.value = safeDate(p.date); df.dispatchEvent(new Event('input', { bubbles: true })); df.dispatchEvent(new Event('change', { bubbles: true })); } }
+                if (s.vendor_name) { var vf = document.getElementById('expVendorSearch'); if (vf && !vf.value) { vf.value = s.vendor_name; var vi = document.getElementById('expVendorId'); if (vi) vi.value = s.vendor_id || ''; } }
+                if (typeof window.mwToast === 'function') {
+                    window.mwToast(changed.length ? 'From the receipt: ' + (changed[0].indexOf('total') === 0 ? changed[0] : 'amounts updated') + '. Check it, then Save.'
+                                                  : (total !== null ? 'Receipt attached — its total matches.' : 'Receipt attached — its total could not be read; check the amounts.'),
+                                   total !== null ? 'success' : 'warning', 6000);
+                }
             } catch(e) { alert('Receipt upload failed: ' + e.message); }
             finally {
                 if (btn) { btn.disabled = false; btn.innerHTML = origHtml; if (window.feather) feather.replace(); }
@@ -3692,6 +4696,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vendorGbpCategory').value = data?.default_gbp_category || '';
         document.getElementById('vendorPhone').value = data?.phone || '';
         document.getElementById('vendorWebsite').value = data?.website || '';
+        document.getElementById('vendorGstNumber').value = data?.gst_number || '';
         document.getElementById('vendorNotes').value = data?.notes || '';
         document.getElementById('vendorGstExempt').checked = !!(data?.gst_exempt && data.gst_exempt != '0');
         // Populate address from preferred location (or first location)
@@ -3740,6 +4745,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             default_gbp_category: document.getElementById('vendorGbpCategory').value,
             phone: document.getElementById('vendorPhone').value,
             website: document.getElementById('vendorWebsite').value,
+            gst_number: document.getElementById('vendorGstNumber').value,
             notes: document.getElementById('vendorNotes').value,
             gst_exempt: document.getElementById('vendorGstExempt').checked ? 1 : 0,
         };
@@ -4114,7 +5120,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     // ── Filter helpers ───────────────────────────────────────────
     window.clearFilters = function() {
         document.getElementById('filterDateFrom').value = '';
+        document.getElementById('filterDateFrom').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('filterDateFrom').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('filterDateTo').value = '';
+        document.getElementById('filterDateTo').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('filterDateTo').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('filterCategory').value = '';
         document.getElementById('filterStatus').value = '';
         document.getElementById('filterSearch').value = '';
@@ -4159,6 +5169,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (cap) cap.style.display = 'flex';
             if (review) { review.style.display = 'none'; review.classList.remove('mw-mc-expense-review-exit'); }
             if (spinner) spinner.style.display = 'none';
+            restoreSaveButtons();
         }, 200);
 
         // Clear mobile form fields
@@ -4244,7 +5255,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (badge) badge.innerHTML = '<span class="mw-mc-expense-badge-manual">Manual entry</span>';
         // Set today's date
         var dateEl = document.getElementById('mobileRvDate');
-        if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+        if (dateEl) {
+            dateEl.value = localDateYmd();
+            dateEl.dispatchEvent(new Event('input', { bubbles: true }));
+            dateEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         // Show job picker with No Job selected (no OCR suggestions for manual entry)
         renderJobPills('mobileJobPills', [], function(job) {
             selectedJobSuggestion = job;
@@ -4357,10 +5372,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     var d = await r.json();
                     if (d.success && d.jobs && d.jobs.length) {
                         dropdown.innerHTML = d.jobs.map(function(job) {
-                            var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
-                            var addr = job.property_address ? '<span class="mw-mc-expense-prejob-dd-addr">' + esc(job.property_address) + '</span>' : '';
+                            // search_jobs rows are keyed by `id` (job_plans.id) with `address`,
+                            // not the GPS-suggestion shape (plan_id / property_address). Reading
+                            // the wrong keys here used to save a searched job with an empty job_id.
+                            var jobId = job.id || job.plan_id || '';
+                            var jobAddr = job.address || job.property_address || '';
+                            var label = (job.contact_name || job.plan_number || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
+                            var addr = jobAddr ? '<span class="mw-mc-expense-prejob-dd-addr">' + esc(jobAddr) + '</span>' : '';
                             return '<div class="mw-mc-expense-prejob-dd-item"' +
-                                ' data-job-id="' + esc(job.plan_id||'') + '"' +
+                                ' data-job-id="' + esc(jobId) + '"' +
                                 ' data-job-label="' + esc(label) + '"' +
                                 ' data-property-id="' + esc(job.property_id||'') + '"' +
                                 ' data-contact-id="' + esc(job.contact_id||'') + '">' +
@@ -4428,27 +5448,25 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         });
     })();
 
+    // One save at a time. The button used to be disabled only AFTER the duplicate-check
+    // fetch, and re-enabled for the 600 ms before the batch buttons replaced it, so taps
+    // during either window each created another expense for the same photo (#408-#410).
+    var mobileSaveInFlight = false;
     window.mobileSaveExpense = async function(andSend) {
+        if (mobileSaveInFlight) return;
         var review = document.getElementById('mobileReviewPanel');
         var saveBtn = review.querySelector('.mw-mc-expense-save-btn');
         var activeBtn = saveBtn;
+        var saved = false;
 
         // Prepare line items for saving
-        var liPayload = (window.currentMobileLineItems || []).map(function(li) {
-            return {
-                name: li.name || 'Unknown',
-                quantity: li.quantity || 1,
-                unit_price: li.unit_price || null,
-                line_total: li.amount || li.line_total || 0,
-                sku_raw: li.sku_raw || null,
-                product_id: li.product_id || null,
-            };
-        });
+        var liPayload = reviewLineItemsPayload('mobile');
+        var mobileLiSource = (window.currentMobileLineItemsMeta || {}).source || null;
 
         var data = {
             action: 'create',
             csrf_token: CSRF,
-            expense_date: document.getElementById('mobileRvDate').value || new Date().toISOString().slice(0, 10),
+            expense_date: document.getElementById('mobileRvDate').value || localDateYmd(),
             vendor_id: document.getElementById('mobileRvVendorId').value || null,
             vendor_name_raw: document.getElementById('mobileRvVendor').value,
             payment_method: document.getElementById('mobileRvPayment').value,
@@ -4467,8 +5485,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             receipt_lng: currentGpsLng,
             raw_ocr_json: review ? (review.dataset.ocrText || null) : null,
             ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
-            status: 'draft',
+            // Mobile is capture-only — submit for desktop review, never straight to draft/sent
+            status: 'pending_approval',
             line_items: liPayload,
+            line_items_source: mobileLiSource,
         };
 
         if (!data.total || parseFloat(data.total) <= 0) {
@@ -4478,16 +5498,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             return;
         }
 
-        // Duplicate check at save time
-        var okToSave = await confirmDuplicateCheck(
-            data.vendor_name_raw, data.vendor_id, data.total, data.expense_date, null
-        );
-        if (!okToSave) return;
-
-        // Disable buttons and show loading
+        // Disable before anything async — the duplicate check below is a network round trip.
+        mobileSaveInFlight = true;
         if (activeBtn) { activeBtn.disabled = true; activeBtn.classList.add('mw-mc-expense-btn-loading'); }
 
         try {
+            // Duplicate check at save time
+            var okToSave = await confirmDuplicateCheck(
+                data.vendor_name_raw, data.vendor_id, data.total, data.expense_date, null
+            );
+            if (!okToSave) return;
+
             var d = await withCSRFRetry(async function() {
                 var r = await fetch('/crm/api/expenses.php', {
                     method: 'POST',
@@ -4519,7 +5540,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             // Haptic feedback on save
             haptic('save');
-            mobileToast(andSend ? 'Saved & sent!' : 'Expense saved!');
+            mobileToast(d.deduplicated ? 'Already saved' : (andSend ? 'Saved & sent!' : 'Expense saved!'));
+            saved = true;   // the button stays disabled until the batch buttons replace it
 
             // Batch mode: show "Snap Another" / "Done" instead of auto-resetting
             setTimeout(function() {
@@ -4527,6 +5549,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 loadStats();
                 if (andSend) loadSendLog();
                 showBatchButtons();
+                mobileSaveInFlight = false;
             }, 600);
         } catch(e) {
             haptic('error');
@@ -4535,13 +5558,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 : ('Error: ' + e.message);
             mobileToast(userMsg, true);
         } finally {
-            if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
+            if (!saved) {
+                mobileSaveInFlight = false;
+                if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
+            }
         }
     };
 
     function renderMobileExpenses(expenses) {
         var list = document.getElementById('mobileExpenseList');
         if (!list) return;
+        mobileLastRenderedExpenses = expenses || [];
 
         if (!expenses || !expenses.length) {
             list.innerHTML = '<div class="mw-mc-empty">' +
@@ -4599,17 +5626,33 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
                 var catLabel = e.accounting_category ? '<span class="mw-mc-expense-item-cat">' + esc(e.accounting_category) + '</span>' : '';
 
-                // Confidence dot for mobile
+                // Confidence dot for mobile — OCR extraction trust signal
                 var mConf = parseInt(e.match_confidence) || 0;
                 var mConfDot = '';
-                if (mConf >= 70) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-high"></span>';
-                else if (mConf >= 40) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-medium"></span>';
-                else if (mConf > 0) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-low"></span>';
+                if (mConf >= 70) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-high" title="High OCR confidence (' + mConf + '%)"></span>';
+                else if (mConf >= 40) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-medium" title="Medium OCR confidence (' + mConf + '%)"></span>';
+                else if (mConf > 0) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-low" title="Low OCR confidence (' + mConf + '%)"></span>';
 
-                html += '<div class="mw-mc-expense-item" data-expense-id="' + e.id + '" onclick="editExpense(' + e.id + ')">' +
+                // Anomaly risk icon — same thresholds as the desktop table view
+                var mAnomaly = parseInt(e.anomaly_score) || 0;
+                var mAnomalyHtml = '';
+                if (mAnomaly > 30) {
+                    mAnomalyHtml = '<span class="mw-anomaly-icon mw-anomaly-high" title="High risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i></span>';
+                } else if (mAnomaly > 15) {
+                    mAnomalyHtml = '<span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
+                }
+
+                var selectCbHtml = mobileSelectMode
+                    ? '<div class="mw-mc-expense-item-select" onclick="event.stopPropagation(); toggleMobileExpenseSelect(' + e.id + ')">' +
+                        '<input type="checkbox" ' + (mobileSelectedIds.has(e.id) ? 'checked' : '') + ' onclick="event.stopPropagation(); toggleMobileExpenseSelect(' + e.id + ')">' +
+                      '</div>'
+                    : '';
+
+                html += '<div class="mw-mc-expense-item' + (mobileSelectMode && mobileSelectedIds.has(e.id) ? ' mw-mc-expense-item-selected' : '') + '" data-expense-id="' + e.id + '" onclick="' + (mobileSelectMode ? 'toggleMobileExpenseSelect(' + e.id + ')' : 'editExpense(' + e.id + ')') + '">' +
+                    selectCbHtml +
                     thumbHtml +
                     '<div class="mw-mc-expense-item-left">' +
-                        '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + '</div>' +
+                        '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + mAnomalyHtml + '</div>' +
                         '<div class="mw-mc-expense-item-meta">' + catLabel +
                             (e.job_id ? '<span class="mw-mc-expense-item-job">Job #' + e.job_id + '</span>' : '') +
                         '</div>' +
@@ -4625,6 +5668,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         });
 
         list.innerHTML = html;
+        if (window.feather) feather.replace();
     }
 
     // Mobile auto-calc total (amount + gst + pst + recycling = total)
@@ -4795,6 +5839,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     }
 
     // ── Batch Mode (Snap Another / Done) ────────────────────
+    // The pristine Save / Save & Send markup is cached once at load so it can be
+    // restored for every subsequent capture. Without this, showBatchButtons()
+    // permanently replaced the row after the first save and the 2nd+ receipt
+    // had no Save action at all — its data was silently lost on Done/Snap Another.
+    var _saveRowOriginalHtml = (function() {
+        var saveRow = document.querySelector('.mw-mc-expense-save-row');
+        return saveRow ? saveRow.innerHTML : '';
+    })();
+
+    function restoreSaveButtons() {
+        var saveRow = document.querySelector('.mw-mc-expense-save-row');
+        if (!saveRow || !_saveRowOriginalHtml) return;
+        if (saveRow.innerHTML !== _saveRowOriginalHtml) saveRow.innerHTML = _saveRowOriginalHtml;
+    }
+
     function showBatchButtons() {
         var saveRow = document.querySelector('.mw-mc-expense-save-row');
         if (!saveRow) return;
@@ -5014,9 +6073,179 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (list) list.style.display = list.style.display === 'none' ? 'block' : 'none';
     };
 
-    function renderLineItemsTable(items, stored) {
+    // ── Review-panel line items (pre-save, editable on both cards) ────
+    // Every item keeps `ocr_name` (what the parser produced), and the review card can
+    // rename it, flag it `removed` ("not an item") or add a `manual` row. The save
+    // payload carries all three so ReceiptLearning records them as per-vendor lessons.
+    function normalizeReviewLineItems(items) {
+        return (items || []).map(function(li) {
+            var copy = Object.assign({}, li);
+            if (copy.ocr_name === undefined || copy.ocr_name === null) copy.ocr_name = copy.name || '';
+            copy.removed = !!copy.removed;
+            copy.manual  = !!copy.manual;
+            return copy;
+        });
+    }
+
+    function lineItemsMetaFromParsed(p) {
+        return {
+            quality:   p.line_items_quality || 'none',
+            items_sum: p.items_sum != null ? parseFloat(p.items_sum) : null,
+            subtotal:  p.subtotal != null && p.subtotal !== '' ? parseFloat(p.subtotal) : (p.total != null ? parseFloat(p.total) : null),
+            source:    p.line_items_source || null,
+            escalated: !!p.escalation_reason,
+        };
+    }
+
+    function reviewLineItemsSum(items) {
+        return (items || []).reduce(function(s, li) {
+            if (li.removed) return s;
+            return s + (parseFloat(li.amount || li.line_total || 0) || 0);
+        }, 0);
+    }
+
+    function lineItemsMetaHtml(items, meta) {
+        if (!meta) return '';
+        var parts = [];
+        if (meta.source === 'llm') parts.push('<span class="badge bg-info text-dark">AI extracted — please verify</span>');
+        else if (meta.source === 'vision' && meta.escalated) parts.push('<span class="badge bg-light text-muted border">Re-read with Vision</span>');
+        var sum = reviewLineItemsSum(items);
+        if (meta.subtotal != null && meta.subtotal > 0 && items && items.some(function(li){ return !li.removed; })) {
+            var tol = Math.max(0.05, meta.subtotal * 0.01);
+            if (Math.abs(sum - meta.subtotal) > tol) {
+                parts.push('<span class="text-warning"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i> Items total $' + sum.toFixed(2) + ' ≠ subtotal $' + meta.subtotal.toFixed(2) + ' — a line may be missing or mis-read</span>');
+            } else {
+                parts.push('<span class="text-success"><i data-feather="check" style="width:12px;height:12px;"></i> Items add up to the subtotal</span>');
+            }
+        }
+        return parts.join(' &nbsp; ');
+    }
+
+    function reviewItemsArray(scope) {
+        return scope === 'mobile' ? (window.currentMobileLineItems || []) : (window.currentReviewLineItems || []);
+    }
+
+    window.reviewLiRename = function(scope, idx, value) {
+        var arr = reviewItemsArray(scope);
+        if (!arr[idx]) return;
+        arr[idx].name = value;
+        // Desktop renames live in the input; mobile re-renders (prompt-based)
+        if (scope === 'mobile') renderMobileReviewLineItems();
+    };
+
+    window.reviewLiToggleRemoved = function(scope, idx) {
+        var arr = reviewItemsArray(scope);
+        if (!arr[idx]) return;
+        if (arr[idx].manual && !arr[idx].removed) {
+            // A manual row being removed just disappears — nothing to teach
+            arr.splice(idx, 1);
+        } else {
+            arr[idx].removed = !arr[idx].removed;
+        }
+        if (scope === 'mobile') renderMobileReviewLineItems(); else renderDesktopReviewLineItems();
+    };
+
+    window.reviewLiAdd = function(scope) {
+        var name = prompt('Item name (as printed on the receipt)');
+        if (!name || !name.trim()) return;
+        var amt = prompt('Line total ($)', '');
+        var arr = reviewItemsArray(scope);
+        arr.push({ name: name.trim(), ocr_name: '', manual: true, removed: false, amount: (parseFloat(amt) || 0).toFixed(2), quantity: 1, unit_price: null, sku_raw: null, product_id: null });
+        if (scope === 'mobile') { window.currentMobileLineItems = arr; renderMobileReviewLineItems(); }
+        else { window.currentReviewLineItems = arr; renderDesktopReviewLineItems(); }
+    };
+
+    window.reviewLiPromptRename = function(scope, idx) {
+        var arr = reviewItemsArray(scope);
+        if (!arr[idx]) return;
+        var v = prompt('Item name', arr[idx].name || '');
+        if (v !== null && v.trim()) reviewLiRename(scope, idx, v.trim());
+    };
+
+    function renderDesktopReviewLineItems() {
+        var items = window.currentReviewLineItems || [];
+        var rvLiSection = document.getElementById('rvLineItemsSection');
+        if (!rvLiSection) return;
+        var active = items.filter(function(li) { return !li.removed; }).length;
+        document.getElementById('rvLineItemsCount').textContent = active;
+        var table = document.getElementById('rvLineItemsList').querySelector('table');
+        table.innerHTML = renderLineItemsTable(items, false, 'review');
+        var meta = document.getElementById('rvLineItemsMeta');
+        if (meta) meta.innerHTML = lineItemsMetaHtml(items, window.currentReviewLineItemsMeta);
+        document.getElementById('rvLineItemsList').style.display = 'block';
+        rvLiSection.style.display = 'block';
+        if (window.feather) feather.replace();
+    }
+
+    function renderMobileReviewLineItems() {
+        var items = window.currentMobileLineItems || [];
+        var mLiSection = document.getElementById('mobileLineItemsSection');
+        var mLiList = document.getElementById('mobileLineItemsList');
+        var mLiCount = document.getElementById('mobileLineItemsCount');
+        var mMeta = document.getElementById('mobileLineItemsMeta');
+        if (!mLiSection || !mLiList) return;
+        var active = items.filter(function(li) { return !li.removed; }).length;
+        if (mLiCount) mLiCount.textContent = active;
+        mLiList.innerHTML = items.map(function(item, idx) {
+            var amt = parseFloat(item.amount || item.line_total || 0);
+            var qty = parseFloat(item.quantity || 1);
+            var qtyLabel = qty > 1 ? ' <small class="text-muted">x' + qty + '</small>' : '';
+            var linked = item.product_id ? ' <span class="mw-mc-expense-line-item-linked" title="Auto-linked to a CRM product">⛓</span>' : '';
+            return '<div class="mw-mc-expense-line-item' + (item.removed ? ' mw-mc-expense-line-item-removed' : '') + (item.manual ? ' mw-mc-expense-line-item-manual' : '') + '">' +
+                '<button type="button" class="mw-mc-expense-line-item-name" onclick="reviewLiPromptRename(\'mobile\', ' + idx + ')" title="Tap to rename">' + esc(item.name) + qtyLabel + linked + '</button>' +
+                '<span class="mw-mc-expense-line-item-amt' + (amt < 0 ? ' mw-mc-expense-line-item-neg' : '') + '">$' + amt.toFixed(2) + '</span>' +
+                '<button type="button" class="mw-mc-expense-line-item-x" onclick="reviewLiToggleRemoved(\'mobile\', ' + idx + ')" aria-label="' + (item.removed ? 'Restore item' : 'Not an item') + '">' + (item.removed ? '↩' : '✕') + '</button>' +
+            '</div>';
+        }).join('') +
+        '<button type="button" class="mw-mc-expense-line-item-add" onclick="reviewLiAdd(\'mobile\')">+ Add missed item</button>';
+        if (mMeta) mMeta.innerHTML = lineItemsMetaHtml(items, window.currentMobileLineItemsMeta);
+        mLiSection.style.display = 'block';
+        if (window.feather) feather.replace();
+    }
+
+    function reviewLineItemsPayload(scope) {
+        return reviewItemsArray(scope).map(function(li) {
+            return {
+                name: li.name || 'Unknown',
+                ocr_name: li.ocr_name || '',
+                removed: !!li.removed,
+                manual: !!li.manual,
+                quantity: li.quantity || 1,
+                unit_price: li.unit_price || null,
+                line_total: li.amount || li.line_total || 0,
+                sku_raw: li.sku_raw || null,
+                product_id: li.product_id || null,
+            };
+        });
+    }
+
+    // What this receipt's items don't account for: subtotal (or total − GST − PST) less the lines. Only in the edit
+    // modal, for someone who can add items. A pick from the vendor's list then fills it (Tim 2026-11-06,
+    // ExpenseLineItemService::remainderLine).
+    function _liGap(items) {
+        if (!document.querySelector('.mw-add-item-btn')) return 0;
+        var v = function (id) { return parseFloat((document.getElementById(id) || {}).value) || 0; };
+        var sub = v('expAmount') > 0 ? v('expAmount') : v('expTotal') - v('expGst') - v('expPst');
+        var sum = (items || []).reduce(function (a, i) { return a + (i.removed ? 0 : parseFloat(i.line_total || i.amount || 0)); }, 0);
+        var gap = Math.round((sub - sum) * 100) / 100;
+        return gap >= 0.01 ? gap : 0;
+    }
+    function _liGapRow(gap, none) {
+        var vName = ((document.getElementById('expVendorSearch') || {}).value || '').trim();
+        return '<tr class="mw-li-gap"><td colspan="6"><span>' + (none ? 'No items read' : '$' + gap.toFixed(2) + ' of this receipt has no item') +
+            '</span> <button type="button" class="btn btn-sm btn-outline-primary mw-li-gap-btn" onclick="showAddLineItemRow()">' +
+            esc(vName ? 'Pick from ' + vName + '\u2019s list' : 'Pick from the list') + '</button></td></tr>';
+    }
+
+    function renderLineItemsTable(items, stored, editableScope) {
+        window._currentLineItems = items || [];
         if (!items || !items.length) {
-            return '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
+            if (!editableScope && _liGap([]) > 0) return _liGapRow(_liGap([]), true);
+            var emptyMsg = '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
+            if (editableScope) {
+                emptyMsg += '<tr><td colspan="5" class="text-center py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
+            }
+            return emptyMsg;
         }
         var hasQty = items.some(function(i) { return i.quantity && parseFloat(i.quantity) !== 1; });
         var hasUp  = items.some(function(i) { return i.unit_price && parseFloat(i.unit_price) > 0; });
@@ -5026,28 +6255,51 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (hasUp)  header += '<th class="text-end">Unit $</th>';
         header += '<th class="text-end">Total</th>';
         header += '<th class="text-center">CRM Product</th>';  // Always show
-        header += '<th></th>';                                  // Delete col
+        header += '<th></th>';                                  // Edit/Delete col
         header += '</tr>';
 
-        var rows = items.map(function(item) {
+        var rows = items.map(function(item, idx) {
             var total = parseFloat(item.line_total || item.amount || 0);
             var qty   = parseFloat(item.quantity || 1);
             var up    = item.unit_price ? parseFloat(item.unit_price) : null;
             var totalClass = total < 0 ? 'text-danger' : '';
             var liId  = item.id || '';
+            var editable = !!editableScope && !liId;
 
-            var row = '<tr data-li-id="' + liId + '">';
-            row += '<td>' + esc(item.name);
-            if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
-            row += '</td>';
+            var row = '<tr data-li-id="' + liId + '"' + (item.removed ? ' class="mw-li-removed"' : '') + '>';
+            if (editable) {
+                row += '<td><input type="text" class="form-control form-control-sm mw-li-name-input" value="' + esc(item.name || '') + '" ' +
+                       (item.removed ? 'disabled ' : '') +
+                       'oninput="reviewLiRename(\'' + editableScope + '\', ' + idx + ', this.value)" title="Edit the item name — corrections teach the parser">';
+                if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
+                if (item.manual) row += ' <span class="badge bg-light text-muted border" style="font-size:.65rem;">added</span>';
+                if (item.name_source === 'learned') row += ' <span class="badge bg-light text-success border" style="font-size:.65rem;" title="Renamed from a learned correction">learned</span>';
+                row += '</td>';
+            } else {
+                row += '<td>' + esc(item.name);
+                if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
+                if (item.is_adjustment) row += ' <span class="badge bg-light text-muted border" style="font-size:.65rem;">adjustment</span>';
+                row += '</td>';
+            }
             if (hasQty) row += '<td class="text-center">' + (qty !== 1 ? qty : '') + '</td>';
             if (hasUp)  row += '<td class="text-end">'  + (up ? '$' + up.toFixed(2) : '') + '</td>';
-            row += '<td class="text-end ' + totalClass + '">$' + total.toFixed(2) + '</td>';
+            row += '<td class="text-end ' + totalClass + '">';
+            var origUp = item.original_unit_price ? parseFloat(item.original_unit_price) : null;
+            if (origUp) {
+                var origTotal = origUp * qty;
+                if (origTotal > total) {
+                    row += '<span class="text-muted text-decoration-line-through" style="font-size:.75rem;margin-right:4px;">$' + origTotal.toFixed(2) + '</span>';
+                }
+            }
+            row += '$' + total.toFixed(2) + '</td>';
 
             // Product link column — always present
             row += '<td class="text-center" style="min-width:90px;">';
-            if (item.product_id) {
-                row += '<span class="badge bg-success mw-li-product-badge" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || 'Linked') + '</span>';
+            if (item.is_adjustment) {
+                row += '<span class="text-muted" style="font-size:.7rem;">n/a</span>';
+            } else if (item.product_id) {
+                var autoTitle = item.product_source ? ' (auto-linked by ' + esc(item.product_source) + ')' : '';
+                row += '<span class="badge bg-success mw-li-product-badge" title="' + esc(item.product_name || '') + autoTitle + '">' + esc(item.product_name || (editable ? 'Auto-linked' : 'Linked')) + '</span>';
                 if (liId) row += ' <button type="button" class="btn btn-link btn-sm p-0 mw-li-unlink" onclick="unlinkProduct(' + liId + ')" title="Unlink">&times;</button>';
             } else if (liId) {
                 row += '<button type="button" class="btn btn-outline-secondary btn-sm mw-li-link" style="font-size:.7rem;padding:1px 6px;" onclick="showProductSearch(' + liId + ', this)">Link</button>';
@@ -5056,17 +6308,179 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }
             row += '</td>';
 
-            // Delete column — only for stored items
-            row += '<td class="text-center">';
+            // Edit/Delete column — stored items get edit/delete; pre-save items get "not an item"
+            row += '<td class="text-center text-nowrap">';
+            if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 me-1" onclick="editLineItemRow(' + liId + ', this)" title="Edit"><i data-feather="edit-2" style="width:12px;height:12px;"></i></button>';
             if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="deleteLineItem(' + liId + ')" title="Remove"><i data-feather="trash-2" style="width:12px;height:12px;"></i></button>';
+            if (editable) row += '<button type="button" class="btn btn-link btn-sm p-0 ' + (item.removed ? 'text-success' : 'text-danger') + '" onclick="reviewLiToggleRemoved(\'' + editableScope + '\', ' + idx + ')" title="' + (item.removed ? 'Restore' : 'Not an item — teaches the parser to skip this line') + '"><i data-feather="' + (item.removed ? 'rotate-ccw' : 'x') + '" style="width:12px;height:12px;"></i></button>';
             row += '</td>';
 
             row += '</tr>';
             return row;
         }).join('');
 
+        if (editableScope) {
+            rows += '<tr><td colspan="6" class="text-start py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
+        } else if (_liGap(items) > 0) {
+            rows += _liGapRow(_liGap(items), false);
+        }
+
+        // Saved lines of the open receipt: their shared-catalogue link, filled in after the table is drawn.
+        if (stored && !editableScope && typeof window.mwCatalogFill === 'function') setTimeout(window.mwCatalogFill, 0);
         return header + rows;
     }
+
+
+    // ── Shared catalogue on each saved line (ReceiptCatalogService, 2026-10-19) ─────
+    // Penny links lines by herself (a learned SKU / wording, an exact name); a likely product is asked
+    // as "Is this …?"; nothing alike → "Add to catalogue". Each answer teaches her the vendor's wording.
+    var mwCatFamilies = [], mwCatCanDecide = false, mwCatSeq = 0;
+    function mwCatHow(m) { return m === 'alias' ? 'Penny knew it' : (m === 'exact' ? 'matched by name' : (m === 'added' ? 'added by you' : 'confirmed')); }
+    function mwCatMoney(v) { return '$' + Number(v || 0).toFixed(2); }
+    function mwCatUnit(v, label) { return v == null || !label ? '' : ' ($' + Number(v).toFixed(2) + esc(label.substring(1)) + ')'; }
+    function mwCatCell(id, c) {
+        if (!c || !c.eligible) return '';
+        var h = '<div class="mw-li-cat small mt-1" data-cat-line="' + id + '">';
+        if (c.product) {
+            h += 'Catalogue: <strong>' + esc(c.product.name) + '</strong> <span class="text-muted">(' + esc(mwCatHow(c.match)) + ')</span>'
+               + (mwCatCanDecide ? ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">change</button>' : '')
+               + ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="history" data-cat-product="' + c.product.id + '">price history</button>';
+            if (c.hint) {
+                h += '<div class="mw-li-hint">Last paid ' + mwCatMoney(c.hint.last.price) + ' at ' + esc(c.hint.last.vendor) + ' (' + esc(c.hint.last.date) + ')'
+                   + mwCatUnit(c.hint.last.per_unit_value, c.hint.last.per_unit_label) + ' · cheapest ' + mwCatMoney(c.hint.cheapest.price) + ' at ' + esc(c.hint.cheapest.vendor)
+                   + mwCatUnit(c.hint.cheapest.per_unit_value, c.hint.cheapest.per_unit_label) + '</div>';
+            }
+        } else if (!mwCatCanDecide) {
+            return '';
+        } else if (c.suggested) {
+            h += 'Is this <strong>' + esc(c.suggested.name) + '</strong>? '
+               + '<button type="button" class="btn btn-outline-success btn-sm py-0 px-2" data-cat-act="yes" data-cat-product="' + c.suggested.id + '">Yes</button> '
+               + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" data-cat-act="no">No</button> '
+               + '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">another one</button>';
+        } else {
+            h += (c.match === 'none' ? '<span class="text-muted">Not in the catalogue.</span> ' : '')
+               + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" data-cat-act="add">Add to catalogue</button> '
+               + '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-cat-act="find">find it</button>';
+        }
+        return h + '<div data-cat-panel></div></div>';
+    }
+    function mwCatPaint(lines) {
+        var table = document.getElementById('expLineItemsTable');
+        if (!table || !lines) return;
+        Object.keys(lines).forEach(function (id) {
+            var row = table.querySelector('tr[data-li-id="' + id + '"]');
+            if (!row || !row.cells[0]) return;
+            var old = row.cells[0].querySelector('.mw-li-cat');
+            if (old) old.remove();
+            row.cells[0].insertAdjacentHTML('beforeend', mwCatCell(id, lines[id]));
+            var el = row.cells[0].querySelector('.mw-li-cat');
+            if (el) el._cat = lines[id];
+        });
+    }
+    window.mwCatalogFill = function () {
+        var id = parseInt((document.getElementById('expenseId') || {}).value || '0', 10);
+        if (!id) return;
+        fetch('/crm/api/expenses.php?action=catalog_lines&id=' + id, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.success && d.ready) { mwCatFamilies = d.families || []; mwCatCanDecide = !!d.can_decide; mwCatPaint(d.lines); } })
+            .catch(function () { /* the table stands without it */ });
+    };
+    async function mwCatPost(body) {
+        return withCSRFRetry(async function () {
+            var r = await fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify(Object.assign({ csrf_token: CSRF }, body)) });
+            var j = await r.json();
+            if (!j.success) throw new Error(j.error || j.message || 'Not saved');
+            return j;
+        });
+    }
+    document.addEventListener('click', async function (ev) {
+        var b = ev.target.closest('[data-cat-act]');
+        if (!b) return;
+        var box = b.closest('.mw-li-cat');
+        if (!box) return;
+        var line = parseInt(box.getAttribute('data-cat-line'), 10), act = b.getAttribute('data-cat-act');
+        var panel = box.querySelector('[data-cat-panel]'), c = box._cat || {};
+        if (act === 'history') {
+            panel.innerHTML = '<div class="mw-li-hint mt-1">Loading price history…</div>';
+            fetch('/crm/api/expenses.php?action=catalog_price_history&product_id=' + encodeURIComponent(b.getAttribute('data-cat-product')), { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var rows = (d && d.by_vendor) || [];
+                    var body = rows.map(function (x) {
+                        var per = x.cheapest_per_unit == null ? '—' : '$' + Number(x.cheapest_per_unit).toFixed(2) + esc((x.per_unit_label || '').substring(1));
+                        return '<tr><td>' + esc(x.vendor) + '</td><td>' + mwCatMoney(x.last_price) + '<div class="mw-li-hint">' + esc(x.last_date) + '</div></td>'
+                            + '<td>' + mwCatMoney(x.cheapest_price) + '</td><td>' + per + '</td><td>' + Number(x.count || 0) + '</td></tr>';
+                    }).join('');
+                    panel.innerHTML = '<div class="mw-li-history"><table class="table table-sm mb-1"><thead><tr><th>Vendor</th><th>Last paid</th><th>Cheapest</th><th>Per unit</th><th>Times bought</th></tr></thead><tbody>'
+                        + (body || '<tr><td colspan="5" class="text-muted">No other purchases yet.</td></tr>')
+                        + '</tbody></table><button type="button" class="btn btn-link btn-sm p-0" data-cat-act="close">Close</button></div>';
+                }).catch(function () { panel.innerHTML = '<div class="text-danger mt-1">Price history could not be loaded.</div>'; });
+            return;
+        }
+        if (act === 'close') { panel.innerHTML = ''; return; }
+        if (act === 'find') {
+            panel.innerHTML = '<div class="d-flex mt-1 mw-li-cat-fields"><input type="search" class="form-control form-control-sm" data-cat-q placeholder="Search the catalogue" aria-label="Search the catalogue"></div><div data-cat-results></div>';
+            var q = panel.querySelector('[data-cat-q]'), t = null;
+            q.value = (c.add && c.add.name) || '';
+            var run = function () {
+                var my = ++mwCatSeq, out = panel.querySelector('[data-cat-results]');
+                fetch('/crm/api/expenses.php?action=catalog_search&q=' + encodeURIComponent(q.value), { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () { return { results: [], failed: true }; })
+                    .then(function (d) {
+                        if (my !== mwCatSeq || !out.isConnected) return;               // an older search answering late
+                        if (d && d.failed) { out.innerHTML = '<div class="text-danger mt-1">The search failed — try again.</div>'; return; }
+                        var res = (d && d.results) || [];
+                        panel.querySelector('[data-cat-results]').innerHTML = res.length ? res.map(function (x) {
+                            return '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 mt-1 me-1" data-cat-act="pick" data-cat-product="' + x.id + '">' + esc(x.name) + '</button>';
+                        }).join('') : '<div class="text-muted mt-1">Nothing like that yet — use Add to catalogue.</div>';
+                    });
+            };
+            q.addEventListener('input', function () { clearTimeout(t); t = setTimeout(run, 300); });
+            q.focus(); if (q.value) run();
+            return;
+        }
+        if (act === 'add') {
+            var opts = mwCatFamilies.map(function (f) { return '<option value="' + esc(f.slug) + '"' + (c.add && c.add.family === f.slug ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('');
+            var size = (c.add && c.add.size) || {}, units = ['l', 'ml', 'kg', 'g', 'm', 'cm', 'pc'];
+            var unitOpts = units.map(function (u) { return '<option value="' + u + '"' + (size.unit === u ? ' selected' : '') + '>' + u + '</option>'; }).join('');
+            panel.innerHTML = '<div class="d-flex flex-wrap mt-1 mw-li-cat-fields">'
+                + '<input type="text" class="form-control form-control-sm mw-li-cat-name" data-cat-name aria-label="Product name" value="' + esc((c.add && c.add.name) || '') + '">'
+                + '<input type="text" class="form-control form-control-sm mw-li-cat-brand" data-cat-brand aria-label="Brand (optional)" placeholder="Brand (optional)">'
+                + '<select class="form-control form-control-sm mw-li-cat-family" data-cat-family aria-label="Kind of product">' + opts + '</select>'
+                + '<input type="number" min="0" step="0.001" class="form-control form-control-sm mw-li-cat-size" data-cat-size-qty aria-label="Package size" placeholder="Size" value="' + esc(size.qty == null ? '' : size.qty) + '">'
+                + '<select class="form-control form-control-sm mw-li-cat-unit" data-cat-size-unit aria-label="Package size unit">' + unitOpts + '</select>'
+                + '<button type="button" class="btn btn-success btn-sm" data-cat-act="save">Add</button></div>';
+            var nm = panel.querySelector('[data-cat-name]');
+            if (nm) nm.focus();
+            return;
+        }
+        var body = { line_id: line };
+        if (act === 'yes' || act === 'pick') { body.action = 'catalog_confirm'; body.product_id = parseInt(b.getAttribute('data-cat-product'), 10); }
+        else if (act === 'no') body.action = 'catalog_dismiss';
+        else if (act === 'save') {
+            body.action = 'catalog_add';
+            body.name = (panel.querySelector('[data-cat-name]') || {}).value || '';
+            body.brand = (panel.querySelector('[data-cat-brand]') || {}).value || '';
+            body.family = (panel.querySelector('[data-cat-family]') || {}).value || '';
+            body.size_qty = (panel.querySelector('[data-cat-size-qty]') || {}).value || '';
+            body.size_unit = (panel.querySelector('[data-cat-size-unit]') || {}).value || '';
+        } else return;
+        if (box.getAttribute('data-busy') === '1') return;             // Yes and No can't both go
+        box.setAttribute('data-busy', '1');
+        var all = box.querySelectorAll('button');
+        Array.prototype.forEach.call(all, function (x) { x.disabled = true; });
+        try {
+            var d = await mwCatPost(body);
+            mwCatPaint(d.lines);
+            if (typeof mwToast === 'function' && d.product) mwToast('Catalogue: ' + d.product.name + ' — Penny will link it by herself next time');
+        } catch (e) {
+            box.removeAttribute('data-busy');
+            Array.prototype.forEach.call(all, function (x) { x.disabled = false; });
+            alert('Error: ' + e.message);
+        }
+    });
 
     // ── Product Linking ──────────────────────────────────────────
     var activePopover = null;
@@ -5206,7 +6620,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             // Re-fill form fields (only blank fields — don't clobber manual edits)
             var p = d.parsed || {};
             var s = d.suggestions || {};
-            if (p.date    && !document.getElementById('rvDate').value)   document.getElementById('rvDate').value   = safeDate(p.date);
+            if (p.date    && !document.getElementById('rvDate').value)   { document.getElementById('rvDate').value   = safeDate(p.date); document.getElementById('rvDate').dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('rvDate').dispatchEvent(new Event('change', { bubbles: true })); }
             if (p.total   && !document.getElementById('rvTotal').value)  document.getElementById('rvTotal').value  = p.total;
             if (p.gst     && !document.getElementById('rvGst').value)    document.getElementById('rvGst').value    = p.gst;
             if (p.subtotal && !document.getElementById('rvAmount').value) document.getElementById('rvAmount').value = p.subtotal;
@@ -5272,7 +6686,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             // Apply parsed suggestions to the form
             if (d.parsed) {
                 var p = d.parsed;
-                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) df.value = p.date; }
+                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) { df.value = p.date; df.dispatchEvent(new Event('input', { bubbles: true })); df.dispatchEvent(new Event('change', { bubbles: true })); } }
                 if (p.total)   { var tf = document.getElementById('expTotal');  if(tf && !tf.value) tf.value = p.total; }
                 if (p.gst)     { var gf = document.getElementById('expGst');    if(gf && !gf.value) gf.value = p.gst; }
                 if (p.subtotal){ var sf = document.getElementById('expAmount'); if(sf && !sf.value) sf.value = p.subtotal; }
@@ -5281,6 +6695,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 var cf = document.getElementById('expAcctCategory');
                 if (cf && !cf.value) cf.value = d.suggestions.accounting_category;
             }
+            // Stored amounts that couldn't be true (negative subtotal, tax ≥ total) were replaced by
+            // this read on the server (ExpenseRescanService::amountRepair) — show them.
+            if (d.amounts_repaired && d.amounts_repaired.after) {
+                var fix = d.amounts_repaired.after;
+                [['expAmount', 'amount'], ['expGst', 'gst_amount'], ['expPst', 'pst_amount']].forEach(function (m) {
+                    var f = document.getElementById(m[0]);
+                    if (f && fix[m[1]] != null) { f.value = Number(fix[m[1]]).toFixed(2); f.dispatchEvent(new Event('input', { bubbles: true })); }
+                });
+                msg += ' · amounts corrected';
+            }
+            // Penny's read follows the rescan (re-read on the server when she had one open).
+            loadPennyRead(parseInt(expId));
 
             // Update line items table — items are now persisted server-side,
             // so render with stored=true to show Link buttons immediately
@@ -5316,7 +6742,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     // ── Add Line Item (manual) ──────────────────────────────────────
     // ── Smart Add Item Panel ─────────────────────────────────────────
-    var _aipProductCache = {}; // vendorId → products[]
 
     function _aipClearFields() {
         ['newItemName','newItemQty','newItemUnitPrice','newItemTotal'].forEach(function(id) {
@@ -5336,18 +6761,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var searchEl = document.getElementById('expAipSearch');
         if (searchEl) {
             searchEl.value = '';
-            var vName = ((document.getElementById('vendorName') || {}).value || '').trim();
-            searchEl.placeholder = vName ? 'Search ' + vName + ' products\u2026' : 'Search products\u2026';
+            var vName = ((document.getElementById('expVendorSearch') || {}).value || '').trim();
+            searchEl.placeholder = vName ? 'Search ' + vName + ' items\u2026' : 'Search products\u2026';
             searchEl.focus();
         }
 
         var vendorId = parseInt((document.getElementById('expVendorId') || {}).value) || 0;
-        if (vendorId) {
-            _aipLoadProducts(vendorId);
-        } else {
-            var catalog = document.getElementById('expAipCatalog');
-            if (catalog) catalog.style.display = 'none';
-        }
+        var catalog = document.getElementById('expAipCatalog');
+        if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
+        // This vendor's usual items show at once; nothing else until something is typed.
+        if (vendorId) _aipLoadProducts(vendorId, '');
     };
 
     window.cancelAddLineItem = function() {
@@ -5356,68 +6779,56 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         _aipClearFields();
     };
 
-    async function _aipLoadProducts(vendorId) {
+    // The picker's list (ExpenseLookupService::vendorItemSuggestions via ?action=item_suggestions):
+    // this vendor's usual items first (past receipt lines + SKU memory, by how often / how lately),
+    // then its catalogue, other CRM products only on a typed search (Chevron #355, 2026-10-13 —
+    // a gas-station coffee was offered Crusher Dust and Road Base).
+    var _aipSeq = 0;
+    async function _aipLoadProducts(vendorId, q) {
         var catalog = document.getElementById('expAipCatalog');
         if (!catalog) return;
-        if (_aipProductCache[vendorId]) {
-            // Already cached \u2014 catalog stays hidden until user types
-            return;
-        }
+        var seq = ++_aipSeq;
         try {
-            var r = await fetch('/crm/api/vendors.php?action=get&id=' + vendorId, { credentials: 'same-origin' });
+            var r = await fetch('/crm/api/expenses.php?action=item_suggestions&vendor_id=' + (vendorId || 0) +
+                                '&q=' + encodeURIComponent(q || ''), { credentials: 'same-origin', cache: 'no-store' });
             var d = await r.json();
-            if (d.success && d.vendor && d.vendor.products && d.vendor.products.length) {
-                _aipProductCache[vendorId] = d.vendor.products;
-                // Update search placeholder with product count
-                var srch = document.getElementById('expAipSearch');
-                if (srch) srch.placeholder = 'Search ' + d.vendor.products.length + ' products\u2026';
-            }
-        } catch(e) { /* silent */ }
+            if (seq !== _aipSeq || !d.success) return;
+            _aipRenderGroups(d, q || '');
+        } catch(e) { /* silent — free-text entry still works */ }
     }
 
-    function _aipRender(products, searchTerm) {
+    function _aipRenderGroups(d, q) {
         var catalog = document.getElementById('expAipCatalog');
         if (!catalog) return;
-        var q = (searchTerm || '').toLowerCase().trim();
-        var filtered = products.filter(function(p) {
-            if (!q) return true;
-            return (p.name || '').toLowerCase().indexOf(q) !== -1 ||
-                   (p.category || '').toLowerCase().indexOf(q) !== -1 ||
-                   (p.ocr_aliases || '').toLowerCase().indexOf(q) !== -1;
-        });
-        if (!filtered.length) {
-            catalog.innerHTML = '<div class="mw-aip-no-products">No matches \u2014 type a custom name below.</div>';
-            catalog.style.display = 'block';
-            return;
-        }
-        // Group by category
-        var cats = {};
-        var catOrder = [];
-        filtered.forEach(function(p) {
-            var c = p.category || 'Other';
-            if (!cats[c]) { cats[c] = []; catOrder.push(c); }
-            cats[c].push(p);
-        });
+        var vName = ((document.getElementById('expVendorSearch') || {}).value || '').trim();
+        var chip = function (name, price, unit) {
+            var p = parseFloat(price) || 0;
+            return '<button type="button" class="mw-aip-chip"' +
+                ' data-name="' + escHtml(name || '') + '" data-unit="' + escHtml(unit || '') + '"' +
+                ' data-price="' + escHtml(p ? p.toFixed(2) : '') + '" onclick="selectAipChip(this)">' + escHtml(name) +
+                (p ? ' <span class="mw-aip-chip-price">$' + p.toFixed(2) + (unit ? '/' + escHtml(unit) : '') + '</span>' : '') +
+                '</button>';
+        };
         var html = '';
-        catOrder.forEach(function(cat) {
-            html += '<div class="mw-aip-cat-label">' + escHtml(cat) + '</div><div class="mw-aip-chips">';
-            cats[cat].forEach(function(p) {
-                var price = p.price_per_unit
-                    ? '$' + parseFloat(p.price_per_unit).toFixed(0) + '/' + (p.unit || 'unit')
-                    : '';
-                // Serialize product as data-attr (safe via escHtml on individual fields)
-                html += '<button type="button" class="mw-aip-chip" data-pid="' + p.id + '"' +
-                    ' data-name="' + escHtml(p.name || '') + '"' +
-                    ' data-unit="' + escHtml(p.unit || '') + '"' +
-                    ' data-price="' + escHtml(String(p.price_per_unit || '')) + '"' +
-                    ' data-id="' + p.id + '"' +
-                    ' onclick="selectAipChip(this)">' +
-                    escHtml(p.name) +
-                    (price ? ' <span class="mw-aip-chip-price">' + price + '</span>' : '') +
-                    '</button>';
-            });
+        if ((d.usual || []).length) {
+            html += '<div class="mw-aip-cat-label">' + escHtml(vName ? 'Usual at ' + vName : 'Usual items') + '</div><div class="mw-aip-chips">';
+            d.usual.forEach(function (i) { html += chip(i.name, i.price, ''); });
             html += '</div>';
-        });
+        }
+        if ((d.catalogue || []).length) {
+            html += '<div class="mw-aip-cat-label">' + escHtml(vName ? vName + ' catalogue' : 'Catalogue') + '</div><div class="mw-aip-chips">';
+            d.catalogue.forEach(function (p) { html += chip(p.name, p.price_per_unit, p.unit); });
+            html += '</div>';
+        }
+        if ((d.other || []).length) {
+            html += '<div class="mw-aip-cat-label">Other products</div><div class="mw-aip-chips">';
+            d.other.forEach(function (p) { html += chip(p.name, null, ''); });
+            html += '</div>';
+        }
+        if (!html) {
+            if (!q) { catalog.innerHTML = ''; catalog.style.display = 'none'; return; }
+            html = '<div class="mw-aip-no-products">No matches \u2014 type a custom name below.</div>';
+        }
         catalog.innerHTML = html;
         catalog.style.display = 'block';
     }
@@ -5435,9 +6846,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (nameEl) nameEl.value = name;
         if (qtyEl)  qtyEl.value  = '1';
         if (upEl)   upEl.value   = price ? price.toFixed(2) : '';
-        if (totEl)  totEl.value  = price ? price.toFixed(2) : '';
+        // What the items don't yet account for goes on this line (the server works out amount and quantity);
+        // a receipt that already adds up gets one at the list price, as before.
+        var fill = _liGap(window._currentLineItems) > 0;
+        if (totEl)  totEl.value  = fill ? '' : (price ? price.toFixed(2) : '');
 
-        commitAddLineItem();
+        commitAddLineItem(fill);
     };
 
     // Wire search input
@@ -5448,7 +6862,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         searchEl.addEventListener('input', function() {
             var q = searchEl.value.trim();
             var vendorId = parseInt((document.getElementById('expVendorId') || {}).value) || 0;
-            var vendorProducts = vendorId ? (_aipProductCache[vendorId] || []) : [];
 
             // Mirror typed text into name field so free-text entry works
             var nameEl = document.getElementById('newItemName');
@@ -5456,44 +6869,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 nameEl.value = q;
             }
 
-            if (vendorProducts.length) {
-                // Vendor catalog loaded — show only when user is typing
-                if (q.length >= 1) {
-                    _aipRender(vendorProducts, q);
-                } else {
-                    var catalog = document.getElementById('expAipCatalog');
-                    if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
-                }
-            } else if (q.length >= 2) {
-                // No vendor catalog — fall back to global product search
-                clearTimeout(_aipGlobalTimer);
-                _aipGlobalTimer = setTimeout(function() { _aipGlobalSearch(q); }, 220);
-            } else {
+            // Vendor: its usual items + catalogue filtered as you type; other CRM products join
+            // only from 2 characters. No vendor: CRM products from 2 characters, as before.
+            clearTimeout(_aipGlobalTimer);
+            if (!vendorId && q.length < 2) {
                 var catalog = document.getElementById('expAipCatalog');
                 if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
+                return;
             }
+            _aipGlobalTimer = setTimeout(function() { _aipLoadProducts(vendorId, q); }, 200);
         });
     }());
 
-    async function _aipGlobalSearch(q) {
-        var catalog = document.getElementById('expAipCatalog');
-        if (!catalog) return;
-        try {
-            var r = await fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(q));
-            var d = await r.json();
-            if (d.success && d.products && d.products.length) {
-                _aipRender(d.products, q);
-            } else {
-                catalog.innerHTML = '<div class="mw-aip-no-products">No matches — type a custom name below.</div>';
-                catalog.style.display = 'block';
-            }
-        } catch(e) {
-            catalog.innerHTML = '';
-            catalog.style.display = 'none';
-        }
-    }
-
-    window.commitAddLineItem = async function() {
+    window.commitAddLineItem = async function(fillRemainder) {
+        fillRemainder = fillRemainder === true;
         var expId = document.getElementById('expenseId').value;
         if (!expId) return;
         var name = (document.getElementById('newItemName').value || '').trim();
@@ -5501,8 +6890,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var qty  = parseFloat(document.getElementById('newItemQty').value) || 1;
         var up   = document.getElementById('newItemUnitPrice').value;
         var tot  = document.getElementById('newItemTotal').value;
-        // Auto-calc total if blank
-        if (!tot && up) tot = (parseFloat(up) * qty).toFixed(2);
+        // Auto-calc total if blank (not when the server fills what the items don't yet account for)
+        if (!tot && up && !fillRemainder) tot = (parseFloat(up) * qty).toFixed(2);
 
         try {
             var r = await fetch('/crm/api/expenses.php', {
@@ -5516,6 +6905,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     quantity: qty,
                     unit_price: up || null,
                     line_total: tot || null,
+                    fill_remainder: fillRemainder,
                 }),
             });
             var d = await r.json();
@@ -5540,14 +6930,81 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         } catch(err) { alert('Delete failed: ' + err.message); }
     };
 
+    // ── Edit an existing line item in place ───────────────────────
+    // The table's Qty/Unit-$ columns are conditionally rendered
+    // (hasQty/hasUp above), so instead of swapping individual <td>s we
+    // replace the whole row with one wide cell holding a small form —
+    // same input styling as the Add Item panel.
+    window.editLineItemRow = function(lineItemId, btn) {
+        var tr = btn.closest('tr');
+        var table = tr.closest('table');
+        var headerCells = table.querySelector('.mw-li-header');
+        var colCount = headerCells ? headerCells.children.length : 5;
+        var item = (window._currentLineItems || []).find(function(i) { return i.id == lineItemId; }) || {};
+        var qty = item.quantity != null ? item.quantity : 1;
+        var up = item.unit_price != null ? item.unit_price : '';
+        var tot = item.line_total != null ? item.line_total : (item.amount != null ? item.amount : '');
+
+        tr.innerHTML = '<td colspan="' + colCount + '">' +
+            '<div class="mw-add-item-row" style="border:none;margin:0;padding:0;">' +
+                '<input type="text" class="form-control form-control-sm" id="editLiName_' + lineItemId + '" placeholder="Item name" value="' + esc(String(item.name || '')).replace(/"/g, '&quot;') + '">' +
+                '<input type="number" class="form-control form-control-sm" id="editLiQty_' + lineItemId + '" placeholder="Qty" min="0.001" step="0.001" value="' + qty + '" style="width:70px;">' +
+                '<input type="number" class="form-control form-control-sm" id="editLiUp_' + lineItemId + '" placeholder="$/unit" min="0" step="0.01" value="' + up + '" style="width:80px;">' +
+                '<input type="number" class="form-control form-control-sm" id="editLiTotal_' + lineItemId + '" placeholder="Total" min="0" step="0.01" value="' + tot + '" style="width:80px;">' +
+                '<button type="button" class="btn btn-sm btn-success" onclick="commitEditLineItem(' + lineItemId + ')"><i data-feather="check" style="width:12px;height:12px;"></i></button>' +
+                '<button type="button" class="mw-modal-close" onclick="cancelEditLineItem()" title="Cancel"><i data-feather="x"></i></button>' +
+            '</div>' +
+        '</td>';
+        if (window.feather) feather.replace();
+        var nameEl = document.getElementById('editLiName_' + lineItemId);
+        if (nameEl) nameEl.focus();
+    };
+
+    window.cancelEditLineItem = function() {
+        var expId = document.getElementById('expenseId').value;
+        if (expId) editExpense(parseInt(expId));
+    };
+
+    window.commitEditLineItem = async function(lineItemId) {
+        var nameEl = document.getElementById('editLiName_' + lineItemId);
+        var name = (nameEl.value || '').trim();
+        if (!name) { nameEl.focus(); return; }
+        var qty = parseFloat(document.getElementById('editLiQty_' + lineItemId).value) || 1;
+        var up  = document.getElementById('editLiUp_' + lineItemId).value;
+        var tot = document.getElementById('editLiTotal_' + lineItemId).value;
+        if (!tot && up) tot = (parseFloat(up) * qty).toFixed(2);
+
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_line_item',
+                    csrf_token: CSRF,
+                    line_item_id: lineItemId,
+                    name: name,
+                    quantity: qty,
+                    unit_price: up || null,
+                    line_total: tot || null,
+                }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            var expId = document.getElementById('expenseId').value;
+            if (expId) editExpense(parseInt(expId));
+        } catch(err) { alert('Could not update item: ' + err.message); }
+    };
+
     // ── GST Math Auto-fix ─────────────────────────────────────────
     window.autoFixGstMath = function(prefix) {
         var amt = parseFloat(document.getElementById(prefix + 'Amount').value) || 0;
         var total = parseFloat(document.getElementById(prefix + 'Total').value) || 0;
         var pstEl = document.getElementById(prefix + 'Pst');
         var pst = pstEl ? (parseFloat(pstEl.value) || 0) : 0;
-        // Recalculate GST as total - subtotal - pst
-        var gst = Math.max(0, total - amt - pst);
+        var recyclingEl = document.getElementById(prefix + 'RecyclingTax');
+        var recyclingTax = recyclingEl ? (parseFloat(recyclingEl.value) || 0) : 0;
+        // Recalculate GST as total - subtotal - pst - recycling tax
+        var gst = Math.max(0, total - amt - pst - recyclingTax);
         document.getElementById(prefix + 'Gst').value = gst.toFixed(2);
         var warn = document.getElementById(prefix + 'GstMathWarning');
         if (warn) warn.style.display = 'none';
@@ -5754,7 +7211,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     }
 
     window.approveExpense = async function(id) {
-        if (!confirm('Approve this expense?')) return;
+        // Penny's approve window: her face, her brain, and what this approval teaches her (penny-approve.js).
+        var ok = window.MwPennyApprove ? await window.MwPennyApprove.confirm(id) : confirm('Approve this expense?');
+        if (!ok) return false;
         try {
             var r = await fetch('/crm/api/expenses.php', {
                 method: 'POST',
@@ -5765,7 +7224,58 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (!d.success) throw new Error(d.error);
             loadApprovals();
             loadExpenses(currentPage);
-        } catch(e) { alert('Error: ' + e.message); }
+            return true;
+        } catch(e) { alert('Error: ' + e.message); return false; }
+    };
+
+    // ── Emailed Receipts — pending review panel ───────────────────
+    async function submitReceiptInbox(btn, payload) {
+        var row = btn.closest('.mw-ri-row');
+        var btns = row.querySelectorAll('button');
+        btns.forEach(function(b){ b.disabled = true; });
+        try {
+            var body = new URLSearchParams(Object.assign({ csrf_token: CSRF }, payload));
+            var r = await fetch('/crm/api/receipt-inbox-confirm.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            });
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.message || 'Failed');
+            // Remove the row; update the count badge; refresh the expenses list.
+            row.remove();
+            var card = document.getElementById('receipt-inbox');
+            var countEl = card ? card.querySelector('.mw-ri-count') : null;
+            if (countEl) {
+                var n = Math.max(0, parseInt(countEl.textContent, 10) - 1);
+                countEl.textContent = n;
+                if (n === 0 && card) card.remove();
+            }
+            if (typeof loadExpenses === 'function') loadExpenses(currentPage);
+        } catch(e) {
+            alert('Error: ' + e.message);
+            btns.forEach(function(b){ b.disabled = false; });
+        }
+    }
+
+    window.approveReceiptInbox = function(btn) {
+        var row = btn.closest('.mw-ri-row');
+        submitReceiptInbox(btn, {
+            action: 'approve',
+            expense_id: row.getAttribute('data-expense-id'),
+            vendor_id: (row.querySelector('.mw-ri-vendor') || {}).value || '',
+            expense_date: (row.querySelector('.mw-ri-date') || {}).value || '',
+            total: (row.querySelector('.mw-ri-total') || {}).value || '',
+            gst_amount: (row.querySelector('.mw-ri-gst') || {}).value || '',
+            pst_amount: (row.querySelector('.mw-ri-pst') || {}).value || '',
+            accounting_category: (row.querySelector('.mw-ri-category') || {}).value || '',
+        });
+    };
+
+    window.dismissReceiptInbox = function(btn) {
+        if (!confirm('Dismiss this emailed receipt? It will not be added to your books.')) return;
+        var row = btn.closest('.mw-ri-row');
+        submitReceiptInbox(btn, { action: 'dismiss', expense_id: row.getAttribute('data-expense-id') });
     };
 
     window.showRejectModal = function(id) {
@@ -6037,7 +7547,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
      * An invalid value on a date input triggers "did not match expected pattern".
      */
     function safeDate(raw) {
-        var today = new Date().toISOString().slice(0, 10);
+        var today = localDateYmd();
         if (!raw) return today;
         var s = String(raw).trim();
 
@@ -6077,7 +7587,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (!s) return '';
         var div = document.createElement('div');
         div.textContent = s;
-        return div.innerHTML;
+        // Quotes too: esc() also fills attribute values (title="…", value="…") — review 2026-10-19.
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // ── Vendor Location Management ──────────────────────────────────────────

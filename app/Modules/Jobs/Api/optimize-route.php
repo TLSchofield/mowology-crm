@@ -27,6 +27,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     requireLogin();
     requirePermission('jobs.edit');
 
@@ -38,10 +39,13 @@ try {
     if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
         throw new Exception('Invalid CSRF token');
     }
+    session_write_close(); // CSRF verified — release session lock before DB work
 
-    $date       = $input['date'];
-    $crewId     = isset($input['crew_id']) ? (int)$input['crew_id'] : null;
-    $fromStopId = isset($input['from_stop_id']) ? (int)$input['from_stop_id'] : null;
+    $date              = $input['date'];
+    $crewId            = isset($input['crew_id']) ? (int)$input['crew_id'] : null;
+    $fromStopId        = isset($input['from_stop_id']) ? (int)$input['from_stop_id'] : null;
+    $pinnedFirstStopId = isset($input['pinned_first_stop_id']) ? (int)$input['pinned_first_stop_id'] : null;
+    $pinnedLastStopId  = isset($input['pinned_last_stop_id'])  ? (int)$input['pinned_last_stop_id']  : null;
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         throw new Exception('Invalid date format');
@@ -94,6 +98,67 @@ try {
         'lng'     => (float)$s['longitude'],
         'address' => $s['property_address'] ?? '',
     ], $rows);
+
+    // Pin a first stop, a last stop, or both — then optimise the middle.
+    if ($pinnedFirstStopId !== null || $pinnedLastStopId !== null) {
+        $findStop = function (?int $id) use ($stopData) {
+            if ($id === null) return null;
+            foreach ($stopData as $s) {
+                if ($s['id'] === $id) return $s;
+            }
+            return null;
+        };
+
+        $firstStop = $findStop($pinnedFirstStopId);
+        $lastStop  = $findStop($pinnedLastStopId);
+
+        // A stop cannot be both endpoints; if same id slipped through, treat as first only.
+        if ($firstStop && $lastStop && $firstStop['id'] === $lastStop['id']) {
+            $lastStop = null;
+        }
+
+        if ($firstStop || $lastStop) {
+            $lockedIds = array_filter([
+                $firstStop['id'] ?? null,
+                $lastStop['id']  ?? null,
+            ]);
+            $middle = array_values(array_filter(
+                $stopData,
+                fn($s) => !in_array($s['id'], $lockedIds, true)
+            ));
+
+            // Order the middle stops greedily from the best available start point:
+            //   - if a first stop is pinned, chain outward from it
+            //   - otherwise use the centroid-start nearest-neighbour
+            if ($firstStop) {
+                $orderedMiddle = nearestNeighbourFromPosition($middle, $firstStop['lat'], $firstStop['lng']);
+            } else {
+                $orderedMiddle = nearestNeighbourM($middle);
+            }
+
+            // Assemble final sequence: [first?] + middle + [last?]
+            $sequence = [];
+            if ($firstStop) $sequence[] = $firstStop;
+            foreach ($orderedMiddle as $s) $sequence[] = $s;
+            if ($lastStop)  $sequence[] = $lastStop;
+
+            $upd = $db->prepare('UPDATE calendar_stops SET route_order = ? WHERE id = ?');
+            foreach ($sequence as $pos => $s) {
+                $upd->execute([$pos, $s['id']]);
+            }
+
+            $pinMsg = $firstStop && $lastStop ? 'first + last stops locked'
+                    : ($firstStop ? 'first stop locked' : 'last stop locked');
+
+            echo json_encode([
+                'success'    => true,
+                'count'      => count($sequence),
+                'savings_km' => 0.0,
+                'message'    => 'Route optimised · ' . $pinMsg,
+            ]);
+            exit;
+        }
+    }
 
     // If from_stop_id is provided, lock stops before it and optimise the rest
     // from that stop's position (useful for "optimise from here" mid-route).
@@ -149,7 +214,36 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'optimize-route')]);
+}
+
+// ── Nearest-neighbour from an arbitrary lat/lng origin ────────────────────────
+// Used when the pinned stop is already excluded from the array and we just need
+// to chain the remaining stops greedily from its coordinates.
+function nearestNeighbourFromPosition(array $stops, float $originLat, float $originLng): array
+{
+    if (empty($stops)) return [];
+
+    $ordered   = [];
+    $unvisited = array_values($stops);
+    $curLat    = $originLat;
+    $curLng    = $originLng;
+
+    while (!empty($unvisited)) {
+        $nearestIdx  = 0;
+        $nearestDist = PHP_FLOAT_MAX;
+        foreach ($unvisited as $i => $s) {
+            $d = haversineM($curLat, $curLng, $s['lat'], $s['lng']);
+            if ($d < $nearestDist) { $nearestDist = $d; $nearestIdx = $i; }
+        }
+        $current   = $unvisited[$nearestIdx];
+        $ordered[] = $current;
+        $curLat    = $current['lat'];
+        $curLng    = $current['lng'];
+        array_splice($unvisited, $nearestIdx, 1);
+    }
+
+    return $ordered;
 }
 
 // ── Nearest-neighbour from a fixed start ──────────────────────────────────────

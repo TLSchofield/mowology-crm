@@ -13,6 +13,7 @@ declare(strict_types=1);
 header('Content-Type: application/json');
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 
@@ -288,5 +289,5 @@ try {
 
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'route-reconciliation')]);
 }

@@ -30,6 +30,8 @@ require_once CRM_INCLUDES . '/cms-token-engine.php';
 require_once CRM_INCLUDES . '/page-generator.php';
 
 requireLogin();
+// Same permission as save-page.php (Fable review 2026-10-12): any login is not enough to change the public site.
+requirePermission('marketing.edit');
 $user = getCurrentUser();
 
 // Verify CSRF token

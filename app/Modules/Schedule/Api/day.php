@@ -65,13 +65,34 @@ if (!$dt || $dt->format('Y-m-d') !== $date) {
     exit;
 }
 
-// ── Role-based crew filter ────────────────────────────────────────────────────
-// Admin/manager sees all stops; crew sees only their own
-$crewFilter = jwtIsAdmin($jwtUser['role']) ? null : $jwtUser['id'];
+// ── Whose stops (CrewViewScope, 2026-10-14) ──────────────────────────────────
+// Crew: only their own unless the company allows all; office: ?scope=mine|all (default all).
+// ?service=<slug> narrows to one job type (the tenant's service_types).
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$askedScope = in_array($_GET['scope'] ?? '', ['mine', 'all'], true) ? $_GET['scope'] : null;
+$viewScope  = CrewViewScope::decide((string)$jwtUser['role'], (int)$jwtUser['id'], CrewViewScope::setting(getDB()), $askedScope, null, CrewViewScope::people(getDB()));
+$crewFilter = $viewScope['crew'];
+// On All crews, ?crews=<id,id> narrows to the people ticked on the phone (2026-11-08).
+$crewOptions = [];
+if ($viewScope['can_switch']) {
+    $crewOptions = CrewViewScope::crewOptions(getDB());
+    if ($viewScope['scope'] === 'all') {
+        $pickedCrews = CrewViewScope::crewList((string)($_GET['crews'] ?? ''), array_column($crewOptions, 'value'));
+        if ($pickedCrews) $crewFilter = $pickedCrews;
+    }
+}
+$serviceFilter = null;
+$serviceTypes  = [];
+try {
+    $serviceTypes = getDB()->query("SELECT slug, label FROM service_types WHERE is_active = 1 ORDER BY sort_order, label")->fetchAll(PDO::FETCH_ASSOC);
+    $want = (string)($_GET['service'] ?? '');
+    require_once APP_ROOT . '/Modules/Schedule/Services/ServiceTypeFilter.php';
+    $serviceFilter = ServiceTypeFilter::parse($want, array_column($serviceTypes, 'slug'));
+} catch (Throwable $e) { /* no service_types table: no job-type filter */ }
 
 // ── Fetch stops ───────────────────────────────────────────────────────────────
 try {
-    $calendarData = getCalendarStops($date, $date, $crewFilter);
+    $calendarData = getCalendarStops($date, $date, $crewFilter, $serviceFilter);
 } catch (Throwable $e) {
     error_log('[schedule/day] getCalendarStops error: ' . $e->getMessage());
     http_response_code(500);
@@ -81,6 +102,40 @@ try {
 
 $dayStops = $calendarData[$date] ?? [];
 
+// ── Crew phone lookup (admin only) ────────────────────────────────────────────
+// Collect every unique crew_id across all stops, then batch-fetch name+phone.
+// Only done for admin/manager — crew members' phones are private data.
+$crewPhoneMap = [];
+if (jwtIsAdmin($jwtUser['role']) && !empty($dayStops)) {
+    $allCrewIds = [];
+    foreach ($dayStops as $s) {
+        foreach (($s['crew_ids'] ?? []) as $uid) {
+            $allCrewIds[(int)$uid] = true;
+        }
+    }
+    if (!empty($allCrewIds)) {
+        try {
+            $db = getDB();
+            $ids = array_keys($allCrewIds);
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $db->prepare(
+                "SELECT id, full_name, phone FROM users WHERE id IN ({$placeholders})"
+            );
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $crewPhoneMap[(int)$row['id']] = [
+                    'user_id' => (int)$row['id'],
+                    'name'    => (string)$row['full_name'],
+                    'phone'   => $row['phone'] !== null ? (string)$row['phone'] : null,
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('[schedule/day] crew phone lookup error: ' . $e->getMessage());
+            // Non-fatal — crew_members will just be empty
+        }
+    }
+}
+
 // ── Sort: estimated_arrival first, then route_order ───────────────────────────
 uasort($dayStops, static function (array $a, array $b): int {
     $aTime = $a['estimated_arrival'] ?? ($a['visits'][0]['scheduled_time_start'] ?? '23:59:59');
@@ -89,6 +144,57 @@ uasort($dayStops, static function (array $a, array $b): int {
     if ($cmp !== 0) return $cmp;
     return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
 });
+
+// ── Service history (last two weeks per plan) ─────────────────────────────────
+// Optional garnish: the schedule must load even if this fails.
+$historyByVisit = [];
+try {
+    require_once APP_ROOT . '/Modules/Jobs/Services/ServiceHistoryService.php';
+    $allVisitIds = [];
+    foreach ($dayStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            $allVisitIds[] = (int)($v['visit_id'] ?? 0);
+        }
+    }
+    $historyByVisit = (new ServiceHistoryService(getDB()))->forVisits($allVisitIds, date('Y-m-d'));
+} catch (Throwable $e) {
+    error_log('[schedule/day] service history failed: ' . $e->getMessage());
+}
+
+// ── Endorsements (one heart per crew member) ──────────────────────────────────
+// Optional garnish too; before migration 1121 this stays empty.
+$perCrewEndorsements = false;
+$endorsementsByVisit = [];
+try {
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitEndorsementService.php';
+    $endorsements = new VisitEndorsementService(getDB());
+    $visitIdsForEndorsements = [];
+    foreach ($dayStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            $visitIdsForEndorsements[] = (int)($v['visit_id'] ?? 0);
+        }
+    }
+    $perCrewEndorsements = $endorsements->perCrewEnabled();
+    $endorsementsByVisit = $endorsements->forVisits($visitIdsForEndorsements);
+} catch (Throwable $e) {
+    $perCrewEndorsements = false;
+    error_log('[schedule/day] endorsements failed: ' . $e->getMessage());
+}
+
+// ── What each visit needs before Finish (VisitNeedsService, 2026-10-16) ────────
+// Snow route + choice, required photos, special requests — so a phone can work the visit offline.
+// Older apps ignore the key.
+$needsByVisit = [];
+try {
+    require_once APP_ROOT . '/Modules/Schedule/Services/VisitNeedsService.php';
+    $needVisits = [];
+    foreach ($dayStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) $needVisits[] = ['visit_id' => (int)($v['visit_id'] ?? 0), 'plan_id' => (int)($v['plan_id'] ?? 0)];
+    }
+    $needsByVisit = (new VisitNeedsService(getDB()))->forVisits($needVisits, (int)$jwtUser['id'], jwtIsAdmin($jwtUser['role']));
+} catch (Throwable $e) {
+    error_log('[schedule/day] visit needs: ' . $e->getMessage());
+}
 
 // ── Shape response ────────────────────────────────────────────────────────────
 $stops = [];
@@ -114,10 +220,25 @@ foreach ($dayStops as $stop) {
             'scheduled_start'    => isset($v['scheduled_time_start'])
                 ? substr((string)$v['scheduled_time_start'], 0, 5)
                 : null,
-            'is_flagged'          => (bool)($v['is_flagged'] ?? false),
+            // is_flagged is the CALLER's own heart once per-crew endorsements exist
+            // (migration 1121); before that it is the single visit flag.
+            'is_flagged'          => $perCrewEndorsements
+                ? in_array((int)$jwtUser['id'], $endorsementsByVisit[(int)($v['visit_id'] ?? 0)]['user_ids'] ?? [], true)
+                : (bool)($v['is_flagged'] ?? false),
+            'visit_endorsed'      => (bool)($v['is_flagged'] ?? false),
+            'endorsed_by'         => $endorsementsByVisit[(int)($v['visit_id'] ?? 0)]['names'] ?? [],
             'contact_has_reviewed'=> (bool)($v['contact_has_reviewed'] ?? false),
+            // Contract / monthly-flat work is billed by the contract, never per visit —
+            // the completion sheet must not offer an invoice for it (schedule.php does the same).
+            'pricing_model'       => (string)($v['pricing_model'] ?? 'per_visit'),
+            'is_contract_billed'  => !empty($v['is_contract_billed']),
+            'history'             => $historyByVisit[(int)($v['visit_id'] ?? 0)] ?? null,
+            'needs'               => $needsByVisit[(int)($v['visit_id'] ?? 0)] ?? null,
         ];
     }
+
+    $hasCoords = isset($stop['latitude'], $stop['longitude'])
+        && (abs((float)$stop['latitude']) > 0.0001 || abs((float)$stop['longitude']) > 0.0001);
 
     $stops[] = [
         'stop_id'          => (int)($stop['stop_id'] ?? 0),
@@ -129,24 +250,87 @@ foreach ($dayStops as $stop) {
         'property_address' => (string)($stop['property_address'] ?? ''),
         'property_city'    => (string)($stop['property_city'] ?? ''),
         'property_name'    => isset($stop['property_name']) ? (string)$stop['property_name'] : null,
-        'latitude'         => isset($stop['latitude'])  ? (float)$stop['latitude']  : null,
-        'longitude'        => isset($stop['longitude']) ? (float)$stop['longitude'] : null,
+        // 0,0 is a failed geocode, not a place — sending it made the phone show "12341 km"
+        // and sort the stop last. null = "no map location", which every client already handles.
+        'latitude'         => $hasCoords ? (float)$stop['latitude']  : null,
+        'longitude'        => $hasCoords ? (float)$stop['longitude'] : null,
         'contact_id'       => isset($stop['contact_id']) ? (int)$stop['contact_id'] : null,
         'contact_name'     => isset($stop['contact_name']) ? (string)$stop['contact_name'] : null,
+        // Phone/email/notes were added to getCalendarStops() and the web calendar-stops.php in
+        // May 2026 but never to this endpoint — so the iOS Call button and Access Info card
+        // silently never appeared. The phone decodes all four as optional.
+        'contact_phone'    => !empty($stop['contact_phone']) ? (string)$stop['contact_phone'] : null,
+        'contact_email'    => !empty($stop['contact_email']) ? (string)$stop['contact_email'] : null,
+        'property_notes'   => !empty($stop['property_notes']) ? (string)$stop['property_notes'] : null,
+        'stop_notes'       => !empty($stop['stop_notes']) ? (string)$stop['stop_notes'] : null,
+        // Who crew call at the gate (property_contacts.site_supervisor). null = none set;
+        // the contact_* fields above stay the billing client.
+        'onsite_contact'   => $stop['onsite_contact'] ?? null,
         'company_name'     => isset($stop['company_name']) ? (string)$stop['company_name'] : null,
         'lawn_sqft'        => isset($stop['lawn_sqft']) ? (float)$stop['lawn_sqft'] : null,
+        'crew_ids'         => $stop['crew_ids'] ?? ($stop['crew_id'] ? [(int)$stop['crew_id']] : []),
         'crew_names'       => $stop['crew_names'] ?? ($stop['crew_name'] ? [(string)$stop['crew_name']] : []),
+        'crew_members'     => array_values(array_filter(
+            array_map(
+                static fn(int $uid) => $crewPhoneMap[$uid] ?? null,
+                array_map('intval', $stop['crew_ids'] ?? [])
+            ),
+            static fn($m) => $m !== null
+        )),
         'visit_count'      => count($visits),
         'visits'           => $visits,
     ];
 }
 
+// Timed-extras rate per 5-minute block — lets the app show a live dollar total
+// while crew accrue extra-work minutes on the completion sheet (default $5.00).
+$extrasRate = 5.00;
+try {
+    $erRow = getDB()->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")
+                ->fetch(PDO::FETCH_ASSOC);
+    $extrasRate = round(floatval($erRow['setting_value'] ?? 5.00), 2);
+} catch (Throwable $e) { /* default 5.00 */ }
+
+// ── Appointments (quote visits) — their own list, never stops (AppointmentService, 2026-10-15) ──
+// Same people filter as the stops. Older app builds ignore the key.
+$appointments = [];
+try {
+    require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
+    $appointments = (new AppointmentService(getDB()))->forRange($date, $date, $crewFilter)[$date] ?? [];
+} catch (Throwable $e) {
+    error_log('[schedule/day] appointments: ' . $e->getMessage());
+}
+
 // ── Respond ───────────────────────────────────────────────────────────────────
 http_response_code(200);
 echo json_encode([
-    'success'    => true,
-    'date'       => $date,
-    'role'       => $jwtUser['role'],
-    'stop_count' => count($stops),
-    'stops'      => $stops,
-], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    'success'              => true,
+    'date'                 => $date,
+    'role'                 => $jwtUser['role'],
+    'scope'                => $viewScope['scope'],
+    'can_switch_scope'     => $viewScope['can_switch'],
+    'crews'                => $crewOptions,
+    'crew_filter'          => is_array($crewFilter) ? implode(',', $crewFilter) : null,
+    'service'              => $serviceFilter,
+    'service_types'        => array_map(fn($t) => ['value' => (string)$t['slug'], 'label' => (string)$t['label']], $serviceTypes),
+    'stop_count'           => count($stops),
+    'extras_rate_per_5min' => $extrasRate,
+    'stops'                => $stops,
+    'appointments'         => $appointments,
+    'snow_choices'         => class_exists('VisitNeedsService') ? VisitNeedsService::snowChoices() : [],
+    // Salt & snow run state (SnowRunGate): route stops are in `stops` only while `active`;
+    // POST /api/schedule/snow-run {action:start|end, kind} when `may_control`.
+    'snow_run'             => (static function () use ($date, $jwtUser): array {
+        try {
+            require_once APP_ROOT . '/Modules/Schedule/Services/SnowRunGate.php';
+            return (new SnowRunGate(getDB()))->status($date, (string)$jwtUser['role'], (int)$jwtUser['id']);
+        } catch (Throwable $e) { return ['ready' => false, 'active' => false, 'may_control' => false]; }
+    })(),
+    // The Android Receipt button shows only for a login that may add receipts (receipt-capture's gate).
+    'can_add_receipts'     => (static function () use ($jwtUser): bool {
+        try {
+            require_once PUBLIC_ROOT . '/loginAuth/auth.php';   // getUserPermissions() (authz), else non-admins read as false
+            return jwtUserHasPermission($jwtUser, 'expenses.edit');
+        } catch (Throwable $e) { return false; }
+    })(),
+],JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

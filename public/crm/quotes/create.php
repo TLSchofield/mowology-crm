@@ -1,18 +1,17 @@
 <?php
 /**
  * Create/Edit Quote
- * Thin controller — business logic lives in QuoteService.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/error-handler.php';
-require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
 
 requireLogin();
 $user = getCurrentUser();
 requirePermission('billing.edit');
 
 $db = getDB();
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Create Quote', $_SERVER['REQUEST_METHOD']);
@@ -36,7 +35,9 @@ if ($quoteId) {
     if ($quote) {
         $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
         $stmt->execute([$quoteId]);
-        $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Lines the client declined (migration 1315) are left off the edit form: saving the
+        // quote replaces its lines, so they drop off for good. The activity log keeps them.
+        $lineItems = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn($li) => empty($li['client_declined'])));
     }
 } elseif ($quoteRequestId) {
     // Load quote request data to pre-populate the form
@@ -74,18 +75,13 @@ if ($quote && $quote['property_id']) {
     if ($propContact && $propContact['site_contact_id']) {
         $prefilledContactId = intval($propContact['site_contact_id']);
         $prefilledContactName = trim($propContact['first_name'] . ' ' . $propContact['last_name']);
-        // Load that contact's properties
-        $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt->execute([$prefilledContactId]);
-        $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($prefilledContactId, $db, true);
     }
 } elseif ($quoteRequest && $quoteRequest['contact_id']) {
     // Creating from quote request — pre-fill the contact
     $prefilledContactId = intval($quoteRequest['contact_id']);
     $prefilledContactName = trim(($quoteRequest['first_name'] ?? '') . ' ' . ($quoteRequest['last_name'] ?? ''));
-    $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-    $stmt->execute([$prefilledContactId]);
-    $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $prefilledProperties = getPropertiesForContact($prefilledContactId, $db, true);
 } elseif (!empty($_GET['contact_id']) && !empty($_GET['property_id'])) {
     // Direct entry from client page — pre-fill contact + property
     $directContactId = intval($_GET['contact_id']);
@@ -97,9 +93,7 @@ if ($quote && $quote['property_id']) {
         $prefilledContactId = $directContactId;
         $prefilledContactName = trim($directContact['first_name'] . ' ' . $directContact['last_name']);
         $prefilledPropertyId = $directPropertyId;
-        $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt->execute([$prefilledContactId]);
-        $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($prefilledContactId, $db, true);
     }
 }
 
@@ -130,52 +124,187 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         $error = 'Invalid request. Please try again.';
     } else {
-        $propertyId    = intval($_POST['property_id'] ?? 0);
-        $newLineItems  = json_decode($_POST['line_items'] ?? '[]', true) ?: [];
+        $propertyId = intval($_POST['property_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $serviceType = $_POST['service_type'] ?? 'landscaping';
+        $validUntil = $_POST['valid_until'] ?? null;
+        $terms = trim($_POST['terms'] ?? '');
+        $notesCustomer = trim($_POST['notes_customer'] ?? '');
+        $notesInternal = trim($_POST['notes_internal'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $isContract = !empty($_POST['is_contract']) ? 1 : 0;
 
+        // Parse line items from JSON
+        $lineItemsJson = $_POST['line_items'] ?? '[]';
+        $newLineItems = json_decode($lineItemsJson, true) ?: [];
+
+        // Validate
         if (!$propertyId) {
             $error = 'Please select a property.';
         } elseif (empty($newLineItems)) {
             $error = 'Please add at least one line item.';
         } else {
             try {
-                // Ensure required columns exist (migrations 930, contract)
-                foreach ([
-                    "ALTER TABLE `quote_line_items` ADD COLUMN `section_name` VARCHAR(100) NULL DEFAULT NULL AFTER `sort_order`",
-                    "ALTER TABLE `quotes` ADD COLUMN `is_contract` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`",
-                ] as $ddl) {
-                    try { $db->exec($ddl); } catch (\Throwable $ignore) {}
-                }
+                // section_name / is_contract exist on production (checked 2026-10-12); the old
+                // ALTER-on-every-save is gone — the app's MySQL user is data-only (Fable audit #27).
 
-                $svc  = new QuoteService($db);
-                $data = [
-                    'property_id'    => $propertyId,
-                    'title'          => trim($_POST['title'] ?? ''),
-                    'service_type'   => $_POST['service_type'] ?? 'landscaping',
-                    'valid_until'    => $_POST['valid_until'] ?? null,
-                    'terms'          => trim($_POST['terms'] ?? ''),
-                    'notes_customer' => trim($_POST['notes_customer'] ?? ''),
-                    'notes_internal' => trim($_POST['notes_internal'] ?? ''),
-                    'description'    => trim($_POST['description'] ?? ''),
-                    'is_contract'    => !empty($_POST['is_contract']) ? 1 : 0,
-                ];
+                $db->beginTransaction();
+
+                // Calculate totals
+                $totals = calculateQuoteTotals($newLineItems);
 
                 if ($quoteId) {
-                    $svc->update($quoteId, $data, $newLineItems);
-                } else {
-                    $quoteId = $svc->create($data, $newLineItems, (int)$user['id'], $quoteRequestId ?: null);
-                    logActivityExtended($user['id'], 'Quote created', "Quote created", null, null, $quoteId);
+                    // Update existing quote
+                    // Get the company_id associated with the selected property
+                    $propertyStmt = $db->prepare("
+                        SELECT c.id as company_id
+                        FROM properties p
+                        LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
+                        LEFT JOIN companies c ON cp.company_id = c.id
+                        WHERE p.id = ?
+                        LIMIT 1
+                    ");
+                    $propertyStmt->execute([$propertyId]);
+                    $propertyData = $propertyStmt->fetch(PDO::FETCH_ASSOC);
+                    $companyId = $propertyData['company_id'] ?? null;
 
-                    // Auto-attribution
-                    if (defined('APP_ROOT')) {
-                        $__attrSvc = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
-                        if (file_exists($__attrSvc)) {
-                            require_once $__attrSvc;
-                            try {
-                                AttributionService::onQuoteCreated($db, (int)$quoteId, $propertyId);
-                            } catch (\Throwable $__e) {
-                                error_log('[quotes/create] attribution error: ' . $__e->getMessage());
-                            }
+                    $stmt = $db->prepare("
+                        UPDATE quotes SET
+                            property_id = ?,
+                            company_id = ?,
+                            title = ?,
+                            service_type = ?,
+                            amount = ?,
+                            subtotal = ?,
+                            tax_rate = ?,
+                            tax_amount = ?,
+                            valid_until = ?,
+                            terms = ?,
+                            notes_customer = ?,
+                            notes_internal = ?,
+                            description = ?,
+                            is_contract = ?,
+                            pdf_path = NULL,
+                            pdf_version = 0,
+                            pdf_generated_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $propertyId, $companyId, $title, $serviceType, $totals['total'],
+                        $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
+                        $validUntil ?: null, $terms, $notesCustomer, $notesInternal,
+                        $description, $isContract, $quoteId
+                    ]);
+
+                    // Delete old line items
+                    $stmt = $db->prepare("DELETE FROM quote_line_items WHERE quote_id = ?");
+                    $stmt->execute([$quoteId]);
+
+                } else {
+                    // Create new quote
+                    $quoteNumber = generateQuoteNumber();
+                    $accessToken = generateAccessToken();
+
+                    // Look up company_id and site_contact_id for the selected property
+                    $propertyStmt = $db->prepare("
+                        SELECT c.id as company_id, p.site_contact_id
+                        FROM properties p
+                        LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
+                        LEFT JOIN companies c ON cp.company_id = c.id
+                        WHERE p.id = ?
+                        LIMIT 1
+                    ");
+                    $propertyStmt->execute([$propertyId]);
+                    $propertyData = $propertyStmt->fetch(PDO::FETCH_ASSOC);
+                    $companyId = $propertyData['company_id'] ?? null;
+                    $quoteContactId = $propertyData['site_contact_id'] ?? null;
+
+                    // Quotes go to the building's / company's quote contact, not the billing
+                    // contact (migration 1186; falls back to the site contact as before).
+                    require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+                    $quoteRecipients = new QuoteRecipientService($db);
+                    $resolvedRecipient = $quoteRecipients->forProperty((int)$propertyId);
+                    $quoteContactId = $resolvedRecipient['contact_id'] ?? $quoteContactId;
+
+                    $stmt = $db->prepare("
+                        INSERT INTO quotes (
+                            quote_number, property_id, company_id, contact_id, title, service_type, amount,
+                            subtotal, tax_rate, tax_amount, valid_until, terms,
+                            notes_customer, notes_internal, description, access_token,
+                            token_expires_at, created_by, status, is_contract
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft', ?)
+                    ");
+                    $stmt->execute([
+                        $quoteNumber, $propertyId, $companyId, $quoteContactId, $title, $serviceType, $totals['total'],
+                        $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
+                        $validUntil ?: null, $terms, $notesCustomer, $notesInternal,
+                        $description, $accessToken, $user['id'], $isContract
+                    ]);
+                    $quoteId = $db->lastInsertId();
+                    if (in_array($resolvedRecipient['source'], ['property', 'company'], true)) {
+                        $quoteRecipients->markChosen((int)$quoteId);
+                    }
+
+                    // If created from a quote request, link them together
+                    if ($quoteRequestId) {
+                        $stmt = $db->prepare("UPDATE quote_requests SET quote_id = ?, status = 'quoted' WHERE id = ?");
+                        $stmt->execute([$quoteId, $quoteRequestId]);
+                    }
+
+                    logActivityExtended($user['id'], 'Quote created', "Quote {$quoteNumber} created", null, null, $quoteId);
+                }
+
+                // Insert line items (extended with pricing snapshot columns)
+                $stmt = $db->prepare("
+                    INSERT INTO quote_line_items (
+                        quote_id, product_id, pricing_rule_id, measurement_group_key,
+                        service_type, description, quantity, unit_type,
+                        unit_price, line_total, sort_order, is_optional,
+                        units_used, price_per_unit, minimum_applied, included_units,
+                        pricing_snapshot, bundle_id, is_upsell, section_name
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+
+                foreach ($newLineItems as $index => $item) {
+                    $sectionNameVal = isset($item['section_name']) && trim($item['section_name']) !== ''
+                        ? trim($item['section_name'])
+                        : null;
+                    $stmt->execute([
+                        $quoteId,
+                        !empty($item['product_id']) ? intval($item['product_id']) : null,
+                        !empty($item['pricing_rule_id']) ? intval($item['pricing_rule_id']) : null,
+                        $item['measurement_group_key'] ?? null,
+                        $item['service_type'] ?? 'Service',
+                        $item['description'] ?? '',
+                        floatval($item['quantity'] ?? 1),
+                        $item['unit_type'] ?? 'each',
+                        floatval($item['unit_price'] ?? 0),
+                        floatval($item['line_total'] ?? 0),
+                        $index,
+                        $item['is_optional'] ?? false,
+                        isset($item['units_used']) ? floatval($item['units_used']) : null,
+                        isset($item['price_per_unit']) ? floatval($item['price_per_unit']) : null,
+                        $item['minimum_applied'] ?? 0,
+                        isset($item['included_units']) ? floatval($item['included_units']) : null,
+                        $item['pricing_snapshot'] ?? null,
+                        !empty($item['bundle_id']) ? intval($item['bundle_id']) : null,
+                        $item['is_upsell'] ?? 0,
+                        $sectionNameVal,
+                    ]);
+                }
+
+                $db->commit();
+
+                // Auto-attribution: record quote_created for new quotes only
+                if (!intval($_GET['id'] ?? 0) && defined('APP_ROOT')) {
+                    $__attrSvc = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
+                    if (file_exists($__attrSvc)) {
+                        require_once $__attrSvc;
+                        try {
+                            AttributionService::onQuoteCreated($db, (int)$quoteId, $propertyId);
+                        } catch (\Throwable $__e) {
+                            error_log('[quotes/create] attribution error: ' . $__e->getMessage());
                         }
                     }
                 }
@@ -184,8 +313,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
 
             } catch (\Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
                 $errorHandler->logError('Error saving quote', $e, ['quote_id' => $quoteId, 'property_id' => $propertyId]);
-                $error = 'Error saving quote: ' . htmlspecialchars($e->getMessage());
+                $error = 'Error saving quote. Please try again.';
             }
         }
     }
@@ -429,6 +561,13 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     <!-- Line items will be added here by JavaScript -->
                                 </div>
 
+                                <?php /* "Add from supplier lists" — best supplier price + markup, or Sam's installed price (quote-supplier-add.js, 2026-10-19) */ ?>
+                                <div class="mt-3" id="mwSupplierAdd" hidden>
+                                    <label class="form-label mb-1" for="mwSupplierAddQ"><strong>Add from supplier lists</strong> <span class="text-muted small">— plants at cost + markup; soil, mulch and compost priced installed</span></label>
+                                    <input type="search" class="form-control" id="mwSupplierAddQ" data-sa-q placeholder="japanese maple #5, boxwood #1, garden soil" autocomplete="off">
+                                    <div class="mt-2" data-sa-results aria-live="polite"></div>
+                                </div>
+
                                 <div class="d-flex mt-3" style="gap: 12px; flex-wrap: wrap;">
                                     <div class="mw-template-dropdown">
                                         <button type="button" class="btn btn-secondary" id="addFromTemplateBtn">
@@ -490,13 +629,43 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                             <div class="card-body">
                                 <div class="mw-form-group">
                                     <label class="form-label">Valid Until</label>
-                                    <input type="date" name="valid_until" class="form-control"
+                                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#valid_until" aria-haspopup="true" aria-expanded="false">
+                                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                    </button>
+                                    <input type="date" id="valid_until" name="valid_until" class="form-control" hidden
                                            value="<?php echo $quote['valid_until'] ?? date('Y-m-d', strtotime('+30 days')); ?>">
                                 </div>
 
+                                <?php
+                                // Penny → Sam (2026-11-03): how this payer has paid us, before the terms are written. Read-only; a notice, not a rule.
+                                $payerNotice = null;
+                                try {
+                                    $pk = null;
+                                    $payerProp = !empty($prefilledPropertyId) ? (int)$prefilledPropertyId : (int)($quote['property_id'] ?? 0);   // edit mode: the quote's own property
+                                    if ($payerProp > 0) {
+                                        $pq = $db->prepare("SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? AND cp.is_primary = 1 LIMIT 1"); $pq->execute([$payerProp]);
+                                        $pc = (int)$pq->fetchColumn(); if ($pc > 0) $pk = 'company:' . $pc;
+                                    }
+                                    if ($pk === null && !empty($prefilledContactId)) $pk = 'contact:' . (int)$prefilledContactId;
+                                    if ($pk !== null && defined('APP_ROOT')) {
+                                        require_once APP_ROOT . '/Modules/Invoices/Services/ReminderGate.php';
+                                        $gate = new ReminderGate($db);
+                                        $tone = PayerTone::classify($gate->historyFor($pk));
+                                        $habit = $gate->habitFor($pk);
+                                        if ($tone['n'] > 0) {
+                                            $payerNotice = 'This payer: ' . $tone['reason'] . ($habit ? ', usually ' . $habit['p75'] . ' days late at the slow end' : '') . '.';
+                                            if ($tone['tone'] === 'firm' || ($habit && $habit['p75'] >= 21)) $payerNotice .= ' Consider a deposit line or shorter terms on this quote.';
+                                            elseif ($tone['tone'] === 'gentle') $payerNotice .= ' Standard terms are fine.';
+                                        }
+                                    }
+                                } catch (Throwable $e) { $payerNotice = null; }
+                                ?>
                                 <div class="mw-form-group">
                                     <label class="form-label">Terms &amp; Conditions</label>
-                                    <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nAll prices include GST.\nWork to be completed weather permitting."); ?></textarea>
+                                    <?php if ($payerNotice): ?><div class="mw-payer-notice"><?= h($payerNotice) ?></div><?php endif; ?>
+                                    <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nGST (5%) is added to all prices.\nWork to be completed weather permitting."); ?></textarea>
                                 </div>
 
                                 <div class="mw-form-group">
@@ -669,7 +838,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 }
             });
 
-            const taxRate = 0.05;
+            const taxRate = <?= json_encode(TaxEngine::chargedRate($db, 0.05)) ?>; // 0 when the business is not registered for GST (same rate the server uses)
             const tax = subtotal * taxRate;
             const total = subtotal + tax;
 
@@ -1083,6 +1252,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         if (data.properties.length === 0) {
                             propertySelect.innerHTML = '<option value="">No properties found for this client</option>';
                         }
+                        const propCount = data.properties.length;
+                        propertySummary.innerHTML = '<strong>' + escapeHtml(clientName) + '</strong><br><span class="text-muted">' + propCount + ' propert' + (propCount === 1 ? 'y' : 'ies') + '</span>';
                     }
                 });
 
@@ -1306,9 +1477,12 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 rules.forEach(rule => {
                     const price = calculatePreviewPrice(rule, totalUnits);
                     const freq = frequencyLabels[rule.default_frequency] || rule.default_frequency;
+                    const yp = rule.pricing_model === 'per_yard_area' ? mwYardRuleParams(rule) : null;
                     const rateInfo = rule.pricing_model === 'flat'
                         ? 'Flat rate'
-                        : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft');
+                        : (yp
+                            ? mwYardsFromArea(totalUnits, yp.depth, yp.min) + ' yd × $' + parseFloat(rule.price_per_unit).toFixed(2) + ' (' + yp.depth + ' in deep, ' + yp.min + ' yd min)'
+                            : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft'));
 
                     rulesHtml += `
                         <label class="mw-service-option">
@@ -1357,8 +1531,35 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 case 'min_plus_linear_ft':
                     price = minPrice + (Math.max(0, totalUnits - included) * perUnit);
                     break;
+                case 'per_yard_area': {
+                    const p = mwYardRuleParams(rule);
+                    price = mwYardsFromArea(totalUnits, p.depth, p.min) * perUnit;
+                    break;
+                }
             }
             return Math.round(price * 100) / 100;
+        }
+
+        // JS/PHP PARITY: mirrors QuoteCalculator::yardsFromArea() and ::yardRuleParams() in
+        // app/Services/QuoteCalculator.php (and the copy in quote-workflow.php). Change all three
+        // together. Integer maths in hundredths: 216 sq ft at 3 in is exactly 2 yd, not 3.
+        function mwYardsFromArea(sqft, depthIn, minYards) {
+            depthIn = parseFloat(depthIn);
+            if (!(depthIn > 0)) depthIn = 3;
+            minYards = Math.max(0, parseInt(minYards, 10) || 0);
+            const area  = Math.round(Math.max(0, parseFloat(sqft) || 0) * 100);
+            const depth = Math.round(depthIn * 100);
+            const den   = 324 * 10000;
+            const yards = Math.floor((area * depth + den - 1) / den);
+            return Math.max(minYards, yards);
+        }
+        function mwYardRuleParams(rule) {
+            const depth = parseFloat(rule.depth_inches);
+            const min = rule.min_units;
+            return {
+                depth: depth > 0 ? depth : 3,
+                min: (min === null || min === undefined || min === '') ? 2 : Math.max(0, parseInt(min, 10) || 0)
+            };
         }
 
         function updateAddButtonState() {
@@ -1626,6 +1827,11 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         // Form submission
         document.getElementById('quoteForm').addEventListener('submit', function() {
             updateFormInput();
+            var btn = this.querySelector('[type="submit"]');
+            if (btn && !btn.disabled) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span> Saving…';
+            }
         });
 
         // ── Property Location Map ──────────────────────────────
@@ -1667,7 +1873,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         mapTypeControl: false,
                         streetViewControl: false,
                         fullscreenControl: true,
-                        zoomControl: true
+                        zoomControl: true,
+                        gestureHandling: 'greedy'
                     });
                     propertyMarker = new google.maps.Marker({
                         position: pos,
@@ -1849,7 +2056,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             try {
                 const resp = await fetch('/crm/products/api-products.php?action=save-product', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({
                         name: name,
                         category_id: parseInt(categoryId),
@@ -2148,7 +2355,7 @@ document.addEventListener('keydown', (e) => {
                 items.forEach(function(item) {
                     var qty = parseFloat(item.quantity) || 1;
                     var price = parseFloat(item.unit_price) || 0;
-                    html += '<tr><td>' + escHtml(item.service_name || '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
+                    html += '<tr><td>' + escHtml(item.service_type || item.service_name || '') + (item.description ? '<div class="text-muted small">' + escHtml(item.description) + '</div>' : '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
                 });
                 html += '</tbody></table></div>';
             } else {
@@ -2207,5 +2414,9 @@ document.addEventListener('keydown', (e) => {
     }
 })();
 </script>
+
+<!-- Sam's mulch price per yard under mulch / soil / compost lines (read-only hint; "Use" sets the line price) -->
+<script src="<?php echo function_exists('_av') ? _av('/crm/js/sam-mulch-hint.js') : '/crm/js/sam-mulch-hint.js'; ?>" defer></script>
+<script src="<?php echo function_exists('_av') ? _av('/crm/js/quote-supplier-add.js') : '/crm/js/quote-supplier-add.js'; ?>" defer></script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

@@ -32,6 +32,12 @@ $stmt = $db->query("
 ");
 $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Crew roles hold team.view (the roster) but not team.edit: pay rates are for those who manage the team (Codex nightly 2026-11-03).
+if (!userHasPermission('team.edit')) {
+    foreach ($employees as &$emp) { unset($emp['hourly_rate']); }
+    unset($emp);
+}
+
 // Role badge colors
 $roleBadges = [
     'admin' => 'mw-ts-status-approved',
@@ -321,6 +327,12 @@ $activePage = 'team';
                    class="btn btn-sm btn-outline-secondary" title="View Timesheets">
                     <i data-feather="clock" style="width:13px;height:13px;"></i>
                 </a>
+                <?php if ($user['role'] === 'admin' || $user['role'] === 'manager'): ?>
+                <a href="/crm/timeclock/crew-schedule-edit.php?user_id=<?php echo (int)$emp['id']; ?>"
+                   class="btn btn-sm btn-outline-secondary" title="Set Work Schedule">
+                    <i data-feather="calendar" style="width:13px;height:13px;"></i>
+                </a>
+                <?php endif; ?>
                 <a href="/crm/team/profile.php?id=<?php echo (int)$emp['id']; ?>"
                    class="btn btn-sm btn-outline-secondary" title="HR Profile">
                     <i data-feather="user" style="width:13px;height:13px;"></i>
@@ -405,7 +417,12 @@ $activePage = 'team';
                         <div class="col-6">
                             <div class="form-group">
                                 <label>Hire Date</label>
-                                <input type="date" class="form-control" name="hire_date" id="empHireDate">
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#empHireDate" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" class="form-control" name="hire_date" id="empHireDate" hidden>
                             </div>
                         </div>
                     </div>
@@ -421,7 +438,7 @@ $activePage = 'team';
                         <div class="form-group">
                             <label>Password <span class="text-danger">*</span></label>
                             <input type="password" class="form-control" name="password" id="empPassword"
-                                   minlength="8" placeholder="Min. 8 characters"
+                                   minlength="12" placeholder="Min. 12 characters"
                                    autocomplete="new-password" data-lpignore="true" data-1p-ignore>
                             <small class="form-text text-muted">Employee will use this to log in.</small>
                         </div>
@@ -438,6 +455,18 @@ $activePage = 'team';
                             <input type="checkbox" class="custom-control-input" id="empActive" name="is_active" value="1" checked>
                             <label class="custom-control-label" for="empActive">Active Employee</label>
                         </div>
+                    </div>
+
+                    <!-- Approvals -->
+                    <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
+                        <label class="d-block mb-2"><strong>Approvals</strong></label>
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="empCanApproveOwn" name="can_approve_own_expenses" value="1">
+                            <label class="custom-control-label" for="empCanApproveOwn">
+                                Allow approving own submitted expenses
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">Off by default — normally the person who submits a receipt can't also approve it. Enable only for someone with no one else to approve their purchases (e.g. an owner).</small>
                     </div>
 
                     <!-- Location Tracking -->
@@ -493,7 +522,7 @@ $activePage = 'team';
         fetch('/crm/api/time-clock.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ action: 'clock_in', user_id: empId })
         })
         .then(function(r) { return r.json(); })
@@ -514,7 +543,7 @@ $activePage = 'team';
         fetch('/crm/api/time-clock.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ action: 'clock_out', user_id: empId })
         })
         .then(function(r) { return r.json(); })
@@ -677,10 +706,13 @@ $activePage = 'team';
                 document.getElementById('empRole').value = emp.role || 'user';
                 document.getElementById('empRate').value = emp.hourly_rate || '';
                 document.getElementById('empHireDate').value = emp.hire_date || '';
+                document.getElementById('empHireDate').dispatchEvent(new Event('input', {bubbles:true}));
+                document.getElementById('empHireDate').dispatchEvent(new Event('change', {bubbles:true}));
                 document.getElementById('empEmergency').value = emp.emergency_contact || '';
                 document.getElementById('empNotes').value = emp.notes || '';
                 document.getElementById('empActive').checked = emp.is_active == 1;
                 document.getElementById('empWeatherSms').checked = emp.receive_weather_sms != 0;
+                document.getElementById('empCanApproveOwn').checked = emp.can_approve_own_expenses == 1;
                 document.getElementById('empDeviceType').value = emp.device_type || 'personal';
                 document.getElementById('empPingRate').value = emp.location_ping_rate || 'high';
 
@@ -716,6 +748,7 @@ $activePage = 'team';
 
         // Checkbox handling
         body.receive_weather_sms = document.getElementById('empWeatherSms').checked ? '1' : '0';
+        body.can_approve_own_expenses = document.getElementById('empCanApproveOwn').checked ? '1' : '0';
         if (id) {
             body.is_active = document.getElementById('empActive').checked ? '1' : '0';
         }

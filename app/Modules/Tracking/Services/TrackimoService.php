@@ -59,7 +59,8 @@ class TrackimoService
 
         if ($tokenCachePath === null) {
             $base = defined('STORAGE_ROOT') ? STORAGE_ROOT : sys_get_temp_dir();
-            $tokenCachePath = $base . '/cache/trackimo_token.json';
+            // One file per business (security review 2026-11-06, #8); the original business keeps its old name.
+            $tokenCachePath = $base . '/cache/trackimo_token' . (class_exists('Tenant') && !Tenant::isDefault() ? '_' . Tenant::key() : '') . '.json';
         }
         $this->tokenCachePath = $tokenCachePath;
     }

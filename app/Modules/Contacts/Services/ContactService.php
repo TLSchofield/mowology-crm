@@ -174,6 +174,78 @@ class ContactService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // UPDATE — Contact Role & Employer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Set the contact's workflow role and the company they work for.
+     * Silently nullifies $role if it is not in the allowed ENUM list.
+     */
+    public function updateContactRoleAndEmployer(
+        int     $contactId,
+        ?string $role,
+        ?int    $employerCompanyId
+    ): void {
+        $validRoles = [
+            'property_manager', 'strata_rep', 'owner',
+            'billing_contact', 'site_supervisor', 'other',
+        ];
+        $safeRole = ($role !== null && in_array($role, $validRoles, true)) ? $role : null;
+
+        $this->db->prepare("
+            UPDATE contacts
+               SET contact_role        = ?,
+                   employer_company_id = ?
+             WHERE id = ?
+        ")->execute([$safeRole, $employerCompanyId ?: null, $contactId]);
+    }
+
+    /**
+     * Return properties where this contact is the on-site contact OR where
+     * their employer company is the property manager.
+     *
+     * Each row contains: id, address, city, property_name,
+     * site_contact_id, property_manager_id, pm_company_name, link_type
+     * (link_type is 'site_contact' or 'employer_pm').
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getManagedProperties(int $contactId): array
+    {
+        $ecStmt = $this->db->prepare(
+            "SELECT employer_company_id FROM contacts WHERE id = ? LIMIT 1"
+        );
+        $ecStmt->execute([$contactId]);
+        $row = $ecStmt->fetch(\PDO::FETCH_ASSOC);
+        $employerCompanyId = (int)($row['employer_company_id'] ?? 0);
+
+        $stmt = $this->db->prepare("
+            SELECT p.id, p.address, p.city, p.property_name,
+                   p.site_contact_id, p.property_manager_id,
+                   co.company_name AS pm_company_name,
+                   'site_contact'  AS link_type
+              FROM properties p
+              LEFT JOIN companies co ON co.id = p.property_manager_id
+             WHERE p.site_contact_id = ?
+
+             UNION
+
+            SELECT p.id, p.address, p.city, p.property_name,
+                   p.site_contact_id, p.property_manager_id,
+                   co.company_name AS pm_company_name,
+                   'employer_pm'   AS link_type
+              FROM properties p
+              LEFT JOIN companies co ON co.id = p.property_manager_id
+             WHERE p.property_manager_id = ?
+               AND (p.site_contact_id IS NULL OR p.site_contact_id != ?)
+
+            ORDER BY address ASC
+        ");
+        $stmt->execute([$contactId, $employerCompanyId ?: 0, $contactId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // UPDATE — Company
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -302,6 +374,56 @@ class ContactService
     }
 
     /**
+     * Add a property owned by this contact. An address belonging to another
+     * contact is a different property, even when the street text is the same.
+     *
+     * @return array ['property_id' => int, 'created' => bool]
+     */
+    public function addOwnPropertyToContact(int $contactId, array $addr): array
+    {
+        $address = trim($addr['address'] ?? '');
+
+        $check = $this->db->prepare(
+            "SELECT id, site_contact_id FROM properties
+             WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
+               AND (site_contact_id = ? OR site_contact_id IS NULL)
+             ORDER BY CASE WHEN site_contact_id = ? THEN 0 ELSE 1 END, id
+             LIMIT 1"
+        );
+        $check->execute([$address, $contactId, $contactId]);
+        // force_new: the caller knows the matching property is another building at the same street.
+        $existing = empty($addr['force_new']) ? $check->fetch(\PDO::FETCH_ASSOC) : false;
+
+        if ($existing) {
+            if (!$existing['site_contact_id']) {
+                $this->db->prepare(
+                    "UPDATE properties SET site_contact_id = ? WHERE id = ? AND site_contact_id IS NULL"
+                )->execute([$contactId, $existing['id']]);
+            }
+            return ['property_id' => (int) $existing['id'], 'created' => false];
+        }
+
+        $province = trim((string)($addr['province'] ?? ''));
+        $this->db->prepare("
+            INSERT INTO properties
+                (property_name, address, city, province, postal_code,
+                 latitude, longitude, site_contact_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+        ")->execute([
+            $addr['property_name'] ?? $address,
+            $address,
+            $addr['city'] ?? '',
+            $province !== '' ? $province : 'BC',
+            $addr['postal_code'] ?? '',
+            isset($addr['latitude']) ? (float) $addr['latitude'] : null,
+            isset($addr['longitude']) ? (float) $addr['longitude'] : null,
+            $contactId,
+        ]);
+
+        return ['property_id' => (int) $this->db->lastInsertId(), 'created' => true];
+    }
+
+    /**
      * Add (or link an existing) property to a company.
      * Links via the company's primary_contact_id.
      *
@@ -356,8 +478,12 @@ class ContactService
                 continue;
             }
 
-            $this->db->prepare("DELETE FROM activity_log WHERE entity_id = ? AND entity_type = 'company'")->execute([$id]);
+            // Never delete audit rows: cut their link to the company instead (Fable audit #25).
+            // (The old DELETE named entity_id/entity_type, columns activity_log does not have.)
+            require_once dirname(__DIR__, 2) . '/Technology/Services/AuditTrail.php';
+            $names = AuditTrail::detachCompanies($this->db, [$id]);
             $this->db->prepare("DELETE FROM companies WHERE id = ?")->execute([$id]);
+            AuditTrail::logCompaniesDeleted(isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null, $names);
             $deleted++;
         }
 
@@ -423,6 +549,35 @@ class ContactService
         )->execute([$contactId, $noteType, $content, $userId]);
     }
 
+    public const NOTE_MAX_CHARS = 2000;
+
+    /**
+     * A client note left from the field against a PROPERTY (the crew app knows properties, not
+     * contacts): resolves the property's site contact and records the note on them.
+     * Returns ['success'=>true,'contact_id'=>N] or ['success'=>false,'status'=>400|404,'error'=>…].
+     */
+    public function addNoteForProperty(int $propertyId, string $content, string $noteType, int $userId): array
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return ['success' => false, 'status' => 400, 'error' => 'Write the note first.'];
+        }
+        if (mb_strlen($content) > self::NOTE_MAX_CHARS) {
+            return ['success' => false, 'status' => 400, 'error' => 'Keep the note under ' . self::NOTE_MAX_CHARS . ' characters.'];
+        }
+        if ($propertyId <= 0) {
+            return ['success' => false, 'status' => 400, 'error' => 'Pick a property first.'];
+        }
+        $stmt = $this->db->prepare("SELECT site_contact_id FROM properties WHERE id = ? LIMIT 1");
+        $stmt->execute([$propertyId]);
+        $contactId = (int)$stmt->fetchColumn();
+        if ($contactId <= 0) {
+            return ['success' => false, 'status' => 404, 'error' => 'That property has no client on file. Ask the office.'];
+        }
+        $this->addNote($contactId, $content, $noteType, $userId);
+        return ['success' => true, 'contact_id' => $contactId];
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -442,6 +597,18 @@ class ContactService
                 $this->db->exec(
                     "ALTER TABLE contacts ADD COLUMN prospect_status
                      ENUM('prospect','client','inactive') DEFAULT 'prospect' AFTER is_active"
+                );
+            }
+            if (!in_array('contact_role', $cols, true)) {
+                $this->db->exec(
+                    "ALTER TABLE contacts ADD COLUMN contact_role
+                     ENUM('property_manager','strata_rep','owner','billing_contact','site_supervisor','other')
+                     NULL DEFAULT NULL AFTER notes"
+                );
+            }
+            if (!in_array('employer_company_id', $cols, true)) {
+                $this->db->exec(
+                    "ALTER TABLE contacts ADD COLUMN employer_company_id INT NULL DEFAULT NULL AFTER contact_role"
                 );
             }
         } catch (\Throwable) {

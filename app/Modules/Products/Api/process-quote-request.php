@@ -1,5 +1,7 @@
 <?php
 
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 5; $__i++) {
@@ -14,6 +16,7 @@ if (!defined('APP_ROOT')) {
 
 require_once CRM_ROOT . '/products/config.php';
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 ?>
 
@@ -211,7 +214,24 @@ try {
     $pdo->commit();
 
     // Send email notification to admin
-    $emailSubject = "🌱 New Quote Request - {$propertyType} in " . explode(',', $address)[0];
+    // These emails render as HTML — escape every anonymous-visitor-supplied field before
+    // interpolating so an HTML/script payload in name/notes/etc. can't render in the
+    // recipient's mail client. The unescaped originals above are still used for the DB
+    // record (prepared statements handle SQL-safety separately from HTML-safety).
+    $nameH              = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+    $emailH             = htmlspecialchars($email, ENT_QUOTES, 'UTF-8');
+    $phoneH             = htmlspecialchars($phone, ENT_QUOTES, 'UTF-8');
+    $propertyTypeH      = htmlspecialchars($propertyType, ENT_QUOTES, 'UTF-8');
+    $propertySizeH      = htmlspecialchars($propertySize, ENT_QUOTES, 'UTF-8');
+    $addressH           = htmlspecialchars($address, ENT_QUOTES, 'UTF-8');
+    $servicesStringH    = htmlspecialchars($servicesString, ENT_QUOTES, 'UTF-8');
+    $messageH           = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+    $timelineH          = htmlspecialchars($timeline, ENT_QUOTES, 'UTF-8');
+    $budgetH            = htmlspecialchars($budget, ENT_QUOTES, 'UTF-8');
+    $preferredContactH  = htmlspecialchars($preferredContact, ENT_QUOTES, 'UTF-8');
+    $firstNameH         = htmlspecialchars($firstName, ENT_QUOTES, 'UTF-8');
+
+    $emailSubject = "🌱 New Quote Request - {$propertyTypeH} in " . explode(',', $addressH)[0];
     $emailMessage = "
     <html>
     <head>
@@ -234,31 +254,31 @@ try {
 
         <div class='content'>
             <div class='info-box'>
-                <p><span class='label'>Customer:</span> {$name}</p>
-                <p><span class='label'>Email:</span> <a href='mailto:{$email}'>{$email}</a></p>
-                <p><span class='label'>Phone:</span> <a href='tel:{$phone}'>" . formatPhone($phone) . "</a></p>
+                <p><span class='label'>Customer:</span> {$nameH}</p>
+                <p><span class='label'>Email:</span> <a href='mailto:{$emailH}'>{$emailH}</a></p>
+                <p><span class='label'>Phone:</span> <a href='tel:{$phoneH}'>" . htmlspecialchars(formatPhone($phone), ENT_QUOTES, 'UTF-8') . "</a></p>
             </div>
 
             <div class='info-box'>
-                <p><span class='label'>Property Type:</span> {$propertyType}</p>
-                <p><span class='label'>Property Size:</span> {$propertySize}</p>
-                <p><span class='label'>Address:</span> {$address}</p>
+                <p><span class='label'>Property Type:</span> {$propertyTypeH}</p>
+                <p><span class='label'>Property Size:</span> {$propertySizeH}</p>
+                <p><span class='label'>Address:</span> {$addressH}</p>
             </div>
 
             <div class='info-box'>
                 <p><span class='label'>Services Requested:</span></p>
-                <p>{$servicesString}</p>
+                <p>{$servicesStringH}</p>
             </div>
 
             <div class='info-box'>
                 <p><span class='label'>Project Description:</span></p>
-                <p>{$message}</p>
+                <p>{$messageH}</p>
             </div>
 
             <div class='info-box'>
-                <p><span class='label'>Timeline:</span> {$timeline}</p>
-                <p><span class='label'>Budget:</span> {$budget}</p>
-                <p><span class='label'>Preferred Contact:</span> {$preferredContact}</p>
+                <p><span class='label'>Timeline:</span> {$timelineH}</p>
+                <p><span class='label'>Budget:</span> {$budgetH}</p>
+                <p><span class='label'>Preferred Contact:</span> {$preferredContactH}</p>
             </div>
 
             <center>
@@ -269,21 +289,21 @@ try {
         </div>
 
         <div class='footer'>
-            <p>Mowology Professional Landscaping | " . ADMIN_PHONE . " | office@mowology.ca</p>
+            <p>" . htmlspecialchars(_idCompanyInfo()['company_name']) . " | " . ADMIN_PHONE . " | " . htmlspecialchars(_idCompanyInfo()['company_email']) . "</p>
             <p>Received: " . date('F j, Y g:i A') . "</p>
         </div>
     </body>
     </html>
     ";
 
-    $emailSent = sendEmail(ADMIN_EMAIL, $emailSubject, $emailMessage);
+    $emailSent = sendCrmEmail(ADMIN_EMAIL, $emailSubject, $emailMessage);
 
     // Send SMS notification
     $smsMessage = "New Quote: {$name} - {$propertyType} @ " . explode(',', $address)[0] . ". Services: {$servicesString}. Review: " . SITE_URL . "/crm";
     $smsSent = sendSMS($smsMessage);
 
     // Send confirmation email to customer
-    $customerSubject = "Quote Request Received - Mowology";
+    $customerSubject = "Quote Request Received - " . _idFromName();
     $customerMessage = "
     <html>
     <head>
@@ -300,7 +320,7 @@ try {
         </div>
 
         <div class='content'>
-            <p>Hi {$firstName},</p>
+            <p>Hi {$firstNameH},</p>
 
             <p>We've received your quote request and will get back to you within 24 hours with a detailed proposal.</p>
 
@@ -315,22 +335,22 @@ try {
 
             <p><strong>Your Request Summary:</strong></p>
             <ul>
-                <li>Property: {$address}</li>
-                <li>Services: {$servicesString}</li>
-                <li>Timeline: {$timeline}</li>
+                <li>Property: {$addressH}</li>
+                <li>Services: {$servicesStringH}</li>
+                <li>Timeline: {$timelineH}</li>
             </ul>
 
             <p>If you have any immediate questions, feel free to call us at <strong>" . ADMIN_PHONE . "</strong>.</p>
 
             <p>Best regards,<br>
-            <strong>The Mowology Team</strong><br>
+            <strong>The " . htmlspecialchars(_idFromName()) . " Team</strong><br>
             A Higher Degree of Service</p>
         </div>
     </body>
     </html>
     ";
 
-    sendEmail($email, $customerSubject, $customerMessage);
+    sendCrmEmail($email, $customerSubject, $customerMessage);
 
     // Set success response
     $response['success'] = true;
@@ -351,7 +371,7 @@ try {
     error_log("Quote request error: " . $e->getMessage());
 
     // Set error response
-    $response['message'] = $e->getMessage();
+    $response['message'] = ApiResponse::message($e, 'process-quote-request');
 
     // Redirect back to form with error
     header('Location: get-quote.html?error=' . urlencode($response['message']));

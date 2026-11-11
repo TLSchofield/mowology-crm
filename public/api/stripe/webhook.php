@@ -13,7 +13,11 @@
  *
  * Handled events:
  *  - payment_intent.succeeded  → mark invoice paid, store payment record
- *  - payment_intent.payment_failed → log failure, update stripe_payments record
+ *  - payment_intent.payment_failed → log failure, update stripe_payments record (never over a succeeded one)
+ *  - charge.refunded               → customer email + refund entry DR 2160 / CR 1010 (StripeEventLedgerService)
+ *  - charge.dispute.created        → invoice flagged 'disputed', DR 1100 / CR 1010, Charlie alerts Tim
+ *  - charge.dispute.closed         → won: dispute entry reversed; lost: flag only
+ * Dispute / refund booking is idempotent per event id (stripe_webhook_events, migration 1342).
  */
 
 declare(strict_types=1);
@@ -57,10 +61,11 @@ try {
 error_log(sprintf('[Stripe Webhook] Received event: %s  id: %s', $event->type, $event->id));
 
 // ── Route events ─────────────────────────────────────────────────────────────
+$ok = true;
 switch ($event->type) {
 
     case 'payment_intent.succeeded':
-        handlePaymentSucceeded($event->data->object);
+        $ok = handlePaymentSucceeded($event->data->object);
         break;
 
     case 'payment_intent.payment_failed':
@@ -71,10 +76,48 @@ switch ($event->type) {
         handleSetupIntentSucceeded($event->data->object);
         break;
 
+    case 'charge.refunded':
+        handleChargeRefunded($event->data->object);
+        $ok = stripeLedger(fn(StripeEventLedgerService $svc) => $svc->refunded([
+            'event_id'              => $event->id,
+            'charge_id'             => $event->data->object->id,
+            'payment_intent_id'     => stripeId($event->data->object->payment_intent ?? null),
+            'amount_refunded_cents' => (int) $event->data->object->amount_refunded,
+            'event_time'            => (int) $event->created,
+        ]));
+        break;
+
+    case 'charge.dispute.created':
+    case 'charge.dispute.closed':
+        $dispute = $event->data->object;
+        $ok = stripeLedger(function (StripeEventLedgerService $svc) use ($event, $dispute) {
+            $d = [
+                'event_id'          => $event->id,
+                'dispute_id'        => (string) $dispute->id,
+                'charge_id'         => stripeId($dispute->charge ?? null),
+                'payment_intent_id' => stripeId($dispute->payment_intent ?? null),
+                'amount_cents'      => (int) ($dispute->amount ?? 0),
+                'reason'            => $dispute->reason ?? null,
+                'status'            => $dispute->status ?? null,
+                'event_time'        => (int) $event->created,
+            ];
+            return $event->type === 'charge.dispute.created' ? $svc->disputeCreated($d) : $svc->disputeClosed($d);
+        });
+        break;
+
     default:
         // Acknowledge receipt of events we don't handle — Stripe expects 200
         error_log('[Stripe Webhook] Unhandled event type: ' . $event->type);
         break;
+}
+
+// If a handler hit a transient DB error it returns false — respond 5xx so Stripe
+// RETRIES. Never swallow a failed "mark invoice paid" with a 200: that is exactly
+// what left invoices unpaid and allowed customers to be charged multiple times.
+if ($ok === false) {
+    error_log('[Stripe Webhook] Handler reported failure for event ' . $event->id . ' — responding 500 so Stripe retries');
+    http_response_code(500);
+    exit;
 }
 
 http_response_code(200);
@@ -82,11 +125,37 @@ exit;
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
+/** A Stripe expandable field (string id or object) → its id. */
+function stripeId($v): ?string
+{
+    if (is_string($v) && $v !== '') return $v;
+    if (is_object($v) && !empty($v->id)) return (string) $v->id;
+    return null;
+}
+
+/**
+ * Book a dispute / refund through StripeEventLedgerService (security review #21). A thrown error
+ * returns false → 500 → Stripe retries; the service is idempotent per event id.
+ */
+function stripeLedger(callable $fn): bool
+{
+    try {
+        $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+        require_once $appRoot . '/Modules/Accounting/Services/StripeEventLedgerService.php';
+        $r = $fn(new StripeEventLedgerService(getDB()));
+        error_log('[Stripe Webhook] ledger: ' . json_encode($r));
+        return true;
+    } catch (\Throwable $e) {
+        error_log('[Stripe Webhook] ledger error: ' . $e->getMessage());
+        return false;
+    }
+}
+
 /**
  * Handle payment_intent.succeeded
  * Marks the linked invoice as paid, records the payment audit row.
  */
-function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
+function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 {
     $paymentIntentId = $intent->id;
     $amountCents     = (int) $intent->amount_received;
@@ -100,38 +169,55 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
 
     if ($invoiceId <= 0) {
         error_log('[Stripe Webhook] ERROR: No invoice_id in PaymentIntent metadata for ' . $paymentIntentId);
-        return;
+        return true; // nothing we can do — retrying won't help, ack with 200
     }
 
     $db = getDB();
 
     // ── Idempotency check ─────────────────────────────────────────────────────
     $checkStmt = $db->prepare("
-        SELECT id, status FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1
+        SELECT id, status, invoice_id FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1
     ");
     $checkStmt->execute([$paymentIntentId]);
     $existingPayment = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
+    // Codex payment review 2026-10-16: the money must be in our currency, and a payment already recorded against
+    // one invoice must not be applied to another by its metadata. Either way: record nothing, tell the office.
+    $mismatch = null;
+    if ($currency !== 'cad') $mismatch = 'currency ' . strtoupper($currency) . ', not CAD';
+    elseif ($existingPayment && (int)($existingPayment['invoice_id'] ?? 0) > 0 && (int)$existingPayment['invoice_id'] !== $invoiceId) {
+        $mismatch = 'recorded for invoice #' . (int)$existingPayment['invoice_id'] . ' but its metadata says #' . $invoiceId;
+    }
+    if ($mismatch !== null) {
+        error_log('[Stripe Webhook] NOT recorded — ' . $paymentIntentId . ': ' . $mismatch);
+        try {
+            $db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'stripe_payment_not_recorded', ?, ?, NOW())")
+               ->execute([json_encode(['payment_intent' => $paymentIntentId, 'amount_cents' => $amountCents, 'why' => $mismatch]), $invoiceId]);
+        } catch (\Throwable $e) { /* logged above */ }
+        return true;   // retrying can't change it; the office decides
+    }
+
     if ($existingPayment && $existingPayment['status'] === 'succeeded') {
         error_log('[Stripe Webhook] Duplicate event — already processed: ' . $paymentIntentId);
-        return; // Already handled, safe to return 200
+        return true; // Already handled, safe to return 200
     }
 
-    // ── Load invoice ──────────────────────────────────────────────────────────
-    $invoiceStmt = $db->prepare("
-        SELECT id, status, balance_due, total FROM invoices WHERE id = ? LIMIT 1
+    // ── Load customer info for receipt email (read-only, outside transaction) ───
+    $customerStmt = $db->prepare("
+        SELECT ct.email      AS contact_email,
+               ct.first_name AS contact_first,
+               ct.last_name  AS contact_last
+        FROM invoices i
+        LEFT JOIN companies c ON i.company_id = c.id
+        LEFT JOIN contacts ct ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
+        WHERE i.id = ? LIMIT 1
     ");
-    $invoiceStmt->execute([$invoiceId]);
-    $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+    $customerStmt->execute([$invoiceId]);
+    $customer = $customerStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    if (!$invoice) {
-        error_log('[Stripe Webhook] ERROR: Invoice not found: ' . $invoiceId);
-        return;
-    }
-
-    if ($invoice['status'] === 'paid') {
-        error_log('[Stripe Webhook] Invoice already marked paid — updating stripe_payments record only: ' . $invoiceId);
-    }
+    // invoice row is re-read inside the transaction below with FOR UPDATE so that
+    // concurrent webhooks for the same PaymentIntent cannot both pass the paid-check
+    // and double-apply the payment. The customer fields above are stable read-only data.
 
     // Resolve charge ID and receipt URL from the latest charge
     $chargeId   = null;
@@ -181,11 +267,69 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
     }
 
     $paidAmount  = $amountCents / 100.0;
-    $balanceDue  = max(0, (float) $invoice['balance_due'] - $paidAmount);
-    $newStatus   = $balanceDue <= 0.005 ? 'paid' : 'partial'; // tolerance for float rounding
+    // $balanceDue / $newStatus are computed from the LOCKED invoice row inside the
+    // transaction below. (Fable review 2026-10-12: they were computed here from an
+    // $invoice that did not exist yet, so every card payment — even a part payment —
+    // marked the invoice fully paid with a zero balance.)
+    $balanceDue  = 0.0;
+    $newStatus   = 'paid';
+
+    $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
+    $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
+
+    // Stripe-side calls (attach PM, set default payment method) are deferred until
+    // AFTER the DB commit. If they ran inside the transaction, an API hiccup would
+    // roll back the invoice-paid update while we still returned 200 to Stripe —
+    // leaving the invoice unpaid and letting the customer be charged again.
+    $setDefaultPm = false;
 
     $db->beginTransaction();
     try {
+        // ── Lock and re-read invoice inside the transaction ───────────────────
+        // FOR UPDATE serialises concurrent webhooks for the same invoice — the
+        // second webhook blocks here until the first commits, then sees the
+        // already-paid status and skips the UPDATE.
+        $invoiceStmt = $db->prepare("
+            SELECT id, status, balance_due, total, invoice_number, access_token
+            FROM invoices WHERE id = ? LIMIT 1 FOR UPDATE
+        ");
+        $invoiceStmt->execute([$invoiceId]);
+        $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$invoice) {
+            $db->rollBack();
+            error_log('[Stripe Webhook] ERROR: Invoice not found inside txn: ' . $invoiceId);
+            return true;
+        }
+
+        // Re-check idempotency under a lock: the read above sits outside this transaction with a
+        // network call after it, so two deliveries of the same event could both pass it and add the
+        // same part payment twice (only a fully-paid invoice stopped the second). Fable 2026-10-13.
+        $lockPay = $db->prepare("SELECT status FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1 FOR UPDATE");
+        $lockPay->execute([$paymentIntentId]);
+        if ($lockPay->fetchColumn() === 'succeeded') {
+            $db->rollBack();
+            error_log('[Stripe Webhook] Duplicate event (seen inside txn) — already processed: ' . $paymentIntentId);
+            return true;
+        }
+
+        // Merge customer fields from the pre-transaction read.
+        $invoice = array_merge($invoice, $customer);
+
+        $invoiceWasUnpaid = ($invoice['status'] !== 'paid');
+
+        // Derive the new balance from the row we hold the lock on.
+        $balanceDue = max(0, round((float) $invoice['balance_due'] - $paidAmount, 2));
+        $newStatus  = $balanceDue <= 0.005 ? 'paid' : 'partial'; // tolerance for float rounding
+
+        if ($invoice['status'] === 'paid') {
+            error_log('[Stripe Webhook] Invoice already paid (seen inside txn) — stripe_payments update only: ' . $invoiceId);
+            // The client paid by card an invoice already paid another way (cheque, e-Transfer…):
+            // that is a double payment someone must look at — say so where staff will see it.
+            $db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'stripe_overpayment', ?, ?, NOW())")
+               ->execute([json_encode(['amount' => $paidAmount, 'payment_intent' => $paymentIntentId, 'invoice_number' => $invoice['invoice_number'] ?? null]), $invoiceId]);
+        }
+
         // ── Update invoice ────────────────────────────────────────────────────
         if ($invoice['status'] !== 'paid') {
             $updateInvoice = $db->prepare("
@@ -193,17 +337,21 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                     status                    = ?,
                     amount_paid               = amount_paid + ?,
                     balance_due               = ?,
-                    paid_at                   = NOW(),
+                    paid_at                   = IF(? = 'paid', NOW(), paid_at),   -- a part payment is not 'paid' (Codex review)
                     payment_method            = 'stripe',
                     payment_reference         = ?,
                     stripe_payment_intent_id  = ?,
-                    stripe_charge_id          = COALESCE(stripe_charge_id, ?)
+                    stripe_charge_id          = COALESCE(stripe_charge_id, ?),
+                    pdf_path                  = NULL,
+                    pdf_version               = 0,
+                    pdf_generated_at          = NULL
                 WHERE id = ?
             ");
             $updateInvoice->execute([
                 $newStatus,
                 $paidAmount,
                 $balanceDue,
+                $newStatus,
                 $paymentIntentId,
                 $paymentIntentId,
                 $chargeId,          // ch_XXXXXXXX — used for deterministic bank import matching
@@ -238,9 +386,16 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
         }
 
         // ── Save card details to contact (if applicable) ──────────────────────
-        $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
-        $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
-        if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
+        // An autopay charge used the card ALREADY on file (possibly the company's): never copy it onto the contact (Codex review).
+        $fromAutopay = (string)($intent->metadata['source'] ?? '') === 'autopay';
+        if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent && !$fromAutopay) {
+            // Autopay only from a NEWLY entered card (security review #13): paying with the card
+            // already on file proves nothing about who holds the invoice link.
+            $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+            require_once $appRoot . '/Services/Payments/AutopayEnrollmentPolicy.php';
+            $savedPmStmt = $db->prepare("SELECT stripe_payment_method_id FROM contacts WHERE id = ?");
+            $savedPmStmt->execute([$contactId]);
+            $wantsAutopay = AutopayEnrollmentPolicy::mayEnableFromPayment($wantsAutopay, $paymentMethodId, $savedPmStmt->fetchColumn() ?: null);
             // Persist card details whenever a Stripe customer is attached
             // (covers both save_card=true and subsequent payments with saved card)
             $updateContact = $db->prepare("
@@ -269,26 +424,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? '', $wantsAutopay ? 'enabled' : 'no'
             ));
 
-            // ── Set as default payment method on Stripe Customer ──────────────
-            // Enables one-click saved-card pay on future invoices.
-            // invoice-payment-intent.php reads customer->invoice_settings->default_payment_method
-            // to offer the saved card UI. Without this call that field is always null.
-            // Attach first (idempotent) — saved-card PIs don't guarantee attachment.
+            // Defer the Stripe-side default-payment-method calls until after commit
+            // (see $setDefaultPm note above) so an API error can't roll back the DB.
             if ($paymentMethodId) {
-                try {
-                    \Stripe\PaymentMethod::attach($paymentMethodId, ['customer' => $stripeCustomerIdFromIntent]);
-                    \Stripe\Customer::update($stripeCustomerIdFromIntent, [
-                        'invoice_settings' => ['default_payment_method' => $paymentMethodId],
-                    ]);
-                    error_log(sprintf(
-                        '[Stripe Webhook] Set default_payment_method %s on customer %s',
-                        $paymentMethodId, $stripeCustomerIdFromIntent
-                    ));
-                } catch (\Stripe\Exception\ApiErrorException $e) {
-                    // Non-fatal — card is still saved in contacts; one-click pay just won't
-                    // be offered until next successful payment resolves this.
-                    error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
-                }
+                $setDefaultPm = true;
             }
         }
 
@@ -316,9 +455,73 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
         ));
 
     } catch (\Throwable $e) {
-        $db->rollBack();
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         error_log('[Stripe Webhook] DB error in handlePaymentSucceeded: ' . $e->getMessage());
+        return false; // signal caller to respond 5xx so Stripe retries — invoice NOT yet paid
     }
+
+    // ── Post-commit: external Stripe-side calls (non-fatal, can never roll back DB) ──
+    // Sets the saved card as the customer's default so future invoices offer one-click
+    // pay. Failures here only affect that convenience, never the recorded payment.
+    if ($setDefaultPm && $paymentMethodId && $stripeCustomerIdFromIntent) {
+        try {
+            // Attach first — saved-card PIs don't guarantee attachment. attach() is an INSTANCE method in this
+            // stripe-php: the static call was a fatal Error (not an ApiErrorException), so the receipt email after it
+            // never went and Stripe got a 500 (2026-10-16). Retrieve, then attach unless already this customer's.
+            $pm = \Stripe\PaymentMethod::retrieve($paymentMethodId);
+            if (($pm->customer ?? null) !== $stripeCustomerIdFromIntent) {
+                $pm->attach(['customer' => $stripeCustomerIdFromIntent]);
+            }
+            \Stripe\Customer::update($stripeCustomerIdFromIntent, [
+                'invoice_settings' => ['default_payment_method' => $paymentMethodId],
+            ]);
+            error_log(sprintf(
+                '[Stripe Webhook] Set default_payment_method %s on customer %s',
+                $paymentMethodId, $stripeCustomerIdFromIntent
+            ));
+        } catch (\Throwable $e) {
+            // Any failure here is only the one-click convenience — never stop the receipt below (2026-10-16).
+            error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
+        }
+    }
+
+    // ── Email the customer their receipt (non-fatal, post-commit) ───────────────
+    // Previously NO receipt was ever sent on payment — customers paid and heard
+    // nothing back, which read as "it didn't work" and drove repeat attempts.
+    if ($invoiceWasUnpaid && !empty($invoice['contact_email'])) {
+        try {
+            $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+            require_once $appRoot . '/Services/Messaging/EmailWrapper.php';
+            require_once $appRoot . '/Services/Messaging/MessagingService.php';
+
+            $companyInfo = EmailWrapper::getCompanyInfo();
+            $rvars = [
+                '{{customer_first_name}}' => $invoice['contact_first'] ?: 'there',
+                '{{customer_name}}'       => trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')),
+                '{{invoice_number}}'      => $invoice['invoice_number'],
+                '{{amount_paid}}'         => '$' . number_format($paidAmount, 2),
+                '{{payment_date}}'        => date('F j, Y'),
+                '{{company_name}}'        => $companyInfo['company_name'],
+                '{{company_phone}}'       => $companyInfo['company_phone'],
+            ];
+            $tpl    = loadEmailTemplate('receipt_sent', $rvars);
+            $ctaUrl = !empty($invoice['access_token'])
+                ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token'])
+                : ($receiptUrl ?: null);
+            $ctaLabel  = $ctaUrl ? 'Get the receipt' : null;
+            $emailHtml = EmailWrapper::wrap($tpl['body_html'], $ctaLabel, $ctaUrl, $companyInfo);
+
+            $sent = sendEmail($invoice['contact_email'], $tpl['subject'], $emailHtml);
+            error_log('[Stripe Webhook] Receipt email to ' . $invoice['contact_email'] . ': '
+                . ($sent['success'] ? 'sent' : 'FAILED ' . ($sent['error'] ?? '')));
+        } catch (\Throwable $e) {
+            error_log('[Stripe Webhook] Receipt email error: ' . $e->getMessage());
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -344,20 +547,17 @@ function handlePaymentFailed(\Stripe\PaymentIntent $intent): void
 
     $db = getDB();
 
-    // Upsert the stripe_payments record with failure info
-    $stmt = $db->prepare("
-        INSERT INTO stripe_payments
-            (invoice_id, payment_intent_id, amount_cents, currency,
-             status, failure_code, failure_message,
-             raw_event_type, webhook_received_at)
-        VALUES (?, ?, ?, 'cad', 'failed', ?, ?, 'payment_intent.payment_failed', NOW())
-        ON DUPLICATE KEY UPDATE
-            status              = 'failed',
-            failure_code        = VALUES(failure_code),
-            failure_message     = VALUES(failure_message),
-            raw_event_type      = VALUES(raw_event_type),
-            webhook_received_at = NOW()
-    ");
+    // Upsert the stripe_payments record with failure info — an out-of-order failure event never
+    // overwrites a succeeded payment (security review, low).
+    $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+    require_once $appRoot . '/Modules/Accounting/Services/StripeEventLedgerService.php';
+    $done = $db->prepare("SELECT status FROM stripe_payments WHERE payment_intent_id = ? LIMIT 1");
+    $done->execute([$paymentIntentId]);
+    if ($done->fetchColumn() === 'succeeded') {
+        error_log('[Stripe Webhook] payment_failed after success for ' . $paymentIntentId . ' — ignored');
+        return;
+    }
+    $stmt = $db->prepare(StripeEventLedgerService::paymentFailedUpsertSql());
     $stmt->execute([
         $invoiceId,
         $paymentIntentId,
@@ -380,6 +580,91 @@ function handlePaymentFailed(\Stripe\PaymentIntent $intent): void
         ),
         $invoiceId,
     ]);
+}
+
+/**
+ * Handle charge.refunded
+ * Notifies the customer that a refund was issued and when to expect it.
+ * Email + audit log ONLY — deliberately does NOT change invoice status, because a
+ * refund is often a duplicate-charge reversal where the invoice must stay paid.
+ */
+function handleChargeRefunded(\Stripe\Charge $charge): void
+{
+    $chargeId      = $charge->id;
+    $piId          = is_string($charge->payment_intent) ? $charge->payment_intent : ($charge->payment_intent->id ?? null);
+    $refundedCents = (int) $charge->amount_refunded;
+    $currency      = strtoupper($charge->currency ?? 'cad');
+
+    if ($refundedCents <= 0 || !$piId) {
+        return;
+    }
+
+    $db = getDB();
+
+    // Resolve invoice + customer from the originating PaymentIntent.
+    $stmt = $db->prepare("
+        SELECT i.id AS invoice_id, i.invoice_number,
+               ct.email      AS contact_email,
+               ct.first_name AS contact_first
+        FROM stripe_payments sp
+        JOIN invoices i ON i.id = sp.invoice_id
+        LEFT JOIN companies c ON i.company_id = c.id
+        LEFT JOIN contacts ct ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
+        WHERE sp.payment_intent_id = ? LIMIT 1
+    ");
+    $stmt->execute([$piId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+        error_log('[Stripe Webhook] charge.refunded — no invoice match for PI ' . $piId);
+        return;
+    }
+
+    // Idempotency: never email twice for the same charge+amount (redelivery / partials).
+    $marker = $chargeId . ':' . $refundedCents;
+    $guard  = $db->prepare("SELECT id FROM activity_log WHERE action = 'Stripe refund notified' AND details LIKE ? LIMIT 1");
+    $guard->execute(['%' . $marker . '%']);
+    if ($guard->fetch()) {
+        error_log('[Stripe Webhook] charge.refunded — already notified for ' . $marker);
+        return;
+    }
+
+    if (!empty($row['contact_email'])) {
+        try {
+            $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+            require_once $appRoot . '/Services/Messaging/EmailWrapper.php';
+            require_once $appRoot . '/Services/Messaging/MessagingService.php';
+
+            $companyInfo = EmailWrapper::getCompanyInfo();
+            $firstName   = $row['contact_first'] ?: 'there';
+            $amountStr   = '$' . number_format($refundedCents / 100, 2) . ' ' . $currency;
+
+            $bodyText = "Hi {$firstName},\n\n"
+                . "We've processed a refund of {$amountStr} to the card used for invoice {$row['invoice_number']}.\n\n"
+                . "Refunds typically take 5–10 business days to appear on your statement, depending on your bank or card issuer.\n\n"
+                . "If you have any questions, just reply to this email or call us at {$companyInfo['company_phone']}.\n\n"
+                . "Thank you,\n{$companyInfo['company_name']}";
+            $emailHtml = EmailWrapper::wrap(EmailWrapper::textToHtml($bodyText), null, null, $companyInfo);
+            $subject   = "Refund processed — {$amountStr} for invoice {$row['invoice_number']}";
+
+            $sent = sendEmail($row['contact_email'], $subject, $emailHtml);
+            error_log('[Stripe Webhook] Refund email to ' . $row['contact_email'] . ': '
+                . ($sent['success'] ? 'sent' : 'FAILED ' . ($sent['error'] ?? '')));
+        } catch (\Throwable $e) {
+            error_log('[Stripe Webhook] Refund email error: ' . $e->getMessage());
+        }
+    }
+
+    // Audit trail (also the idempotency marker checked above).
+    try {
+        $log = $db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'Stripe refund notified', ?, ?, NOW())");
+        $log->execute([
+            sprintf('Refund of $%.2f %s for charge %s (PI %s).', $refundedCents / 100, $currency, $marker, $piId),
+            $row['invoice_id'],
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[Stripe Webhook] Refund activity_log failed: ' . $e->getMessage());
+    }
 }
 
 /**
@@ -454,10 +739,15 @@ function handleSetupIntentSucceeded(\Stripe\SetupIntent $intent): void
         $contactId, $intent->id, $pmId
     ));
 
+    // Who did it (security review #13): the cardholder confirmed the card in Stripe's form; the IP the
+    // card form was opened from travels in the SetupIntent metadata.
     $db->prepare("
-        INSERT INTO activity_log (user_id, action, details, created_at)
-        VALUES (NULL, 'Autopay enrolled', ?, NOW())
+        INSERT INTO activity_log (user_id, contact_id, action, details, ip_address, created_at)
+        VALUES (NULL, ?, 'Autopay enrolled', ?, ?, NOW())
     ")->execute([
-        sprintf('Contact %d enrolled in autopay via SetupIntent %s.', $contactId, $intent->id),
+        $contactId,
+        sprintf('Contact %d enrolled in autopay via SetupIntent %s (card confirmed by the cardholder; invoice link #%s).',
+                $contactId, $intent->id, (string)($intent->metadata['invoice_id'] ?? '?')),
+        substr((string)($intent->metadata['ip'] ?? ''), 0, 45) ?: null,
     ]);
 }

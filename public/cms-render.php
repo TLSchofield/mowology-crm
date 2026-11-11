@@ -65,9 +65,11 @@ $previewTok    = $_GET['_tok'] ?? '';
 
 if ($previewPid > 0 && $previewExp > 0 && $previewTok !== '') {
     if ($previewExp >= time()) {
-        $previewSecret  = defined('CMS_PREVIEW_SECRET') ? CMS_PREVIEW_SECRET : 'mwly_cms_preview';
-        $expectedToken  = hash_hmac('sha256', $previewPid . '|' . $previewExp, $previewSecret);
-        if (hash_equals($expectedToken, $previewTok)) {
+        // No hard-coded fallback (Fable review 2026-10-12): no secret = no preview.
+        $previewSecret  = (defined('CMS_PREVIEW_SECRET') && (string)CMS_PREVIEW_SECRET !== '') ? (string)CMS_PREVIEW_SECRET : null;
+        if ($previewSecret === null) error_log('cms-render: CMS_PREVIEW_SECRET is not defined — preview refused');
+        $expectedToken  = $previewSecret !== null ? hash_hmac('sha256', $previewPid . '|' . $previewExp, $previewSecret) : '';
+        if ($previewSecret !== null && is_string($previewTok) && hash_equals($expectedToken, $previewTok)) {
             $isPreviewMode = true;
         }
     }
@@ -101,8 +103,30 @@ try {
     // --- HTML Cache (P1-B) ---
     // Skip cache in preview mode so editors always see fresh content.
     // Serve cached HTML if fresh; otherwise render and cache the result.
-    $cachedHtml = $isPreviewMode ? null : cms_getPageHtmlCache((int)$page['id']);
+    // Cached HTML is discarded if the shared includes were deployed after it was
+    // cached (e.g. a changed stylesheet URL in head.php must reach every page now).
+    $includesMtime = max(array_map('filemtime', array_filter([
+        __DIR__ . '/includes/head.php',
+        __DIR__ . '/includes/header.php',
+        __DIR__ . '/includes/footer.php',
+    ], 'is_file')) ?: [0]);
+    $cachedHtml = $isPreviewMode ? null : cms_getPageHtmlCache((int)$page['id'], $includesMtime ?: null);
+    // Diagnostic (harmless to keep): lets curl -I show whether a CMS page came from
+    // cms_page_cache and which include mtime the staleness check used.
+    if (!headers_sent()) {
+        $__meta = function_exists('cms_getPageHtmlCacheMeta') ? cms_getPageHtmlCacheMeta((int)$page['id']) : [];
+        header('X-Mw-Cms-Cache: ' . ($cachedHtml !== null ? 'hit' : 'miss')
+            . '; includes-mtime=' . (int)$includesMtime . '; page=' . (int)$page['id']
+            . '; cached-ts=' . (int)($__meta['cached_ts'] ?? 0) . '; ttl=' . (int)($__meta['ttl_seconds'] ?? 0)
+            . '; db-now=' . (int)($__meta['db_now'] ?? 0) . '; php-now=' . time());
+    }
     if ($cachedHtml !== null) {
+        // The cached HTML carries the nonce of the render that cached it. Give this response a fresh nonce,
+        // swap it into the cached scripts and send the CSP header — head.php never runs on a cache hit,
+        // so without this cached pages went out with no CSP at all (deploy check 2026-10-13).
+        require_once APP_ROOT . '/Core/Csp.php';
+        $cachedHtml = preg_replace('/\bnonce="[A-Za-z0-9_\-]+"/', 'nonce="' . MwCsp::nonce() . '"', $cachedHtml);
+        MwCsp::send();
         echo $cachedHtml;
         exit;
     }
@@ -162,6 +186,8 @@ function cms_checkRedirectOrFallback(string $slug): void
         'services'      => 'services_static.php',
         'quote'         => 'quote.php',
         'get-free-quote' => 'get-free-quote.php',
+        'blog'          => 'blog.php',        // article index (articles are CMS pages under blog/)
+        'blog/feed'     => 'blog-feed.php',   // RSS
     ];
 
     if (isset($legacyMap[$slug])) {

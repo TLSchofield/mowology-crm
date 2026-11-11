@@ -7,6 +7,36 @@
 
 import Foundation
 
+/// Makes legacy all-caps names readable without changing the stored value.
+enum DisplayNameFormatter {
+    private static let preservedUppercase = Set(["BC", "ULC", "LLC", "LLP", "AI", "IT", "HR", "US", "USA", "UK", "GST", "PST"])
+
+    static func string(_ source: String) -> String {
+        let letters = source.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        guard !letters.isEmpty, letters.allSatisfy({ CharacterSet.uppercaseLetters.contains($0) }) else { return source }
+        return source.split(separator: " ", omittingEmptySubsequences: false).map { raw in
+            let token = String(raw)
+            let core = token.trimmingCharacters(in: .punctuationCharacters)
+            guard !core.isEmpty, !preservedUppercase.contains(core) else { return token }
+            let readable = core.prefix(1).uppercased() + core.dropFirst().lowercased()
+            return token.replacingOccurrences(of: core, with: readable)
+        }.joined(separator: " ")
+    }
+}
+
+/// The on-site person for a property — caretaker, building manager, tenant.
+struct OnsiteContact: Codable, Hashable {
+    let contactId: Int
+    let name: String
+    let phone: String?
+    let email: String?
+
+    enum CodingKeys: String, CodingKey {
+        case contactId = "contact_id"
+        case name, phone, email
+    }
+}
+
 struct Stop: Codable, Identifiable, Hashable {
     let stopId: Int
     let stopDate: String?
@@ -22,8 +52,13 @@ struct Stop: Codable, Identifiable, Hashable {
     let contactId: Int?
     let contactName: String?
     let contactPhone: String?
+    let contactEmail: String?
+    /// Who crew call from the gate (property_contacts.site_supervisor). nil = none set,
+    /// in which case the contact_* fields (the billing client) are all there is.
+    let onsiteContact: OnsiteContact?
     let companyName: String?
     let lawnSqft: Int?
+    let crewIds: [Int]
     let crewNames: [String]
     let visitCount: Int
     let visits: [Visit]
@@ -49,8 +84,11 @@ struct Stop: Codable, Identifiable, Hashable {
         case contactId        = "contact_id"
         case contactName      = "contact_name"
         case contactPhone     = "contact_phone"
+        case contactEmail     = "contact_email"
+        case onsiteContact    = "onsite_contact"
         case companyName      = "company_name"
         case lawnSqft         = "lawn_sqft"
+        case crewIds          = "crew_ids"
         case crewNames        = "crew_names"
         case visitCount       = "visit_count"
         case visits
@@ -69,9 +107,53 @@ struct Stop: Codable, Identifiable, Hashable {
         return contactName
     }
 
+    /// What the crew call this stop: the building name if it has one, else the company, else the
+    /// client. nil when there is nothing better than the street address.
+    var headline: String? {
+        let address = propertyAddress.trimmingCharacters(in: .whitespaces).lowercased()
+        for candidate in [propertyName, companyName, contactName] {
+            guard let name = candidate?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+                  name.lowercased() != address else { continue }
+            return name
+        }
+        return nil
+    }
+
+    /// The client label for the card footer — nil when it would only repeat the headline.
+    /// "Repeat" includes near-misses: a building called "Spirit Halloween Property" owned by
+    /// the company "Spirit Halloween" is the same name to anyone reading the card.
+    var footerClientName: String? {
+        guard let client = displayName?.trimmingCharacters(in: .whitespaces), !client.isEmpty else { return nil }
+        guard let head = headline?.lowercased() else { return client }
+        let c = client.lowercased()
+        return (head == c || head.contains(c) || c.contains(head)) ? nil : client
+    }
+
+    /// The "last done" line for the collapsed card. With several services on one stop, a skip
+    /// wins (it changes what the crew will find); otherwise the first visit still to be done.
+    var historyLine: (text: String, service: String?, warning: Bool)? {
+        let open = visits.filter { !["completed", "skipped", "cancelled"].contains($0.visitStatus.lowercased()) }
+        let pool = open.isEmpty ? visits : open
+        guard let pick = pool.first(where: { $0.history?.summaryIsWarning == true })
+                      ?? pool.first(where: { $0.history?.summary != nil }),
+              let summary = pick.history?.summary else { return nil }
+        // Name the service only when the stop has more than one, so the line isn't ambiguous.
+        let service = visits.count > 1 ? (pick.planTitle ?? pick.serviceType) : nil
+        return (summary, service, pick.history?.summaryIsWarning == true)
+    }
+
     /// Returns true when all visits for this stop are completed.
     var isComplete: Bool {
         !visits.isEmpty && visits.allSatisfy { $0.visitStatus.lowercased() == "completed" }
+    }
+
+    /// True when nothing is left to do here — every visit is completed, skipped
+    /// or cancelled. Unlike `isComplete` (which drives the green "done" visuals),
+    /// this only decides whether the stop still counts as upcoming work.
+    var isResolved: Bool {
+        !visits.isEmpty && visits.allSatisfy {
+            ["completed", "skipped", "cancelled"].contains($0.visitStatus.lowercased())
+        }
     }
 
     /// True when at least one visit is in_progress.

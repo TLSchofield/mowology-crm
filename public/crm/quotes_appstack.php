@@ -673,7 +673,7 @@ $activePage = 'quotes';
 
               fetch('quotes/api-quotes.php?action=bulk-delete', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                   body: JSON.stringify({ ids: Array.from(mwQuotesBulkSelected) })
               })
               .then(function(r) { return r.json(); })

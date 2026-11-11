@@ -8,11 +8,11 @@
  * Database: mowology-receipts  (version 1)
  * Store:    pending-receipts   (keyPath: id, autoIncrement)
  *
- * Each record: { id, blob, lat, lng, csrf, timestamp }
+ * Each record: { id, blob, lat, lng, csrf, jobId, timestamp }
  *
  * Usage:
  *   OfflineReceipts.init()           — open DB, set up listeners
- *   OfflineReceipts.queue(file, lat, lng, csrf)  — save to IDB + register sync
+ *   OfflineReceipts.queue(file, lat, lng, csrf, jobId)  — save to IDB + register sync
  *   OfflineReceipts.getPendingCount() — returns Promise<number>
  *   OfflineReceipts.syncNow()        — manually trigger upload of all pending
  */
@@ -23,6 +23,7 @@
     var DB_VERSION = 1;
     var STORE_NAME = 'pending-receipts';
     var db = null;
+    var _storeHealed = false;
     var _isSyncing = false; // re-entrancy guard — prevents syncNow ↔ updatePendingBadge infinite loop
 
     /**
@@ -44,7 +45,21 @@
             };
 
             request.onsuccess = function(e) {
-                db = e.target.result;
+                var opened = e.target.result;
+                if (!opened.objectStoreNames.contains(STORE_NAME)) {
+                    // A store-less DB at version 1 — older mw-sync-status.js opened this name with no
+                    // version and so CREATED it empty; onupgradeneeded never runs again at v1 and every
+                    // transaction threw "One of the specified object stores was not found". It holds
+                    // nothing, so drop it and open again (once).
+                    opened.close();
+                    if (_storeHealed) { reject(new Error('IndexedDB store missing')); return; }
+                    _storeHealed = true;
+                    var del = indexedDB.deleteDatabase(DB_NAME);
+                    del.onsuccess = function () { openDB().then(resolve, reject); };
+                    del.onerror = del.onblocked = function () { reject(new Error('IndexedDB store missing')); };
+                    return;
+                }
+                db = opened;
                 resolve(db);
             };
 
@@ -60,9 +75,10 @@
      * @param {number|null} lat — GPS latitude
      * @param {number|null} lng — GPS longitude
      * @param {string} csrf     — CSRF token
+     * @param {number|null} jobId — job to link the receipt to, if one was selected before going offline
      * @returns {Promise<number>} — the stored record ID
      */
-    function queue(file, lat, lng, csrf) {
+    function queue(file, lat, lng, csrf, jobId) {
         return openDB().then(function(database) {
             return new Promise(function(resolve, reject) {
                 var tx = database.transaction(STORE_NAME, 'readwrite');
@@ -73,6 +89,7 @@
                     lat: lat || null,
                     lng: lng || null,
                     csrf: csrf || '',
+                    jobId: jobId || null,
                     timestamp: Date.now()
                 };
 
@@ -203,24 +220,128 @@
      * @returns {Promise<boolean>} — true if upload succeeded
      */
     function uploadOne(receipt) {
-        // Bug #2 fix: prefer the page's live CSRF token over the stored one —
-        // the PHP session may have rotated while the receipt was in the offline queue.
-        var csrf = (typeof window.CSRF === 'string' && window.CSRF)
-            ? window.CSRF
-            : (receipt.csrf || '');
+        // A receipt leaves the queue only when its expense exists (Codex review 2026-10-14: it was
+        // deleted after the photo upload even when the expense save failed — the receipt was lost).
+        // The photo upload's answer is kept on the record, so a retry only re-tries the expense; the
+        // server answers "already saved" for a photo that already has one.
+        return freshCsrf(receipt).then(function(csrf) {
+            var intakeStep = receipt.intake
+                ? Promise.resolve(receipt.intake)
+                : postIntake(receipt, csrf).then(function(intake) {
+                      if (intake && intake.success && intake.media_id) {
+                          return updateRecord(receipt.id, { intake: intake }).then(function() { return intake; });
+                      }
+                      return null;
+                  });
+            return intakeStep.then(function(intake) {
+                if (!intake) return false;
+                return createDraftFromIntake(intake, receipt, csrf);
+            });
+        }).catch(function() { return false; });
+    }
 
+    /** The page's live token, else a fresh one from the server — a stored token goes stale. */
+    function freshCsrf(receipt) {
+        if (typeof window.CSRF === 'string' && window.CSRF) return Promise.resolve(window.CSRF);
+        return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d && d.token) || receipt.csrf || ''; })
+            .catch(function() { return receipt.csrf || ''; });
+    }
+
+    function postIntake(receipt, csrf) {
         var formData = new FormData();
         formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
         formData.append('csrf_token', csrf);
         if (receipt.lat) formData.append('lat', receipt.lat);
         if (receipt.lng) formData.append('lng', receipt.lng);
+        if (receipt.jobId) formData.append('job_id', receipt.jobId);
+        return fetch('/crm/api/receipt-intake.php', { method: 'POST', body: formData })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .catch(function() { return null; });
+    }
 
-        return fetch('/crm/api/receipt-intake.php', {
+    /** Merge fields into a queued record. */
+    function updateRecord(id, fields) {
+        return openDB().then(function(database) {
+            return new Promise(function(resolve) {
+                var tx = database.transaction(STORE_NAME, 'readwrite');
+                var store = tx.objectStore(STORE_NAME);
+                var get = store.get(id);
+                get.onsuccess = function() {
+                    var rec = get.result;
+                    if (rec) { Object.keys(fields).forEach(function(k) { rec[k] = fields[k]; }); store.put(rec); }
+                };
+                tx.oncomplete = function() { resolve(); };
+                tx.onerror = function() { resolve(); };
+            });
+        }).catch(function() {});
+    }
+
+    /**
+     * Create a draft expense from a replayed intake result — mirrors the fields the
+     * mobile review card would have sent, minus any human corrections.
+     * @param {object} intake — receipt-intake.php JSON
+     * @param {object} receipt — queued record (lat/lng/jobId)
+     * @param {string} csrf
+     * @returns {Promise<boolean>} true once the expense exists
+     */
+    function createDraftFromIntake(intake, receipt, csrf) {
+        if (!intake || !intake.success || !intake.media_id) return Promise.resolve(false);
+        var p = intake.parsed || {};
+        var s = intake.suggestions || {};
+        var total = parseFloat(p.total) || 0;
+        var gst   = parseFloat(p.gst) || 0;
+        var pst   = parseFloat(p.pst) || 0;
+        var sub   = parseFloat(p.subtotal) || (total > 0 ? Math.max(0, total - gst - pst) : 0);
+        var date  = /^\d{4}-\d{2}-\d{2}$/.test(p.date || '') ? p.date : new Date().toISOString().slice(0, 10);
+
+        var payload = {
+            action: 'create',
+            csrf_token: csrf,
+            expense_date: date,
+            vendor_id: s.vendor_id || null,
+            vendor_name_raw: s.vendor_name || p.vendor_hint || '',
+            payment_method: p.payment_method || '',
+            amount: sub.toFixed(2),
+            gst_amount: gst.toFixed(2),
+            pst_amount: pst.toFixed(2),
+            total: total.toFixed(2),
+            accounting_category: s.accounting_category || '',
+            job_id: receipt.jobId || null,
+            description: 'Auto-saved from offline queue — please review',
+            receipt_media_id: intake.media_id,
+            receipt_lat: receipt.lat || null,
+            receipt_lng: receipt.lng || null,
+            raw_ocr_json: intake.ocr_text || null,
+            ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
+            status: 'pending_approval',
+            line_items_source: p.line_items_source || null,
+            line_items: (p.line_items || []).map(function(item) {
+                return {
+                    name: item.name || 'Unknown Item',
+                    ocr_name: item.ocr_name || item.name || '',
+                    quantity: item.quantity || 1,
+                    unit_price: item.unit_price || null,
+                    line_total: item.line_total || item.amount || 0,
+                    sku_raw: item.sku_raw || null,
+                    product_id: item.product_id || null
+                };
+            })
+        };
+
+        return fetch('/crm/api/expenses.php', {
             method: 'POST',
-            body: formData
-        }).then(function(r) {
-            return r.ok;
-        }).catch(function() {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (!d || !d.success) {
+                console.warn('[offline-receipts] receipt uploaded but the expense did not save — kept, will retry:', d && d.error);
+                return false;
+            }
+            return true;   // created, or "already saved" for this photo
+        }).catch(function(e) {
+            console.warn('[offline-receipts] expense save error — kept, will retry', e);
             return false;
         });
     }

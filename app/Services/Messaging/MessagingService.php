@@ -30,6 +30,9 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+require_once APP_ROOT . '/Services/Messaging/SmsTemplates.php';
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 // ─── Canadian Carrier Email-to-SMS Gateways ─────────────────────────
 
@@ -59,6 +62,18 @@ const CANADIAN_SMS_GATEWAYS = [
  * @param string      $htmlBody       HTML body content
  * @param string|null $attachmentPath Filesystem path to attachment (or null)
  * @param string      $fromName       Display name (default: 'Mowology')
+ * @param array       $attachments    Extra attachments: list of filesystem paths, or
+ *                                    [path => filename-the-customer-sees]. When given,
+ *                                    all of them (plus $attachmentPath) go on one email.
+ *                                    Callers that pass nothing use the original path below.
+ * @param array       $cc             Optional Cc addresses (email only — never SMS). Invalid
+ *                                    addresses and the To address are dropped. Callers that
+ *                                    pass nothing use the original path below, unchanged.
+ * @param string|null $replyTo        Optional Reply-To address (e.g. a website visitor's email, so Reply
+ *                                    goes straight to them). Replaces the default office@mowology.ca.
+ *                                    Invalid or injection-shaped values are ignored. Applies to the
+ *                                    plain/single-attachment path only — NOT when $attachments or $cc
+ *                                    are given (those keep the default Reply-To).
  * @return array      ['success' => bool, 'method' => string, 'error' => string|null]
  */
 function sendEmail(
@@ -66,11 +81,22 @@ function sendEmail(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath = null,
-    string $fromName = 'Mowology'
+    string $fromName = '',
+    array $attachments = [],
+    array $cc = [],
+    ?string $replyTo = null
 ): array {
     // Validate email
     if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         return ['success' => false, 'method' => 'none', 'error' => "Invalid recipient email: {$to}"];
+    }
+
+    $cc = _normaliseCcList($cc, $to);
+    $replyTo = _normaliseReplyTo($replyTo);
+
+    if ($attachments || $cc) {
+        return _sendEmailMultiAttach($to, trim($subject), trim($htmlBody),
+            _normaliseAttachmentList($attachmentPath, $attachments), $fromName, $cc);
     }
 
     // Validate attachment exists
@@ -83,7 +109,7 @@ function sendEmail(
     $htmlBody = trim($htmlBody);
 
     // Try PHPMailer SMTP first
-    $phpMailerResult = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $fromName);
+    $phpMailerResult = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $fromName, $replyTo);
 
     if ($phpMailerResult !== null) {
         // PHPMailer was available and attempted the send
@@ -100,7 +126,7 @@ function sendEmail(
     if ($attachmentPath) {
         $result = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
     } else {
-        $result = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+        $result = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $replyTo);
     }
 
     return [
@@ -108,6 +134,102 @@ function sendEmail(
         'method'  => 'native mail()',
         'error'   => $result ? null : 'mail() returned false',
     ];
+}
+
+/**
+ * A safe Reply-To address, or null (= keep the default). Header-injection safe: anything that is
+ * not one plain valid email address is dropped.
+ */
+function _normaliseReplyTo(?string $replyTo): ?string
+{
+    $replyTo = trim((string)$replyTo);
+    if ($replyTo === '' || preg_match('/[\r\n,;<>]/', $replyTo) || !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+        return null;
+    }
+    return $replyTo;
+}
+
+/**
+ * [path => display filename] for every attachment that exists on disk. Missing files are
+ * logged and dropped — the email still goes, like the single-attachment path.
+ *
+ * @return array<string, string>
+ */
+function _normaliseAttachmentList(?string $attachmentPath, array $attachments): array
+{
+    $out = [];
+    if ($attachmentPath) {
+        $attachments = [$attachmentPath => basename($attachmentPath)] + $attachments;
+    }
+    foreach ($attachments as $k => $v) {
+        [$path, $name] = is_int($k) ? [(string)$v, basename((string)$v)] : [(string)$k, (string)$v];
+        if ($path === '' || !is_file($path)) {
+            error_log("sendEmail: attachment not found: {$path}, sending without it");
+            continue;
+        }
+        $name = preg_replace('/[^A-Za-z0-9._-]+/', '-', $name !== '' ? $name : basename($path));
+        $out[$path] = $name;
+    }
+    return $out;
+}
+
+/**
+ * Valid, de-duplicated Cc addresses, without the To address. Header-injection safe:
+ * anything that is not a plain valid email is dropped.
+ *
+ * @return string[]
+ */
+function _normaliseCcList(array $cc, string $to): array
+{
+    $out = [];
+    $toKey = strtolower(trim($to));
+    foreach ($cc as $addr) {
+        $addr = trim((string)$addr);
+        if ($addr === '' || preg_match('/[\r\n,;<>]/', $addr) || !filter_var($addr, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+        $key = strtolower($addr);
+        if ($key === $toKey || isset($out[$key])) continue;
+        $out[$key] = $addr;
+    }
+    return array_values($out);
+}
+
+/**
+ * Several attachments (and/or Cc addresses) on one email: PHPMailer SMTP first, native
+ * mail() multipart as the fallback — the same order and the same From/Reply-To as the
+ * single-attachment path.
+ */
+function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, array $files, string $fromName, array $cc = []): array
+{
+    $mail = _createMailer();
+    if ($mail) {
+        try {
+            $mail->setFrom(_idFromEmail(), _idFromName($fromName));
+            $mail->addAddress($to);
+            foreach ($cc as $ccAddr) {
+                $mail->addCC($ccAddr);
+            }
+            $mail->Subject = $subject;
+            $mail->isHTML(true);
+            $mail->Body = $htmlBody;
+            foreach ($files as $path => $name) {
+                $mail->addAttachment($path, $name);
+            }
+            $ok = $mail->send();
+            logEmailAttempt($to, $subject, $htmlBody, 'PHPMailer SMTP (' . ($mail->Host ?? '') . ', ' . count($files) . ' attachments)', $ok);
+            if ($ok) {
+                return ['success' => true, 'method' => 'PHPMailer SMTP', 'error' => null];
+            }
+            error_log('PHPMailer (multi-attach): send failed — ' . $mail->ErrorInfo);
+        } catch (\Throwable $e) {
+            error_log('PHPMailer (multi-attach) error: ' . $e->getMessage());
+            logEmailAttempt($to, $subject, $htmlBody, 'PHPMailer SMTP (FAILED)', false);
+        }
+    }
+
+    $ok = _sendEmailWithAttachments($to, $subject, $htmlBody, $files, $fromName, $cc);
+    return ['success' => $ok, 'method' => 'native mail()', 'error' => $ok ? null : 'mail() returned false'];
 }
 
 /**
@@ -123,8 +245,10 @@ function sendEmail(
 function sendSms(
     string $phone,
     string $message,
-    string $senderName = 'Mowology'
+    string $senderName = ''
 ): array {
+    $senderName = _stripHeaderInjection(_idFromName($senderName));
+
     // Normalize phone: extract digits only
     $cleanPhone = preg_replace('/\D/', '', $phone);
 
@@ -151,6 +275,11 @@ function sendSms(
         ];
     }
 
+    // Carriers silently drop texts with anything link-like (rule 11). A business name such as "Acme.ca" can
+    // arrive through any template, so every text is made safe here: a dot between a letter or digit and a
+    // letter becomes a space ("Acme.ca" → "Acme ca"); prices ($1,240.50) and sentence ends are untouched.
+    $message = (string)preg_replace('/(?<=[\p{L}\p{N}])\.(?=(?:ca|com|net|org|info|biz|io|co|app|us|uk|me|shop|store|site|online|xyz)\b)/iu', ' ', $message);   // only real web endings: "J.Smith" stays (Codex 2026-10-23)
+
     // Truncate to SMS limit
     if (strlen($message) > 160) {
         $message = substr($message, 0, 157) . '...';
@@ -159,7 +288,7 @@ function sendSms(
     $attempts = 0;
     $errors = [];
     $sentCarriers = [];
-    $fromEmail = 'no-reply@mowology.ca';
+    $fromEmail = _idFromEmail();
 
     // Use native mail() for SMS gateways — NOT PHPMailer.
     // PHPMailer adds MIME headers (Content-Type, MIME-Version, Message-ID, etc.)
@@ -172,7 +301,7 @@ function sendSms(
 
         try {
             $headers = "From: {$senderName} <{$fromEmail}>\r\n"
-                     . "X-Mailer: Mowology SMS Gateway\r\n";
+                     . "X-Mailer: " . _idFromName() . " SMS Gateway\r\n";
 
             $result = @mail($smsRecipient, '', $message, $headers);
 
@@ -217,6 +346,21 @@ function hasSmConsent(int $contactId): bool
 {
     try {
         $db = getDB();
+
+        // The consent ledger decides first (Fable review 2026-10-12): a withdrawal or unsubscribe
+        // there is a no, whatever the contact's flags say. Only when the ledger has nothing on
+        // record for texts do the old contact flags still count (17 contacts on 2026-10-12 had a
+        // flag with no ledger proof — backfill them, then this fallback can go).
+        $f = dirname(__DIR__, 2) . '/Modules/Consent/Services/ConsentLedgerService.php';
+        if ($contactId > 0 && is_file($f)) {
+            require_once $f;
+            $ledger = new ConsentLedgerService($db);
+            if ($ledger->ready()) {
+                $r = $ledger->allows($contactId, 'sms');
+                if (!empty($r['ok'])) return true;
+                if (($r['reason'] ?? '') !== 'no consent on record') return false;
+            }
+        }
         $stmt = $db->prepare("
             SELECT receive_sms, consent_sms
             FROM contacts
@@ -233,6 +377,83 @@ function hasSmConsent(int $contactId): bool
         return !empty($contact['receive_sms']) || !empty($contact['consent_sms']);
     } catch (\Throwable $e) {
         error_log("SMS consent check error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Check if a contact has CASL consent to receive a marketing message.
+ *
+ * Consent is valid if ANY of the following are true:
+ *  1. Express consent: receive_marketing/receive_sms = 1 AND the express timestamp is set
+ *  2. Implied consent: last paid invoice within the past 2 years
+ *
+ * Also checks marketing_unsubscribes blocklist — if the email is on the blocklist,
+ * this always returns false regardless of other consent fields.
+ *
+ * @param array  $contact  Contact row (must include email, receive_marketing/receive_sms,
+ *                         consent_email_express_at/consent_sms_express_at, consent_email_implied_at)
+ * @param string $channel  'email' or 'sms'
+ * @return bool
+ */
+function canSendMarketing(array $contact, string $channel = 'email'): bool
+{
+    $email = strtolower(trim($contact['email'] ?? ''));
+    if (empty($email)) {
+        return false;
+    }
+
+    try {
+        $db = getDB();
+
+        // Hard block: email is on the unsubscribe list
+        $unsub = $db->prepare("SELECT 1 FROM marketing_unsubscribes WHERE email = ? LIMIT 1");
+        $unsub->execute([$email]);
+        if ($unsub->fetchColumn()) {
+            return false;
+        }
+
+        // One consent source (2026-10-11): when the contact is known and the consent ledger
+        // exists, its answer is the answer — the same one Mia's sends use. The contact fields
+        // below are only the fallback for callers without a contact id or before migration.
+        $contactId = (int)($contact['id'] ?? $contact['contact_id'] ?? 0);
+        if ($contactId > 0) {
+            $f = dirname(__DIR__, 2) . '/Modules/Consent/Services/ConsentLedgerService.php';
+            if (is_file($f)) {
+                require_once $f;
+                $ledger = new ConsentLedgerService($db);
+                if ($ledger->ready()) {
+                    return (bool)($ledger->allows($contactId, $channel)['ok'] ?? false);
+                }
+            }
+        }
+
+        if ($channel === 'sms') {
+            $receiveField = 'receive_sms';
+            $expressField = 'consent_sms_express_at';
+        } else {
+            $receiveField = 'receive_marketing';
+            $expressField = 'consent_email_express_at';
+        }
+
+        // Express consent: opted in AND timestamp recorded
+        if (!empty($contact[$receiveField]) && !empty($contact[$expressField])) {
+            return true;
+        }
+
+        // Implied consent: last transaction within 2 years
+        // (email channel only — SMS requires express consent)
+        if ($channel === 'email' && !empty($contact['consent_email_implied_at'])) {
+            $expiry = strtotime($contact['consent_email_implied_at'] . ' +2 years');
+            if ($expiry && time() < $expiry) {
+                return true;
+            }
+        }
+
+        return false;
+
+    } catch (\Throwable $e) {
+        error_log("canSendMarketing error: " . $e->getMessage());
         return false;
     }
 }
@@ -261,11 +482,14 @@ function companyPrefersAttachment(int $companyId): bool
 }
 
 /**
- * Send a quote notification SMS with a shortened URL.
+ * Send a quote notification SMS.
+ *
+ * NO URLs or domains in the message body — carrier email-to-SMS gateways silently
+ * drop them. Directs the customer to their email instead.
  *
  * @param string $phoneNumber
  * @param string $quoteNumber
- * @param string $quoteUrl
+ * @param string $quoteUrl     Unused — kept so existing callers don't break
  * @param string $companyName
  * @return array Result from sendSms()
  */
@@ -273,17 +497,9 @@ function sendQuoteNotificationSms(
     string $phoneNumber,
     string $quoteNumber,
     string $quoteUrl,
-    string $companyName = 'Mowology'
+    string $companyName = ''
 ): array {
-    $shortUrl = parse_url($quoteUrl, PHP_URL_HOST) . '/quote';
-
-    $message = "Hi! Your quote {$quoteNumber} from {$companyName} is ready. "
-             . "View and accept it here: {$shortUrl}";
-
-    if (strlen($message) > 160) {
-        $message = "Your quote {$quoteNumber} from {$companyName} is ready. "
-                 . "Visit your account to view: {$shortUrl}";
-    }
+    $message = buildQuoteNotificationSmsText($quoteNumber, $companyName);
 
     return sendSms($phoneNumber, $message, $companyName);
 }
@@ -305,13 +521,15 @@ function sendInvoiceNotificationSms(
     float  $balanceDue
 ): array {
     $amount  = '$' . number_format($balanceDue, 2);
-    $message = "Mowology: Invoice {$invoiceNumber} for {$amount} is ready. Check your email to view and pay. Questions? Call (778) 846-9273.";
+    $name    = _idFromName();
+    $call    = _idSmsTail('Call');
+    $message = "{$name}: Invoice {$invoiceNumber} for {$amount} is ready. Check your email to view and pay." . ($call !== '' ? " Questions?{$call}" : '');
 
     if (strlen($message) > 160) {
-        $message = "Mowology: Invoice {$invoiceNumber} ({$amount} due). Check your email to pay. Call (778) 846-9273.";
+        $message = "{$name}: Invoice {$invoiceNumber} ({$amount} due). Check your email to pay.{$call}";
     }
 
-    return sendSms($phoneNumber, $message, 'Mowology');
+    return sendSms($phoneNumber, $message, $name);
 }
 
 /**
@@ -405,19 +623,30 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         $visitLabel .= ' — Application ' . $visit['sequence_index'];
     }
 
+    // ── What may this client see? (Settings → Client Portal) ──────
+    // Contract clients don't get the visit length — duration or the arrive/depart pair it can
+    // be worked out from — unless the office has switched it on.
+    $showVisitLength = true;
+    try {
+        require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+        $showVisitLength = (new ClientVisibilityService(getDB()))->forVisit((int)$visitId)['length'];
+    } catch (Throwable $e) {
+        error_log('completion email: visibility check failed: ' . $e->getMessage());
+    }
+
     // ── Format GPS timestamps ─────────────────────────────────────
     $arrivalTime   = '';
     $departureTime = '';
-    if (!empty($visit['started_at'])) {
+    if ($showVisitLength && !empty($visit['started_at'])) {
         $arrivalTime = date('g:ia', strtotime($visit['started_at']));
     }
-    if (!empty($visit['completed_at'])) {
+    if ($showVisitLength && !empty($visit['completed_at'])) {
         $departureTime = date('g:ia', strtotime($visit['completed_at']));
     }
 
     // Duration
     $durationStr = '';
-    if (!empty($visit['actual_duration_minutes']) && $visit['actual_duration_minutes'] > 0) {
+    if ($showVisitLength && !empty($visit['actual_duration_minutes']) && $visit['actual_duration_minutes'] > 0) {
         $mins = (int)$visit['actual_duration_minutes'];
         $durationStr = $mins >= 60
             ? floor($mins / 60) . 'h ' . ($mins % 60) . 'm'
@@ -426,7 +655,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Build portal URL ──────────────────────────────────────────
     $portalUrl  = '';
-    $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
     if (!empty($visit['access_token'])) {
         $portalUrl = $siteUrl . '/customer/pow.php?token=' . urlencode($visit['access_token']) . '&visit_id=' . $visitId;
     }
@@ -464,7 +693,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         <tr><td colspan="2" style="padding-bottom:16px;">
           <div style="display:flex;gap:8px;flex-wrap:wrap;">';
         foreach ($photos as $photo) {
-            $photoUrl = $siteUrl . '/uploads/photos/' . rawurlencode($photo['filename']);
+            $photoUrl = $siteUrl . uploadsUrl('photos') . '/' . rawurlencode($photo['filename']);
             $photosHtml .= '<img src="' . htmlspecialchars($photoUrl) . '" alt="' . htmlspecialchars($photo['photo_type']) . '" style="width:120px;height:90px;object-fit:cover;border-radius:6px;" onerror="this.style.display=\'none\'">';
         }
         $photosHtml .= '</div></td></tr>';
@@ -522,12 +751,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         $wrapperPath = __DIR__ . '/EmailWrapper.php';
         if (is_file($wrapperPath)) require_once $wrapperPath;
     }
-    $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : [
-        'company_name'    => 'Mowology Landscaping',
-        'company_phone'   => '(778) 846-9273',
-        'company_email'   => 'office@mowology.ca',
-        'company_website' => 'https://mowology.ca',
-    ];
+    $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : _idCompanyInfo();
 
     // ── Visit summary card (replaces old custom dark header) ─────
     $visitDate    = date('l, F j, Y');
@@ -547,7 +771,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Compose body content (materials, photos, GPS, progress) ──
     $greeting = '<p style="margin:0 0 8px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Hi ' . htmlspecialchars($visit['contact_first']) . ',</p>'
-              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Your lawn application has been completed. Here\'s a summary of what was done today.</p>';
+              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Our crew finished today\'s application. Here\'s what was done, and the photos they took before they left.</p>';
 
     $detailTable = '<table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eee;">'
         . $materialsHtml
@@ -560,22 +784,24 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Wrap in EmailWrapper (consistent branded shell) ───────────
     $htmlBody = class_exists('EmailWrapper')
-        ? EmailWrapper::wrap($customBody, 'View Full Report', $portalUrl ?: 'https://mowology.ca', $companyInfo)
+        ? EmailWrapper::wrap($customBody, 'See the photos', $portalUrl ?: _idSiteUrl(), $companyInfo)
         : $customBody; // fallback: bare content (should never happen in production)
 
     // ── Send email ────────────────────────────────────────────────
     $emailResult = sendEmail(
         $visit['contact_email'],
-        'Your ' . $visitLabel . ' is Complete!',
+        'Your ' . $visitLabel . ' is done',
         $htmlBody
     );
 
     // ── Send SMS (no URL, 160 chars) ──────────────────────────────
     $smsResult = ['success' => false];
     if (!empty($visit['contact_phone'])) {
-        $smsMsg = 'Mowology: Your ' . ($visit['plan_title'] ?: 'fertilizer application') . ' is done! Check your email for photos and details. Questions? (778) 846-9273';
+        $smsName  = _idFromName();
+        $smsPhone = _idPhone();
+        $smsMsg = $smsName . ': Your ' . ($visit['plan_title'] ?: 'fertilizer application') . ' is done! Check your email for photos and details.' . ($smsPhone !== '' ? ' Questions? ' . $smsPhone : '');
         if (strlen($smsMsg) > 160) {
-            $smsMsg = 'Mowology: Lawn application complete! Check your email for the report. (778) 846-9273';
+            $smsMsg = $smsName . ': Lawn application complete! Check your email for the report.' . ($smsPhone !== '' ? ' ' . $smsPhone : '');
         }
         $smsResult = sendSms($visit['contact_phone'], $smsMsg);
     }
@@ -645,12 +871,7 @@ if (!function_exists('sendJobCompleteNotification')) {
         $serviceType     = $visit['service_type'] ?: ($visit['plan_title'] ?: 'Service');
         $propertyAddress = trim(($visit['property_address'] ?? '') . ($visit['property_city'] ? ', ' . $visit['property_city'] : ''));
 
-        $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : [
-            'company_name'  => 'Mowology Landscaping',
-            'company_phone' => '(778) 846-9273',
-            'company_email' => 'office@mowology.ca',
-            'company_website' => 'https://mowology.ca',
-        ];
+        $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : _idCompanyInfo();
 
         $tplVars = [
             '{{customer_first_name}}' => $visit['contact_first'] ?: 'there',
@@ -665,13 +886,13 @@ if (!function_exists('sendJobCompleteNotification')) {
         $tpl = loadEmailTemplate('job_complete', $tplVars);
 
         // Build portal URL
-        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : _idSiteUrl();
         $portalUrl  = !empty($visit['customer_token'])
             ? $siteUrl . '/customer/pow.php?token=' . urlencode($visit['customer_token'])
             : $siteUrl;
 
         $emailBody = class_exists('EmailWrapper')
-            ? EmailWrapper::wrap($tpl['body_html'], 'View Service Report', $portalUrl, $companyInfo)
+            ? EmailWrapper::wrap($tpl['body_html'], 'See the photos', $portalUrl, $companyInfo)
             : $tpl['body_html'];
 
         $result = sendEmail($visit['contact_email'], $tpl['subject'], $emailBody);
@@ -691,7 +912,7 @@ if (!function_exists('sendJobCompleteNotification')) {
  */
 function testEmailConfig(string $testEmail): array
 {
-    $subject = "Mowology CRM Email Test";
+    $subject = _idFromName() . " CRM Email Test";
     $body = "
         <html>
         <body style='font-family: Arial, sans-serif;'>
@@ -720,7 +941,7 @@ function testEmailConfig(string $testEmail): array
  */
 function testSmsGateway(string $phoneNumber, string $carrierName = 'all'): array
 {
-    $message = "Test SMS from Mowology at " . date('H:i:s');
+    $message = "Test SMS from " . _idFromName() . " at " . date('H:i:s');
 
     if ($carrierName !== 'all' && isset(CANADIAN_SMS_GATEWAYS[$carrierName])) {
         $cleanPhone = preg_replace('/\D/', '', $phoneNumber);
@@ -731,7 +952,7 @@ function testSmsGateway(string $phoneNumber, string $carrierName = 'all'): array
         $domain = CANADIAN_SMS_GATEWAYS[$carrierName];
         $smsRecipient = $cleanPhone . '@' . $domain;
 
-        $result = mail($smsRecipient, "Test", $message, "From: Mowology <no-reply@mowology.ca>\r\n");
+        $result = mail($smsRecipient, "Test", $message, "From: " . _idFromName() . " <" . _idFromEmail() . ">\r\n");
 
         return [
             'success' => $result,
@@ -771,32 +992,13 @@ if (!function_exists('loadEmailTemplate')) {
             }
         }
 
-        // Hardcoded fallbacks (used if DB is unreachable or table doesn't exist yet)
-        $fallbacks = [
-            'quote_sent' => [
-                'subject'  => 'Your quote {{quote_number}} from Mowology is ready',
-                'body'     => "Hi {{customer_first_name}},\n\nThank you for reaching out! Your quote {{quote_number}} for {{quote_amount}} is ready to review.\n\nPlease click the button below to view and accept your quote.\n\nWe look forward to working with you!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'quote_followup' => [
-                'subject'  => 'Following up on your Mowology quote ({{quote_number}})',
-                'body'     => "Hi {{customer_first_name}},\n\nJust following up on quote {{quote_number}} for {{quote_amount}} we sent over. We want to make sure it reached you — sometimes these land in junk mail!\n\nYour quote is valid until {{quote_valid_until}}. Click the button below to review and accept it — it only takes a moment.\n\nIf you have any questions or want to adjust anything, don't hesitate to reach out. We'd love to earn your business!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'invoice_sent' => [
-                'subject'  => 'Invoice {{invoice_number}} from Mowology — {{amount_due}} due',
-                'body'     => "Hi {{customer_first_name}},\n\nYour invoice {{invoice_number}} for {{amount_due}} is due on {{due_date}}.\n\nPlease click the button below to view and pay your invoice online.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'receipt_sent' => [
-                'subject'  => 'Payment received — Thank you, {{customer_first_name}}!',
-                'body'     => "Hi {{customer_first_name}},\n\nGreat news — we've received your payment of {{amount_paid}} on {{payment_date}} for invoice {{invoice_number}}.\n\nYour receipt is available online via the link below. Thank you for your business!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'job_complete' => [
-                'subject'  => 'Your {{service_type}} service is complete — {{job_date}}',
-                'body'     => "Hi {{customer_first_name}},\n\nYour {{service_type}} service at {{property_address}} has been completed.\n\nClick the button below to view your service report.\n\nThank you for choosing Mowology!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-        ];
+        // Default text (used if DB is unreachable or the row doesn't exist yet).
+        // One copy for the fallback, the Settings UI and the seed: EmailTemplateDefaults.php.
+        require_once __DIR__ . '/EmailTemplateDefaults.php';
+        $fallbacks = emailTemplateDefaults();
 
-        $subject  = $fallbacks[$key]['subject'] ?? 'Message from Mowology';
-        $bodyText = $fallbacks[$key]['body']    ?? 'Thank you for choosing Mowology.';
+        $subject  = $fallbacks[$key]['subject'] ?? 'Message from ' . _idFromName();
+        $bodyText = $fallbacks[$key]['body']    ?? 'A message from ' . _idFromName() . '.';
 
         // Attempt DB lookup
         try {
@@ -845,7 +1047,7 @@ if (!function_exists('sendCrmEmail')) {
         string $subject,
         string $htmlBody,
         ?string $attachmentPath = null,
-        string $from = 'Mowology'
+        string $from = ''
     ): bool {
         $result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $from);
         return $result['success'];
@@ -862,7 +1064,7 @@ if (!function_exists('sendEmailViaSMTP')) {
         string $subject,
         string $htmlBody,
         ?string $attachmentPath = null,
-        string $from = 'Mowology'
+        string $from = ''
     ): bool {
         $result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $from);
         return $result['success'];
@@ -877,7 +1079,7 @@ if (!function_exists('sendSmsViaMail')) {
     function sendSmsViaMail(
         string $phoneNumber,
         string $message,
-        string $senderName = 'Mowology'
+        string $senderName = ''
     ): array {
         $result = sendSms($phoneNumber, $message, $senderName);
 
@@ -908,7 +1110,16 @@ function _loadPhpMailer(): bool
         return $loaded;
     }
 
+    // Already loaded (e.g. by Composer's autoloader) — never require a second copy.
+    if (class_exists(\PHPMailer\PHPMailer\PHPMailer::class, false)) {
+        $loaded = true;
+        return true;
+    }
+
     $possibleBases = [
+        // Composer-managed copy first, so `composer audit` covers the PHPMailer actually in use
+        // (security audit 2026-10-12, dependencies). The older hand-copied folders stay as fallbacks.
+        PUBLIC_ROOT . '/vendor/phpmailer/phpmailer/src',
         PUBLIC_ROOT . '/crm/vendor/phpmailer/src',
         PUBLIC_ROOT . '/vendor/phpmailer/src',
         ($_SERVER['DOCUMENT_ROOT'] ?? '') . '/vendor/phpmailer/src',
@@ -962,10 +1173,10 @@ function _createMailer(): ?\PHPMailer\PHPMailer\PHPMailer
             : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
         $mail->CharSet    = 'UTF-8';
         $mail->Encoding   = '8bit';
-        $mail->XMailer    = 'Mowology CRM';
+        $mail->XMailer    = _idFromName() . ' CRM';
 
-        $mail->setFrom('no-reply@mowology.ca', 'Mowology');
-        $mail->addReplyTo('office@mowology.ca', 'Mowology');
+        $mail->setFrom(_idFromEmail(), _idFromName());
+        $mail->addReplyTo(_idReplyTo(), _idFromName());
 
         return $mail;
     } catch (\Throwable $e) {
@@ -984,7 +1195,8 @@ function _sendViaPhpMailer(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath,
-    string $fromName
+    string $fromName,
+    ?string $replyTo = null
 ): ?array {
     $mail = _createMailer();
     if (!$mail) {
@@ -992,7 +1204,11 @@ function _sendViaPhpMailer(
     }
 
     try {
-        $mail->setFrom('no-reply@mowology.ca', $fromName);
+        $mail->setFrom(_idFromEmail(), _idFromName($fromName));
+        if ($replyTo !== null) {
+            $mail->clearReplyTos(); // _createMailer() adds office@mowology.ca by default
+            $mail->addReplyTo($replyTo);
+        }
         $mail->addAddress($to);
         $mail->Subject = $subject;
         $mail->isHTML(true);
@@ -1023,7 +1239,7 @@ function _sendViaPhpMailer(
         if ($attachmentPath) {
             $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
         } else {
-            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $replyTo);
         }
 
         return [
@@ -1038,7 +1254,7 @@ function _sendViaPhpMailer(
         if ($attachmentPath) {
             $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
         } else {
-            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $replyTo);
         }
 
         return [
@@ -1054,23 +1270,38 @@ function _sendViaPhpMailer(
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
+ * Strip CR/LF (and other control characters) from a value before it's
+ * interpolated into a raw mail() header or the subject line, so a request-derived
+ * string (contact name, e-signature name, etc.) can't inject extra headers
+ * (e.g. an extra "Bcc:" line) into the native-mail() fallback path.
+ */
+function _stripHeaderInjection(string $value): string
+{
+    return trim(preg_replace('/[\r\n\x00-\x1F]+/', ' ', $value));
+}
+
+/**
  * Send simple HTML email via native mail().
  */
 function _sendSimpleHtmlEmail(
     string $to,
     string $subject,
     string $htmlBody,
-    string $fromName = 'Mowology'
+    string $fromName = '',
+    ?string $replyTo = null
 ): bool {
     try {
-        $fromEmail = 'no-reply@mowology.ca';
+        $fromEmail = _idFromEmail();
+        $fromName  = _stripHeaderInjection(_idFromName($fromName));
+        $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$fromName} <{$fromEmail}>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $replyTo  = $replyTo !== null ? (filter_var(trim((string)preg_replace('/[\x00-\x1F\x7F]/', '', $replyTo)), FILTER_VALIDATE_EMAIL) ?: null) : null;
+        $headers .= 'Reply-To: ' . ($replyTo ?? _idReplyTo()) . "\r\n";   // validated: no header injection (Codex 2026-10-23)
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
 
         $result = @mail($to, trim($subject), trim($htmlBody), $headers);
 
@@ -1088,6 +1319,64 @@ function _sendSimpleHtmlEmail(
 }
 
 /**
+ * Native mail() with several attachments in one multipart/mixed message.
+ *
+ * @param array<string, string> $files path => filename the customer sees
+ */
+function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody, array $files, string $fromName = '', array $cc = []): bool
+{
+    try {
+        $fromName = _stripHeaderInjection(_idFromName($fromName));
+        $subject  = _stripHeaderInjection($subject);
+        $boundary = '==BOUNDARY_' . md5((string)microtime(true) . $to . (string)mt_rand()) . '==';
+
+        $body  = "This is a MIME encoded message.\r\n\r\n";
+        $body .= "--{$boundary}\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n";
+        $body .= $htmlBody . "\r\n\r\n";
+        foreach ($files as $path => $name) {
+            $content = @file_get_contents($path);
+            if ($content === false) {
+                error_log("_sendEmailWithAttachments: failed to read {$path}");
+                continue;
+            }
+            $name = _stripHeaderInjection(str_replace('"', '', $name));
+            $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            $mime = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'pdf' => 'application/pdf', 'zip' => 'application/zip'][$ext]
+                    ?? 'application/octet-stream';
+            $body .= "--{$boundary}\r\nContent-Type: {$mime}; name=\"{$name}\"\r\n";
+            $body .= "Content-Disposition: attachment; filename=\"{$name}\"\r\nContent-Transfer-Encoding: base64\r\n\r\n";
+            $body .= chunk_split(base64_encode($content), 76, "\r\n") . "\r\n";
+        }
+        $body .= "--{$boundary}--\r\n";
+
+        $headers  = "From: " . _idFromName($fromName) . " <" . _idFromEmail() . ">\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
+        $headers .= "Return-Path: " . _idReplyTo() . "\r\n";
+        $headers .= "MIME-Version: 1.0\r\n";
+        $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
+        $headers .= _ccHeaderLine($cc);
+
+        $ok = mail($to, trim($subject), $body, $headers);
+        if (!$ok) {
+            error_log("Fallback mail() with attachments: FAILED for {$to}");
+        }
+        return $ok;
+    } catch (\Throwable $e) {
+        error_log('_sendEmailWithAttachments error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/** "Cc: a, b\r\n" for the native mail() fallback, or '' when there is nobody to copy. */
+function _ccHeaderLine(array $cc): string
+{
+    $cc = array_map('_stripHeaderInjection', $cc);
+    $cc = array_values(array_filter($cc, static fn($a) => filter_var($a, FILTER_VALIDATE_EMAIL)));
+    return $cc ? 'Cc: ' . implode(', ', $cc) . "\r\n" : '';
+}
+
+/**
  * Send email with MIME attachment via native mail().
  */
 function _sendEmailWithAttachment(
@@ -1095,9 +1384,11 @@ function _sendEmailWithAttachment(
     string $subject,
     string $htmlBody,
     string $attachmentPath,
-    string $fromName = 'Mowology'
+    string $fromName = ''
 ): bool {
     try {
+        $fromName = _stripHeaderInjection(_idFromName($fromName));
+        $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
 
         $fileContent = file_get_contents($attachmentPath);
@@ -1115,19 +1406,26 @@ function _sendEmailWithAttachment(
         $body .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
         $body .= $htmlBody . "\r\n\r\n";
 
+        // Derive the attachment MIME type from the extension. Previously hardcoded
+        // application/pdf, which mislabeled non-PDF attachments (e.g. ZIP receipt bundles)
+        // so some clients refused to open them. PHPMailer auto-detects; this fallback must too.
+        $attExt  = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $attMime = $attExt === 'zip' ? 'application/zip'
+                 : ($attExt === 'pdf' ? 'application/pdf' : 'application/octet-stream');
+
         $body .= "--{$boundary}\r\n";
-        $body .= "Content-Type: application/pdf; name=\"{$filename}\"\r\n";
+        $body .= "Content-Type: {$attMime}; name=\"{$filename}\"\r\n";
         $body .= "Content-Disposition: attachment; filename=\"{$filename}\"\r\n";
         $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
         $body .= $encodedFile . "\r\n";
         $body .= "--{$boundary}--\r\n";
 
-        $headers = "From: {$fromName} <no-reply@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers = "From: " . _idFromName($fromName) . " <" . _idFromEmail() . ">\r\n";
+        $headers .= "Reply-To: " . _idReplyTo() . "\r\n";
+        $headers .= "Return-Path: " . _idReplyTo() . "\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= "X-Mailer: " . _idFromName() . " CRM\r\n";
 
         $result = mail($to, trim($subject), $body, $headers);
 

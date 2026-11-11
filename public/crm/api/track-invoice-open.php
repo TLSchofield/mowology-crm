@@ -3,7 +3,8 @@
  * Invoice Email Open Tracking — 1x1 Transparent PNG
  *
  * Embedded in invoice emails as:
- *   <img src="https://mowology.ca/crm/api/track-invoice-open.php?rid=INVOICE_CONTACTS_ID">
+ *   <img src="https://mowology.ca/crm/api/track-invoice-open.php?rid=INVOICE_CONTACTS_ID&s=SIG">
+ *   (TrackingLinks::invoiceOpenUrl()). Only a signed hit records anything (Fable review 2026-10-12).
  *
  * Updates invoice_contacts.invoice_opened_at on first load per recipient,
  * and sets invoices.email_opened_at for the first-ever open across all recipients.
@@ -28,6 +29,12 @@ if ($rid > 0) {
 
         if (defined('APP_ROOT')) {
             require_once APP_ROOT . '/Core/config.php';
+            require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+        }
+
+        // Only a signed pixel counts — the ids are sequential.
+        if (!class_exists('TrackingLinks') || !TrackingLinks::verify($rid, 'invoice-open', (string)($_GET['s'] ?? ''))) {
+            throw new RuntimeException('unsigned invoice open pixel ignored');
         }
 
         $db = getDB();

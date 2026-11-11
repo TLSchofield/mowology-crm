@@ -89,7 +89,20 @@ function cms_getActiveTheme(int $siteId): array {
  * $data keys: color_primary, color_dark, color_accent, color_bg_dark,
  *             color_text, font_heading, font_body, custom_css
  */
+/**
+ * Custom CSS may not contain "<" (Fable review 2026-10-12): it is printed inside <style>, and
+ * "</style><script>…" was the way out — the old filter only removed <script> tags. ">" stays
+ * allowed because CSS child selectors need it and it cannot close a tag on its own.
+ */
+function cms_customCssAllowed(string $css): bool {
+    return strpos($css, '<') === false;
+}
+
 function cms_saveTheme(int $siteId, array $data): bool {
+    // Refuse, never silently rewrite, custom CSS that could break out of <style>.
+    if (isset($data['custom_css']) && !cms_customCssAllowed((string)$data['custom_css'])) {
+        return false;
+    }
     $db = getDB();
 
     // Sanitise — only allow known keys
@@ -171,9 +184,10 @@ function cms_buildThemeCss(array $theme): string {
     $css .= "  --font-body: '{$fb}', system-ui, sans-serif;\n";
     $css .= "}\n";
 
-    // Custom CSS — strip <script> tags for safety but allow raw CSS
+    // Custom CSS — saves with "<" are refused (cms_customCssAllowed); anything older that still
+    // holds one has it escaped as the CSS code point \3C so it can never close the <style> block.
     if (!empty($theme['custom_css'])) {
-        $customCss = preg_replace('/<\/?script[^>]*>/i', '', $theme['custom_css']);
+        $customCss = str_replace('<', '\\3C ', (string)$theme['custom_css']);
         $css .= "\n/* Custom CSS */\n" . $customCss . "\n";
     }
 

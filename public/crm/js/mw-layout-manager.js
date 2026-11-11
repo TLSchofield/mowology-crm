@@ -545,7 +545,7 @@
   // ── Toast helper (uses mw-toast if available) ─────────────────
   function showToast(msg) {
     if (window.mwToast) {
-      mwToast.success(msg);
+      mwToast(msg, 'success');
     } else {
       // Fallback: brief inline message
       var toast = document.createElement('div');

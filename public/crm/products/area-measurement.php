@@ -14,6 +14,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 if (defined('APP_ROOT')) {
     require_once APP_ROOT . '/Services/MeasurementService.php';
+    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 }
 
 requireLogin();
@@ -55,11 +56,31 @@ if ($propertyId) {
     }
 }
 
+// Opened from a plant ("Draw its bed"): show where its photo was taken and which way the camera faced.
+$plantFocus = null;
+if ($property && !empty($_GET['plant'])) {
+    try {
+        require_once APP_ROOT . '/Modules/Plants/Services/PlantIdService.php';
+        $pl = (new PlantIdService($db))->one((int)$_GET['plant']);
+        if ($pl && (int)$pl['property_id'] === (int)$propertyId && $pl['lat'] !== null) {
+            $plantFocus = ['lat' => (float)$pl['lat'], 'lng' => (float)$pl['lng'], 'accuracy' => $pl['accuracy_m'] !== null ? (float)$pl['accuracy_m'] : null,
+                           'heading' => $pl['heading_deg'] !== null ? (float)$pl['heading_deg'] : null, 'thumb' => $pl['thumbs'][0] ?? null,
+                           'name' => (string)($pl['common_name'] ?: $pl['scientific_name'] ?: 'the plant')];
+        }
+    } catch (Throwable $e) { $plantFocus = null; }
+}
+
 // Handle AJAX save request (using shared MeasurementService)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
 
     if ($_POST['action'] === 'save_measurements') {
+        if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+        requirePermission('products.edit');
+
         $propId = (int)($_POST['property_id'] ?? 0);
         $measurements = json_decode($_POST['measurements'] ?? '[]', true);
 
@@ -104,8 +125,9 @@ $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 
 $pageTitle = 'Area Measurement';
 $activePage = 'products';
-$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
-           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=drawing,geometry&callback=initMap" async defer></script>';
+$mdtVer    = @filemtime(dirname(__DIR__) . '/js/map-draw/map-draw-tool.js') ?: '1';
+$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=geometry&callback=initMap" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -150,6 +172,12 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
                           </div>
                       </div>
                       <div class="card-body p-0">
+                          <?php if ($plantFocus): ?>
+                          <div class="d-flex align-items-center p-2 border-bottom small">
+                              <?php if ($plantFocus['thumb']): ?><img src="<?= htmlspecialchars($plantFocus['thumb']) ?>" alt="" width="56" height="56" class="rounded mr-2"><?php endif; ?>
+                              <div>Draw the bed <b><?= htmlspecialchars($plantFocus['name']) ?></b> grows in. The green pin is where the photo was taken<?= $plantFocus['heading'] !== null ? '; the line shows which way the camera faced' : '' ?><?= $plantFocus['accuracy'] !== null ? ' (within ' . (int)$plantFocus['accuracy'] . ' m)' : '' ?>. Name the bed when you save it.</div>
+                          </div>
+                          <?php endif; ?>
                           <div id="map" class="mw-measure-map-container" style="height: 500px;"></div>
                       </div>
                   </div>
@@ -394,6 +422,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
           </div>
 
     <script>
+        const MW_GST_RATE = <?= json_encode(TaxEngine::gstRate($db)) ?>; // one GST rate: Settings → business settings
         let map;                 // google.maps.Map (owned by MapDrawTool)
         let tool = null;         // MapDrawTool — the shared drawing engine
         let currentMetrics = null;
@@ -562,6 +591,24 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
 
         // Existing measurements from database
         const existingMeasurements = <?php echo json_encode($existingMeasurements); ?>;
+        const PLANT_FOCUS = <?php echo json_encode($plantFocus, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+        function showPlantFocus(m) {
+            if (!PLANT_FOCUS || !window.google) return;
+            const at = { lat: PLANT_FOCUS.lat, lng: PLANT_FOCUS.lng };
+            m.setCenter(at);
+            m.setZoom(21);
+            new google.maps.Marker({ map: m, position: at, title: 'Photo of ' + PLANT_FOCUS.name,
+                icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#2D8659', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 } });
+            if (PLANT_FOCUS.accuracy) {
+                new google.maps.Circle({ map: m, center: at, radius: PLANT_FOCUS.accuracy, strokeColor: '#2D8659', strokeOpacity: .5, strokeWeight: 1, fillOpacity: .05, clickable: false });
+            }
+            if (PLANT_FOCUS.heading !== null && google.maps.geometry) {
+                const end = google.maps.geometry.spherical.computeOffset(at, 15, PLANT_FOCUS.heading);
+                new google.maps.Polyline({ map: m, path: [at, end], strokeColor: '#2D8659', strokeWeight: 3, clickable: false,
+                    icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3 }, offset: '100%' }] });
+            }
+        }
 
         // Area type options for inline editing
         const areaTypeOptions = <?php echo json_encode($areaTypeOptions); ?>;
@@ -593,6 +640,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
                     if (existingMeasurements && existingMeasurements.length > 0) {
                         loadExistingMeasurements();
                     }
+                    showPlantFocus(map);
                 },
                 onDraw: function (m) {
                     currentMetrics = m;
@@ -826,7 +874,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
             }
 
             const subtotal = totalSqFt * rate;
-            const gst = subtotal * 0.05;
+            const gst = subtotal * MW_GST_RATE;
             const total = subtotal + gst;
 
             document.getElementById('pricingArea').textContent = totalSqFt.toLocaleString() + ' sq ft';
@@ -934,6 +982,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
             formData.append('action', 'save_measurements');
             formData.append('property_id', propertyId.value);
             formData.append('measurements', JSON.stringify(measurements));
+            formData.append('csrf_token', window.MW_CSRF_TOKEN || '');
 
             fetch(window.location.href, {
                 method: 'POST',

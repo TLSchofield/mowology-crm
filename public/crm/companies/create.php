@@ -7,7 +7,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-requirePermission('clients.view');
+requirePermission('clients.edit');
 
 $db = getDB();
 $errors = [];

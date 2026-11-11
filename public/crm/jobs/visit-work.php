@@ -12,6 +12,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('jobs.view');
@@ -26,7 +27,7 @@ $db = getDB();
 
 // Load visit + plan
 $stmt = $db->prepare("
-    SELECT v.*, p.title AS plan_title, p.checklist_template, p.service_type AS plan_service_type,
+    SELECT v.*, p.title AS plan_title, p.checklist_template, p.service_type AS plan_service_type, p.property_id,
            p.plan_number, pr.address AS property_address,
            c.first_name AS contact_first, c.last_name AS contact_last
     FROM job_visits v
@@ -54,15 +55,13 @@ $visit['service_type'] = $visit['service_type'] ?? $visit['plan_service_type'] ?
 $isLocked = ($visit['locked_at'] !== null);
 
 // Load existing checklist / materials / service data
-$checklist = !empty($visit['checklist_json'])    ? json_decode($visit['checklist_json'], true)    : [];
 $materials = !empty($visit['materials_json'])    ? json_decode($visit['materials_json'], true)    : [];
 $svcData   = !empty($visit['service_data_json']) ? json_decode($visit['service_data_json'], true) : [];
 
-// Seed checklist from plan template if empty
-if (empty($checklist) && !empty($visit['checklist_template'])) {
-    $tpl       = json_decode($visit['checklist_template'], true) ?? [];
-    $checklist = array_map(fn($t) => ['item'=>$t,'checked'=>false,'note'=>''], $tpl);
-}
+// Saved checklist, else the plan's template plus the plant care due on the property (same rule as the crew apps)
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+$checklist = VisitWorkService::resolveChecklist($visit['checklist_json'] ?? null, $visit['checklist_template'] ?? null,
+                                                (new VisitWorkService($db))->plantLinesFor($visit));
 
 $csrfToken = generateCSRFToken();
 
@@ -90,6 +89,7 @@ try {
 $pageTitle  = 'Work: ' . ($visit['visit_number'] ?? "Visit #{$visitId}");
 $activePage = 'jobs';
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <!-- ── Mobile work shell ─────────────────────────────────────────────────── -->
@@ -524,9 +524,11 @@ $activePage = 'jobs';
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   var timerEl = document.getElementById('timer-display');
-  if (timerEl && STATUS === 'in_progress' && STARTED_AT) {
-    var startMs = new Date(STARTED_AT).getTime();
-    setInterval(function() {
+  var _timerInterval = null;
+  function startTimerDisplay(startedAt) {
+    if (!timerEl || _timerInterval) return;
+    var startMs = new Date(startedAt).getTime();
+    _timerInterval = setInterval(function() {
       var elapsed = Math.floor((Date.now() - startMs) / 1000);
       var h = Math.floor(elapsed / 3600);
       var m = Math.floor((elapsed % 3600) / 60);
@@ -534,6 +536,7 @@ $activePage = 'jobs';
       timerEl.textContent = (h > 0 ? h + ':' : '') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     }, 1000);
   }
+  if (STATUS === 'in_progress' && STARTED_AT) startTimerDisplay(STARTED_AT);
 
   function updateStats() {
     var pts = document.getElementById('gps-pts-display');
@@ -731,6 +734,48 @@ $activePage = 'jobs';
     });
   }
 
+  // ── Before photo doubles as the clock-in ──────────────────────────────────
+  // Taking a Before photo before the visit is started should START the visit
+  // (and tracking) — the photo IS the clock-in. Starts in place (no reload) so
+  // the photo upload in flight is not interrupted.
+  var _autoStartTriggered = false;
+  function autoStartVisitFromBeforePhoto() {
+    if (_autoStartTriggered || STATUS === 'in_progress' || STATUS === 'completed') return;
+    _autoStartTriggered = true;
+    function send(lat, lng) {
+      fetch(API_ACTIONS, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ action: 'start_visit', visit_id: VISIT_ID, csrf_token: CSRF,
+                               lat: lat, lng: lng })
+      }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+          STARTED_AT = res.started_at;
+          STATUS     = 'in_progress';
+          var startedInput = document.getElementById('pow-started-at');
+          if (startedInput) startedInput.value = res.started_at;
+          startTimerDisplay(STARTED_AT);
+          try { startGPS(); } catch (e) { /* GPS optional */ }
+          var gate = document.getElementById('start-gate');
+          if (gate) gate.style.display = 'none';
+          showToast('Visit started', 'success');
+        } else {
+          _autoStartTriggered = false; // allow another attempt
+        }
+      }).catch(function() { _autoStartTriggered = false; });
+    }
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        function(p) { send(p.coords.latitude, p.coords.longitude); },
+        function()  { send(null, null); },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      send(null, null);
+    }
+  }
+
   if (STATUS === 'in_progress') startGPS();
 
   document.addEventListener('mw-visit-gps-point', function(e) {
@@ -840,7 +885,9 @@ $activePage = 'jobs';
           var d = document.createElement('div');
           d.className = 'mb-2 p-2 rounded';
           d.style.cssText = 'background:#f5faf7;border-left:3px solid #7FD858;';
-          d.innerHTML = '<div>' + content + '</div><small class="text-muted">Just now</small>';
+          var body = document.createElement('div'); body.textContent = content;   // as typed, never as HTML
+          var when = document.createElement('small'); when.className = 'text-muted'; when.textContent = 'Just now';
+          d.appendChild(body); d.appendChild(when);
           notes.insertBefore(d, notes.firstChild);
           showToast('Note saved', 'success');
         } else showToast(res.error || 'Failed', 'danger');
@@ -1056,7 +1103,7 @@ $activePage = 'jobs';
 
       // Derive view URL from thumb URL (pattern: /uploads/photos/t/{id}/{base}_t.ext)
       var viewUrl = ev.thumbUrl
-        ? ev.thumbUrl.replace('/uploads/photos/t/', '/uploads/photos/v/').replace(/_t\./, '_v.')
+        ? ev.thumbUrl.replace('/photos/t/', '/photos/v/').replace(/_t\./, '_v.')
         : (ev.thumbUrl || '');
       tile.dataset.viewUrl   = viewUrl;
       tile.dataset.photoType = photoType;
@@ -1230,10 +1277,33 @@ $activePage = 'jobs';
 
   // Photo capture: HEIC guard + serial upload queue (one at a time)
   document.querySelectorAll('.photo-trigger').forEach(function(input) {
+    // Pre-tap guard: on native Android the WebView file picker throws
+    // "Access denied" when the app's CAMERA permission is off. If we already
+    // know it's denied, block the doomed picker and show guidance instead.
+    // Synchronous + capture phase so it runs before the file picker opens and
+    // preserves the user-gesture for the granted path.
+    input.addEventListener('click', function(e) {
+      if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()
+          && MwCameraPermission.isDenied()) {
+        e.preventDefault();
+        MwCameraPermission.showDeniedDialog();
+      }
+    }, true);
+
     input.addEventListener('change', function() {
       var photoType = this.dataset.type;
       var files     = Array.from(this.files);
-      if (!files.length) return;
+      if (!files.length) {
+        // No file: on native Android this can be a silent camera-permission
+        // denial (the picker fires change with no file). Re-check and surface
+        // actionable guidance instead of leaving the user stuck.
+        if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()) {
+          MwCameraPermission.refresh(function(state) {
+            if (state === 'denied') MwCameraPermission.showDeniedDialog();
+          });
+        }
+        return;
+      }
 
       // Ensure photos container is visible; apply prefetched server data if ready
       _photosRendered = true;
@@ -1254,6 +1324,12 @@ $activePage = 'jobs';
           validFiles.push(f);
         }
       });
+
+      // Before photo doubles as the clock-in: start the visit if not already
+      // running (in place, in parallel with the upload below).
+      if (photoType === 'before' && validFiles.length) {
+        autoStartVisitFromBeforePhoto();
+      }
 
       // Route: online → direct XHR with progress ring; offline → MwPhotoQueue
       var chain = Promise.resolve();

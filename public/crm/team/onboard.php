@@ -81,11 +81,11 @@ $csrfToken = generateCSRFToken();
                 </div>
                 <div class="col-md-4">
                     <label for="ob_password" class="form-label">Password <span class="text-danger">*</span></label>
-                    <input type="password" class="form-control" id="ob_password" minlength="8" placeholder="Min 8 characters">
+                    <input type="password" class="form-control" id="ob_password" minlength="12" placeholder="Min 12 characters">
                 </div>
                 <div class="col-md-4">
                     <label for="ob_password_confirm" class="form-label">Confirm Password <span class="text-danger">*</span></label>
-                    <input type="password" class="form-control" id="ob_password_confirm" minlength="8">
+                    <input type="password" class="form-control" id="ob_password_confirm" minlength="12">
                 </div>
             </div>
         </div>
@@ -210,8 +210,8 @@ $csrfToken = generateCSRFToken();
         <div class="card-body">
             <div class="mb-3">
                 <label for="ob_install_url" class="form-label">Install URL</label>
-                <input type="url" class="form-control" id="ob_install_url" value="https://mowology.ca/crm/jobs/schedule.php" placeholder="https://app.mowology.ca/install">
-                <small class="form-text text-muted">The URL where the employee can access or install the Mowology field app.</small>
+                <input type="url" class="form-control" id="ob_install_url" value="<?php echo h(function_exists('_idSiteUrl') ? _idSiteUrl() . '/crm/jobs/schedule.php' : ''); ?>" placeholder="https://your-site.example/install">
+                <small class="form-text text-muted">The URL where the employee can access or install the field app.</small>
             </div>
             <div class="mb-3">
                 <label class="form-label">Send via</label>
@@ -229,7 +229,7 @@ $csrfToken = generateCSRFToken();
             <div class="mb-3">
                 <label class="form-label">Message Preview</label>
                 <div class="card bg-light border-0 p-3" id="installPreviewMsg" style="font-size:14px;">
-                    <em>Hi <span id="previewFirstName">there</span>, please install the Mowology field app using the link below. Contact us if you need help.</em>
+                    <em>Hi <span id="previewFirstName">there</span>, please install the <?php echo h(function_exists('_idFromName') ? _idFromName() : ''); ?> field app using the link below. Contact us if you need help.</em>
                 </div>
             </div>
             <div id="installSendResult" class="alert" style="display:none;"></div>
@@ -306,7 +306,7 @@ $csrfToken = generateCSRFToken();
                 if (!firstName) { showError('First name is required.'); return; }
                 if (!lastName) { showError('Last name is required.'); return; }
                 if (!email) { showError('Email address is required.'); return; }
-                if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
+                if (password.length < 12) { showError('Password must be at least 12 characters.'); return; }
                 if (password !== confirm) { showError('Passwords do not match.'); return; }
 
                 showStep(2);

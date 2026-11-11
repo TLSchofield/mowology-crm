@@ -26,6 +26,29 @@ def make_uuid(seed: str) -> str:
     """24-char uppercase hex UUID deterministically derived from seed."""
     return hashlib.md5(seed.encode()).hexdigest()[:24].upper()
 
+def add_group_child(content: str, group_name: str, child: str) -> str:
+    """Append `child` to the children list of the PBXGroup whose path is group_name.
+
+    In a pbxproj group, `children = (...)` comes BEFORE `path = X;`. The previous
+    version searched forward from `path = X;`, so it matched the *next* group's
+    children and misfiled every file (Network → root, TimeClock → Quiz, ...).
+    Anchor on the group header and require its own path line right after the list.
+    """
+    name = re.escape(group_name)
+    pattern = (
+        rf'(/\* {name} \*/ = \{{\s*isa = PBXGroup;\s*children = \()'
+        rf'((?:(?!\);).)*?)'
+        rf'(\n[ \t]*\);\s*(?:name = [^;]+;\s*)?path = {name};)'
+    )
+    new_content, n = re.subn(
+        pattern,
+        lambda m: m.group(1) + m.group(2) + f'\n\t\t\t\t{child},' + m.group(3),
+        content, count=1, flags=re.DOTALL
+    )
+    if n == 0:
+        sys.exit(f"ERROR: could not locate PBXGroup '{group_name}' — add the file in Xcode instead.")
+    return new_content
+
 def main(swift_path: str):
     swift_path = os.path.abspath(swift_path)
     if not swift_path.endswith('.swift'):
@@ -67,12 +90,17 @@ def main(swift_path: str):
     content = content.replace('/* End PBXBuildFile section */',
                                build_entry + '/* End PBXBuildFile section */')
 
-    # 3. Compile Sources — insert after last existing Sources entry
-    content = re.sub(
-        r'(\t\t\t\t[A-F0-9]{24} /\* \S+ in Sources \*/,)(?=\n\t\t\t\t\);)',
+    # 3. Compile Sources — insert after the last entry in the files list.
+    #    The closing `);` of the list is indented with 3 tabs (not 4), so the
+    #    lookahead tolerates any leading whitespace before `);`.
+    content, src_n = re.subn(
+        r'([ \t]*[A-F0-9]{24} /\* \S+ in Sources \*/,)(?=\n[ \t]*\);)',
         f'\\1\n\t\t\t\t{build_file_id} /* {filename} in Sources */,',
         content, count=1
     )
+    if src_n != 1:
+        sys.exit("ERROR: could not add the file to the Compile Sources phase. "
+                 "It would not be compiled — check pbxproj manually.")
 
     # 4. Ensure group hierarchy exists and file ref is in the leaf group
     parts = group_rel.split('/') if group_rel else []
@@ -86,11 +114,7 @@ def main(swift_path: str):
         # Check if leaf group exists
         if f'path = {leaf_name};\n\t\t\tname' in content or f'path = {leaf_name};\n\t\t\tsourceTree' in content or re.search(rf'path = {re.escape(leaf_name)};\s*sourceTree', content):
             # Group exists — add file ref to its children
-            content = re.sub(
-                rf'(path = {re.escape(leaf_name)};.*?children = \()(.*?)(\);)',
-                lambda m: m.group(1) + m.group(2) + f'\t\t\t\t{file_ref_id} /* {filename} */,\n' + m.group(3),
-                content, count=1, flags=re.DOTALL
-            )
+            content = add_group_child(content, leaf_name, f'{file_ref_id} /* {filename} */')
         else:
             # Create new group and add to parent group's children
             parent_name = parts[-2] if len(parts) > 1 else None
@@ -109,11 +133,7 @@ def main(swift_path: str):
 
             # Add new group to parent's children
             if parent_name:
-                content = re.sub(
-                    rf'(path = {re.escape(parent_name)};.*?children = \()(.*?)(\);)',
-                    lambda m: m.group(1) + m.group(2) + f'\t\t\t\t{leaf_group_id} /* {leaf_name} */,\n' + m.group(3),
-                    content, count=1, flags=re.DOTALL
-                )
+                content = add_group_child(content, parent_name, f'{leaf_group_id} /* {leaf_name} */')
     else:
         # Root level — add directly to main group
         content = re.sub(

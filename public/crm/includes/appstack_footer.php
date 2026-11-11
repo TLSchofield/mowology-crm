@@ -22,7 +22,7 @@
           <div class="row text-muted">
             <div class="col-6 text-left">
               <p class="mb-0">
-                <strong>Mowology CRM</strong> &copy; <?php echo date('Y'); ?>
+                <strong><?php echo htmlspecialchars(function_exists('_idFromName') ? _idFromName() : ''); ?> CRM</strong> &copy; <?php echo date('Y'); ?>
               </p>
             </div>
             <div class="col-6 text-right">
@@ -38,7 +38,12 @@
 
   <script src="/crm/js/feather.min.js"></script>
   <script src="/crm/js/feather-helper.js"></script>
+  <?php if (!empty($crewSlim)): ?>
+  <!-- Crew app, crew page: 3 KB shim (modal / tab / dismiss) instead of the 3.5 MB AppStack bundle -->
+  <script src="<?= _av('/crm/js/mw-ui-shim.js') ?>"></script>
+  <?php else: ?>
   <script src="/crm/js/app.js"></script>
+  <?php endif; ?>
 
   <!-- Global modal helpers: openMwModal(id) / closeMwModal(id)
        Use these for .mw-modal-overlay dialogs. All new modals should use
@@ -113,17 +118,43 @@
     };
   })();
   </script>
-  <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
+  <?php if (empty($crewLite)): ?><script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script><?php endif; ?>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
-  <script src="/crm/js/time-clock-widget.min.js?v=20260430a"></script>
-  <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
+  <!-- Searchable-select enhancement: any <select class="mw-searchable"> becomes
+       a filterable combobox with a "no value" clear row. Styles in mowology-brand.css. -->
+  <script src="/crm/js/mw-searchable-select.js?v=20260616a"></script>
+  <!-- Shared branded date-picker: instantiate with `new MwDatePicker(trigger, opts)`.
+       Styles in mowology-brand.css (.mw-datepicker-*). -->
+  <script src="/crm/js/mw-datepicker.js?v=20260731b"></script>
+  <?php if (empty($mwLedgerOnly)): /* the accountant's login never loads the clock / trip log / GPS bridge */ ?>
+  <script src="/crm/js/time-clock-widget.min.js?v=20261103gps"></script>
+  <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20261103gps"></script>
+  <?php endif; ?>
+  <?php
+  // On site at a property whose visit is booked another day → offer to do it now (field devices
+  // only). OFF unless ops_settings pull_forward_enabled / pull_forward_user_ids says so — the
+  // 2026-10-08 release cost Android crew every tap. Styles: mw-pull-forward.css (appstack_head.php).
+  $__pfOn = false;
+  if (empty($mwLedgerOnly)) try {
+      require_once APP_ROOT . '/Modules/Jobs/Services/VisitPullForwardService.php';
+      $__pfOn = !empty($user['id']) && VisitPullForwardService::enabledFor(getDB(), (int)$user['id']);
+  } catch (Throwable $e) { $__pfOn = false; }
+  if ($__pfOn): ?>
+  <script src="/crm/js/mw-pull-forward.js?v=20261012csrf" defer></script>
+  <?php endif; unset($__pfOn); ?>
+  <!-- Camera permission guard: turns Android's cryptic "Access denied" into actionable guidance -->
+  <?php if (empty($mwLedgerOnly)): ?>
+  <script src="/crm/js/mw-camera-permission.js?v=20260625a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>
+  <?php endif; ?>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
   <script>
   (function(){
+    if (!window.jQuery) return;
     // Remove Bootstrap's broken dropdown click handlers from jQuery
     $(document).off('click.bs.dropdown');
     $(document).off('click.bs.dropdown.data-api');
@@ -209,6 +240,18 @@
 
     var isAndroid = /Android/.test(navigator.userAgent);
     var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    var businessName = window.MW_BUSINESS && typeof window.MW_BUSINESS.name === 'string' && window.MW_BUSINESS.name.trim() !== ''
+      ? window.MW_BUSINESS.name
+      : 'Ittai';
+    var escapedBusinessName = businessName.replace(/[&<>"']/g, function(character) {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      }[character];
+    });
 
     // Build the splash overlay
     var overlay = document.createElement('div');
@@ -216,8 +259,8 @@
     overlay.className = 'mw-install-splash';
 
     var content = '<div class="mw-install-splash-inner">';
-    content += '<img src="/assets/favicon/android-chrome-512x512.png" alt="Mowology" class="mw-install-splash-icon">';
-    content += '<h1 class="mw-install-splash-title">Mowology Crew</h1>';
+    content += '<img src="/assets/favicon-ittai/android-chrome-512x512.png" alt="' + escapedBusinessName + '" class="mw-install-splash-icon">';
+    content += '<h1 class="mw-install-splash-title">' + escapedBusinessName + ' Crew</h1>';
     content += '<p class="mw-install-splash-desc">Install the app for the best experience — GPS tracking, notifications, and quick access from your home screen.</p>';
     content += '<div class="mw-install-splash-actions">';
 
@@ -313,6 +356,14 @@
       if (!btn || btn.disabled) return;
       // Skip if the button has data-no-loading
       if (btn.hasAttribute('data-no-loading')) return;
+      // Defer one tick: a button disabled during the submit event is dropped from
+      // the posted data, so name="action" buttons would submit with no action.
+      // Also lets us see whether a later handler / confirm() cancelled the submit.
+      setTimeout(function() { if (!e.defaultPrevented) mwShowSubmitLoading(btn); }, 0);
+    });
+
+    function mwShowSubmitLoading(btn) {
+      if (btn.disabled) return;
       // Disable and show spinner
       btn.disabled = true;
       btn.dataset.mwOrigText = btn.innerHTML;
@@ -336,7 +387,7 @@
           delete btn.dataset.mwOrigText;
         }
       }, 8000);
-    });
+    }
 
     // Also intercept AJAX-triggered buttons with class .mw-btn-loading
     document.addEventListener('click', function(e) {

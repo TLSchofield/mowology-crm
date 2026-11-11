@@ -23,12 +23,16 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/Core/session_config.php';
 require_once APP_ROOT . '/Core/config.php';
 
-// Temporary debug logger — writes to standard PHP error log AND to a
-// file inside /storage/ so we can retrieve it via FTP.
-// TODO: remove after the Capacitor Nigel login issue is resolved.
+// Auth error logger — writes to the PHP error log. The extra file copy in /storage/ is written ONLY
+// when LOGIN_DEBUG is defined (e.g. in secrets.php while chasing a login bug). Never log raw login
+// input or anything derived from the password (security audit 2026-10-12 #24: the old per-attempt
+// trace recorded every identifier, IP and password length, unbounded).
 if (!function_exists('_loginDebugLog')) {
     function _loginDebugLog(string $msg): void {
         error_log($msg);
+        if (!defined('LOGIN_DEBUG') || !LOGIN_DEBUG) {
+            return;
+        }
         try {
             $path = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : dirname(__DIR__, 3) . '/public') . '/storage/login-debug.log';
             $line = '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n";
@@ -77,8 +81,59 @@ if (!function_exists('sanitizeInput')) {
 
 // -------------------- Auth helpers --------------------
 
+require_once __DIR__ . '/AuthFreshness.php';
+require_once __DIR__ . '/RoleRules.php';
+require_once __DIR__ . '/AccountantFence.php';
+require_once __DIR__ . '/TwoStepService.php';
+
 function isLoggedIn(): bool {
-    return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) return false;
+    _recheckSessionUser();
+    return !empty($_SESSION['user_id']);
+}
+
+/**
+ * Re-read the signed-in user's role and active flag at most every AuthFreshness::RECHECK_SECONDS
+ * (Fable review 2026-10-12): deactivating or demoting someone now reaches their open sessions
+ * within a minute instead of at their next sign-in. A database error leaves the session alone
+ * (and tries again on the next request) — a hiccup must not sign the office out.
+ */
+function _recheckSessionUser(): void {
+    $now = time();
+    if (!AuthFreshness::recheckDue((int)($_SESSION['user_checked_at'] ?? 0), $now)) return;
+    try {
+        $st = getDB()->prepare("SELECT role, is_active, is_driver, password_hash FROM users WHERE id = ? LIMIT 1");
+        $st->execute([(int)$_SESSION['user_id']]);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Throwable $e) {
+        error_log('_recheckSessionUser: user check failed: ' . $e->getMessage());
+        return;
+    }
+    $verdict = AuthFreshness::sessionVerdict($row, (string)($_SESSION['user_role'] ?? 'user'), !empty($_SESSION['user_is_driver']));
+    if ($verdict === 'logout') {
+        error_log('_recheckSessionUser: user ' . (int)$_SESSION['user_id'] . ' is inactive or gone — session ended');
+        $_SESSION = [];
+        return;
+    }
+    // A password change (reset, admin set) ends every other web session (#12, Fable audit 2026-10-12).
+    $pwVerdict = AuthFreshness::sessionPasswordVerdict(
+        isset($_SESSION['pwd_v']) ? (string)$_SESSION['pwd_v'] : null,
+        isset($row['password_hash']) ? (string)$row['password_hash'] : null
+    );
+    if ($pwVerdict === 'logout') {
+        error_log('_recheckSessionUser: user ' . (int)$_SESSION['user_id'] . ' changed password — session ended');
+        $_SESSION = [];
+        return;
+    }
+    if ($pwVerdict === 'adopt') {
+        $_SESSION['pwd_v'] = AuthFreshness::passwordVersion((string)$row['password_hash']);
+    }
+    if ($verdict === 'refresh') {
+        $_SESSION['user_role']      = (string)(($row['role'] ?? '') ?: 'user');
+        $_SESSION['user_is_driver'] = !empty($row['is_driver']);
+        unset($_SESSION['perm_cache']);
+    }
+    $_SESSION['user_checked_at'] = $now;
 }
 
 /**
@@ -139,18 +194,37 @@ function isLoginRateLimited(string $email, ?string $ip = null): bool {
     $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
     try {
         $db = getDB();
+        // Three ceilings (Fable review 2026-10-12): the (email, IP) pair as before, plus one IP
+        // trying many emails (spraying) and one email tried from many IPs (a distributed guess).
         $stmt = $db->prepare("
-            SELECT COUNT(*) FROM login_attempts
-            WHERE email = ? AND ip_address = ?
+            SELECT SUM(email = ? AND ip_address = ?) AS pair,
+                   SUM(ip_address = ? AND email NOT LIKE 'reset:%' AND email NOT LIKE 'pin:%') AS ip,
+                   SUM(email = ?) AS em
+            FROM login_attempts
+            WHERE (email = ? OR ip_address = ?)
               AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
         ");
-        $stmt->execute([$email, $ip, LOGIN_WINDOW_SECONDS]);
-        return (int)$stmt->fetchColumn() >= LOGIN_MAX_ATTEMPTS;
+        $stmt->execute([$email, $ip, $ip, $email, $email, $ip, LOGIN_WINDOW_SECONDS]);
+        $n = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return loginThrottled((int)($n['pair'] ?? 0), (int)($n['ip'] ?? 0), (int)($n['em'] ?? 0));
     } catch (Throwable $e) {
-        // If the table doesn't exist yet, fail open (don't block logins)
-        _loginDebugLog("isLoginRateLimited() error: " . $e->getMessage());
-        return false;
+        // Fail CLOSED (Fable review 2026-10-12): if the throttle can't be read, an attacker could
+        // guess without limit. Callers show "try again shortly"-style text for a true return.
+        error_log("isLoginRateLimited() error — refusing login: " . $e->getMessage());
+        return true;
     }
+}
+
+/**
+ * Pure: blocked when any ceiling is reached in the window — the (email, IP) pair at
+ * LOGIN_MAX_ATTEMPTS, one IP across all emails at LOGIN_MAX_PER_IP, one email across all IPs at
+ * LOGIN_MAX_PER_EMAIL.
+ */
+function loginThrottled(int $pair, int $perIp, int $perEmail): bool {
+    $pairMax  = defined('LOGIN_MAX_ATTEMPTS') ? (int)LOGIN_MAX_ATTEMPTS : 5;
+    $ipMax    = defined('LOGIN_MAX_PER_IP') ? (int)LOGIN_MAX_PER_IP : 20;
+    $emailMax = defined('LOGIN_MAX_PER_EMAIL') ? (int)LOGIN_MAX_PER_EMAIL : 15;
+    return $pair >= $pairMax || $perIp >= $ipMax || $perEmail >= $emailMax;
 }
 
 /**
@@ -199,27 +273,101 @@ function purgeExpiredLoginAttempts(): int {
 
 // -------------------- Login / Logout --------------------
 
-function loginUser(string $email, string $password, bool &$isDriver = false): bool {
+/**
+ * The one place a person becomes signed in: sets the session keys and runs the post-login cleanup.
+ * Used by loginUser() (password only) and /loginAuth/two-step.php (password + code), so the two can't drift.
+ * $user is the users row (id, email, password_hash, names, role, is_driver); $email the normalised sign-in name.
+ * Closes the session when done.
+ */
+function finishSignIn(array $user, string $email, bool &$isDriver, ?string &$role): void {
     $db = getDB();
+    session_regenerate_id(true);
+    unset($_SESSION['two_step_pending']);   // a half-finished two-step attempt never outlives a full sign-in
 
-    $rawInput = $email;
+    // Force a fresh CSRF token for the authenticated session.
+    // session_regenerate_id() carries over all session data including the
+    // pre-auth CSRF token that was embedded in the login page HTML.
+    // Without this, the login-page token remains valid post-authentication.
+    unset($_SESSION['csrf_token']);
+
+    $_SESSION['user_id']         = (int)$user['id'];
+    $_SESSION['user_email']      = (string)$user['email'];
+    $_SESSION['user_name']       = (string)($user['full_name'] ?? '');
+    $_SESSION['user_role']       = (string)($user['role'] ?: 'user');
+    $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
+    $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
+    $_SESSION['user_full_name']  = (string)($user['full_name'] ?? '');
+    $_SESSION['user_is_driver']  = !empty($user['is_driver']);
+    $_SESSION['login_time']      = time();
+    $_SESSION['last_activity']   = time();
+    $_SESSION['user_checked_at'] = time();
+    $_SESSION['pwd_v']           = AuthFreshness::passwordVersion((string)$user['password_hash']);
+
+    // Capture driver flag NOW before session_write_close() clears $_SESSION.
+    $isDriver = !empty($user['is_driver']);
+    $role     = (string)($user['role'] ?: 'user');
+
+    // Release the session file lock now — all session writes are done.
+    // Without this the lock is held through the DB calls below, and the
+    // redirect target (app-launch.php) blocks at session_start() until
+    // this script exits, causing a race that shows the user as not-logged-in.
+    session_write_close();
+
+    // ── Post-auth cleanup: non-critical. Session is already committed above.
+    // Any DB error here (e.g. MySQL 1615 "Prepared statement needs to be
+    // re-prepared" on cPanel shared hosting) must NOT cause a false login
+    // failure — the user is already authenticated.
+    try {
+        $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
+        $upd->execute([(int)$user['id']]);
+    } catch (Throwable $e) {
+        _loginDebugLog("loginUser() last_login update failed (non-fatal): " . $e->getMessage());
+    }
+
+    try {
+        clearLoginAttempts($email);
+    } catch (Throwable $e) {
+        _loginDebugLog("loginUser() clearLoginAttempts failed (non-fatal): " . $e->getMessage());
+    }
+
+    try {
+        logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+    } catch (Throwable $e) {
+        _loginDebugLog("loginUser() logActivity failed (non-fatal): " . $e->getMessage());
+    }
+}
+
+/**
+ * Where a person lands right after signing in: the accountant's Ledger, the driver portal, or app-launch; the
+ * Terms of Service page first for an account owner who has not accepted the current version (migration 1381; off
+ * until a terms_versions row is active, and any failure here fails open to the normal destination).
+ * Shared by login.php and two-step.php. The session is already closed, so the user is looked up again by $email.
+ */
+function signInDestination(bool $isDriver, ?string $role, string $email): string {
+    $dest = AccountantFence::isAccountantRole($role) ? AccountantFence::HOME
+        : ($isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php');
+    if (!$isDriver && in_array($role, ['admin', 'manager'], true)) {
+        try {
+            require_once APP_ROOT . '/Modules/Legal/Services/TermsService.php';
+            $q = getDB()->prepare("SELECT id FROM users WHERE LOWER(email) = ? OR (username IS NOT NULL AND LOWER(username) = ?) LIMIT 1");
+            $q->execute([$email, $email]);
+            $uid = (int)$q->fetchColumn();
+            if ($uid > 0 && (new TermsService(getDB()))->needsAcceptance($uid)) {
+                $dest = '/crm/terms-accept.php';
+            }
+        } catch (Throwable $e) {
+            error_log('login terms gate: ' . $e->getMessage());
+        }
+    }
+    return $dest;
+}
+
+function loginUser(string $email, string $password, bool &$isDriver = false, ?string &$role = null, bool &$twoStepPending = false): bool {
+    $db = getDB();
 
     // Normalize input: trim, lowercase, strip invisible chars
     $email = strtolower(trim($email));
     $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
-
-    $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    _loginDebugLog(sprintf(
-        '[login-debug] attempt raw=%s normalized=%s rawLen=%d normLen=%d pwLen=%d ip=%s ua=%s',
-        json_encode($rawInput),
-        json_encode($email),
-        strlen((string)$rawInput),
-        strlen($email),
-        strlen($password),
-        $ip,
-        substr($ua, 0, 120)
-    ));
 
     try {
         // Accept username OR email — drivers use short usernames (e.g. "nigel", "dodgeram")
@@ -232,88 +380,40 @@ function loginUser(string $email, string $password, bool &$isDriver = false): bo
         $stmt->execute([$email, $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$user) {
-            _loginDebugLog('[login-debug] no user row matched input=' . json_encode($email));
-        } else {
-            _loginDebugLog(sprintf(
-                '[login-debug] row found id=%d email=%s username=%s is_active=%s is_driver=%s hashPresent=%s hashLen=%d',
-                (int)$user['id'],
-                json_encode($user['email'] ?? null),
-                json_encode($user['username'] ?? null),
-                var_export($user['is_active'] ?? null, true),
-                var_export($user['is_driver'] ?? null, true),
-                !empty($user['password_hash']) ? 'yes' : 'no',
-                strlen((string)($user['password_hash'] ?? ''))
-            ));
-        }
-
         // Explicitly deactivated users (is_active = 0) cannot log in; NULL/1 are both OK
         if ($user && isset($user['is_active']) && (int)$user['is_active'] === 0) {
-            _loginDebugLog('[login-debug] rejecting — is_active=0 for user id=' . (int)$user['id']);
             $user = false;
         }
 
-        if ($user && isset($user['password_hash'])) {
-            $pwOk = password_verify($password, (string)$user['password_hash']);
-            _loginDebugLog(sprintf(
-                '[login-debug] password_verify result=%s for user id=%d',
-                $pwOk ? 'PASS' : 'FAIL',
-                (int)$user['id']
-            ));
-        }
-
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
-            session_regenerate_id(true);
-
-            // Force a fresh CSRF token for the authenticated session.
-            // session_regenerate_id() carries over all session data including the
-            // pre-auth CSRF token that was embedded in the login page HTML.
-            // Without this, the login-page token remains valid post-authentication.
-            unset($_SESSION['csrf_token']);
-
-            $_SESSION['user_id']         = (int)$user['id'];
-            $_SESSION['user_email']      = (string)$user['email'];
-            $_SESSION['user_name']       = (string)($user['full_name'] ?? '');
-            $_SESSION['user_role']       = (string)($user['role'] ?: 'user');
-            $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
-            $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
-            $_SESSION['user_full_name']  = (string)($user['full_name'] ?? '');
-            $_SESSION['user_is_driver']  = !empty($user['is_driver']);
-            $_SESSION['login_time']      = time();
-            $_SESSION['last_activity']   = time();
-
-            // Capture driver flag NOW before session_write_close() clears $_SESSION.
-            $isDriver = !empty($user['is_driver']);
-
-            // Release the session file lock now — all session writes are done.
-            // Without this the lock is held through the DB calls below, and the
-            // redirect target (app-launch.php) blocks at session_start() until
-            // this script exits, causing a race that shows the user as not-logged-in.
-            session_write_close();
-
-            // ── Post-auth cleanup: non-critical. Session is already committed above.
-            // Any DB error here (e.g. MySQL 1615 "Prepared statement needs to be
-            // re-prepared" on cPanel shared hosting) must NOT cause a false login
-            // failure — the user is already authenticated.
-            try {
-                $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
-                $upd->execute([(int)$user['id']]);
-            } catch (Throwable $e) {
-                _loginDebugLog("loginUser() last_login update failed (non-fatal): " . $e->getMessage());
+            // Two-step sign-in (opt-in, migration 1440): someone who turned it on needs a code unless this
+            // browser holds a live trusted-device cookie of theirs. Not enrolled, or the tables missing = unchanged.
+            // A caller that did not pass $twoStepPending can't ask for a code, so it is refused, never let through.
+            $twoStepAware = func_num_args() >= 5;
+            $twoStepPending = false;
+            $uid = (int)$user['id'];
+            $twoStep = new TwoStepService($db, null);
+            if ($twoStep->isEnrolled($uid)) {   // a database error here throws: caught below, no session is set
+                $cookie = TwoStepService::cookieName(Tenant::isDefault(), Tenant::key());
+                $trusted = isset($_COOKIE[$cookie]) && is_string($_COOKIE[$cookie])
+                    && $twoStep->isTrusted($uid, $_COOKIE[$cookie]);
+                if (!$trusted) {
+                    if (!$twoStepAware) {
+                        _loginDebugLog('loginUser(): two-step needed but the caller cannot ask for a code — refused');
+                        return false;
+                    }
+                    session_regenerate_id(true);
+                    unset($_SESSION['csrf_token']);
+                    $_SESSION['two_step_pending'] = TwoStepService::pendingNew(
+                        $uid, $email, !empty($user['is_driver']), (string)($user['role'] ?: 'user'),
+                        AuthFreshness::passwordVersion((string)$user['password_hash']), time()
+                    );
+                    $twoStepPending = true;
+                    return false;   // not signed in yet; the caller sends the browser to /loginAuth/two-step.php
+                }
             }
 
-            try {
-                clearLoginAttempts($email);
-            } catch (Throwable $e) {
-                _loginDebugLog("loginUser() clearLoginAttempts failed (non-fatal): " . $e->getMessage());
-            }
-
-            try {
-                logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-            } catch (Throwable $e) {
-                _loginDebugLog("loginUser() logActivity failed (non-fatal): " . $e->getMessage());
-            }
-
+            finishSignIn($user, $email, $isDriver, $role);
             return true;
         }
 
@@ -339,6 +439,17 @@ function loginUser(string $email, string $password, bool &$isDriver = false): bo
 function logoutUser(): void {
     if (isset($_SESSION['user_id'])) {
         logActivity((int)$_SESSION['user_id'], null, 'User logged out', null);
+    }
+
+    // The phone this session registered for push stops getting this user's pushes (Fable review
+    // 2026-10-12). Never blocks sign-out.
+    if (!empty($_SESSION['push_device_token'])) {
+        try {
+            require_once dirname(__DIR__, 2) . '/Services/Push/DeviceTokenService.php';
+            DeviceTokenService::forget(getDB(), (string)$_SESSION['push_device_token']);
+        } catch (Throwable $e) {
+            error_log('logoutUser: device token not retired: ' . $e->getMessage());
+        }
     }
 
     $_SESSION = [];
@@ -385,8 +496,9 @@ function verifyCSRFToken(string $token): bool {
  * session cookie on the very first POST (cookie-store flush race), causing the
  * standard session-based CSRF check to fail and force a re-attempt.
  *
- * The secret is derived from stable server-specific values so it is
- * effectively per-installation without needing a dedicated secrets.php entry.
+ * The secret mixes the server's JWT secret (secrets.php) into stable server values — the
+ * save path and session name alone are guessable, so a forged token was possible before
+ * (Fable review 2026-10-12).
  * Token is valid for the current and previous 5-minute window (up to 10 min).
  */
 function _loginCSRFSecret(): string {
@@ -394,7 +506,15 @@ function _loginCSRFSecret(): string {
     // this function is ever called, so they are stable across requests.
     static $secret = null;
     if ($secret === null) {
-        $secret = hash('sha256', session_save_path() . ':' . session_name() . ':mow-login-csrf-v1', true);
+        $key = (defined('BLUEMOON_JWT_SECRET') && strlen((string)BLUEMOON_JWT_SECRET) >= 32)
+            ? (string)BLUEMOON_JWT_SECRET
+            : '';
+        if ($key === '') {
+            // Fail closed: a random per-request key means no token verifies (login shows "Invalid request").
+            error_log('_loginCSRFSecret: BLUEMOON_JWT_SECRET missing or short — login form refused');
+            $key = random_bytes(32);
+        }
+        $secret = hash_hmac('sha256', session_save_path() . ':' . session_name() . ':mow-login-csrf-v2', $key, true);
     }
     return $secret;
 }
@@ -438,7 +558,11 @@ function logActivity(int $user_id, $client_id, string $action, ?string $details 
             $_SERVER['REMOTE_ADDR'] ?? null
         ]);
     } catch (Throwable $e) {
-        _loginDebugLog("logActivity() error: " . $e->getMessage());
+        // Not swallowed (Fable audit #25e): name the lost row in the PHP error log.
+        error_log('AUDIT WRITE FAILED (activity_log, logActivity): ' . $e->getMessage() . ' — lost row: '
+            . json_encode(['user_id' => $user_id, 'contact_id' => $client_id, 'action' => $action,
+                           'details' => $details !== null ? mb_substr($details, 0, 500) : null],
+                          JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR));
     }
 }
 
@@ -567,3 +691,13 @@ set_exception_handler(function (Throwable $e): void {
        . '</body></html>';
     exit(1);
 });
+
+// ── Accountant fence (2026-10-13) ─────────────────────────────────────────────
+// session_config.php already refused anything outside the Ledger; check again now that the role has
+// been re-read from users (isLoggedIn), and write the activity_log row for each accountant page view
+// or export ('ledger.view' / 'ledger.export').
+if (PHP_SAPI !== 'cli' && !empty($_SESSION['user_id'])) {
+    isLoggedIn();
+    AccountantFence::enforce();
+    AccountantFence::logRequest();
+}

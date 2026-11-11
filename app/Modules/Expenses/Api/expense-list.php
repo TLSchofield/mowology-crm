@@ -27,6 +27,7 @@ try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptImageLinks.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -66,17 +67,34 @@ try {
 
     $db = getDB();
 
+    // Receipt-archival columns (media_assets.archived_at / thumb_path / original_removed)
+    // were added by a later migration that has NOT been run on every environment —
+    // production's media_assets currently lacks them. Selecting them unconditionally made
+    // the whole query throw "Column not found", which silently emptied the iOS receipts
+    // list (endpoint 500'd; the app fell back to its empty state). Detect the columns and
+    // degrade gracefully when absent so this works with or without archival deployed.
+    $hasArchivalCols = false;
+    try {
+        $hasArchivalCols = $db->query("SHOW COLUMNS FROM media_assets LIKE 'original_removed'")->fetch() !== false;
+    } catch (Throwable $e) {
+        $hasArchivalCols = false;
+    }
+    $archivalSelect = $hasArchivalCols
+        ? 'ma.archived_at, ma.thumb_path, ma.original_removed'
+        : 'NULL AS archived_at, NULL AS thumb_path, 0 AS original_removed';
+
     $countStmt = $db->prepare("SELECT COUNT(*) FROM expenses e WHERE {$whereClause}");
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
 
     $listStmt = $db->prepare("
         SELECT e.id, e.expense_date, e.vendor_name_raw, e.description,
-               e.amount, e.gst_amount, e.total, e.accounting_category,
+               e.amount, e.gst_amount, e.pst_amount, e.total, e.accounting_category,
                e.payment_method, e.status, e.forwarded_to_accounting,
-               e.receipt_media_id, e.job_id, e.anomaly_score, e.created_at,
+               e.receipt_media_id, e.job_id, e.anomaly_score, e.match_confidence, e.created_at,
                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
-               ma.stored_filename AS receipt_filename
+               ma.stored_filename AS receipt_filename,
+               {$archivalSelect}
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
@@ -87,12 +105,29 @@ try {
     $listStmt->execute($params);
     $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Build direct receipt image URLs for iOS display
+    // Receipt image URLs for iOS display. The raw /uploads/receipts path is
+    // `Require all denied` (403) and SwiftUI AsyncImage can't send an auth header, so we
+    // hand the app a short-lived HMAC-signed URL to the public receipt-image endpoint,
+    // which validates the signature and streams the bytes (archival-aware). Signed with
+    // BLUEMOON_JWT_SECRET via jwtSecret(); the receipt-image endpoint re-derives it.
+    $urlExpiry = time() + ReceiptImageLinks::TTL; // 15 min; the app re-fetches the list (Fable audit 2026-10-12)
+    $urlKey    = ReceiptImageLinks::key(jwtSecret());
     foreach ($rows as &$row) {
-        $row['receipt_url'] = !empty($row['receipt_filename'])
-            ? 'https://mowology.ca/uploads/receipts/' . $row['receipt_filename']
-            : null;
-        unset($row['receipt_filename']);
+        if (!empty($row['receipt_media_id'])) {
+            $row['receipt_url'] = ReceiptImageLinks::appUrl((int)$row['receipt_media_id'], $urlExpiry, $urlKey);
+        } else {
+            $row['receipt_url'] = null;
+        }
+        unset($row['receipt_filename'], $row['thumb_path'], $row['original_removed']);
+
+        // PDO returns DECIMAL columns as PHP strings regardless of prepare mode, so
+        // these would otherwise serialize as JSON strings ("45.67"). iOS decodes
+        // `total` as a non-optional Double — a string value fails the whole array
+        // decode, silently landing the app on its empty state with no error shown.
+        $row['amount'] = $row['amount'] !== null ? (float)$row['amount'] : null;
+        $row['gst_amount'] = $row['gst_amount'] !== null ? (float)$row['gst_amount'] : null;
+        $row['pst_amount'] = isset($row['pst_amount']) && $row['pst_amount'] !== null ? (float)$row['pst_amount'] : null;  // the phone's editor needs PST (owner, 2026-10-18)
+        $row['total'] = (float)$row['total'];
     }
     unset($row);
 
@@ -106,6 +141,7 @@ try {
     ]);
 
 } catch (Throwable $e) {
+    require_once APP_ROOT . '/Core/ApiResponse.php';
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expense-list.php')]);
 }

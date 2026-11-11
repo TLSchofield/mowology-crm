@@ -27,6 +27,8 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
+require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (2026-10-12)
 session_write_close();
 if (!isAdmin()) {
     http_response_code(403);

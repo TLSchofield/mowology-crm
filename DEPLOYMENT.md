@@ -6,10 +6,13 @@ Deployment is **NOT automatic** on push. Files must be uploaded via FTP after ev
 
 ## FTP Credentials
 
-- URL: `ftp://ftp.mowology.ca`
+- Host: `cwhtor13.canadianwebhosting.com` (the server `ftp.mowology.ca` points at). Its certificate
+  covers `*.canadianwebhosting.com` only, so `ftp.mowology.ca` fails verification — use the server name.
 - User: `claude@mowology.ca`
-- Password: stored in `.git/config` under `[git-ftp] → password`
-- SSL: required (server forces AUTH TLS)
+- Password: macOS Keychain, service `mowology-ftp` (legacy fallback: `git config git-ftp.password`)
+- SSL: required and the certificate is VERIFIED. Never `set ssl:verify-certificate no`
+  (security audit 2026-10-12 #2; `tests/Unit/Docs/DeployScriptTlsTest.php` fails if any script does).
+- All of the above lives in `scripts/lib/ftp.sh`; every script sources it and calls `mw_lftp`.
 - Syncroot: `public/` maps to server's `public_html/`
 
 ---
@@ -30,20 +33,14 @@ Deployment is **NOT automatic** on push. Files must be uploaded via FTP after ev
 ## Deploy a File
 
 ```bash
-FTP_PASS=$(git config git-ftp.password)
+. scripts/lib/ftp.sh     # host, verified TLS, password via LFTP_PASSWORD (never on the command line)
 
 # Single file
-lftp -u "claude@mowology.ca,$FTP_PASS" \
-  -e "set ssl:verify-certificate no; set ftp:ssl-force true; \
-      put -O /DEST_DIR/ LOCAL_FILE; quit" \
-  ftp://ftp.mowology.ca
+mw_lftp "put -O /DEST_DIR/ LOCAL_FILE; quit"
 
 # Multiple files (one connection per file — avoids disconnects)
 for file in crm/file1.php crm/file2.php; do
-  lftp -u "claude@mowology.ca,$FTP_PASS" \
-    -e "set ssl:verify-certificate no; set ftp:ssl-force true; \
-        put -O /$(dirname $file)/ public/$file; quit" \
-    ftp://ftp.mowology.ca
+  mw_lftp "put -O /$(dirname $file)/ public/$file; quit"
 done
 ```
 
@@ -57,10 +54,8 @@ After deploying, update `.git-ftp.log` on the server so future dry-runs show cor
 
 ```bash
 echo $(git rev-parse HEAD) > /tmp/git-ftp-log.txt
-lftp -u "claude@mowology.ca,$(git config git-ftp.password)" \
-  -e "set ssl:verify-certificate no; set ftp:ssl-force true; \
-      put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit" \
-  ftp://ftp.mowology.ca
+. scripts/lib/ftp.sh
+mw_lftp "put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit"
 ```
 
 ---

@@ -25,6 +25,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
+<script>
+// Global CSRF helper — this page calls csrf() in several save handlers below,
+// but nothing on this page previously defined it (it only existed in the
+// unrelated field-job.js, which isn't loaded here), so every one of those
+// save buttons was throwing a ReferenceError before the fetch() even ran.
+function csrf() { return window.MW_CSRF_TOKEN || ''; }
+</script>
+
 <!-- Session Alert Display -->
 <?php if (isset($_SESSION['alert'])):
     $alert = $_SESSION['alert'];
@@ -85,7 +93,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 <ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-business" role="tablist">
     <li class="nav-item"><a class="nav-link active" id="company-tab" data-toggle="tab" href="#company" role="tab">Company Info</a></li>
     <li class="nav-item"><a class="nav-link" id="branding-tab" data-toggle="tab" href="#branding" role="tab">Branding</a></li>
+    <?php if (userHasPermission('users.manage')): ?>
+    <li class="nav-item"><a class="nav-link" id="accountant-tab" data-toggle="tab" href="#accountant" role="tab">Accountant</a></li>
+    <?php endif; ?>
 </ul>
+<?php if (userHasPermission('users.manage')): ?>
+<!-- "Invite your accountant" posts here; its fields live in the Accountant tab (form= attribute), outside settingsForm. -->
+<form id="mw-accountant-invite" method="post" action="/crm/ledger/invite.php"></form>
+<?php endif; ?>
 <ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-documents" role="tablist" style="display:none;">
     <li class="nav-item"><a class="nav-link" id="invoice-tab" data-toggle="tab" href="#invoice" role="tab">Invoices</a></li>
     <li class="nav-item"><a class="nav-link" id="email-tab" data-toggle="tab" href="#email" role="tab">Email</a></li>
@@ -98,6 +113,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <li class="nav-item"><a class="nav-link" id="service-types-tab" data-toggle="tab" href="#service-types" role="tab">Service Types</a></li>
     <li class="nav-item"><a class="nav-link" id="measurement-types-tab" data-toggle="tab" href="#measurement-types" role="tab">Measurement Types</a></li>
     <li class="nav-item"><a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a></li>
+    <li class="nav-item"><a class="nav-link" id="client-portal-tab" data-toggle="tab" href="#client-portal" role="tab">Client Portal</a></li>
     <li class="nav-item"><a class="nav-link" id="extras-tab" data-toggle="tab" href="#extras" role="tab">Extras Billing</a></li>
     <li class="nav-item"><a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a></li>
     <li class="nav-item"><a class="nav-link" id="quiz-tab" data-toggle="tab" href="#quiz" role="tab">Quiz</a></li>
@@ -145,7 +161,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <div class="col-md-6">
                             <label for="company_website" class="form-label">Website</label>
-                            <input type="text" class="form-control" id="company_website" maxlength="255" placeholder="https://mowology.ca">
+                            <input type="text" class="form-control" id="company_website" maxlength="255" placeholder="https://www.example.com">
                         </div>
                     </div>
                     <div class="mb-3">
@@ -310,9 +326,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-logo-upload-zone" id="logoUploadZone" onclick="document.getElementById('logoFileInput').click();">
                             <i data-feather="upload-cloud" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:8px;"></i>
                             <p class="mb-1"><strong>Click to upload</strong> or drag and drop</p>
-                            <small class="text-muted">PNG, JPG, SVG — max 2 MB</small>
+                            <small class="text-muted">PNG or JPG — max 2 MB</small>
                         </div>
-                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/svg+xml" style="display:none;" onchange="handleLogoUpload(this)">
+                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg" style="display:none;" onchange="handleLogoUpload(this)">
                         <input type="hidden" id="logo_path">
                     </div>
                     <div class="mb-3">
@@ -399,7 +415,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <p class="text-muted mb-3">
                 Edit the subject line and message body for each outbound email. Use
                 <code>{{placeholder}}</code> chips to insert dynamic values.
-                All emails are wrapped in the Mowology branded shell automatically.
+                All emails are wrapped in your branded shell automatically.
             </p>
 
             <!-- Preview Modal -->
@@ -426,6 +442,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         'desc'  => 'Sent when a quote is delivered to a client.',
                         'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{quote_number}}', '{{quote_amount}}', '{{quote_valid_until}}', '{{company_name}}', '{{company_phone}}'],
                         'open'  => true,
+                    ],
+                    [
+                        'key'   => 'quote_followup',
+                        'label' => 'Quote Follow-Up',
+                        'icon'  => 'corner-up-left',
+                        'desc'  => 'Sent by the follow-up button on a quote, and automatically 3 and 7 days after a quote goes out unanswered.',
+                        'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{quote_number}}', '{{quote_amount}}', '{{quote_valid_until}}', '{{company_name}}', '{{company_phone}}'],
+                        'open'  => false,
                     ],
                     [
                         'key'   => 'invoice_sent',
@@ -576,7 +600,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <div class="col-md-6">
                             <label for="receipt_from_name" class="form-label">From Name</label>
-                            <input type="text" class="form-control" id="receipt_from_name" maxlength="255" placeholder="Mowology Receipts">
+                            <input type="text" class="form-control" id="receipt_from_name" maxlength="255" placeholder="Your Business Receipts">
                             <small class="form-text text-muted">Sender name on forwarded receipt emails.</small>
                         </div>
                     </div>
@@ -642,7 +666,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="holiday_date" class="form-label">Date <span class="text-danger">*</span></label>
-                            <input type="date" class="form-control" id="holiday_date">
+                            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#holiday_date" aria-haspopup="true" aria-expanded="false">
+                                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <input type="date" class="form-control" id="holiday_date" hidden>
                         </div>
                         <div class="col-md-4">
                             <label for="holiday_name" class="form-label">Holiday Name <span class="text-danger">*</span></label>
@@ -924,7 +953,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="card-header"><h5 class="card-title mb-0">Google Reviews Automation</h5></div>
                 <div class="card-body">
                     <p class="text-muted mb-3">
-                        After each job visit is completed, Mowology automatically sends a review request to the
+                        After each job visit is completed, the CRM automatically sends a review request to the
                         customer via email (and SMS if they have consent). The email includes a direct link to your
                         Google Business Profile review page.
                     </p>
@@ -963,6 +992,53 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <i data-feather="database" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
                         Run DB Migration
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Client Portal Tab — what clients are allowed to see (ClientVisibilityService) -->
+        <div class="tab-pane fade" id="client-portal" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">What contract clients can see</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        Contract clients pay for a season's outcome, not for hours on site. These switches control
+                        what they see about individual visits &mdash; in their portal, the service visit report, the
+                        proof-of-work page and PDF, and the job-completed email. Clients <strong>without</strong> a
+                        contract are not affected, and staff previews always show everything.
+                    </p>
+
+                    <div class="custom-control custom-switch mb-1">
+                        <input type="checkbox" class="custom-control-input" id="cv_show_visit_report">
+                        <label class="custom-control-label" for="cv_show_visit_report"><strong>Service visit report</strong></label>
+                    </div>
+                    <p class="text-muted small ml-4 mb-3">
+                        The GPS-verified report page (route map, photos, products applied). Off: the
+                        &ldquo;View Report&rdquo; link disappears from their portal and the page itself says the report
+                        isn't available online.
+                    </p>
+
+                    <div class="custom-control custom-switch mb-1">
+                        <input type="checkbox" class="custom-control-input" id="cv_show_visit_length">
+                        <label class="custom-control-label" for="cv_show_visit_length"><strong>Length of visit</strong></label>
+                    </div>
+                    <p class="text-muted small ml-4 mb-3">
+                        How long the crew was on site. Off: the duration is hidden everywhere, along with the
+                        arrival and departure times and per-ping clock times it could be worked out from. The
+                        visit <em>date</em> always shows.
+                    </p>
+
+                    <div class="card bg-light border-0 mb-3">
+                        <div class="card-body py-2 px-3">
+                            <small class="text-muted">
+                                The salt &amp; snow liability report is a separate document and is not controlled here.
+                                A proof-of-work PDF that was already generated keeps what it had &mdash; regenerate it to apply a change.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div id="clientPortalSaveResult" class="alert d-none"></div>
+                    <button type="button" class="btn btn-primary" id="saveClientPortalBtn">Save</button>
                 </div>
             </div>
         </div>
@@ -1074,6 +1150,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
+        <?php if (userHasPermission('users.manage')): ?>
+        <!-- Accountant Tab (Accountant's Ledger, 2026-10-13) — creates a Ledger-only login; sends nothing -->
+        <div class="tab-pane fade" id="accountant" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Invite your accountant</h5></div>
+                <div class="card-body">
+                    <p>Your accountant gets the Ledger only: trial balance, journal with source documents, balance sheet, income statement, GIFI mapping and the locked-period exceptions.
+                       Client names only where they are the payer on a source document; no client records, schedule, crew locations, payroll SINs or bank details. Nothing is emailed: you get a link to pass on, and they choose a password with it.</p>
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>" form="mw-accountant-invite">
+                    <input type="hidden" name="action" value="invite" form="mw-accountant-invite">
+                    <div class="mw-form-row">
+                        <div class="mw-form-group"><label class="form-label" for="acct-inv-name">Accountant's name</label>
+                            <input type="text" class="form-control" id="acct-inv-name" name="name" maxlength="120" form="mw-accountant-invite"></div>
+                        <div class="mw-form-group"><label class="form-label" for="acct-inv-email">Their email</label>
+                            <input type="email" class="form-control" id="acct-inv-email" name="email" maxlength="255" form="mw-accountant-invite"></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" form="mw-accountant-invite">Create login and show link</button>
+                    <a class="btn btn-link" href="/crm/ledger/invite.php">See accountant logins</a>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Quiz Tab -->
         <div class="tab-pane fade" id="quiz" role="tabpanel">
             <div class="card mb-3">
@@ -1109,10 +1208,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
                         Save Quiz Settings
                     </button>
-                    <a href="/crm/api/run-migration-quiz7.php" target="_blank" class="btn btn-outline-secondary ml-2">
-                        <i data-feather="database" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
-                        Run Migration (first time only)
-                    </a>
                 </div>
             </div>
 
@@ -1190,7 +1285,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <div class="card-body text-center py-4">
                                     <i data-feather="smartphone" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
                                     <h6 class="mb-1">Mobile Preview</h6>
-                                    <p class="text-muted small mb-3">Preview the Mowology app in a mobile frame.</p>
+                                    <p class="text-muted small mb-3">Preview the app in a mobile frame.</p>
                                     <a href="/crm/mobile-preview_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
                                 </div>
                             </div>
@@ -1222,6 +1317,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                     <h6 class="mb-1">Ops Weather</h6>
                                     <p class="text-muted small mb-3">Weather actions and operations scheduling tools.</p>
                                     <a href="/crm/ops/weather_actions.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="pen-tool" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Design System</h6>
+                                    <p class="text-muted small mb-3">Ittai v1.2 and the Kaname centre line — tokens, rules, examples, for review.</p>
+                                    <a href="/crm/design-system_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
                                 </div>
                             </div>
                         </div>
@@ -1418,6 +1523,59 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var tab = document.getElementById('reviews-tab');
         if (tab) tab.addEventListener('shown.bs.tab', loadReviewSettings);
     });
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLIENT PORTAL — what contract clients may see (ClientVisibilityService).
+// A missing setting reads as OFF on the server, so an untouched tab is already "off".
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    var csrf = function () { return document.querySelector('meta[name="csrf-token"]')?.content || ''; };
+    var fields = [
+        { id: 'cv_show_visit_report', key: 'contract_client_show_visit_report', description: 'Contract clients can open the service visit report (1 = yes, 0 = no)' },
+        { id: 'cv_show_visit_length', key: 'contract_client_show_visit_length', description: 'Contract clients see visit duration and arrive/depart times (1 = yes, 0 = no)' }
+    ];
+    var isOn = function (v) { return ['1', 'true', 'yes', 'on'].indexOf(String(v).trim().toLowerCase()) !== -1; };
+
+    function load() {
+        fields.forEach(function (f) {
+            fetch('/crm/api/ops-settings.php?action=get&key=' + f.key, { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var el = document.getElementById(f.id);
+                    if (el) el.checked = !!(d && d.success && d.exists && isOn(d.raw));
+                }).catch(function () {});
+        });
+    }
+
+    function save() {
+        var btn = document.getElementById('saveClientPortalBtn');
+        var res = document.getElementById('clientPortalSaveResult');
+        btn.disabled = true;
+        res.className = 'alert d-none';
+
+        Promise.all(fields.map(function (f) {
+            var el = document.getElementById(f.id);
+            return fetch('/crm/api/ops-settings.php?action=save', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: csrf(), key: f.key, value: el && el.checked ? '1' : '0', description: f.description })
+            }).then(function (r) { return r.json(); });
+        })).then(function (all) {
+            var ok = all.every(function (d) { return d && d.success; });
+            res.className = 'alert ' + (ok ? 'alert-success' : 'alert-danger');
+            res.textContent = ok ? 'Saved. Clients see the change immediately.' : 'Could not save — please try again.';
+        }).catch(function () {
+            res.className = 'alert alert-danger';
+            res.textContent = 'Network error — nothing was saved.';
+        }).finally(function () { btn.disabled = false; });
+    }
+
+    var tab = document.getElementById('client-portal-tab');
+    if (tab) tab.addEventListener('click', load);
+    var btn = document.getElementById('saveClientPortalBtn');
+    if (btn) btn.addEventListener('click', save);
+    if (window.location.hash === '#client-portal') load();
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1925,9 +2083,9 @@ function handleLogoUpload(input) {
     if (!file) return;
 
     // Validate
-    var validTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
+    var validTypes = ['image/png', 'image/jpeg']; // SVG refused server-side (can carry script)
     if (validTypes.indexOf(file.type) === -1) {
-        alert('Please select a PNG, JPG, or SVG file.');
+        alert('Please select a PNG or JPG file. (SVG logos: export a PNG first.)');
         input.value = '';
         return;
     }
@@ -1976,7 +2134,7 @@ function resetLogoZone() {
     var zone = document.getElementById('logoUploadZone');
     zone.innerHTML = '<i data-feather="upload-cloud" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:8px;"></i>' +
         '<p class="mb-1"><strong>Click to upload</strong> or drag and drop</p>' +
-        '<small class="text-muted">PNG, JPG, SVG — max 2 MB</small>';
+        '<small class="text-muted">PNG or JPG — max 2 MB</small>';
     if (typeof feather !== 'undefined') feather.replace();
 }
 

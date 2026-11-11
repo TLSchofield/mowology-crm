@@ -6,6 +6,8 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
+require_once APP_ROOT . '/Modules/Team/Services/TimeclockFunctions.php';   // userMayActOnVisit()
 
 requireLogin();
 $user = getCurrentUser();
@@ -24,12 +26,17 @@ $db = getDB();
 
 $message = '';
 $messageType = '';
+if (!empty($_GET['timer_stop_warning'])) {
+    $message = 'The visit was completed, but one or more crew timers could not be stopped. Please review the time log.';
+    $messageType = 'warning';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
     // Pause plan
     if ($action === 'pause_plan') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $reason = trim($_POST['pause_reason'] ?? '');
         if (pausePlan($planId, $user['id'], $reason)) {
             $message = 'Plan paused. Future scheduled visits have been cancelled.';
@@ -42,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Resume plan
     if ($action === 'resume_plan') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         if (resumePlan($planId, $user['id'])) {
             header("Location: view.php?id={$planId}&resumed=1");
             exit;
@@ -56,9 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         requirePermission('jobs.edit');
 
         // Guard: no completed visits
-        $cvCount = (int)$db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'")
-                            ->execute([$planId]) ? $db->query("SELECT COUNT(*) FROM job_visits WHERE plan_id = " . (int)$planId . " AND status = 'completed'")->fetchColumn() : 0;
-        // Use prepared statement properly
         $cvStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'");
         $cvStmt->execute([$planId]);
         $cvCount = (int)$cvStmt->fetchColumn();
@@ -100,6 +105,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                            ->execute($orphanStopIds);
                     }
 
+                    // Release this plan's quote line items so they return to the quote's
+                    // "available" pool for re-allocation. There is no FK on
+                    // quote_line_items.plan_id, so this must be done explicitly —
+                    // otherwise the items orphan (stuck assigned to a deleted plan).
+                    $db->prepare("UPDATE quote_line_items SET plan_id = NULL WHERE plan_id = ?")->execute([$planId]);
+
                     // Delete the plan — CASCADE handles job_visits + plan_line_items
                     $db->prepare("DELETE FROM job_plans WHERE id = ?")->execute([$planId]);
 
@@ -116,12 +127,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     // Start visit
     if ($action === 'start_visit') {
         $visitId = intval($_POST['visit_id'] ?? 0);
-        if ($visitId && updateVisitStatus($visitId, 'in_progress', $user['id'])) {
+        if (!userHasPermission('jobs.edit') && !userMayActOnVisit($visitId, (int)$user['id'])) {
+            http_response_code(403); $message = 'You are not assigned to this visit.'; $messageType = 'error';
+        } elseif ($visitId && updateVisitStatus($visitId, 'in_progress', $user['id'])) {
             header("Location: view.php?id={$planId}&visit_started=1");
             exit;
         }
-        $message = 'Could not start visit.';
-        $messageType = 'error';
+        if ($message === '') { $message = 'Could not start visit.'; $messageType = 'error'; }
     }
 
     // Complete visit
@@ -132,7 +144,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             ? floatval($_POST['actual_amount'])
             : null;
 
-        if ($visitId && updateVisitStatus($visitId, 'completed', $user['id'], $notes ?: null)) {
+        if (!userHasPermission('jobs.edit') && !userMayActOnVisit($visitId, (int)$user['id'])) {
+            http_response_code(403); $message = 'You are not assigned to this visit.'; $messageType = 'error';
+        } elseif ($visitId && updateVisitStatus($visitId, 'completed', $user['id'], $notes ?: null)) {
             // Update actual_amount if provided
             if ($actualAmount !== null) {
                 $stmt = $db->prepare("UPDATE job_visits SET actual_amount = ? WHERE id = ?");
@@ -146,32 +160,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 WHERE visit_id = ? AND status = 'active' AND end_time IS NULL
             ");
             $activeTimers->execute([$visitId]);
+            $timerStopWarning = false;
             foreach ($activeTimers->fetchAll(PDO::FETCH_ASSOC) as $timer) {
                 try {
                     stopVisitTimer($visitId, $timer['user_id'], null, null, $notes ?: 'Visit completed');
                 } catch (Exception $e) {
                     // Log but don't block the completion
                     error_log("Timer stop failed for visit $visitId user {$timer['user_id']}: " . $e->getMessage());
+                    $timerStopWarning = true;
                 }
             }
 
-            header("Location: view.php?id={$planId}&visit_completed=1");
+            header("Location: view.php?id={$planId}&visit_completed=1" . ($timerStopWarning ? '&timer_stop_warning=1' : ''));
             exit;
         }
-        $message = 'Could not complete visit.';
-        $messageType = 'error';
+        if ($message === '') { $message = 'Could not complete visit.'; $messageType = 'error'; }
     }
 
     // Skip visit
     if ($action === 'skip_visit') {
         $visitId = intval($_POST['visit_id'] ?? 0);
         $reason = trim($_POST['skip_reason'] ?? '');
-        if ($visitId && updateVisitStatus($visitId, 'skipped', $user['id'], $reason ?: null)) {
+        if (!userHasPermission('jobs.edit') && !userMayActOnVisit($visitId, (int)$user['id'])) {
+            http_response_code(403); $message = 'You are not assigned to this visit.'; $messageType = 'error';
+        } elseif ($visitId && updateVisitStatus($visitId, 'skipped', $user['id'], $reason ?: null)) {
             header("Location: view.php?id={$planId}&visit_skipped=1");
             exit;
         }
-        $message = 'Could not skip visit.';
-        $messageType = 'error';
+        if ($message === '') { $message = 'Could not skip visit.'; $messageType = 'error'; }
     }
 
     // Restore a skipped/cancelled visit and mark it completed (so it can be invoiced).
@@ -203,6 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Update tracking overrides
     if ($action === 'update_tracking') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $trackingLevel = $_POST['tracking_level_override'] ?? 'inherit';
         $autoClockIn = $_POST['auto_clock_in_override'] ?? 'inherit';
         $clockIn = $_POST['require_clock_in_override'] ?? 'inherit';
@@ -252,6 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Edit plan details
     if ($action === 'edit_plan') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $isRecurring = ($_POST['plan_type'] ?? 'one_time') === 'recurring' ? 1 : 0;
         $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
         $recurrenceInterval = $isRecurring ? max(1, intval($_POST['recurrence_interval'] ?? 1)) : 1;
@@ -326,6 +344,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Update line items
     if ($action === 'update_line_items') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $formItems = [];
         if (!empty($_POST['items']) && is_array($_POST['items'])) {
             foreach ($_POST['items'] as $item) {
@@ -358,7 +377,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $endTime   = trim($_POST['te_end_time'] ?? '');
         $teNotes   = trim($_POST['te_notes'] ?? '');
 
-        if ($visitId && $userId && $startTime && $endTime) {
+        if ($visitId && $userId && $startTime && $endTime && strtotime($endTime) >= strtotime($startTime)) {
             // Validate visit belongs to this plan
             $vChk = $db->prepare("SELECT id FROM job_visits WHERE id = ? AND plan_id = ?");
             $vChk->execute([$visitId, $planId]);
@@ -484,7 +503,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $endTime   = trim($_POST['ed_end_time'] ?? '');
         $edNotes   = trim($_POST['ed_notes'] ?? '');
 
-        if ($entryId && $startTime && $endTime) {
+        if ($entryId && $startTime && $endTime && strtotime($endTime) >= strtotime($startTime)) {
             $eChk = $db->prepare("
                 SELECT jte.id FROM job_time_entries jte
                 JOIN job_visits jv ON jte.visit_id = jv.id
@@ -510,6 +529,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     // Edit visit
     if ($action === 'edit_visit') {
+        requirePermission('jobs.edit');   // 2026-10-12 review: any login could do this
         $visitId = intval($_POST['edit_visit_id'] ?? 0);
         $newDate = $_POST['visit_date'] ?? '';
         $newTimeStart = !empty($_POST['visit_time_start']) ? $_POST['visit_time_start'] : null;
@@ -771,18 +791,9 @@ if ($propLat && $propLng) {
     }
 }
 
-// Count completed visits with actual timer data (used to label the averaged duration estimate)
-$durAvgCountStmt = $db->prepare("
-    SELECT COUNT(DISTINCT jv.id)
-    FROM job_visits jv
-    JOIN job_time_entries jte ON jte.visit_id = jv.id
-    WHERE jv.plan_id = ?
-      AND jv.status = 'completed'
-      AND jte.status IN ('completed', 'edited')
-      AND jte.duration_minutes > 0
-");
-$durAvgCountStmt->execute([$planId]);
-$durAvgCount = (int)($durAvgCountStmt->fetchColumn() ?: 0);
+// The "Duration" field's averaged on-site time is computed client-side in
+// loadTimeLog() from the same plan_time_log data the Time Log uses, so the two
+// can never disagree (and GPS-estimated time is included consistently).
 
 // Get tracking requirements (resolved: plan overrides > product defaults)
 $trackingReqs = resolveTrackingRequirementsForPlan($planId);
@@ -952,6 +963,30 @@ if ($hasPropCoords) {
                     <a href="/crm/invoices/create.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-success" title="Raise an invoice for this plan">
                         <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
                     </a>
+                    <?php
+                    // The next visit still open, else the latest one (already-done work is subcontracted for its proof and bill).
+                    $subVisitId = 0;
+                    $subVisitDate = null;
+                    foreach ($visits as $subV) {
+                        if (in_array($subV['status'], ['scheduled', 'in_progress'], true) && $subV['scheduled_date'] >= date('Y-m-d') && ($subVisitDate === null || $subV['scheduled_date'] < $subVisitDate)) {
+                            $subVisitId = (int)$subV['id'];
+                            $subVisitDate = $subV['scheduled_date'];
+                        }
+                    }
+                    if (!$subVisitId && !empty($visits)) {
+                        foreach ($visits as $subV) {
+                            if ($subVisitDate === null || $subV['scheduled_date'] > $subVisitDate) {
+                                $subVisitId = (int)$subV['id'];
+                                $subVisitDate = $subV['scheduled_date'];
+                            }
+                        }
+                    }
+                    ?>
+                    <?php if ($subVisitId && userHasPermission('jobs.edit')): ?>
+                        <a href="/crm/jobs/visit-detail.php?id=<?php echo $subVisitId; ?>#mw-sub" class="btn btn-outline-secondary" title="Give this job to another company">
+                            <i data-feather="users" style="width:14px;height:14px;"></i> Subcontract
+                        </a>
+                    <?php endif; ?>
                     <?php if ($hasPropCoords): ?>
                         <button type="button" class="btn btn-outline-secondary"
                                 onclick="$('#planWorkZoneModal').modal('show')">
@@ -1099,10 +1134,13 @@ if ($hasPropCoords) {
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Client</span>
                                 <span class="mw-detail-value">
+                                    <?php $clientName = trim((string)($plan['client_display_name'] ?? '')); ?>
                                     <?php if (!empty($plan['company_name']) && !empty($plan['company_id'])): ?>
                                         <a href="../companies/view.php?id=<?php echo (int)$plan['company_id']; ?>">
-                                            <i data-feather="briefcase" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($plan['company_name']); ?>
+                                            <i data-feather="briefcase" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($clientName ?: $plan['company_name']); ?>
                                         </a>
+                                    <?php elseif ($clientName !== ''): ?>
+                                        <?php echo htmlspecialchars($clientName); ?>
                                     <?php else: ?>
                                         N/A
                                     <?php endif; ?>
@@ -1152,10 +1190,9 @@ if ($hasPropCoords) {
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Duration</span>
                                 <span class="mw-detail-value">
-                                    <?php echo (int)$plan['estimated_duration_minutes']; ?> min
-                                    <?php if ($durAvgCount > 0): ?>
-                                        <small class="text-muted">· avg of <?php echo $durAvgCount; ?> visit<?php echo $durAvgCount !== 1 ? 's' : ''; ?></small>
-                                    <?php endif; ?>
+                                    <?php /* Number defaults to the plan estimate; loadTimeLog() replaces it
+                                             with the averaged actual on-site time once entries load. */ ?>
+                                    <span id="planDurationValue"><?php echo (int)$plan['estimated_duration_minutes']; ?></span> min<small id="planDurationAvg" class="text-muted"></small>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
@@ -1642,6 +1679,8 @@ if ($hasPropCoords) {
                                                         <i data-feather="cloud-rain" style="width: 14px; height: 14px;"></i>
                                                     </button>
                                                     <?php if (userHasPermission('jobs.edit')): ?>
+                                                    <a class="btn btn-sm btn-outline-secondary" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$visit['id']; ?>#mw-sub"
+                                                       title="Give this visit to another company" aria-label="Subcontract this visit">Subcontract</a>
                                                     <button type="button" class="btn btn-sm btn-outline-danger"
                                                             onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
                                                             title="Delete this visit">
@@ -1828,8 +1867,8 @@ if ($hasPropCoords) {
                                 </div>
                                 <div class="mw-plan-photo-grid">
                                     <?php foreach ($dayPhotos as $ph):
-                                        $url = $ph['thumb_path'] ?: $ph['grid_path'] ?: ('/uploads/photos/' . $ph['filename']);
-                                        $fullUrl = $ph['view_path'] ?: ('/uploads/photos/' . $ph['filename']);
+                                        $url = $ph['thumb_path'] ?: $ph['grid_path'] ?: (uploadsUrl('photos') . '/' . $ph['filename']);
+                                        $fullUrl = $ph['view_path'] ?: (uploadsUrl('photos') . '/' . $ph['filename']);
                                         $typeLabel = ucfirst($ph['photo_type'] ?? 'other');
                                     ?>
                                     <a href="<?php echo h($fullUrl); ?>" target="_blank" class="mw-plan-photo-tile" title="<?php echo h($typeLabel); ?> &middot; <?php echo h($ph['uploaded_by_name'] ?? 'Crew'); ?>">
@@ -2268,7 +2307,12 @@ if ($hasPropCoords) {
 
                 <div class="form-group">
                     <label class="form-label">Date <span class="text-danger">*</span></label>
-                    <input type="date" name="lv_date" id="lvDate" class="form-control" required
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#lvDate" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" name="lv_date" id="lvDate" class="form-control" required hidden
                            max="<?php echo date('Y-m-d'); ?>"
                            value="<?php echo date('Y-m-d'); ?>">
                 </div>
@@ -2410,13 +2454,23 @@ if ($hasPropCoords) {
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">Start Date</label>
-                        <input type="date" name="edit_start_date" id="editStartDateInput" class="form-control"
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#editStartDateInput" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" name="edit_start_date" id="editStartDateInput" class="form-control" hidden
                                value="<?php echo $plan['plan_start_date'] ?? ''; ?>"
                                oninput="editUpdateRevenuePreview()">
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">End Date</label>
-                        <input type="date" name="edit_end_date" id="editEndDateInput" class="form-control"
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#editEndDateInput" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" name="edit_end_date" id="editEndDateInput" class="form-control" hidden
                                value="<?php echo $plan['plan_end_date'] ?? ''; ?>"
                                oninput="editUpdateRevenuePreview()">
                         <small class="text-muted">Blank = ongoing</small>
@@ -2597,7 +2651,7 @@ if ($hasPropCoords) {
                 <!-- Contract Rate Calculator -->
                 <div class="mw-contract-calc mw-contract-calc-open" id="editContractCalc">
                     <div class="mw-contract-calc-header" onclick="this.parentElement.classList.toggle('mw-contract-calc-open')">
-                        <i data-feather="calculator" style="width:14px;height:14px;"></i>
+                        <i data-feather="dollar-sign" style="width:14px;height:14px;"></i>
                         <span>Rate Calculator</span>
                         <i data-feather="chevron-down" class="mw-calc-chevron" style="width:14px;height:14px;margin-left:auto;"></i>
                     </div>
@@ -2788,7 +2842,12 @@ if ($hasPropCoords) {
 
                 <div class="form-group">
                     <label class="form-label">Date</label>
-                    <input type="date" name="visit_date" id="editVisitDate" class="form-control" required>
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#editVisitDate" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" name="visit_date" id="editVisitDate" class="form-control" required hidden>
                 </div>
                 <div class="mw-form-row">
                     <div class="form-group">
@@ -2878,6 +2937,8 @@ if ($hasPropCoords) {
             var m = String(yesterday.getMonth()+1).padStart(2,'0');
             var d = String(yesterday.getDate()).padStart(2,'0');
             document.getElementById('lvDate').value = y + '-' + m + '-' + d;
+            document.getElementById('lvDate').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('lvDate').dispatchEvent(new Event('change', { bubbles: true }));
             showModal('logPastVisitModal');
         }
 
@@ -3521,6 +3582,8 @@ if ($hasPropCoords) {
             document.getElementById('editVisitId').value = visitId;
             document.getElementById('editVisitNumber').textContent = visitNumber;
             document.getElementById('editVisitDate').value = date;
+            document.getElementById('editVisitDate').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('editVisitDate').dispatchEvent(new Event('change', { bubbles: true }));
             document.getElementById('editVisitTimeStart').value = timeStart || '';
             document.getElementById('editVisitTimeEnd').value = timeEnd || '';
             // Reset scope radio to "this only"
@@ -3799,7 +3862,7 @@ if ($hasPropCoords) {
                         return;
                     }
                     if (!data.success) {
-                        body.innerHTML = '<div class="card-body text-danger small">' + (data.error || 'Error') + '</div>';
+                        body.innerHTML = '<div class="card-body text-danger small">' + esc(data.error || 'Error') + '</div>';
                         return;
                     }
 
@@ -3828,6 +3891,39 @@ if ($hasPropCoords) {
                         byVisit[e.visit_id].entries.push(e);
                     });
 
+                    // Average on-site time per visit for the "Duration" field.
+                    // Per visit, wall-clock span = latest clock-out − earliest clock-in
+                    // across its entries (manual + GPS). Only visits with recorded
+                    // time (sum of durations > 0) and a positive span are counted.
+                    (function updateAvgDuration() {
+                        var valEl = document.getElementById('planDurationValue');
+                        var avgEl = document.getElementById('planDurationAvg');
+                        if (!valEl || !avgEl) return;
+                        var ms = function(t) {
+                            if (!t) return NaN;
+                            return new Date(String(t).replace(' ', 'T')).getTime();
+                        };
+                        var spans = [];
+                        visitOrder.forEach(function(vid) {
+                            var entries = byVisit[vid].entries;
+                            var sumMin = entries.reduce(function(s, e) { return s + (e.duration_minutes || 0); }, 0);
+                            if (sumMin <= 0) return; // no recorded time for this visit
+                            var starts = [], ends = [];
+                            entries.forEach(function(e) {
+                                var st = ms(e.start_time), en = ms(e.end_time);
+                                if (!isNaN(st)) starts.push(st);
+                                if (!isNaN(en)) ends.push(en);
+                            });
+                            if (!starts.length || !ends.length) return;
+                            var span = Math.round((Math.max.apply(null, ends) - Math.min.apply(null, starts)) / 60000);
+                            if (span > 0) spans.push(span);
+                        });
+                        if (!spans.length) return; // keep the plan estimate as-is
+                        var avg = Math.round(spans.reduce(function(a, b) { return a + b; }, 0) / spans.length);
+                        valEl.textContent = avg;
+                        avgEl.textContent = ' · avg of ' + spans.length + ' visit' + (spans.length !== 1 ? 's' : '');
+                    })();
+
                     var CAN_EDIT = <?php echo userHasPermission('jobs.edit') ? 'true' : 'false'; ?>;
                     // Encode a value as JSON safe for embedding in an HTML onclick="..." attribute.
                     // JSON.stringify uses raw " which breaks HTML attribute parsing — replace with &quot;
@@ -3846,8 +3942,8 @@ if ($hasPropCoords) {
                         html += '<tr class="table-light">' +
                             '<td colspan="6" class="small font-weight-bold py-1 px-3">' +
                             '<i data-feather="calendar" style="width:12px;height:12px;margin-right:4px;vertical-align:-1px;"></i>' +
-                            v.visit_number + ' &mdash; ' + fmtDate(v.date) +
-                            ' <span class="badge badge-light border ml-1">' + v.visit_status.replace('_', ' ') + '</span>' +
+                            esc(v.visit_number) + ' &mdash; ' + fmtDate(v.date) +
+                            ' <span class="badge badge-light border ml-1">' + esc(v.visit_status.replace('_', ' ')) + '</span>' +
                             '<span class="text-muted ml-2 font-weight-normal">' + (visitMinutes > 0 ? formatMins(visitMinutes) + ' total' : '') + '</span>' +
                             '</td></tr>';
                         v.entries.forEach(function(e) {
@@ -3935,7 +4031,7 @@ if ($hasPropCoords) {
                     desc += ' &mdash; ' + d.toLocaleDateString('en-CA', {month:'short', day:'numeric'}) +
                             ' ' + d.toLocaleTimeString('en-CA', {hour:'2-digit', minute:'2-digit', hour12:true});
                 }
-                document.getElementById('mvEntryDesc').innerHTML = desc;
+                document.getElementById('mvEntryDesc').innerHTML = esc(desc);
                 showModal('moveTimeEntryModal');
             };
 
@@ -3964,7 +4060,7 @@ if ($hasPropCoords) {
                             var label = ts.substring(11, 16);
                             var dtVal = toLocal(ts);
                             return '<span class="mr-3 text-nowrap"><i data-feather="map-pin" style="width:10px;height:10px;vertical-align:-1px;"></i> ' +
-                                name + ' left <strong>' + label + '</strong> ' +
+                                esc(name) + ' left <strong>' + esc(label) + '</strong> ' +
                                 '<button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:11px;" ' +
                                 'onclick="document.getElementById(\'edEndTime\').value=\'' + dtVal + '\'">Use</button></span>';
                         });

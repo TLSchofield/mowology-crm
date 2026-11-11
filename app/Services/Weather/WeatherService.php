@@ -1178,7 +1178,10 @@ function httpGetRequest(string $url, int $timeout = 10): ?string
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        // Certificates checked (Codex review 2026-10-15: off, so a forged forecast could move visits);
+        // verified from production 2026-10-15 for Open-Meteo and Environment Canada.
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_USERAGENT, 'Mowology CRM Weather Service');
 
@@ -1199,8 +1202,8 @@ function httpGetRequest(string $url, int $timeout = 10): ?string
                 'user_agent' => 'Mowology CRM Weather Service',
             ],
             'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
+                'verify_peer' => true,
+                'verify_peer_name' => true,
             ],
         ]);
 

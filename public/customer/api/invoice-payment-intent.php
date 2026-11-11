@@ -21,9 +21,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once dirname(__DIR__, 2) . '/app_config/config.php';
+if (!Tenant::takesCards()) { http_response_code(403); echo json_encode(['error' => 'Card payments are not available here.']); exit; }
 require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 require_once dirname(__DIR__, 2) . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Services/Payments/StripeErrorRules.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/PaymentIntentGuard.php';
 
 $input    = json_decode(file_get_contents('php://input'), true);
 $token    = trim($input['token'] ?? '');
@@ -36,8 +39,22 @@ if (empty($token)) {
     exit;
 }
 
+// ── One payment request per invoice at a time (Codex review 2026-10-14) ──────
+// Two overlapping requests (two tabs, the save-card re-POST, a saved-card confirm) each read
+// "no intent yet" and each created one. A named lock taken BEFORE the invoice is read, held until
+// the response is sent, makes every read below current. confirm-saved-card.php takes the same lock.
+$db = getDB();
+$piLock = 'mw_inv_pay_' . md5($token);
+if ((int) $db->query("SELECT GET_LOCK(" . $db->quote($piLock) . ", 15)")->fetchColumn() !== 1) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Another payment for this invoice is being set up. Please try again in a moment.']);
+    exit;
+}
+register_shutdown_function(function () use ($db, $piLock) {
+    try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($piLock) . ")"); } catch (\Throwable $e) { /* connection gone: lock went with it */ }
+});
+
 // ── Load invoice + contact ────────────────────────────────────────────────────
-$db   = getDB();
 $stmt = $db->prepare("
     SELECT i.id, i.invoice_number, i.total, i.total_amount, i.balance_due, i.status,
            i.company_id, i.contact_id, i.stripe_payment_intent_id,
@@ -64,6 +81,22 @@ if (!$invoice) {
     echo json_encode(['error' => 'Invoice not found or link has expired']);
     exit;
 }
+
+// The token lock protects this endpoint; the invoice lock is shared with every other creator.
+$invoicePiLock = PaymentIntentGuard::lockName((int)$invoice['id']);
+$invoiceLock = $db->prepare('SELECT GET_LOCK(?, 10)');
+$invoiceLock->execute([$invoicePiLock]);
+if ((int)$invoiceLock->fetchColumn() !== 1) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Another payment for this invoice is being set up. Please try again in a moment.']);
+    exit;
+}
+register_shutdown_function(function () use ($db, $invoicePiLock) {
+    try { $s = $db->prepare('SELECT RELEASE_LOCK(?)'); $s->execute([$invoicePiLock]); } catch (Throwable $e) { }
+});
+$freshIntent = $db->prepare('SELECT stripe_payment_intent_id FROM invoices WHERE id = ?');
+$freshIntent->execute([(int)$invoice['id']]);
+$invoice['stripe_payment_intent_id'] = $freshIntent->fetchColumn() ?: null;
 
 $payableStatuses = ['sent', 'viewed', 'partial', 'overdue'];
 if (!in_array($invoice['status'], $payableStatuses, true)) {
@@ -136,6 +169,23 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
     try {
         $existing = \Stripe\PaymentIntent::retrieve($invoice['stripe_payment_intent_id']);
 
+        // ── Guard: never create a second charge for an already-paid invoice ──────
+        // If the stored intent already succeeded (or is mid-processing), the customer
+        // has paid. Previously the code fell through to "create a new PaymentIntent"
+        // when the webhook lagged in marking the invoice paid — which let a customer
+        // be charged 2x/3x by retrying. Stop here and tell the client it's paid.
+        // The webhook (and bank reconciliation) marks the invoice paid.
+        if (PaymentIntentGuard::blocksCreate((string)$existing->status)) {
+            echo json_encode([
+                'already_paid' => true,
+                'status'       => $existing->status,
+                'message'      => 'This invoice has already been paid — no further payment is needed. Thank you!',
+                'amount_cents' => $existing->amount,
+                'currency'     => $existing->currency,
+            ]);
+            exit;
+        }
+
         $isReusable = in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
                       && $existing->amount === $amountCents;
 
@@ -173,17 +223,31 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             exit;
         }
 
-        // Cancel stale/wrong-type intent so we create a fresh card-only one below
-        if ($isReusable && !$isCardOnly) {
+        // Cancel stale/wrong-type intent so we create a fresh card-only one below — including one for an OLD amount
+        // (the invoice changed): left open, an old tab could still charge it (Codex payment review 2026-10-16).
+        $isOpen = in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true);
+        if ($isOpen && (!$isReusable || !$isCardOnly)) {
             try {
                 $existing->cancel();
-            } catch (\Stripe\Exception\ApiErrorException $e) {
+            } catch (\Throwable $e) {
+                // Couldn't cancel it: it may still be chargeable, so make NO second one — try again (Codex re-review).
                 writeSystemLog('warning', 'stripe', 'Could not cancel stale PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+                http_response_code(503);
+                echo json_encode(['error' => 'The payment page needs a moment — please try again.']);
+                exit;
             }
         }
 
     } catch (\Stripe\Exception\ApiErrorException $e) {
         writeSystemLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+        // Only a missing intent is safe to forget. A network blip or rate limit leaves us unable to
+        // tell whether the earlier payment went through — stop rather than risk a second charge
+        // (same rule as the CRM's create-payment-intent.php; Fable review 2026-10-13).
+        if (!StripeErrorRules::canForgetIntent($e->getStripeCode())) {
+            http_response_code(502);
+            echo json_encode(['error' => 'We couldn\'t check your earlier card payment for this invoice. Please try again in a minute.']);
+            exit;
+        }
         // Clear the stale ID (e.g. test-mode PI used with live keys) so we create a fresh one below
         $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")
            ->execute([$invoice['id']]);
@@ -234,7 +298,10 @@ try {
         $intentParams['payment_method'] = $defaultPaymentMethodId;
     }
 
-    $intent = \Stripe\PaymentIntent::create($intentParams);
+    $paymentCount = $db->prepare('SELECT COUNT(*) FROM stripe_payments WHERE invoice_id = ?');
+    $paymentCount->execute([(int)$invoice['id']]);
+    $idempotencyKey = PaymentIntentGuard::idempotencyKey((int)$invoice['id'], $amountCents, (int)$paymentCount->fetchColumn());
+    $intent = \Stripe\PaymentIntent::create($intentParams, ['idempotency_key' => $idempotencyKey]);
 
     // Persist PaymentIntent ID
     $db->prepare("UPDATE invoices SET stripe_payment_intent_id = ? WHERE id = ?")

@@ -4,8 +4,11 @@
  * AppStack layout via shared includes.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
+require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -25,13 +28,17 @@ $db = getDB();
 $stmt = $db->prepare("
     SELECT
         i.*,
-        c.company_name,
-        COALESCE(NULLIF(c.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
-        COALESCE(NULLIF(c.billing_phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,''), NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as billing_phone,
-        COALESCE(NULLIF(i.billing_address,''), NULLIF(c.billing_address,''))       as billing_address,
-        COALESCE(NULLIF(i.billing_city,''),    NULLIF(c.billing_city,''))           as billing_city,
-        COALESCE(NULLIF(i.billing_province,''),NULLIF(c.billing_province,''))       as billing_province,
-        COALESCE(NULLIF(i.billing_postal_code,''),NULLIF(c.billing_postal_code,'')) as billing_postal_code,
+        -- pm = the property management firm (property_manager_id). For PM-managed
+        -- strata the firm is the payer; folding it into company_name lets the Bill
+        -- To compose billing_entity_name C/O firm instead of the on-site contact.
+        " . BillToResolver::INVOICE_COMPANY_NAME . " as company_name,
+        p.billing_entity_name,
+        COALESCE(NULLIF(c.billing_email,''), NULLIF(pm.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
+        COALESCE(NULLIF(c.billing_phone,''), NULLIF(pm.billing_phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,''), NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as billing_phone,
+        COALESCE(NULLIF(i.billing_address,''), NULLIF(c.billing_address,''), NULLIF(pm.billing_address,''))       as billing_address,
+        COALESCE(NULLIF(i.billing_city,''),    NULLIF(c.billing_city,''), NULLIF(pm.billing_city,''))           as billing_city,
+        COALESCE(NULLIF(i.billing_province,''),NULLIF(c.billing_province,''), NULLIF(pm.billing_province,''))       as billing_province,
+        COALESCE(NULLIF(i.billing_postal_code,''),NULLIF(c.billing_postal_code,''), NULLIF(pm.billing_postal_code,'')) as billing_postal_code,
         COALESCE(ct.first_name, dc.first_name) as contact_first,
         COALESCE(ct.last_name, dc.last_name) as contact_last,
         COALESCE(ct.email, dc.email) as contact_email,
@@ -48,9 +55,11 @@ $stmt = $db->prepare("
     LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
     LEFT JOIN contacts dc ON i.contact_id = dc.id
     LEFT JOIN properties p ON i.property_id = p.id
+    LEFT JOIN companies pm ON p.property_manager_id = pm.id
     LEFT JOIN job_visits jv ON i.visit_id = jv.id
     LEFT JOIN job_plans jp ON i.plan_id = jp.id
     LEFT JOIN users u ON i.created_by = u.id
+    " . BillToResolver::INVOICE_COMPANY_JOINS . "
     WHERE i.id = ?
 ");
 $stmt->execute([$invoiceId]);
@@ -126,7 +135,7 @@ if (empty($invoice['access_token']) || $_tokenExpired) {
     $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
        ->execute([$invoice['access_token'], $invoiceId]);
 }
-$invoicePortalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+$invoicePortalUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
 
 // Get activity for this invoice
 $stmt = $db->prepare("
@@ -147,6 +156,14 @@ $messageType = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
+    // The page needs billing.view to open; these three change the invoice's status or record money,
+    // so they need billing.edit on the server, not only a hidden button (Codex nightly 2026-10-24).
+    if (in_array($action, ['send', 'mark_sent', 'mark_paid'], true) && !userHasPermission('billing.edit')) {
+        $message     = 'You do not have permission to send invoices or record payments.';
+        $messageType = 'danger';
+        $action      = '';
+    }
+
     if ($action === 'delete_invoice') {
         if (!userHasPermission('billing.edit')) {
             $message = 'You do not have permission to delete invoices.';
@@ -157,9 +174,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         } else {
             try {
                 $db->beginTransaction();
+                $checkedStatus = $invoice['status'];
                 $db->prepare("DELETE FROM invoice_line_items WHERE invoice_id = ?")->execute([$invoiceId]);
                 $db->prepare("DELETE FROM invoice_contacts   WHERE invoice_id = ?")->execute([$invoiceId]);
-                $db->prepare("DELETE FROM invoices           WHERE id = ?")->execute([$invoiceId]);
+                $delete = $db->prepare("DELETE FROM invoices WHERE id = ? AND status = ?");
+                $delete->execute([$invoiceId, $checkedStatus]);
+                if ($delete->rowCount() !== 1) {
+                    $db->rollBack();
+                    $message = 'Invoice changed meanwhile. Please reload and try again.';
+                    $messageType = 'warning';
+                    goto end_delete_invoice;
+                }
                 $db->commit();
                 header('Location: index.php?deleted=1');
                 exit;
@@ -169,6 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message = 'Error deleting invoice. Please try again.';
                 $messageType = 'danger';
             }
+            end_delete_invoice:
         }
     }
 
@@ -190,8 +216,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             } else {
                 try {
                     $oldStatus = $invoice['status'];
-                    $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ?")
-                       ->execute([$invoiceId]);
+                    $cancel = $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ? AND status = ?");
+                    $cancel->execute([$invoiceId, $oldStatus]);
+                    if ($cancel->rowCount() !== 1) {
+                        $message = 'Invoice changed meanwhile. Please reload and try again.';
+                        $messageType = 'warning';
+                        goto end_cancel_invoice;
+                    }
                     trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'cancelled', $user['id']);
                     logActivityExtended($user['id'], 'Invoice cancelled',
                         "Cancelled (was {$oldStatus}). Reason: {$reason}",
@@ -204,6 +235,125 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     $message     = 'Error cancelling invoice. Please try again.';
                     $messageType = 'danger';
                 }
+                end_cancel_invoice:
+            }
+        }
+    }
+
+    if ($action === 'apply_client_credit') {
+        if (!userHasPermission('billing.edit')) {
+            $message     = 'You do not have permission to record payments.';
+            $messageType = 'danger';
+        } else {
+            require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+            try {
+                $creditSvc = new ClientCreditService($db);
+                $result    = $creditSvc->applyToInvoice($invoiceId, (int)$user['id']);
+
+                trackFieldChange('invoice', $invoiceId, 'status', $result['old_status'], $result['invoice_status'], $user['id']);
+                trackFieldChange('invoice', $invoiceId, 'amount_paid', (string)$result['old_amount_paid'], (string)($result['old_amount_paid'] + $result['applied']), $user['id']);
+                trackFieldChange('invoice', $invoiceId, 'balance_due', (string)$result['old_balance_due'], (string)$result['invoice_balance_due'], $user['id']);
+                logActivityExtended($user['id'], 'Client credit applied',
+                    'Applied ' . formatCurrency($result['applied']) . ' from prepaid credit (remaining: ' . formatCurrency($result['remaining_credit']) . ')',
+                    null, null, null, $invoiceId);
+
+                $invoice['status']      = $result['invoice_status'];
+                $invoice['balance_due'] = $result['invoice_balance_due'];
+                $invoice['amount_paid'] = $result['old_amount_paid'] + $result['applied'];
+
+                $message     = 'Applied ' . formatCurrency($result['applied']) . ' from client credit. Remaining balance: ' . formatCurrency($result['remaining_credit']) . '.';
+                $messageType = 'success';
+            } catch (RuntimeException $e) {
+                $message     = $e->getMessage();
+                $messageType = 'warning';
+            } catch (Throwable $e) {
+                error_log('apply_client_credit error for invoice ' . $invoiceId . ': ' . $e->getMessage());
+                $message     = 'Could not apply credit. Please try again.';
+                $messageType = 'danger';
+            }
+        }
+    }
+
+    if ($action === 'correct_payment') {
+        if (!isAdmin()) {
+            $message     = 'Only admins can correct a recorded payment.';
+            $messageType = 'danger';
+        } else {
+            $correctedAmount = isset($_POST['corrected_amount']) ? (float) $_POST['corrected_amount'] : null;
+            $correctionReason = trim($_POST['correction_reason'] ?? '');
+
+            if ($correctedAmount === null || $correctionReason === '') {
+                $message     = 'Enter both a corrected amount and a reason.';
+                $messageType = 'warning';
+            } else {
+                require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+                try {
+                    $recon  = new InvoiceReconciliationService($db);
+                    $result = $recon->correctManualPayment($invoiceId, $correctedAmount, $correctionReason, (int) $user['id']);
+
+                    trackFieldChange('invoice', $invoiceId, 'amount_paid', (string) $result['old_amount_paid'], (string) $result['new_amount_paid'], $user['id']);
+                    trackFieldChange('invoice', $invoiceId, 'balance_due', (string) $result['old_balance_due'], (string) $result['new_balance_due'], $user['id']);
+                    if ($result['old_status'] !== $result['new_status']) {
+                        trackFieldChange('invoice', $invoiceId, 'status', $result['old_status'], $result['new_status'], $user['id']);
+                    }
+                    logActivityExtended($user['id'], 'Payment corrected',
+                        'Corrected recorded payment from ' . formatCurrency($result['old_amount_paid'])
+                        . ' to ' . formatCurrency($result['new_amount_paid']) . '. Reason: ' . $correctionReason,
+                        null, null, null, $invoiceId);
+
+                    $invoice['amount_paid'] = $result['new_amount_paid'];
+                    $invoice['balance_due'] = $result['new_balance_due'];
+                    $invoice['status']      = $result['new_status'];
+
+                    $message     = 'Payment corrected to ' . formatCurrency($result['new_amount_paid']) . '.';
+                    $messageType = 'success';
+                } catch (InvalidArgumentException $e) {
+                    $message     = $e->getMessage();
+                    $messageType = 'warning';
+                } catch (RuntimeException $e) {
+                    $message     = $e->getMessage();
+                    $messageType = 'warning';
+                } catch (Throwable $e) {
+                    error_log('correct_payment error for invoice ' . $invoiceId . ': ' . $e->getMessage());
+                    $message     = 'Could not correct payment. Please try again.';
+                    $messageType = 'danger';
+                }
+            }
+        }
+    }
+
+    if ($action === 'refund_payment') {
+        if (!isAdmin()) {
+            $message     = 'Only admins can refund a payment.';
+            $messageType = 'danger';
+        } else {
+            $refundAmount = isset($_POST['refund_amount']) ? (float) $_POST['refund_amount'] : 0.0;
+            $refundReason = trim($_POST['refund_reason'] ?? '');
+
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRefundService.php';
+            try {
+                $refundSvc = new InvoiceRefundService($db);
+                $result    = $refundSvc->refund($invoiceId, $refundAmount, $refundReason, (int) $user['id']);
+
+                logActivityExtended($user['id'], 'Payment refunded',
+                    'Refunded ' . formatCurrency($result['amount']) . ' to the customer via Stripe ('
+                    . $result['stripe_refund_id'] . '). Reason: ' . $refundReason,
+                    null, null, null, $invoiceId);
+
+                $invoice['amount_refunded'] = $result['total_refunded'];
+
+                $message     = 'Refunded ' . formatCurrency($result['amount']) . ' to the customer through Stripe.';
+                $messageType = 'success';
+            } catch (InvalidArgumentException $e) {
+                $message     = $e->getMessage();
+                $messageType = 'warning';
+            } catch (RuntimeException $e) {
+                $message     = $e->getMessage();
+                $messageType = 'warning';
+            } catch (Throwable $e) {
+                error_log('refund_payment error for invoice ' . $invoiceId . ': ' . $e->getMessage());
+                $message     = 'Could not refund the payment. Please check Stripe before trying again.';
+                $messageType = 'danger';
             }
         }
     }
@@ -277,24 +427,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
 
-        // Generate PDF once (used for all recipients).
-        // We always regenerate on send so the PDF reflects the latest invoice state
-        // (line items, totals, bill-to) — caching stale PDFs confuses customers.
-        $attachPath = null;
-        require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
-        require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
-
-        $pdfGen    = new PdfGenerator();
-        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
-            $attachPath = $pdfResult['path'];
-        } else {
-            // Fall back to any cached copy so the email still has an attachment
-            $cached = $pdfGen->getPdfPath('invoice', $invoiceId);
-            if ($cached && file_exists($cached)) {
-                $attachPath = $cached;
-            }
-            error_log("Invoice send: PDF generation failed for invoice {$invoiceId}: " . ($pdfResult['error'] ?? 'unknown') . ($attachPath ? ' — using cached copy' : ' — sending WITHOUT attachment'));
+        // Generate PDF once (used for all recipients) — regenerated on send so it
+        // reflects the latest invoice state; the cached copy is the fallback.
+        // Every invoice email carries the PDF (owner rule 2026-10-06): no PDF →
+        // nothing is sent and the status is not touched (InvoicePdfGate).
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+        $pdfGate    = new InvoicePdfGate($db);
+        // Prepaid credit first, so the PDF, the email and autopay all see what is left (Tim 2026-10-14).
+        require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+        if (ClientCreditService::applyOnSend($db, $invoiceId)) {
+            $invoice = array_merge($invoice, $db->query("SELECT status, amount_paid, balance_due FROM invoices WHERE id = " . (int)$invoiceId)->fetch(PDO::FETCH_ASSOC) ?: []);
+        }
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        $pdfBlocked = ($attachPath === null);
+        if ($pdfBlocked) {
+            $pdfGate->recordBlocked($invoiceId, 'view_send');
         }
 
         // Ensure the invoice has a valid (non-expired) access_token
@@ -312,15 +459,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $billToLines       = [];
         if ($billToCompany)     { $billToLines[] = '<strong>' . htmlspecialchars($billToCompany) . '</strong>'; }
         if ($billToContactName) { $billToLines[] = htmlspecialchars($billToContactName); }
-        $invoiceViewUrl   = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
-        $invoicePdfUrl    = 'https://mowology.ca/customer/api/invoice-pdf.php?token=' . urlencode($invoice['access_token']);
+        $invoiceViewUrl   = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoicePdfUrl    = _idSiteUrl() . '/customer/api/invoice-pdf.php?token=' . urlencode($invoice['access_token']);
         $invoicePrintUrl  = $invoicePdfUrl . '&inline=1';
 
         // Send to each recipient
         $sentTo = [];
         $smsRecipients = [];
 
-        foreach ($recipients as $recipient) {
+        foreach (($pdfBlocked ? [] : $recipients) as $recipient) {
             if (empty($recipient['email_address'])) {
                 continue;
             }
@@ -358,19 +505,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $billSummary .= '</table>';
 
             $emailBody = EmailWrapper::wrap(
-                $billSummary . $tpl['body_html'],
-                'View &amp; Pay Invoice Online',
+                $billSummary . $tpl['body_html'] . EmailWrapper::paymentInstructionsHtml(),
+                'Pay the invoice',
                 $invoiceViewUrl ?: null,
                 $companyInfo
             );
 
             // Append email open tracking pixel (per-recipient)
-            $trackPixelUrl = 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . (int)$recipient['id'];
+            require_once APP_ROOT . '/Modules/Marketing/Services/TrackingLinks.php';
+            $trackPixelUrl = TrackingLinks::invoiceOpenUrl((int)$recipient['id']);
             $emailBody = str_replace(
                 '</body>',
                 '<img src="' . $trackPixelUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>',
                 $emailBody
             );
+
+            // The file must still be there now — sendEmail() would silently drop it.
+            if (!$pdfGate->isUsable($attachPath)) {
+                $pdfBlocked = true;
+                $pdfGate->recordBlocked($invoiceId, 'view_send', 'PDF vanished before send: ' . $attachPath);
+                break;
+            }
 
             // Send email
             $emailResult = sendCrmEmail($recipient['email_address'], $emailSubject, $emailBody, $attachPath);
@@ -447,8 +602,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $oldStatus = $invoice['status'] ?? 'draft';
                 $db->prepare("
                     UPDATE invoices
-                    SET status = 'sent', sent_at = NOW()
-                    WHERE id = ? AND status IN ('draft', 'sent')
+                    SET sent_at = NOW(), status = CASE WHEN status IN ('draft', 'sent') THEN 'sent' ELSE status END
+                    WHERE id = ?
                 ")->execute([$invoiceId]);
                 trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
                 $invoice['status'] = 'sent';
@@ -470,6 +625,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message .= " and SMS sent to " . count($smsSentTo) . " contact(s)";
             }
             $messageType = 'success';
+        } elseif ($pdfBlocked) {
+            $message     = InvoicePdfGate::NOT_SENT_MESSAGE . '. Nothing was emailed and the status is unchanged. Try "Regenerate PDF", then send again.';
+            $messageType = 'danger';
         } else {
             // Distinguish "no recipients at all" from "recipients exist but email delivery failed"
             $hasAnyRecipientWithEmail = false;
@@ -497,25 +655,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     }
 
     // ── Autopay: when an invoice first transitions to 'sent', immediately
-    //    attempt an off-session charge if the bill-to is enrolled. Mirrors the
-    //    schedule auto-invoice path (app/Modules/Schedule/Api/invoice-create-send.php).
-    //    AutopayService self-guards on live-mode, payable status, enrollment,
-    //    saved payment method, and balance > 0. The is_file() guard keeps this a
-    //    no-op anywhere the service is not deployed (e.g. local dev).
+    //    attempt an off-session charge if the bill-to is enrolled.
+    //    AutopayService::triggerOnSend() self-guards on live-mode, payable status,
+    //    enrollment, saved payment method, and balance > 0. The is_file() guard
+    //    keeps this a no-op anywhere the service is not deployed (e.g. local dev).
     if (!empty($autopayJustSent)) {
         $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
         if (is_file($autopayServicePath)) {
-            try {
-                require_once $autopayServicePath;
-                $autopay = new AutopayService($db);
-                if ($autopay->isAutopayEligible($invoiceId)) {
-                    $apResult = $autopay->attemptCharge($invoiceId);
-                    error_log('[Autopay] view.php send invoice ' . $invoiceId . ' → '
-                        . ($apResult['status'] ?? '?') . ': ' . ($apResult['message'] ?? ''));
-                }
-            } catch (Throwable $e) {
-                error_log('[Autopay] view.php charge trigger failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
-            }
+            require_once $autopayServicePath;
+            AutopayService::triggerOnSend($db, $invoiceId, 'view.php');
         }
     }
 
@@ -533,35 +681,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $paidAtParam = $paymentDate . ' 12:00:00';
         }
 
-        $newBalance = max(0, floatval($invoice['balance_due']) - $paymentAmount);
-        // 0.5¢ tolerance handles floating-point rounding (e.g. $100.00 - $100.00 = $0.000001)
-        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
-
-        $params = [$paymentAmount, $newBalance, $newStatus, $paymentMethod, $paymentReference];
-        if ($paidAtParam) $params[] = $paidAtParam;
-        $params[] = $invoiceId;
-
         $db->beginTransaction();
         try {
-            $stmt = $db->prepare("
-                UPDATE invoices
-                SET amount_paid       = amount_paid + ?,
-                    balance_due       = ?,
-                    status            = ?,
-                    payment_method    = ?,
-                    payment_reference = ?,
-                    paid_at           = {$paidAtVal}
-                WHERE id = ?
-            ");
-            $stmt->execute($params);
+            // Write through the shared allocation ledger (same path as Record Payment,
+            // the e-Transfer inbox and bank-deposit attach) so a later bank import can
+            // link this payment to the deposit that carried it.
+            require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+            $alloc = (new InvoiceReconciliationService($db))->applyAllocation(
+                (int)$invoiceId, (float)$paymentAmount, $paymentMethod, $paymentReference !== '' ? $paymentReference : null,
+                ($paymentDate && preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) ? $paymentDate : date('Y-m-d'),
+                null, (int)$user['id']
+            );
+            if (!$alloc) {
+                throw new RuntimeException('Invoice is already settled');
+            }
+            $newStatus  = $alloc['status'];
+            $appliedAmount = (float)$alloc['applied'];
+            $newBalance = max(0, round((float)$invoice['balance_due'] - $appliedAmount, 2));
+            // Explicit method/reference from the form win over whatever was there
+            $db->prepare("UPDATE invoices SET payment_method = ?, payment_reference = ? WHERE id = ?")
+               ->execute([$paymentMethod, $paymentReference, $invoiceId]);
 
             // Track field changes for payment
             trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
-            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $paymentAmount), $user['id']);
+            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $appliedAmount), $user['id']);
             trackFieldChange('invoice', $invoiceId, 'balance_due', $invoice['balance_due'], (string)$newBalance, $user['id']);
 
             $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
-            $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
+            $detail = "Payment of " . formatCurrency($appliedAmount) . " via {$methodLabel}";
             if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
             logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
 
@@ -598,17 +745,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     '{{customer_first_name}}' => $receiptFirst,
                     '{{customer_name}}'       => $receiptName,
                     '{{invoice_number}}'      => $invoice['invoice_number'],
-                    '{{amount_paid}}'         => formatCurrency($paymentAmount),
+                    '{{amount_paid}}'         => formatCurrency($appliedAmount),
                     '{{payment_date}}'        => $paidOn,
                     '{{company_name}}'        => $receiptCompany['company_name'],
                     '{{company_phone}}'       => $receiptCompany['company_phone'],
                 ];
 
                 $receiptTpl  = loadEmailTemplate('receipt_sent', $receiptVars);
-                $receiptUrl  = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+                $receiptUrl  = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($invoice['access_token']);
                 $receiptBody = EmailWrapper::wrap(
                     $receiptTpl['body_html'],
-                    'View Your Receipt',
+                    'Get the receipt',
                     $receiptUrl,
                     $receiptCompany
                 );
@@ -620,7 +767,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
         $invoice['status']      = $newStatus;
         $invoice['balance_due'] = $newBalance;
-        $message     = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
+        $invoice['amount_paid'] = (float)$invoice['amount_paid'] + $appliedAmount;
+        $message     = "Payment of " . formatCurrency($appliedAmount) . " recorded successfully.";
         $messageType = 'success';
         end_mark_paid:
     }
@@ -628,11 +776,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
 $csrfToken = generateCSRFToken();
 
+// Refund button: admin, paid through Stripe, and migration 1380 has run (amount_refunded exists).
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRefundService.php';
+$refundableAmount = 0.0;
+if (isAdmin() && Tenant::takesCards()
+    && ($invoice['payment_method'] ?? '') === 'stripe'
+    && !empty($invoice['stripe_payment_intent_id'])
+    && array_key_exists('amount_refunded', $invoice)) {
+    $refundableAmount = InvoiceRefundService::refundable((float) $invoice['amount_paid'], (float) $invoice['amount_refunded']);
+}
+
+// Refunds issued on this invoice (shown under the totals and in the activity timeline).
+$refundRows = [];
+if (array_key_exists('amount_refunded', $invoice)) {
+    try {
+        $rfStmt = $db->prepare("
+            SELECT r.amount, r.reason, r.created_at, u.full_name
+            FROM invoice_refunds r
+            LEFT JOIN users u ON u.id = r.created_by
+            WHERE r.invoice_id = ? AND r.status = 'succeeded'
+            ORDER BY r.created_at ASC, r.id ASC
+        ");
+        $rfStmt->execute([$invoiceId]);
+        $refundRows = $rfStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log('invoice refunds lookup failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+    }
+}
+
+// Likely bank-deposit matches for this invoice (same inline reconciliation as the
+// Invoices list and contact view). Only for payable invoices with a balance.
+$invoiceMatches = [];
+if (in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue'], true)
+    && (float)$invoice['balance_due'] > 0.005 && userHasPermission('billing.edit')) {
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+        $invoiceMatches = (new InvoiceReconciliationService($db))->candidatesForInvoice((int)$invoiceId);
+    } catch (Throwable $e) {
+        error_log('[invoices/view] candidate match error: ' . $e->getMessage());
+        $invoiceMatches = [];
+    }
+}
+
+// Client prepaid credit available for this invoice's resolved client, if any.
+$invoiceCreditBalance = 0.0;
+if (!in_array($invoice['status'], ['paid', 'cancelled'], true)) {
+    require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+    $invoiceCreditBalance = (new ClientCreditService($db))->getBalanceForInvoiceClient($invoiceId)['balance'];
+}
+
 // Check for success messages
 if (!$message && isset($_GET['created'])) {
     $message = 'Invoice created successfully!';
     $messageType = 'success';
 }
+if (!$message && ($_GET['flash'] ?? '') === 'moved') {
+    $message = 'Invoice moved. If it was already sent, resend it so the client gets the corrected copy.';
+    $messageType = 'success';
+}
+$invoiceMovable = round((float)($invoice['amount_paid'] ?? 0), 2) <= 0
+    && in_array($invoice['status'], ['draft', 'sent', 'viewed', 'overdue'], true);
 if (!$message && isset($_GET['pdf_generated'])) {
     $message = 'PDF generated successfully.';
     $messageType = 'success';
@@ -680,6 +883,10 @@ $extraHead = $isPayable
                   </button>
 
                   <!-- PDF Actions -->
+                  <button type="button" class="btn btn-outline-secondary" id="mw-pdf-preview-toggle"
+                          onclick="mwTogglePdfPreview()" title="Toggle inline PDF preview">
+                      <i data-feather="eye-off" class="mr-1"></i> Hide Preview
+                  </button>
                   <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=download"
                      class="btn btn-outline-secondary" title="Download PDF">
                       <i data-feather="download" class="mr-1"></i> PDF
@@ -743,12 +950,80 @@ $extraHead = $isPayable
                       <button type="button" class="btn btn-success" onclick="openPaymentModal()">
                           <i data-feather="check-circle" class="mr-1"></i> Record Payment
                       </button>
+                      <?php if ($invoiceCreditBalance > 0 && userHasPermission('billing.edit')): ?>
+                          <form method="POST" class="d-inline"
+                                onsubmit="return confirm('Apply up to <?php echo h(formatCurrency(min($invoiceCreditBalance, (float)$invoice['balance_due']))); ?> from this client\'s prepaid credit to this invoice?');">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <input type="hidden" name="action" value="apply_client_credit">
+                              <button type="submit" class="btn btn-outline-success" title="Available client credit: <?php echo h(formatCurrency($invoiceCreditBalance)); ?>">
+                                  <i data-feather="gift" class="mr-1"></i> Apply Client Credit (<?php echo h(formatCurrency($invoiceCreditBalance)); ?> available)
+                              </button>
+                          </form>
+                      <?php endif; ?>
                   <?php endif; ?>
               </div>
           </div>
 
           <div class="mw-content-grid">
               <div>
+                  <?php if (!empty($invoiceMatches)): $invBalance = (float)$invoice['balance_due']; ?>
+                  <!-- Likely bank-deposit matches (inline reconciliation) -->
+                  <div class="card mw-match-card">
+                      <div class="mw-match-panel">
+                          <div class="mw-match-panel-head">
+                              <i data-feather="zap"></i>
+                              <span><?php echo count($invoiceMatches); ?> likely bank deposit match<?php echo count($invoiceMatches) > 1 ? 'es' : ''; ?> for <strong><?php echo h($invoice['invoice_number']); ?></strong></span>
+                              <span class="mw-match-balance">Balance due <?php echo formatCurrency($invBalance); ?></span>
+                          </div>
+                          <?php foreach ($invoiceMatches as $m): ?>
+                          <div class="mw-match-item<?php echo !empty($m['mismatch']) ? ' mw-match-item--bad' : ''; ?>">
+                              <span class="mw-conf-badge mw-conf-<?php echo !empty($m['mismatch']) ? 'bad' : ($m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low')); ?>" title="Match confidence"><?php echo !empty($m['mismatch']) ? 'Mismatch' : (int)$m['confidence'] . '%'; ?></span>
+                              <div class="mw-match-info">
+                                  <div class="mw-match-desc"><?php echo h($m['description'] ?: 'Bank deposit'); ?></div>
+                                  <div class="mw-match-meta">
+                                      <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
+                                  </div>
+                                  <?php if (!empty($m['evidence'])): ?>
+                                      <div class="mw-ev-grid">
+                                          <?php foreach ($m['evidence'] as $ev): ?>
+                                              <div class="mw-ev mw-ev--<?php echo $ev['state'] === 'bad' ? 'bad' : 'ok'; ?><?php echo !empty($ev['strong']) ? ' mw-ev--strong' : ''; ?>">
+                                                  <i data-feather="<?php echo !empty($ev['strong']) ? ($ev['state'] === 'bad' ? 'mail' : 'mail') : ($ev['state'] === 'bad' ? 'x' : 'check'); ?>"></i>
+                                                  <div>
+                                                      <span class="mw-ev-label"><?php echo h($ev['label']); ?></span>
+                                                      <?php if (!empty($ev['detail'])): ?><small class="mw-ev-detail"><?php echo h($ev['detail']); ?></small><?php endif; ?>
+                                                  </div>
+                                              </div>
+                                          <?php endforeach; ?>
+                                      </div>
+                                  <?php endif; ?>
+                                  <?php if (!empty($m['covers_more'])): ?>
+                                      <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
+                                  <?php endif; ?>
+                                  <?php if (!empty($m['likely_recorded'])): ?>
+                                    <div class="mw-match-note">⚠ Possibly already recorded — this amount exactly matches e-Transfer payment<?php echo count($m['likely_recorded']['invoice_numbers']) > 1 ? 's' : ''; ?> recorded on <?php echo formatDate($m['likely_recorded']['pay_date']); ?> against <?php echo h(implode(', ', $m['likely_recorded']['invoice_numbers'])); ?>. If so, mark it recorded instead of attaching it again.</div>
+                                  <?php endif; ?>
+                              </div>
+                              <div class="mw-match-apply">
+                                  <div class="mw-match-amount-field">
+                                      <span>$</span>
+                                      <input type="number" step="0.01" min="0.01" class="mw-match-amount"
+                                             value="<?php echo number_format($m['suggested_amount'], 2, '.', ''); ?>"
+                                             data-balance="<?php echo number_format($invBalance, 2, '.', ''); ?>"
+                                             data-remaining="<?php echo number_format($m['amount'], 2, '.', ''); ?>">
+                                  </div>
+                                  <button type="button" class="mw-action-btn mw-action-btn-paid"<?php echo !empty($m['mismatch']) ? ' data-mismatch="1"' : ''; ?>
+                                          onclick="mwAttachDeposit(this, <?php echo (int)$invoiceId; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($invoice['invoice_number'])); ?>)">
+                                      <?php echo !empty($m['mismatch']) ? 'Attach anyway' : 'Attach'; ?>
+                                  </button>
+                                  <button type="button" class="mw-match-dismiss" title="This deposit's money was already recorded by hand — stop suggesting it"
+                                          onclick="mwMarkDepositRecorded(this, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($m['description'] ?: 'Bank deposit')); ?>)">Already recorded</button>
+                              </div>
+                          </div>
+                          <?php endforeach; ?>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+
                   <!-- Customer Info -->
                   <div class="card">
                       <div class="card-header">
@@ -758,11 +1033,18 @@ $extraHead = $isPayable
                           <?php
                               $contactFullName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
                               $displayCompany  = $invoice['company_name'] ?? '';
-                              // Priority: manual bill_to_name override →
-                              // company_name → contact full name.
-                              $billToHeading   = !empty($invoice['bill_to_name'])
-                                  ? $invoice['bill_to_name']
-                                  : ($displayCompany ?: $contactFullName);
+                              $billingEntity   = trim((string)($invoice['billing_entity_name'] ?? ''));
+                              // Priority (matches the PDF template):
+                              //   manual bill_to_name override
+                              //   → "{billing_entity} C/O {company}" (PM-managed strata)
+                              //   → company_name → contact full name.
+                              if (!empty($invoice['bill_to_name'])) {
+                                  $billToHeading = $invoice['bill_to_name'];
+                              } elseif ($billingEntity !== '' && $displayCompany !== '') {
+                                  $billToHeading = $billingEntity . ' C/O ' . $displayCompany;
+                              } else {
+                                  $billToHeading = $displayCompany ?: $contactFullName;
+                              }
                           ?>
                           <?php
                               $clientContactId = (int)($invoice['contact_id'] ?? 0);
@@ -886,7 +1168,7 @@ $extraHead = $isPayable
                                                           'cc' => 'CC',
                                                           'bcc' => 'BCC'
                                                       ];
-                                                      echo $roles[$recipient['contact_role']] ?? $recipient['contact_role'];
+                                                      echo $roles[$recipient['contact_role']] ?? htmlspecialchars($recipient['contact_role'], ENT_QUOTES, 'UTF-8');
                                                       ?>
                                                   </span>
                                               </td>
@@ -961,7 +1243,7 @@ $extraHead = $isPayable
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['subtotal']); ?></span>
                               </div>
                               <div class="mw-total-row">
-                                  <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)</span>
+                                  <span>GST (<?php echo round((isset($invoice['tax_rate']) ? $invoice['tax_rate'] : 0.05) * 100); ?>%)</span>
                                   <span class="mw-totals-value"><?php echo formatCurrency($invoice['tax_amount'] ?: 0); ?></span>
                               </div>
                               <div class="mw-total-row mw-grand">
@@ -970,9 +1252,31 @@ $extraHead = $isPayable
                               </div>
                               <?php if (floatval($invoice['amount_paid'] ?? 0) > 0): ?>
                                   <div class="mw-total-row">
-                                      <span>Paid</span>
+                                      <span>
+                                          Paid
+                                          <?php if (isAdmin()): ?>
+                                              <button type="button" class="mw-correct-payment-btn" onclick="openCorrectPaymentModal()" title="Correct this payment amount">Correct</button>
+                                              <?php if ($refundableAmount > 0): ?>
+                                                  <button type="button" class="mw-correct-payment-btn" onclick="openRefundModal()" title="Refund this payment to the customer's card">Refund</button>
+                                              <?php endif; ?>
+                                          <?php endif; ?>
+                                      </span>
                                       <span class="mw-totals-value" style="color: var(--mw-green);">-<?php echo formatCurrency($invoice['amount_paid']); ?></span>
                                   </div>
+                                  <?php if (floatval($invoice['amount_refunded'] ?? 0) > 0): ?>
+                                  <div class="mw-total-row">
+                                      <span>Refunded to customer
+                                          <?php foreach ($refundRows as $rf): ?>
+                                              <small style="display:block;color:#6b7280;font-weight:normal;">
+                                                  <?php echo htmlspecialchars(formatCurrency($rf['amount'])); ?>
+                                                  &middot; <?php echo htmlspecialchars(date('M j, Y', strtotime($rf['created_at']))); ?>
+                                                  &mdash; <?php echo htmlspecialchars($rf['reason']); ?>
+                                              </small>
+                                          <?php endforeach; ?>
+                                      </span>
+                                      <span class="mw-totals-value" style="color: #dc2626;"><?php echo formatCurrency($invoice['amount_refunded']); ?></span>
+                                  </div>
+                                  <?php endif; ?>
                                   <div class="mw-total-row mw-grand">
                                       <span>Balance Due</span>
                                       <span class="mw-totals-value" style="color: <?php echo floatval($invoice['balance_due']) > 0 ? '#dc2626' : 'var(--mw-green)'; ?>;">
@@ -991,7 +1295,7 @@ $extraHead = $isPayable
                               <h5 class="card-title mb-0">Notes</h5>
                           </div>
                           <div class="card-body">
-                              <p class="mb-0" style="white-space: pre-line;"><?php echo htmlspecialchars($invoice['notes']); ?></p>
+                              <p class="mb-0" style="white-space: pre-line;"><?php echo InvoiceNoteFormatter::html($invoice['notes'], false); ?></p>
                           </div>
                       </div>
                   <?php endif; ?>
@@ -1019,12 +1323,60 @@ $extraHead = $isPayable
                                       <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['payment_reference']); ?></span>
                                   </div>
                               <?php endif; ?>
+                              <?php
+                              // Bank deposits this invoice was paid from — detach one that was attached to the wrong invoice.
+                              $bankAllocs = [];
+                              if (userHasPermission('billing.edit')) {
+                                  try {
+                                      $baStmt = $db->prepare("
+                                          SELECT a.transaction_id, a.amount, t.transaction_date, t.amount AS deposit_amount
+                                          FROM invoice_payment_allocations a
+                                          JOIN accounting_transactions t ON t.id = a.transaction_id
+                                          WHERE a.invoice_id = ? AND a.transaction_id IS NOT NULL
+                                          ORDER BY a.id");
+                                      $baStmt->execute([(int)$invoiceId]);
+                                      $bankAllocs = $baStmt->fetchAll(PDO::FETCH_ASSOC);
+                                  } catch (Throwable $e) {
+                                      error_log('invoice view bank allocations: ' . $e->getMessage());
+                                  }
+                              }
+                              ?>
+                              <?php foreach ($bankAllocs as $ba): ?>
+                                  <div class="mw-detail-row">
+                                      <span class="mw-detail-label">Bank deposit</span>
+                                      <span class="mw-detail-value">
+                                          <?php echo h(formatDate($ba['transaction_date'])); ?> &middot; $<?php echo number_format((float)$ba['deposit_amount'], 2); ?>
+                                          (this invoice: $<?php echo number_format((float)$ba['amount'], 2); ?>)
+                                          <button type="button" class="btn btn-sm btn-outline-danger ml-2 mw-detach-deposit-btn"
+                                                  data-tx="<?php echo (int)$ba['transaction_id']; ?>"
+                                                  data-amount="<?php echo h(number_format((float)$ba['amount'], 2)); ?>"
+                                                  title="Take this deposit off this invoice. The invoice goes back to unpaid; the deposit stays on the bank line.">Detach</button>
+                                      </span>
+                                  </div>
+                              <?php endforeach; ?>
                           </div>
                       </div>
                   <?php endif; ?>
               </div>
 
               <div>
+                  <!-- Inline PDF Preview (shown by default; toggle to hide) -->
+                  <div class="card mb-3" id="mw-pdf-preview-card">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="card-title mb-0">PDF Preview</h5>
+                          <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view"
+                             target="_blank" rel="noopener" class="mw-pdf-fullview-link" title="Open full-size PDF in a new tab">
+                              View Full PDF <i data-feather="external-link" style="width:14px;height:14px;"></i>
+                          </a>
+                      </div>
+                      <div class="card-body p-0">
+                          <iframe id="mw-pdf-preview-frame"
+                                  src="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view"
+                                  title="Invoice PDF preview"
+                                  style="width:100%; height:420px; border:0; display:block;"></iframe>
+                      </div>
+                  </div>
+
                   <!-- Invoice Details -->
                   <div class="card">
                       <div class="card-header">
@@ -1078,6 +1430,16 @@ $extraHead = $isPayable
                                               - <?php echo htmlspecialchars($invoice['plan_title']); ?>
                                           <?php endif; ?>
                                       </a>
+                                      <?php if ($invoiceMovable): ?>
+                                          <button type="button" class="btn btn-sm btn-outline-secondary mw-move-btn" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
+                                      <?php endif; ?>
+                                  </span>
+                              </div>
+                          <?php elseif ($invoiceMovable): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Linked Plan</span>
+                                  <span class="mw-detail-value">
+                                      <button type="button" class="btn btn-sm btn-outline-secondary" data-mw-invoice-move="<?php echo (int)$invoiceId; ?>">Move to another job</button>
                                   </span>
                               </div>
                           <?php endif; ?>
@@ -1091,16 +1453,98 @@ $extraHead = $isPayable
                                   </span>
                               </div>
                           <?php endif; ?>
+                          <?php $crewTimeVisitId = (int)($invoice['visit_id'] ?? 0); $crewTimeClass = 'mt-3 mb-0'; include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
                       </div>
                   </div>
 
-                  <!-- Engagement Tracking -->
-                  <?php if ($invoice['status'] !== 'draft'): ?>
+                  <!-- Engagement & Activity (merged) -->
+                  <?php
+                  // ── Build one unified, newest-first event feed ──────────────────
+                  // Lifecycle events come from the invoices columns (reliable dots +
+                  // timestamps); the actor for each is resolved from activity_log
+                  // (which is the only place that records *who*). Any activity_log
+                  // row that isn't a lifecycle event (edits, cancels, manual notes)
+                  // is appended so nothing is lost.
+                  $findActor = function (array $match, array $exclude = []) use ($activities) {
+                      foreach ($activities as $a) {
+                          $act = $a['action'] ?? '';
+                          foreach ($exclude as $x) { if (stripos($act, $x) !== false) { continue 2; } }
+                          foreach ($match as $m) {
+                              if (stripos($act, $m) !== false) {
+                                  return $a['full_name'] ?: 'System';
+                              }
+                          }
+                      }
+                      return null;
+                  };
+
+                  $feed = [];
+                  $addEvent = function ($ts, $label, $actor, $dot) use (&$feed) {
+                      if (empty($ts)) { return; }
+                      $feed[] = [
+                          'ts'    => strtotime($ts),
+                          'label' => $label,
+                          'actor' => $actor ?: 'System',
+                          'dot'   => $dot,
+                      ];
+                  };
+
+                  $addEvent($invoice['created_at'] ?? null, 'Invoice created',
+                            $findActor(['created']) ?? ($invoice['created_by_name'] ?? null), 'mw-dot-created');
+                  $addEvent($invoice['sent_at'] ?? null, 'Sent to customer',
+                            $findActor(['sent'], ['resent']), 'mw-dot-sent');
+                  $addEvent($invoice['email_opened_at'] ?? null, 'Email opened', 'Customer', 'mw-dot-opened');
+                  if (!empty($invoice['viewed_at'])) {
+                      $vc = (int)($invoice['view_count'] ?? 0);
+                      $addEvent($invoice['last_viewed_at'] ?: $invoice['viewed_at'],
+                                'Viewed in portal' . ($vc > 1 ? ' (' . $vc . ' times)' : ''),
+                                'Customer', 'mw-dot-viewed');
+                  }
+                  if ((int)($invoice['resend_count'] ?? 0) > 0 && !empty($invoice['last_resent_at'])) {
+                      $rc = (int)$invoice['resend_count'];
+                      $addEvent($invoice['last_resent_at'], 'Resent by crew (' . $rc . ' time' . ($rc == 1 ? '' : 's') . ')',
+                                $findActor(['resent']), 'mw-dot-sent');
+                  }
+                  if (!empty($invoice['last_reminder_sent_at'])) {
+                      $addEvent($invoice['last_reminder_sent_at'],
+                                'Auto-reminder sent (' . (int)$invoice['reminder_count'] . ' total)',
+                                'System', 'mw-dot-reminder');
+                  }
+                  $addEvent($invoice['paid_at'] ?? null, 'Payment received',
+                            $findActor(['payment', 'paid'], ['refund']), 'mw-dot-paid');
+                  // Refunds come from invoice_refunds (amount, reason, who, when) — their activity_log
+                  // rows say "Payment refunded", which the lifecycle filter below would swallow.
+                  foreach ($refundRows as $rf) {
+                      $addEvent($rf['created_at'],
+                                'Refunded ' . formatCurrency($rf['amount']) . ' — ' . $rf['reason'],
+                                $rf['full_name'] ?: 'System', 'mw-dot-paid');
+                  }
+
+                  // Append non-lifecycle activity_log rows (edits, cancels, notes…).
+                  $lifecycleKeywords = ['created', 'sent', 'opened', 'viewed', 'reminder', 'paid', 'payment'];
+                  foreach ($activities as $a) {
+                      $act = $a['action'] ?? '';
+                      $isLifecycle = false;
+                      foreach ($lifecycleKeywords as $kw) { if (stripos($act, $kw) !== false) { $isLifecycle = true; break; } }
+                      if ($isLifecycle) { continue; }
+                      $feed[] = [
+                          'ts'    => strtotime($a['created_at']),
+                          'label' => $act,
+                          'actor' => $a['full_name'] ?: 'System',
+                          'dot'   => 'mw-dot-created',
+                      ];
+                  }
+
+                  // Newest first.
+                  usort($feed, function ($x, $y) { return $y['ts'] <=> $x['ts']; });
+                  $isDraft = ($invoice['status'] === 'draft');
+                  ?>
                   <div class="card">
                       <div class="card-header">
-                          <h5 class="card-title mb-0"><i data-feather="activity" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i> Engagement</h5>
+                          <h5 class="card-title mb-0"><i data-feather="activity" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i> Engagement &amp; activity</h5>
                       </div>
                       <div class="card-body">
+                          <?php if (!$isDraft): ?>
                           <div class="mw-tracking-stats">
                               <div class="mw-tracking-stat">
                                   <div class="mw-tracking-stat-value"><?php echo (int)($invoice['view_count'] ?? 0); ?></div>
@@ -1125,110 +1569,22 @@ $extraHead = $isPayable
                                   <div class="mw-tracking-stat-label">Reminders</div>
                               </div>
                           </div>
+                          <?php endif; ?>
 
+                          <?php if (!empty($feed)): ?>
                           <div class="mw-tracking-timeline">
-                              <?php if (!empty($invoice['created_at'])): ?>
+                              <?php foreach ($feed as $ev): ?>
                               <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-created"></div>
+                                  <div class="mw-timeline-dot <?php echo $ev['dot']; ?>"></div>
                                   <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Invoice created</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['created_at'], 'M j, Y g:i A'); ?></div>
+                                      <div class="mw-timeline-label"><?php echo htmlspecialchars($ev['label']); ?></div>
+                                      <div class="mw-timeline-time"><?php echo htmlspecialchars($ev['actor']); ?> &middot; <?php echo formatDateTime(date('Y-m-d H:i:s', $ev['ts']), 'M j, Y g:i A'); ?></div>
                                   </div>
                               </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['sent_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-sent"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Sent to customer</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['sent_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['email_opened_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-opened"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Email opened</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['email_opened_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['viewed_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-viewed"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Viewed in portal<?php echo ((int)($invoice['view_count'] ?? 0)) > 1 ? ' (' . $invoice['view_count'] . ' times)' : ''; ?></div>
-                                      <div class="mw-timeline-time">
-                                          First: <?php echo formatDateTime($invoice['viewed_at'], 'M j, Y g:i A'); ?>
-                                          <?php if (!empty($invoice['last_viewed_at']) && $invoice['last_viewed_at'] !== $invoice['viewed_at']): ?>
-                                              <br>Last: <?php echo formatDateTime($invoice['last_viewed_at'], 'M j, Y g:i A'); ?>
-                                          <?php endif; ?>
-                                      </div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if ((int)($invoice['resend_count'] ?? 0) > 0 && !empty($invoice['last_resent_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-sent"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">
-                                          Resent by crew
-                                          (<?php echo (int)$invoice['resend_count']; ?> time<?php echo $invoice['resend_count'] == 1 ? '' : 's'; ?>)
-                                      </div>
-                                      <div class="mw-timeline-time">Last: <?php echo formatDateTime($invoice['last_resent_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['last_reminder_sent_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-reminder"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Auto-reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['last_reminder_sent_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['paid_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-paid"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Payment received</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['paid_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
+                              <?php endforeach; ?>
                           </div>
-                      </div>
-                  </div>
-                  <?php endif; ?>
-
-                  <!-- Activity -->
-                  <div class="card">
-                      <div class="card-header">
-                          <h5 class="card-title mb-0">Activity</h5>
-                      </div>
-                      <div class="card-body">
-                          <?php if (empty($activities)): ?>
-                              <p class="text-muted mb-0" style="font-size: 14px;">No activity recorded yet.</p>
                           <?php else: ?>
-                              <ul class="mw-activity-list">
-                                  <?php foreach ($activities as $activity): ?>
-                                      <li class="mw-activity-item">
-                                          <div><?php echo htmlspecialchars($activity['action']); ?></div>
-                                          <div class="mw-activity-time">
-                                              <?php echo htmlspecialchars($activity['full_name'] ?? 'System'); ?> -
-                                              <?php echo formatDateTime($activity['created_at']); ?>
-                                          </div>
-                                      </li>
-                                  <?php endforeach; ?>
-                              </ul>
+                          <p class="text-muted mb-0" style="font-size: 14px;">No activity recorded yet.</p>
                           <?php endif; ?>
                       </div>
                   </div>
@@ -1331,7 +1687,12 @@ $extraHead = $isPayable
                               <div class="mw-pm-field">
                                   <label for="vm-pay-date">Payment Date</label>
                                   <div class="mw-pm-input-wrap">
-                                      <input type="date" id="vm-pay-date" name="payment_date"
+                                      <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#vm-pay-date" aria-haspopup="true" aria-expanded="false">
+                                          <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                          <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                          <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                      </button>
+                                      <input type="date" id="vm-pay-date" name="payment_date" hidden
                                              value="<?php echo date('Y-m-d'); ?>">
                                   </div>
                               </div>
@@ -1417,6 +1778,75 @@ $extraHead = $isPayable
           </div>
 
           <script>
+          // ── Detach a bank deposit from this invoice (existing reconciliation API) ──
+          document.addEventListener('DOMContentLoaded', function () {
+          document.querySelectorAll('.mw-detach-deposit-btn').forEach(function (btn) {
+              btn.addEventListener('click', function () {
+                  if (!confirm('Detach $' + btn.dataset.amount + ' from <?php echo h($invoice['invoice_number']); ?>? The invoice goes back to unpaid and its income entry is removed. The bank deposit stays and can be attached to another invoice.')) return;
+                  btn.disabled = true;
+                  fetch('/crm/api/accounting-reconciliation.php', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                      body: JSON.stringify({ action: 'detach', transaction_id: parseInt(btn.dataset.tx, 10), invoice_id: <?php echo (int)$invoiceId; ?>, csrf_token: <?php echo json_encode($csrfToken); ?> })
+                  })
+                  .then(function (r) { return r.json(); })
+                  .then(function (d) {
+                      if (d.ok) { window.location.reload(); }
+                      else { btn.disabled = false; alert('Could not detach: ' + (d.error || 'unknown error')); }
+                  })
+                  .catch(function () { btn.disabled = false; alert('Could not detach: network error.'); });
+              });
+          });
+          });
+          </script>
+
+          <script>
+          // ── Inline bank-deposit matching (shared with /crm/invoices/index.php) ──
+          (function () {
+              var CSRF = <?php echo json_encode($csrfToken); ?>;
+              function money(n) { return '$' + parseFloat(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+              function post(body, btn, origLabel, okMsg) {
+                  fetch('/crm/api/accounting-reconciliation.php', {
+                      method : 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                      body   : JSON.stringify(Object.assign({ csrf_token: CSRF }, body))
+                  })
+                  .then(function (r) { return r.json(); })
+                  .then(function (data) {
+                      if (data.ok) {
+                          mwToast(typeof okMsg === 'function' ? okMsg(data) : okMsg, 'success');
+                          setTimeout(function () { window.location.reload(); }, 1000);
+                      } else {
+                          btn.disabled = false; btn.textContent = origLabel;
+                          mwToast(data.error || 'Request failed.', 'error');
+                      }
+                  })
+                  .catch(function () {
+                      btn.disabled = false; btn.textContent = origLabel;
+                      mwToast('Network error — please try again.', 'error');
+                  });
+              }
+              window.mwAttachDeposit = function (btn, invoiceId, txId, invNum) {
+                  var input     = btn.closest('.mw-match-item').querySelector('.mw-match-amount');
+                  var amount    = parseFloat(input.value);
+                  var balance   = parseFloat(input.dataset.balance);
+                  var remaining = parseFloat(input.dataset.remaining);
+                  if (!(amount > 0)) { mwToast('Enter a valid amount.', 'error'); return; }
+                  if (btn.dataset.mismatch === '1' && !confirm('The Yardi remittance for this deposit names a different invoice. Attach it to ' + invNum + ' anyway?')) return;
+                  if (amount > remaining + 0.005) { mwToast('Amount exceeds the deposit (' + money(remaining) + ' available).', 'error'); return; }
+                  if (amount > balance + 0.005 && !confirm('That is more than the invoice balance (' + money(balance) + '). It will be capped to the balance. Continue?')) { return; }
+                  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Attaching…';
+                  post({ action: 'attach', transaction_id: txId, allocations: [{ invoice_id: invoiceId, amount: amount }] }, btn, orig, function (data) {
+                      var rec = (data.result && data.result.recorded && data.result.recorded[0]) || {};
+                      return invNum + ' — ' + (rec.fully_paid ? 'paid in full' : 'partial payment recorded') + '.';
+                  });
+              };
+              window.mwMarkDepositRecorded = function (btn, txId, desc) {
+                  if (!confirm('Mark this deposit as already recorded?\n\n' + desc + '\n\nIt will stop being suggested against invoices and be booked as a cash-clearing transfer (not income). You can reverse this later.')) { return; }
+                  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
+                  post({ action: 'mark_recorded', transaction_id: txId }, btn, orig, 'Deposit marked as already recorded.');
+              };
+          })();
           (function () {
               var balanceFull = <?php echo floatval($invoice['balance_due']); ?>;
               var modal       = document.getElementById('paymentModal');
@@ -1482,9 +1912,26 @@ $extraHead = $isPayable
           })();
           </script>
 
-<?php if ($isPayable): ?>
 <script>
 var _mwInvoicePortalUrl = <?php echo json_encode($invoicePortalUrl); ?>;
+function mwTogglePdfPreview() {
+    var card  = document.getElementById('mw-pdf-preview-card');
+    var frame = document.getElementById('mw-pdf-preview-frame');
+    var btn   = document.getElementById('mw-pdf-preview-toggle');
+    var open  = card.style.display !== 'none';
+    if (open) {
+        card.style.display = 'none';
+        btn.innerHTML = '<i data-feather="eye" class="mr-1"></i> Preview';
+    } else {
+        if (!frame.getAttribute('src')) {
+            frame.src = '../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view';
+        }
+        card.style.display = '';
+        btn.innerHTML = '<i data-feather="eye-off" class="mr-1"></i> Hide Preview';
+    }
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
 function mwCopyInvoiceLink(btn) {
     navigator.clipboard.writeText(_mwInvoicePortalUrl).then(function () {
         btn.innerHTML = '<i data-feather="check" class="mr-1"></i> Copied!';
@@ -1495,7 +1942,10 @@ function mwCopyInvoiceLink(btn) {
         }, 2000);
     });
 }
+</script>
 
+<?php if ($isPayable): ?>
+<script>
 (function () {
     'use strict';
 
@@ -1708,4 +2158,107 @@ document.getElementById('cancelModal').addEventListener('click', function(e) { i
 </script>
 <?php endif; ?>
 
+<!-- Correct Payment Modal -->
+<?php if (isAdmin() && floatval($invoice['amount_paid'] ?? 0) > 0): ?>
+<div id="correctPaymentModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="correctPaymentModalTitle">
+    <div class="mw-modal" style="max-width:480px;">
+        <div class="mw-modal-header">
+            <h5 class="mb-0" id="correctPaymentModalTitle">Correct Payment — <?php echo htmlspecialchars($invoice['invoice_number']); ?></h5>
+            <button type="button" class="mw-modal-close" onclick="closeCorrectPaymentModal()" aria-label="Close">&times;</button>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+            <input type="hidden" name="action" value="correct_payment">
+            <div class="mw-modal-body">
+                <div class="alert alert-warning" style="font-size:13px;margin-bottom:16px;">
+                    Fixes a mis-recorded payment amount (e.g. a data-entry slip). Only available for
+                    payments recorded directly on this invoice — not for payments reconciled against
+                    a bank deposit or e-Transfer, which are corrected via unmerge/detach instead.
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label">Currently recorded as paid</label>
+                    <div class="mw-totals-value" style="font-size:18px;"><?php echo formatCurrency($invoice['amount_paid']); ?></div>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="corrected_amount">Corrected amount <span style="color:#dc2626;">*</span></label>
+                    <input type="number" step="0.01" min="0" id="corrected_amount" name="corrected_amount" class="form-control"
+                           value="<?php echo number_format((float) $invoice['amount_paid'], 2, '.', ''); ?>" required>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="correction_reason">Reason <span style="color:#dc2626;">*</span></label>
+                    <textarea id="correction_reason" name="correction_reason" class="form-control" rows="3"
+                              placeholder="e.g. Recorded as $756.32 by mistake — real payment was $378.16" required></textarea>
+                </div>
+            </div>
+            <div class="mw-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCorrectPaymentModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Correction</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openCorrectPaymentModal()  { document.getElementById('correctPaymentModal').style.display = 'flex'; document.getElementById('corrected_amount').focus(); }
+function closeCorrectPaymentModal() { document.getElementById('correctPaymentModal').style.display = 'none'; }
+document.getElementById('correctPaymentModal').addEventListener('click', function(e) { if (e.target === this) closeCorrectPaymentModal(); });
+</script>
+<?php endif; ?>
+
+<!-- Refund Modal -->
+<?php if ($refundableAmount > 0): ?>
+<div id="refundModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="refundModalTitle">
+    <div class="mw-modal" style="max-width:480px;">
+        <div class="mw-modal-header">
+            <h5 class="mb-0" id="refundModalTitle">Refund — <?php echo htmlspecialchars($invoice['invoice_number']); ?></h5>
+            <button type="button" class="mw-modal-close" onclick="closeRefundModal()" aria-label="Close">&times;</button>
+        </div>
+        <form method="POST" id="refundForm" onsubmit="return confirmRefund(this);">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+            <input type="hidden" name="action" value="refund_payment">
+            <div class="mw-modal-body">
+                <div class="alert alert-warning" style="font-size:13px;margin-bottom:16px;">
+                    Returns money to the customer's card through Stripe. This cannot be undone here.
+                    Stripe does not give back its processing fee. The invoice stays Paid.
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label">Available to refund</label>
+                    <div class="mw-totals-value" style="font-size:18px;"><?php echo formatCurrency($refundableAmount); ?></div>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="refund_amount">Refund amount <span style="color:#dc2626;">*</span></label>
+                    <input type="number" step="0.01" min="0.01" max="<?php echo number_format($refundableAmount, 2, '.', ''); ?>"
+                           id="refund_amount" name="refund_amount" class="form-control"
+                           value="<?php echo number_format($refundableAmount, 2, '.', ''); ?>" required>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="refund_reason">Reason <span style="color:#dc2626;">*</span></label>
+                    <textarea id="refund_reason" name="refund_reason" class="form-control" rows="3" maxlength="500"
+                              placeholder="e.g. Billed twice for the Sep 22 cut" required></textarea>
+                </div>
+            </div>
+            <div class="mw-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeRefundModal()">Cancel</button>
+                <button type="submit" class="btn btn-danger" id="refundSubmitBtn">Refund via Stripe</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openRefundModal()  { document.getElementById('refundModal').style.display = 'flex'; document.getElementById('refund_amount').focus(); }
+function closeRefundModal() { document.getElementById('refundModal').style.display = 'none'; }
+function confirmRefund(form) {
+    var amt = parseFloat(form.refund_amount.value || '0');
+    if (!(amt > 0)) return false;
+    if (!window.confirm('Refund $' + amt.toFixed(2) + ' to the customer\'s card through Stripe now?')) return false;
+    var btn = document.getElementById('refundSubmitBtn');
+    btn.disabled = true; btn.textContent = 'Refunding…';
+    return true;
+}
+document.getElementById('refundModal').addEventListener('click', function(e) { if (e.target === this) closeRefundModal(); });
+</script>
+<?php endif; ?>
+
+<?php if ($invoiceMovable): ?>
+<script src="/crm/js/mw-invoice-move.js?v=20261106a"></script>
+<?php endif; ?>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

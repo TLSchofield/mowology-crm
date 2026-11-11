@@ -31,6 +31,24 @@ declare(strict_types=1);
  */
 class BillToResolver
 {
+    /**
+     * The company an invoice is billed to, for every place an invoice header is shown — PDF
+     * (PdfGenerator), CRM view (invoices/view.php) and customer portal (customer/invoice.php).
+     * Until 2026-10-11 each had its own ladder; 23 of 368 invoices since Feb 2026 showed the
+     * company on the PDF but not in the view or portal. Use both together, on invoices aliased `i`:
+     *   SELECT … , <INVOICE_COMPANY_NAME> AS company_name … FROM invoices i <INVOICE_COMPANY_JOINS>
+     * Own aliases (bt_*) so they never collide with the caller's joins.
+     */
+    public const INVOICE_COMPANY_JOINS = "
+        LEFT JOIN companies  bt_c  ON bt_c.id  = i.company_id
+        LEFT JOIN contacts   bt_dc ON bt_dc.id = i.contact_id
+        LEFT JOIN properties bt_p  ON bt_p.id  = i.property_id
+        LEFT JOIN companies  bt_cb ON bt_cb.id = bt_p.billing_company_id
+        LEFT JOIN companies  bt_pm ON bt_pm.id = bt_p.property_manager_id
+        LEFT JOIN companies  bt_cp ON bt_cp.id = bt_p.company_id
+        LEFT JOIN companies  bt_cc ON bt_cc.id = bt_dc.company_id";
+    public const INVOICE_COMPANY_NAME = "COALESCE(bt_c.company_name, bt_cb.company_name, bt_pm.company_name, bt_cp.company_name, bt_cc.company_name)";
+
     public function __construct(private PDO $db) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -47,9 +65,10 @@ class BillToResolver
         $stmt = $this->db->prepare("
             SELECT jv.id AS visit_id, jv.plan_id, jv.scheduled_date,
                    jp.property_id,
-                   COALESCE(jp.company_id, cb.id, cc.id) AS company_id,
-                   COALESCE(c.company_name, cb.company_name, cc.company_name) AS company_name,
-                   COALESCE(c.company_type, cb.company_type, cc.company_type) AS company_type,
+                   COALESCE(jp.company_id, cc.id) AS company_id,
+                   COALESCE(c.company_name, cc.company_name) AS company_name,
+                   COALESCE(c.company_type, cc.company_type) AS company_type,
+                   mgr.company_name AS pm_firm_name,
                    NULLIF(p.billing_entity_name, '') AS property_billing_entity,
                    ctr.title AS contract_title,
                    p.address, p.city, p.province, p.postal_code,
@@ -62,11 +81,11 @@ class BillToResolver
             FROM job_visits jv
             JOIN job_plans jp ON jv.plan_id = jp.id
             LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
-            LEFT JOIN companies c  ON jp.company_id = c.id
-            LEFT JOIN properties p ON jp.property_id = p.id
-            LEFT JOIN companies cb ON p.billing_company_id = cb.id
-            LEFT JOIN contacts con ON p.site_contact_id = con.id
-            LEFT JOIN companies cc ON (cc.primary_contact_id = con.id OR cc.billing_contact_id = con.id)
+            LEFT JOIN companies c   ON jp.company_id = c.id
+            LEFT JOIN properties p  ON jp.property_id = p.id
+            LEFT JOIN companies mgr ON p.property_manager_id = mgr.id
+            LEFT JOIN contacts con  ON p.site_contact_id = con.id
+            LEFT JOIN companies cc  ON (cc.primary_contact_id = con.id OR cc.billing_contact_id = con.id)
             WHERE jv.id = ?
         ");
         $stmt->execute([$visitId]);
@@ -82,9 +101,10 @@ class BillToResolver
     {
         $stmt = $this->db->prepare("
             SELECT p.id AS property_id,
-                   COALESCE(cb.id, cc.id) AS company_id,
-                   COALESCE(cb.company_name, cc.company_name) AS company_name,
-                   COALESCE(cb.company_type, cc.company_type) AS company_type,
+                   cc.id AS company_id,
+                   cc.company_name AS company_name,
+                   cc.company_type AS company_type,
+                   mgr.company_name AS pm_firm_name,
                    NULLIF(p.billing_entity_name, '') AS property_billing_entity,
                    NULL AS contract_title,
                    p.address, p.city, p.province, p.postal_code,
@@ -95,9 +115,9 @@ class BillToResolver
                    con.mobile AS contact_mobile,
                    con.receive_sms AS contact_receive_sms
             FROM properties p
-            LEFT JOIN companies cb ON p.billing_company_id = cb.id
-            LEFT JOIN contacts con ON p.site_contact_id = con.id
-            LEFT JOIN companies cc ON (cc.primary_contact_id = con.id OR cc.billing_contact_id = con.id)
+            LEFT JOIN companies mgr ON p.property_manager_id = mgr.id
+            LEFT JOIN contacts con  ON p.site_contact_id = con.id
+            LEFT JOIN companies cc  ON (cc.primary_contact_id = con.id OR cc.billing_contact_id = con.id)
             WHERE p.id = ?
         ");
         $stmt->execute([$propertyId]);
@@ -113,24 +133,32 @@ class BillToResolver
     /**
      * Compose the invoice header bill-to name from a resolved row.
      *
-     * Precedence (matches create.php):
-     *   property billing entity → contract title (when a company is present)
+     * Precedence:
+     *   property billing entity → contract title (when a company/pm firm is present)
      *   → company name → contact name.
-     * When both an entity and a company exist, render "Entity C/O Company".
+     *
+     * When both an entity and a management context exist, renders:
+     *   "Entity C/O PM Firm"  (PM firm takes precedence over generic company)
+     *   "Entity C/O Company"  (fallback when no PM firm)
+     *
+     * Accepts keys: property_billing_entity, pm_firm_name, company_name,
+     *               contract_title, contact_first, contact_last.
      */
     public function composeBillToName(array $row): ?string
     {
-        $entity       = $this->nz($row['property_billing_entity'] ?? null);
-        $contractTitle= trim((string)($row['contract_title'] ?? ''));
-        $company      = $this->nz($row['company_name'] ?? null);
-        $contactName  = trim(($row['contact_first'] ?? '') . ' ' . ($row['contact_last'] ?? ''));
-        $contactName  = $contactName !== '' ? $contactName : null;
+        $entity        = $this->nz($row['property_billing_entity'] ?? null);
+        $contractTitle = trim((string)($row['contract_title'] ?? ''));
+        $pmFirm        = $this->nz($row['pm_firm_name'] ?? null);
+        $company       = $this->nz($row['company_name'] ?? null);
+        $contactName   = trim(($row['contact_first'] ?? '') . ' ' . ($row['contact_last'] ?? ''));
+        $contactName   = $contactName !== '' ? $contactName : null;
 
-        // contract title only acts as the entity when there IS a company
-        $entity = $entity ?: ($company ? ($contractTitle ?: null) : null);
+        // Contract title only acts as the entity when there IS a management context
+        $managedBy = $pmFirm ?: $company;
+        $entity    = $entity ?: ($managedBy ? ($contractTitle ?: null) : null);
 
-        if ($entity && $company) {
-            return $entity . ' C/O ' . $company;
+        if ($entity && $managedBy) {
+            return $entity . ' C/O ' . $managedBy;
         }
         if ($entity)  { return $entity; }
         if ($company) { return $company; }

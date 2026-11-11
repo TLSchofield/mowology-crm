@@ -16,6 +16,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 requirePermission('clients.view');
 session_write_close();
@@ -44,13 +45,13 @@ header('Content-Disposition: attachment; filename="contacts-' . date('Y-m-d') . 
 $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM
 
-fputcsv($out, ['ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Mobile',
+csvPut($out, ['ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Mobile',
                'Preferred Contact', 'Lifecycle Stage', 'Status',
                'SMS Consent', 'Marketing Consent', 'Notes', 'Created',
                'Properties', 'Quotes', 'Plans']);
 
 foreach ($rows as $r) {
-    fputcsv($out, [
+    csvPut($out, [
         $r['id'], $r['first_name'], $r['last_name'], $r['email'], $r['phone'], $r['mobile'],
         $r['preferred_contact_method'], $r['lifecycle_stage'], $r['prospect_status'],
         $r['receive_sms'] ? 'Yes' : 'No', $r['receive_marketing'] ? 'Yes' : 'No',

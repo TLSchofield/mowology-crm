@@ -60,6 +60,21 @@ function generateContractNumber() {
 }
 
 /**
+ * Sam's pipeline stage hook: recompute everyone a contract / quote / invoice / job_plan /
+ * contact touches. Fire-and-forget — never throws, never blocks the caller.
+ */
+if (!function_exists('pipelineStageEvent')) {
+    function pipelineStageEvent(string $entity, int $id): void {
+        try {
+            require_once dirname(__DIR__) . '/Modules/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent(getDB(), $entity, $id);
+        } catch (Throwable $e) {
+            error_log("[pipeline] {$entity}#{$id}: " . $e->getMessage());
+        }
+    }
+}
+
+/**
  * Create a new contract.
  * Returns ['success', 'contract_id', 'contract_number', 'errors']
  */
@@ -75,12 +90,18 @@ function createContract(array $data, int $userId): array {
     $db = getDB();
     try {
         $contractNumber = generateContractNumber();
+        // Every new contract carries a renewal increase (Tim: contracts rise 5% each
+        // March/April); the form passes one, other callers get the default.
+        require_once dirname(__DIR__) . '/Modules/Contracts/Services/ContractService.php';
+        $renewalPct = (isset($data['renewal_increase_pct']) && $data['renewal_increase_pct'] !== '' && is_numeric($data['renewal_increase_pct']))
+            ? ContractService::clampRenewalIncreasePct((float)$data['renewal_increase_pct'])
+            : ContractService::defaultRenewalIncreasePct($db);
         $stmt = $db->prepare("
             INSERT INTO contracts
                 (contract_number, property_id, contact_id, quote_id, title,
                  status, billing_cycle, billing_amount, invoice_timing, start_date, end_date,
-                 renewal_date, notes, created_by)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
+                 renewal_date, renewal_increase_pct, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $allowedTimings = ['after_visit', 'end_of_month', 'upfront'];
         $invoiceTiming = in_array($data['invoice_timing'] ?? '', $allowedTimings, true) ? $data['invoice_timing'] : 'after_visit';
@@ -96,10 +117,41 @@ function createContract(array $data, int $userId): array {
             $data['start_date'],
             !empty($data['end_date']) ? $data['end_date'] : null,
             !empty($data['renewal_date']) ? $data['renewal_date'] : null,
+            $renewalPct,
             !empty($data['notes']) ? trim($data['notes']) : null,
             $userId,
         ]);
         $contractId = (int)$db->lastInsertId();
+
+        // Terms template + seasonal guard are written separately so this insert
+        // keeps working on an environment where migration 1119 hasn't run yet.
+        // A snow contract that silently auto-renews into April is a billing
+        // problem nobody notices until the invoice goes out, so the guard is
+        // applied in data here rather than trusted to whoever fills the form.
+        if (!empty($data['terms_template_id']) || isset($data['auto_renew'])) {
+            try {
+                $sets   = [];
+                $params = [];
+                if (!empty($data['terms_template_id']) && $db->query("SHOW COLUMNS FROM contracts LIKE 'terms_template_id'")->fetch()) {
+                    $sets[]   = 'terms_template_id = ?';
+                    $params[] = (int)$data['terms_template_id'];
+                }
+                if (isset($data['auto_renew'])) {
+                    $sets[]   = 'auto_renew = ?';
+                    $params[] = !empty($data['auto_renew']) ? 1 : 0;
+                }
+                if ($sets) {
+                    $params[] = $contractId;
+                    $db->prepare("UPDATE contracts SET " . implode(', ', $sets) . " WHERE id = ?")
+                       ->execute($params);
+                }
+            } catch (PDOException $e) {
+                error_log('createContract terms/renew not applied: ' . $e->getMessage());
+            }
+        }
+
+        pipelineStageEvent('contract', $contractId);
+
         return ['success' => true, 'contract_id' => $contractId, 'contract_number' => $contractNumber, 'errors' => []];
     } catch (PDOException $e) {
         error_log('createContract error: ' . $e->getMessage());
@@ -176,6 +228,32 @@ function recalcContractPlanPrices(int $contractId, float $billingAmount, string 
 }
 
 /**
+ * Keep job_plans.pricing_model in sync with its contract's billing_cycle.
+ * Without this, a plan created (or backfilled) while pricing_model was still
+ * the 'per_visit' default silently stays 'per_visit' after the contract is
+ * switched to monthly/seasonal billing — which makes the crew app treat a
+ * contract-billed visit as a per-visit job and pop the invoice sheet on
+ * completion. Mirrors the mapping in migration 1104; only touches plans
+ * still at the 'per_visit' default so an intentional custom override isn't
+ * clobbered.
+ */
+function syncContractPlanPricingModel(int $contractId, string $billingCycle): void {
+    if ($billingCycle === 'per_visit') {
+        return;
+    }
+    $model = match ($billingCycle) {
+        'monthly'  => 'monthly_flat',
+        'seasonal' => 'seasonal',
+        default    => 'custom',
+    };
+    getDB()->prepare("
+        UPDATE job_plans
+        SET pricing_model = ?, updated_at = NOW()
+        WHERE contract_id = ? AND pricing_model = 'per_visit'
+    ")->execute([$model, $contractId]);
+}
+
+/**
  * Update an existing contract's editable fields.
  * Also recalculates linked plan prices if billing_amount changes.
  *
@@ -207,7 +285,25 @@ function updateContract(int $contractId, array $data, int $userId): array {
     $newContactId = !empty($data['contact_id']) ? (int)$data['contact_id'] : null;
 
     $db = getDB();
+    $ownTx = !$db->inTransaction();
     try {
+        if ($ownTx) $db->beginTransaction();
+
+        // A signed contract keeps what the client signed as a version before it changes.
+        require_once dirname(__DIR__) . '/Modules/Contracts/Services/ContractService.php';
+        (new ContractService($db))->snapshotSignedBeforeEdit($contractId, [
+            'title'                => $data['title'] ?? null,
+            'billing_cycle'        => $data['billing_cycle'],
+            'billing_amount'       => $billingAmount,
+            'start_date'           => $data['start_date'],
+            'end_date'             => !empty($data['end_date']) ? $data['end_date'] : null,
+            'renewal_date'         => !empty($data['renewal_date']) ? $data['renewal_date'] : null,
+            'auto_renew'           => !empty($data['auto_renew']) ? 1 : 0,
+            'renewal_increase_pct' => isset($data['renewal_increase_pct']) ? (float)$data['renewal_increase_pct'] : 0.00,
+            'notes'                => $data['notes'] ?? null,
+            'contact_id'           => $newContactId,
+        ], $userId);
+
         $contactClause = $newContactId ? 'contact_id = ?,' : '';
         $sql = "
             UPDATE contracts
@@ -249,6 +345,10 @@ function updateContract(int $contractId, array $data, int $userId): array {
             recalcContractPlanPrices($contractId, $billingAmount, $data['billing_cycle']);
         }
 
+        syncContractPlanPricingModel($contractId, $data['billing_cycle']);
+
+        if ($ownTx) $db->commit();
+
         logActivityExtended(
             $userId,
             'contract_updated',
@@ -259,7 +359,8 @@ function updateContract(int $contractId, array $data, int $userId): array {
         );
 
         return ['success' => true, 'errors' => []];
-    } catch (PDOException $e) {
+    } catch (Throwable $e) {
+        if ($ownTx && $db->inTransaction()) $db->rollBack();
         error_log('updateContract error: ' . $e->getMessage());
         return ['success' => false, 'errors' => ['An error occurred while updating the contract.']];
     }
@@ -356,10 +457,19 @@ function generateAccessToken() {
 /**
  * Calculate quote totals from line items
  */
-function calculateQuoteTotals($lineItems, $taxRate = 0.05) {
+function calculateQuoteTotals($lineItems, $taxRate = null) {
+    if ($taxRate === null) {
+        // No rate given: 5%, or none when the business is not registered for GST (onboarding).
+        $taxRate = 0.05;
+        try {
+            if (!class_exists('TaxEngine') && defined('APP_ROOT')) require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+            $taxRate = TaxEngine::chargedRate(getDB(), 0.05);
+        } catch (Throwable $e) { /* keep 5% */ }
+    }
     $subtotal = 0;
     foreach ($lineItems as $item) {
-        if (!($item['is_optional'] ?? false)) {
+        // Declined by the client on the quote page (migration 1315): out of the total.
+        if (!($item['is_optional'] ?? false) && empty($item['client_declined'])) {
             $subtotal += floatval($item['line_total']);
         }
     }
@@ -372,6 +482,31 @@ function calculateQuoteTotals($lineItems, $taxRate = 0.05) {
         'tax_amount' => $taxAmount,
         'total' => $total
     ];
+}
+
+/**
+ * Human label for an invoice payment method, with the reference (cheque #,
+ * e-Transfer confirmation) appended when one was recorded.
+ * Returns '' when no method is set so callers can print a dash.
+ */
+function formatPaymentMethod($method, $reference = '') {
+    $labels = [
+        'e_transfer'  => 'e-Transfer',
+        'cash'        => 'Cash',
+        'cheque'      => 'Cheque',
+        'credit_card' => 'Credit Card',
+        'other'       => 'Other',
+        'stripe'      => 'Card (Stripe)',
+    ];
+    $method = trim((string)$method);
+    if ($method === '') return '';
+    $label = $labels[strtolower($method)] ?? ucwords(str_replace('_', ' ', $method));
+    $reference = trim((string)$reference);
+    // Stripe object IDs (pi_/ch_/py_) are internal noise on a list view — hide them.
+    if ($reference !== '' && !preg_match('/^(pi|ch|py|in)_[A-Za-z0-9]+$/', $reference)) {
+        $label .= ($method === 'cheque' ? ' #' : ' ') . $reference;
+    }
+    return $label;
 }
 
 /**
@@ -503,8 +638,13 @@ function logActivityExtended($userId, $action, $details = null, $companyId = nul
             $details,
             $_SERVER['REMOTE_ADDR'] ?? null
         ]);
-    } catch(PDOException $e) {
-        error_log("Activity log error: " . $e->getMessage());
+    } catch (Throwable $e) {
+        // An audit row that could not be written is itself an event: say exactly what was lost
+        // (Fable audit #25e, 2026-10-12). Never break the caller over it.
+        error_log('AUDIT WRITE FAILED (activity_log): ' . $e->getMessage() . ' — lost row: ' . json_encode([
+            'user_id' => $userId, 'action' => $action, 'details' => is_string($details) ? mb_substr($details, 0, 500) : $details,
+            'company_id' => $companyId, 'quote_id' => $quoteId, 'invoice_id' => $invoiceId, 'plan_id' => $planId, 'visit_id' => $visitId,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR));
     }
 }
 
@@ -531,6 +671,32 @@ function getPropertyDetails($propertyId) {
     ");
     $stmt->execute([$propertyId]);
     return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Get the properties belonging to a contact (for quote/job property dropdowns).
+ *
+ * @param int       $contactId  contacts.id (matched against properties.site_contact_id)
+ * @param PDO|null  $db         optional PDO; falls back to getDB()
+ * @param bool      $activeOnly when true, only status='active' properties are returned
+ * @return array
+ */
+function getPropertiesForContact($contactId, $db = null, $activeOnly = true) {
+    $contactId = (int)$contactId;
+    if ($contactId <= 0) {
+        return [];
+    }
+    $db = $db ?: getDB();
+    $sql = "SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude
+            FROM properties
+            WHERE site_contact_id = ?";
+    if ($activeOnly) {
+        $sql .= " AND status = 'active'";
+    }
+    $sql .= " ORDER BY address";
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$contactId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /**
@@ -645,6 +811,22 @@ function getDashboardStats() {
         if (in_array($row['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
             $stats['total_outstanding'] += floatval($row['total_due']);
         }
+    }
+
+    // Live overdue count, derived from due_date rather than the stored `status` column
+    // (which only flips via the daily invoice_overdue cron and therefore lags reality).
+    $stats['invoices_overdue'] = 0;
+    try {
+        $ovStmt = $db->query("
+            SELECT COUNT(*) FROM invoices
+            WHERE status IN ('sent','viewed','partial','overdue')
+              AND balance_due > 0.005
+              AND due_date IS NOT NULL AND due_date < CURDATE()
+        ");
+        $stats['invoices_overdue'] = (int)$ovStmt->fetchColumn();
+    } catch (Exception $e) {
+        // Non-fatal — fall back to status-based count if needed
+        $stats['invoices_overdue'] = $stats['invoices']['overdue'] ?? 0;
     }
 
     return $stats;
@@ -1170,6 +1352,7 @@ function updateCompanyLifecycleStage($companyId, $newStage, $userId) {
         $result = $stmt->execute([$newStage, $companyId]);
 
         if ($result) {
+            setCompanyLifecyclePinned((int)$companyId, true);   // hand-set: Sam's rules leave it alone
             logActivityExtended($userId, 'Company lifecycle stage changed', "Changed to {$newStage}", $companyId);
         }
 
@@ -1275,6 +1458,45 @@ function deleteLifecycleStage($stageId) {
 }
 
 /**
+ * Pin / unpin a contact's or company's lifecycle stage (migration 1192). A pinned stage was set
+ * by a person and Sam's pipeline rules never change it. Unpinning hands it back to the rules
+ * and recomputes at once. No-op (false) before the migration has run.
+ */
+function setContactLifecyclePinned(int $contactId, bool $pinned): bool {
+    return setLifecyclePinned('contacts', 'contact', $contactId, $pinned);
+}
+
+function setCompanyLifecyclePinned(int $companyId, bool $pinned): bool {
+    return setLifecyclePinned('companies', 'company', $companyId, $pinned);
+}
+
+function setLifecyclePinned(string $table, string $entity, int $id, bool $pinned): bool {
+    if (!in_array($table, ['contacts', 'companies'], true) || $id <= 0) return false;
+    $db = getDB();
+    try {
+        $db->query("SELECT lifecycle_pinned FROM {$table} LIMIT 0");
+    } catch (Throwable $e) {
+        return false;   // migration 1192 not run yet
+    }
+    try {
+        $db->prepare("UPDATE {$table} SET lifecycle_pinned = ? WHERE id = ?")->execute([$pinned ? 1 : 0, $id]);
+    } catch (Throwable $e) {
+        error_log("setLifecyclePinned {$table}#{$id}: " . $e->getMessage());
+        return false;
+    }
+    if (!$pinned) {
+        try {
+            require_once dirname(__DIR__) . '/Modules/Sales/Services/PipelineStageService.php';
+            $svc = new PipelineStageService($db);
+            $entity === 'company' ? $svc->recomputeCompany($id) : $svc->recompute($id);
+        } catch (Throwable $e) {
+            error_log("[pipeline] unpin {$entity}#{$id}: " . $e->getMessage());
+        }
+    }
+    return true;
+}
+
+/**
  * Get a contact's current lifecycle stage
  * @param int $contactId
  * @return string|null Stage key or null if not found
@@ -1334,6 +1556,9 @@ function updateContactLifecycleStage($contactId, $newStage, $userId) {
 
                 if ($stageValid) {
                     $db->prepare("UPDATE contacts SET lifecycle_stage = ? WHERE id = ?")->execute([$newStage, $contactId]);
+                    // A person chose this stage: pin it so Sam's rules leave it alone
+                    // (migration 1192; "Unpin (let Sam manage it)" on the edit form undoes it).
+                    setContactLifecyclePinned((int)$contactId, true);
                 }
             }
         } catch (Exception $e) {
@@ -2155,32 +2380,77 @@ function getCompanyContacts($companyId) {
     $company = getCompanyById($companyId);
     if (!$company) return [];
 
+    // Source A — the company's designated primary/billing contacts
     $contactIds = array_filter([
         $company['primary_contact_id'],
         $company['billing_contact_id']
     ]);
 
+    // Source B — contacts who list this company as their employer
+    $employed = [];
+    try {
+        $empStmt = $db->prepare("SELECT id FROM contacts WHERE employer_company_id = ?");
+        $empStmt->execute([$companyId]);
+        $employed = $empStmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (\Throwable $e) {
+        // employer_company_id column may not exist yet — ignore
+    }
+
+    $contactIds = array_values(array_unique(array_merge(
+        array_map('intval', $contactIds),
+        array_map('intval', $employed)
+    )));
+
     if (empty($contactIds)) return [];
 
     $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
     $stmt = $db->prepare("SELECT * FROM contacts WHERE id IN ({$placeholders}) ORDER BY first_name ASC");
-    $stmt->execute(array_values($contactIds));
+    $stmt->execute($contactIds);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /**
- * Get properties linked to a company — two sources merged in PHP:
+ * Merge the ways a property can belong to a company into one list, strongest link first,
+ * each property once. Pure — see tests/Unit/CompanyPropertyLinksTest.php.
  *
- *   A) Explicit: rows in company_properties junction (user created via Link Property modal).
- *   B) Inferred: properties whose site_contact_id is the company's primary or billing contact,
- *      but NOT already in company_properties (avoids duplicates).
+ * @param array $explicit rows from company_properties (relationship_type / is_primary set)
+ * @param array $direct   rows linked by a column on the property itself (relationship_type set)
+ * @param array $inferred rows linked through one of the company's people (site contact)
+ */
+function mergeCompanyPropertyLinks(array $explicit, array $direct, array $inferred): array {
+    $seen = [];
+    $out  = [];
+    foreach ([$explicit, $direct, $inferred] as $group) {
+        foreach ($group as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id < 1 || isset($seen[$id])) continue;
+            $seen[$id] = true;
+            $out[] = $row;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Every property that belongs to a company, however the link was made:
  *
- * Each row carries link_source ('explicit'|'inferred') and linked_via_name for display.
+ *   A  explicit   — a company_properties row (Link Property on the company page)
+ *   B  direct     — a column on the property names the company:
+ *                     property_manager_id → 'manager'   (strata / property-management firm)
+ *                     billing_company_id  → 'billing'
+ *                     company_id          → 'owner'     (the company that pays)
+ *   C  inferred   — the property's site contact is one of the company's PEOPLE: its primary or
+ *                   billing contact, or anyone whose company / employer is this company.
+ *
+ * Until 2026-09-22 only A and the primary/billing half of C existed, so a property manager
+ * added to a management firm (contact_role = property_manager, employer = the firm) brought
+ * none of his buildings with him, and property_manager_id was ignored outright.
  */
 function getCompanyProperties($companyId) {
     $db = getDB();
+    $companyId = (int)$companyId;
     try {
-        // Source A — explicit junction rows
+        // A — explicit junction rows
         $stmt = $db->prepare("
             SELECT p.*,
                    cp.relationship_type AS relationship_type,
@@ -2195,21 +2465,45 @@ function getCompanyProperties($companyId) {
         ");
         $stmt->execute([$companyId]);
         $explicit = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $explicitIds = array_column($explicit, 'id');
 
-        // Source B — inferred via primary/billing contact's site_contact_id
+        // B — the property itself names the company
+        $direct = [];
+        $dStmt = $db->prepare("
+            SELECT p.* FROM properties p
+            WHERE p.property_manager_id = ? OR p.billing_company_id = ? OR p.company_id = ?
+            ORDER BY p.address ASC
+        ");
+        $dStmt->execute([$companyId, $companyId, $companyId]);
+        foreach ($dStmt->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            if ((int)($p['property_manager_id'] ?? 0) === $companyId)     { $rel = 'manager'; }
+            elseif ((int)($p['company_id'] ?? 0) === $companyId)          { $rel = 'owner'; }
+            else                                                          { $rel = 'billing'; }
+            $p['relationship_type']     = $rel;
+            $p['is_primary']            = 0;
+            $p['link_source']           = 'direct';
+            $p['linked_via_name']       = null;
+            $p['linked_via_contact_id'] = null;
+            $direct[] = $p;
+        }
+
+        // C — through the company's people
         $compRow = $db->prepare("SELECT primary_contact_id, billing_contact_id FROM companies WHERE id = ?");
         $compRow->execute([$companyId]);
-        $comp = $compRow->fetch(PDO::FETCH_ASSOC);
+        $comp = $compRow->fetch(PDO::FETCH_ASSOC) ?: [];
 
-        $contactIds = array_values(array_unique(array_filter([
-            (int)($comp['primary_contact_id'] ?? 0),
-            (int)($comp['billing_contact_id'] ?? 0),
-        ])));
+        $pStmt = $db->prepare("
+            SELECT id FROM contacts
+            WHERE (company_id = ? OR employer_company_id = ?) AND merged_into_id IS NULL
+        ");
+        $pStmt->execute([$companyId, $companyId]);
+
+        $contactIds = array_values(array_unique(array_filter(array_merge(
+            [(int)($comp['primary_contact_id'] ?? 0), (int)($comp['billing_contact_id'] ?? 0)],
+            array_map('intval', $pStmt->fetchAll(PDO::FETCH_COLUMN))
+        ))));
 
         $inferred = [];
         if (!empty($contactIds)) {
-            // Build contact name map for the "Linked via …" badge
             $cph = implode(',', array_fill(0, count($contactIds), '?'));
             $ctStmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE id IN ({$cph})");
             $ctStmt->execute($contactIds);
@@ -2218,16 +2512,8 @@ function getCompanyProperties($companyId) {
                 $contactNames[(int)$ct['id']] = trim($ct['first_name'] . ' ' . $ct['last_name']);
             }
 
-            // Fetch properties for those contacts, excluding ones already explicit
-            $propWhere = "WHERE p.site_contact_id IN ({$cph})";
-            $params    = $contactIds;
-            if (!empty($explicitIds)) {
-                $eph        = implode(',', array_fill(0, count($explicitIds), '?'));
-                $propWhere .= " AND p.id NOT IN ({$eph})";
-                $params     = array_merge($params, $explicitIds);
-            }
-            $propStmt = $db->prepare("SELECT * FROM properties p {$propWhere} ORDER BY p.address ASC");
-            $propStmt->execute($params);
+            $propStmt = $db->prepare("SELECT * FROM properties p WHERE p.site_contact_id IN ({$cph}) ORDER BY p.address ASC");
+            $propStmt->execute($contactIds);
             foreach ($propStmt->fetchAll(PDO::FETCH_ASSOC) as $p) {
                 $p['relationship_type']      = 'manager';
                 $p['is_primary']             = 0;
@@ -2238,10 +2524,10 @@ function getCompanyProperties($companyId) {
             }
         }
 
-        // Explicit rows first (sorted by is_primary DESC inside query), then inferred
-        return array_merge($explicit, $inferred);
+        return mergeCompanyPropertyLinks($explicit, $direct, $inferred);
 
     } catch (Throwable $e) {
+        error_log('getCompanyProperties(' . $companyId . ') failed: ' . $e->getMessage());
         return [];
     }
 }
@@ -2278,23 +2564,19 @@ function getWorkQueueItems() {
                 'title' => $row['cnt'] . ' Overdue Invoice' . ($row['cnt'] > 1 ? 's' : ''),
                 'description' => formatCurrency($row['total']) . ' outstanding past due date',
                 'count' => (int)$row['cnt'],
-                'link' => 'invoices/list.php?status=overdue',
+                'link' => 'invoices/index.php?status=overdue',
                 'priority' => 1,
             ];
         }
     } catch (Exception $e) {}
 
-    // Unbilled completed visits
+    // Unbilled completed visits — UnbilledVisitService is the one definition (2026-10-07: the old
+    // query counted every contract-billed visit, "186 unbilled"). Breakdown: /crm/api/otto.php?mode=unbilled_check
     try {
-        $row = $db->query("
-            SELECT COUNT(*) as cnt,
-                   SUM(COALESCE(jv.actual_amount, jp.price_per_visit, 0)) as total
-            FROM job_visits jv
-            JOIN job_plans jp ON jv.plan_id = jp.id
-            WHERE jv.status = 'completed'
-            AND (jv.is_invoiced = 0 OR jv.invoice_id IS NULL)
-        ")->fetch(PDO::FETCH_ASSOC);
-        if ($row && $row['cnt'] > 0) {
+        require_once __DIR__ . '/../Modules/Invoices/Services/UnbilledVisitService.php';
+        $ub = (new UnbilledVisitService($db))->summary();
+        $row = ['cnt' => $ub['count'], 'total' => $ub['amount']];
+        if ($row['cnt'] > 0) {
             $items[] = [
                 'category'    => 'critical',
                 'icon'        => 'dollar-sign',
@@ -2712,6 +2994,44 @@ function getDailyProfitability(string $startDate, string $endDate): array
  * @param string|null $errorMessage Error detail when status = 'error'
  * @param bool        $fromWeb      true when triggered via the Run Now button
  */
+/**
+ * Did this cron record a success in the last $minutes? Crons that run every minute or five record a
+ * quiet success at most hourly with this (cron_runs is never pruned); errors and warnings always go in.
+ * On any failure to check, answers false, so the run is recorded.
+ */
+function cronRecentSuccess(string $cronKey, int $minutes): bool
+{
+    try {
+        $s = getDB()->prepare("SELECT 1 FROM cron_runs WHERE cron_key = ? AND status = 'success'
+                               AND ran_at >= DATE_SUB(NOW(), INTERVAL " . max(1, $minutes) . " MINUTE) LIMIT 1");
+        $s->execute([$cronKey]);
+        return (bool)$s->fetchColumn();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * What to put in cron_runs when a cron step fails: "Class at file:line — message" (message trimmed to 200
+ * characters, whitespace collapsed, credentials/URL query strings redacted). Standing rule (owner, 2026-10-21): a failed cron step is recorded with
+ * the exception's class, file, line AND message — never only "failed" or the class name. Nine warnings in a
+ * row ("Otto auto-place failed") gave Ada nothing to act on. tests/Unit/Cron/CronFailureDetailTest.php
+ * fails any cron script that logs get_class($e) without the message.
+ */
+function cronFailureDetail(\Throwable $e): string
+{
+    // A redaction that cannot run must never blank the message: each step keeps the text if preg fails.
+    $msg = preg_replace('/\s+/', ' ', $e->getMessage()) ?? $e->getMessage();
+    // cron_runs is read by admins and Ada: keep credentials out of it. Strip user:pass@, URL query strings
+    // (API keys ride there), Bearer tokens and key=value secrets before anything is stored.
+    $msg = preg_replace('#(://)[^/\s:@]+:[^/\s@]+@#', '$1[redacted]@', $msg) ?? $msg;
+    $msg = preg_replace('#(https?://[^\s?\#]+)\?\S*#i', '$1?[redacted]', $msg) ?? $msg;
+    $msg = preg_replace('#\bBearer\s+[A-Za-z0-9._~+/=-]+#i', 'Bearer [redacted]', $msg) ?? $msg;
+    $msg = preg_replace('#\b(pass(?:word|wd)?|pwd|secret|token|api[_-]?key|key|authorization)\b(\s*[=:]\s*)[^\s,;&]+#i', '$1$2[redacted]', $msg) ?? $msg;
+    $msg = function_exists('mb_substr') ? mb_substr($msg, 0, 200, 'UTF-8') : substr($msg, 0, 200);
+    return get_class($e) . ' at ' . basename($e->getFile()) . ':' . $e->getLine() . ' — ' . $msg;
+}
+
 function recordCronRun(
     string  $cronKey,
     string  $status      = 'success',
@@ -2727,19 +3047,8 @@ function recordCronRun(
     try {
         $db = getDB();
 
-        // Idempotent DDL — creates table only if it doesn't exist yet
-        $db->exec("CREATE TABLE IF NOT EXISTS cron_runs (
-            id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-            cron_key      VARCHAR(64)  NOT NULL,
-            triggered_by  ENUM('cron','web') NOT NULL DEFAULT 'cron',
-            status        ENUM('success','warning','error') NOT NULL DEFAULT 'success',
-            duration_ms   INT UNSIGNED NULL,
-            summary       VARCHAR(512) NULL,
-            error_message TEXT         NULL,
-            ran_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            INDEX idx_cron_key_ran_at (cron_key, ran_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+        // cron_runs comes from migration 900. No CREATE TABLE here: the app's MySQL user is
+        // data-only (Fable audit #27), and a refused CREATE would have dropped every run record.
 
         $stmt = $db->prepare("
             INSERT INTO cron_runs (cron_key, triggered_by, status, duration_ms, summary, error_message, ran_at)

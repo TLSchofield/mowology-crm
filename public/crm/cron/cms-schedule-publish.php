@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * Web shim → app/Modules/CMS/Cron/cms_schedule_publish.php
  * POST /crm/cron/cms-schedule-publish.php (admin only)

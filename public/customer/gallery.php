@@ -15,6 +15,10 @@ header('X-Frame-Options: SAMEORIGIN');
 header('Cache-Control: no-store');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+require_once APP_ROOT . '/Core/Uploads.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db      = getDB();
 $error   = '';
@@ -24,7 +28,8 @@ $token = trim($_GET['token'] ?? '');
 if ($token === '') {
     $error = 'No gallery token provided.';
 } else {
-    $stmt = $db->prepare("SELECT id, first_name, last_name, email FROM contacts WHERE portal_token = ? LIMIT 1");
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This gallery link is invalid or has expired.';
@@ -100,7 +105,7 @@ if (!$error && $contact) {
     foreach ($rows as $ph) {
         $prId    = (int)$ph['pr_id'];
         $vId     = (int)$ph['visit_id'];
-        $origUrl = '/uploads/photos/' . $ph['filename'];
+        $origUrl = uploadsUrl('photos') . '/' . $ph['filename'];
         $ph['_thumb_url'] = $ph['thumb_path'] ?? $origUrl;
         $ph['_view_url']  = $ph['view_path']  ?? $origUrl;
 
@@ -145,8 +150,8 @@ if (!$error && $contact) {
 
 $clientName = $contact ? trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? '')) : '';
 $year       = date('Y');
-$siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
-$annJson    = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto) : '{}';
+$siteUrl    = PortalBrand::homeUrl();
+$annJson    = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : '{}';
 
 $serviceLabels = [
     'fertilizer'     => 'Fertilizer Treatment',
@@ -164,7 +169,7 @@ $serviceLabels = [
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Your Photo Gallery — Mowology Landscaping</title>
+  <title>Your Photo Gallery — <?= htmlspecialchars(PortalBrand::displayName()) ?></title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
@@ -412,7 +417,7 @@ $serviceLabels = [
     </svg>
     <h2>Gallery Unavailable</h2>
     <p><?= htmlspecialchars($error) ?></p>
-    <p style="margin-top:16px;"><a href="<?= htmlspecialchars($siteUrl) ?>">&#8592; Return to Mowology.ca</a></p>
+    <p style="margin-top:16px;"><a href="<?= htmlspecialchars($siteUrl) ?>">&#8592; Return to <?= htmlspecialchars(PortalBrand::websiteLabel()) ?></a></p>
   </div>
 </div>
 <?php else: ?>
@@ -426,7 +431,7 @@ $serviceLabels = [
         <svg viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 19.82L5.71 21l1-2.3A4.49 4.49 0 0 0 8 19c9-3 6.17-8 2-10zm0 0a5 5 0 0 1 5 5"/></svg>
       </div>
       <div>
-        <div class="gal-brand">Mowology Landscaping</div>
+        <div class="gal-brand"><?= htmlspecialchars(PortalBrand::displayName()) ?></div>
       </div>
     </div>
     <div class="gal-title">Your Photo Gallery</div>
@@ -448,7 +453,7 @@ $serviceLabels = [
       <a href="/customer/gallery-download.php?token=<?= urlencode($token) ?>" class="gal-header-btn">
         ⬇ Download All as ZIP
       </a>
-      <button type="button" class="gal-header-btn gal-header-btn-outline" onclick="mwShowConsentHelp()">
+      <button type="button" class="gal-header-btn gal-header-btn-outline" data-mw-call="mwShowConsentHelp">
         ⭐ Share in portfolio
       </button>
     </div>
@@ -555,14 +560,14 @@ $serviceLabels = [
             <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                  loading="lazy"
                  alt="<?= htmlspecialchars($pType) ?> photo"
-                 onerror="this.parentElement.style.display='none'">
+                 data-mw-hide-on-error="1">
             <span class="gal-photo-type gal-photo-type--<?= $typeClass ?>"><?= htmlspecialchars(ucfirst($pType)) ?></span>
             <?php if ($hasAnn): ?>
             <span class="gal-photo-ann">&#9998;</span>
             <?php endif; ?>
             <button type="button" class="gal-photo-consent"
                     title="<?= !empty($ph['consent_portfolio']) ? 'You\'ve allowed this photo in our portfolio. Click to change.' : 'Allow this photo to appear in our public portfolio?' ?>"
-                    onclick="event.stopPropagation(); mwToggleConsent(<?= (int)$ph['id'] ?>, this);">
+                    data-mw-call="mwToggleConsent" data-mw-args="<?= htmlspecialchars(json_encode([(int)$ph['id'], '$this']), ENT_QUOTES) ?>">
               <?= !empty($ph['consent_portfolio']) ? '★' : '☆' ?>
             </button>
           </div>
@@ -577,9 +582,9 @@ $serviceLabels = [
   </div><!-- /gal-body -->
 
   <div class="gal-footer">
-    <a href="<?= htmlspecialchars($siteUrl) ?>">Mowology Landscaping</a>
-    &middot; <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
-    &copy; <?= $year ?> Mowology Landscaping. This gallery is private &mdash; please do not share.
+    <a href="<?= htmlspecialchars($siteUrl) ?>"><?= htmlspecialchars(PortalBrand::displayName()) ?></a>
+    <?php if (PortalBrand::emailLinkHtml() !== ''): ?>&middot; <?= PortalBrand::emailLinkHtml() ?><?php endif; ?><br>
+    &copy; <?= $year ?> <?= htmlspecialchars(PortalBrand::displayName()) ?>. This gallery is private &mdash; please do not share.
   </div>
 
 </div><!-- /gal-wrap -->
@@ -602,7 +607,7 @@ $serviceLabels = [
   </div>
 </div>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   'use strict';
 
@@ -687,7 +692,9 @@ $serviceLabels = [
   }
 
   allPhotos.forEach(function(el, idx) {
-    el.addEventListener('click', function() {
+    el.addEventListener('click', function(e) {
+      // The consent star inside the card has its own action (data-mw-call) — don't open the photo.
+      if (e.target.closest && e.target.closest('.gal-photo-consent')) return;
       // find index in visPhotos
       var vi = visPhotos.indexOf(el);
       if (vi >= 0) openAt(vi);
@@ -765,7 +772,7 @@ window.mwToggleConsent = function(photoId, btn) {
   var next = current ? 0 : 1;
   btn.disabled = true;
   var formData = new FormData();
-  formData.append('token', <?= json_encode($token) ?>);
+  formData.append('token', <?= json_encode($token, JSON_HEX_TAG | JSON_HEX_AMP) ?>);
   formData.append('photo_id', photoId);
   formData.append('consent', next);
   fetch('/customer/api/photo-consent.php', { method: 'POST', body: formData })
@@ -788,7 +795,7 @@ window.mwToggleConsent = function(photoId, btn) {
 
 window.mwShowConsentHelp = function() {
   alert(
-    'Click the \u2606 star on any photo to allow Mowology to use it in our public portfolio.\n\n' +
+    'Click the \u2606 star on any photo to allow ' + <?= json_encode(PortalBrand::name(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?> + ' to use it in our public portfolio.\n\n' +
     'Starred photos (\u2605) show your home\u2019s transformations to help others discover our work. ' +
     'We never include identifying details. You can turn this off anytime.'
   );
@@ -796,5 +803,6 @@ window.mwShowConsentHelp = function() {
 </script>
 
 <?php endif; ?>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

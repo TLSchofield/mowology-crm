@@ -57,22 +57,61 @@ function getActiveClockEntry($userId) {
 
 /**
  * Clock in a user. Returns the new entry ID or throws on error.
+ *
+ * @param bool $enforceGpsRequirement Whether the require_gps_for_clock_in admin
+ *   setting applies to this call. Pass false for an admin clocking in a different
+ *   user on their behalf — that override case has no reason to have the acting
+ *   admin's location, and previously this setting silently did nothing at all for
+ *   anyone. Self clock-ins (mobile and desktop) should always leave this true.
  */
-function clockIn($userId, $lat = null, $lng = null) {
+/** @param ?string $at 'Y-m-d H:i:s' when it happened (OfflineTime::accept); null = now */
+/**
+ * Run $fn while holding a MySQL named lock for this user (Codex review 2026-10-14): a double tap or
+ * an offline replay landing with a live request each passed the "already clocked in / timer
+ * running" check and each inserted. Off MySQL (tests) it just runs. A lock that can't be had in
+ * 10 s refuses rather than racing.
+ */
+function withTimeclockUserLock(string $what, int $userId, callable $fn) {
+    $db = getDB();
+    if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return $fn();
+    $name = 'mw_tc_' . $what . '_' . $userId;
+    if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($name) . ", 10)")->fetchColumn() !== 1) {
+        throw new Exception('Another clock action is still being saved — try again in a moment.');
+    }
+    try {
+        return $fn();
+    } finally {
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($name) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+    }
+}
+
+function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = true, $at = null) {
+    return withTimeclockUserLock('clock', (int)$userId, function () use ($userId, $lat, $lng, $enforceGpsRequirement, $at) {
+        return clockInLocked($userId, $lat, $lng, $enforceGpsRequirement, $at);
+    });
+}
+
+function clockInLocked($userId, $lat = null, $lng = null, $enforceGpsRequirement = true, $at = null) {
     // Check for existing active entry
     $existing = getActiveClockEntry($userId);
     if ($existing) {
         throw new Exception('Already clocked in since ' . $existing['clock_in']);
     }
 
+    if ($enforceGpsRequirement
+        && getTimeClockSetting('require_gps_for_clock_in', '0') === '1'
+        && ($lat === null || $lng === null)) {
+        throw new Exception('Couldn\'t get a GPS fix for this clock-in. Move into the open and try again.');
+    }
+
     $db = getDB();
-    // Use MySQL NOW() so all stored timestamps are consistently in the MySQL server timezone (EST).
-    // The plan_time_log API uses toPacific() to convert EST→Pacific for display.
+    // Use MySQL NOW(); the MySQL session time_zone is aligned to PHP's Pacific offset in
+    // Core/config.php, so stored timestamps match PHP date() without conversion.
     $stmt = $db->prepare("
         INSERT INTO time_clock_entries (user_id, clock_in, clock_in_lat, clock_in_lng)
-        VALUES (?, NOW(), ?, ?)
+        VALUES (?, COALESCE(?, NOW()), ?, ?)
     ");
-    $stmt->execute([$userId, $lat, $lng]);
+    $stmt->execute([$userId, $at, $lat, $lng]);
     $entryId = (int)$db->lastInsertId();
 
     // Insert a GPS ping so the crew member appears on the map immediately.
@@ -95,9 +134,13 @@ function clockIn($userId, $lat = null, $lng = null) {
 /**
  * Resolve a stale active clock entry from a prior calendar day.
  *
- * If the user has an active entry whose clock_in date is before today,
- * it is auto-completed at clock_in + auto_clock_out_hours (default 10h).
- * Any matching open vehicle_trip_reports for that date are also closed.
+ * If the user's active entry has run longer than auto_clock_out_hours (default 10h) — the same
+ * threshold the auto_clockout cron uses — it is auto-completed at clock_in + auto_clock_out_hours.
+ * Any matching open vehicle_trip_reports for that date are also closed (never in the future).
+ *
+ * 2026-10-12: this used to fire on "clock_in date ≠ today", so an overnight snow/salt shift
+ * started at 22:00 was closed at the first app open after midnight with a clock_out in the
+ * FUTURE (22:00 + 10 h). Elapsed time decides now; see TimeclockRules::isStaleEntry().
  *
  * Call this at login-time before getActiveClockEntry() so the user starts
  * fresh rather than being trapped by a days-old record.
@@ -109,9 +152,9 @@ function resolveStaleClockEntry(int $userId): bool {
     if (!$entry) return false;
 
     $clockInDate = date('Y-m-d', strtotime($entry['clock_in']));
-    if ($clockInDate === date('Y-m-d')) return false;
-
     $autoHours = max(1, (int) getTimeClockSetting('auto_clock_out_hours', 10));
+    require_once __DIR__ . '/TimeclockRules.php';
+    if (!TimeclockRules::isStaleEntry((int)($entry['elapsed_seconds'] ?? 0), $autoHours)) return false;
     $db = getDB();
 
     $db->prepare("
@@ -124,13 +167,19 @@ function resolveStaleClockEntry(int $userId): bool {
         WHERE id = ?
     ")->execute([$autoHours, $autoHours, $entry['id']]);
 
+    // A break still running on the shift ends at its (auto) clock-out.
+    try {
+        require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+        (new BreakService($db))->closeOrphans($userId);
+    } catch (Throwable $e) { /* additive (migration 1358) */ }
+
     ensureTimesheetExists($userId, $clockInDate);
 
     // Close any open trip reports for that date so the driver is not gated
     try {
         $db->prepare("
             UPDATE vehicle_trip_reports
-            SET post_trip_at = DATE_ADD(pre_trip_at, INTERVAL 8 HOUR)
+            SET post_trip_at = LEAST(DATE_ADD(pre_trip_at, INTERVAL 8 HOUR), NOW())
             WHERE driver_id    = ?
               AND report_date  = ?
               AND pre_trip_at  IS NOT NULL
@@ -146,25 +195,31 @@ function resolveStaleClockEntry(int $userId): bool {
 /**
  * Clock out a user. Returns total_minutes or throws on error.
  */
-function clockOut($userId, $lat = null, $lng = null, $notes = null) {
+/** @param ?string $at 'Y-m-d H:i:s' when it happened (OfflineTime::accept); null = now */
+function clockOut($userId, $lat = null, $lng = null, $notes = null, $at = null) {
     $entry = getActiveClockEntry($userId);
     if (!$entry) {
         throw new Exception('Not currently clocked in');
     }
 
     $db = getDB();
-    // Use MySQL NOW() so all stored timestamps are consistently in the MySQL server timezone (EST).
+    // Compute clock_out + duration entirely DB-side. The PDO bootstrap (Core/config.php)
+    // sets the MySQL session time_zone to PHP's Pacific offset, so NOW() and PHP date()
+    // agree — do NOT reintroduce PHP-side arithmetic on stored timestamps.
     $stmt = $db->prepare("
         UPDATE time_clock_entries
-        SET clock_out = NOW(),
+        SET clock_out = COALESCE(?, NOW()),
             clock_out_lat = ?,
             clock_out_lng = ?,
             notes = ?,
-            total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, NOW()),
+            total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, COALESCE(?, NOW())),
             status = 'completed'
-        WHERE id = ?
+        WHERE id = ? AND status = 'active' AND clock_out IS NULL
     ");
-    $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+    $stmt->execute([$at, $lat, $lng, $notes, $at, $entry['id']]);
+    if ($stmt->rowCount() !== 1) {
+        throw new Exception('Clock entry is no longer active');
+    }
 
     // Insert a final GPS ping on clock-out so the map shows the last known position.
     if ($lat && $lng) {
@@ -174,9 +229,22 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
         if ($trackRow && $trackRow['location_tracking_enabled']) {
             $db->prepare("
                 INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-                VALUES (?, ?, ?, NULL, NULL, NOW())
-            ")->execute([$userId, $lat, $lng]);
+                VALUES (?, ?, ?, NULL, NULL, COALESCE(?, NOW()))
+            ")->execute([$userId, $lat, $lng, $at]);
         }
+    }
+
+    // TIMESTAMPDIFF counts wall-clock minutes; a shift across a DST change is corrected here.
+    require_once __DIR__ . '/TimeEntryGuard.php';
+    TimeEntryGuard::fixDst($db, 'time_clock_entries', (int)$entry['id']);
+
+    // Clocking out during a break ends the break first (at the clock-out), then the shift's BC
+    // meal-break flag is worked out (BreakService, 2026-10-13). Never blocks the clock-out.
+    try {
+        require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+        (new BreakService($db))->afterClockOut((int)$userId, (int)$entry['id']);
+    } catch (Throwable $e) {
+        error_log('[clockOut] breaks: ' . $e->getMessage());
     }
 
     // Get the calculated total
@@ -184,8 +252,9 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
     $result->execute([$entry['id']]);
     $row = $result->fetch(PDO::FETCH_ASSOC);
 
-    // Ensure/create timesheet for this week (use Pacific date)
-    ensureTimesheetExists($userId, date('Y-m-d'));
+    // Recalculate the week the SHIFT belongs to (by clock-in), not today's: an overnight
+    // shift clocked out on Monday morning belongs to the week before (2026-10-12).
+    ensureTimesheetExists($userId, date('Y-m-d', strtotime($entry['clock_in'])));
 
     return (int)$row['total_minutes'];
 }
@@ -237,8 +306,84 @@ function ensurePlanFunctionsLoaded(): void {
     }
 }
 
-function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false) {
+/**
+ * calendar_stop_crew.stop_id values the user is crewed onto for a date.
+ * Multi-crew stops record their secondary crew here, not on job_visits.assigned_crew_id.
+ *
+ * @return int[]
+ */
+function getStopIdsForCrewMember(int $userId, string $date): array {
+    $stmt = getDB()->prepare("
+        SELECT csc.stop_id
+        FROM calendar_stop_crew csc
+        JOIN calendar_stops cs ON cs.id = csc.stop_id
+        WHERE csc.user_id = ? AND cs.stop_date = ?
+    ");
+    $stmt->execute([$userId, $date]);
+    return array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'stop_id'));
+}
+
+/**
+ * Is this user crew on the visit — assigned directly, lead of its stop, or
+ * crewed onto the stop? Secondary crew on a multi-crew stop previously could
+ * never start a timer because only assigned_crew_id was checked.
+ */
+function userIsCrewOnVisit(int $visitId, int $userId): bool {
+    $stmt = getDB()->prepare("
+        SELECT 1
+        FROM job_visits jv
+        LEFT JOIN calendar_stops cs ON cs.id = jv.stop_id
+        WHERE jv.id = ?
+          AND (jv.assigned_crew_id = ?
+               OR cs.crew_id = ?
+               OR EXISTS (SELECT 1 FROM calendar_stop_crew csc
+                          WHERE csc.stop_id = jv.stop_id AND csc.user_id = ?))
+        LIMIT 1
+    ");
+    $stmt->execute([$visitId, $userId, $userId, $userId]);
+    return (bool)$stmt->fetchColumn();
+}
+
+/**
+ * May this user stop, complete or skip the visit? Admins/managers always; crew on the visit;
+ * or anyone with their own timer running on it (an auto-start they then finish). startJobTimer()
+ * always checked crew; stop and skip did not, so any crew login could complete — and bill —
+ * any visit company-wide (2026-10-12 review).
+ */
+function userMayActOnVisit(int $visitId, int $userId): bool {
     $db = getDB();
+    $r = $db->prepare("SELECT role FROM users WHERE id = ?");
+    $r->execute([$userId]);
+    if (in_array((string)($r->fetchColumn() ?: ''), ['admin', 'manager'], true)) return true;
+    if (userIsCrewOnVisit($visitId, $userId)) return true;
+    $t = $db->prepare("SELECT 1 FROM job_time_entries WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL LIMIT 1");
+    $t->execute([$visitId, $userId]);
+    return (bool)$t->fetchColumn();
+}
+
+/**
+ * Start a job timer. $at ('Y-m-d H:i:s', server zone) is when the phone says the start was
+ * tapped — an offline start replayed later (OfflineTime decides whether to trust it); null = now.
+ * $gpsOptional: a start replayed from the phone's offline queue may have no fix — record it
+ * (the endpoint notes "No location (offline)") rather than refuse it and lose the job's time.
+ */
+function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
+    // GPS auto-start racing a manual start opened two timers on one visit (Codex review 2026-10-14).
+    return withTimeclockUserLock('job', (int)$userId, function () use ($jobId, $userId, $lat, $lng, $autoStarted, $at, $gpsOptional) {
+        return startJobTimerLocked($jobId, $userId, $lat, $lng, $autoStarted, $at, $gpsOptional);
+    });
+}
+
+function startJobTimerLocked($jobId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
+    $db = getDB();
+
+    // Geofence auto-starts already imply a real GPS fix (that's what triggered them) —
+    // only enforce this on a manual start, where the setting previously did nothing.
+    if (!$autoStarted && !$gpsOptional
+        && getTimeClockSetting('require_gps_for_job_start', '1') === '1'
+        && ($lat === null || $lng === null)) {
+        throw new Exception('Location is required to start a job timer. Enable location services and try again.');
+    }
 
     // Check visit exists and is assigned to this user (or user is admin/manager)
     $stmt = $db->prepare("SELECT jv.id, jv.assigned_crew_id, jv.status FROM job_visits jv WHERE jv.id = ?");
@@ -246,6 +391,16 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$job) {
         throw new Exception('Job not found');
+    }
+
+    // Enforce the ownership check promised above — this was previously only fetched,
+    // never compared, letting any crew JWT start a timer on any visit company-wide.
+    $callerRoleStmt = $db->prepare("SELECT role FROM users WHERE id = ?");
+    $callerRoleStmt->execute([$userId]);
+    $callerRole = (string)($callerRoleStmt->fetchColumn() ?: '');
+    $callerIsAdmin = in_array($callerRole, ['admin', 'manager'], true);
+    if (!$callerIsAdmin && !userIsCrewOnVisit((int)$jobId, (int)$userId)) {
+        throw new Exception('You are not assigned to this visit');
     }
 
     // Check no active timer already running for this visit by this user
@@ -266,9 +421,9 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
     // The plan_time_log API converts EST→Pacific for display using toPacific().
     $stmt = $db->prepare("
         INSERT INTO job_time_entries (visit_id, user_id, clock_entry_id, start_time, start_lat, start_lng, auto_started)
-        VALUES (?, ?, ?, NOW(), ?, ?, ?)
+        VALUES (?, ?, ?, COALESCE(?, NOW()), ?, ?, ?)
     ");
-    $stmt->execute([$jobId, $userId, $clockEntryId, $lat, $lng, $autoStarted ? 1 : 0]);
+    $stmt->execute([$jobId, $userId, $clockEntryId, $at, $lat, $lng, $autoStarted ? 1 : 0]);
     $entryId = (int)$db->lastInsertId();
 
     // Update visit status to in_progress if currently scheduled
@@ -276,6 +431,10 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
         ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'in_progress', $userId, $autoStarted ? 'Auto-started via GPS proximity' : 'Timer started manually');
+        }
+        // The status change stamps NOW(); an offline start keeps its tapped time.
+        if ($at !== null) {
+            $db->prepare("UPDATE job_visits SET started_at = ? WHERE id = ?")->execute([$at, $jobId]);
         }
     }
 
@@ -292,46 +451,86 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
 
 /**
  * Stop a job timer. Returns duration_minutes.
+ *
+ * Completing ends EVERY active timer on the visit, not just the caller's — a truck login's
+ * GPS auto-start or another crew member's timer must not leave the visit stuck in_progress.
+ * Pausing ($completeJob = false) stops only the caller's own timer. See VisitTimerStopPolicy.
+ * $at = when the stop was tapped (offline replay, via OfflineTime); null = now. A timer is never
+ * ended before it started (GREATEST), so a takeover of a later-started timer can't go negative.
  */
-function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, $completeJob = true) {
+function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, $completeJob = true, $at = null) {
+    require_once APP_ROOT . '/Modules/Team/Services/VisitTimerStopPolicy.php';
     $db = getDB();
 
-    // Find active timer
     $stmt = $db->prepare("
-        SELECT id FROM job_time_entries
-        WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL
-        ORDER BY start_time DESC LIMIT 1
+        SELECT id, user_id FROM job_time_entries
+        WHERE visit_id = ? AND status = 'active' AND end_time IS NULL
+        ORDER BY start_time DESC
     ");
-    $stmt->execute([$jobId, $userId]);
-    $entry = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$entry) {
-        throw new Exception('No active timer for this job');
+    $stmt->execute([$jobId]);
+    $activeEntries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $vsStmt = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
+    $vsStmt->execute([$jobId]);
+    $visitStatus = (string)($vsStmt->fetchColumn() ?: '');
+
+    $plan = VisitTimerStopPolicy::decide((int)$userId, $activeEntries, (bool)$completeJob, $visitStatus);
+    if ($plan['error'] !== null) {
+        throw new Exception($plan['error']);
+    }
+    if (!$plan['stop'] && !$plan['complete']) {
+        return 0;   // visit already completed, nothing running
     }
 
-    // Stop the timer — use MySQL NOW() for consistency with start_time storage (both EST).
-    $stmt = $db->prepare("
+    $takeoverNote = null;
+    if (count($plan['stop']) > ($plan['own'] !== null ? 1 : 0)) {
+        $nameStmt = $db->prepare("SELECT full_name FROM users WHERE id = ?");
+        $nameStmt->execute([$userId]);
+        $takeoverNote = 'Stopped when ' . ($nameStmt->fetchColumn() ?: "user #{$userId}") . ' completed the visit';
+    }
+
+    // Stop the timer(s) — use MySQL NOW() for consistency with start_time storage (both EST).
+    $stopStmt = $db->prepare("
         UPDATE job_time_entries
-        SET end_time = NOW(),
-            duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, NOW()),
+        SET end_time = GREATEST(start_time, COALESCE(?, NOW())),
+            duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, GREATEST(start_time, COALESCE(?, NOW()))),
             end_lat = ?,
             end_lng = ?,
             notes = ?,
             status = 'completed'
-        WHERE id = ?
+        WHERE id = ? AND status = 'active' AND end_time IS NULL
     ");
-    $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+    require_once __DIR__ . '/TimeEntryGuard.php';
+    $durStmt = $db->prepare("SELECT duration_minutes, user_id, start_time FROM job_time_entries WHERE id = ?");
+    $duration = 0;
+    $touchedWeeks = [];   // [user_id => [start_time...]] — every stopped timer's own week
+    foreach ($plan['stop'] as $entryId) {
+        $isOwn = ($entryId === $plan['own']);
+        $entryNotes = $isOwn ? $notes : trim(($notes ? $notes . ' — ' : '') . $takeoverNote);
+        $stopStmt->execute([$at, $at, $lat, $lng, $entryNotes, $entryId]);
+        if ($stopStmt->rowCount() !== 1) {
+            continue;
+        }
+        TimeEntryGuard::fixDst($db, 'job_time_entries', (int)$entryId);
 
-    // Get duration
-    $result = $db->prepare("SELECT duration_minutes FROM job_time_entries WHERE id = ?");
-    $result->execute([$entry['id']]);
-    $row = $result->fetch(PDO::FETCH_ASSOC);
-    $duration = (int)$row['duration_minutes'];
+        $durStmt->execute([$entryId]);
+        $durRow = $durStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $mins = (int)($durRow['duration_minutes'] ?? 0);
+        if (!empty($durRow['user_id'])) $touchedWeeks[(int)$durRow['user_id']][] = (string)$durRow['start_time'];
+        // Report the caller's own minutes; with no own timer, the longest one ended.
+        if ($isOwn || ($plan['own'] === null && $mins > $duration)) {
+            $duration = $mins;
+        }
+    }
 
     // Complete the visit if requested
-    if ($completeJob) {
+    if ($plan['complete']) {
         ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'completed', $userId, $notes);
+        }
+        if ($at !== null) {
+            $db->prepare("UPDATE job_visits SET completed_at = ? WHERE id = ?")->execute([$at, $jobId]);
         }
 
         // Capture labor cost + margin snapshot at completion time
@@ -346,7 +545,7 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     $jobStmt = $db->prepare("SELECT jp.property_id FROM job_visits jv JOIN job_plans jp ON jv.plan_id = jp.id WHERE jv.id = ?");
     $jobStmt->execute([$jobId]);
     $jobRow = $jobStmt->fetch(PDO::FETCH_ASSOC);
-    if ($jobRow && $jobRow['property_id'] && function_exists('updatePropertyVisitPattern')) {
+    if ($duration > 0 && $jobRow && $jobRow['property_id'] && function_exists('updatePropertyVisitPattern')) {
         updatePropertyVisitPattern($jobRow['property_id'], $userId, $duration);
     }
 
@@ -358,8 +557,13 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         }
     }
 
-    // Ensure timesheet exists
-    ensureTimesheetExists($userId, date('Y-m-d'));
+    // Recalculate the week of every timer stopped here — its owner's, by its start (2026-10-12:
+    // this used today's date for the caller only, so a timer stopped for another crew member, or
+    // across Sunday midnight, left that week's totals stale).
+    foreach ($touchedWeeks as $owner => $starts) {
+        TimeEntryGuard::recalcWeeks((int)$owner, $starts);
+    }
+    if (!$touchedWeeks) ensureTimesheetExists($userId, date('Y-m-d'));
 
     return $duration;
 }
@@ -378,14 +582,31 @@ function getActiveVisitTimer($userId) {
     return getActiveJobTimer($userId);
 }
 
+/**
+ * The user's running job timer — but only if it is plausibly LIVE.
+ *
+ * A timer nobody stopped stays 'active' for ever unless stop_orphaned_job_timers runs.
+ * Found 2026-09-19: one left running overnight blocked every GPS auto-arrival for its
+ * owner (Guard 3 saw "a timer is active"), and would have put their phone in the
+ * on-site tracking tier and stamped the next day's fixes onto yesterday's visit.
+ * No real job runs 16 hours; older than that is debris, not state.
+ */
+function getLiveJobTimer(int $userId, int $maxHours = 16): ?array {
+    $timer = getActiveJobTimer($userId);
+    if (!$timer) {
+        return null;
+    }
+    return ((int)($timer['elapsed_seconds'] ?? 0) <= $maxHours * 3600) ? $timer : null;
+}
+
 /** @see startJobTimer() — alias using visit terminology */
-function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false) {
-    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted);
+function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false, $at = null, $gpsOptional = false) {
+    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted, $at, $gpsOptional);
 }
 
 /** @see stopJobTimer() — alias using visit terminology */
-function stopVisitTimer($visitId, $userId, $lat = null, $lng = null, $notes = null, $completeVisit = true) {
-    return stopJobTimer($visitId, $userId, $lat, $lng, $notes, $completeVisit);
+function stopVisitTimer($visitId, $userId, $lat = null, $lng = null, $notes = null, $completeVisit = true, $at = null) {
+    return stopJobTimer($visitId, $userId, $lat, $lng, $notes, $completeVisit, $at);
 }
 
 /** @see pauseJobTimer() — alias using visit terminology */
@@ -437,6 +658,21 @@ function recalculateTimesheetTotals($userId, $weekStart) {
     $db = getDB();
     $weekEnd = date('Y-m-d', strtotime($weekStart . ' +6 days'));
 
+    // An approved week keeps the totals that were approved — a cron or late stop closing an entry
+    // in it must not rewrite them silently (2026-10-12 review). Skip, and leave a trail.
+    require_once __DIR__ . '/TimeclockRules.php';
+    $st = $db->prepare("SELECT status FROM timesheets WHERE user_id = ? AND week_start = ?");
+    $st->execute([$userId, $weekStart]);
+    $status = $st->fetchColumn();
+    if (!TimeclockRules::mayRecalculateWeek($status === false ? null : (string)$status)) {
+        $msg = "Approved timesheet not recalculated (user {$userId}, week {$weekStart}) — reopen it to change its hours";
+        error_log('[timesheets] ' . $msg);
+        if (function_exists('logActivity')) {
+            try { logActivity((int)$userId, null, 'timesheet_recalc_skipped_approved', $msg); } catch (Throwable $e) { /* trail only */ }
+        }
+        return;
+    }
+
     // Total shift minutes from clock entries
     $stmt = $db->prepare("
         SELECT COALESCE(SUM(total_minutes), 0) as total
@@ -447,6 +683,18 @@ function recalculateTimesheetTotals($userId, $weekStart) {
     ");
     $stmt->execute([$userId, $weekStart, $weekEnd]);
     $shiftMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+    // Unpaid breaks (setting breaks_paid = 0) come off the week's paid shift time. Mowology pays
+    // breaks, so nothing changes there (BreakService::unpaidMinutes()).
+    try {
+        require_once dirname(__DIR__, 2) . '/Operations/Services/BreakService.php';
+        $brk = new BreakService($db);
+        if (!$brk->breaksPaid()) {
+            $shiftMinutes = BreakService::paidMinutes($shiftMinutes, $brk->periodForUser((int)$userId, $weekStart, $weekEnd)['unpaid_minutes']);
+        }
+    } catch (Throwable $e) {
+        error_log('[timesheets] break deduction skipped: ' . $e->getMessage());
+    }
 
     // Total job minutes from job time entries
     $stmt = $db->prepare("
@@ -475,13 +723,16 @@ function recalculateTimesheetTotals($userId, $weekStart) {
 
 /**
  * Get ALL jobs for a given date (all crews), for GPS proximity detection.
- * Any crew member near any property should be able to clock in, not just assigned crew.
+ * Returns every crew's visits; checkProximityAutoStart() narrows them to the
+ * caller's own (assigned_crew_id / stop_crew_id / calendar_stop_crew) before acting.
  */
 function getAllJobsForDate($date) {
     $db = getDB();
+    $snowGate = snowRunVisitPredicate($db);
     $stmt = $db->prepare("
         SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
                jv.scheduled_time_start, jv.scheduled_time_end, jv.assigned_crew_id,
+               jv.stop_id, cs.crew_id AS stop_crew_id,
                jp.title, jp.service_type, jp.estimated_duration_minutes,
                jp.property_id,
                p.address as property_address, p.city as property_city,
@@ -489,15 +740,31 @@ function getAllJobsForDate($date) {
                c.company_name
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN company_properties cprop ON jp.property_id = cprop.property_id AND cprop.is_primary = 1
         LEFT JOIN companies c ON cprop.company_id = c.id
         WHERE jv.scheduled_date = ?
           AND jv.status IN ('scheduled', 'in_progress')
+          AND {$snowGate['sql']}
         ORDER BY jv.scheduled_time_start ASC
     ");
-    $stmt->execute([$date]);
+    $stmt->execute(array_merge([$date], $snowGate['params']));
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Salt & snow route visits are only listed while a run is open (SnowRunGate, 2026-11-03).
+ * ['sql' => predicate on alias jv, 'params' => bound values]; '1=1' before migration 1432.
+ */
+function snowRunVisitPredicate(PDO $db): array {
+    try {
+        require_once dirname(__DIR__, 2) . '/Schedule/Services/SnowRunGate.php';
+        return (new SnowRunGate($db))->visitVisibleSql('jv');
+    } catch (Throwable $e) {
+        error_log('[timeclock] snow run gate: ' . $e->getMessage());
+        return ['sql' => '1=1', 'params' => []];
+    }
 }
 
 /**
@@ -507,6 +774,7 @@ function getAllJobsForDate($date) {
  */
 function getUserJobsForDate($userId, $date) {
     $db = getDB();
+    $snowGate = snowRunVisitPredicate($db);
     $stmt = $db->prepare("
         SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
                jv.scheduled_time_start, jv.scheduled_time_end,
@@ -529,9 +797,10 @@ function getUserJobsForDate($userId, $date) {
               jv.assigned_crew_id = ?
               OR jte.id IS NOT NULL
           )
+          AND {$snowGate['sql']}
         ORDER BY jv.scheduled_time_start ASC
     ");
-    $stmt->execute([$userId, $date, $userId]);
+    $stmt->execute(array_merge([$userId, $date, $userId], $snowGate['params']));
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -594,22 +863,33 @@ function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): 
  *
  * @return array|null  Null if no auto-start; otherwise array with visit details
  */
-function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0, ?array $preloadedVisits = null): ?array {
+function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0, ?array $preloadedVisits = null, bool $requireDwell = true): ?array {
+    require_once __DIR__ . '/ProximityAutoStartService.php';
+
     // Guard 1: master toggle
     $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
     if ($autoArrivalEnabled !== '1') {
         return null;
     }
 
-    $proximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
-
-    // Guard 2: GPS accuracy — skip if too inaccurate
-    if ($accuracy > $proximityMeters * 1.5) {
+    // Guard 1b: this can clock a person in and start recording their location, so it
+    // must honour the same opt-in as ping storage. The one-shot proximity_check path
+    // in crew-location.php reaches here WITHOUT passing the tracking-flag check.
+    $trackStmt = getDB()->prepare("SELECT location_tracking_enabled FROM users WHERE id = ? AND is_active = 1");
+    $trackStmt->execute([$userId]);
+    if (!(int)$trackStmt->fetchColumn()) {
         return null;
     }
 
-    // Guard 3: no active job timer
-    $activeTimer = getActiveJobTimer($userId);
+    $proximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
+
+    // Guard 2: GPS accuracy — the fix's error circle must fit inside the fence
+    if (!ProximityAutoStartService::accuracyAcceptable($accuracy, $proximityMeters)) {
+        return null;
+    }
+
+    // Guard 3: no LIVE job timer (a stale one left running for days must not block arrivals)
+    $activeTimer = getLiveJobTimer($userId);
     if ($activeTimer) {
         return null;
     }
@@ -667,8 +947,36 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         require_once $geofenceModelPath;
     }
 
+    // Only the caller's OWN visits may auto-start. Evaluating every crew's visits
+    // is what let a drive-by past someone else's job clock a person in.
+    $today       = date('Y-m-d');
+    $myStopIds   = getStopIdsForCrewMember($userId, $today);
+    $leadMinutes = (int)getTimeClockSetting('auto_arrival_lead_minutes', '240');
+    $nowTs       = time();
+    $candidates  = [];
+
+    // Visits this user was auto-stopped on today because they LEFT the site (fuel run, lunch,
+    // parts). Coming back resumes the timer — the visit is still in_progress, never completed
+    // by a GPS guess. Keyed by visit id; only when that departure is their latest entry.
+    $resumable = [];
+    try {
+        $resStmt = $db->prepare("
+            SELECT jte.visit_id
+            FROM job_time_entries jte
+            WHERE jte.user_id = ? AND jte.auto_stopped = 1 AND jte.end_time >= CURDATE()
+              AND jte.notes LIKE '%left the job site%'
+              AND jte.id = (SELECT MAX(j2.id) FROM job_time_entries j2 WHERE j2.visit_id = jte.visit_id AND j2.user_id = jte.user_id)
+        ");
+        $resStmt->execute([$userId]);
+        $resumable = array_flip(array_map('intval', array_column($resStmt->fetchAll(PDO::FETCH_ASSOC), 'visit_id')));
+    } catch (Throwable $e) { /* auto_stopped column absent on a very old schema — no resume */ }
+
     foreach ($allVisits as $visit) {
-        if ($visit['status'] !== 'scheduled') continue;
+        $isResume = $visit['status'] === 'in_progress' && isset($resumable[(int)$visit['id']]);
+        if ($visit['status'] !== 'scheduled' && !$isResume) continue;
+        if (!ProximityAutoStartService::isOwnVisit($visit, $userId, $myStopIds)) continue;
+        if (!ProximityAutoStartService::withinWindow(
+                $visit['scheduled_date'] ?? $today, $visit['scheduled_time_start'] ?? null, $nowTs, $leadMinutes)) continue;
 
         $vLat       = $visit['property_lat'] ?? null;
         $vLng       = $visit['property_lng'] ?? null;
@@ -690,72 +998,126 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         }
 
         if ($insideBorder) {
-            // Polygon match is definitive — treat as distance 0 so it always wins
-            $nearestDist = 0;
-            $nearest     = $visit;
-            break; // first polygon match wins (already inside the site)
+            // Inside a drawn border is definitive — ranked ahead of any radius match.
+            $candidates[] = ['visit' => $visit, 'distance' => 0.0, 'inside_border' => true, 'border' => $border];
+            continue;
         }
 
         // Haversine fallback — only possible when the property has geocoded coordinates.
-        // Guard moved here (after polygon attempt) so a drawn border can still match
+        // Guard sits after the polygon attempt so a drawn border can still match
         // even when lat/lng is missing/null.
         if (!$vLat || !$vLng) continue;
 
         $dist = haversineDistance($lat, $lng, (float)$vLat, (float)$vLng);
-        if ($dist < $nearestDist) {
-            $nearestDist = $dist;
-            $nearest     = $visit;
+        if ($dist <= $proximityMeters) {
+            $candidates[] = ['visit' => $visit, 'distance' => $dist, 'inside_border' => false, 'border' => null];
         }
     }
 
-    if (!$nearest || $nearestDist > $proximityMeters) {
+    if (!$candidates) {
         return null;
     }
 
-    // Guard 8: service type check — global allowlist OR per-product auto_clock_in flag
-    $serviceType = $nearest['service_type'] ?? '';
-    $inGlobalList = !empty($allowedTypes) && in_array($serviceType, $allowedTypes);
-
-    $hasPerVisitFlag = false;
-    // Check per-product/plan auto_clock_in via resolveTrackingRequirements
-    $visitId = (int)$nearest['id'];
-    if (function_exists('resolveTrackingRequirements')) {
-        $trackReqs = resolveTrackingRequirements($visitId);
-        $hasPerVisitFlag = !empty($trackReqs['auto_clock_in']);
+    // Prior fixes for the dwell test — loaded once, only when something is in range.
+    $priorFixes = [];
+    if ($requireDwell) {
+        $fixStmt = $db->prepare("
+            SELECT latitude AS lat, longitude AS lng,
+                   (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) AS age_seconds
+            FROM crew_location_history
+            WHERE crew_id = ? AND timestamp >= (NOW() - INTERVAL ? SECOND)
+              AND is_mock = 0   -- a mock fix never proves dwell (2026-10-12)
+            ORDER BY timestamp DESC
+            LIMIT 20
+        ");
+        $fixStmt->execute([$userId, ProximityAutoStartService::DWELL_MAX_AGE_SECONDS]);
+        $priorFixes = $fixStmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    if (!$inGlobalList && !$hasPerVisitFlag) {
+    // Walk candidates best-first and take the first that clears every remaining
+    // guard — an ineligible nearest visit no longer blocks the one next door.
+    $nearest = null; $nearestDist = 0.0; $visitId = 0; $serviceType = '';
+    foreach (ProximityAutoStartService::rank($candidates) as $cand) {
+        $v   = $cand['visit'];
+        $vid = (int)$v['id'];
+
+        // Guard 8: service type — global allowlist OR per-product auto_clock_in flag
+        $type         = $v['service_type'] ?? '';
+        $inGlobalList = !empty($allowedTypes) && in_array($type, $allowedTypes);
+        $hasPerVisitFlag = false;
+        if (!$inGlobalList && function_exists('resolveTrackingRequirements')) {
+            $trackReqs       = resolveTrackingRequirements($vid);
+            $hasPerVisitFlag = !empty($trackReqs['auto_clock_in']);
+        }
+        if (!$inGlobalList && !$hasPerVisitFlag) continue;
+
+        // Guard 9: visit not already auto-started today — unless this is a RETURN after an
+        // auto-detected departure, which resumes it.
+        if (!isset($resumable[$vid])) {
+            $alreadyStmt = $db->prepare("
+                SELECT id FROM job_time_entries
+                WHERE visit_id = ? AND auto_started = 1 AND start_time >= CURDATE()
+                LIMIT 1
+            ");
+            $alreadyStmt->execute([$vid]);
+            if ($alreadyStmt->fetch()) continue;
+        }
+
+        // Guard 10: dwell — an earlier fix inside the SAME fence. One ping is a drive-by.
+        if ($requireDwell) {
+            $border = $cand['border'];
+            $pLat   = (float)($v['property_lat'] ?? 0);
+            $pLng   = (float)($v['property_lng'] ?? 0);
+            $inside = static function (float $fLat, float $fLng) use ($border, $pLat, $pLng, $proximityMeters): bool {
+                if ($border && !empty($border['polygon'])) {
+                    return geofencePointInPolygon($fLat, $fLng, $border['polygon'], $border['bbox']);
+                }
+                return $pLat && $pLng && haversineDistance($fLat, $fLng, $pLat, $pLng) <= $proximityMeters;
+            };
+            if (!ProximityAutoStartService::hasDwell($priorFixes, $inside)) continue;
+        }
+
+        $nearest = $v; $nearestDist = (float)$cand['distance']; $visitId = $vid; $serviceType = $type;
+        break;
+    }
+
+    if (!$nearest) {
         return null;
     }
 
-    // Guard 9: visit not already auto-started today
-    $alreadyStmt = $db->prepare("
-        SELECT id FROM job_time_entries
-        WHERE visit_id = ? AND auto_started = 1 AND DATE(start_time) = CURDATE()
-        LIMIT 1
-    ");
-    $alreadyStmt->execute([$visitId]);
-    if ($alreadyStmt->fetch()) {
-        return null;
+    // Special request gate (inert unless ops_settings.special_requests_enabled): never start the
+    // timer silently past a client request this person hasn't read. The gate pushes the request
+    // to the crew ("Before you start — …") instead; they read it, tap Got it, then Start.
+    $__srGate = APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+    if (is_file($__srGate)) {
+        require_once $__srGate;
+        if (SpecialRequestGate::blocksAutoStart(getDB(), (int)$visitId, $userId)) {
+            return null;
+        }
     }
 
-    // All guards passed — auto-clock-in if needed, then start timer
+    // All guards passed. Clock in only now that the timer is known to be startable
+    // (own visit, not already running) — and undo the clock-in if the start still
+    // fails, so a failed auto-start can never leave someone on the payroll clock.
     $clockInCreated = false;
-    $clockEntry = getActiveClockEntry($userId);
-    if (!$clockEntry) {
+    $newClockEntryId = null;
+    if (!getActiveClockEntry($userId)) {
         try {
-            clockIn($userId, $lat, $lng);
-            $clockInCreated = true;
+            $newClockEntryId = clockIn($userId, $lat, $lng);
+            $clockInCreated  = true;
         } catch (Exception $e) {
             // Already clocked in (race condition) — proceed
         }
     }
 
-    // Start the visit timer
     try {
         $entryId = startJobTimer($visitId, $userId, $lat, $lng, true);
     } catch (Exception $e) {
-        // Timer already running (race condition) — bail
+        if ($clockInCreated && $newClockEntryId) {
+            $db->prepare("DELETE FROM time_clock_entries WHERE id = ? AND user_id = ? AND clock_out IS NULL")
+               ->execute([$newClockEntryId, $userId]);
+            error_log("checkProximityAutoStart: rolled back auto clock-in {$newClockEntryId} for user {$userId} — " . $e->getMessage());
+        }
         return null;
     }
 
@@ -774,6 +1136,7 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         'distance_meters' => (int)round($nearestDist),
         'entry_id'        => $entryId,
         'clock_in_created' => $clockInCreated,
+        'resumed'          => isset($resumable[$visitId]),
     ];
 }
 

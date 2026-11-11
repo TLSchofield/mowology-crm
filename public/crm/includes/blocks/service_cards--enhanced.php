@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced Service Cards Block Renderer — Cinematic card grid with image reveal
  *
@@ -114,7 +115,7 @@ if (empty($services)) {
 .mw-svc-card__link svg { width:14px; height:14px; }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var section = document.getElementById('<?= h($uid) ?>');
   if (!section) return;

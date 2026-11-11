@@ -39,6 +39,11 @@ final class AuthSession: ObservableObject {
     @Published private(set) var user: User?
     @Published private(set) var token: String?
 
+    /// One session for the whole process. iOS can relaunch the app in the background
+    /// (significant-change / geofence wake) with no UI, and tracking must be able to
+    /// resume with the same credentials the views use.
+    static let shared = AuthSession()
+
     // MARK: - Init
 
     init() {
@@ -52,7 +57,7 @@ final class AuthSession: ObservableObject {
     /// On success the JWT and user record are persisted to Keychain and the
     /// published state is updated so RootView switches to ScheduleView.
     func login(email: String, password: String) async throws {
-        guard let url = URL(string: "https://mowology.ca/api/auth/token.php") else {
+        guard let url = Server.url("/api/auth/token.php") else {
             throw APIError.invalidURL
         }
 
@@ -112,14 +117,21 @@ final class AuthSession: ObservableObject {
         token           = authResponse.token
         user            = authResponse.user
         isAuthenticated = true
+        FixStore.shared.claim(for: authResponse.user.id)   // someone else's unsent GPS is dropped first
     }
 
     // MARK: - Logout
 
     /// Clears the session from memory and removes persisted Keychain entries.
     func logout() {
+        // Signing out — or a 401 mid-shift — must end location capture. CoreLocation
+        // kept running after logout, recording someone who was no longer signed in.
+        GPSTrackingService.shared.stop(reason: .signedOut)
+        // This phone stops getting this user's pushes (the server switches its token off).
+        if let jwt = token { DeviceTokenService.unregister(jwt: jwt) }
         KeychainStore.delete(key: KeychainKey.jwt)
         KeychainStore.delete(key: KeychainKey.user)
+        OfflineDirectory.shared.clear()
         token           = nil
         user            = nil
         isAuthenticated = false
@@ -141,6 +153,7 @@ final class AuthSession: ObservableObject {
         token           = storedToken
         user            = storedUser
         isAuthenticated = true
+        FixStore.shared.claim(for: storedUser.id)
     }
 
     private func extractErrorMessage(from data: Data) -> String? {

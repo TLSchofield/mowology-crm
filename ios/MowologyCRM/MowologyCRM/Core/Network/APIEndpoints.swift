@@ -7,7 +7,7 @@
 
 import Foundation
 
-private let baseURLString = "https://mowology.ca/api"
+private let baseURLString = Server.api.absoluteString
 
 /// Enumeration of every API endpoint the app communicates with.
 /// Each case resolves to a `URL` and declares whether it requires an
@@ -17,14 +17,19 @@ enum APIEndpoint {
     /// POST /api/auth/token.php — exchange credentials for a JWT.
     case tokenAuth
 
-    /// GET /api/schedule/day?date=YYYY-MM-DD — stops for a specific date.
-    case scheduleDay(date: String)
+    /// GET /api/schedule/day?date=YYYY-MM-DD[&scope=mine|all][&service=slug] — stops for a specific date.
+    /// scope/service: whose jobs and which job type (CrewViewScope on the server, 2026-10-14).
+    /// crews: on All crews, the people ticked on the phone (comma user ids, 2026-11-08); nil/"" = everyone.
+    case scheduleDay(date: String, scope: String? = nil, service: String? = nil, crews: String? = nil)
 
     /// GET /api/schedule/week?start=YYYY-MM-DD — weekly summary strip.
-    case scheduleWeek(start: String)
+    case scheduleWeek(start: String, scope: String? = nil, service: String? = nil, crews: String? = nil)
 
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
+
+    /// GET /api/schedule/timer?mode=active — the job timer currently running for this user, if any.
+    case scheduleTimerActive
 
     /// POST /api/schedule/location — GPS ping for an active job visit.
     case scheduleLocation
@@ -33,14 +38,66 @@ enum APIEndpoint {
     /// positions for crew. Self-only for crew, all crew for admin/manager.
     case scheduleCrewTrails(date: String)
 
+    /// GET /api/schedule/team-members — active crew, for the assignment picker. Admin/manager only.
+    case teamMembers
+
+    /// POST /api/schedule/assign-crew — assign or unassign crew on a stop. Admin/manager only.
+    case assignCrew
+
+    /// POST /api/schedule/reschedule-stop — move a stop to another date. Admin/manager only.
+    case rescheduleStop
+
     /// POST /api/schedule/clock — clock in or clock out.
     case scheduleClock
 
     /// GET /api/schedule/clock?action=status — current clock-in state.
     case scheduleClockStatus
 
+    /// GET /api/schedule/clock?mode=week&start=YYYY-MM-DD — caller's own timesheet week.
+    /// Uses `mode`, not `action`: the /api/ rewrite owns the `action` query param.
+    case scheduleTimesheetWeek(start: String)
+
+    /// GET /api/schedule/visit-work?visit_id= — checklist, materials and notes for a visit.
+    case visitWork(visitId: Int)
+
+    /// POST /api/schedule/visit-work — save_checklist / save_materials / add_note.
+    case visitWorkAction
+
+    /// GET /api/schedule/tracking?mode=status — the server's tracking policy (am I still on the clock?).
+    case trackingStatus
+
+    /// GET /api/schedule/tracking?mode=consent — disclosure text + whether it has been agreed.
+    case trackingConsent
+
+    /// GET /api/schedule/tracking?mode=geofences — the caller's OWN stops today, for OS geofencing.
+    case trackingGeofences
+
+    /// POST /api/schedule/tracking — {action: consent | withdraw}.
+    case trackingAction
+
+    /// GET /api/schedule/trip-report — vehicle log status for this shift (am I the driver? open trip?).
+    case tripReportStatus
+
+    /// POST /api/schedule/trip-report — {action: declare | pre_trip | post_trip}.
+    case tripReportAction
+
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
+
+    /// GET /api/schedule/recommendation?mode=options — services crew may offer.
+    case recommendationOptions
+
+    /// POST /api/schedule/recommendation — log a crew service recommendation.
+    /// Body carries `intent`: "ask" (Ask first, no price) or "quote" (default).
+    case recommendationCreate
+
+    /// GET /api/schedule/recommendation?mode=recipients&visit_id= — who Ask first and
+    /// Send quote go to, whether this user may send an ask, and email consent.
+    case recommendationRecipients(visitId: Int)
+
+    /// POST /api/schedule/recommendation {action: ask_send} — send an Ask-first email
+    /// (admin/manager only; the server re-checks recipient and consent).
+    case recommendationAskSend
 
     /// POST /crm/api/pow-actions.php — PoW visit lifecycle (start/end/notes).
     case powActions
@@ -60,11 +117,111 @@ enum APIEndpoint {
     /// POST /api/expenses/receipt-upload — upload a receipt image and run OCR (JWT).
     case receiptUpload
 
+    /// POST /api/expenses/label-upload — photo of a product bag / machine nameplate (JWT).
+    /// Same OCR as a receipt but never an expense: Penny or Otto proposes it on the web.
+    case labelUpload
+
+    /// GET /api/team/equipment-mobile?mode=options — Otto's Add equipment choices (JWT).
+    case equipmentOptions
+
+    /// GET /api/team/equipment-mobile?mode=list — the active machines, to open and edit (JWT, 2026-10-14).
+    case equipmentList
+
+    /// POST /api/team/equipment-mobile — read a plate (multipart, APIClient.uploadPlate),
+    /// receipts / save (JSON). EquipmentService on the server, same as the web page (JWT).
+    case equipmentAction
+
     /// POST /api/expenses/expense-save — save a reviewed expense record (JWT).
     case expenseSave
 
     /// GET /api/expenses/expense-list — paginated list of the user's expenses (JWT).
     case expenseList(page: Int)
+
+    /// POST /api/expenses/expense-update — edit an existing expense's fields (JWT).
+    case expenseUpdate
+
+    /// POST /api/expenses/receipt-actions — approve, reject, or send a receipt to
+    /// accounting (JWT). Body: { action: "approve"|"reject"|"send", expense_id, rejection_reason? }
+    case receiptAction
+
+    /// GET /api/expenses/bookkeeper-mobile?mode=queue — Penny's receipts to review, duplicate
+    /// groups first, with app-signed photo links and the select options (JWT, admin).
+    case bookkeeperQueue
+
+    /// POST /api/expenses/bookkeeper-mobile — Penny's desk actions (JWT, admin).
+    /// Body: { mode: "decide"|"reject"|"not_dupe", suggestion_id?, overrides?, save_draft?, reason?, pairs? }
+    case bookkeeperAction
+
+    /// GET /api/expenses/bookkeeper-mobile?mode=risk&expense_id=N — Penny explains one
+    /// receipt's anomaly score: {score, tier, summary, flags:[{code, detail, penny}]} (JWT, admin).
+    case bookkeeperRisk(expenseId: Int)
+
+    /// GET /api/expenses/bookkeeper-mobile?mode=suggestion&expense_id=N — Penny's read on one
+    /// receipt where it differs (PennyReadService). Crew get it for their own receipts.
+    /// "Use Penny's version" / "Keep mine" POST to .bookkeeperAction with mode penny_apply / penny_keep.
+    case bookkeeperSuggestion(expenseId: Int)
+    /// GET /api/expenses/bookkeeper-mobile?mode=merged&expense_id=N — copies merged into this receipt
+    /// ("Also on this purchase"); Split off posts {mode: unmerge, copy_id, kind: split} to .bookkeeperAction.
+    case bookkeeperMerged(expenseId: Int)
+
+    /// GET /api/sales/sales-head-mobile?mode=desk — Sam's desk: stats, follow-up queue (with
+    /// drafts), leads, questions, replies waiting (JWT, admin or billing.edit).
+    case salesDesk
+
+    /// GET /api/sales/sales-head-mobile?mode=thread&contact_id=N — one contact's emails/texts (read-only).
+    case salesThread(contactId: Int)
+
+    /// POST /api/sales/sales-head-mobile — Sam's actions (JWT). Body: { mode: "send"|"park"|
+    /// "draft_reply"|"handled"|"answer", card_key?, reply_key?, key?, channel?, subject?, body?, … }
+    case salesAction
+
+    /// GET /api/team/team-mobile?mode=brief&head=charlie|otto|mia|yui — one head's card: the
+    /// Action Board's top 3 for that head, the brain, and the head's extra (Charlie's Ask status,
+    /// Otto's unpinned properties, Mia's Google post draft) (JWT, admin).
+    case teamHeadBrief(head: String)
+    /// GET /api/team/team-mobile?mode=brief&head=charlie&ready=1 — the copy kept ready on the server
+    /// (built every 15 min + after each read) for the opening screen; the live build takes ~7 s.
+    case teamHeadBriefReady(head: String)
+    /// GET /api/team/team-mobile?mode=brains — every head's brain, for the face row's flip.
+    case teamBrains
+    /// GET /api/team/team-mobile?mode=yui_jobs — Yui's decision cards (JWT, billing.edit). Her answers POST to
+    /// `.teamHeadAction` as { mode: "yui_act", request, fields }.
+    case teamYuiJobs
+    /// Penny's owner-confirmed vendor knowledge and one vendor's learned items.
+    case pennyKnowledge
+    case pennyKnowledgeItems(key: String)
+
+    /// Penny onboarding Step 1 — persisted business identity.
+    case businessIdentityCurrent
+    case businessIdentitySearch(name: String)
+    case businessIdentityContacts
+    case businessIdentityAction(mode: String)
+
+    /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
+    /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
+    case teamHeadAction
+
+    /// GET /api/schedule/missed-review?mode=list — Otto's end-of-day missed-visit review (JWT,
+    /// schedule.edit): each visit not done, Otto's pick + reason (MissedVisitReviewService).
+    case ottoMissedReview
+    /// POST /api/schedule/missed-review — { mode: "decide", item_id, choice: accept|tomorrow|date|skip|cancel,
+    /// date?, reason?, note? } or { mode: "accept_all" } (JWT, schedule.edit).
+    case ottoMissedReviewAction
+
+    /// GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates&… —
+    /// review-form lookups shared with the Android review card (JWT). Uses `type=`
+    /// because the /api/ router's rewrite appends its own `action` param.
+    case expenseLookup(query: [URLQueryItem])
+
+    /// POST /api/expenses/expense-delete — delete an own draft expense (JWT). Body: { id }
+    case expenseDelete
+
+    /// GET /api/expenses/expense-line-items?expense_id=N — a saved expense's line items (JWT).
+    case expenseLineItems(expenseId: Int)
+
+    /// POST /api/expenses/expense-line-items — { op: update|add|delete|link, ... } (JWT).
+    /// Every correction here is a learning signal for the receipt parser.
+    case expenseLineItemAction
 
     /// POST /api/device/token — register APNs device token for push notifications.
     case deviceTokenRegister
@@ -76,7 +233,72 @@ enum APIEndpoint {
     case quizQuestion(sessionId: Int, q: Int)
 
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
+    /// GET /api/schedule/search — q (+ optional fix) | mode=nearby | mode=property&id.
+    case fieldSearch(query: String, lat: Double?, lng: Double?)
+    case fieldSearchNearby(lat: Double, lng: Double)
+    case fieldSearchProperty(id: Int, lat: Double?, lng: Double?)
+    /// GET /api/schedule/search?mode=owner&q — the owner's one box: every group they may see + a direct answer
+    /// (UniversalSearchService / ClientFactAnswerer; billing.view). Crew stay on fieldSearch.
+    case ownerSearch(query: String, scopeKind: String?, scopeId: Int?)
+    /// GET /api/schedule/search?mode=contact&id — a client's page: phone/email, properties, open quotes, unpaid invoices, messages.
+    case ownerSearchContact(id: Int)
+    /// POST /api/schedule/search?mode=pick {q, kind, id} — what was chosen, so it ranks first next time.
+    case ownerSearchPick
+
+    /// GET /api/schedule/field-job?mode=nearby — properties near a GPS fix, with their active plans.
+    case fieldJobNearby(lat: Double, lng: Double)
+    case fieldJobLastPrice(propertyId: Int, serviceType: String)
+
+    /// POST /api/schedule/field-job — add_visit | create_job | create_client_job.
+    case fieldJobAction
+
+    /// GET /api/tasks/tasks-mobile — who a task can go to, and the clients kept on the phone for no-signal use.
+    case tasksMobile
+    /// POST /api/tasks/tasks-mobile — create a task (Add → Task; sent through CreateOutbox).
+    case tasksMobileCreate
+    /// GET /api/quotes/quote-mobile — the price list, kept on the phone. POST — a draft quote (via CreateOutbox).
+    case quoteMobile
+    case quoteMobileCreate
+    /// GET /api/invoices/invoices-mobile — visits waiting on an invoice + drafts. POST — create (via CreateOutbox) / send.
+    case invoicesMobile
+    case invoicesMobileAction
+
     case scheduleJobPhoto
+
+    /// POST /api/schedule/plant-id — "What is this plant?": {mode: identify | confirm, …} (2026-10-15).
+    case plantId
+
+    /// GET /api/schedule/visit-photos?visit_id=N — proof photos already taken on a visit.
+    case scheduleVisitPhotos(visitId: Int)
+
+    /// GET /api/schedule/special-requests?mode=visits&ids=1,2 — a client's special request on
+    /// these visits (empty + enabled:false while the feature is off).
+    case scheduleSpecialRequests(visitIds: [Int])
+
+    /// POST /api/schedule/special-requests — {mode: ack | outcome, request_visit_id, …}.
+    case scheduleSpecialRequestAction
+    /// Snow & salt route stop: what was done (salt / arctic / snow / none) — GET reads it, POST records it.
+    case snowRouteChoice(visitId: Int)
+    case snowRouteChoiceAction
+
+    /// GET /api/schedule/visit-photos?visit_id=&mode=history — photos from earlier visits
+    /// at the same property. Uses `mode`, not `action`: the /api/ rewrite owns `action`.
+    case scheduleVisitPhotoHistory(visitId: Int)
+
+    /// POST /api/schedule/invoice — invoice a completed visit (timed extras + invoice).
+    /// Body: { action: "preview"|"create"|"send", ... }
+    case scheduleInvoice
+
+    /// GET /api/expenses/penny-chase-mobile?mode=mine|recent|admin[&id=N] — Penny's missing-receipt
+    /// chaser (MissingReceiptService, migration 1245) (JWT).
+    case pennyChase(query: [URLQueryItem])
+
+    /// POST /api/expenses/penny-chase-mobile — { mode: attach|no_receipt|reassign, id, … } (JWT).
+    case pennyChaseAction
+
+    /// POST /api/jobs/visit-pull-forward?mode=offer|accept — "booked another day — doing it now?"
+    /// (VisitPullForwardService). Uses `mode`, not `action`: the /api/ rewrite owns `action`.
+    case visitPullForward(mode: String)
 
     // MARK: - URL
 
@@ -87,18 +309,29 @@ enum APIEndpoint {
         case .tokenAuth:
             return URL(string: "\(baseURLString)/auth/token.php")
 
-        case .scheduleDay(let date):
+        case .scheduleDay(let date, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/day")
-            components?.queryItems = [URLQueryItem(name: "date", value: date)]
+            var items = [URLQueryItem(name: "date", value: date)]
+            if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
+            if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            if let crews, !crews.isEmpty { items.append(URLQueryItem(name: "crews", value: crews)) }
+            components?.queryItems = items
             return components?.url
 
-        case .scheduleWeek(let start):
+        case .scheduleWeek(let start, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/week")
-            components?.queryItems = [URLQueryItem(name: "start", value: start)]
+            var items = [URLQueryItem(name: "start", value: start)]
+            if let scope { items.append(URLQueryItem(name: "scope", value: scope)) }
+            if let service, !service.isEmpty { items.append(URLQueryItem(name: "service", value: service)) }
+            if let crews, !crews.isEmpty { items.append(URLQueryItem(name: "crews", value: crews)) }
+            components?.queryItems = items
             return components?.url
 
         case .scheduleTimer:
             return URL(string: "\(baseURLString)/schedule/timer")
+
+        case .scheduleTimerActive:
+            return URL(string: "\(baseURLString)/schedule/timer?mode=active")
 
         case .scheduleLocation:
             return URL(string: "\(baseURLString)/schedule/location")
@@ -108,6 +341,15 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "date", value: date)]
             return components?.url
 
+        case .teamMembers:
+            return URL(string: "\(baseURLString)/schedule/team-members")
+
+        case .assignCrew:
+            return URL(string: "\(baseURLString)/schedule/assign-crew")
+
+        case .rescheduleStop:
+            return URL(string: "\(baseURLString)/schedule/reschedule-stop")
+
         case .scheduleClock:
             return URL(string: "\(baseURLString)/schedule/clock")
 
@@ -116,14 +358,61 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "action", value: "status")]
             return components?.url
 
+        case .scheduleTimesheetWeek(let start):
+            var components = URLComponents(string: "\(baseURLString)/schedule/clock")
+            components?.queryItems = [
+                URLQueryItem(name: "mode",  value: "week"),
+                URLQueryItem(name: "start", value: start)
+            ]
+            return components?.url
+
+        case .visitWork(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-work")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: String(visitId))]
+            return components?.url
+
+        case .visitWorkAction:
+            return URL(string: "\(baseURLString)/schedule/visit-work")
+
+        case .trackingStatus, .trackingConsent, .trackingGeofences:
+            let mode: String
+            switch self {
+            case .trackingConsent:   mode = "consent"
+            case .trackingGeofences: mode = "geofences"
+            default:                 mode = "status"
+            }
+            var components = URLComponents(string: "\(baseURLString)/schedule/tracking")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
+
+        case .trackingAction:
+            return URL(string: "\(baseURLString)/schedule/tracking")
+
+        case .tripReportStatus, .tripReportAction:
+            return URL(string: "\(baseURLString)/schedule/trip-report")
+
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
 
+        case .recommendationOptions:
+            var components = URLComponents(string: "\(baseURLString)/schedule/recommendation")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "options")]
+            return components?.url
+
+        case .recommendationCreate, .recommendationAskSend:
+            return URL(string: "\(baseURLString)/schedule/recommendation")
+
+        case .recommendationRecipients(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/recommendation")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "recipients"),
+                                      URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
         case .powActions:
-            return URL(string: "https://mowology.ca/crm/api/pow-actions.php")
+            return Server.url("/crm/api/pow-actions.php")
 
         case .powGpsSync:
-            return URL(string: "https://mowology.ca/crm/api/pow-gps-sync.php")
+            return Server.url("/crm/api/pow-gps-sync.php")
 
         case .scheduleJobs(let status, let limit, let offset):
             var components = URLComponents(string: "\(baseURLString)/schedule/jobs")
@@ -147,6 +436,18 @@ enum APIEndpoint {
         case .receiptUpload:
             return URL(string: "\(baseURLString)/expenses/receipt-upload")
 
+        case .labelUpload:
+            return URL(string: "\(baseURLString)/expenses/label-upload")
+
+        case .equipmentOptions:
+            return URL(string: "\(baseURLString)/team/equipment-mobile?mode=options")
+
+        case .equipmentList:
+            return URL(string: "\(baseURLString)/team/equipment-mobile?mode=list")
+
+        case .equipmentAction:
+            return URL(string: "\(baseURLString)/team/equipment-mobile")
+
         case .expenseSave:
             return URL(string: "\(baseURLString)/expenses/expense-save")
 
@@ -154,6 +455,118 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-list")
             components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
             return components?.url
+
+        case .expenseUpdate:
+            return URL(string: "\(baseURLString)/expenses/expense-update")
+
+        case .receiptAction:
+            return URL(string: "\(baseURLString)/expenses/receipt-actions")
+
+        case .bookkeeperQueue:
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "queue"), URLQueryItem(name: "limit", value: "15")]
+            return components?.url
+
+        case .bookkeeperAction:
+            return URL(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+
+        case .bookkeeperRisk(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "risk"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
+        case .bookkeeperSuggestion(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "suggestion"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
+        case .bookkeeperMerged(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "merged"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
+        case .salesDesk:
+            var components = URLComponents(string: "\(baseURLString)/sales/sales-head-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "desk")]
+            return components?.url
+
+        case .salesThread(let contactId):
+            var components = URLComponents(string: "\(baseURLString)/sales/sales-head-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "thread"), URLQueryItem(name: "contact_id", value: "\(contactId)")]
+            return components?.url
+
+        case .salesAction:
+            return URL(string: "\(baseURLString)/sales/sales-head-mobile")
+
+        case .teamHeadBrief(let head):
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head)]
+            return components?.url
+        case .teamHeadBriefReady(let head):
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head),
+                                      URLQueryItem(name: "ready", value: "1")]
+            return components?.url
+
+        case .teamHeadAction:
+            return URL(string: "\(baseURLString)/team/team-mobile")
+
+        case .ottoMissedReview:
+            var components = URLComponents(string: "\(baseURLString)/schedule/missed-review")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "list")]
+            return components?.url
+        case .ottoMissedReviewAction:
+            return URL(string: "\(baseURLString)/schedule/missed-review")
+
+        case .teamYuiJobs:
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "yui_jobs")]
+            return components?.url
+        case .teamBrains:
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "brains")]
+            return components?.url
+        case .pennyKnowledge:
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "knowledge"), URLQueryItem(name: "head", value: "penny")]
+            return components?.url
+        case .pennyKnowledgeItems(let key):
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "knowledge_items"), URLQueryItem(name: "head", value: "penny"), URLQueryItem(name: "key", value: key)]
+            return components?.url
+        case .businessIdentityCurrent:
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "current")]
+            return components?.url
+        case .businessIdentitySearch(let name):
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "search"),
+                                      URLQueryItem(name: "q", value: name)]
+            return components?.url
+        case .businessIdentityContacts:
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "contacts")]
+            return components?.url
+        case .businessIdentityAction(let mode):
+            var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
+
+        case .expenseLookup(let query):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
+            components?.queryItems = query
+            return components?.url
+
+        case .expenseDelete:
+            return URL(string: "\(baseURLString)/expenses/expense-delete")
+
+        case .expenseLineItems(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-line-items")
+            components?.queryItems = [URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
+        case .expenseLineItemAction:
+            return URL(string: "\(baseURLString)/expenses/expense-line-items")
 
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/device/token")
@@ -169,8 +582,137 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .fieldSearch(let query, let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            var items = [URLQueryItem(name: "q", value: query)]
+            if let lat, let lng {
+                items.append(URLQueryItem(name: "lat", value: "\(lat)"))
+                items.append(URLQueryItem(name: "lng", value: "\(lng)"))
+            }
+            components?.queryItems = items
+            return components?.url
+
+        case .fieldSearchNearby(let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [
+                URLQueryItem(name: "mode", value: "nearby"),
+                URLQueryItem(name: "lat",  value: "\(lat)"),
+                URLQueryItem(name: "lng",  value: "\(lng)"),
+            ]
+            return components?.url
+
+        case .fieldSearchProperty(let id, let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            var items = [URLQueryItem(name: "mode", value: "property"),
+                         URLQueryItem(name: "id",   value: "\(id)")]
+            if let lat, let lng {
+                items.append(URLQueryItem(name: "lat", value: "\(lat)"))
+                items.append(URLQueryItem(name: "lng", value: "\(lng)"))
+            }
+            components?.queryItems = items
+            return components?.url
+
+        case .ownerSearch(let query, let scopeKind, let scopeId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            var items = [URLQueryItem(name: "mode", value: "owner"), URLQueryItem(name: "q", value: query)]
+            if let scopeKind, let scopeId {
+                items.append(URLQueryItem(name: "scope_kind", value: scopeKind))
+                items.append(URLQueryItem(name: "scope_id", value: "\(scopeId)"))
+            }
+            components?.queryItems = items
+            return components?.url
+
+        case .ownerSearchContact(let id):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "contact"), URLQueryItem(name: "id", value: "\(id)")]
+            return components?.url
+
+        case .ownerSearchPick:
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "pick")]
+            return components?.url
+
+        case .fieldJobNearby(let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/field-job")
+            components?.queryItems = [
+                URLQueryItem(name: "mode", value: "nearby"),
+                URLQueryItem(name: "lat",  value: "\(lat)"),
+                URLQueryItem(name: "lng",  value: "\(lng)"),
+            ]
+            return components?.url
+
+        case .fieldJobLastPrice(let propertyId, let serviceType):
+            var components = URLComponents(string: "\(baseURLString)/schedule/field-job")
+            components?.queryItems = [
+                URLQueryItem(name: "mode", value: "last_price"),
+                URLQueryItem(name: "property_id", value: "\(propertyId)"),
+                URLQueryItem(name: "service_type", value: serviceType),
+            ]
+            return components?.url
+
+        case .fieldJobAction:
+            return URL(string: "\(baseURLString)/schedule/field-job")
+
+        case .tasksMobile, .tasksMobileCreate:
+            return URL(string: "\(baseURLString)/tasks/tasks-mobile")
+
+        case .quoteMobile, .quoteMobileCreate:
+            return URL(string: "\(baseURLString)/quotes/quote-mobile")
+
+        case .invoicesMobile, .invoicesMobileAction:
+            return URL(string: "\(baseURLString)/invoices/invoices-mobile")
+
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
+
+        case .plantId:
+            return URL(string: "\(baseURLString)/schedule/plant-id")
+
+        case .scheduleSpecialRequests(let visitIds):
+            var components = URLComponents(string: "\(baseURLString)/schedule/special-requests")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "visits"),
+                                      URLQueryItem(name: "ids", value: visitIds.map(String.init).joined(separator: ","))]
+            return components?.url
+
+        case .scheduleSpecialRequestAction:
+            return URL(string: "\(baseURLString)/schedule/special-requests")
+
+        case .snowRouteChoice(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/snow-route-choice")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
+        case .snowRouteChoiceAction:
+            return URL(string: "\(baseURLString)/schedule/snow-route-choice")
+
+        case .scheduleVisitPhotos(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
+        case .scheduleVisitPhotoHistory(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
+            components?.queryItems = [
+                URLQueryItem(name: "visit_id", value: "\(visitId)"),
+                URLQueryItem(name: "mode",     value: "history")
+            ]
+            return components?.url
+
+        case .scheduleInvoice:
+            return URL(string: "\(baseURLString)/schedule/invoice")
+
+        case .pennyChase(let query):
+            var components = URLComponents(string: "\(baseURLString)/expenses/penny-chase-mobile")
+            components?.queryItems = query
+            return components?.url
+
+        case .pennyChaseAction:
+            return URL(string: "\(baseURLString)/expenses/penny-chase-mobile")
+
+        case .visitPullForward(let mode):
+            var components = URLComponents(string: "\(baseURLString)/jobs/visit-pull-forward")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
         }
     }
 
@@ -183,23 +725,97 @@ enum APIEndpoint {
         case .scheduleDay,
              .scheduleWeek,
              .scheduleTimer,
+             .scheduleTimerActive,
+             .scheduleSpecialRequests,
+             .scheduleSpecialRequestAction,
+             .snowRouteChoice,
+             .snowRouteChoiceAction,
              .scheduleLocation,
              .scheduleCrewTrails,
+             .teamMembers,
+             .assignCrew,
+             .rescheduleStop,
              .scheduleClock,
              .scheduleClockStatus,
+             .scheduleTimesheetWeek,
+             .visitWork,
+             .visitWorkAction,
+             .trackingStatus,
+             .trackingConsent,
+             .trackingGeofences,
+             .trackingAction,
+             .tripReportStatus,
+             .tripReportAction,
              .visitFlag,
+             .recommendationOptions,
+             .recommendationCreate,
+             .recommendationRecipients,
+             .recommendationAskSend,
              .powActions,
              .powGpsSync,
              .scheduleJobs,
              .scheduleInvoices,
              .scheduleQuotes,
              .receiptUpload,
+             .labelUpload,
+             .equipmentOptions,
+             .equipmentList,
+             .equipmentAction,
              .expenseSave,
              .expenseList,
+             .expenseUpdate,
+             .receiptAction,
+             .bookkeeperQueue,
+             .bookkeeperAction,
+             .bookkeeperRisk,
+             .bookkeeperSuggestion,
+             .bookkeeperMerged,
+             .salesDesk,
+             .salesThread,
+             .salesAction,
+             .teamHeadBrief,
+             .teamHeadBriefReady,
+             .teamBrains,
+             .teamYuiJobs,
+             .pennyKnowledge,
+             .pennyKnowledgeItems,
+             .businessIdentityCurrent,
+             .businessIdentitySearch,
+             .businessIdentityContacts,
+             .businessIdentityAction,
+             .teamHeadAction,
+             .ottoMissedReview,
+             .ottoMissedReviewAction,
+             .expenseLookup,
+             .expenseDelete,
+             .expenseLineItems,
+             .expenseLineItemAction,
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
-             .scheduleJobPhoto: return true
+             .scheduleJobPhoto,
+             .plantId,
+             .scheduleVisitPhotos,
+             .scheduleVisitPhotoHistory,
+             .fieldJobNearby,
+             .fieldJobLastPrice,
+             .fieldJobAction,
+             .tasksMobile,
+             .tasksMobileCreate,
+             .quoteMobile,
+             .quoteMobileCreate,
+             .invoicesMobile,
+             .invoicesMobileAction,
+             .fieldSearch,
+             .fieldSearchNearby,
+             .fieldSearchProperty,
+             .ownerSearch,
+             .ownerSearchContact,
+             .ownerSearchPick,
+             .scheduleInvoice,
+             .pennyChase,
+             .pennyChaseAction,
+             .visitPullForward: return true
         }
     }
 
@@ -209,29 +825,102 @@ enum APIEndpoint {
     var httpMethod: String {
         switch self {
         case .tokenAuth:    return "POST"
-        case .scheduleDay,
+        case .tasksMobileCreate, .quoteMobileCreate, .invoicesMobileAction: return "POST"
+        case .tasksMobile,
+             .quoteMobile,
+             .invoicesMobile,
+             .scheduleDay,
              .scheduleWeek,
              .scheduleCrewTrails,
-             .scheduleClockStatus: return "GET"
+             .teamMembers,
+             .scheduleClockStatus,
+             .scheduleTimesheetWeek,
+             .visitWork,
+             .trackingStatus,
+             .trackingConsent,
+             .trackingGeofences,
+             .scheduleSpecialRequests,
+             .snowRouteChoice,
+             .equipmentOptions,
+             .equipmentList,
+             .businessIdentityCurrent,
+             .businessIdentitySearch,
+             .businessIdentityContacts,
+             .tripReportStatus: return "GET"
 
         case .scheduleTimer,
+             .scheduleSpecialRequestAction,
+             .snowRouteChoiceAction,
              .scheduleLocation,
+             .assignCrew,
+             .rescheduleStop,
              .scheduleClock,
              .visitFlag,
+             .visitWorkAction,
+             .trackingAction,
+             .tripReportAction,
              .powActions,
              .powGpsSync,
              .receiptUpload,
+             .labelUpload,
+             .equipmentAction,
              .expenseSave,
-             .deviceTokenRegister: return "POST"
+             .expenseUpdate,
+             .receiptAction,
+             .bookkeeperAction,
+             .salesAction,
+             .teamHeadAction,
+             .ottoMissedReviewAction,
+             .expenseDelete,
+             .expenseLineItemAction,
+             .deviceTokenRegister,
+             .businessIdentityAction: return "POST"
 
         case .expenseList,
+             .bookkeeperQueue,
+             .bookkeeperRisk,
+             .bookkeeperSuggestion,
+             .bookkeeperMerged,
+             .salesDesk,
+             .salesThread,
+             .teamHeadBrief,
+             .teamHeadBriefReady,
+             .teamBrains,
+             .teamYuiJobs,
+             .pennyKnowledge,
+             .pennyKnowledgeItems,
+             .ottoMissedReview,
+             .expenseLookup,
+             .expenseLineItems,
              .scheduleJobs,
              .scheduleInvoices,
              .scheduleQuotes,
+             .recommendationOptions,
+             .recommendationRecipients,
+             .scheduleVisitPhotos,
+             .scheduleVisitPhotoHistory,
+             .scheduleTimerActive,
+             .fieldJobNearby,
+             .fieldJobLastPrice,
+             .fieldSearch,
+             .fieldSearchNearby,
+             .fieldSearchProperty,
+             .ownerSearch,
+             .ownerSearchContact,
              .quizQuestion: return "GET"
 
         case .quizAction,
-             .scheduleJobPhoto: return "POST"
+             .recommendationCreate,
+             .recommendationAskSend,
+             .scheduleJobPhoto,
+             .plantId,
+             .fieldJobAction,
+             .scheduleInvoice,
+             .pennyChaseAction,
+             .ownerSearchPick,
+             .visitPullForward: return "POST"
+
+        case .pennyChase: return "GET"
         }
     }
 }

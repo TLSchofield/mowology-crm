@@ -17,11 +17,27 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
+$user = getCurrentUser();
+requirePermission('jobs.edit');
 
 header('Content-Type: application/json');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+    exit;
+}
+
+$csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+if (!verifyCSRFToken($csrfToken)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+    exit;
+}
 
 $action = $_GET['action'] ?? '';
 
@@ -54,6 +70,15 @@ try {
                 $db->prepare("UPDATE activity_log SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
             } catch (Exception $e) {
                 // activity_log may not have plan_id column — ignore
+            }
+
+            // Release quote line items so they return to the quote's "available" pool
+            // for re-allocation (no FK on quote_line_items.plan_id — must be explicit,
+            // otherwise the items orphan to a deleted plan).
+            try {
+                $db->prepare("UPDATE quote_line_items SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
+            } catch (Exception $e) {
+                // quote_line_items.plan_id may be absent in some environments — ignore
             }
 
             // Delete plans
@@ -100,6 +125,15 @@ try {
                 // activity_log may not have plan_id column — ignore
             }
 
+            // Release quote line items so they return to the quote's "available" pool
+            // for re-allocation (no FK on quote_line_items.plan_id — must be explicit,
+            // otherwise the items orphan to a deleted plan).
+            try {
+                $db->prepare("UPDATE quote_line_items SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
+            } catch (Exception $e) {
+                // quote_line_items.plan_id may be absent in some environments — ignore
+            }
+
             // Delete plans
             $stmt = $db->prepare("DELETE FROM job_plans WHERE id IN ({$placeholders})");
             $stmt->execute($ids);
@@ -122,5 +156,5 @@ try {
     }
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'api-jobs')]);
 }

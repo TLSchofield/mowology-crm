@@ -197,7 +197,13 @@ $csrfToken = generateCSRFToken();
                   <?php
                   // Generate signed preview token (2-hour window, no DB needed)
                   $previewExpiry = time() + 7200;
-                  $previewSecret = defined('CMS_PREVIEW_SECRET') ? CMS_PREVIEW_SECRET : 'mwly_cms_preview';
+                  // No hard-coded fallback (Fable review 2026-10-12): without the secret the link just won't open.
+                  if (defined('CMS_PREVIEW_SECRET') && (string)CMS_PREVIEW_SECRET !== '') {
+                      $previewSecret = (string)CMS_PREVIEW_SECRET;
+                  } else {
+                      error_log('cms-page-edit: CMS_PREVIEW_SECRET is not defined — preview link disabled');
+                      $previewSecret = bin2hex(random_bytes(32));
+                  }
                   $previewToken  = hash_hmac('sha256', $pageId . '|' . $previewExpiry, $previewSecret);
                   $previewUrl    = '/cms-render.php?page=' . urlencode($page['slug'])
                                  . '&_pid=' . $pageId

@@ -12,6 +12,8 @@
   <php>
     <ini name="error_reporting" value="-1"/>
     <ini name="display_errors" value="On"/>
+    <!-- The doc/skill guard tests read all of app/ and public/crm into memory (16 MB+ by 2026-11-09); 128M fatals mid-run. -->
+    <ini name="memory_limit" value="1G"/>
   </php>
   <source>
     <include>

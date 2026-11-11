@@ -1,0 +1,849 @@
+<?php
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
+/**
+ * ReceiptInboxService — turn a vendor receipt/invoice that arrived by email into an
+ * expense record.
+ *
+ * The IMAP fetch lives in the cron poller
+ * (app/Modules/Expenses/Cron/receipt_inbox_poll.php); this service holds the
+ * storage + OCR + auto-post logic so the decision rules can be unit-tested without
+ * a mailbox.
+ *
+ * Nothing is approved here (2026-10-07). A "clean match" (isCleanMatch: the vendor is
+ * recognised in the vendor directory AND a total parsed AND a date parsed AND that
+ * vendor has a default accounting category) used to be created 'approved' and posted
+ * straight to the books. Now it is created 'pending_approval' and flagged high-confidence
+ * — Penny prepares those first (BookkeeperDeskService::prepare orders pending_approval
+ * first) and the owner approves. Anything short of a clean match is a 'draft'. Both show
+ * in the Expenses review panel. PDFs that can't be rasterised for OCR are never clean.
+ *
+ * Reuses the existing receipt pipeline: ReceiptOCR / ReceiptParser / ReceiptSmartMatch
+ * (the same code the camera "Snap Receipt" flow runs), media_assets for storage, and
+ * AccountingService::syncFromExpenses() (run by the sync-ledger cron) for posting.
+ */
+class ReceiptInboxService
+{
+    /** Attachment MIME types we will ingest. */
+    private const IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
+    private const PDF_MIME     = 'application/pdf';
+
+    private PDO $db;
+
+    /** Lines are part of the create only when the parser's net items reconcile. */
+    public static function fittedLineItemChanges(array $parsed, ?float $amount, ?float $total, ?float $gst = null, ?float $pst = null): array
+    {
+        require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/LineItemFit.php';
+        $items = $parsed['line_items'] ?? [];
+        return LineItemFit::addsUp($items, $amount, $total, 0.05, $gst, $pst)
+            ? ['line_items' => $items, 'line_items_source' => 'inbox']
+            : [];
+    }
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Pure, unit-testable decision helpers
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Stable dedup key for one attachment. Same email re-polled, or the same file
+     * seen twice, collapses to one key; two different attachments on one email get
+     * two keys (both ingested). Pure + static so it's trivially testable.
+     */
+    /**
+     * office@ is a shared business inbox (clients, quotes, payment notices), not a
+     * receipts drop — so only take an attachment from it when it looks like a receipt
+     * (2026-10-06: "she should watch all emails"). receipts@ takes everything.
+     *   yes — sent or forwarded by one of us (staff / owner addresses)
+     *   no  — our own domain otherwise (sent copies), a client, payment / remittance notices
+     *   yes — the subject or file name says receipt / invoice / bill / order / statement
+     *   no  — anything else (client photos, documents)
+     * @param string[] $ownerEmails  staff + owner addresses (lower case)
+     * @param string[] $clientEmails client contact addresses (lower case)
+     */
+    public static function isOfficeReceipt(?string $from, string $subject, string $filename, array $ownerEmails, array $clientEmails): bool
+    {
+        $from = strtolower(trim((string)$from));
+        // Our own documents are never receipts, even when one of us forwards them (2026-10-22: a signed quote forwarded
+        // from the owner's address with its PDF became an "Emailed receipt").
+        if (self::isOwnDocument($subject . ' ' . $filename)) return false;
+        if ($from !== '' && in_array($from, $ownerEmails, true)) return true;
+        if ($from === '' || str_ends_with($from, '@mowology.ca')) return false;
+        if (in_array($from, $clientEmails, true)) return false;
+        $text = $subject . ' ' . $filename;
+        if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote request/i', $text)) return false;
+        return (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+    }
+
+    /**
+     * Does this subject / file name say it is one of OUR documents (a quote, contract or proposal we sent), not a bill
+     * we received? Our document numbers (QUO-, JOB-, CTR-) always say so. The words quote / proposal / contract /
+     * agreement say so unless the text also says receipt / invoice / bill / order / statement (a supplier's invoice
+     * that mentions a quote is still an invoice). INV- is NOT used: a vendor's invoice number can look like ours. PURE.
+     */
+    public static function isOwnDocument(string $text): bool
+    {
+        if (preg_match('/\b(?:QUO|JOB|CTR)-\d{4}-\d{3,5}\b/i', $text)) return true;
+        $quoteish   = (bool)preg_match('/\bquot(?:e|es|ed|ation|ations)\b|\bproposals?\b|\bcontracts?\b|\bagreements?\b/i', $text);
+        $receiptish = (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (?:confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+        return $quoteish && !$receiptish;
+    }
+
+    /**
+     * A receipt that IS the email (RONA, Amazon, Uber… no attachment): only when the
+     * subject says so, and never a client, our own sent mail or a payment notice.
+     */
+    public static function isBodyReceipt(?string $from, string $subject, array $ownerEmails, array $clientEmails): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from === '') return false;
+        $ours = in_array($from, $ownerEmails, true);
+        if (!$ours && (str_ends_with($from, '@mowology.ca') || in_array($from, $clientEmails, true))) return false;
+        if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote/i', $subject)) return false;
+        return (bool)preg_match('/receipt|re[çc]u|your order|order (confirmation|#|receipt)|purchase|invoice|\bbill\b/i', $subject);
+    }
+
+    /** An HTML (or plain) email body as readable receipt text, one row per line. */
+    /**
+     * May the receipts@ inbox read mail from this sender? (security review, low, 2026-10-12.) Anyone could
+     * mail receipts@ and run up Vision OCR and Claude costs. Only: an active user's address, one of the
+     * owner's own addresses, or a known vendor's domain (VendorMessageService::matchVendor, domain only —
+     * a display name never counts). Everyone else is held for review, unread. PURE.
+     * @param string[] $allowedEmails lower-case addresses
+     */
+    public static function senderAllowed(?string $from, array $allowedEmails, array $vendors): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from === '' || strpos($from, '@') === false) return false;
+        if (in_array($from, $allowedEmails, true)) return true;
+        if (!class_exists('VendorMessageService')) require_once __DIR__ . '/VendorMessageService.php';
+        return VendorMessageService::matchVendor($from, '', $vendors) !== null;
+    }
+
+    /**
+     * Record a receipts@ attachment from a sender not on the allow-list WITHOUT reading it (no OCR, no
+     * Claude, no expense): one receipt_inbox_messages row, outcome 'held_sender', for a person to look at.
+     * @return array{status: string}
+     */
+    public function holdUnknownSender(array $msg, string $filename, string $bytes): array
+    {
+        $dedup = self::deriveDedupKey($msg['message_id'] ?? null, hash('sha256', $bytes), $filename);
+        if (!$this->claim($msg, $dedup, $filename)) return ['status' => 'duplicate'];
+        $this->finalizeClaim($dedup, null, null, 'held_sender', null,
+            'Sender not on the receipts allow-list — not read (no OCR / AI). Forward it from your own address to process it.');
+        return ['status' => 'held_sender'];
+    }
+
+    public static function htmlToText(string $html): string
+    {
+        $t = preg_replace('#<(script|style|head)\b[^>]*>.*?</\1>#is', ' ', $html);
+        $t = preg_replace('#<br\s*/?>|</(p|div|tr|li|h[1-6]|table)>#i', "\n", (string)$t);
+        $t = preg_replace('#</t[dh]>#i', "  ", (string)$t);
+        $t = html_entity_decode(strip_tags((string)$t), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $t = str_replace("\xC2\xA0", ' ', $t);
+        $lines = array_filter(array_map(fn($l) => trim((string)preg_replace('/[ \t]+/', ' ', $l)), explode("\n", $t)), 'strlen');
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Ingest a receipt that is the email body. The email is saved as the receipt (media_assets,
+     * text/html), its text is read like OCR text, and it always becomes a draft for Penny —
+     * never auto-posted (no photo to check against).
+     */
+    public function ingestEmailBody(array $msg, string $html, int $systemUserId): array
+    {
+        $sha256 = hash('sha256', $html);
+        $dedup  = self::deriveDedupKey($msg['message_id'] ?? null, $sha256, 'email-body.html');
+        if (!$this->claim($msg, $dedup, 'email-body.html')) {
+            return ['status' => 'duplicate', 'expense_id' => null, 'note' => null];
+        }
+        try {
+            $text = self::htmlToText($html);
+            // A client's accounts system refusing one of OUR invoices ("emailed invoice was not accepted … No PDF found") also says
+            // "invoice", so it landed here as a draft expense and nobody knew. Record it on the invoice instead: Charlie alerts the owner.
+            require_once dirname(__DIR__, 2) . '/Invoices/Services/InvoiceRejectionNotice.php';
+            if ($notice = InvoiceRejectionNotice::parse((string)($msg['subject'] ?? ''), $text)) {
+                $recorded = InvoiceRejectionNotice::record($this->db, $notice, (string)($msg['message_id'] ?? $dedup));
+                $this->finalizeClaim($dedup, null, null, 'skipped', null, 'client rejected invoice ' . $notice['invoice_number']);
+                return ['status' => 'skipped', 'expense_id' => null, 'note' => 'invoice rejection notice' . ($recorded ? ' (recorded)' : '')];
+            }
+            if (mb_strlen($text) < 20) {
+                $this->finalizeClaim($dedup, null, null, 'skipped', null, 'email body has no receipt text');
+                return ['status' => 'skipped', 'expense_id' => null, 'note' => 'no text'];
+            }
+            // Saved AND registered as the receipt (2026-10-14): before, the file was written but never
+            // linked, so the receipts list had no image for an emailed receipt ("sometimes missing").
+            // serve-receipt.php shows it sandboxed (no scripts).
+            $stored = $this->storeAttachment($html, 'email-receipt.html', 'text/html', true, $sha256, $systemUserId);
+            $file = basename($stored['web_path']);
+
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            $parsed = parseReceiptText($text, null);
+            $payee = trim((string)($msg['payee'] ?? ''));
+            if ($payee !== '') {
+                // A payment platform's receipt (PayPal "You sent a payment"): the vendor is who was
+                // paid, not the platform whose name fills the email — match on the payee alone.
+                $parsed['vendor_hint'] = $payee;
+                $suggestions = suggestReceiptMeta($payee, null, null, null, $parsed);
+                if (empty($suggestions['vendor_id'])) $suggestions['vendor_name'] = $payee;
+            } else {
+                $suggestions = suggestReceiptMeta($text, null, null, null, $parsed);
+            }
+            $ocr = ['readable' => true, 'source' => 'email_body', 'ocr_text' => $text, 'parsed' => $parsed,
+                    'suggestions' => $suggestions];
+            $msg['subject'] = trim(($msg['subject'] ?? '') . ' (saved: /uploads/receipts/' . $file . ')');
+            return $this->createExpenseFromRead($msg, $ocr, $stored['media_id'], $dedup, false, 'no text extracted', $systemUserId);
+        } catch (\Throwable $e) {
+            $this->releaseClaim($dedup);
+            throw $e;
+        }
+    }
+
+    public static function deriveDedupKey(?string $messageId, string $sha256, string $attachmentName): string
+    {
+        $mid = $messageId !== null ? trim($messageId) : '';
+        if ($mid !== '') {
+            return $mid . ':' . $sha256;
+        }
+        return 'sha:' . $sha256;
+    }
+
+    /**
+     * The auto-post gate. Returns true only for a "clean 100% match":
+     *   - vendor matched in the directory (vendor_id > 0)
+     *   - a positive total parsed
+     *   - a valid YYYY-MM-DD date parsed
+     *   - the matched vendor has a non-empty default accounting category
+     *
+     * Pure + static — no DB. The caller supplies the resolved fields.
+     *
+     * @param array{vendor_id:?int,total:mixed,expense_date:?string,vendor_default_category:?string} $d
+     */
+    public static function isCleanMatch(array $d): bool
+    {
+        $vendorId = (int) ($d['vendor_id'] ?? 0);
+        if ($vendorId <= 0) {
+            return false;
+        }
+        if ((float) ($d['total'] ?? 0) <= 0) {
+            return false;
+        }
+        if (!self::isValidDate($d['expense_date'] ?? null)) {
+            return false;
+        }
+        $cat = trim((string) ($d['vendor_default_category'] ?? ''));
+        return $cat !== '';
+    }
+
+    /** Note on the inbox log for a clean match, so it reads as high-confidence. */
+    public const HIGH_CONFIDENCE_NOTE = 'clean match — high confidence, waiting for approval';
+
+    /**
+     * The status an emailed receipt is created with. Never 'approved': a clean match
+     * waits for approval flagged high-confidence (Penny prepares it first), anything
+     * else is a draft. Pure.
+     *
+     * @return array{status:string, high_confidence:bool}
+     */
+    public static function inboxStatus(bool $cleanMatch): array
+    {
+        return $cleanMatch
+            ? ['status' => 'pending_approval', 'high_confidence' => true]
+            : ['status' => 'draft', 'high_confidence' => false];
+    }
+
+    /** True for a real calendar date in YYYY-MM-DD form. */
+    public static function isValidDate(?string $date): bool
+    {
+        if ($date === null || $date === '') {
+            return false;
+        }
+        $dt = DateTime::createFromFormat('Y-m-d', $date);
+        return $dt !== false && $dt->format('Y-m-d') === $date;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Ingest
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Atomically claim a dedup key by inserting a 'processing' placeholder row.
+     * The UNIQUE constraint on dedup_key is the concurrency guard: if two
+     * overlapping polls race the same attachment, the loser gets a duplicate-key
+     * error here and bails before any OCR work or an `expenses` write — instead
+     * of both racing to insert the financial record itself.
+     */
+    private function claim(array $msg, string $dedup, ?string $filename): bool
+    {
+        $dt = !empty($msg['email_date']) ? date('Y-m-d H:i:s', strtotime($msg['email_date'])) : null;
+        try {
+            $this->db->prepare("
+                INSERT INTO receipt_inbox_messages
+                    (dedup_key, sender_email, subject, email_date, attachment_name, outcome)
+                VALUES (?,?,?,?,?, 'processing')
+            ")->execute([$dedup, $msg['sender_email'] ?? null, $msg['subject'] ?? null, $dt, $filename]);
+            return true;
+        } catch (PDOException $e) {
+            if (stripos($e->getMessage(), 'Duplicate') !== false || $e->getCode() === '23000') {
+                return false;
+            }
+            throw $e;
+        }
+    }
+
+    /** Finalize a claimed row with the outcome of processing. */
+    private function finalizeClaim(string $dedup, ?int $mediaId, ?int $expenseId, string $outcome, ?int $confidence, ?string $note): void
+    {
+        $this->db->prepare("
+            UPDATE receipt_inbox_messages
+               SET media_id = ?, expense_id = ?, outcome = ?, match_confidence = ?, note = ?
+             WHERE dedup_key = ?
+        ")->execute([$mediaId, $expenseId, $outcome, $confidence, $note, $dedup]);
+    }
+
+    /**
+     * Release a claim after a failure so the attachment is retried on the next
+     * poll instead of being silently dropped forever (dedup_key would otherwise
+     * stay permanently occupied by an unfinished 'processing' row).
+     */
+    private function releaseClaim(string $dedup): void
+    {
+        try {
+            $this->db->prepare(
+                "DELETE FROM receipt_inbox_messages WHERE dedup_key = ? AND outcome = 'processing'"
+            )->execute([$dedup]);
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] releaseClaim failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Ingest one email attachment.
+     *
+     * @param array  $msg          ['message_id'=>?, 'sender_email'=>?, 'subject'=>?, 'email_date'=>?]
+     * @param string $bytes        Raw decoded attachment bytes
+     * @param string $filename     Original attachment filename
+     * @param string $mime         MIME type
+     * @param int    $systemUserId users.id to attribute the expense to (an admin)
+     * @return array{status:string,expense_id:?int,note:?string}
+     *         status ∈ duplicate | unsupported | pending | error (never auto_posted since 2026-10-07; high_confidence flags a clean match)
+     */
+    public function ingestAttachment(array $msg, string $bytes, string $filename, string $mime, int $systemUserId): array
+    {
+        $mime   = strtolower(trim($mime));
+        $sha256 = hash('sha256', $bytes);
+        $dedup  = self::deriveDedupKey($msg['message_id'] ?? null, $sha256, $filename);
+
+        if (!$this->claim($msg, $dedup, $filename)) {
+            return ['status' => 'duplicate', 'expense_id' => null, 'note' => null];
+        }
+        // The same file under another Message-ID (forwarded from office@ to iCloud, a vendor's
+        // resend): already read once — never a second expense (2026-10-07, iCloud router).
+        if ($this->shaSeenElsewhere($sha256, $dedup)) {
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'same file as an earlier email');
+            return ['status' => 'duplicate', 'expense_id' => null, 'note' => 'same file as an earlier email'];
+        }
+
+        try {
+            return $this->processClaimedAttachment($msg, $bytes, $filename, $mime, $systemUserId, $dedup, $sha256);
+        } catch (\Throwable $e) {
+            $this->releaseClaim($dedup);
+            throw $e;
+        }
+    }
+
+    /** An earlier email (any mailbox) already carried exactly these bytes. */
+    private function shaSeenElsewhere(string $sha256, string $dedup): bool
+    {
+        $s = $this->db->prepare("
+            SELECT 1 FROM receipt_inbox_messages
+            WHERE dedup_key <> ? AND (dedup_key = ? OR dedup_key LIKE ?) AND outcome <> 'processing'
+            LIMIT 1
+        ");
+        $s->execute([$dedup, 'sha:' . $sha256, '%:' . $sha256]);
+        return (bool)$s->fetchColumn();
+    }
+
+    /** Does the actual store/OCR/expense-creation work for an already-claimed dedup key. */
+    private function processClaimedAttachment(array $msg, string $bytes, string $filename, string $mime, int $systemUserId, string $dedup, string $sha256): array
+    {
+        $isImage = in_array($mime, self::IMAGE_MIMES, true);
+        $isPdf   = ($mime === self::PDF_MIME);
+        if (!$isImage && !$isPdf) {
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'unsupported attachment (' . $mime . ')');
+            return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'unsupported attachment'];
+        }
+
+        // The MIME label and file name are the sender's claim. Check the bytes, and store under an extension WE
+        // choose from them, never the sender's (a file named x.php labelled image/png used to be saved as x.php).
+        if (!class_exists('ReceiptAttachmentGuard', false)) require_once __DIR__ . '/ReceiptAttachmentGuard.php';
+        $real = ReceiptAttachmentGuard::inspect($bytes);
+        if (!$real['ok'] || ($real['kind'] === 'pdf') !== $isPdf) {
+            $why = $real['ok'] ? 'labelled ' . ($isPdf ? 'PDF' : 'image') . ' but is not' : $real['problem'];
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'not a real receipt file (' . $why . ')');
+            return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'not a real receipt file'];
+        }
+        $filename = pathinfo($filename, PATHINFO_FILENAME) . '.' . $real['ext'];
+        $mime     = $real['mime'];   // the recorded type follows the bytes too, not the sender's label
+
+        // 1) Store the attachment to disk + media_assets.
+        $stored = $this->storeAttachment($bytes, $filename, $mime, $isPdf, $sha256, $systemUserId);
+        $mediaId  = $stored['media_id'];
+        $diskPath = $stored['disk_path'];
+
+        // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
+        $ocr = $this->runOcr($diskPath, $isPdf);
+
+        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
+    }
+
+    /**
+     * Steps 3–7 for any read receipt (an OCR'd attachment or an email body): build the
+     * expense, gate auto-posting, score anomalies, insert, finalize the claim.
+     */
+    private function createExpenseFromRead(array $msg, array $ocr, ?int $mediaId, string $dedup, bool $mayAutoPost, string $unreadableNote, int $systemUserId): array
+    {
+        // 3) Build expense fields from parsed text + smart match.
+        $parsed      = $ocr['parsed'];
+        $suggestions = $ocr['suggestions'];
+
+        $vendorId   = !empty($suggestions['vendor_id']) ? (int) $suggestions['vendor_id'] : null;
+        $vendorCat  = $vendorId ? $this->vendorDefaultCategory($vendorId) : null;
+        $total      = isset($parsed['total']) && $parsed['total'] !== null ? (float) $parsed['total'] : 0.0;
+        $gst        = isset($parsed['gst'])   && $parsed['gst']   !== null ? (float) $parsed['gst']   : 0.0;
+        $pst        = isset($parsed['pst'])   && $parsed['pst']   !== null ? (float) $parsed['pst']   : 0.0;
+        // No tax credit on tax that isn't printed: the parser fills in 5% when it can't read a GST
+        // line, and an exempt vendor charges none. The camera path already honoured the exempt flag;
+        // this path claimed both as ITCs and dropped PST (review 2026-10-12).
+        $gstNote = null;
+        if (!empty($suggestions['vendor_gst_exempt'])) {
+            $gst = 0.0;
+        } elseif (!empty($parsed['gst_estimated'])) {
+            $gst = 0.0;
+            $gstNote = 'GST not printed on the receipt — no ITC claimed; add it if the receipt shows GST.';
+        }
+        $subtotal   = isset($parsed['subtotal']) && $parsed['subtotal'] !== null ? (float) $parsed['subtotal'] : null;
+        require_once __DIR__ . '/ReceiptAmountRules.php';
+        $taxWasZeroed = !empty($suggestions['vendor_gst_exempt']) || !empty($parsed['gst_estimated']);
+        $amount     = $taxWasZeroed || $subtotal === null
+            ? ReceiptAmountRules::amountFromTotal($total, $gst, $pst)
+            : $subtotal;
+        $expDate    = (!empty($parsed['date']) && self::isValidDate($parsed['date'])) ? $parsed['date'] : date('Y-m-d');
+        $category   = $suggestions['accounting_category'] ?? $vendorCat;
+        $confidence = (int) ($suggestions['vendor_confidence'] ?? 0);
+
+        // 4) Confidence gate. A PDF we couldn't OCR can never be a clean match. A clean
+        //    match is NOT approved — it waits for approval, flagged high-confidence.
+        $clean = $mayAutoPost && $ocr['readable'] && self::isCleanMatch([
+            'vendor_id'               => $vendorId,
+            'total'                   => $total,
+            'expense_date'            => $parsed['date'] ?? null,   // gate on the *parsed* date, not the fallback
+            'vendor_default_category' => $vendorCat,
+        ]);
+        $status = self::inboxStatus($clean)['status'];
+
+        // 5) Anomaly scoring (best-effort, mirrors expense-save.php).
+        $anomalyFlags = null;
+        $anomalyScore = 0;
+        try {
+            require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
+            $an = detectAnomalies([
+                'total' => $total, 'amount' => $amount, 'vendor_id' => $vendorId,
+                'expense_date' => $expDate, 'created_by' => $systemUserId,
+            ], $this->db);
+            $anomalyFlags = ($an['flags'] ?? '') ?: null;
+            $anomalyScore = (int) ($an['score'] ?? 0);
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] anomaly: ' . $e->getMessage());
+        }
+
+        // 6) Create the expense — through ExpenseCreateGuard like every create path: one
+        //    receipt file, one expense.
+        require_once __DIR__ . '/ExpenseCreateGuard.php';
+        $guard = new ExpenseCreateGuard($this->db);
+        if ($mediaId && ($existing = $guard->claim($mediaId)) !== null) {
+            $this->finalizeClaim($dedup, $mediaId, $existing, 'skipped', null, 'already expense #' . $existing);
+            return ['status' => 'duplicate', 'expense_id' => $existing, 'note' => 'already expense #' . $existing, 'high_confidence' => false];
+        }
+        $note = $msg['subject'] ? ('Emailed receipt: ' . $msg['subject']) : 'Emailed receipt';
+        if ($gstNote) $note .= ' — ' . $gstNote;
+        // Through the expense gate (migration 1233): audited as the inbox's create; the gate
+        // re-reads the printed facts and runs the duplicate check.
+        require_once __DIR__ . '/ExpenseGate.php';
+        try {
+            $created = (new ExpenseGate($this->db))->apply(null, [
+                'expense_date'        => $expDate,
+                'vendor_id'           => $vendorId,
+                'vendor_name_raw'     => $suggestions['vendor_name'] ?? ($parsed['vendor_hint'] ?? null),
+                'description'         => $parsed['vendor_hint'] ?? null,
+                'amount'              => $amount,
+                'gst_amount'          => $gst,
+                'pst_amount'          => $pst,
+                'total'               => $total,
+                'accounting_category' => $category,
+                'gbp_category'        => $suggestions['gbp_category'] ?? null,
+                'payment_method'      => $parsed['payment_method'] ?? null,
+                'receipt_media_id'    => $mediaId,
+                'match_confidence'    => $confidence,
+                'anomaly_flags'       => $anomalyFlags,
+                'anomaly_score'       => $anomalyScore,
+                // A PDF's text can carry bytes that aren't UTF-8: substituted, or json_encode returns false and the text is lost (2026-10-19).
+                'raw_ocr_json'        => $ocr['ocr_text'] !== '' ? (json_encode(['text' => $ocr['ocr_text'], 'parsed' => $parsed, 'source' => $ocr['source']],
+                                                                        JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE) ?: null) : null,
+                'notes'               => $note,
+                'status'              => $status,
+                'source'              => 'email_inbox',
+                'created_by'          => $systemUserId,
+            ] + self::fittedLineItemChanges($parsed, $amount, $total, $gst, $pst), ['id' => $systemUserId ?: null, 'kind' => 'system'], 'email_inbox');
+        } finally {
+            $guard->release($mediaId);
+        }
+        $expenseId = (int) $created['expense_id'];
+
+        // Its parsed lines (kept in raw_ocr_json) feed the product catalogue — proposals on
+        // Penny's card only, nothing created (ProductProposalService, migration 1225).
+        $pp = dirname(__DIR__, 2) . '/Products/Services/ProductProposalService.php';
+        if (is_file($pp)) {
+            require_once $pp;
+            ProductProposalService::afterLineItemsSaved($this->db, $expenseId);
+        }
+
+        // 7) Finalize the claimed audit row with the outcome.
+        //    'auto_posted' is now written only when the owner approves (approve() /
+        //    BookkeeperDeskService::afterInboxApproval).
+        $outcome = 'pending';
+        $logNote = $ocr['readable'] ? ($clean ? self::HIGH_CONFIDENCE_NOTE : null) : $unreadableNote;
+        $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
+
+        return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote, 'high_confidence' => $clean];
+    }
+
+    /** Persist the raw bytes to /uploads/receipts/ and register in media_assets. */
+    private function storeAttachment(string $bytes, string $filename, string $mime, bool $isPdf, string $sha256, int $userId): array
+    {
+        $uploadDir = uploadsDir('receipts') . '/';
+        if (!is_dir($uploadDir)) {
+            @mkdir($uploadDir, 0755, true);
+        }
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if ($ext === '' || strlen($ext) > 5) {
+            $ext = $isPdf ? 'pdf' : 'jpg';
+        }
+        $storedName = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $diskPath   = $uploadDir . $storedName;
+        $webPath    = uploadsUrl('receipts') . '/' . $storedName;
+        if (@file_put_contents($diskPath, $bytes, LOCK_EX) !== strlen($bytes)) {
+            @unlink($diskPath);   // a failed or partial write must not leave a receipt row pointing at nothing (2026-10-22)
+            throw new \RuntimeException('could not write the receipt file');
+        }
+
+        try {
+        $w = null; $h = null;
+        if (!$isPdf) {
+            $info = @getimagesize($diskPath);
+            if ($info) { $w = $info[0]; $h = $info[1]; }
+        }
+
+        $stmt = $this->db->prepare("
+            INSERT INTO media_assets
+                (original_filename, stored_filename, file_path, file_type, mime_type, file_size,
+                 image_width, image_height, sha256, alt_text, context_type, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Emailed receipt', 'expense', ?)
+        ");
+        $stmt->execute([
+            $filename,
+            $storedName,
+            $webPath,
+            $isPdf ? 'document' : 'image',
+            $mime,
+            strlen($bytes),
+            $w,
+            $h,
+            $sha256,
+            $userId,
+        ]);
+
+        return ['media_id' => (int) $this->db->lastInsertId(), 'disk_path' => $diskPath, 'web_path' => $webPath];
+        } catch (\Throwable $e) {
+            @unlink($diskPath);   // the row failed: do not leave an orphan file for each retry
+            throw $e;
+        }
+    }
+
+    /**
+     * Run the existing OCR pipeline on a stored file. PDFs are rasterised (page 1)
+     * via Imagick first; if that's unavailable the receipt is stored but returns
+     * readable=false so it routes to manual review.
+     *
+     * @return array{readable:bool,source:string,ocr_text:string,parsed:array,suggestions:array}
+     */
+    private function runOcr(string $diskPath, bool $isPdf): array
+    {
+        $empty = ['readable' => false, 'source' => 'none', 'ocr_text' => '', 'parsed' => [], 'suggestions' => []];
+
+        $imagePath = $diskPath;
+        $tmpPng    = null;
+        // A PDF with a text layer (invoices from Anthropic, the web host, Amazon…) is read as text — no
+        // Imagick or OCR. Every emailed PDF was "not OCR-able" since Oct 10: the cron's PHP has no Imagick
+        // (2026-10-15). Scans (no text) still go the image route below.
+        if ($isPdf) {
+            $layer = self::pdfTextLayer($diskPath);
+            if ($layer !== '') {
+                try {
+                    require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+                    require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+                    $parsed = parseReceiptText($layer, null);
+                    return ['readable' => true, 'source' => 'pdf_text', 'ocr_text' => $layer, 'parsed' => $parsed,
+                            'suggestions' => suggestReceiptMeta($layer, null, null, null, $parsed)];
+                } catch (\Throwable $e) {
+                    error_log('[ReceiptInboxService] PDF text read failed: ' . $e->getMessage());
+                }
+            }
+        }
+        if ($isPdf && !extension_loaded('imagick')) {
+            // A scan with no text layer, and no Imagick to turn it into an image (the cron's PHP): Vision reads the
+            // PDF itself (files:annotate, 2026-11-06 — nine emailed scans had sat with no text).
+            return $this->visionPdf($diskPath) ?? ($empty + ['note' => 'imagick missing']);
+        }
+        if ($isPdf) {
+            try {
+                $im = new \Imagick();
+                $im->setResolution(200, 200);
+                $im->readImage($diskPath . '[0]');     // first page only
+                $im->setImageFormat('png');
+                $im->setImageBackgroundColor('white');
+                $im = $im->flattenImages();
+                $tmpPng = $diskPath . '.page1.png';
+                $im->writeImage($tmpPng);
+                $im->destroy();
+                $imagePath = $tmpPng;
+            } catch (\Throwable $e) {
+                error_log('[ReceiptInboxService] PDF rasterise failed: ' . $e->getMessage());
+                return $empty;
+            }
+        }
+
+        try {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+
+            // Tesseract pre-screen → Vision fallback, mirroring receipt-intake.php.
+            $pre = tesseractPreScreen($imagePath);
+            if (empty($pre['error']) && ($pre['score'] ?? 0) > 0) {
+                $decision = ($pre['score'] >= 70) ? 'use_tesseract' : (($pre['score'] >= 30) ? 'use_vision' : 'skip');
+            } else {
+                $decision = $pre['decision'] ?? 'use_vision';
+            }
+
+            $ocr = ['success' => false, 'text' => '', 'raw_response' => null];
+            $source = 'none';
+            if ($decision === 'use_tesseract') {
+                $ocr = ['success' => true, 'text' => $pre['text'], 'raw_response' => null];
+                $source = 'tesseract';
+            } elseif ($decision === 'use_vision') {
+                $ocr = extractTextFromImage($imagePath);
+                $source = 'vision';
+            }
+
+            $text = $ocr['text'] ?? '';
+            if (!($ocr['success'] ?? false) || $text === '') {
+                return $empty;
+            }
+
+            $parsed      = parseReceiptText($text, $ocr['raw_response'] ?? null);
+            $suggestions = suggestReceiptMeta($text, null, null, null, $parsed);
+            if (function_exists('runHeaderLadder')) {
+                $parsed = runHeaderLadder($this->db, $parsed, $text, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null);
+            }
+
+            return [
+                'readable'    => true,
+                'source'      => $source,
+                'ocr_text'    => $text,
+                'parsed'      => $parsed,
+                'suggestions' => $suggestions,
+            ];
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] OCR error: ' . $e->getMessage());
+            return $empty;
+        } finally {
+            if ($tmpPng && is_file($tmpPng)) {
+                @unlink($tmpPng);
+            }
+        }
+    }
+
+    /** A scanned PDF read by Google Vision directly; null when Vision is not set up or read nothing. */
+    private function visionPdf(string $diskPath): ?array
+    {
+        try {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            $ocr = extractTextFromPdf($diskPath);
+            $text = (string)($ocr['text'] ?? '');
+            if (!($ocr['success'] ?? false) || trim($text) === '') {
+                if (!empty($ocr['error'])) error_log('[ReceiptInboxService] Vision PDF: ' . $ocr['error']);
+                return null;
+            }
+            $parsed = parseReceiptText($text, $ocr['raw_response'] ?? null);
+            $suggestions = suggestReceiptMeta($text, null, null, null, $parsed);
+            if (function_exists('runHeaderLadder')) {
+                $parsed = runHeaderLadder($this->db, $parsed, $text, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null);
+            }
+            return ['readable' => true, 'source' => 'vision_pdf', 'ocr_text' => $text, 'parsed' => $parsed, 'suggestions' => $suggestions];
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] Vision PDF failed: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The text layer of a PDF (smalot/pdfparser, already used for bank statements), or '' when there is none
+     * worth reading (a scan: under 50 non-space characters) or the parser isn't installed. Pages 1–3 only.
+     */
+    public static function pdfTextLayer(string $path): string
+    {
+        if (!is_file($path) || !defined('VENDOR_ROOT') || !is_file(VENDOR_ROOT . '/autoload.php')) return '';
+        try {
+            require_once VENDOR_ROOT . '/autoload.php';
+            if (!class_exists('\Smalot\PdfParser\Parser')) return '';
+            $pdf = (new \Smalot\PdfParser\Parser())->parseFile($path);
+            $text = '';
+            foreach (array_slice($pdf->getPages(), 0, 3) as $page) $text .= $page->getText() . "\n";
+            $text = trim(preg_replace("/[ \t]+/", ' ', str_replace("\r", '', $text)));
+            return strlen(preg_replace('/\s+/', '', $text)) >= 50 ? $text : '';
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] pdfTextLayer: ' . $e->getMessage());
+            return '';
+        }
+    }
+
+    private function vendorDefaultCategory(int $vendorId): ?string
+    {
+        $stmt = $this->db->prepare("SELECT default_accounting_category FROM vendors WHERE id = ? LIMIT 1");
+        $stmt->execute([$vendorId]);
+        $cat = $stmt->fetchColumn();
+        return ($cat !== false && $cat !== null && trim((string) $cat) !== '') ? (string) $cat : null;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Review panel
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** Draft expenses created from email, newest first, with receipt + vendor info. */
+    public function listPending(): array
+    {
+        $sql = "SELECT e.id, e.expense_date, e.vendor_id, e.vendor_name_raw, e.description,
+                       e.amount, e.gst_amount, e.pst_amount, e.total, e.accounting_category,
+                       e.match_confidence, e.notes, e.created_at, e.receipt_media_id,
+                       v.name AS vendor_name,
+                       m.file_path AS receipt_path, m.mime_type AS receipt_mime,
+                        rim.note AS inbox_note, rim.sender_email
+                  FROM expenses e
+             LEFT JOIN vendors v        ON e.vendor_id = v.id
+             LEFT JOIN media_assets m   ON e.receipt_media_id = m.id
+             LEFT JOIN receipt_inbox_messages rim ON rim.expense_id = e.id
+                 WHERE e.source = 'email_inbox' AND e.status IN ('draft', 'pending_approval')
+              ORDER BY e.created_at DESC, e.id DESC";
+        return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function countPending(): int
+    {
+        return (int) $this->db->query(
+            "SELECT COUNT(*) FROM expenses WHERE source = 'email_inbox' AND status IN ('draft', 'pending_approval')"
+        )->fetchColumn();
+    }
+
+    /**
+     * Approve a pending emailed expense — apply any edits and flip it to 'approved'
+     * so the sync-ledger cron posts it. Returns ['ok'=>bool,'message'=>string].
+     */
+    public function approve(int $expenseId, array $edits, int $userId): array
+    {
+        $exp = $this->loadPendingExpense($expenseId);
+        if (!$exp) {
+            return ['ok' => false, 'message' => 'Receipt not found or already handled'];
+        }
+
+        $vendorId = array_key_exists('vendor_id', $edits) && $edits['vendor_id'] !== '' ? (int) $edits['vendor_id'] : ($exp['vendor_id'] !== null ? (int) $exp['vendor_id'] : null);
+        $date     = !empty($edits['expense_date']) && self::isValidDate($edits['expense_date']) ? $edits['expense_date'] : $exp['expense_date'];
+        $total    = isset($edits['total']) && $edits['total'] !== '' ? (float) $edits['total'] : (float) $exp['total'];
+        $gst      = isset($edits['gst_amount']) && $edits['gst_amount'] !== '' ? (float) $edits['gst_amount'] : (float) $exp['gst_amount'];
+        $pst      = isset($edits['pst_amount']) && $edits['pst_amount'] !== '' ? (float) $edits['pst_amount'] : (float) $exp['pst_amount'];
+        require_once __DIR__ . '/ReceiptAmountRules.php';
+        $amount   = $total - $gst - $pst;
+        $category = array_key_exists('accounting_category', $edits) && $edits['accounting_category'] !== '' ? $edits['accounting_category'] : $exp['accounting_category'];
+
+        if ($total <= 0) {
+            return ['ok' => false, 'message' => 'Total must be greater than zero'];
+        }
+        $amountError = ReceiptAmountRules::approvalError($amount, $gst, $pst, $total);
+        if ($amountError !== null) {
+            return ['ok' => false, 'message' => $amountError];
+        }
+
+        // Through the expense gate: the edits and the audited 'approve' transition in one change.
+        // An emailed receipt's extraction was written straight into the row, so the row as
+        // loaded (before these edits) is the baseline the approver's corrections are learned
+        // from — the gate teaches it once (learnFromConfirmedExpense).
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+        require_once __DIR__ . '/ExpenseGate.php';
+        $res = (new ExpenseGate($this->db))->apply($expenseId, [
+            'vendor_id' => $vendorId, 'expense_date' => $date, 'amount' => $amount, 'gst_amount' => $gst, 'pst_amount' => $pst,
+            'total' => $total, 'accounting_category' => $category,
+            'status' => 'approved', 'approved_by' => $userId ?: null, 'approved_at' => 'now',
+        ], ['id' => $userId ?: null, 'kind' => 'user'], 'email_inbox_review', [
+            'transition'     => 'approve',
+            'learn_baseline' => baselineFromExpenseRow($exp),
+            'only_if'        => function (array $e) { return ($e['source'] ?? '') === 'email_inbox' && in_array($e['status'], ['draft', 'pending_approval'], true); },
+        ]);
+        if (!empty($res['noop'])) {
+            return ['ok' => false, 'message' => 'Receipt not found or already handled'];
+        }
+
+        $this->db->prepare(
+            "UPDATE receipt_inbox_messages SET outcome = 'auto_posted' WHERE expense_id = ? AND outcome = 'pending'"
+        )->execute([$expenseId]);
+
+        return ['ok' => true, 'message' => 'Approved — will post to the books on next sync'];
+    }
+
+    public function dismiss(int $expenseId, int $userId): array
+    {
+        // Through the expense gate: the audited 'cancel' transition, only while it still waits.
+        require_once __DIR__ . '/ExpenseGate.php';
+        try {
+            $res = (new ExpenseGate($this->db))->apply($expenseId, ['status' => 'cancelled'], ['id' => $userId ?: null, 'kind' => 'user'],
+                'email_inbox_review', ['transition' => 'cancel', 'only_if' => function (array $e) {
+                    return ($e['source'] ?? '') === 'email_inbox' && in_array($e['status'], ['draft', 'pending_approval'], true);
+                }]);
+        } catch (Exception $e) {
+            $res = ['noop' => true];
+        }
+        if (!empty($res['noop'])) {
+            return ['ok' => false, 'message' => 'Nothing to dismiss'];
+        }
+        $this->db->prepare(
+            "UPDATE receipt_inbox_messages SET outcome = 'dismissed' WHERE expense_id = ?"
+        )->execute([$expenseId]);
+        return ['ok' => true, 'message' => 'Dismissed'];
+    }
+
+    private function loadPendingExpense(int $expenseId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT * FROM expenses WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval') LIMIT 1"
+        );
+        $stmt->execute([$expenseId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+}

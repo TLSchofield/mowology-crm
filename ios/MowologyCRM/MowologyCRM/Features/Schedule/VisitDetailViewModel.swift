@@ -30,8 +30,16 @@ final class VisitDetailViewModel: ObservableObject {
 
     /// Local override for flag state: [visitId: isFlagged]. Wins over Visit.isFlagged once set.
     @Published private(set) var flagOverrides:  [Int: Bool] = [:]
+    /// Local override for who endorsed: [visitId: names]. Wins over Visit.endorsedBy once set.
+    @Published private(set) var endorsedByOverrides: [Int: [String]] = [:]
     /// Visit IDs with an in-flight flag toggle request — drives the heart loading indicator.
     @Published private(set) var flagLoadingIds: Set<Int>    = []
+
+    /// Local override for the stop's assigned crew — wins over stop.crewIds/crewNames once set.
+    @Published private(set) var crewIdsOverride:   [Int]?
+    @Published private(set) var crewNamesOverride: [String]?
+    @Published var teamMembers:      [TeamMember] = []
+    @Published var isCrewActionBusy: Bool = false
 
     // MARK: - Private
 
@@ -41,6 +49,8 @@ final class VisitDetailViewModel: ObservableObject {
     private let haptic           = UINotificationFeedbackGenerator()
     private var tickTimer:        AnyCancellable?
     private var autoStartSink:    AnyCancellable?
+    private var proximitySink:    AnyCancellable?
+    private var departureSink:    AnyCancellable?
 
     private var gps: GPSTrackingService { GPSTrackingService.shared }
 
@@ -65,6 +75,44 @@ final class VisitDetailViewModel: ObservableObject {
                 guard let self else { return }
                 Task { await self.drainPendingTransitions() }
             }
+
+        // Proximity auto-start: the server already started the timer, so mirror it
+        // here instead of leaving a stale "Start Job" button on screen.
+        // Subscribing only — no @Published write happens during init (see above).
+        proximitySink = GPSTrackingService.shared.$autoStartedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in self?.applyAutoStart(payload) }
+
+        departureSink = GPSTrackingService.shared.$autoStoppedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in self?.applyAutoStop(payload) }
+    }
+
+    /// Timer stopped because they left — the visit is still in progress until THEY complete it.
+    private func applyAutoStop(_ payload: AutoStoppedPayload) {
+        guard stop.visits.contains(where: { $0.visitId == payload.visitId }) else { return }
+        if activeTimerVisitId == payload.visitId {
+            activeTimerVisitId = nil
+            stopTicking()
+        }
+        let minutes = payload.durationMinutes.map { " (\($0) min)" } ?? ""
+        autoClockInNotice = "Timer stopped when you left the site\(minutes). Mark the visit complete when you're done — or come back and it resumes."
+    }
+
+    private func applyAutoStart(_ payload: AutoStartedPayload) {
+        guard stop.visits.contains(where: { $0.visitId == payload.visitId }),
+              activeTimerVisitId != payload.visitId else { return }
+        haptic.notificationOccurred(.success)
+        visitStatuses[payload.visitId] = "in_progress"
+        activeTimerVisitId = payload.visitId
+        elapsedSeconds     = 0
+        startTicking()
+        isClockedIn        = true
+        autoClockInNotice  = payload.clockInCreated == true
+            ? "You arrived — clocked in and job started automatically."
+            : "You arrived — job started automatically."
     }
 
     // MARK: - Clock Status
@@ -79,6 +127,22 @@ final class VisitDetailViewModel: ObservableObject {
             // Non-critical — if the check fails, stay silent (nil = unknown).
             isClockedIn = nil
         }
+    }
+
+    /// Picks a running timer back up when the visit is reopened. Without this the screen only
+    /// knew about timers it had started itself: leave and come back mid-job and the clock vanished
+    /// (and with it everything keyed to "job active").
+    func restoreActiveTimer() async {
+        guard activeTimerVisitId == nil,
+              let response: ActiveTimerResponse = try? await apiClient.request(.scheduleTimerActive),
+              let timer = response.activeTimer,
+              stop.visits.contains(where: { $0.visitId == timer.visitId }),
+              activeTimerVisitId == nil else { return }
+
+        visitStatuses[timer.visitId] = "in_progress"
+        activeTimerVisitId = timer.visitId
+        elapsedSeconds     = timer.elapsedSeconds
+        startTicking()
     }
 
     // MARK: - Job Lifecycle
@@ -101,9 +165,12 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         let (lat, lng) = await safeLocation()
-        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "start", lat: lat, lng: lng)
+        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "start", lat: lat, lng: lng,
+                                                 userId: apiClient.currentUserId)
+        // The tap time of this start — the first tap's, if this is a retry of a queued one.
+        let tappedAt   = transitionQueue.tappedAt(visitId: visitId, action: "start") ?? Date()
 
-        var body: [String: Any] = ["action": "start", "visit_id": visitId]
+        var body: [String: Any] = ["action": "start", "visit_id": visitId, "client_time": tappedAt.mwClientTime]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
 
@@ -120,6 +187,7 @@ final class VisitDetailViewModel: ObservableObject {
                 transitionQueue.confirm(visitId: visitId, action: "start")
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "in_progress"
+                scheduleChanged()
                 activeTimerVisitId     = visitId
                 elapsedSeconds         = 0
                 startTicking()
@@ -129,23 +197,53 @@ final class VisitDetailViewModel: ObservableObject {
                 isClockedIn = true   // job started → clock is definitely running now
                 if response.autoClockIn == true {
                     autoClockInNotice = "You've been automatically clocked in."
+                    NotificationCenter.default.post(name: .mwShiftMayHaveStarted, object: nil)
                 }
             } else {
-                setError(response.message ?? "Failed to start job.")
+                setError(response.message ?? "Timer start response success=false; server returned no message field.")
             }
         } catch {
-            setError(apiErrorMessage(error))
+            if case APIError.networkError = error {
+                // No signal: the start is saved (with its tap time) and sent when signal returns.
+                // Run the job on screen meanwhile — a day offline must not stop the work.
+                visitStatuses[visitId] = "in_progress"
+                scheduleChanged()
+                activeTimerVisitId     = visitId
+                elapsedSeconds         = max(0, Int(Date().timeIntervalSince(tappedAt)))
+                startTicking()
+                ArrivalMonitor.shared.jobStarted()
+                gps.setActiveVisit(visitId)
+                autoClockInNotice = "No signal — job started and saved. It will sync when you're back online."
+                isLoading = false
+                return
+            }
+            let message = apiErrorMessage(error)
+            // The server answered and refused (not assigned, special request, clock in first…): the
+            // person sees why right here, so this start must not sit in the queue and replay later
+            // with the old tap time, or block every later job action (cold review 2026-10-19).
+            // An expired login keeps it: it is sent once they sign back in.
+            if case APIError.unauthorized = error {} else {
+                transitionQueue.confirm(visitId: visitId, action: "start")
+            }
+            setError(message)
         }
 
         isLoading = false
     }
 
-    func completeJob(visitId: Int) async {
+    /// Completes the visit (timer stop). Optional timed-extras minutes + a note
+    /// to the client are persisted on the visit server-side, so they survive even
+    /// when the crew complete without invoicing.
+    /// Returns `true` when the server confirmed completion.
+    @discardableResult
+    func completeJob(visitId: Int, extrasMinutes: Int = 0, extrasNote: String = "", snowChoice: String? = nil) async -> Bool {
         isLoading    = true
         errorMessage = nil
 
         let (lat, lng) = await safeLocation()
-        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "stop", lat: lat, lng: lng)
+        let idempKey   = transitionQueue.prepare(visitId: visitId, action: "stop", lat: lat, lng: lng,
+                                                 userId: apiClient.currentUserId)
+        let tappedAt   = transitionQueue.tappedAt(visitId: visitId, action: "stop") ?? Date()
 
         // Finalise dwell + accuracy data before the POST.
         ArrivalMonitor.shared.jobCompleted()
@@ -155,12 +253,23 @@ final class VisitDetailViewModel: ObservableObject {
             "action":         "stop",
             "visit_id":       visitId,
             "complete_visit": true,
-            "accuracy_badge": gps.locationManager.accuracyBadge.rawValue
+            "accuracy_badge": gps.locationManager.accuracyBadge.rawValue,
+            "client_time":    tappedAt.mwClientTime
         ]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
+        if extrasMinutes > 0 { body["extras_minutes"] = extrasMinutes }
+        let trimmedNote = extrasNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedNote.isEmpty { body["extras_note"] = trimmedNote }
+        // Kept with the queued stop, so a completion sent later still carries its extra work.
+        if let s = snowChoice, !s.isEmpty { body["snow_choice"] = s }   // what was done at a route stop, with the completion
+        if extrasMinutes > 0 || !trimmedNote.isEmpty || !(snowChoice ?? "").isEmpty {
+            UserDefaults.standard.set(["minutes": extrasMinutes, "note": trimmedNote, "snow": snowChoice ?? ""],
+                                      forKey: Self.stopExtrasKey(visitId: visitId))
+        }
         accountability.forEach { body[$0.key] = $0.value }
 
+        var completed = false
         do {
             let response: TimerStopResponse = try await withExponentialBackoff {
                 try await self.apiClient.request(
@@ -172,8 +281,11 @@ final class VisitDetailViewModel: ObservableObject {
 
             if response.success {
                 transitionQueue.confirm(visitId: visitId, action: "stop")
+                UserDefaults.standard.removeObject(forKey: Self.stopExtrasKey(visitId: visitId))
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "completed"
+                scheduleChanged()
+                completed = true
 
                 if activeTimerVisitId == visitId {
                     activeTimerVisitId = nil
@@ -181,7 +293,82 @@ final class VisitDetailViewModel: ObservableObject {
                 }
                 gps.setActiveVisit(nil)
             } else {
-                setError(response.message ?? "Failed to complete job.")
+                setError(response.message ?? "Visit completion response success=false; server returned no message field.")
+            }
+        } catch {
+            if case APIError.networkError = error {
+                // No signal: the completion (tap time + extras) is saved and sent on reconnect.
+                visitStatuses[visitId] = "completed"
+                scheduleChanged()
+                completed = true
+                if activeTimerVisitId == visitId {
+                    activeTimerVisitId = nil
+                    stopTicking()
+                }
+                gps.setActiveVisit(nil)
+                autoClockInNotice = "No signal — job completed and saved. It will sync when you're back online."
+            } else {
+                setError(apiErrorMessage(error))
+            }
+        }
+
+        isLoading = false
+        return completed
+    }
+
+    // MARK: - Skip Visit
+
+    /// UserDefaults key carrying the skip reason across an offline replay
+    /// (PendingTransition has no free-text field; AppTransitionDrainService reads this).
+    static func skipReasonKey(visitId: Int) -> String { "mw.skipReason.\(visitId)" }
+
+    /// Tells the schedule behind this screen that a visit changed, so it redraws now instead of on its
+    /// next 20-second poll (Tim, 2026-11-05: the tick took seconds to appear after finishing a visit).
+    private func scheduleChanged() {
+        NotificationCenter.default.post(name: .mwScheduleChanged, object: nil)
+    }
+
+    /// UserDefaults key carrying a queued completion's extra work (minutes + note) to the replay.
+    static func stopExtrasKey(visitId: Int) -> String { "mw.stopExtras.\(visitId)" }
+
+    /// Marks a not-yet-started visit as skipped. Offline-safe: on a network
+    /// failure the transition stays queued and replays on reconnect.
+    func skipVisit(visitId: Int, reason: String) async {
+        isLoading    = true
+        errorMessage = nil
+
+        let idempKey = transitionQueue.prepare(visitId: visitId, action: "skip", userId: apiClient.currentUserId)
+        UserDefaults.standard.set(reason, forKey: Self.skipReasonKey(visitId: visitId))
+
+        let body: [String: Any] = ["action": "skip", "visit_id": visitId, "reason": reason]
+
+        do {
+            let response: TimerBaseResponse = try await apiClient.request(
+                .scheduleTimer,
+                body: body,
+                extraHeaders: ["Idempotency-Key": idempKey]
+            )
+            transitionQueue.confirm(visitId: visitId, action: "skip")
+            UserDefaults.standard.removeObject(forKey: Self.skipReasonKey(visitId: visitId))
+
+            if response.success {
+                haptic.notificationOccurred(.success)
+                visitStatuses[visitId] = "skipped"
+                scheduleChanged()
+            } else {
+                setError(response.message ?? "Skip visit response success=false; server returned no message field.")
+            }
+        } catch let err as APIError {
+            if case .networkError = err {
+                // Leave queued — AppTransitionDrainService replays it on reconnect.
+                haptic.notificationOccurred(.warning)
+                visitStatuses[visitId] = "skipped"
+                scheduleChanged()
+                autoClockInNotice = "Skip saved — will sync when signal returns."
+            } else {
+                transitionQueue.confirm(visitId: visitId, action: "skip")
+                UserDefaults.standard.removeObject(forKey: Self.skipReasonKey(visitId: visitId))
+                setError(apiErrorMessage(err))
             }
         } catch {
             setError(apiErrorMessage(error))
@@ -192,10 +379,11 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Exponential Backoff
 
-    /// Retry up to 4 times with delays 2 s → 4 s → 8 s → 30 s (cap).
+    /// One retry after 2 s, then the caller's offline path (saved, sent when signal returns).
+    /// Four tries at up to 30 s each kept a spinner up for ~2 minutes on weak signal (review 2026-10-19).
     /// Only retries on network errors; server errors (4xx/5xx) surface immediately.
     private func withExponentialBackoff<T>(
-        maxAttempts: Int = 4,
+        maxAttempts: Int = 2,
         _ operation: () async throws -> T
     ) async throws -> T {
         var delay: TimeInterval = 2
@@ -227,19 +415,11 @@ final class VisitDetailViewModel: ObservableObject {
     /// Re-submit any job transitions that were persisted but never confirmed.
     /// Called automatically when PingQueue posts `.mwPingQueueOnline`.
     private func drainPendingTransitions() async {
-        guard !isLoading else { return }
-        for visit in stop.visits {
-            let vid    = visit.visitId
-            let status = visitStatuses[vid] ?? visit.visitStatus
-            if transitionQueue.hasPending(visitId: vid, action: "start"),
-               status.lowercased() == "scheduled" {
-                await startJob(visitId: vid)
-            }
-            if transitionQueue.hasPending(visitId: vid, action: "stop"),
-               status.lowercased() == "in_progress" {
-                await completeJob(visitId: vid)
-            }
-        }
+        // The app-level resend sends everything in order (clock first, then job actions
+        // oldest-first, each with its tap time). This screen used to re-send its own pending
+        // actions in parallel with it, stamped "now" — it just waits for that run instead.
+        // The on-screen status set while offline stays as it is: it is what was sent.
+        await AppTransitionDrainService.shared.drain()
     }
 
     // MARK: - Flag Toggle
@@ -247,6 +427,11 @@ final class VisitDetailViewModel: ObservableObject {
     /// Resolves the current flag state for a visit, preferring local override over server value.
     func isFlagged(for visit: Visit) -> Bool {
         flagOverrides[visit.visitId] ?? visit.isFlagged
+    }
+
+    /// Everyone endorsing the visit, preferring the latest toggle response.
+    func endorsedBy(for visit: Visit) -> [String] {
+        endorsedByOverrides[visit.visitId] ?? visit.endorsedBy
     }
 
     func toggleFlag(_ visit: Visit) async {
@@ -262,12 +447,50 @@ final class VisitDetailViewModel: ObservableObject {
             )
             if response.success {
                 flagOverrides[visitId] = response.isFlagged
+                if let names = response.endorsedBy { endorsedByOverrides[visitId] = names }
             }
         } catch {
             // Non-fatal — the heart reverts to its previous state silently.
         }
 
         flagLoadingIds.remove(visitId)
+    }
+
+    // MARK: - Crew Assignment
+
+    var currentCrewIds:   [Int]    { crewIdsOverride   ?? stop.crewIds }
+    var currentCrewNames: [String] { crewNamesOverride ?? stop.crewNames }
+
+    /// Loads the active team member list for the assignment picker. Cached for the
+    /// life of this view model — reopening the sheet doesn't refetch.
+    func loadTeamMembers() async {
+        guard teamMembers.isEmpty else { return }
+        do {
+            let response: TeamMembersResponse = try await apiClient.request(.teamMembers)
+            teamMembers = response.members
+        } catch {
+            // Non-fatal — the sheet shows an empty list; dismissing and reopening retries.
+        }
+    }
+
+    func assignCrew(_ crewIds: [Int]) async {
+        guard !isCrewActionBusy else { return }
+        isCrewActionBusy = true
+
+        do {
+            let response: CrewAssignResponse = try await apiClient.request(
+                .assignCrew,
+                body: ["stop_id": stop.stopId, "crew_ids": crewIds]
+            )
+            if response.success {
+                crewIdsOverride   = response.crewIds
+                crewNamesOverride = response.crewNames
+            }
+        } catch {
+            setError(apiErrorMessage(error))
+        }
+
+        isCrewActionBusy = false
     }
 
     // MARK: - Private

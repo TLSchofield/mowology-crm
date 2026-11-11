@@ -1,0 +1,1722 @@
+<?php
+/**
+ * EtransferInboxService — parse Interac e-Transfer notification emails, match
+ * them to open invoices, and record confirmed payments.
+ *
+ * The IMAP fetch lives in the cron poller
+ * (app/Modules/Accounting/Cron/etransfer_inbox_poll.php); this service holds the
+ * parsing + matching + recording logic so it can be unit-tested without a
+ * mailbox. parseInteracEmail() is a pure static function — the test exercises it
+ * against a real captured email.
+ *
+ * Design note (why we mostly don't auto-record): the e-Transfer amount
+ * frequently differs from the invoice total — customers add GST, round up, or
+ * combine invoices. So by default we surface a best-guess match and let staff
+ * confirm. The strong signal is the invoice number in the customer's memo;
+ * amount is only a fallback.
+ *
+ * The one exception is autoRecordFullyCertain(): when a hard identity match
+ * (invoice # in the memo, or the transfer's own reference # already on an
+ * invoice) is corroborated by a high-confidence bank deposit AND the amount
+ * exactly equals the invoice balance, staff shouldn't have to click through
+ * something this unambiguous — see that method for the exact bar.
+ */
+class EtransferInboxService
+{
+    /** Invoice statuses that can still receive a payment. */
+    private const PAYABLE = ['sent', 'viewed', 'partial', 'overdue'];
+
+    private PDO $db;
+
+    private ?bool $senderVerifiedCol = null;
+
+    /** etransfer_notifications.sender_verified exists (migration 1340). */
+    protected function hasSenderVerified(): bool
+    {
+        if ($this->senderVerifiedCol === null) {
+            try {
+                $this->db->query("SELECT sender_verified FROM etransfer_notifications LIMIT 0");
+                $this->senderVerifiedCol = true;
+            } catch (Throwable $e) {
+                $this->senderVerifiedCol = false;
+            }
+        }
+        return $this->senderVerifiedCol;
+    }
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    /**
+     * Parse a raw Interac notification (subject + plain-text body) into fields.
+     * Pure + static so it is trivially testable.
+     *
+     * @return array{sender_name:?string,amount:?float,reference_number:?string,memo:?string,invoice_hint:?string,transfer_type:string}
+     */
+    public static function parseInteracEmail(string $subject, string $body, ?string $emailDate = null): array
+    {
+        $body    = str_replace("\r\n", "\n", $body);
+        // Strip forwarded-message quote markers ("> ", ">> ", ...) so a
+        // manually forwarded Interac notification (staff hit Forward instead
+        // of it arriving directly from notify@payments.interac.ca) parses
+        // identically to a direct one — otherwise every field below
+        // ("Sent From:", "Reference Number:", etc.) would need the same
+        // leading-quote tolerance individually.
+        $body    = preg_replace('/^>+[ \t]?/m', '', $body);
+        $subject = trim($subject);
+
+        // Amount — prefer the structured "Amount: $X (CAD)" line, fall back to
+        // the first $-amount in the subject ("sent you $66.15", "Claim your $262.50").
+        $amount = null;
+        if (preg_match('/Amount:\s*\$\s*([0-9,]+\.[0-9]{2})/i', $body, $m)) {
+            $amount = (float) str_replace(',', '', $m[1]);
+        } elseif (preg_match('/\$\s*([0-9,]+\.[0-9]{2})/', $subject, $m)) {
+            $amount = (float) str_replace(',', '', $m[1]);
+        }
+
+        // Sender name — structured "Sent From:" line, else patterns in the subject.
+        $sender = null;
+        if (preg_match('/Sent From:\s*(.+)/i', $body, $m)) {
+            $sender = trim($m[1]);
+        } elseif (preg_match('/Claim your \$[0-9,.]+ from (.+?) by /i', $subject, $m)) {
+            $sender = trim($m[1]);
+        } elseif (preg_match('/(?:Interac e-Transfer:\s*)?(.+?) sent you \$/i', $subject, $m)) {
+            $sender = trim($m[1]);
+        }
+
+        // Interac reference number (unique per transfer → ideal dedup key).
+        $reference = null;
+        if (preg_match('/Reference Number:\s*([A-Za-z0-9]+)/i', $body, $m)) {
+            $reference = trim($m[1]);
+        }
+
+        // Customer memo — between "Message:" and the "Transfer Details" block.
+        // Anchored to the start of a line (^ with /m) so a forwarded email's
+        // "Begin forwarded message:" line — "message:" matches case-insensitively
+        // but isn't the real field — doesn't get captured as the memo.
+        $memo = null;
+        if (preg_match('/^Message:\s*(.+?)\s*Transfer Details/ims', $body, $m)) {
+            $memo = trim(preg_replace('/\s+/', ' ', $m[1]));
+        } elseif (preg_match('/^Message:\s*(.+?)\s*^\s*(?:Date|Reference Number|Sent From|Amount):/ims', $body, $m)) {
+            // 2026-10 layout: "Message:" sits INSIDE the Transfer Details box, before "Date:"
+            // (Alberta 3025 Strata, "Invs 2026-0251 and 0383" — read as no memo).
+            $memo = trim(preg_replace('/\s+/', ' ', $m[1]));
+        }
+
+        // Invoice numbers from the memo (or anywhere in the body). Accept
+        // "INV-2026-0096", "INV 2026 0096", "inv2026-96", "Invs 2026-0251 and 0383" → normalise.
+        $invoiceHints = self::extractInvoiceNumbers($memo ?? '') ?: self::extractInvoiceNumbers($body);
+        $invoiceHint = $invoiceHints[0] ?? null;
+        // Year-less ones ("invoices 0065, 0066, 0118 and 0440", 2026-11-05): resolved against the books later.
+        $shortNumbers = self::extractShortInvoiceNumbers($memo ?? '');
+
+        // Transfer type — auto-deposited vs needs manual claiming.
+        $type = 'unknown';
+        if (preg_match('/automatically deposited|has been deposited|deposited into your account/i', $body)) {
+            $type = 'autodeposit';
+        } elseif (preg_match('/Claim your|Select your financial institution|funds expire/i', $body . ' ' . $subject)) {
+            $type = 'claim';
+        }
+
+        // Claim-type only: where to deposit it and when it expires (Penny's deposit alerts).
+        $depositUrl = $type === 'claim' ? self::depositLink($body) : null;
+        $expiresOn  = $type === 'claim' ? self::expiryDate($subject, $body, $emailDate) : null;
+
+        return [
+            'sender_name'      => $sender !== '' ? $sender : null,
+            'amount'           => $amount,
+            'reference_number' => $reference,
+            'memo'             => $memo,
+            'invoice_hint'     => $invoiceHint,
+            'invoice_hints'    => $invoiceHints,
+            'short_hints'      => $shortNumbers,
+            'transfer_type'    => $type,
+            'deposit_url'      => $depositUrl,
+            'expires_on'       => $expiresOn,
+        ];
+    }
+
+    /**
+     * The link that deposits a claim-type transfer. Interac lists the receiver's own bank
+     * first ("Vancity: https://etransfer.interac.ca/…?fiID=…"), then "Select a different
+     * Institution". Only https links on etransfer.interac.ca are ever returned — never the
+     * notification-preferences link, never another host.
+     */
+    public static function depositLink(string $body): ?string
+    {
+        if (!preg_match_all('#https://etransfer\.interac\.ca/[^\s<>"\'\)]+#i', $body, $m)) {
+            return null;
+        }
+        $links = array_values(array_filter(array_map(fn($u) => rtrim($u, '.,;'), $m[0]),
+            fn($u) => stripos($u, 'manageUserPr') === false && stripos($u, 'tkn=') === false));
+        foreach ($links as $u) {
+            if (stripos($u, 'fiID=') !== false) return $u;   // the receiver's own bank
+        }
+        return $links[0] ?? null;
+    }
+
+    /**
+     * Y-m-d the transfer expires: the body's "Expiry: Oct 6, 2026", else the subject's
+     * "Claim your $X from NAME by Oct 30" (year from the email date; a month already
+     * past means next year).
+     */
+    public static function expiryDate(string $subject, string $body, ?string $emailDate = null): ?string
+    {
+        $norm = static fn(string $d) => preg_replace('/\bSept\b/i', 'Sep', trim($d));
+        if (preg_match('/Expiry:\s*([A-Za-z]{3,9}\.?\s+\d{1,2},?\s*\d{4})/i', $body, $m)) {
+            $ts = strtotime($norm($m[1]));
+            if ($ts) return date('Y-m-d', $ts);
+        }
+        if (preg_match('/\bby\s+([A-Za-z]{3,9}\.?\s+\d{1,2})(?:,?\s*(\d{4}))?\s*$/i', trim($subject), $m)) {
+            $refTs = $emailDate ? (strtotime($emailDate) ?: time()) : time();
+            $year  = !empty($m[2]) ? (int)$m[2] : (int)date('Y', $refTs);
+            $ts    = strtotime($norm($m[1]) . ' ' . $year);
+            if ($ts && empty($m[2]) && $ts < $refTs - 86400) {
+                $ts = strtotime($norm($m[1]) . ' ' . ($year + 1));
+            }
+            if ($ts) return date('Y-m-d', $ts);
+        }
+        return null;
+    }
+
+    /**
+     * Why an invoice can't accept a payment, or null if it can. Pure + testable.
+     * Distinguishes "already paid" (duplicate-payment signal) from other states.
+     */
+    public static function paymentBlockReason(string $status, string $invoiceNumber): ?string
+    {
+        if (in_array($status, self::PAYABLE, true) || $status === 'draft') {
+            return null;
+        }
+        if ($status === 'paid') {
+            return "{$invoiceNumber} is already fully paid — possible duplicate payment. "
+                 . 'Dismiss, or attach to a different invoice.';
+        }
+        return "{$invoiceNumber} is {$status} and can't take a payment.";
+    }
+
+    /** Pull a normalised INV-YYYY-NNNN invoice number out of free text. */
+    public static function extractInvoiceNumber(string $text): ?string
+    {
+        if ($text === '') {
+            return null;
+        }
+        // Accept both the "INV" abbreviation and the full word "invoice" — customers
+        // typing memos write "invoice 2026-0308" at least as often as "INV-2026-0308".
+        return self::extractInvoiceNumbers($text)[0] ?? null;
+    }
+
+    /**
+     * Every invoice number in a memo, in order: "Invs 2026-0251 and 0383" → INV-2026-0251, INV-2026-0383
+     * (a bare number after "and" / "," / "&" takes the year before it). Pure (tested).
+     * @return string[]
+     */
+    public static function extractInvoiceNumbers(string $text): array
+    {
+        if ($text === '' || !preg_match_all('/\b(?:INVS?|invoices?)[-\s#:]*(\d{4})[-\s]?(\d{2,5})\b((?:\s*(?:,|&|and|\+)\s*#?\d{2,5}\b)*)/i', $text, $all, PREG_SET_ORDER)) {
+            return [];
+        }
+        $out = [];
+        foreach ($all as $m) {
+            $out[] = 'INV-' . $m[1] . '-' . str_pad($m[2], 4, '0', STR_PAD_LEFT);
+            if (!empty($m[3]) && preg_match_all('/\d{2,5}/', $m[3], $more)) {
+                foreach ($more[0] as $n) $out[] = 'INV-' . $m[1] . '-' . str_pad($n, 4, '0', STR_PAD_LEFT);
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Invoice numbers written WITHOUT the year, read only after the word "invoice(s)" / "inv(s)":
+     * "Payment for invoices 0065, 0066, 0118 and 0440" → [65, 66, 118, 440]; "inv #65" → [65]. A number with no such
+     * word before it is never read (phone numbers, addresses, "2 cuts"), nor one written with its year ("2026-0065",
+     * extractInvoiceNumbers() reads those), nor a lone 20xx (a year, not an invoice). The year is never assumed:
+     * resolveShortNumber() looks each one up in the books. PURE (tested).
+     * @return int[]
+     */
+    public static function extractShortInvoiceNumbers(string $text): array
+    {
+        // Not followed by a digit after - . / or a space: "65.00" is an amount, "11/05/2026" a date (Codex 2026-11-06).
+        $n = '#?(\d{2,5})\b(?![-\s.\/]?\d)';
+        if ($text === '' || !preg_match_all('/\b(?:invoices?|invs?)\b\.?[-\s#:]*(?:(?:no|nos|number|numbers)\b\.?[\s#:]*)?' . $n
+                . '((?:\s*(?:,|&|and|\+)\s*#?\d{2,5}\b(?![-\s.\/]?\d))*)/i', $text, $all, PREG_SET_ORDER)) {
+            return [];
+        }
+        $out = [];
+        foreach ($all as $m) {
+            $nums = [$m[1]];
+            if (!empty($m[2]) && preg_match_all('/\d{2,5}/', $m[2], $more)) $nums = array_merge($nums, $more[0]);
+            foreach ($nums as $d) {
+                if (strlen($d) === 4 && $d[0] === '2' && $d[1] === '0') continue;   // "invoice 2026": a year
+                $out[] = (int)$d;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Which of the invoices ending in the same short number is the one meant: the only one, or — when several
+     * years share it — the only one still owing. Otherwise none (the person picks). PURE (tested).
+     */
+    public static function pickShortMatch(array $candidates): ?array
+    {
+        if (count($candidates) === 1) return $candidates[0];
+        $owing = array_values(array_filter($candidates, fn($r) => (float)$r['balance_due'] > 0.005));
+        return count($owing) === 1 ? $owing[0] : null;
+    }
+
+    /** INV-%-0065 for 65. */
+    private static function shortPattern(int $n): string
+    {
+        return 'INV-%-' . str_pad((string)$n, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * What the job strip shows on the invoice side of a pending e-Transfer (PennyJobAdapter::fromTransfer):
+     * number, issue date, what is owing and who the invoice is for, keyed by invoice number. Read-only.
+     * @return array<string, array{invoice_number:string, invoice_date:?string, balance_due:float, payer_name:?string}>
+     */
+    public function invoiceFacts(array $numbers): array
+    {
+        $numbers = array_values(array_unique(array_filter(array_map('strval', $numbers), fn($n) => $n !== '')));
+        if (!$numbers) return [];
+        $stmt = $this->db->prepare(
+            "SELECT i.invoice_number, i.invoice_date, i.balance_due, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number IN (" . implode(',', array_fill(0, count($numbers), '?')) . ")"
+        );
+        $stmt->execute($numbers);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $out[(string)$r['invoice_number']] = [
+                'invoice_number' => (string)$r['invoice_number'],
+                'invoice_date'   => $r['invoice_date'] ?? null,
+                'balance_due'    => (float)($r['balance_due'] ?? 0),
+                'payer_name'     => $r['payer_name'] !== null ? (string)$r['payer_name'] : null,
+            ];
+        }
+        return $out;
+    }
+
+    /** The invoice a year-less number means (see pickShortMatch), or null. */
+    public function resolveShortNumber(int $n): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT i.id, i.invoice_number, i.balance_due, i.total, i.status, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number LIKE ?"
+        );
+        $stmt->execute([self::shortPattern($n)]);
+        return self::pickShortMatch($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    }
+
+    /**
+     * The memo names these invoices (2026-11-05, "Penny can't see Alison Birdsall": "invoices 0065, 0066, 0118 and
+     * 0440", $232.84 = four $58.21 invoices). The ONE place both screens (invoices page card, Penny's desk) ask when a
+     * memo names more than one invoice: matchInvoice() alone picks the first one still owing, and recording the whole
+     * transfer against it overpays one invoice and leaves the rest open. Null when the memo names fewer than two
+     * invoices still owing and nothing unclear (the single-invoice path handles those). Suggestion only: a person
+     * records it, and it is never auto-recorded.
+     */
+    public function namedInvoices(?string $memo, float $amount): ?array
+    {
+        $memo = trim((string)$memo);
+        if ($memo === '' || $amount <= 0) return null;
+        $rows = []; $unclear = [];
+        $exact = $this->db->prepare(
+            "SELECT i.id, i.invoice_number, i.balance_due, i.total, i.status, " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i " . self::PAYER_NAME_JOINS . "
+              WHERE i.invoice_number = ? LIMIT 1"
+        );
+        foreach (self::extractInvoiceNumbers($memo) as $no) {
+            $exact->execute([$no]);
+            if ($r = $exact->fetch(PDO::FETCH_ASSOC)) $rows[(int)$r['id']] = $r;
+        }
+        foreach (self::extractShortInvoiceNumbers($memo) as $n) {
+            $r = $this->resolveShortNumber($n);
+            if ($r) $rows[(int)$r['id']] = $r; else $unclear[] = str_pad((string)$n, 4, '0', STR_PAD_LEFT);
+        }
+        return self::spreadNamed(array_values($rows), $amount, $unclear);
+    }
+
+    /**
+     * The suggestion from the invoices a memo names, in memo order. adds_up = their open balances come to the
+     * transfer to the cent (each line pays its balance). Otherwise the lines fill in order and `left` says what is
+     * over (positive) or short (negative); the person decides. PURE (tested).
+     * @return array{lines:array,owing:float,adds_up:bool,left:float,paid:string[],unclear:string[],payer_name:?string}|null
+     */
+    public static function spreadNamed(array $rows, float $amount, array $unclear = []): ?array
+    {
+        $open = array_values(array_filter($rows, fn($r) => (float)$r['balance_due'] > 0.005));
+        if (count($open) < 2 && !$unclear) return null;
+        if (!$open && $unclear) return ['lines' => [], 'owing' => 0.0, 'adds_up' => false, 'left' => round($amount, 2),
+            'paid' => array_map(fn($r) => (string)$r['invoice_number'], $rows), 'unclear' => $unclear, 'payer_name' => null];
+        $owing = round(array_sum(array_map(fn($r) => (float)$r['balance_due'], $open)), 2);
+        $addsUp = !$unclear && abs($owing - round($amount, 2)) < 0.005;
+        $payers = array_values(array_unique(array_filter(array_map(fn($r) => trim((string)($r['payer_name'] ?? '')), $open))));
+        return [
+            'lines'      => self::allocateFifo($open, $amount),
+            'owing'      => $owing,
+            'adds_up'    => $addsUp,
+            'left'       => round($amount - $owing, 2),
+            'paid'       => array_values(array_map(fn($r) => (string)$r['invoice_number'],
+                                array_filter($rows, fn($r) => (float)$r['balance_due'] <= 0.005))),
+            'unclear'    => $unclear,
+            'payer_name' => count($payers) === 1 ? $payers[0] : null,
+        ];
+    }
+
+    /**
+     * Match parsed fields to an open invoice.
+     *
+     * @return array{invoice_id:?int,method:string,confidence:string,candidates:array}
+     */
+    public function matchInvoice(array $parsed): array
+    {
+        // 0. Exact: this transfer's own Interac reference # already sitting in an
+        // invoice's payment_reference — i.e. staff already recorded this exact
+        // transfer manually before the poller ever saw it. Outranks the memo-based
+        // invoice number below because it's a hard identity match, not a hint.
+        if (!empty($parsed['reference_number'])) {
+            $stmt = $this->db->prepare(
+                "SELECT id, invoice_number, balance_due, total, status
+                   FROM invoices WHERE payment_reference = ? LIMIT 1"
+            );
+            $stmt->execute([$parsed['reference_number']]);
+            $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($inv) {
+                return [
+                    'invoice_id' => (int) $inv['id'],
+                    'method'     => 'reference_number',
+                    'confidence' => 'high',
+                    'candidates' => [$inv],
+                ];
+            }
+        }
+
+        // 1. Exact: invoice number from the memo. Several named ("Invs 2026-0251 and 0383"): the first
+        // one still owing — a memo can name one already paid (2026-10-14).
+        $hints = !empty($parsed['invoice_hints']) ? (array)$parsed['invoice_hints'] : (!empty($parsed['invoice_hint']) ? [$parsed['invoice_hint']] : []);
+        if ($hints) {
+            $stmt = $this->db->prepare(
+                "SELECT id, invoice_number, balance_due, total, status
+                   FROM invoices WHERE invoice_number = ? LIMIT 1"
+            );
+            $inv = null;
+            $found = [];
+            foreach ($hints as $h) {
+                $stmt->execute([$h]);
+                if ($r = $stmt->fetch(PDO::FETCH_ASSOC)) $found[] = $r;
+            }
+            foreach ($found as $r) { if ((float)$r['balance_due'] > 0.005) { $inv = $r; break; } }
+            $inv = $inv ?? ($found[0] ?? null);
+            if ($inv) {
+                return [
+                    'invoice_id' => (int) $inv['id'],
+                    'method'     => 'invoice_number',
+                    'confidence' => 'high',
+                    'candidates' => $found ?: [$inv],
+                ];
+            }
+        }
+
+        // 1b. A year-less number after "invoice" ("inv #65"): looked up, never assumed. Medium — the year was
+        // inferred, so it is never auto-recorded (autoRecordFullyCertain() wants high).
+        if (!empty($parsed['short_hints'])) {
+            $found = [];
+            foreach ((array)$parsed['short_hints'] as $n) {
+                if ($r = $this->resolveShortNumber((int)$n)) $found[] = $r;
+            }
+            $inv = null;
+            foreach ($found as $r) { if ((float)$r['balance_due'] > 0.005) { $inv = $r; break; } }
+            $inv = $inv ?? ($found[0] ?? null);
+            if ($inv) {
+                return [
+                    'invoice_id' => (int) $inv['id'],
+                    'method'     => 'invoice_number',
+                    'confidence' => 'medium',
+                    'candidates' => $found,
+                ];
+            }
+        }
+
+        // 2. Fallback: a single open invoice whose balance equals the amount.
+        if (!empty($parsed['amount'])) {
+            $placeholders = implode(',', array_fill(0, count(self::PAYABLE), '?'));
+            $stmt = $this->db->prepare(
+                "SELECT id, invoice_number, balance_due, total, status
+                   FROM invoices
+                  WHERE status IN ($placeholders)
+                    AND ABS(balance_due - ?) < 0.01
+                  ORDER BY created_at DESC
+                  LIMIT 5"
+            );
+            $stmt->execute(array_merge(self::PAYABLE, [$parsed['amount']]));
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (count($rows) === 1) {
+                return [
+                    'invoice_id' => (int) $rows[0]['id'],
+                    'method'     => 'amount',
+                    'confidence' => 'medium',
+                    'candidates' => $rows,
+                ];
+            }
+            if (count($rows) > 1) {
+                return ['invoice_id' => null, 'method' => 'none', 'confidence' => 'none', 'candidates' => $rows];
+            }
+        }
+
+        return ['invoice_id' => null, 'method' => 'none', 'confidence' => 'none', 'candidates' => []];
+    }
+
+    /** Shared payer-name resolution SQL fragment (SELECT-list expression), reused by both the FIFO suggestion and the duplicate-payment check below. */
+    private const PAYER_NAME_SQL = "COALESCE(
+        NULLIF(i.bill_to_name, ''),
+        co.company_name,
+        CASE WHEN cl.client_type = 'individual' THEN cl.display_name END,
+        CASE WHEN ct.company_id IS NULL THEN CONCAT(ct.first_name, ' ', ct.last_name) END
+    )";
+
+    /** Shared payer-name resolution JOINs, reused by both the FIFO suggestion and the duplicate-payment check below. */
+    private const PAYER_NAME_JOINS = "
+        LEFT JOIN companies co ON co.id = i.company_id
+        LEFT JOIN clients   cl ON cl.id = i.client_id
+        LEFT JOIN contacts  ct ON ct.id = i.contact_id
+    ";
+
+    /**
+     * When a transfer's amount exceeds what any single one of the sender's
+     * open invoices can absorb, suggest how staff would apply it under
+     * standard AR practice: oldest invoice first (FIFO), each invoice topped
+     * up to its balance before moving to the next, until the transfer amount
+     * is exhausted or invoices run out.
+     *
+     * Payer name resolution: bill_to_name is only ever set for a manual
+     * one-off override and is NULL on virtually every normal invoice.
+     * companies.company_name covers company clients. clients.display_name is
+     * only trusted when that client's own type is 'individual' — client_id
+     * often points at an individual *contact* representing a company (e.g. a
+     * property manager), where display_name would wrongly surface a person's
+     * name as if they were the payer. contacts.first_name/last_name is the
+     * fallback for invoices linked only via contact_id (common for
+     * individual customers) — but only when that contact isn't itself a
+     * company's contact (company_id IS NULL), for the same reason.
+     *
+     * This is presentation-only — it does not touch matchInvoice()'s
+     * hard-identity matching (invoice #, reference #) or write anything to
+     * the DB; it just pre-fills the split-line suggestion staff still
+     * confirms before recording.
+     *
+     * @return array<int,array{invoice_id:int,invoice_number:string,balance_due:float,apply_amount:float}>
+     */
+    public function suggestFifoAllocation(?string $senderName, float $amount): array
+    {
+        if (!$senderName || $amount <= 0 || self::normalizeName($senderName) === '') {
+            return [];
+        }
+
+        $matching = array_values(array_filter(
+            $this->payableInvoicesWithPayer(),
+            fn($inv) => $this->paysFor($senderName, (string) $inv['payer_name'])
+        ));
+
+        return self::allocateFifo($matching, $amount);
+    }
+
+    /**
+     * Fallback for when the sender name doesn't match anyone at all — someone
+     * paying on a friend's or relative's behalf, so the Interac profile name
+     * has nothing to do with whose invoice it is. Amount is the only signal
+     * left, so this is deliberately conservative: only suggest anything when
+     * the transfer amount exactly clears ONE specific customer's *entire*
+     * open balance (their outstanding invoices sum to exactly this amount)
+     * AND that match is unique system-wide — if it's ambiguous, guessing
+     * which unrelated customer's invoices to touch is worse than showing
+     * nothing and letting staff match manually.
+     *
+     * @return array{payer_name:string,lines:array<int,array{invoice_id:int,invoice_number:string,balance_due:float,apply_amount:float}>}|null
+     */
+    public function suggestFifoAllocationByValue(float $amount, ?string $senderName = null, ?string $memo = null): ?array
+    {
+        if ($amount <= 0) {
+            return null;
+        }
+        // A name clue + the oldest invoices to the cent is stronger evidence than an amount alone: it wins.
+        $clued = $this->suggestByClues($amount, $senderName, $memo);
+        if ($clued !== null) return $clued;
+
+        $groups = [];
+        foreach ($this->payableInvoicesWithPayer() as $inv) {
+            $payer = trim((string) $inv['payer_name']);
+            $key   = self::normalizeName($payer);
+            if ($key === '') {
+                continue;
+            }
+            $groups[$key]['payer_name'] ??= $payer;
+            $groups[$key]['invoices'][]   = $inv;
+            $groups[$key]['total']        = ($groups[$key]['total'] ?? 0) + (float) $inv['balance_due'];
+        }
+
+        $matches = array_values(array_filter(
+            $groups,
+            fn($g) => abs(round($g['total'], 2) - round($amount, 2)) < 0.01
+        ));
+
+        if (count($matches) !== 1) {
+            return $clued;
+        }
+
+        return ['payer_name' => $matches[0]['payer_name'], 'lines' => self::allocateFifo($matches[0]['invoices'], $amount)];
+    }
+
+    /**
+     * The clues a person would use (owner, 2026-10-20: "She has clues though" — DARREN CANNON, memo "Canon", $409.50 =
+     * Kelly Canon's six oldest $68.25 invoices): a word of the MEMO or of the sender's name is the payer's name, allowing
+     * one letter's difference (Canon / Cannon), AND the amount is exactly that payer's oldest open invoices to the cent.
+     * Only when exactly ONE payer fits — else nothing. A suggestion only: the person still records it.
+     * @return array{payer_name:string,lines:array,clue:string}|null
+     */
+    public function suggestByClues(float $amount, ?string $senderName, ?string $memo): ?array
+    {
+        $words = self::clueWords((string)$memo . ' ' . (string)$senderName);
+        if (!$words || $amount <= 0) return null;
+        $groups = [];
+        foreach ($this->payableInvoicesWithPayer() as $inv) {
+            $payer = trim((string)$inv['payer_name']);
+            $key = self::normalizeName($payer);
+            if ($key === '') continue;
+            $groups[$key]['payer_name'] ??= $payer;
+            $groups[$key]['invoices'][] = $inv;
+        }
+        $hits = [];
+        foreach ($groups as $g) {
+            $hit = self::nameClue($words, $g['payer_name']);
+            if ($hit === null) continue;
+            $n = self::oldestSumming($g['invoices'], $amount);
+            if ($n > 0) $hits[] = ['payer_name' => $g['payer_name'], 'lines' => self::allocateFifo(array_slice($g['invoices'], 0, $n), $amount),
+                                   'clue' => '"' . $hit . '" is ' . $g['payer_name'] . ', and $' . number_format($amount, 2) . ' is their ' . $n . ' oldest open invoice' . ($n === 1 ? '' : 's')];
+        }
+        return count($hits) === 1 ? $hits[0] : null;
+    }
+
+    /** Words worth matching (4+ letters, not Interac / e-Transfer filler). PURE. */
+    public static function clueWords(string $text): array
+    {
+        $stop = ['INTERAC', 'TRANSFER', 'ETRANSFER', 'PAYMENT', 'INVOICE', 'INVOICES', 'THANK', 'THANKS', 'LAWN', 'LAWNS', 'CARE', 'MOWOLOGY', 'LANDSCAPES', 'LANDSCAPING'];
+        $out = [];
+        foreach (preg_split('/[^A-Za-z]+/', strtoupper($text)) as $w) {
+            if (strlen($w) >= 4 && !in_array($w, $stop, true)) $out[$w] = true;
+        }
+        return array_keys($out);
+    }
+
+    /** The clue word that is one of the payer's name words (same first letter, at most one letter different), or null. PURE. */
+    public static function nameClue(array $words, string $payerName): ?string
+    {
+        foreach (preg_split('/[^A-Za-z]+/', strtoupper($payerName)) as $p) {
+            if (strlen($p) < 4) continue;
+            foreach ($words as $w) {
+                if ($w[0] === $p[0] && levenshtein($w, $p) <= 1) return ucfirst(strtolower($w));
+            }
+        }
+        return null;
+    }
+
+    /** How many of these oldest-first invoices sum EXACTLY to $amount (0 = no prefix does). PURE. */
+    public static function oldestSumming(array $invoices, float $amount): int
+    {
+        $sum = 0.0;
+        foreach (array_values($invoices) as $i => $inv) {
+            $sum = round($sum + (float)$inv['balance_due'], 2);
+            if (abs($sum - round($amount, 2)) < 0.005) return $i + 1;
+            if ($sum > $amount + 0.005) return 0;
+        }
+        return 0;
+    }
+
+    /** All open invoices with their resolved payer name, oldest-due first — shared by both FIFO suggestion methods. */
+    private function payableInvoicesWithPayer(): array
+    {
+        $placeholders = implode(',', array_fill(0, count(self::PAYABLE), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT i.id, i.invoice_number, i.balance_due,
+                    " . self::PAYER_NAME_SQL . " AS payer_name,
+                    COALESCE(i.due_date, i.invoice_date) AS order_date
+               FROM invoices i
+               " . self::PAYER_NAME_JOINS . "
+              WHERE i.status IN ($placeholders)
+                AND i.balance_due > 0
+              ORDER BY order_date ASC, i.id ASC"
+        );
+        $stmt->execute(self::PAYABLE);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Greedily apply $amount across $invoices in the order given (already oldest-first), each topped up to its balance. */
+    private static function allocateFifo(array $invoices, float $amount): array
+    {
+        $remaining  = round($amount, 2);
+        $allocation = [];
+        foreach ($invoices as $inv) {
+            if ($remaining <= 0.005) {
+                break;
+            }
+            $apply = min($remaining, round((float) $inv['balance_due'], 2));
+            if ($apply <= 0) {
+                continue;
+            }
+            $allocation[] = [
+                'invoice_id'     => (int) $inv['id'],
+                'invoice_number' => (string) $inv['invoice_number'],
+                'balance_due'    => (float) $inv['balance_due'],
+                'apply_amount'   => $apply,
+                'payer_name'     => (string) ($inv['payer_name'] ?? ''),
+            ];
+            $remaining = round($remaining - $apply, 2);
+        }
+        return $allocation;
+    }
+
+    /**
+     * Guard against suggesting a FIFO spread across the wrong invoices when
+     * this transfer was actually already applied — manually, outside this
+     * poller, before it existed or before this specific email was ingested.
+     * Real case that motivated this: an e-Transfer notification email dated
+     * 2026-07-13 wasn't ingested into etransfer_notifications until
+     * 2026-07-31 (the poller didn't exist yet on the 13th) — but staff had
+     * already manually recorded that same payment on 2026-07-20 as 6 separate
+     * $50.40 e_transfer payments (summing exactly to the transfer's $302.40)
+     * against invoices that were, by the time the poller ran, already fully
+     * paid and no longer "open" — so suggestFifoAllocation() would instead
+     * have spread the (already-spent) amount across a completely different,
+     * unrelated set of that customer's open invoices.
+     *
+     * Those manual payments went through invoices.status/amount_paid
+     * directly rather than the invoice_payment_allocations ledger, so this
+     * checks paid, e_transfer-method invoices for the same payer and looks
+     * for same-day totals that land on the transfer amount within a cent —
+     * a same-day batch of same-payer e_transfer payments summing to the
+     * exact transfer amount is a strong signal it's this transfer.
+     *
+     * @return array{pay_date:string,invoice_numbers:string[],total:float}|null
+     */
+    public function findLikelyDuplicatePayment(?string $senderName, float $amount, ?string $emailDate): ?array
+    {
+        if (!$senderName || $amount <= 0 || self::normalizeName($senderName) === '') {
+            return null;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT i.invoice_number, i.amount_paid, DATE(i.updated_at) AS pay_day,
+                    " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i
+               " . self::PAYER_NAME_JOINS . "
+              WHERE i.status = 'paid' AND i.payment_method = 'e_transfer'"
+        );
+        $stmt->execute();
+
+        // A window, not just a floor: a payment recorded well before the
+        // transfer email arrived can't be it (allow a few days of slack for
+        // timezone/manual-entry lag), and neither can a same-amount
+        // coincidence months later — cap how far out a "same transfer,
+        // recorded late" match is allowed to be.
+        $emailTs   = $emailDate ? strtotime($emailDate) : null;
+        $windowMin = $emailTs ? $emailTs - (3 * 86400) : null;
+        $windowMax = $emailTs ? $emailTs + (90 * 86400) : null;
+
+        $byDay = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $inv) {
+            if (!$this->paysFor($senderName, (string) $inv['payer_name'])) {
+                continue;
+            }
+            $dayTs = strtotime((string) $inv['pay_day']);
+            if (($windowMin && $dayTs < $windowMin) || ($windowMax && $dayTs > $windowMax)) {
+                continue;
+            }
+            $day = (string) $inv['pay_day'];
+            $byDay[$day]['total']            = ($byDay[$day]['total'] ?? 0) + (float) $inv['amount_paid'];
+            $byDay[$day]['invoice_numbers'][] = (string) $inv['invoice_number'];
+        }
+
+        // Multiple days could each happen to sum to this amount — prefer
+        // whichever is closest to the transfer's own email date rather than
+        // whatever the query happened to return first.
+        $best = null;
+        foreach ($byDay as $day => $group) {
+            if (abs(round($group['total'], 2) - round($amount, 2)) >= 0.01) {
+                continue;
+            }
+            $distance = $emailTs ? abs(strtotime($day) - $emailTs) : 0;
+            if ($best === null || $distance < $best['distance']) {
+                $best = ['distance' => $distance, 'pay_date' => $day, 'invoice_numbers' => $group['invoice_numbers'], 'total' => round($group['total'], 2)];
+            }
+        }
+
+        if ($best === null) {
+            return null;
+        }
+        unset($best['distance']);
+        return $best;
+    }
+
+    /** Loose name equality for matching a transfer's sender against bill_to_name — case/punctuation-insensitive. */
+    private static function normalizeName(string $name): string
+    {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $name) ?? '');
+    }
+
+    /**
+     * Loose payer-name equality. Tries an exact normalised match first
+     * ("1355183 B.C. LTD." == "1355183 BC Ltd"); if that fails, falls back to
+     * matching just the first and last word — a bank transfer's sender name
+     * is often shorter than the name on file (e.g. a customer's Interac
+     * profile says "JOHN HUGHES" while the invoice's contact record has the
+     * full legal "John Ellen Hughes"). Requires at least two words on both
+     * sides so a single-word name can't loosely match anything containing it.
+     */
+    /** sender key => [payer key => times] — who pays for whom, learned from recorded transfers. */
+    private ?array $learnedPayers = null;
+
+    /**
+     * Does this sender pay this payer's invoices? Their names match, or the owner has
+     * recorded this sender's transfers against this payer before (etransfer_sender_payers,
+     * migration 1132) — a strata plan paying an owner's bill, a spouse, a company account.
+     */
+    public function paysFor(?string $sender, string $payer): bool
+    {
+        if (!$sender) return false;
+        if (self::namesMatch($sender, $payer)) return true;
+        if ($this->learnedPayers === null) {
+            $this->learnedPayers = [];
+            try {
+                foreach ($this->db->query("SELECT sender_key, payer_key, times FROM etransfer_sender_payers")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $this->learnedPayers[$r['sender_key']][$r['payer_key']] = (int)$r['times'];
+                }
+            } catch (Throwable $e) { /* before migration 1132 */ }
+        }
+        return isset($this->learnedPayers[self::normalizeName($sender)][self::normalizeName($payer)]);
+    }
+
+    /** How many of this sender's transfers the owner has recorded in full (an undone one is no longer 'recorded'). */
+    public function timesRecordedFrom(?string $sender): int
+    {
+        $sender = trim((string)$sender);
+        if ($sender === '') return 0;
+        try {
+            $st = $this->db->prepare("SELECT COUNT(*) FROM etransfer_notifications WHERE sender_name = ? AND status = 'recorded'");
+            $st->execute([$sender]);
+            return (int)$st->fetchColumn();
+        } catch (Throwable $e) { return 0; }
+    }
+
+    /** Same person by the matcher's own rule (exact, or same first and last name). */
+    public static function samePayer(string $a, string $b): bool
+    {
+        return self::namesMatch($a, $b);
+    }
+
+    /** How many times the owner has recorded this sender paying for this payer (0 = never). */
+    public function timesPaidFor(?string $sender, string $payer): int
+    {
+        $this->paysFor($sender, $payer);
+        return (int)($this->learnedPayers[self::normalizeName((string)$sender)][self::normalizeName($payer)] ?? 0);
+    }
+
+    /**
+     * Teach the matcher: the owner recorded this sender's transfer against these
+     * invoices, so this sender pays for those payers. Names that already match teach
+     * nothing new. Never blocks the recording.
+     * @param int[] $invoiceIds
+     */
+    public function learnSender(?string $sender, array $invoiceIds): void
+    {
+        $sKey = self::normalizeName((string)$sender);
+        $invoiceIds = array_values(array_filter(array_map('intval', $invoiceIds)));
+        if ($sKey === '' || !$invoiceIds) return;
+        try {
+            $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+            $stmt = $this->db->prepare("SELECT DISTINCT " . self::PAYER_NAME_SQL . " AS payer_name FROM invoices i " . self::PAYER_NAME_JOINS . " WHERE i.id IN ($in)");
+            $stmt->execute($invoiceIds);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $payer) {
+                $payer = trim((string)$payer);
+                if ($payer === '' || self::namesMatch((string)$sender, $payer)) continue;
+                // payer_aliases (1362) and, while it lives, etransfer_sender_payers — one writer for both.
+                require_once __DIR__ . '/PayerIdentityService.php';
+                (new PayerIdentityService($this->db))->learn('etransfer_sender', (string)$sender, $payer, 'learned', [], 'Recorded e-Transfer');
+            }
+            $this->learnedPayers = null;
+        } catch (Throwable $e) {
+            error_log('[etransfer] learnSender failed: ' . $e->getMessage());
+        }
+    }
+
+    private static function namesMatch(string $a, string $b): bool
+    {
+        $na = self::normalizeName($a);
+        $nb = self::normalizeName($b);
+        if ($na === '' || $nb === '') {
+            return false;
+        }
+        if ($na === $nb) {
+            return true;
+        }
+
+        $wordsA = self::nameWords($a);
+        $wordsB = self::nameWords($b);
+        if (count($wordsA) < 2 || count($wordsB) < 2) {
+            return false;
+        }
+        return $wordsA[0] === $wordsB[0] && end($wordsA) === end($wordsB);
+    }
+
+    /** @return string[] */
+    private static function nameWords(string $name): array
+    {
+        $upper = strtoupper((string) preg_replace('/[^A-Za-z0-9]+/', ' ', $name));
+        return array_values(array_filter(explode(' ', trim($upper)), static fn($w) => $w !== ''));
+    }
+
+    /**
+     * Find an already-imported bank deposit that likely corresponds to this
+     * e-Transfer notification — the bank↔email leg of three-way reconciliation
+     * (bank record + invoice + email all need to agree before staff can treat
+     * a transfer as officially closed). Scoring mirrors
+     * BankImportService::findInvoiceMatchForETransfer(): amount match is
+     * required, date proximity and sender-name overlap against the bank
+     * description raise confidence.
+     *
+     * @param array $note Fields: amount, sender_name, email_date, and
+     *   optionally matched_invoice_id (either a freshly-parsed transfer or an
+     *   existing etransfer_notifications row).
+     * @return array{tx_id:int,confidence:int,description:string}|null
+     */
+    public function matchBankTransaction(array $note): ?array
+    {
+        $amount = $note['amount'] ?? null;
+        if ($amount === null || (float) $amount <= 0) {
+            return null;
+        }
+
+        // Stage 0 — deterministic: BankImportService's own import-time matcher
+        // (findInvoiceMatchForETransfer) may have already reconciled this exact
+        // invoice's bank deposit and booked it as a cash-clearing 'transfer' row
+        // (see BankImportService.php's "Book the bank deposit as a cash-clearing
+        // TRANSFER" branch) — bypassing invoice_payment_allocations entirely, so
+        // our own fuzzy scoring below (which only looks at still-unmatched
+        // type='income' rows) can never see it. A transfer already tied to this
+        // invoice is a stronger signal than anything our own scoring produces.
+        if (!empty($note['matched_invoice_id'])) {
+            $stmt = $this->db->prepare(
+                "SELECT id FROM accounting_transactions
+                  WHERE type = 'transfer' AND reference_type = 'bank_import'
+                    AND matched_invoice_id = ? LIMIT 1"
+            );
+            $stmt->execute([(int) $note['matched_invoice_id']]);
+            $txId = $stmt->fetchColumn();
+            if ($txId) {
+                return [
+                    'tx_id'       => (int) $txId,
+                    'confidence'  => 100,
+                    'description' => 'Already reconciled to this invoice via bank import',
+                ];
+            }
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT at.id AS tx_id, at.transaction_date, bir.description
+               FROM accounting_transactions at
+               JOIN bank_import_rows bir ON bir.transaction_id = at.id
+              WHERE at.type = 'income'
+                AND at.reference_type = 'bank_import'
+                AND ABS(at.amount - ?) < 0.01
+              ORDER BY at.transaction_date DESC
+              LIMIT 25"
+        );
+        $stmt->execute([$amount]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($candidates)) {
+            return null;
+        }
+
+        $emailDate   = $note['email_date'] ?? null;
+        $senderWords = [];
+        foreach (preg_split('/\s+/', strtolower((string) ($note['sender_name'] ?? ''))) as $w) {
+            if (strlen($w) >= 3) {
+                $senderWords[] = $w;
+            }
+        }
+
+        $best = null;
+        $bestScore = 0;
+        foreach ($candidates as $c) {
+            // Date proximity is a HARD gate, not just a scoring bonus — an
+            // e-Transfer notification email arrives essentially the same day
+            // the money moves, so a deposit weeks away can't be this transfer
+            // no matter how well amount + sender name line up. Without this,
+            // amount(50) + name(25) alone clears the 60-point bar and silently
+            // links to an unrelated deposit from a different month.
+            if ($emailDate) {
+                $dayDiff = abs((strtotime($c['transaction_date']) - strtotime($emailDate)) / 86400);
+                if ($dayDiff > 10) {
+                    continue;
+                }
+                $score = 50 + ($dayDiff <= 1 ? 20 : ($dayDiff <= 3 ? 12 : ($dayDiff <= 7 ? 6 : 0)));
+            } else {
+                // No email date to compare — amount alone can't clear the bar,
+                // sender-name overlap is required to even be considered.
+                $score = 50;
+            }
+            $descLower = strtolower((string) $c['description']);
+            foreach ($senderWords as $w) {
+                if (strpos($descLower, $w) !== false) {
+                    $score += 25;
+                    break;
+                }
+            }
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $c;
+            }
+        }
+
+        if (!$best || $bestScore < 60) {
+            return null;
+        }
+
+        return [
+            'tx_id'       => (int) $best['tx_id'],
+            'confidence'  => min($bestScore, 100),
+            'description' => (string) $best['description'],
+        ];
+    }
+
+    /**
+     * Insert a parsed notification (deduped) and run matching.
+     * Returns ['inserted'=>bool, 'id'=>int|null, 'row'=>array|null].
+     */
+    /**
+     * Who can vouch for an Interac notice (review 2026-10-12): Interac's own sender, or our own
+     * people forwarding one ("Fwd:" from a mowology address). Anything else matched on the subject
+     * alone — a customer's reply, a lookalike — is never 'high'. Replies ("Re:") are not payments.
+     * Pure.
+     * @return 'interac'|'forwarded'|'reply'|'untrusted'|'unknown'
+     */
+    public static function noticeSource(?string $fromAddress, ?string $subject): string
+    {
+        $subj = trim((string)$subject);
+        if (preg_match('/^(re|aw|sv)\s*:/i', $subj)) return 'reply';
+        if ($fromAddress === null || trim($fromAddress) === '') return 'unknown';
+        $from = strtolower(trim($fromAddress));
+        if (preg_match('/<([^>]+)>/', $from, $m)) $from = $m[1];
+        if ($from === 'notify@payments.interac.ca') return 'interac';
+        $ours = (bool)preg_match('/@mowology\.ca$/', $from) || $from === 'mowology@icloud.com';
+        if ($ours && preg_match('/^(fwd?|fw)\s*:/i', $subj)) return 'forwarded';
+        return 'untrusted';
+    }
+
+    /**
+     * The confidence a notice may carry (security review #5, 2026-10-12): 'high' only for a notice
+     * from Interac whose sender was PROVEN (exact address + verified DKIM — MailAuth). An unproven
+     * "Interac" notice, a forward (the original signature is gone) or anyone else: at most 'medium',
+     * so autoRecordFullyCertain() never records it. Pure.
+     */
+    public static function cappedConfidence(string $confidence, string $source, bool $senderVerified): string
+    {
+        $vouched = $source === 'interac' && $senderVerified;
+        return (!$vouched && $confidence === 'high') ? 'medium' : $confidence;
+    }
+
+    /**
+     * Interac's notices about money the OWNER sent ("Your $288.75 transfer to 1498724 B.C. LTD. has
+     * been successfully deposited", "Your transfer to … was accepted / is pending / has been
+     * cancelled"). The iCloud inbox gets these for personal and supplier payments; one became an
+     * "Unknown sender $288.75" card waiting to be recorded as income (2026-10-13). Pure.
+     */
+    public static function isOutgoingNotice(string $subject): bool
+    {
+        return (bool)preg_match('/\byour\s+(?:\$\s*[0-9,]+\.[0-9]{2}\s+)?(?:interac\s+)?(?:e-?transfer\s+)?transfer\s+to\b|\byou\s+sent\b|\bwas\s+sent\s+to\b/i', $subject);
+    }
+
+    public function ingest(array $parsed, string $mailbox, ?string $messageId, ?string $emailSubject, ?string $emailDate, ?string $fromAddress = null, bool $senderVerified = false): array
+    {
+        $source = self::noticeSource($fromAddress, $emailSubject);
+        if ($source === 'reply') {
+            return ['inserted' => false, 'id' => null, 'row' => null, 'skipped' => 'reply, not a payment notice'];
+        }
+        if (self::isOutgoingNotice((string)$emailSubject)) {
+            return ['inserted' => false, 'id' => null, 'row' => null, 'skipped' => 'money we sent, not a payment to us'];
+        }
+        $dedup = $parsed['reference_number'] ?: ($messageId ?: md5(($emailSubject ?? '') . '|' . ($emailDate ?? '')));
+
+        // Already seen?
+        $chk = $this->db->prepare("SELECT id FROM etransfer_notifications WHERE dedup_key = ? LIMIT 1");
+        $chk->execute([$dedup]);
+        if ($existing = $chk->fetchColumn()) {
+            $this->storeClaimDetails((int) $existing, $parsed);   // backfill transfers seen before 1312
+            return ['inserted' => false, 'id' => (int) $existing, 'row' => null];
+        }
+
+        $match     = $this->matchInvoice($parsed);
+        // The memo alone doesn't make an unvouched email a payment.
+        $match['confidence'] = self::cappedConfidence((string)$match['confidence'], $source, $senderVerified);
+        $verified = ($source === 'interac' && $senderVerified) ? 1 : 0;
+        $dt        = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
+        $bankMatch = $this->matchBankTransaction([
+            'amount'             => $parsed['amount'],
+            'sender_name'        => $parsed['sender_name'],
+            'email_date'         => $dt,
+            'matched_invoice_id' => $match['invoice_id'],
+        ]);
+
+        try {
+            $stmt = $this->db->prepare(
+                "INSERT INTO etransfer_notifications
+                   (mailbox, dedup_key, reference_number, message_id, sender_name, amount, memo,
+                    invoice_hint, transfer_type, email_subject, email_date,
+                    matched_invoice_id, match_method, match_confidence,
+                    bank_transaction_id, bank_match_confidence, status, created_at"
+                    . ($this->hasSenderVerified() ? ", sender_verified" : "") . ")
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW()"
+                    . ($this->hasSenderVerified() ? ", ?" : "") . ")"
+            );
+            $params = [
+                $mailbox, $dedup, $parsed['reference_number'], $messageId, $parsed['sender_name'],
+                $parsed['amount'], $parsed['memo'], $parsed['invoice_hint'], $parsed['transfer_type'],
+                $emailSubject, $dt,
+                $match['invoice_id'], $match['method'], $match['confidence'],
+                $bankMatch['tx_id'] ?? null, $bankMatch['confidence'] ?? null,
+            ];
+            if ($this->hasSenderVerified()) $params[] = $verified;
+            $stmt->execute($params);
+        } catch (PDOException $e) {
+            // Lost an insert race against a concurrent poll → already seen.
+            if (stripos($e->getMessage(), 'Duplicate') !== false || $e->getCode() === '23000') {
+                $chk->execute([$dedup]);
+                $existing = (int) $chk->fetchColumn();
+                return ['inserted' => false, 'id' => $existing ?: null, 'row' => null];
+            }
+            throw $e;
+        }
+        $id = (int) $this->db->lastInsertId();
+        $this->storeClaimDetails($id, $parsed);
+        // Every invoice the memo names (PaymentOnTheWay pauses chasing for all of them; migration 1363), the
+        // year-less ones as the invoices they resolve to.
+        $this->storeNamedNumbers($id, array_merge((array)($parsed['invoice_hints'] ?? []), $this->resolvedShortNumbers((array)($parsed['short_hints'] ?? []))));
+        $this->nudgeAddress($id, 'ingest');
+
+        return ['inserted' => true, 'id' => $id, 'row' => $this->find($id)];
+    }
+
+    /** The invoice numbers year-less memo numbers resolve to (unclear ones left out). */
+    private function resolvedShortNumbers(array $short): array
+    {
+        $out = [];
+        foreach ($short as $n) {
+            if ($r = $this->resolveShortNumber((int)$n)) $out[] = (string)$r['invoice_number'];
+        }
+        return $out;
+    }
+
+    private function storeNamedNumbers(int $id, array $numbers): void
+    {
+        $numbers = array_values(array_unique(array_filter($numbers)));
+        if (!$numbers) return;
+        try {
+            $this->db->prepare("UPDATE etransfer_notifications SET invoice_hints = ? WHERE id = ?")
+                     ->execute([mb_substr(implode(',', $numbers), 0, 255), $id]);
+        } catch (PDOException $e) { /* before migration 1363 */ }
+    }
+
+    /** Deposit link + expiry for a claim-type transfer (migration 1312); fills blanks only. */
+    private function storeClaimDetails(int $id, array $parsed): void
+    {
+        if (empty($parsed['deposit_url']) && empty($parsed['expires_on'])) {
+            return;
+        }
+        try {
+            $this->db->prepare("
+                UPDATE etransfer_notifications
+                   SET deposit_url = COALESCE(deposit_url, ?), expires_on = COALESCE(expires_on, ?)
+                 WHERE id = ?
+            ")->execute([$parsed['deposit_url'] ?: null, $parsed['expires_on'] ?: null, $id]);
+        } catch (PDOException $e) {
+            // migration 1312 not run yet — alerts simply stay off
+        }
+    }
+
+    /**
+     * Penny's one-time "please e-Transfer to info@" thank-you (migration 1301) for a
+     * claim-type transfer whose payer is now known — at ingest when the invoice is
+     * identified, otherwise when the owner records/links it. Best-effort: never
+     * blocks or fails the ingest/recording. See EtransferNudgeService for the rules.
+     */
+    protected function nudgeAddress(int $notificationId, string $trigger): void
+    {
+        try {
+            require_once __DIR__ . '/EtransferNudgeService.php';
+            (new EtransferNudgeService($this->db))->onNotification($notificationId, $trigger);
+        } catch (Throwable $e) {
+            error_log('[etransfer] address nudge failed: ' . $e->getMessage());
+        }
+    }
+
+    public function find(int $id): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM etransfer_notifications WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /**
+     * Pending (incl. partially-allocated) notifications, newest first, with what the three cards on the
+     * Invoices page show (2026-10-13): the suggested invoice (number, date, client), the bank deposit
+     * (date, amount, memo) or the likely one, and when Penny last asked this payer to switch to Auto-deposit.
+     */
+    public function listPending(): array
+    {
+        try {
+            return $this->db->query($this->pendingSql(true))->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            // etransfer_address_nudges (migration 1301) missing — the cards just go without Penny's note
+            return $this->db->query($this->pendingSql(false))->fetchAll(PDO::FETCH_ASSOC);
+        }
+    }
+
+    private function pendingSql(bool $withNudge): string
+    {
+        $nudge = $withNudge
+            ? "(SELECT MAX(g.sent_at) FROM etransfer_address_nudges g
+                 WHERE g.status = 'sent' AND (g.notification_id = n.id OR g.sender_name = n.sender_name)) AS nudged_at"
+            : "NULL AS nudged_at";
+        return "SELECT n.*, i.invoice_number AS matched_invoice_number, i.balance_due AS matched_balance,
+                       i.status AS matched_invoice_status, i.invoice_date AS matched_invoice_date,
+                       i.total AS matched_total, i.company_id AS matched_company_id, i.contact_id AS matched_contact_id,
+                       bir.description AS bank_description, bir.amount AS bank_amount,
+                       at.transaction_date AS bank_transaction_date,
+                       /* a same-amount e-Transfer credit that landed after the email and no other email
+                          claims — it was probably deposited already; Interac then says it was already deposited (2026-10-13) */
+                       (SELECT MIN(d.transaction_date) FROM accounting_transactions d
+                         WHERE n.bank_transaction_id IS NULL AND d.reference_type = 'bank_import'
+                           AND ABS(d.amount - n.amount) < 0.01 AND d.description LIKE '%e-Transfer%'
+                           AND d.transaction_date BETWEEN DATE(n.email_date) AND DATE_ADD(DATE(n.email_date), INTERVAL 30 DAY)
+                           AND NOT EXISTS (SELECT 1 FROM etransfer_notifications o WHERE o.bank_transaction_id = d.id)) AS likely_deposit_date,
+                       {$nudge}
+                  FROM etransfer_notifications n
+             LEFT JOIN invoices i ON n.matched_invoice_id = i.id
+             LEFT JOIN accounting_transactions at ON n.bank_transaction_id = at.id
+             LEFT JOIN bank_import_rows bir ON bir.transaction_id = at.id
+                 WHERE n.status IN ('pending', 'partially_recorded')
+                   AND NOT (n.status = 'pending' AND i.status <=> 'paid') /* invoice already paid another way — nothing to record (2026-10-13) */
+              ORDER BY n.email_date DESC, n.id DESC";
+    }
+
+    public function countPending(): int
+    {
+        return (int) $this->db->query(
+            "SELECT COUNT(*) FROM etransfer_notifications n LEFT JOIN invoices i ON n.matched_invoice_id = i.id
+              WHERE n.status IN ('pending', 'partially_recorded') AND NOT (n.status = 'pending' AND i.status <=> 'paid')"
+        )->fetchColumn();
+    }
+
+    /**
+     * Record the e-Transfer as a payment against one or more invoices (a single
+     * e-Transfer sometimes covers several invoices at once). Delegates the
+     * per-invoice apply/cap/ledger work to InvoiceReconciliationService::applyAllocation()
+     * so e-Transfers and bank-deposit reconciliation share one allocation ledger
+     * (invoice_payment_allocations) instead of two independent "record a payment"
+     * code paths — see that method for why.
+     *
+     * A notification can be recorded across more than one call: each call applies
+     * against the amount still unallocated, and status stays 'partially_recorded'
+     * until the full transfer amount has been assigned.
+     *
+     * @param array $allocations [ ['invoice_id'=>int, 'amount'=>?float], ... ] — a
+     *   single allocation with a null amount defaults to "whatever's left on the
+     *   transfer" (the common single-invoice case, unchanged from before).
+     * @return array{ok:bool,message:string,fully_allocated?:bool,remaining?:float}
+     */
+    public function recordPayment(int $notificationId, array $allocations, int $userId): array
+    {
+        $note = $this->find($notificationId);
+        if (!$note) {
+            return ['ok' => false, 'message' => 'Notification not found'];
+        }
+        if (!in_array($note['status'], ['pending', 'partially_recorded'], true)) {
+            return ['ok' => false, 'message' => 'Already ' . $note['status']];
+        }
+
+        $clean = [];
+        foreach ($allocations as $a) {
+            $iid = (int) ($a['invoice_id'] ?? 0);
+            $amt = isset($a['amount']) && $a['amount'] !== null && $a['amount'] !== ''
+                ? round((float) $a['amount'], 2) : null;
+            if ($iid > 0) {
+                $clean[] = ['invoice_id' => $iid, 'amount' => $amt];
+            }
+        }
+        if (empty($clean)) {
+            return ['ok' => false, 'message' => 'Enter an invoice number to record against'];
+        }
+
+        $totalAmount = (float) $note['amount'];
+        $remaining   = round($totalAmount - (float) $note['allocated_amount'], 2);
+
+        // A single allocation with no explicit amount defaults to "whatever's left"
+        // — the common single-invoice path, unchanged behaviour.
+        if (count($clean) === 1 && $clean[0]['amount'] === null) {
+            $clean[0]['amount'] = $remaining > 0 ? $remaining : null;
+        }
+        foreach ($clean as $a) {
+            if ($a['amount'] === null || $a['amount'] <= 0) {
+                return ['ok' => false, 'message' => 'Enter an amount for each invoice'];
+            }
+        }
+
+        $sum = round(array_sum(array_column($clean, 'amount')), 2);
+        if ($totalAmount > 0 && $sum > $remaining + 0.005) {
+            return ['ok' => false, 'message' => sprintf(
+                'Allocation total $%.2f exceeds the $%.2f left on this e-Transfer.', $sum, $remaining
+            )];
+        }
+
+        // Single-invoice attempt against an invoice that can't take a real payment
+        // (already closed) — surface a "merge" option instead of a hard error, so
+        // staff can link this notification to the invoice that already reflects
+        // the payment, rather than being stuck choosing between Dismiss (loses the
+        // record) or a confusing duplicate-payment error. Multi-invoice splits keep
+        // the strict all-or-nothing behaviour below.
+        if (count($clean) === 1) {
+            $stmt = $this->db->prepare("SELECT invoice_number, status, payment_reference FROM invoices WHERE id = ? LIMIT 1");
+            $stmt->execute([$clean[0]['invoice_id']]);
+            $invRow = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($invRow && ($block = self::paymentBlockReason((string) $invRow['status'], (string) $invRow['invoice_number']))) {
+                // Cross-reference the Interac reference # on this transfer against
+                // whatever staff typed into the invoice's payment reference when it
+                // was manually recorded — an exact match is a near-certain signal
+                // this is the same transfer, not a coincidental duplicate.
+                $invRef  = trim((string) ($invRow['payment_reference'] ?? ''));
+                $noteRef = trim((string) ($note['reference_number'] ?? ''));
+                $refMatch = ($invRef !== '' && $noteRef !== '' && $invRef === $noteRef);
+
+                return [
+                    'ok'                   => false,
+                    'message'              => $block,
+                    'can_merge'            => true,
+                    'merge_invoice_id'     => (int) $clean[0]['invoice_id'],
+                    'merge_invoice_number' => $invRow['invoice_number'],
+                    'reference_match'      => $refMatch,
+                    'invoice_payment_reference' => $invRef !== '' ? $invRef : null,
+                ];
+            }
+        }
+
+        require_once __DIR__ . '/InvoiceReconciliationService.php';
+        $recon   = new InvoiceReconciliationService($this->db);
+        $ref     = $note['reference_number'] ?: ('e-Transfer ' . $note['id']);
+        // Only a confident bank match is used as "the deposit" (a weak guess is left for the bank card).
+        $depositTx = (!empty($note['bank_transaction_id'])
+                      && (int)($note['bank_match_confidence'] ?? 0) >= self::AUTO_RECORD_BANK_CONFIDENCE_FLOOR)
+            ? (int)$note['bank_transaction_id'] : null;
+        // When the money moved (the notice's date), not the day someone pressed Record — a late
+        // record landed in the wrong month and missed its bank deposit (review 2026-10-12).
+        $payDate = !empty($note['email_date']) && strtotime((string)$note['email_date']) !== false
+            ? date('Y-m-d', strtotime((string)$note['email_date'])) : date('Y-m-d');
+
+        try {
+            $this->db->beginTransaction();
+
+            // Lock the notification and re-check it INSIDE the transaction (Fable review
+            // 2026-10-12): two "Record" clicks, or a click racing the poller's auto-record,
+            // both passed the status/remaining checks above and could each apply the same
+            // transfer to an invoice. The second now waits here and sees the first's result.
+            $lk = $this->db->prepare("SELECT status, amount, allocated_amount FROM etransfer_notifications WHERE id = ? FOR UPDATE");
+            $lk->execute([$notificationId]);
+            $locked = $lk->fetch(PDO::FETCH_ASSOC);
+            if (!$locked || !in_array($locked['status'], ['pending', 'partially_recorded'], true)) {
+                throw new RuntimeException('Already ' . ($locked['status'] ?? 'gone'));
+            }
+            $note['allocated_amount'] = $locked['allocated_amount'];
+            $remaining = round($totalAmount - (float) $locked['allocated_amount'], 2);
+            if ($totalAmount > 0 && $sum > $remaining + 0.005) {
+                throw new RuntimeException(sprintf(
+                    'Allocation total $%.2f exceeds the $%.2f left on this e-Transfer.', $sum, $remaining
+                ));
+            }
+
+            $recorded = [];
+            foreach ($clean as $a) {
+                // Load unconditionally so we can give a precise reason when it can't
+                // take a payment (already paid → likely a duplicate; cancelled → can't apply).
+                $stmt = $this->db->prepare("SELECT invoice_number, status FROM invoices WHERE id = ? LIMIT 1");
+                $stmt->execute([$a['invoice_id']]);
+                $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$inv) {
+                    throw new RuntimeException("Invoice #{$a['invoice_id']} not found.");
+                }
+                if ($block = self::paymentBlockReason((string) $inv['status'], (string) $inv['invoice_number'])) {
+                    throw new RuntimeException($block);
+                }
+
+                $result = $recon->applyAllocation(
+                    $a['invoice_id'], $a['amount'], 'e_transfer', $ref, $payDate, $depositTx, $userId, $notificationId
+                );
+                if ($result) {
+                    $recorded[] = $result;
+                }
+            }
+
+            if (empty($recorded)) {
+                throw new RuntimeException('Nothing to record — the selected invoice(s) are already settled.');
+            }
+            // The deposit this transfer landed as: settled with the payment, so it isn't income a
+            // second time (two were, $262.50 and $1,050.95 — review 2026-10-12).
+            if ($depositTx) $recon->settleDeposit($depositTx, $userId, count($recorded) === 1 ? (int)$recorded[0]['invoice_id'] : null);
+
+            $appliedSum    = round(array_sum(array_column($recorded, 'applied')), 2);
+            $newAllocated  = round((float) $note['allocated_amount'] + $appliedSum, 2);
+            $fullyRecorded = $totalAmount <= 0 || $newAllocated >= $totalAmount - 0.005;
+
+            $this->db->prepare(
+                "UPDATE etransfer_notifications
+                    SET allocated_amount = ?, status = ?, recorded_invoice_id = COALESCE(recorded_invoice_id, ?),
+                        recorded_by = ?, processed_at = ?
+                  WHERE id = ?"
+            )->execute([
+                $newAllocated,
+                $fullyRecorded ? 'recorded' : 'partially_recorded',
+                $recorded[0]['invoice_id'],
+                $userId,
+                $fullyRecorded ? date('Y-m-d H:i:s') : null,
+                $notificationId,
+            ]);
+
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            if ($e instanceof RuntimeException) {
+                return ['ok' => false, 'message' => $e->getMessage()];
+            }
+            error_log('[EtransferInboxService] recordPayment error: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Database error while recording payment'];
+        }
+
+        // Attribution hook (best-effort, mirrors record-payment.php).
+        if (defined('APP_ROOT')) {
+            $attr = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
+            if (is_file($attr)) {
+                require_once $attr;
+                foreach ($recorded as $r) {
+                    if ($r['fully_paid']) {
+                        try {
+                            AttributionService::onInvoicePaid($this->db, $r['invoice_id'], $r['applied']);
+                        } catch (\Throwable $e) {
+                            error_log('[EtransferInboxService] attribution error: ' . $e->getMessage());
+                        }
+                    }
+                }
+            }
+        }
+
+        $this->nudgeAddress($notificationId, 'recorded');
+
+        $remainingAfter = round($totalAmount - $newAllocated, 2);
+        $message = count($recorded) === 1
+            ? sprintf('Recorded $%.2f against %s', $recorded[0]['applied'], $recorded[0]['invoice_number'])
+            : sprintf('Recorded $%.2f across %d invoices', $appliedSum, count($recorded));
+        if (!$fullyRecorded) {
+            $message .= sprintf(' — $%.2f left to assign', max(0, $remainingAfter));
+        }
+
+        return [
+            'ok'              => true,
+            'message'         => $message,
+            'fully_allocated' => $fullyRecorded,
+            'remaining'       => max(0, $remainingAfter),
+        ];
+    }
+
+    /**
+     * Keep what's left on a transfer as the payer's credit (2026-10-14: Alberta 3025 Strata paid INV-0251
+     * twice; Tim: "leave his account in credit and it can pay the next invoice"). The client is the one
+     * the transfer was already recorded against, or $clientId. ClientCreditService::addOverpayment posts
+     * DR Bank / CR 2160 on the transfer's date and keeps the transfer's id, so its bank line settles as a
+     * transfer later. The notification is then fully recorded. Refunds stay a person's job.
+     */
+    private ?ClientCreditService $creditSvc = null;
+
+    /** Tests: a ClientCreditService without the journal. */
+    public function useCreditService(ClientCreditService $c): self
+    {
+        $this->creditSvc = $c;
+        return $this;
+    }
+
+    public function creditRest(int $notificationId, int $userId, ?int $clientId = null): array
+    {
+        require_once __DIR__ . '/ClientCreditService.php';
+        $credit = $this->creditSvc ?? new ClientCreditService($this->db);
+        $mysql = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        try {
+            $this->db->beginTransaction();
+            $s = $this->db->prepare("SELECT * FROM etransfer_notifications WHERE id = ?" . ($mysql ? ' FOR UPDATE' : ''));
+            $s->execute([$notificationId]);
+            $note = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$note || !in_array($note['status'], ['pending', 'partially_recorded'], true)) {
+                throw new RuntimeException('This transfer is ' . ($note['status'] ?? 'gone') . ' — nothing left to keep as credit.');
+            }
+            $rest = round((float)$note['amount'] - (float)$note['allocated_amount'], 2);
+            if ($rest <= 0.005) throw new RuntimeException('Nothing is left on this transfer.');
+            if (!$clientId) {
+                $inv = (int)($note['recorded_invoice_id'] ?? 0);
+                if (!$inv) {
+                    $a = $this->db->prepare("SELECT invoice_id FROM invoice_payment_allocations WHERE etransfer_notification_id = ? ORDER BY id LIMIT 1");
+                    $a->execute([$notificationId]);
+                    $inv = (int)$a->fetchColumn();
+                }
+                $clientId = $inv ? $credit->clientForInvoice($inv) : null;
+            }
+            if (!$clientId) throw new RuntimeException('Record it against one of the client\'s invoices first, so I know whose credit it is.');
+            $date = !empty($note['email_date']) ? date('Y-m-d', strtotime((string)$note['email_date'])) : date('Y-m-d');
+            $sender = trim((string)($note['sender_name'] ?? 'e-Transfer'));
+            $credit->addOverpayment($clientId, $rest, $date,
+                sprintf('Overpayment: %s e-Transfer %s', $sender, $note['reference_number'] ?: ('#' . $notificationId)),
+                $notificationId, null, $userId);
+            $this->db->prepare("UPDATE etransfer_notifications SET allocated_amount = amount, status = 'recorded', recorded_by = ?, processed_at = ? WHERE id = ?")
+                     ->execute([$userId, date('Y-m-d H:i:s'), $notificationId]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            if ($e instanceof RuntimeException || $e instanceof InvalidArgumentException) return ['ok' => false, 'message' => $e->getMessage()];
+            error_log('[EtransferInboxService] creditRest: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Database error while keeping the credit'];
+        }
+        return ['ok' => true, 'credited' => $rest, 'client_id' => $clientId,
+                'message' => sprintf('$%.2f kept as credit — it comes off their next invoice before it is sent.', $rest)];
+    }
+
+    /**
+     * Re-run invoice_hint extraction + matching against already-ingested pending
+     * notifications. One-time backfill for parser improvements (e.g. recognising
+     * "invoice 2026-0308" as well as "INV-2026-0308") that don't retroactively
+     * apply — matching only ran once, at ingest time. Only touches rows still
+     * awaiting action; never re-matches something already recorded/dismissed.
+     *
+     * @return array{checked:int,updated:int}
+     */
+    public function rematchPending(): array
+    {
+        $rows = $this->db->query(
+            "SELECT id, memo, email_subject, invoice_hint, matched_invoice_id, match_method, match_confidence"
+            . ($this->hasSenderVerified() ? ", sender_verified" : "") . "
+               FROM etransfer_notifications
+              WHERE status IN ('pending', 'partially_recorded')"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $checked = 0;
+        $updated = 0;
+
+        foreach ($rows as $row) {
+            $checked++;
+            $hint = self::extractInvoiceNumber($row['memo'] ?? '')
+                 ?? self::extractInvoiceNumber($row['email_subject'] ?? '');
+            $match = null;
+            $short = self::extractShortInvoiceNumbers($row['memo'] ?? '');
+            if ($short) {
+                // Pause chasing every invoice a year-less memo names (PaymentOnTheWay reads invoice_hints).
+                $this->storeNamedNumbers((int)$row['id'], array_merge(self::extractInvoiceNumbers($row['memo'] ?? ''), $this->resolvedShortNumbers($short)));
+            }
+            if ($hint === null && $short) {
+                // Year-less ("invoices 0065, 0066…", 2026-11-05): the hint is the invoice the lookup found.
+                $match = $this->matchInvoice(['short_hints' => $short, 'amount' => null]);
+                foreach ($match['candidates'] as $c) { if ((int)$c['id'] === (int)$match['invoice_id']) $hint = (string)$c['invoice_number']; }
+            }
+            if ($hint === null || $hint === $row['invoice_hint']) {
+                continue;
+            }
+
+            $match = $match ?? $this->matchInvoice(['invoice_hint' => $hint, 'amount' => null]);
+            // A re-match never lifts an unproven notice to 'high' (security review #5).
+            if ((int)($row['sender_verified'] ?? 0) !== 1 && $match['confidence'] === 'high') $match['confidence'] = 'medium';
+            if ((int) $match['invoice_id'] === (int) $row['matched_invoice_id']
+                && $hint === $row['invoice_hint']) {
+                continue;
+            }
+
+            $this->db->prepare(
+                "UPDATE etransfer_notifications
+                    SET invoice_hint = ?, matched_invoice_id = ?, match_method = ?, match_confidence = ?
+                  WHERE id = ?"
+            )->execute([
+                $hint, $match['invoice_id'], $match['method'], $match['confidence'], $row['id'],
+            ]);
+            $updated++;
+        }
+
+        return ['checked' => $checked, 'updated' => $updated];
+    }
+
+    /** Bank-match confidence floor for auto-recording — same-day + sender-name overlap, not just amount. */
+    private const AUTO_RECORD_BANK_CONFIDENCE_FLOOR = 90;
+
+    /**
+     * Auto-record e-Transfers that clear a deliberately narrow "100% certain"
+     * bar so staff never have to click through something this unambiguous.
+     * All three must hold:
+     *   1. Hard identity match on the invoice — invoice # literally in the
+     *      customer's memo, or the transfer's own reference # already sitting
+     *      in that invoice's payment_reference. Not the amount-fallback guess.
+     *   2. The bank deposit is linked with high confidence (same-day +
+     *      sender-name overlap) — not just "an amount happened to match."
+     *   3. The transfer amount exactly equals the invoice's outstanding
+     *      balance (to the cent) — no GST/rounding ambiguity to second-guess.
+     *
+     * Anything short of all three still waits for a human, exactly as before.
+     * Safe to call repeatedly (only touches pending/partially_recorded rows).
+     *
+     * @return array{checked:int,recorded:int,skipped:array}
+     */
+    public function autoRecordFullyCertain(int $systemUserId): array
+    {
+        // 4. The notice was PROVEN to come from Interac (sender_verified, migration 1340 — security
+        //    review #5). Before 1340 runs nothing is auto-recorded; every transfer waits for a person.
+        if (!$this->hasSenderVerified()) {
+            return ['checked' => 0, 'recorded' => 0, 'recorded_ids' => [], 'skipped' => []];
+        }
+        $rows = $this->db->prepare(
+            "SELECT n.id, n.amount, n.memo, n.matched_invoice_id, i.balance_due AS invoice_balance
+               FROM etransfer_notifications n
+               JOIN invoices i ON i.id = n.matched_invoice_id
+              WHERE n.status IN ('pending', 'partially_recorded')
+                AND n.match_method IN ('invoice_number', 'reference_number')
+                AND n.match_confidence = 'high'
+                AND n.bank_transaction_id IS NOT NULL
+                AND n.sender_verified = 1
+                AND n.bank_match_confidence >= ?"
+        );
+        $rows->execute([self::AUTO_RECORD_BANK_CONFIDENCE_FLOOR]);
+        $candidates = $rows->fetchAll(PDO::FETCH_ASSOC);
+
+        $result = ['checked' => count($candidates), 'recorded' => 0, 'recorded_ids' => [], 'skipped' => []];
+
+        foreach ($candidates as $c) {
+            $amount  = round((float) $c['amount'], 2);
+            $balance = round((float) $c['invoice_balance'], 2);
+            // A memo naming more than one invoice always waits for a person, even when the amount happens to
+            // equal the first one's balance (Codex 2026-11-06; plan 2026-11-05).
+            $memo = (string)($c['memo'] ?? '');
+            if (count(self::extractInvoiceNumbers($memo)) + count(self::extractShortInvoiceNumbers($memo)) > 1) {
+                $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => 'the memo names more than one invoice'];
+                continue;
+            }
+            if (abs($amount - $balance) > 0.01) {
+                $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => 'amount does not exactly match the invoice balance'];
+                continue;
+            }
+
+            $res = $this->recordPayment(
+                (int) $c['id'],
+                [['invoice_id' => (int) $c['matched_invoice_id'], 'amount' => null]],
+                $systemUserId
+            );
+            if ($res['ok'] ?? false) {
+                $result['recorded']++;
+                $result['recorded_ids'][] = (int) $c['id'];
+            } else {
+                $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => $res['message'] ?? 'unknown'];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Link a pending notification to an invoice that's already closed (paid
+     * elsewhere, e.g. manually) WITHOUT applying a payment allocation — this is
+     * "yes, this e-Transfer is the thing that already closed that invoice, just
+     * stop asking me to record it." Never touches invoices, accounting_transactions,
+     * or invoice_payment_allocations, so it's always safely reversible via unmerge().
+     */
+    public function mergeAlreadyRecorded(int $notificationId, int $invoiceId, int $userId): array
+    {
+        $note = $this->find($notificationId);
+        if (!$note) {
+            return ['ok' => false, 'message' => 'Notification not found'];
+        }
+        if (!in_array($note['status'], ['pending', 'partially_recorded'], true)) {
+            return ['ok' => false, 'message' => 'Already ' . $note['status']];
+        }
+
+        $stmt = $this->db->prepare("SELECT invoice_number, status FROM invoices WHERE id = ? LIMIT 1");
+        $stmt->execute([$invoiceId]);
+        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$inv) {
+            return ['ok' => false, 'message' => 'Invoice not found'];
+        }
+        if (self::paymentBlockReason((string) $inv['status'], (string) $inv['invoice_number']) === null) {
+            return ['ok' => false, 'message' => "{$inv['invoice_number']} can still take a real payment — use Record instead."];
+        }
+
+        $this->db->prepare(
+            "UPDATE etransfer_notifications
+                SET status = 'recorded', matched_invoice_id = ?, recorded_invoice_id = ?,
+                    allocated_amount = amount, recorded_by = ?, processed_at = NOW()
+              WHERE id = ?"
+        )->execute([$invoiceId, $invoiceId, $userId, $notificationId]);
+        $this->nudgeAddress($notificationId, 'merged');
+
+        return [
+            'ok'      => true,
+            'merged'  => true,
+            'message' => "Linked to {$inv['invoice_number']} (already closed) — no new payment recorded.",
+        ];
+    }
+
+    /**
+     * Undo mergeAlreadyRecorded() — puts the notification back in the pending
+     * queue. Refuses if a real payment was ever applied against this notification
+     * (invoice_payment_allocations row exists), since reversing an actual ledger
+     * entry needs the invoice's own payment-reversal path, not this shortcut.
+     */
+    public function unmerge(int $notificationId, int $userId): array
+    {
+        $note = $this->find($notificationId);
+        if (!$note) {
+            return ['ok' => false, 'message' => 'Notification not found'];
+        }
+        if ($note['status'] !== 'recorded') {
+            return ['ok' => false, 'message' => 'Nothing to undo'];
+        }
+
+        $chk = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE etransfer_notification_id = ?");
+        $chk->execute([$notificationId]);
+        if ((int) $chk->fetchColumn() > 0) {
+            return ['ok' => false, 'message' => 'This e-Transfer was recorded as a real payment — reverse it from the invoice\'s payment history instead.'];
+        }
+
+        $this->db->prepare(
+            "UPDATE etransfer_notifications
+                SET status = 'pending',
+                    matched_invoice_id = CASE WHEN matched_invoice_id = recorded_invoice_id THEN NULL ELSE matched_invoice_id END,
+                    recorded_invoice_id = NULL, allocated_amount = 0,
+                    recorded_by = NULL, processed_at = NULL
+              WHERE id = ?"
+        )->execute([$notificationId]);
+
+        return ['ok' => true, 'message' => 'Back in the pending queue.'];
+    }
+
+    public function dismiss(int $notificationId, int $userId): array
+    {
+        $upd = $this->db->prepare(
+            "UPDATE etransfer_notifications
+                SET status = 'dismissed', recorded_by = ?, processed_at = NOW()
+              WHERE id = ? AND status IN ('pending', 'partially_recorded')"
+        );
+        $upd->execute([$userId, $notificationId]);
+        return ['ok' => $upd->rowCount() > 0, 'message' => $upd->rowCount() > 0 ? 'Dismissed' : 'Nothing to dismiss'];
+    }
+}

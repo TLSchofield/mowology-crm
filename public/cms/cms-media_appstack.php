@@ -209,7 +209,17 @@ if ($hasIconSetsTable) {
                 <?php endif; ?>
             </a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link <?php echo $activeTab === 'tags' ? 'active' : ''; ?>" href="?tab=tags">
+                <i data-feather="tag" style="width:14px;height:14px;vertical-align:-2px;"></i>
+                Mia's tags
+            </a>
+        </li>
     </ul>
+
+    <?php if ($activeTab === 'tags'): ?>
+    <?php include dirname(__DIR__) . '/crm/includes/media-tags-panel.php'; ?>
+    <?php endif; ?>
 
     <?php if ($activeTab === 'assets'): ?>
 

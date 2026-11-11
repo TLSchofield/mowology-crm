@@ -16,6 +16,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
+require_once APP_ROOT . '/Core/Csv.php';   // csvPut(): formula-safe cells (audit #18)
 requireLogin();
 requirePermission('jobs.view');
 session_write_close();
@@ -45,12 +46,12 @@ header('Content-Disposition: attachment; filename="jobs-' . date('Y-m-d') . '.cs
 $out = fopen('php://output', 'w');
 fwrite($out, "\xEF\xBB\xBF");
 
-fputcsv($out, ['Plan #', 'Title', 'Client', 'Service', 'Status', 'Recurring',
+csvPut($out, ['Plan #', 'Title', 'Client', 'Service', 'Status', 'Recurring',
                'Recurrence', 'Price/Visit', 'Address', 'City',
                'Start Date', 'End Date', 'Total Visits', 'Completed', 'Created']);
 
 foreach ($rows as $r) {
-    fputcsv($out, [
+    csvPut($out, [
         $r['plan_number'], $r['title'], $r['client_name'], $r['service_type'],
         $r['status'], $r['is_recurring'] ? 'Yes' : 'No', $r['recurrence_pattern'],
         number_format((float)$r['price_per_visit'], 2), $r['address'], $r['city'],

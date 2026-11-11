@@ -202,7 +202,7 @@ function getSchemaSnapshot(PDO $db) {
  */
 function writeSchemaSnapshot(array $snapshot, $storagePath) {
     $snapshotFile = $storagePath . '/schema_snapshot.json';
-    $historyDir = $storagePath . '/schema_history';
+    $historyDir = getHistoryPath();
 
     if (!is_dir($historyDir)) {
         mkdir($historyDir, 0755, true);

@@ -14,6 +14,22 @@ if (session_status() === PHP_SESSION_NONE) {
   if (is_dir($sessionPath) && is_writable($sessionPath)) {
     session_save_path($sessionPath);
   }
+
+  // Cookie hardening (matches app/Core/session_config.php's CRM session) — the
+  // public site was previously starting a session with PHP's bare defaults,
+  // i.e. no HttpOnly/Secure/SameSite at all.
+  $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+         || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+         || (!empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
+  session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'domain'   => '',
+    'secure'   => $secure,
+    'httponly' => true,
+    'samesite' => 'Lax',
+  ]);
+
   session_start();
 }
 
@@ -48,6 +64,57 @@ date_default_timezone_set($__site['timezone'] ?? 'America/Vancouver');
 
 // Year constant (used in copyright footers, etc.)
 define('SITE_YEAR', date('Y'));
+
+// Founding year — the ONE place this is stated. Every "Est.", "years experience",
+// foundingDate schema value and llms.txt claim must derive from it (the site used
+// to say 2019, 2010 and "8+ years" at once; BBB and the owner say 2012).
+define('SITE_FOUNDED', 2012);
+define('SITE_YEARS_IN_BUSINESS', max(1, (int)date('Y') - SITE_FOUNDED));
+
+// Public profiles of the business (schema.org sameAs). Google and AI engines
+// build their picture of "Mowology" from the agreement between these listings
+// and the site — keep name, phone, hours and founding year identical on all.
+// Google Business Profile (owner-supplied listing id 15220268177293590228, 2026-09-27).
+// The Maps URL below is the public listing; a direct "write a review" deep link needs
+// the Place ID (ChIJ…) or the g.page/r/…/review short link from the GBP dashboard.
+define('SITE_GBP_URL', 'https://www.google.com/maps?cid=15220268177293590228');
+define('SITE_REVIEW_URL', 'https://g.page/r/CQx6tjUVhh6yEAI/review'); // GBP 'Ask for reviews' short link (owner, 2026-09-27)
+
+define('SITE_SAME_AS', [
+    SITE_GBP_URL,
+    'https://www.yelp.ca/biz/mowology-vancouver-2',
+    'https://homestars.com/companies/2804132-mowology-lawns-landscapes',
+    'https://www.bbb.org/ca/bc/vancouver/profile/lawn-care/mowology-lawn-and-landscapes-ltd-0037-1368602',
+    'https://www.yellowpages.ca/bus/British-Columbia/Vancouver/Mowology-Lawns-Landscapes-Ltd/8128394.html',
+    'https://www.instagram.com/mowology',
+    'https://www.facebook.com/mowology',
+]);
+// Office hours as shown in the footer (Mon–Fri 8:00–16:00 Pacific).
+define('SITE_OPENING_HOURS', [
+    'dayOfWeek' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    'opens'     => '08:00',
+    'closes'    => '16:00',
+]);
+
+if (!function_exists('mw_localBusinessSchemaExtras')) {
+    /**
+     * Fields every LocalBusiness node on the site should carry (homepage,
+     * CMS structured data, service-page provider). Merge into the node.
+     */
+    function mw_localBusinessSchemaExtras(): array
+    {
+        return [
+            '@id'          => SITE_URL . '/#business',
+            'foundingDate' => (string)SITE_FOUNDED,
+            'sameAs'       => SITE_SAME_AS,
+            'openingHoursSpecification' => [array_merge(['@type' => 'OpeningHoursSpecification'], SITE_OPENING_HOURS)],
+            'areaServed'   => array_map(
+                fn($c) => ['@type' => 'City', 'name' => $c, 'addressRegion' => 'BC', 'addressCountry' => 'CA'],
+                ['Vancouver', 'Burnaby', 'Richmond']
+            ),
+        ];
+    }
+}
 
 // Store full site record for downstream use (header.php, footer.php, etc.)
 $GLOBALS['__cms_site'] = $__site;

@@ -1,0 +1,616 @@
+<?php
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
+/**
+ * ReceiptIntakeService — shared capture→OCR→parse→match pipeline for receipt uploads.
+ *
+ * Extracted so the web (session/CSRF, receipt-intake.php) and iOS (JWT, receipt-upload.php)
+ * upload endpoints stop maintaining two near-identical ~250-line copies of this logic. Both
+ * callers get the same file validation, EXIF/HEIC handling, SHA-256 dedup, Tesseract/Vision
+ * two-tier OCR, and vendor/job matching — differences are only in auth (handled by the caller
+ * before intake() is called) and in which response fields each platform's client expects.
+ *
+ * Web-only extras (the rescan-mode branch in receipt-intake.php, which re-runs OCR on an
+ * already-stored image with no new upload) are NOT part of this service — iOS has no
+ * equivalent feature, so that stays inline in receipt-intake.php rather than being forced
+ * into a shared method neither caller fully needs.
+ *
+ * intake() never throws for expected failure modes (bad file, rate limit, etc.) — it returns
+ * ['success' => false, 'error' => ..., 'http_code' => ...] so each thin controller can apply
+ * its own historical HTTP status code without the two callers drifting on error-handling
+ * logic. Unexpected errors (DB, OCR service down) still bubble up as exceptions for the
+ * caller's top-level catch block to turn into a 500.
+ *
+ * The upload-validation rules (mime allowlist, extension fallback, rate-limit threshold)
+ * are exposed as pure static methods so they're unit-testable without a DB, APP_ROOT, or
+ * real files — the same DB-free-helper pattern used by ReceiptArchiveService.
+ */
+class ReceiptIntakeService
+{
+    public const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
+    public const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
+    public const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+    public const RATE_LIMIT_PER_HOUR = 20;
+
+    private PDO $db;
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    /**
+     * EXIF GPS tags (degree/minute/second rationals + N/S/E/W refs) → [lat, lng],
+     * or null when absent, malformed or (0,0).
+     */
+    public static function exifGpsToDecimal(array $exif): ?array
+    {
+        $toFloat = static function ($v): ?float {
+            if (is_numeric($v)) return (float)$v;
+            if (is_string($v) && preg_match('#^(-?\d+)/(\d+)$#', $v, $m)) {
+                return (int)$m[2] === 0 ? null : (int)$m[1] / (int)$m[2];
+            }
+            return null;
+        };
+        $coord = static function ($parts, $ref) use ($toFloat): ?float {
+            if (!is_array($parts) || count($parts) < 3) return null;
+            [$d, $m, $s] = array_map($toFloat, array_slice(array_values($parts), 0, 3));
+            if ($d === null || $m === null || $s === null) return null;
+            $v = $d + $m / 60 + $s / 3600;
+            return in_array(strtoupper((string)$ref), ['S', 'W'], true) ? -$v : $v;
+        };
+        $lat = $coord($exif['GPSLatitude'] ?? null, $exif['GPSLatitudeRef'] ?? 'N');
+        $lng = $coord($exif['GPSLongitude'] ?? null, $exif['GPSLongitudeRef'] ?? 'E');
+        if ($lat === null || $lng === null || abs($lat) > 90 || abs($lng) > 180 || ($lat == 0.0 && $lng == 0.0)) {
+            return null;
+        }
+        return [round($lat, 7), round($lng, 7)];
+    }
+
+    public static function isAllowedMimeType(string $mimeType): bool
+    {
+        return in_array($mimeType, self::ALLOWED_MIME_TYPES, true);
+    }
+
+    /** Safe stored-file extension for an uploaded filename — falls back to 'jpg' for anything unrecognized. */
+    public static function resolveStoredExtension(string $originalFilename): string
+    {
+        $ext = strtolower(pathinfo($originalFilename, PATHINFO_EXTENSION));
+        return in_array($ext, self::ALLOWED_EXTENSIONS, true) ? $ext : 'jpg';
+    }
+
+    public static function isRateLimited(int $currentHourCount): bool
+    {
+        return $currentHourCount >= self::RATE_LIMIT_PER_HOUR;
+    }
+
+    /**
+     * @param int        $userId
+     * @param array      $uploadedFile  $_FILES['receipt_photo'] shape (name, tmp_name, size, error)
+     * @param float|null $lat
+     * @param float|null $lng
+     * @param int|null   $jobId
+     * @return array Result shape always includes 'success'; on failure also 'error' and
+     *               'http_code'. On success, includes media_id/file_path/ocr fields/parsed/
+     *               suggestions/job_suggestions/field_confidences/gst_validation/duplicate_image.
+     */
+    public function intake(int $userId, array $uploadedFile, ?float $lat, ?float $lng, ?int $jobId, ?array $deviceOcr = null): array
+    {
+        require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+        require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
+        require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+        require_once APP_ROOT . '/Services/Receipts/DeviceOcrCompare.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptIntakeRules.php';
+
+        // ── Rate limiting: max 20 receipt uploads per user per hour ──────
+        // Read-before-write so a rejected upload never permanently consumes a slot.
+        try {
+            $rlWindow = date('Y-m-d H:00:00');
+            $rlStmt = $this->db->prepare("
+                SELECT upload_count FROM upload_rate_limits
+                WHERE user_id = ? AND window_start = ?
+            ");
+            $rlStmt->execute([$userId, $rlWindow]);
+            $rlCount = (int)($rlStmt->fetchColumn() ?: 0);
+
+            if (self::isRateLimited($rlCount)) {
+                return [
+                    'success'   => false,
+                    'error'     => 'Too many uploads — please wait before uploading more receipts (limit: 20/hour)',
+                    'http_code' => 429,
+                ];
+            }
+
+            $this->db->prepare("
+                INSERT INTO upload_rate_limits (user_id, window_start, upload_count)
+                VALUES (?, ?, 1)
+                ON DUPLICATE KEY UPDATE upload_count = upload_count + 1
+            ")->execute([$userId, $rlWindow]);
+        } catch (Throwable $rlEx) {
+            // If the rate limit table doesn't exist yet, log and continue — non-blocking
+            error_log('Rate limit check error (non-fatal): ' . $rlEx->getMessage());
+        }
+
+        // ── Validate file ─────────────────────────────────────────────
+        if (empty($uploadedFile) || ($uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $errCode = $uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE;
+            $errMsg = [
+                UPLOAD_ERR_INI_SIZE   => 'File too large (server limit)',
+                UPLOAD_ERR_FORM_SIZE  => 'File too large (form limit)',
+                UPLOAD_ERR_PARTIAL    => 'Upload incomplete',
+                UPLOAD_ERR_NO_FILE    => 'No file selected',
+                UPLOAD_ERR_NO_TMP_DIR => 'Server temp directory missing',
+                UPLOAD_ERR_CANT_WRITE => 'Failed to write file',
+            ][$errCode] ?? 'Upload error';
+            return ['success' => false, 'error' => $errMsg, 'http_code' => 400];
+        }
+
+        $mimeType = mime_content_type($uploadedFile['tmp_name']);
+        if (!self::isAllowedMimeType($mimeType)) {
+            return [
+                'success'   => false,
+                'error'     => 'Only image files are accepted (JPEG, PNG, GIF, WebP, HEIC)',
+                'http_code' => 415,
+            ];
+        }
+
+        if ($uploadedFile['size'] > self::MAX_FILE_SIZE_BYTES) {
+            return ['success' => false, 'error' => 'File too large (max 10MB)', 'http_code' => 413];
+        }
+
+        // ── Store in /uploads/receipts/ (separate from CMS media) ────────
+        $uploadDir = uploadsDir('receipts') . '/';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $ext = self::resolveStoredExtension($uploadedFile['name']);
+        $storedName = 'receipt-' . date('Ymd-His') . '-' . uniqid() . '.' . $ext;
+        $filePath = $uploadDir . $storedName;
+        $webPath = uploadsUrl('receipts') . '/' . $storedName;
+
+        if (!move_uploaded_file($uploadedFile['tmp_name'], $filePath)) {
+            return ['success' => false, 'error' => 'Failed to save uploaded file', 'http_code' => 500];
+        }
+
+        // ── Photo's own location, read before EXIF is stripped ───────────
+        // When the client sent no live location (a photo picked from the library, a
+        // browser without permission), the camera's GPS tag is the next best thing.
+        if (($lat === null || $lng === null) && in_array($mimeType, ['image/jpeg', 'image/jpg'], true)
+            && function_exists('exif_read_data')) {
+            $exif = @exif_read_data($filePath, 'GPS');
+            $gps = is_array($exif) ? self::exifGpsToDecimal($exif) : null;
+            if ($gps) {
+                [$lat, $lng] = $gps;
+            }
+        }
+
+        // ── Strip EXIF metadata by re-encoding through GD ─────────────────
+        // Prevents GPS coordinates, device model/serial from being stored in the file.
+        // GPS/date are captured separately (POST lat/lng, EXIF read pre-strip elsewhere) and
+        // stored in the DB instead.
+        if (extension_loaded('gd') && in_array($mimeType, ['image/jpeg', 'image/jpg'], true)) {
+            $stripped = @imagecreatefromjpeg($filePath);
+            if ($stripped) {
+                imagejpeg($stripped, $filePath, 92);
+                imagedestroy($stripped);
+            }
+        } elseif (extension_loaded('gd') && $mimeType === 'image/png') {
+            $stripped = @imagecreatefrompng($filePath);
+            if ($stripped) {
+                imagesavealpha($stripped, true);
+                imagepng($stripped, $filePath, 6);
+                imagedestroy($stripped);
+            }
+        } elseif (extension_loaded('gd') && $mimeType === 'image/webp') {
+            $stripped = @imagecreatefromwebp($filePath);
+            if ($stripped) {
+                imagewebp($stripped, $filePath, 90);
+                imagedestroy($stripped);
+            }
+        }
+
+        // HEIC/HEIF bypasses GD stripping (GD cannot read HEIC) — convert to JPEG via
+        // Imagick (strips all EXIF/GPS metadata in the process). If Imagick is unavailable,
+        // the file is stored as-is and GPS coordinates from POST are used instead of raw EXIF.
+        if (in_array($mimeType, ['image/heic', 'image/heif'], true)) {
+            if (extension_loaded('imagick')) {
+                try {
+                    $im = new Imagick($filePath);
+                    $im->setImageFormat('jpeg');
+                    $im->setImageCompressionQuality(90);
+                    $im->stripImage();
+                    $newStoredName = preg_replace('/\.(heic|heif)$/i', '.jpg', $storedName);
+                    $newFilePath = $uploadDir . $newStoredName;
+                    $newWebPath = uploadsUrl('receipts') . '/' . $newStoredName;
+                    $im->writeImage($newFilePath);
+                    $im->destroy();
+                    @unlink($filePath);
+                    $filePath = $newFilePath;
+                    $webPath = $newWebPath;
+                    $storedName = $newStoredName;
+                    $mimeType = 'image/jpeg';
+                } catch (Throwable $heicEx) {
+                    error_log('HEIC→JPEG conversion failed for ' . $storedName . ': ' . $heicEx->getMessage());
+                }
+            } else {
+                error_log('HEIC EXIF warning: Imagick unavailable, raw HEIC stored: ' . $storedName);
+            }
+        }
+
+        // ── SHA-256 Image Hash Dedup ───────────────────────────────────
+        $sha256 = hash_file('sha256', $filePath);
+        $duplicateImage = null;
+
+        if ($sha256) {
+            $checkHash = $this->db->prepare("
+                SELECT id, file_path FROM media_assets
+                WHERE sha256 = ? AND context_type = 'expense'
+                LIMIT 1
+            ");
+            $checkHash->execute([$sha256]);
+            $existing = $checkHash->fetch(PDO::FETCH_ASSOC);
+
+            if ($existing) {
+                $duplicateImage = [
+                    'existing_media_id' => (int)$existing['id'],
+                    'existing_file_path' => $existing['file_path'],
+                ];
+            }
+        }
+
+        $imgWidth = null;
+        $imgHeight = null;
+        if (function_exists('getimagesize')) {
+            $imgInfo = @getimagesize($filePath);
+            if ($imgInfo) {
+                $imgWidth = $imgInfo[0];
+                $imgHeight = $imgInfo[1];
+            }
+        }
+
+        $stmt = $this->db->prepare("
+            INSERT INTO media_assets
+                (original_filename, stored_filename, file_path, file_type, mime_type, file_size,
+                 image_width, image_height, gps_lat, gps_lng, sha256, alt_text, context_type, created_by)
+            VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, 'Receipt photo', 'expense', ?)
+        ");
+        $stmt->execute([
+            $uploadedFile['name'],
+            $storedName,
+            $webPath,
+            $mimeType,
+            $uploadedFile['size'],
+            $imgWidth,
+            $imgHeight,
+            $lat,
+            $lng,
+            $sha256,
+            $userId,
+        ]);
+        $mediaId = (int)$this->db->lastInsertId();
+
+        // ── Tesseract Pre-Screen ─────────────────────────────────────────
+        // Fast local pass first; score >= vendor threshold skips the paid Vision API.
+        // Score < 30 means "not a receipt" — skip all OCR, user fills manually.
+        $preScreen = tesseractPreScreen($filePath);
+
+        $earlyVendorId = null;
+        if (!empty($preScreen['text'])) {
+            try {
+                $earlyMatch = suggestReceiptMeta($preScreen['text'], null, null, null);
+                $earlyVendorId = !empty($earlyMatch['vendor_id']) ? (int)$earlyMatch['vendor_id'] : null;
+            } catch (Throwable $e) { /* non-fatal */ }
+        }
+        $tessThreshold = getVendorTesseractThreshold($earlyVendorId);
+        $preScreenScore = $preScreen['score'];
+        if (empty($preScreen['error']) && $preScreenScore > 0) {
+            $preScreenDecision = $preScreenScore >= $tessThreshold ? 'use_tesseract'
+                : ($preScreenScore >= 30 ? 'use_vision' : 'skip');
+        } else {
+            $preScreenDecision = $preScreen['decision']; // use_vision (Tesseract failed/missing)
+        }
+
+        // Router: a vendor the cheap read keeps getting wrong goes straight to the strong read.
+        $readMode = receiptReadMode($earlyVendorId ? getVendorParseProfile($this->db, $earlyVendorId) : null);
+        if ($readMode === 'strong' && $preScreenDecision === 'use_tesseract') {
+            $preScreenDecision = 'use_vision';
+        }
+
+        $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
+        $ocrSource = 'none'; // 'tesseract' | 'vision' | 'device_<engine>' | 'none'
+
+        // The phone's own text read (Apple Vision / ML Kit). 'on': used instead of Vision when it parses to a
+        // complete header by itself and the vendor isn't one the cheap read gets wrong. 'shadow' (default):
+        // Vision reads as always and the two are compared afterwards. See DeviceOcrCompare.php.
+        $deviceMode = $deviceOcr ? deviceOcrSetting($this->db) : 'off';
+        $useDevice = false;
+        $deviceParsed = null;
+        if ($deviceOcr && $deviceMode === 'on' && $readMode !== 'strong') {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+                $deviceParsed = parseReceiptText($deviceOcr['text'], deviceOcrRaw($deviceOcr));
+                $devVendor = suggestReceiptMeta($deviceOcr['text'], null, null, null);
+                $devVendorId = !empty($devVendor['vendor_id']) ? (int)$devVendor['vendor_id'] : null;
+                $devStrong = receiptReadMode($devVendorId ? getVendorParseProfile($this->db, $devVendorId) : null) === 'strong';
+                $useDevice = !$devStrong && deviceTextAcceptable($deviceOcr['text'], headersNeedBetterExtraction($deviceParsed + ['ocr_text' => $deviceOcr['text']]));
+                // Nothing ties the text to the photo, so a share of receipts is also read by Vision: text that
+                // disagrees on total or date is not trusted and this receipt takes the normal Vision route.
+                if ($useDevice && mt_rand(1, 100) <= DEVICE_OCR_SPOT_CHECK_PCT) {
+                    $spot = extractTextFromImage($filePath);
+                    if (!empty($spot['success']) && !empty($spot['text'])) {
+                        $useDevice = deviceMatchesServer($deviceParsed, parseReceiptText($spot['text'], $spot['raw_response'] ?? null));
+                        if (!$useDevice) error_log('Device OCR rejected by spot-check (media ' . $mediaId . ', ' . $deviceOcr['engine'] . ')');
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('Device OCR gate (falling back to Vision): ' . $e->getMessage());
+            }
+        }
+
+        if ($useDevice) {
+            $ocrResult = ['success' => true, 'text' => $deviceOcr['text'], 'raw_response' => null, 'error' => null];
+            $ocrSource = 'device_' . $deviceOcr['engine'];
+        } elseif ($preScreenDecision === 'use_tesseract') {
+            $ocrResult = [
+                'success'      => true,
+                'text'         => $preScreen['text'],
+                'raw_response' => null, // No bounding boxes from Tesseract
+                'error'        => null,
+            ];
+            $ocrSource = 'tesseract';
+        } elseif ($preScreenDecision === 'use_vision') {
+            $ocrResult = extractTextFromImage($filePath);
+            $ocrSource = 'vision';
+        }
+        // 'skip' → leave $ocrResult with success:false, user fills manually
+
+        $ocrAvailable = $ocrResult['success'];
+        $ocrText = $ocrResult['text'] ?? '';
+
+        $parsed = [];
+        $suggestions = [];
+        $fieldConfidences = [];
+        $gstValidation = null;
+
+        if ($ocrAvailable && !empty($ocrText)) {
+            $rawResponse = $ocrResult['raw_response'] ?? null;
+
+            // Vendor-aware parse: the vendor's learned line-item profile (noise lines,
+            // known item names, barcode length, discount prefix) shapes how items are
+            // split, not just how they're labelled afterwards.
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+            $profileVendorId = $earlyVendorId;
+            if (!$profileVendorId) {
+                try {
+                    $pre = suggestReceiptMeta($ocrText, null, null, null);
+                    $profileVendorId = !empty($pre['vendor_id']) ? (int)$pre['vendor_id'] : null;
+                } catch (Throwable $e) { /* non-fatal */ }
+            }
+            $liProfile = getVendorLineItemProfile($profileVendorId);
+            // Always parse with the vendor's learned line-item profile, including in 'on' mode where $ocrText is the
+            // phone's text: the profile shapes how items are split (reusing the profile-less device parse lost it).
+            // A phone read carries no Vision response but may carry its line boxes, which pair names with prices.
+            $parsed = parseReceiptText($ocrText, $rawResponse ?? ($useDevice ? deviceOcrRaw($deviceOcr) : null), $liProfile);
+
+            // Items don't add up? Escalate Tesseract→Vision, then the LLM tier.
+            $enh = enhanceLineItemExtraction([
+                'file_path'      => $filePath,
+                'ocr_source'     => $ocrSource,
+                'ocr_text'       => $ocrText,
+                'raw_response'   => $rawResponse,
+                'parsed'         => $parsed,
+                'vendor_id'      => $profileVendorId,
+                'vendor_profile' => $liProfile,
+            ]);
+            // Rung 2: this vendor's learned header layout, only where the rules came up empty or the sums fail.
+            $enh['parsed'] = applyHeaderLayouts($enh['parsed'], $enh['ocr_text'], headerLayoutsFromProfile(
+                $profileVendorId ? getVendorParseProfile($this->db, (int)$profileVendorId) : null
+            ));
+            // Header rung: total/date missing or the printed sums fail → AI reads only those fields,
+            // accepted only when printed in the OCR text.
+            if ($readMode === 'strong' || receiptReadMode($profileVendorId ? getVendorParseProfile($this->db, (int)$profileVendorId) : null) === 'strong') {
+                $enh['read_mode'] = 'strong';
+                $enh['parsed']['read_mode'] = 'strong';
+            }
+            $enh = enhanceHeaders($enh);
+            $parsed      = $enh['parsed'];
+            $ocrText     = $enh['ocr_text'];
+            $rawResponse = $enh['raw_response'];
+            $ocrSource   = $enh['ocr_source'];
+            $ocrResult['text']         = $ocrText;
+            $ocrResult['raw_response'] = $rawResponse;
+
+            $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId, $parsed);
+
+            if (!empty($suggestions['vendor_id'])) {
+                $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
+                $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
+
+                if (!empty($parsed['product_matches']) && empty($suggestions['category_from_line_items'])) {
+                    $enrichedSuggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
+                    if (!empty($enrichedSuggestions['category_from_line_items'])) {
+                        $suggestions['accounting_category'] = $enrichedSuggestions['accounting_category'];
+                        $suggestions['category_confidence'] = $enrichedSuggestions['category_confidence'];
+                        $suggestions['category_from_line_items'] = true;
+                    }
+                }
+            }
+
+            // Apply GST-exempt override: if matched vendor doesn't charge GST, zero it out
+            if (!empty($suggestions['vendor_gst_exempt'])) {
+                $parsed['gst'] = '0.00';
+                $parsed['gst_estimated'] = false;
+                $parsed['gst_source'] = 'exempt';
+                $parsed['gst_exempt'] = true;
+                if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
+                    $parsed['total'] = $parsed['subtotal'];
+                }
+            }
+
+            // Word-level confidence extraction
+            if ($rawResponse) {
+                $wordConfidences = extractWordConfidenceMap($rawResponse);
+                if (!empty($wordConfidences)) {
+                    $fieldConfidences = calculateFieldConfidences($parsed, $wordConfidences);
+                }
+            }
+
+            // Gated vendor auto-creation — fuzzy match first to avoid OCR-typo pollution
+            if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
+                $vendorName = strtoupper(trim($parsed['vendor_hint']));
+                if (strlen($vendorName) >= 3) {
+                    try {
+                        $gateResult = gateVendorAutoCreation($vendorName, $this->db);
+
+                        if ($gateResult['action'] === 'match' && $gateResult['vendor']) {
+                            $suggestions['vendor_id'] = (int)$gateResult['vendor']['id'];
+                            $suggestions['vendor_name'] = $gateResult['vendor']['name'];
+                            $suggestions['vendor_confidence'] = 65;
+                            $suggestions['match_details'][] = $gateResult['reason'];
+                        } elseif ($gateResult['action'] === 'review' && $gateResult['vendor']) {
+                            $suggestions['vendor_id'] = (int)$gateResult['vendor']['id'];
+                            $suggestions['vendor_name'] = $gateResult['vendor']['name'];
+                            $suggestions['vendor_confidence'] = 40;
+                            $suggestions['vendor_needs_review'] = true;
+                            $suggestions['match_details'][] = $gateResult['reason'];
+                        } elseif ($gateResult['action'] === 'create') {
+                            $checkStmt = $this->db->prepare("SELECT id FROM vendors WHERE UPPER(name) = ? LIMIT 1");
+                            $checkStmt->execute([$vendorName]);
+                            $existingId = $checkStmt->fetchColumn();
+
+                            if ($existingId) {
+                                $suggestions['vendor_id'] = (int)$existingId;
+                                $suggestions['vendor_name'] = $vendorName;
+                                $suggestions['vendor_confidence'] = 80;
+                                $suggestions['match_details'][] = 'Exact match found on retry';
+                            } else {
+                                $insertStmt = $this->db->prepare("
+                                    INSERT INTO vendors (name, aliases, is_active)
+                                    VALUES (?, ?, 1)
+                                ");
+                                $insertStmt->execute([$vendorName, strtolower($vendorName)]);
+                                $newVendorId = (int)$this->db->lastInsertId();
+
+                                $suggestions['vendor_id'] = $newVendorId;
+                                $suggestions['vendor_name'] = $vendorName;
+                                $suggestions['vendor_confidence'] = 70;
+                                $suggestions['match_details'][] = 'Auto-created from OCR vendor hint';
+                                $suggestions['vendor_auto_created'] = true;
+
+                                $locData = extractVendorLocationFromOcr($ocrText ?? '');
+                                if ($locData['address'] || $locData['city'] || $locData['phone']) {
+                                    try {
+                                        $locIns = $this->db->prepare("INSERT INTO vendor_locations (vendor_id, label, address, city, phone, is_preferred) VALUES (?, 'Main', ?, ?, ?, 1)");
+                                        $locIns->execute([$newVendorId, $locData['address'], $locData['city'], $locData['phone']]);
+                                    } catch (Throwable $le) {
+                                        error_log('Vendor location from receipt failed: ' . $le->getMessage());
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Throwable $e) {
+                        error_log('Auto vendor creation failed: ' . $e->getMessage());
+                    }
+                }
+            }
+        }
+
+        // Preserve the finalized server result before device total fill mutates the user-facing parse.
+        $serverParsed = $parsed;
+        $totalSource = 'server';
+        if ($deviceOcr) {
+            try {
+                if ($deviceParsed === null) {
+                    $deviceParsed = parseReceiptText($deviceOcr['text'], deviceOcrRaw($deviceOcr));
+                }
+                $deviceFill = ReceiptIntakeRules::deviceTotalFill($parsed, $deviceParsed, $ocrText, $deviceOcr['text']);
+                if ($deviceFill !== null) {
+                    $parsed['total'] = $deviceFill['total'];
+                    $parsed['total_source'] = 'device';
+                    $totalSource = 'device';
+                    if (($parsed['subtotal'] ?? null) === null) {
+                        $tax = (float)($parsed['gst'] ?? 0) + (float)($parsed['pst'] ?? 0);
+                        $parsed['subtotal'] = number_format((float)$deviceFill['total'] - $tax, 2, '.', '');
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('Device total fill (non-fatal): ' . $e->getMessage());
+            }
+        }
+        $gstValidation = !empty($parsed) ? validateGstMath($parsed) : null;
+
+        $card = $this->lookupCard($parsed['card_last4'] ?? null, $parsed['payment_method'] ?? null);
+
+        // Suggest the job: the receipt's own date + printed time against that day's
+        // schedule (falls back to today/tomorrow vs upload time when the date is unread).
+        $jobSuggestions = [];
+        try {
+            $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng, $parsed['date'] ?? null, $parsed['time'] ?? null);
+        } catch (Throwable $e) {
+            error_log('Job suggestion error: ' . $e->getMessage());
+        }
+        $decisiveJob = ReceiptIntakeRules::decisiveJob(
+            $jobSuggestions,
+            ReceiptIntakeRules::DECISIVE_JOB_MIN_SCORE,
+            ReceiptIntakeRules::DECISIVE_JOB_MIN_MARGIN
+        );
+        foreach ($jobSuggestions as $index => &$jobSuggestion) {
+            $jobSuggestion['auto_select'] = $decisiveJob !== null && $index === $decisiveJob;
+        }
+        unset($jobSuggestion);
+
+        if ($deviceOcr && $deviceMode === 'shadow' && $ocrAvailable) {
+            logDeviceOcrCompare($this->db, $mediaId, !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id'] : null,
+                                $deviceOcr, $serverParsed, $ocrSource, $deviceParsed);
+        }
+
+        return [
+            'success'           => true,
+            'media_id'          => $mediaId,
+            'file_path'         => $webPath,
+            'ocr_text'          => $ocrText,
+            'ocr_available'     => $ocrAvailable,
+            'ocr_error'         => $ocrResult['error'] ?? null,
+            'ocr_source'        => $ocrSource,
+            'pre_screen'        => [
+                'score'       => $preScreen['score'],
+                'decision'    => $preScreenDecision,
+                'low_quality' => $preScreen['low_quality'],
+            ],
+            'parsed'            => withSuggestedCategory($parsed, $suggestions),
+            'total_source'       => $totalSource,
+            'card'               => $card,
+            'suggestions'       => $suggestions,
+            'job_suggestions'   => $jobSuggestions,
+            'field_confidences' => $fieldConfidences,
+            'gst_validation'    => $gstValidation,
+            'duplicate_image'   => $duplicateImage,
+        ];
+    }
+
+    private function lookupCard(?string $last4, ?string $paymentMethod): ?array
+    {
+        if ($last4 === null || $last4 === '') return null;
+
+        $row = null;
+        try {
+            $stmt = $this->db->prepare("
+                SELECT p.user_id, p.label, u.full_name
+                FROM penny_card_holders p
+                LEFT JOIN users u ON u.id = p.user_id
+                WHERE p.card_last4 = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$last4]);
+            $found = $stmt->fetch(PDO::FETCH_ASSOC);
+            $row = $found ?: null;
+        } catch (Throwable $e) {
+            error_log('Receipt card holder lookup (non-fatal): ' . $e->getMessage());
+        }
+
+        return ReceiptIntakeRules::formatCard($last4, $row, $paymentMethod);
+    }
+}

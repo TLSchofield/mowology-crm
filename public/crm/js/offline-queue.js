@@ -16,6 +16,8 @@
  *   /crm/api/time-clock.php   — clock in / clock out
  *   /crm/api/pow-actions.php  — start visit / end visit / save data
  *   /crm/api/job-timer.php    — start timer / stop timer
+ *   /crm/api/visit-pull-forward.php?mode=accept — move an on-site visit to today
+ *                               (mw-pull-forward.js; replayed BEFORE its job-timer start)
  *
  * Usage (automatic — no manual init required):
  *   window.OfflineActions.syncNow()         — manually trigger replay
@@ -34,7 +36,8 @@
     var DB_NAME    = 'mowology-actions';
     var DB_VERSION = 1;
     var STORE_NAME = 'pending-actions';
-    var MAX_RETRIES = 5;
+    var MAX_RETRIES = 5;   // a record the server REFUSES (4xx) this many times is dropped, with a notice
+    var _syncing    = null; // in-flight latch: one replay pass at a time (Fable review 2026-10-12)
 
     // ── UUID v4 generator ────────────────────────────────────────────────────────
 
@@ -54,7 +57,10 @@
     var QUEUED_ENDPOINTS = [
         '/crm/api/time-clock.php',
         '/crm/api/pow-actions.php',
-        '/crm/api/job-timer.php'
+        '/crm/api/job-timer.php',
+        '/crm/api/field-job.php',
+        // Only the move — offer/dryrun are reads and must not be queued.
+        '/crm/api/visit-pull-forward.php?mode=accept'
     ];
 
     var _db = null;
@@ -104,6 +110,17 @@
                 var req = tx.objectStore(STORE_NAME).getAll();
                 req.onsuccess = function () { resolve(req.result || []); };
                 req.onerror   = function () { resolve([]); };
+            });
+        });
+    }
+
+    function putRecord(record) {
+        return openDB().then(function (database) {
+            return new Promise(function (resolve) {
+                var tx = database.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).put(record);
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror    = function () { resolve(); };
             });
         });
     }
@@ -161,6 +178,13 @@
             if (body && body.action === 'stop')  return 'Stop Timer';
             return 'Job Timer';
         }
+        if (url.indexOf('field-job') !== -1) {
+            if (body && body.action === 'add_visit')         return 'Add Visit';
+            if (body && body.action === 'create_job')        return 'New Job';
+            if (body && body.action === 'create_client_job') return 'New Client Job';
+            return 'Field Job';
+        }
+        if (url.indexOf('visit-pull-forward') !== -1) return 'Move Visit to Today';
         return 'Action';
     }
 
@@ -195,6 +219,15 @@
             }
             // clock_out
             return Object.assign({}, base, { clocked_in: false });
+        }
+
+        // field-job: add_visit / create_job / create_client_job.
+        // Real ids are assigned server-side on replay; 0 signals offline-origin.
+        if (url.indexOf('field-job') !== -1) {
+            return Object.assign({}, base, { plan_id: 0, visit_id: 0 });
+        }
+        if (url.indexOf('visit-pull-forward') !== -1) {
+            return Object.assign({}, base, { already: false, visit_id: body && body.visit_id });
         }
 
         // pow-actions: start_visit, end_visit, save_notes, etc.
@@ -267,10 +300,37 @@
             if (res.ok) {
                 return deleteRecord(record.id).then(function () { return true; });
             }
+            // The server refused it (4xx). 401/403 (signed out / stale token), 408 and 429 are
+            // passing states — keep the action for the next pass. Any other 4xx counts; after
+            // MAX_RETRIES refusals it is dropped and the user is told, instead of replaying forever.
+            var s = res.status;
+            if (s >= 400 && s < 500 && s !== 401 && s !== 403 && s !== 408 && s !== 429) {
+                record.retries = (record.retries || 0) + 1;
+                if (record.retries >= MAX_RETRIES) {
+                    return deleteRecord(record.id).then(function () {
+                        notifyDropped(record, s);
+                        return false;
+                    });
+                }
+                return putRecord(record).then(function () { return false; });
+            }
             return false;
         }).catch(function () {
             return false;
         });
+    }
+
+    /** A queued action the server kept refusing was dropped — say so; never lose it silently. */
+    function notifyDropped(record, status) {
+        var when = '';
+        try { when = new Date(record.timestamp).toLocaleString(); } catch (e) {}
+        var msg = 'An offline action could not be saved and was removed: ' + (record.label || 'Action')
+                + (when ? ' (' + when + ')' : '') + '. Please re-enter it or tell the office.';
+        try { console.warn('[offline-queue] dropped after ' + MAX_RETRIES + ' refusals (HTTP ' + status + ')', record); } catch (e) {}
+        try {
+            if (typeof window.mwToast === 'function') window.mwToast(msg, 'error', 10000);
+            else window.alert(msg);
+        } catch (e) {}
     }
 
     /**
@@ -280,8 +340,11 @@
      */
     function syncNow() {
         if (!isOnline()) return Promise.resolve({ replayed: 0, failed: 0 });
+        // online/visibility/SW-message triggers can fire together — a second pass while the first
+        // is replaying would send the same action twice. Share the pass in flight instead.
+        if (_syncing) return _syncing;
 
-        return getAllRecords().then(function (records) {
+        _syncing = getAllRecords().then(function (records) {
             if (!records.length) return { replayed: 0, failed: 0 };
 
             var replayed = 0, failed = 0;
@@ -299,7 +362,9 @@
                 updateUI();
                 return { replayed: replayed, failed: failed };
             });
-        });
+        }).then(function (r) { _syncing = null; return r; },
+                function (e) { _syncing = null; throw e; });
+        return _syncing;
     }
 
     // ── UI indicators ────────────────────────────────────────────────────────────
@@ -374,32 +439,52 @@
     window._mwOrigFetch = _origFetch;
 
     window.fetch = function (resource, options) {
+        var fetchArgs = arguments;
         var url    = typeof resource === 'string' ? resource : (resource && resource.url) || '';
         var method = ((options && options.method) || 'GET').toUpperCase();
 
-        // Only intercept POST requests to the three queued endpoints when offline
-        var shouldQueue = method === 'POST' &&
-            QUEUED_ENDPOINTS.some(function (ep) { return url.indexOf(ep) !== -1; }) &&
-            !isOnline();
+        // Is this a POST to one of the critical, replay-safe endpoints?
+        var isQueueable = method === 'POST' &&
+            QUEUED_ENDPOINTS.some(function (ep) { return url.indexOf(ep) !== -1; });
 
-        if (!shouldQueue) {
-            return _origFetch.apply(window, arguments);
+        if (!isQueueable) {
+            return _origFetch.apply(window, fetchArgs);
         }
 
-        // Offline path: queue the action and return an optimistic response
         var bodyStr = (options && options.body) || '';
         var bodyObj = null;
         try { bodyObj = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : null; } catch (e) {}
 
-        return queueAction(url, options).then(function () {
-            var fakeData = buildOptimisticResponse(url, bodyObj);
-            return new Response(
-                JSON.stringify(fakeData),
-                { status: 200, headers: { 'Content-Type': 'application/json' } }
-            );
-        }).catch(function () {
-            // IDB write failed — fall back to real fetch (will fail naturally if offline)
-            return _origFetch.apply(window, arguments);
+        // Queue the action and resolve with an optimistic success response so
+        // the caller's `.then(data => data.success)` branch still runs.
+        function queueAndFake() {
+            return queueAction(url, options).then(function () {
+                var fakeData = buildOptimisticResponse(url, bodyObj);
+                return new Response(
+                    JSON.stringify(fakeData),
+                    { status: 200, headers: { 'Content-Type': 'application/json' } }
+                );
+            });
+        }
+
+        // Known-offline path: queue immediately, don't even attempt the network.
+        if (!isOnline()) {
+            return queueAndFake().catch(function () {
+                // IDB write failed — fall back to real fetch (will fail naturally if offline)
+                return _origFetch.apply(window, fetchArgs);
+            });
+        }
+
+        // Nominally-online path: attempt the real request, but if it fails at the
+        // NETWORK level (TypeError — flaky field signal, captive portal, DNS, timeout)
+        // the request never reached the server, so queue it for replay instead of
+        // letting the action be silently lost. A resolved response (incl. 4xx/5xx)
+        // means the server answered — pass it straight through unchanged.
+        return _origFetch.apply(window, fetchArgs).catch(function (err) {
+            return queueAndFake().catch(function () {
+                // IDB unavailable — surface the original network error to the caller.
+                return Promise.reject(err);
+            });
         });
     };
 

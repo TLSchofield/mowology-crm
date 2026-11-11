@@ -20,6 +20,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -34,6 +35,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/cms-functions.php';
 
@@ -59,7 +61,7 @@ try {
     // Auto-SEO: fill empty meta_title with "{Title} | Mowology Landscaping"
     $metaTitle = trim($_POST['meta_title'] ?? '');
     if ($metaTitle === '' && $title !== '') {
-        $siteName = defined('SITE_NAME') ? SITE_NAME : 'Mowology Landscaping';
+        $siteName = defined('SITE_NAME') ? SITE_NAME : _idFromName();
         $candidate = $title . ' | ' . $siteName;
         $metaTitle = mb_substr($candidate, 0, 60);
     }
@@ -126,7 +128,7 @@ try {
     http_response_code(400);
     json_response([
         'success' => false,
-        'error' => $e->getMessage(),
+        'error' => ApiResponse::message($e, 'save-page'),
     ]);
 }
 

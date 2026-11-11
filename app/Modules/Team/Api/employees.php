@@ -28,7 +28,9 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/EmployeeAccountService.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -89,7 +91,8 @@ try {
                        location_tracking_enabled, last_login, created_at,
                        IFNULL(receive_weather_sms, 1)     AS receive_weather_sms,
                        IFNULL(device_type, 'personal')    AS device_type,
-                       IFNULL(location_ping_rate, 'high') AS location_ping_rate
+                       IFNULL(location_ping_rate, 'high') AS location_ping_rate,
+                       IFNULL(can_approve_own_expenses, 0) AS can_approve_own_expenses
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -173,8 +176,11 @@ try {
             if (!$firstName) throw new Exception('First name is required');
             if (!$lastName) throw new Exception('Last name is required');
             if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception('Valid email is required');
-            if (strlen($password) < 8) throw new Exception('Password must be at least 8 characters');
+            if (strlen($password) < PasswordChangeRules::MIN_LENGTH) throw new Exception('Password must be at least ' . PasswordChangeRules::MIN_LENGTH . ' characters');
             if (!in_array($role, ['admin', 'manager', 'user'])) throw new Exception('Invalid role');
+            // Managers may create crew and managers; only users.manage (admins) may create an admin — a manager
+            // must not be able to mint an admin account (Fable review 2026-10-12; Tim: admin and manager edit).
+            if ($role === 'admin' && !userHasPermission('users.manage')) throw new Exception('Only an admin can create admin accounts');
 
             $checkStmt = $db->prepare("SELECT id FROM users WHERE email = ?");
             $checkStmt->execute([$email]);
@@ -186,11 +192,14 @@ try {
             $emergencyContact = trim($input['emergency_contact'] ?? '') ?: null;
             $notes          = trim($input['notes'] ?? '') ?: null;
             $receiveWeatherSms = isset($input['receive_weather_sms']) ? ($input['receive_weather_sms'] ? 1 : 0) : 1;
+            // Off by default — the self-approval exemption is a deliberate, per-person grant.
+            $canApproveOwn  = isset($input['can_approve_own_expenses']) ? ($input['can_approve_own_expenses'] ? 1 : 0) : 0;
 
             $stmt = $db->prepare("
                 INSERT INTO users (email, password_hash, full_name, first_name, last_name, phone, role,
-                                   hourly_rate, hire_date, emergency_contact, notes, is_active, receive_weather_sms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                                   hourly_rate, hire_date, emergency_contact, notes, is_active, receive_weather_sms,
+                                   can_approve_own_expenses)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ");
             $stmt->execute([
                 $email,
@@ -205,9 +214,14 @@ try {
                 $emergencyContact,
                 $notes,
                 $receiveWeatherSms,
+                $canApproveOwn,
             ]);
 
             $newId = (int)$db->lastInsertId();
+            // Every new account gets the RBAC role matching its role — staff for crew, manager, admin — so
+            // nobody runs on the legacy fallback list (#3, Fable audit 2026-10-12).
+            $rbacRole = EmployeeAccountService::assignRbacRole($db, $newId, $role);
+            logActivity($user['id'], null, 'Created employee #' . $newId, 'role: ' . $role . ' (RBAC ' . ($rbacRole ?? 'none') . '), email: ' . $email);
             echo json_encode(['success' => true, 'message' => 'Employee created successfully', 'employee_id' => $newId]);
             break;
 
@@ -219,9 +233,25 @@ try {
             $id = (int)($input['id'] ?? 0);
             if (!$id) throw new Exception('Employee ID required');
 
-            $checkStmt = $db->prepare("SELECT id FROM users WHERE id = ?");
+            $checkStmt = $db->prepare("SELECT id, email, role, is_active FROM users WHERE id = ?");
             $checkStmt->execute([$id]);
-            if (!$checkStmt->fetch()) throw new Exception('Employee not found');
+            $target = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$target) throw new Exception('Employee not found');
+            // Admins and managers both edit staff (Tim, 2026-10-12). What needs users.manage (admins) is anything
+            // touching an admin (legacy role OR RBAC admin role), making someone an admin, or changing someone
+            // else's email (the reset link goes there). Passwords follow PasswordChangeRules — 12 characters, an
+            // admin's only by an admin (#11, Fable audit 2026-10-12). Fields sent unchanged are fine.
+            $refusal = EmployeeAccountService::updateRefusal(
+                $target,
+                $input,
+                EmployeeAccountService::isAdminTarget($db, $id),
+                $id === (int)$user['id'],
+                $canEdit,
+                userHasPermission('users.manage'),
+                RoleRules::isAdmin($user['role'] ?? '')
+            );
+            if ($refusal !== null) throw new Exception($refusal);
+            $audited = [];
 
             $updates = [];
             $params  = [];
@@ -250,12 +280,14 @@ try {
                 $emailCheck->execute([trim($input['email']), $id]);
                 if ($emailCheck->fetch()) throw new Exception('Email already in use by another employee');
                 $updates[] = 'email = ?'; $params[] = trim($input['email']);
+                $audited['email'] = trim($input['email']);
             }
             if (isset($input['phone'])) {
                 $updates[] = 'phone = ?'; $params[] = trim($input['phone']) ?: null;
             }
             if (isset($input['role']) && in_array($input['role'], ['admin', 'manager', 'user'])) {
                 $updates[] = 'role = ?'; $params[] = $input['role'];
+                $audited['role'] = $input['role'];
             }
             if (isset($input['hourly_rate'])) {
                 $updates[] = 'hourly_rate = ?';
@@ -272,6 +304,7 @@ try {
             }
             if (isset($input['is_active'])) {
                 $updates[] = 'is_active = ?'; $params[] = $input['is_active'] ? 1 : 0;
+                $audited['is_active'] = $input['is_active'] ? '1' : '0';
             }
             if (isset($input['location_tracking_enabled'])) {
                 $updates[] = 'location_tracking_enabled = ?'; $params[] = $input['location_tracking_enabled'] ? 1 : 0;
@@ -281,6 +314,9 @@ try {
             }
             if (isset($input['is_driver'])) {
                 $updates[] = 'is_driver = ?'; $params[] = $input['is_driver'] ? 1 : 0;
+            }
+            if (isset($input['can_approve_own_expenses'])) {
+                $updates[] = 'can_approve_own_expenses = ?'; $params[] = $input['can_approve_own_expenses'] ? 1 : 0;
             }
             if (isset($input['pesticide_training_required'])) {
                 $updates[] = 'pesticide_training_required = ?'; $params[] = $input['pesticide_training_required'] ? 1 : 0;
@@ -318,14 +354,33 @@ try {
                 }
                 $updates[] = 'assigned_truck_user_id = ?'; $params[] = $truckId;
             }
-            if (!empty($input['password']) && strlen($input['password']) >= 8) {
-                $updates[] = 'password_hash = ?'; $params[] = hashPassword($input['password']);
+            $newHash = null;
+            if (!empty($input['password'])) {   // length + admin rule checked above (PasswordChangeRules)
+                $newHash = hashPassword((string)$input['password']);
+                $updates[] = 'password_hash = ?'; $params[] = $newHash;
             }
 
             if (empty($updates)) throw new Exception('No changes provided');
 
             $params[] = $id;
             $db->prepare("UPDATE users SET " . implode(', ', $updates) . " WHERE id = ?")->execute($params);
+
+            if (isset($audited['role']) && $audited['role'] !== (string)$target['role']) {
+                // Permissions come from RBAC once a user has roles — keep the matching role in step.
+                EmployeeAccountService::syncRbacRoleOnChange($db, $id, (string)$target['role'], (string)$audited['role']);
+            }
+            if ($newHash !== null) {
+                // A password change also ends every "trusted device" for two-step sign-in (migration 1440; no-op without it).
+                try { (new TwoStepService($db, null))->revokeAllDevices($id); } catch (Throwable $e) { error_log('two-step devices not revoked: ' . $e->getMessage()); }
+            }
+            if ($newHash !== null && $id === (int)$user['id']) {
+                // Own password: keep this session (others end on their next check — #12).
+                $_SESSION['pwd_v'] = AuthFreshness::passwordVersion($newHash);
+            }
+            $changeLines = EmployeeAccountService::changeLog($target, $audited, $newHash !== null);
+            if ($changeLines) {
+                logActivity($user['id'], null, 'Changed employee #' . $id . ' account', implode('; ', $changeLines));
+            }
 
             echo json_encode(['success' => true, 'message' => 'Employee updated successfully']);
             break;
@@ -472,7 +527,7 @@ try {
             if (!$targetId) throw new Exception('Employee ID required');
 
             // Prevent removing your own admin role
-            $roleIds = array_filter(array_map('intval', $input['roles'] ?? []));
+            $roleIds = array_values(array_unique(array_filter(array_map('intval', $input['roles'] ?? []))));
             if ($targetId === $user['id']) {
                 $adminRoleId = (int)$db->query("SELECT id FROM roles WHERE name = 'admin' LIMIT 1")->fetchColumn();
                 if ($adminRoleId && !in_array($adminRoleId, $roleIds)) {
@@ -480,19 +535,48 @@ try {
                 }
             }
 
-            $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetId]);
-            $stmt = $db->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)");
-            foreach ($roleIds as $rid) {
-                $stmt->execute([$targetId, $rid]);
+            if ($roleIds) {
+                $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
+                $validRoles = $db->prepare("SELECT COUNT(*) FROM roles WHERE id IN ({$placeholders})");
+                $validRoles->execute(array_values($roleIds));
+                if ((int)$validRoles->fetchColumn() !== count($roleIds)) {
+                    throw new Exception('One or more selected roles are invalid.');
+                }
+            }
+
+            $db->beginTransaction();
+            try {
+                $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetId]);
+                $stmt = $db->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)");
+                foreach ($roleIds as $rid) {
+                    $stmt->execute([$targetId, $rid]);
+                }
+                $db->commit();
+            } catch (Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                throw $e;
             }
 
             logActivity($user['id'], null, 'Updated RBAC roles for user #' . $targetId, implode(',', $roleIds));
             echo json_encode(['success' => true, 'message' => 'Roles updated']);
             break;
 
+        // ── POST: turn off someone's two-step sign-in (lost phone) ─────────
+        case 'disable_two_step':
+            if (!userHasPermission('users.manage')) throw new Exception('Access denied — requires users.manage permission');
+            if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+            $targetId = (int)($input['id'] ?? 0);
+            if (!$targetId) throw new Exception('Employee ID required');
+            if ($targetId === (int)$user['id']) throw new Exception('Turn off your own two-step sign-in from your account menu, with a code.');
+            // An admin's second step only by an admin, like their password (review 2026-11-06).
+            if (EmployeeAccountService::isAdminTarget($db, $targetId) && !RoleRules::isAdmin($user['role'] ?? '')) throw new Exception("Only an admin can turn off an admin's two-step sign-in.");
+            (new TwoStepService($db, null))->disable($targetId, (int)$user['id']);
+            echo json_encode(['success' => true, 'message' => 'Two-step sign-in turned off']);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, get_dl, create, update, update_hr, update_payroll, update_td1, update_roles']);
+            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, get_dl, create, update, update_hr, update_payroll, update_td1, update_roles, disable_two_step']);
     }
 
 } catch (PDOException $e) {
@@ -501,5 +585,5 @@ try {
     echo json_encode(['error' => 'A database error occurred. Please try again.']);
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'employees')]);
 }

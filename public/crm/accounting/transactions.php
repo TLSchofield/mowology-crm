@@ -1,6 +1,7 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('expenses.view');
@@ -54,12 +55,24 @@ $csrfToken  = generateCSRFToken();
             </div>
             <div class="col-6 col-md-2">
                 <label class="form-label small mb-1">From</label>
-                <input type="date" id="f-date-from" class="form-control form-control-sm"
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#f-date-from"
+                        data-mw-dp-range-group="tx-filter-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="f-date-from" class="form-control form-control-sm" hidden
                        value="<?= date('Y-m-01') ?>" onchange="loadTransactions()">
             </div>
             <div class="col-6 col-md-2">
                 <label class="form-label small mb-1">To</label>
-                <input type="date" id="f-date-to" class="form-control form-control-sm"
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#f-date-to"
+                        data-mw-dp-range-group="tx-filter-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="f-date-to" class="form-control form-control-sm" hidden
                        value="<?= date('Y-m-d') ?>" onchange="loadTransactions()">
             </div>
             <div class="col-6 col-md-2">
@@ -99,17 +112,17 @@ $csrfToken  = generateCSRFToken();
 <div class="row g-2 mb-3" id="mw-tx-summary-row">
     <div class="col-4">
         <div class="mw-acct-mini-stat mw-acct-color-income">
-            Revenue: <strong id="sum-revenue">—</strong>
+            Revenue (this page): <strong id="sum-revenue">—</strong>
         </div>
     </div>
     <div class="col-4">
         <div class="mw-acct-mini-stat mw-acct-color-expense">
-            Expenses: <strong id="sum-expenses">—</strong>
+            Expenses (this page): <strong id="sum-expenses">—</strong>
         </div>
     </div>
     <div class="col-4">
         <div class="mw-acct-mini-stat" id="sum-net-wrap">
-            Net: <strong id="sum-net">—</strong>
+            Net (this page): <strong id="sum-net">—</strong>
         </div>
     </div>
 </div>
@@ -160,7 +173,12 @@ $csrfToken  = generateCSRFToken();
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label small">Date <span class="text-danger">*</span></label>
-                        <input type="date" id="tx-date" class="form-control" value="<?= date('Y-m-d') ?>">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#tx-date" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" id="tx-date" class="form-control" hidden value="<?= date('Y-m-d') ?>">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small">Type <span class="text-danger">*</span></label>
@@ -250,6 +268,7 @@ $csrfToken  = generateCSRFToken();
 </div>
 
 <script>
+const MW_GST_RATE = <?= json_encode(TaxEngine::gstRate(getDB())) ?>; // one GST rate: Settings → business settings
 const API_TX  = '/crm/api/accounting-transactions.php';
 const API_ACC = '/crm/api/accounting-accounts.php';
 const CSRF    = '<?= htmlspecialchars($csrfToken) ?>';
@@ -432,7 +451,10 @@ function renderTable(rows) {
         // All linked rows expand; clicking the strip navigates to the item
         const isExpense = tx.reference_type === 'expense';
         const isBankMatchExpandable = isBankImport && tx.bank_match_exists == 1;
-        const isExpandable = ((isInvoice || isExpense) && tx.reference_id) || isBankMatchExpandable;
+        // Unmatched bank rows expand too — into a "Find Expense Match" candidates
+        // panel, not a navigation target (see fetchAndShowExpenseCandidates()).
+        const isBankUnmatchedExpandable = isBankImport && tx.bank_match_exists != 1;
+        const isExpandable = ((isInvoice || isExpense) && tx.reference_id) || isBankMatchExpandable || isBankUnmatchedExpandable;
 
         const rowClass = [
             tx.needs_review == 1 ? 'mw-acct-row-review' : '',
@@ -458,6 +480,7 @@ function renderTable(rows) {
                         <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
                         ${isInvoice ? `<li><a class="dropdown-item small" href="/crm/invoices/view.php?id=${tx.reference_id}" onclick="event.stopPropagation()">View Invoice</a></li>` : ''}
                         ${tx.reference_type === 'expense' ? `<li><a class="dropdown-item small" href="/crm/expenses_appstack.php?edit=${tx.reference_id}" onclick="event.stopPropagation()">Edit Expense</a></li>` : ''}
+                        ${isBankUnmatchedExpandable ? `<li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();expandTxDetail(${tx.id})">Find Expense Match</a></li>` : ''}
                         <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
                         ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item small text-danger" href="#" onclick="event.stopPropagation();deleteTx(${tx.id})">Delete</a></li>` : ''}
                     </ul>
@@ -471,7 +494,15 @@ function renderTable(rows) {
                 // Bank import: lazy-load via API; fetchAndShowMatch will set onclick after fetch
                 html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
                     <td colspan="7">
-                        <div id="det-content-${tx.id}" class="mw-tx-detail-strip text-muted">Loading match…</div>
+                        <div id="det-content-${tx.id}" class="mw-tx-detail-strip text-muted" data-mode="match">Loading match…</div>
+                    </td>
+                </tr>`);
+            } else if (isBankUnmatchedExpandable) {
+                // Unmatched bank import: lazy-load candidate expenses to attach —
+                // manual counterpart to findExpenseMatch()'s one-shot auto-match.
+                html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                    <td colspan="7">
+                        <div id="det-content-${tx.id}" class="text-muted small p-2" data-mode="expense-candidates">Searching for matching receipts…</div>
                     </td>
                 </tr>`);
             } else if (isInvoice) {
@@ -546,6 +577,8 @@ function openAddModal() {
     document.getElementById('txModalTitle').textContent = 'Add Transaction';
     document.getElementById('tx-id').value      = '';
     document.getElementById('tx-date').value    = new Date().toISOString().split('T')[0];
+    document.getElementById('tx-date').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('tx-date').dispatchEvent(new Event('change', { bubbles: true }));
     document.getElementById('tx-type').value    = 'expense';
     document.getElementById('tx-amount').value  = '';
     document.getElementById('tx-gst').value     = '';
@@ -560,7 +593,7 @@ function openAddModal() {
 
 function calcTax() {
     const amt = parseFloat(document.getElementById('tx-amount').value) || 0;
-    const gst = Math.round(amt * 0.05 * 100) / 100;
+    const gst = Math.round(amt * MW_GST_RATE * 100) / 100;
     document.getElementById('tx-gst').value = gst.toFixed(2);
 }
 
@@ -583,7 +616,7 @@ async function saveTx() {
 
     const r = await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify(data),
     });
     const d = await r.json();
@@ -605,7 +638,7 @@ async function saveRecat() {
     const accountId = document.getElementById('recat-account').value;
     const r = await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'recategorize', id, account_id: accountId }),
     });
     const d = await r.json();
@@ -620,11 +653,23 @@ function toggleTxDetail(id) {
     if (!row) return;
     const isHidden = row.style.display === 'none';
     row.style.display = isHidden ? '' : 'none';
-    // Lazy-load bank import match on first expand
+    // Lazy-load on first expand — mode set server-side via data-mode.
     const contentEl = document.getElementById('det-content-' + id);
-    if (isHidden && contentEl && contentEl.textContent === 'Loading match…') {
-        fetchAndShowMatch(id, contentEl);
+    if (isHidden && contentEl && contentEl.dataset.loaded !== '1') {
+        contentEl.dataset.loaded = '1';
+        if (contentEl.dataset.mode === 'expense-candidates') {
+            fetchAndShowExpenseCandidates(id, contentEl);
+        } else {
+            fetchAndShowMatch(id, contentEl);
+        }
     }
+}
+
+/** Expand (not toggle) a detail row — used by the "Find Expense Match" dropdown
+ *  action so it always opens the panel rather than collapsing an open one. */
+function expandTxDetail(id) {
+    const row = document.getElementById('det-' + id);
+    if (row && row.style.display === 'none') toggleTxDetail(id);
 }
 
 async function fetchAndShowMatch(txId, contentEl) {
@@ -666,11 +711,132 @@ async function fetchAndShowMatch(txId, contentEl) {
     }
 }
 
+// ── Manual expense match (unmatched bank rows) ──────────────────────────────────
+// findExpenseMatch() only runs once, at import time, and only considers
+// approved/forwarded expenses — this is the human-reviewed fallback for whatever
+// it missed (receipt still draft at import time, amount/date drift), reachable
+// from a row's "Find Expense Match" dropdown action / by expanding the row.
+async function fetchAndShowExpenseCandidates(txId, contentEl) {
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php?action=transaction_expense_candidates&transaction_id=' + txId);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Search failed');
+        // Always offer several receipts: two tickets rung through on one swipe match no single receipt (Champion, 2026-10-16).
+        const groupHtml = `<div class="mw-rgroup" id="rgroup-${txId}">
+                <button type="button" class="btn btn-link btn-sm p-0" onclick="event.stopPropagation();showReceiptGroup(${txId})">Paid with several receipts? Match them together</button>
+            </div>`;
+        if (!d.candidates.length) {
+            contentEl.innerHTML = '<span class="text-muted">No single receipt matches.</span>' + groupHtml;
+            return;
+        }
+        contentEl.innerHTML = d.candidates.map(c => {
+            const confClass = c.confidence >= 70 ? 'high' : (c.confidence >= 45 ? 'med' : 'low');
+            const statusTag = (c.status === 'draft' || c.status === 'pending_approval')
+                ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px">${c.status === 'draft' ? 'Draft' : 'Pending'}</span>`
+                : '';
+            const reasonsHtml = (c.reasons || []).map(rz => `<span class="mw-match-reason">${esc(rz)}</span>`).join('');
+            return `<div class="mw-match-item">
+                <span class="mw-conf-badge mw-conf-${confClass}">${c.confidence}%</span>
+                <div class="mw-match-info">
+                    <div class="mw-match-desc">${esc(c.vendor)}${statusTag}</div>
+                    <div class="mw-match-meta">${esc(c.date)} &middot; ${fmtMoney(c.amount)}${c.category ? ' &middot; ' + esc(c.category) : ''}${reasonsHtml}</div>
+                </div>
+                <div class="mw-match-apply">
+                    <button type="button" class="mw-action-btn mw-action-btn-paid" onclick="event.stopPropagation();attachTxToExpense(${txId}, ${c.expense_id})">Attach</button>
+                </div>
+            </div>`;
+        }).join('') + groupHtml;
+    } catch (e) {
+        contentEl.innerHTML = '<span class="text-danger">Error: ' + esc(e.message) + '</span>';
+    }
+}
+
+// ── Several receipts, one bank line (BankLineReceipts, migration 1372) ─────────
+// Tick the receipts; the total must equal the line exactly. A gap means a receipt is wrong
+// (e.g. tax a shop didn't charge) — fix that receipt, never book the gap.
+async function showReceiptGroup(txId) {
+    const box = document.getElementById('rgroup-' + txId);
+    if (!box) return;
+    box.innerHTML = '<span class="text-muted">Looking for receipts…</span>';
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php?action=transaction_receipt_group_candidates&transaction_id=' + txId);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Search failed');
+        if (d.candidates.length < 2) {
+            box.innerHTML = '<span class="text-muted">Fewer than two unmatched receipts within a week of this line.</span>';
+            return;
+        }
+        box.dataset.line = d.line_amount;
+        box.innerHTML = `<div class="mw-rgroup-head">Tick the receipts this one payment covered</div>`
+            + d.candidates.map(c => `<label class="mw-rgroup-item" onclick="event.stopPropagation()">
+                    <input type="checkbox" value="${c.expense_id}" data-total="${c.total}" onchange="updateReceiptGroup(${txId})">
+                    <span class="mw-rgroup-vendor">#${c.expense_id} ${esc(c.vendor)}${c.status !== 'approved' ? ' <span class="badge bg-light text-dark border">' + esc(c.status) + '</span>' : ''}</span>
+                    <span class="mw-rgroup-meta">${esc(c.date)}${c.description ? ' · ' + esc(c.description) : ''}${c.gst > 0 ? ' · GST ' + fmtMoney(c.gst) : ''}</span>
+                    <span class="mw-rgroup-amt">${fmtMoney(c.total)}</span>
+                </label>`).join('')
+            + `<div class="mw-rgroup-foot">
+                    <span class="mw-rgroup-sum" id="rgroup-sum-${txId}"></span>
+                    <button type="button" class="mw-action-btn mw-action-btn-paid" id="rgroup-btn-${txId}" disabled
+                            onclick="event.stopPropagation();attachReceiptGroup(${txId})">Match these</button>
+               </div>`;
+        updateReceiptGroup(txId);
+    } catch (e) {
+        box.innerHTML = '<span class="text-danger">Error: ' + esc(e.message) + '</span>';
+    }
+}
+
+function updateReceiptGroup(txId) {
+    const box = document.getElementById('rgroup-' + txId);
+    const ticked = [...box.querySelectorAll('input[type=checkbox]:checked')];
+    const sum = Math.round(ticked.reduce((a, i) => a + parseFloat(i.dataset.total), 0) * 100) / 100;
+    const line = Math.round(parseFloat(box.dataset.line) * 100) / 100;
+    const gap = Math.round((sum - line) * 100) / 100;
+    const ok = ticked.length >= 2 && Math.abs(gap) < 0.005;
+    const el = document.getElementById('rgroup-sum-' + txId);
+    el.className = 'mw-rgroup-sum ' + (ok ? 'mw-rgroup-ok' : (ticked.length ? 'mw-rgroup-off' : ''));
+    el.textContent = !ticked.length ? 'Bank line ' + fmtMoney(line)
+        : fmtMoney(sum) + ' of ' + fmtMoney(line) + (ok ? ' — matches' : ' — ' + fmtMoney(Math.abs(gap)) + (gap > 0 ? ' over' : ' short')
+          + (gap > 0 && ticked.length >= 2 ? '. Is a receipt wrong (tax not charged, misread)? Fix it and save it first.' : ''));
+    document.getElementById('rgroup-btn-' + txId).disabled = !ok;
+}
+
+async function attachReceiptGroup(txId) {
+    const box = document.getElementById('rgroup-' + txId);
+    const ids = [...box.querySelectorAll('input[type=checkbox]:checked')].map(i => parseInt(i.value, 10));
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: 'attach_expense_group', csrf_token: CSRF, transaction_id: txId, expense_ids: ids }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Match failed');
+        loadTransactions(currentPage);
+    } catch (e) {
+        alert('Match error: ' + e.message);
+    }
+}
+
+async function attachTxToExpense(txId, expenseId) {
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: 'attach_expense', csrf_token: CSRF, transaction_id: txId, expense_id: expenseId }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Attach failed');
+        loadTransactions(currentPage);
+    } catch (e) {
+        alert('Attach error: ' + e.message);
+    }
+}
+
 // ── Review Flag ───────────────────────────────────────────────────────────────
 async function toggleReview(id, flag) {
     await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'flag_review', id, flag }),
     });
     loadTransactions();
@@ -681,7 +847,7 @@ async function deleteTx(id) {
     if (!confirm('Delete this manual transaction? This cannot be undone.')) return;
     const r = await fetch(API_TX, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'delete', id }),
     });
     const d = await r.json();
@@ -692,7 +858,7 @@ async function deleteTx(id) {
 // ── Sync ──────────────────────────────────────────────────────────────────────
 async function syncLedger() {
     if (!confirm('Sync ledger? This will import any new paid invoices and expenses.')) return;
-    const r = await fetch(API_TX + '?action=sync');
+    const r = await fetch(API_TX, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' }, body: JSON.stringify({ action: 'sync' }) });
     const d = await r.json();
     if (d.ok) {
         const res = d.result;
@@ -714,7 +880,11 @@ function esc(s) {
 function clearFilters() {
     document.getElementById('f-type').value     = '';
     document.getElementById('f-date-from').value = '<?= date('Y-m-01') ?>';
+    document.getElementById('f-date-from').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('f-date-from').dispatchEvent(new Event('change', { bubbles: true }));
     document.getElementById('f-date-to').value   = '<?= date('Y-m-d') ?>';
+    document.getElementById('f-date-to').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('f-date-to').dispatchEvent(new Event('change', { bubbles: true }));
     document.getElementById('f-account').value   = '';
     document.getElementById('f-source').value    = '';
     document.getElementById('f-search').value    = '';

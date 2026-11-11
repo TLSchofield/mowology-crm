@@ -1,0 +1,479 @@
+//
+//  HeadCardView.swift
+//  MowologyCRM
+//
+//  One card for Charlie, Otto, Mia or Yui on the Team tab, top to bottom: the head's line
+//  and brain, Charlie's Ask box (Charlie only), the top 3 from the dashboard Action Board
+//  with Open / Not now, then the head's single action — Otto's Geocode, Mia's Google post.
+//  Yui's items open the client; her replies stay drafts.
+//
+
+import SwiftUI
+import UIKit
+
+struct HeadCardView: View {
+    @Environment(\.itAppStyle) private var appStyle
+
+    @ObservedObject var vm: HeadCardViewModel
+    /// Tapping the brain line turns the head's face over to show the brain (TeamView).
+    var onBrainTap: (() -> Void)? = nil
+    /// Ittai explains learning once in ordinary language above this card.
+    var showsBrain = true
+    /// Kaname's Ask box; off when his tab shows it at the top instead (Kaname spec §1: one door).
+    var showsAsk = true
+    /// Opens the "Waiting now" section on the head's spine (the workspace's numbered guide).
+    var lead: AnyView = AnyView(EmptyView())
+    @Environment(\.openURL) private var openURL
+    @ObservedObject private var router = NotificationRouter.shared
+    @State private var confirmPublish = false
+
+    /// The head's spine sections (2026-11-07): Waiting now first, then the head's own sections, each shown only
+    /// while it has something, as before.
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SpineNode(slug: vm.head, id: "now", title: "Waiting now", symbol: "tray.full.fill",
+                      waiting: vm.card.flatMap { HeadSpineLogic.count(max($0.waiting, vm.items.count), "waiting") },
+                      defaultOpen: true) {
+                VStack(alignment: .leading, spacing: 18) {
+                    lead
+                    if vm.isLoading && !vm.hasLoaded {
+                        HStack { Spacer(); ProgressView("Loading…"); Spacer() }
+                            .padding(.vertical, 40)
+                    } else if let err = vm.loadError, vm.card == nil {
+                        errorState(err)
+                    } else if let card = vm.card {
+                        header(card)
+                        if vm.head == "charlie" && showsAsk { KanameAskBox(vm: vm) }
+                        note
+                        itemsSection(card)
+                    }
+                }
+            }
+            if vm.card != nil {
+                if vm.head == "otto" {
+                    OttoMissedNode(model: vm.missedReview)
+                    if !vm.subcontracts.isEmpty {
+                        SpineNode(slug: "otto", id: "subcontracts", title: "Subcontracts", symbol: "person.2.fill",
+                                  waiting: HeadSpineLogic.count(vm.subcontracts.filter { SubcontractBoardSection.needsYou($0) }.count, "needs you", plural: "need you"),
+                                  defaultOpen: true) { SubcontractBoardSection(vm: vm) }
+                    }
+                    if !vm.ottoItems.isEmpty || vm.autolog != nil {
+                        SpineNode(slug: "otto", id: "suggestions", title: "Suggestions", symbol: "sparkles",
+                                  waiting: HeadSpineLogic.count(vm.ottoTotal, "to review")) { OttoDeskSection(vm: vm) }
+                    }
+                    if !vm.unpinned.isEmpty {
+                        SpineNode(slug: "otto", id: "unpinned", title: "No map pin", symbol: "mappin.slash",
+                                  waiting: HeadSpineLogic.count(vm.unpinned.count, "to pin")) { unpinnedSection }
+                    }
+                }
+                if vm.head == "yui" { YuiJobsNode(model: vm.yuiJobs) }
+                if vm.head == "mia" {
+                    if vm.card?.canApprove == true, !vm.miaSuggestions.isEmpty {
+                        SpineNode(slug: "mia", id: "suggestions", title: "Suggestions", symbol: "envelope.fill",
+                                  waiting: HeadSpineLogic.count(vm.miaSuggestions.count, "to approve")) { MiaSuggestionsSection(vm: vm) }
+                    }
+                    if vm.post != nil {
+                        SpineNode(slug: "mia", id: "post", title: "Post draft", symbol: "photo.fill", waiting: "1 ready") { postSection }
+                    }
+                }
+            }
+        }
+        // A "visits not done" push lands in Otto's section even when it was closed.
+        .onAppear { openMissedIfPushed() }
+        .onChange(of: router.pendingOttoReview) { _, _ in openMissedIfPushed() }
+    }
+
+    private func openMissedIfPushed() {
+        if vm.head == "otto" && router.pendingOttoReview { SpineNode<EmptyView>.open(slug: "otto", id: "missed") }
+    }
+
+    // MARK: - States
+
+    private func errorState(_ err: String) -> some View {
+        VStack(spacing: 10) {
+            Label(err, systemImage: "exclamationmark.triangle.fill")
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.blocked)
+                .multilineTextAlignment(.center)
+            Button("Try again") { Task { await vm.load() } }
+                .buttonStyle(.bordered)
+                .tint(appStyle.tenant)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private func sectionHead(_ title: String, _ sub: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(appStyle.font(.headline))
+            if let sub { Text(sub).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+        }
+    }
+
+    @ViewBuilder
+    private var note: some View {
+        if let text = vm.message, !text.isEmpty {
+            Text(text)
+                .font(appStyle.font(.footnote))
+                .foregroundStyle(vm.messageIsError ? appStyle.blocked : appStyle.tenant)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - Header + brain
+
+    private func header(_ card: HeadCardResponse) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !card.headline.isEmpty {
+                Text(card.headline)
+                    .font(appStyle.font(.subheadline))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if showsBrain, let b = card.brain { brainRow(b, name: card.name) }
+        }
+    }
+
+    /// The head's own turning brain sits beside the summary (owner, 2026-10-10: on brand, and
+    /// smaller than a full-width graphic) — the same shape the splash screen and the web draw.
+    private func brainRow(_ b: HeadBrainSummary, name: String) -> some View {
+        // The brain itself shows on the face (tap a face, or this line, and it turns over);
+        // the card keeps the words — a smaller box than the drawing (owner, 2026-10-10).
+        Button { onBrainTap?() } label: {
+            HStack(alignment: .top, spacing: 8) {
+                brainText(b, name: name)
+                if onBrainTap != nil {
+                    Image(systemName: "arrow.triangle.2.circlepath").font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+    }
+
+    private func brainText(_ b: HeadBrainSummary, name: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(b.units == 0 ? "\(name)'s brain: just starting" : "\(name)'s brain: \(b.units) thing\(b.units == 1 ? "" : "s") learned")
+                    .font(appStyle.font(.caption, weight: .semibold))
+                Spacer(minLength: 0)
+                Text("shape \(b.shape)").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            }
+            if !b.tiers.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(b.tiers, id: \.self) { t in
+                        Text("\(t.n) \(t.name)")
+                            .font(appStyle.font(size: 12, weight: .semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Self.tierColor(t.slug).opacity(0.18), in: Capsule())
+                            .foregroundStyle(Self.tierColor(t.slug))
+                    }
+                }
+            }
+            ForEach(b.parts, id: \.self) { p in
+                Text("· " + p.label + (p.tier.map { " (\($0))" } ?? ""))
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// HeadBrain::TIERS, as head-brain.js colours them (approximately).
+    static func tierColor(_ slug: String) -> Color {
+        switch slug {
+        case "platinum": return Color(red: 0.35, green: 0.55, blue: 0.75)
+        case "white":    return Color(red: 0.45, green: 0.45, blue: 0.5)
+        case "gold":     return Color(red: 0.75, green: 0.55, blue: 0.05)
+        case "silver":   return Color(red: 0.45, green: 0.5, blue: 0.55)
+        case "bronze":   return Color(red: 0.65, green: 0.4, blue: 0.2)
+        default:         return Color.primary
+        }
+    }
+
+    // MARK: - Items
+
+    private func itemsSection(_ card: HeadCardResponse) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if vm.items.isEmpty {
+                Text("Nothing from \(card.name) needs you right now.")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+            }
+            ForEach(vm.items) { it in
+                itemRow(it, first: it.id == vm.items.first?.id)
+                if it.id != vm.items.last?.id { Divider() }
+            }
+            // Under the items it counts (Tim, 2026-11-07: it sat above them).
+            let more = max(0, card.waiting - vm.items.count)
+            if more > 0 { Text("+\(more) more on the dashboard").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+        }
+    }
+
+    private func itemRow(_ it: HeadItem, first: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
+                if it.yes {
+                    Text("YES")
+                        .font(appStyle.font(.caption, weight: .heavy))
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(appStyle.tenant, in: Capsule())
+                        .foregroundStyle(appStyle.onTenant)
+                }
+                Text(it.text)
+                    .font(first ? appStyle.font(.subheadline, weight: .semibold) : appStyle.font(.subheadline))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                let w = HeadCardViewModel.waited(it)
+                if !w.isEmpty { Text(w).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+                Spacer(minLength: 0)
+                if MoveToMenu.isMovable(it.key) {
+                    MoveToMenu(current: vm.head, disabled: vm.isBusy) { to in Task { await vm.move(it, to: to) } }
+                }
+                if vm.card?.owner == true {
+                    Button("Not now") { Task { await vm.notNow(it) } }
+                        .font(appStyle.font(.caption))
+                        .buttonStyle(.borderless)
+                        .tint(appStyle.meta)
+                        .disabled(vm.isBusy)
+                }
+                if it.url != nil {
+                    Button(openLabel(it)) {
+                        Task { if let u = await vm.open(it) { openURL(u) } }
+                    }
+                    .font(appStyle.font(.caption, weight: .semibold))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(appStyle.tenant)
+                }
+            }
+        }
+    }
+
+    /// As action-board.js label(), plus Yui's "Open client".
+    func openLabel(_ it: HeadItem) -> String {
+        if it.kind == "campaign_reply" || it.kind.hasSuffix(":campaign_reply") { return "Start the quote" }
+        if vm.head == "yui" { return "Open client" }
+        return "Open in CRM"
+    }
+
+    // MARK: - Otto: properties he can't route to
+
+    @ViewBuilder
+    private var unpinnedSection: some View {
+        if !vm.unpinned.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHead("Can't route here yet", "a visit is coming and there's no map pin")
+                ForEach(vm.unpinned) { p in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.address).font(appStyle.font(.subheadline, weight: .semibold))
+                            Text([p.city, "visit " + HeadCardViewModel.shortDate(p.nextVisit)].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await vm.geocode(p) }
+                        } label: {
+                            if vm.geocoding == p.id { ProgressView().controlSize(.small) } else { Text("Geocode") }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(appStyle.tenant)
+                        .disabled(vm.geocoding != nil || vm.isBusy)
+                    }
+                    if p.id != vm.unpinned.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    // MARK: - Mia: this week's Google post
+
+    @ViewBuilder
+    private var postSection: some View {
+        if let p = vm.post {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHead("This week's Google post", p.title.isEmpty ? nil : p.title)
+                if let photo = p.photoURL, let url = HeadCardViewModel.webURL(photo) {
+                    AsyncImage(url: url) { phase in
+                        if let img = phase.image { img.resizable().scaledToFill() } else { appStyle.color(.tenantSoft, legacy: Color.MW.light) }
+                    }
+                    .frame(height: 160)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                }
+                Text(p.body)
+                    .font(appStyle.font(.subheadline))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                if vm.card?.canApprove == true {
+                    HStack(spacing: 8) {
+                        if vm.canPublishToGoogle {
+                            Button("Post to Google") { confirmPublish = true }
+                                .buttonStyle(.borderedProminent)
+                                .tint(appStyle.tenant)
+                        } else {
+                            Button("Copy") { UIPasteboard.general.string = p.body }
+                                .buttonStyle(.bordered)
+                            Button("I posted it") { Task { await vm.decidePost("copied") } }
+                                .buttonStyle(.bordered)
+                                .tint(appStyle.tenant)
+                        }
+                        Spacer(minLength: 0)
+                        Button("Skip this week") { Task { await vm.decidePost("dismiss") } }
+                            .buttonStyle(.borderless)
+                            .tint(appStyle.meta)
+                    }
+                    .font(appStyle.font(.subheadline))
+                    .disabled(vm.isBusy)
+                    if !vm.canPublishToGoogle {
+                        Text("Google isn't connected for posting — copy it and paste it into Google.")
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
+                    }
+                }
+            }
+            .confirmationDialog("Post this publicly on Google?", isPresented: $confirmPublish, titleVisibility: .visible) {
+                Button("Post to Google") { Task { await vm.decidePost("publish") } }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+}
+
+/// Otto's missed visits on his spine: shown while any wait (or while the review sheet is up, so deciding the last one
+/// doesn't close it), loaded even while closed so the count is right.
+private struct OttoMissedNode: View {
+    @ObservedObject var model: OttoMissedReviewModel
+    @ObservedObject private var router = NotificationRouter.shared
+    @State private var presented = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if model.waiting > 0 || presented {
+                SpineNode(slug: "otto", id: "missed", title: "Missed visits", symbol: "calendar.badge.exclamationmark",
+                          waiting: HeadSpineLogic.count(model.waiting, "not done"), defaultOpen: true) {
+                    OttoMissedEntry(model: model, presented: $presented)
+                }
+            }
+        }
+        .task {
+            if model.data == nil { await model.load() }
+            dropStalePush()
+        }
+        .onChange(of: router.pendingOttoReview) { _, pending in
+            if pending { Task { await model.load(); dropStalePush() } }
+        }
+    }
+
+    /// A "visits not done" push whose visits were already decided elsewhere: nothing will show to consume it, so clear
+    /// it here, or a later missed visit would open the sheet unasked.
+    private func dropStalePush() {
+        if router.pendingOttoReview && model.data != nil && model.waiting == 0 { router.pendingOttoReview = false }
+    }
+}
+
+// MARK: - Move to…
+
+/// "Move to…" on a customer message — Penny, Sam, Otto, Mia or Yui (the web Action Board's
+/// select). The server re-routes it and learns sender + topic, so the next one goes there.
+/// Shared by the head cards, Sam's card and Penny's card (kept in this file so the Xcode
+/// project needs no new entry).
+struct MoveToMenu: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let current: String
+    var disabled = false
+    let onMove: (String) -> Void
+
+    static let heads: [(slug: String, name: String, role: String)] = [
+        ("penny", "Penny", "Bookkeeper"),
+        ("sam", "Sam", "Sales"),
+        ("otto", "Otto", "Operations"),
+        ("mia", "Mia", "Marketing"),
+        ("yui", "Yui", "Comms"),
+    ]
+
+    static func name(_ slug: String) -> String {
+        heads.first { $0.slug == slug }?.name ?? slug.capitalized
+    }
+
+    /// A reply in any head's lane, or Sam's "they replied" card (as action-board.js movable()).
+    static func isMovable(_ key: String) -> Bool {
+        key.range(of: #"^(sam|yui|penny|otto|mia):reply:\d+:[0-9a-f]{12}$"#, options: .regularExpression) != nil
+            || key.range(of: #"^sam:contact:c\d+$"#, options: .regularExpression) != nil
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(Self.heads.filter { $0.slug != current }, id: \.slug) { h in
+                Button("\(h.name) · \(h.role)") { onMove(h.slug) }
+            }
+        } label: {
+            Label("Give to…", systemImage: "arrowshape.turn.up.right")
+                .labelStyle(.titleAndIcon)
+        }
+        .font(appStyle.font(.caption))
+        .disabled(disabled)
+    }
+}
+
+/// Ask Kaname (the chief of staff; key "charlie"): one question about a customer, quote, invoice or visit.
+/// At the top of Kaname's tab (TeamView), and on his card where that tab isn't showing it.
+struct KanameAskBox: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @ObservedObject var vm: HeadCardViewModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ask Kaname").font(appStyle.font(.headline))
+                Text("about a customer, a quote, an invoice or a visit").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Has Linda's quote been sent?", text: $vm.question, axis: .vertical)
+                    .lineLimit(1...4)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .submitLabel(.send)
+                    .onSubmit { Task { await vm.submitQuestion() } }
+                    .disabled(vm.ask?.ready != true)
+                Button {
+                    focused = false
+                    Task { await vm.submitQuestion() }
+                } label: {
+                    if vm.isAsking { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(appStyle.font(.title2)) }
+                }
+                .disabled(!vm.canAsk)
+                .tint(appStyle.tenant)
+                .accessibilityLabel("Ask Kaname")
+            }
+            if let left = vm.askLeftText {
+                Text(left).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            }
+            if let a = vm.answer {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let q = vm.askedQuestion {
+                        Text(q).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
+                    }
+                    Text(a)
+                        .font(appStyle.font(.subheadline))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !vm.answerActions.isEmpty { QuickActionButtons(actions: vm.answerActions) }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(appStyle.color(.tenantSoft, legacy: Color.MW.light), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+            }
+        }
+    }
+}

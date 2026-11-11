@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * LEGACY SHIM — generate_visits.php
  * Real logic lives at /app/Modules/Jobs/Cron/generate_visits.php

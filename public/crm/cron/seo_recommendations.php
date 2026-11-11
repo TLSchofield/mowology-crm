@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * LEGACY SHIM — seo_recommendations.php
  * Real logic lives at /app/Modules/Marketing/Cron/seo_recommendations.php

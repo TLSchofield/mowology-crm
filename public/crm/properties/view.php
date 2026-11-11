@@ -51,6 +51,18 @@ if (!$property) {
 $hasBillingEntity   = array_key_exists('billing_entity_name',   $property);
 $hasPropertyManager = array_key_exists('property_manager_id',   $property);
 
+// On-site contact — who crew call at the gate. Separate from site_contact_id (the
+// billing client); lives in property_contacts via OnsiteContactService.
+require_once APP_ROOT . '/Modules/Contacts/Services/OnsiteContactService.php';
+$onsiteSvc       = new OnsiteContactService($db);
+$onsiteAvailable = $onsiteSvc->isAvailable();
+
+// "Quotes go to" override (migration 1186) — quotes are NOT sent to the billing contact
+// when the building or its company names someone else. See QuoteRecipientService.
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+$quoteRecipientSvc   = new QuoteRecipientService($db);
+$quoteRecipientReady = $quoteRecipientSvc->hasColumn('properties', 'quote_contact_id');
+
 // ── POST handler ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) {
@@ -144,6 +156,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sql = "UPDATE properties SET " . implode(', ', $set) . " WHERE id = ?";
                 $db->prepare($sql)->execute($params);
 
+                if ($quoteRecipientReady) {
+                    $quoteRecipientSvc->setPropertyQuoteContact($propertyId, (int)($_POST['quote_contact_id'] ?? 0) ?: null);
+                }
+
+                // On-site contact: a typed name wins over the picker; empty picker clears.
+                if ($onsiteAvailable) {
+                    $newName = trim($_POST['onsite_new_name'] ?? '');
+                    $pickId  = (int)($_POST['onsite_contact_id'] ?? 0);
+                    try {
+                        if ($newName !== '') {
+                            $onsiteSvc->quickAddAndAssign(
+                                $propertyId, $newName,
+                                trim($_POST['onsite_new_phone'] ?? '') ?: null,
+                                trim($_POST['onsite_new_email'] ?? '') ?: null
+                            );
+                        } elseif ($pickId > 0) {
+                            $current = $onsiteSvc->getForProperty($propertyId);
+                            if (!$current || (int)$current['contact_id'] !== $pickId) {
+                                $onsiteSvc->setForProperty($propertyId, $pickId);
+                            }
+                        } else {
+                            $onsiteSvc->clearForProperty($propertyId);
+                        }
+                    } catch (InvalidArgumentException $e) {
+                        // Property itself is saved; only the on-site contact was rejected.
+                        throw new RuntimeException('Saved, but the on-site contact was not: ' . $e->getMessage());
+                    }
+                }
+
                 try {
                     logActivityExtended(
                         $user['id'],
@@ -155,6 +196,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 header('Location: view.php?id=' . $propertyId . '&updated=1' . ($returnTo ? '&return_to=' . urlencode($returnTo) : ''));
                 exit;
+            } catch (RuntimeException $e) {
+                $error = $e->getMessage();
             } catch (Throwable $e) {
                 error_log('Property edit error: ' . $e->getMessage());
                 $error = 'Error saving property. Please try again.';
@@ -174,6 +217,9 @@ try {
 } catch (Throwable $e) {
     $contactsList = [];
 }
+
+// Current on-site contact (null when none, or when the table is missing)
+$onsiteContact = $onsiteAvailable ? $onsiteSvc->getForProperty($propertyId) : null;
 
 // Companies list for property manager dropdown
 try {
@@ -209,6 +255,18 @@ if (!empty($property['site_contact_id'])) {
         $cmp->execute([(int)$property['site_contact_id'], (int)$property['site_contact_id']]);
         $inferredCompany = $cmp->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $e) { $inferredCompany = null; }
+}
+
+// Who quotes for this building currently go to (override → company → billing contact)
+$quoteRecipientNow = $quoteRecipientSvc->forProperty($propertyId);
+$quoteRecipientNowName = '';
+if (!empty($quoteRecipientNow['contact_id'])) {
+    foreach ($contactsList as $c) {
+        if ((int)$c['id'] === (int)$quoteRecipientNow['contact_id']) {
+            $quoteRecipientNowName = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+            break;
+        }
+    }
 }
 
 $csrfToken  = generateCSRFToken();
@@ -252,11 +310,14 @@ if ($apiKey) {
             <p class="text-muted mb-4">
                 <?= htmlspecialchars($property['address']) ?>
                 <?php if (!empty($property['city'])): ?> &bull; <?= htmlspecialchars($property['city']) ?><?php endif; ?>
-                <?php if ($siteContactName): ?> &bull; Property manager: <?= htmlspecialchars($siteContactName) ?><?php endif; ?>
+                <?php if ($siteContactName): ?> &bull; Billing contact: <?= htmlspecialchars($siteContactName) ?><?php endif; ?>
                 <?php if ($inferredCompany): ?>
                     &bull; Managed by <a href="/crm/companies/view.php?id=<?= (int)$inferredCompany['id'] ?>"><?= htmlspecialchars($inferredCompany['company_name']) ?></a>
                 <?php endif; ?>
             </p>
+
+            <?php $ottoPropertyId = $propertyId;
+            if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php'; ?>
 
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
@@ -310,8 +371,8 @@ if ($apiKey) {
                                 </select>
                             </div>
                             <div class="form-group col-md-4">
-                                <label class="form-label">Property Manager <span class="text-muted" style="font-weight:400;">(person / on-site contact)</span></label>
-                                <select name="site_contact_id" id="siteContactPicker" class="form-control" <?= $canEdit ? '' : 'disabled' ?>>
+                                <label class="form-label">Billing contact <span class="text-muted" style="font-weight:400;">(gets invoices)</span></label>
+                                <select name="site_contact_id" id="siteContactPicker" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No contact" <?= $canEdit ? '' : 'disabled' ?>>
                                     <option value="">— none —</option>
                                     <?php foreach ($contactsList as $c):
                                         $label = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
@@ -326,7 +387,7 @@ if ($apiKey) {
                             <?php if ($hasPropertyManager): ?>
                             <div class="form-group col-md-4">
                                 <label class="form-label">Management Company <span class="text-muted" style="font-weight:400;">(strata / property management firm)</span></label>
-                                <select name="property_manager_id" class="form-control" <?= $canEdit ? '' : 'disabled' ?>>
+                                <select name="property_manager_id" class="form-control mw-searchable" data-placeholder="Search companies…" data-none-label="No management company" <?= $canEdit ? '' : 'disabled' ?>>
                                     <option value="">— none —</option>
                                     <?php foreach ($companiesList as $co):
                                         $sel = (int)($property['property_manager_id'] ?? 0) === (int)$co['id'] ? ' selected' : '';
@@ -412,6 +473,83 @@ if ($apiKey) {
                     </div>
                 </div>
 
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Quotes go to</h5>
+                        <small class="text-muted">Who receives quotes for this building. Leave blank to use the company's quote contact, else the billing contact.</small>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-3">
+                            Right now:
+                            <?php if ($quoteRecipientNowName !== ''): ?>
+                                <strong><?= htmlspecialchars($quoteRecipientNowName) ?></strong>
+                                <span class="text-muted">(<?= htmlspecialchars(['property' => 'set for this building', 'company' => "the company's quote contact", 'site_contact' => 'the billing contact'][$quoteRecipientNow['source']] ?? '') ?>)</span>
+                            <?php else: ?>
+                                <span class="text-muted">nobody — set a billing contact or a quote contact.</span>
+                            <?php endif; ?>
+                        </p>
+                        <div class="form-group mb-0">
+                            <label class="form-label">This building only</label>
+                            <select name="quote_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="Use the company / billing contact" <?= ($canEdit && $quoteRecipientReady) ? '' : 'disabled' ?>>
+                                <option value="">— use the company's quote contact / billing contact —</option>
+                                <?php foreach ($contactsList as $c):
+                                    $label = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                                    if (!empty($c['email'])) $label .= ' · ' . $c['email'];
+                                    $sel = (int)($property['quote_contact_id'] ?? 0) === (int)$c['id'] ? ' selected' : '';
+                                ?>
+                                <option value="<?= (int)$c['id'] ?>"<?= $sel ?>><?= htmlspecialchars($label) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <?php if (!$quoteRecipientReady): ?>
+                                <small class="text-muted"><strong>Not available — run migration 1186 first.</strong></small>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if ($onsiteAvailable): ?>
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">On-site contact</h5>
+                        <small class="text-muted">The person crew call from the gate — caretaker, building manager, tenant. Shown on the crew phone above the client.</small>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-3">
+                            <?php if ($onsiteContact): ?>
+                                <strong><?= htmlspecialchars($onsiteContact['name']) ?></strong>
+                                <?php if ($onsiteContact['phone']): ?> · <a href="tel:<?= htmlspecialchars($onsiteContact['phone']) ?>"><?= htmlspecialchars($onsiteContact['phone']) ?></a><?php endif; ?>
+                                <?php if ($onsiteContact['email']): ?> · <a href="mailto:<?= htmlspecialchars($onsiteContact['email']) ?>"><?= htmlspecialchars($onsiteContact['email']) ?></a><?php endif; ?>
+                            <?php else: ?>
+                                <span class="text-muted">None set — crew currently see the client contact.</span>
+                            <?php endif; ?>
+                        </p>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label class="form-label">Pick an existing contact</label>
+                                <select name="onsite_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No on-site contact" <?= $canEdit ? '' : 'disabled' ?>>
+                                    <option value="">— none —</option>
+                                    <?php foreach ($contactsList as $c):
+                                        $label = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                                        if (!empty($c['email'])) $label .= ' · ' . $c['email'];
+                                        $sel = $onsiteContact && (int)$onsiteContact['contact_id'] === (int)$c['id'] ? ' selected' : '';
+                                    ?>
+                                    <option value="<?= (int)$c['id'] ?>"<?= $sel ?>><?= htmlspecialchars($label) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label class="form-label">…or add a new one <span class="text-muted" style="font-weight:400;">(name wins over the picker)</span></label>
+                                <input type="text" name="onsite_new_name" class="form-control mb-2" placeholder="Full name" autocomplete="off" <?= $canEdit ? '' : 'disabled' ?>>
+                                <div class="form-row">
+                                    <div class="col-6"><input type="tel" name="onsite_new_phone" class="form-control" placeholder="Mobile" autocomplete="off" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                    <div class="col-6"><input type="email" name="onsite_new_email" class="form-control" placeholder="Email" autocomplete="off" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <?php if ($canEdit): ?>
                 <div class="mw-form-actions mb-4">
                     <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -428,6 +566,58 @@ if ($apiKey) {
                 </div>
                 <?php endif; ?>
             </form>
+
+            <!-- Plants on this property: "What is this?" — three photos → Pl@ntNet → the bed it grows in (plant-id.js, migration 1367) -->
+            <div class="card mb-4" id="mw-plants" data-property-id="<?= (int)$propertyId ?>" data-csrf="<?= htmlspecialchars(generateCSRFToken()) ?>">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <div>
+                        <h5 class="card-title mb-0">Plants</h5>
+                        <small class="text-muted">What grows here, and in which bed. <a href="/crm/plants/library.php">Plant library</a></small>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary mw-plants-open">What is this?</button>
+                </div>
+                <div class="card-body">
+                    <div class="mw-plants-take mb-3" hidden></div>
+                    <div class="mw-plants-result border rounded p-2 mb-3" hidden></div>
+                    <div class="mw-plants-list"><p class="text-muted small mb-0">Loading…</p></div>
+                    <p class="small text-muted mt-2 mb-0 mw-plants-attr"></p>
+                </div>
+            </div>
+            <script src="/assets/js/photo-markers.js?v=<?= @filemtime(dirname(__DIR__, 2) . '/assets/js/photo-markers.js') ?: '1' ?>" defer></script>
+            <script src="/assets/js/photo-markers.js?v=<?= @filemtime(dirname(__DIR__, 2) . '/assets/js/photo-markers.js') ?: '1' ?>" defer></script>
+            <script src="/crm/js/plant-id.js?v=<?= @filemtime(dirname(__DIR__) . '/js/plant-id.js') ?: '1' ?>" defer></script>
+
+<?php
+// Jobber invoice history at this address (migration 1239 — history only, never CRM invoices).
+$jobberHistory = [];
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/JobberImportService.php';
+    $jobberHistory = (new JobberImportService($db))->forProperty($propertyId, 60);
+} catch (Throwable $e) {
+    $jobberHistory = [];
+}
+?>
+<?php if ($jobberHistory): ?>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Jobber invoices</h5>
+                    <small class="text-muted">History from Jobber (before the CRM) — newest first.</small>
+                </div>
+                <div class="card-body p-0 mw-bbc-scroll">
+                    <table class="table table-sm mb-0 mw-bbc-table">
+                        <tbody>
+                        <?php foreach ($jobberHistory as $j): ?>
+                            <tr>
+                                <td><?= htmlspecialchars((string)$j['issued_date']) ?></td>
+                                <td><?= htmlspecialchars(JobberImportService::timelineTitle($j)) ?></td>
+                                <td class="text-muted small"><?= htmlspecialchars((string)$j['client_name']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+<?php endif; ?>
 
 <?php if ($canEdit && $apiKey): ?>
 <script>
@@ -468,5 +658,6 @@ if ($apiKey) {
 }());
 </script>
 <?php endif; ?>
+
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

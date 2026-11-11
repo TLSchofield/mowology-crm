@@ -130,6 +130,8 @@ body.sa-body {
 
 .sa-logout { color: rgba(255,255,255,0.5); }
 .sa-logout:hover { color: #fff; background: rgba(220,38,38,0.2); }
+.sa-logout-form { margin: 0; }
+button.sa-logout { width: 100%; background: none; border: 0; text-align: left; cursor: pointer; font: inherit; }
 
 /* ── Main area ────────────────────────────────────────────── */
 

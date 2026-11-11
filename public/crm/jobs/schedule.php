@@ -104,6 +104,29 @@ if ($view === 'day') {
 $crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
 $staff = getStaffMembers();
 
+// Whose jobs this person sees (CrewViewScope, 2026-10-14): crew only their own unless the company
+// allows all; the office switches Mine / All crews. The switch and the job type are remembered.
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+$__remember = function (string $name, string $value): void {
+    setcookie($name, $value, ['expires' => time() + 31536000, 'path' => '/crm/', 'samesite' => 'Lax', 'secure' => true, 'httponly' => true]);
+};
+$askedScope = null;
+if (isset($_GET['scope']) && in_array($_GET['scope'], ['mine', 'all'], true)) {
+    $askedScope = $_GET['scope'];
+    $__remember('mw_sched_scope', $askedScope);
+} elseif ($crewFilter !== null) {
+    $askedScope = 'all';               // picking a crew in the dropdown means "show me that crew"
+    $__remember('mw_sched_scope', 'all');
+} elseif (in_array($_COOKIE['mw_sched_scope'] ?? '', ['mine', 'all'], true)) {
+    $askedScope = $_COOKIE['mw_sched_scope'];
+}
+$viewScope  = CrewViewScope::decide((string)($user['role'] ?? ''), (int)$user['id'], CrewViewScope::setting($db), $askedScope, $crewFilter);
+$crewFilter = $viewScope['crew'];
+if (!$viewScope['can_switch'] || $viewScope['scope'] === 'mine') {
+    // The crew dropdown can't widen what this person may see.
+    $staff = array_values(array_filter($staff, fn($m) => (int)$m['id'] === (int)$user['id']));
+}
+
 // ─── Service type filter ─────────────────────────────────────────────
 // Load from DB with fallback to hardcoded list
 $validServiceTypes = ['landscaping', 'lawn_care', 'snow_removal', 'hedge_trimming', 'garden_maintenance', 'seasonal_cleanup'];
@@ -115,9 +138,15 @@ try {
         foreach ($stRows as $stRow) { $serviceTypeLabels[$stRow['slug']] = $stRow['label']; }
     }
 } catch (Exception $e) { /* use fallback */ }
-$serviceFilter = (isset($_GET['service']) && in_array($_GET['service'], $validServiceTypes, true))
-    ? $_GET['service']
-    : null;
+require_once APP_ROOT . '/Modules/Schedule/Services/ServiceTypeFilter.php';
+// Several job types can be ticked at once; the filter is one comma-separated string.
+$serviceFilter = isset($_GET['service']) ? ServiceTypeFilter::parse((string)$_GET['service'], $validServiceTypes) : null;
+// The job type is remembered too: ?service= sets it, ?service=all clears it.
+if (isset($_GET['service'])) {
+    $__remember('mw_sched_service', $serviceFilter ?? '');
+} else {
+    $serviceFilter = ServiceTypeFilter::parse((string)($_COOKIE['mw_sched_service'] ?? ''), $validServiceTypes);
+}
 
 // ─── Weather forecast ───────────────────────────────────────────────
 $todaysForecast = getWeekForecast('Vancouver', 'BC');
@@ -146,6 +175,34 @@ $calendarData = getCalendarStops($startDate, $endDate, $crewFilter, $serviceFilt
 // ─── Purchase tasks for schedule ────────────────────────────────────
 $purchaseTasksByDate = getPurchaseTasksForSchedule($db, $startDate, $endDate, $crewFilter);
 
+// ─── Appointments (quote visits) — their own cards, never stops (AppointmentService, 2026-10-15) ──
+// Crew see only their own (CrewViewScope): $crewFilter is the person when they may not see all.
+$appointmentsByDate = [];
+try {
+    require_once APP_ROOT . '/Modules/Schedule/Services/AppointmentService.php';
+    // The phone view shows ?date= (or today), which can sit outside the week being loaded.
+    $_apDay  = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['date'] ?? '')) ? (string)$_GET['date'] : date('Y-m-d');
+    $_apFrom = min($startDate, $_apDay);
+    $_apTo   = max($endDate, $_apDay);
+    $appointmentsByDate = (new AppointmentService($db))->forRange($_apFrom, $_apTo, $crewFilter ? (int)$crewFilter : null);
+} catch (Throwable $e) {
+    error_log('[schedule] appointments: ' . $e->getMessage());
+}
+/** One appointment card (week, day and phone views). */
+function mwAppointmentCard(array $ap): string
+{
+    $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    $tag = $ap['open_url'] ? 'a href="' . $h($ap['open_url']) . '"' : 'div';
+    $end = $ap['open_url'] ? 'a' : 'div';
+    return '<' . $tag . ' class="mw-appt-card" data-appointment-id="' . (int)$ap['appointment_id'] . '" title="' . $h($ap['kind_label'] . ' — open the quote') . '">'
+         . '<span class="mw-appt-kind">' . $h($ap['kind_label']) . '</span> '
+         . '<span class="mw-appt-time">' . $h($ap['time_label']) . '</span> '
+         . $h($ap['contact_name'] ?? '')
+         . '<span class="mw-appt-addr">' . $h($ap['property_address']) . '</span>'
+         . ($ap['assigned_name'] ? '<span class="mw-appt-who">' . $h($ap['assigned_name']) . ' · ' . (int)$ap['duration_minutes'] . ' min</span>' : '')
+         . '</' . $end . '>';
+}
+
 // ─── Profitability batch data for all plans this week ───────────────
 $allPlanIds = [];
 foreach ($calendarData as $dateStops) {
@@ -162,7 +219,8 @@ $profitabilityMap = !empty($allPlanIds) ? getStopProfitabilityBatch($allPlanIds)
 
 // ─── Unscheduled jobs tray ───────────────────────────────────────────
 // Visits with no calendar_stop yet — displayed in the collapsible left tray.
-$unscheduledVisits = getUnscheduledVisits();
+// Crew who see only their own jobs get no tray: it lists every unscheduled visit (Codex review 2026-10-14).
+$unscheduledVisits = CrewViewScope::seesOtherCrews((string)($user['role'] ?? ''), CrewViewScope::setting($db)) ? getUnscheduledVisits() : [];
 $unscheduledCount  = count($unscheduledVisits);
 
 // Crew flag: 'user' role = mobile crew (auto-assign on drop); admin/manager = desktop
@@ -829,6 +887,16 @@ if ($view === 'day') {
     // Build JS data for the day view map
     foreach (array_merge($assignedStops, $unassignedStops) as $stop) {
         $isAssigned = !empty($stop['crew_ids']) || !empty($stop['crew_id']);
+        // Effective status for the pin colour: prefer the stop status, but fall
+        // back to 'skipped' when every visit is skipped (covers stops skipped
+        // before stop-status propagation existed, so the pin matches the card).
+        $mapStatus = $stop['stop_status'] ?? 'scheduled';
+        if ($mapStatus !== 'skipped' && $mapStatus !== 'completed' && !empty($stop['visits'])) {
+            $mvStatuses = array_column($stop['visits'], 'visit_status');
+            if (count(array_filter($mvStatuses, fn($s) => $s === 'skipped')) === count($mvStatuses)) {
+                $mapStatus = 'skipped';
+            }
+        }
         $dayViewMapStops[] = [
             'stopId'      => (int)$stop['stop_id'],
             'lat'         => $stop['latitude'] ? (float)$stop['latitude'] : null,
@@ -844,7 +912,7 @@ if ($view === 'day') {
             'duration'    => !empty($stop['visits']) ? (int)($stop['visits'][0]['estimated_duration'] ?? 0) : 0,
             'assigned'    => $isAssigned,
             'crewNames'   => !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []),
-            'status'      => $stop['stop_status'] ?? 'scheduled',
+            'status'      => $mapStatus,
             'isInvoiced'  => empty($stop['visits']) /* orphaned stop → treat as done */
                           || array_reduce($stop['visits'], fn($carry, $v) => $carry || !empty($v['invoice_id']), false),
         ];
@@ -907,6 +975,21 @@ function buildFilterQuery(?int $crewId, ?string $serviceType): string {
 
 $filterQueryStr = buildFilterQuery($crewFilter, $serviceFilter);
 
+/** Tick-box job-type picker (a <details> list). Ticking updates a hidden csv input; $onDone runs after a short pause. */
+function mwTypeMultiHtml(array $types, ?string $selected, string $inputId, string $allLabel, string $onDone, string $dataBase = ''): string {
+    $on = ServiceTypeFilter::slugs($selected);
+    $summary = count($on) === 0 ? $allLabel : (count($on) === 1 ? ($types[$on[0]] ?? $on[0]) : count($on) . ' job types');
+    $h = '<details class="mw-typemulti"><summary>' . htmlspecialchars($summary) . '</summary><div class="mw-typemulti-list">';
+    $h .= '<label class="mw-typemulti-row"><input type="checkbox" class="mw-typemulti-all"' . (count($on) === 0 ? ' checked' : '') . '> ' . htmlspecialchars($allLabel) . '</label>';
+    foreach ($types as $slug => $label) {
+        $h .= '<label class="mw-typemulti-row"><input type="checkbox" class="mw-typemulti-one" value="' . htmlspecialchars((string)$slug) . '"'
+            . (in_array((string)$slug, $on, true) ? ' checked' : '') . '> ' . htmlspecialchars((string)$label) . '</label>';
+    }
+    $h .= '</div><input type="hidden" id="' . htmlspecialchars($inputId) . '" value="' . htmlspecialchars((string)$selected) . '"'
+        . ($dataBase !== '' ? ' data-base="' . htmlspecialchars($dataBase) . '"' : '') . ' data-done="' . htmlspecialchars($onDone) . '"></details>';
+    return $h;
+}
+
 // ─── Day names ──────────────────────────────────────────────────────
 $dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
@@ -932,12 +1015,16 @@ $mobileIsToday = ($mobileDate === $today);
 // ─── Day strip: 7-day week data for the Jobber-style strip in mobile topbar ──
 $stripWeekStart    = date('Y-m-d', strtotime('monday this week', strtotime($mobileDate)));
 $stripDays         = [];
+// The dot under each day, as on the iPhone (WeekStripService; orange = to do, green = done).
+require_once APP_ROOT . '/Modules/Jobs/Services/WeekStripService.php';
+$stripDots         = (new WeekStripService($db))->dots($stripWeekStart, $crewFilter);
 for ($i = 0; $i < 7; $i++) {
     $d = date('Y-m-d', strtotime($stripWeekStart . " +{$i} days"));
     $dw = $weekWeather[$d] ?? [];
     $stripDays[] = [
         'date'         => $d,
-        'day_letter'   => strtoupper(substr(date('D', strtotime($d)), 0, 1)), // M T W T F S S
+        'day_letter'   => strtoupper(date('D', strtotime($d))), // MON TUE … as on the iPhone
+        'dot'          => $stripDots[$d] ?? null,
         'day_num'      => (int)date('j', strtotime($d)),
         'is_today'     => ($d === $today),
         'is_selected'  => ($d === $mobileDate),
@@ -1118,6 +1205,12 @@ $userPermissions = function_exists('getUserPermissions')
     ? getUserPermissions((int)$user['id'])
     : [];
 
+// Can this user create a job / add a visit from the field? (FAB + empty-state CTA)
+$canFieldCreate = ($user['role'] ?? '') === 'admin'
+    || in_array('*', $userPermissions, true)
+    || in_array('jobs.create_field', $userPermissions, true)
+    || in_array('jobs.edit', $userPermissions, true);
+
 $totalStops = count($mobileStops);
 $completedStops = 0;
 foreach ($mobileStops as $s) {
@@ -1225,9 +1318,13 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260612g" rel="stylesheet">';
-$extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
-// Prefetch every day visible in the strip so any day tap is instant
+$crewLite  = !empty($_COOKIE['mw_native']); // Android app — see appstack_head.php
+// _av() lives in appstack_head.php, which is included below — bust the cache by mtime here.
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=' . (@filemtime(dirname(__DIR__) . '/css/mobile-cards.css') ?: time()) . '" rel="stylesheet">';
+$extraHead .= '<script src="/crm/js/offline-queue.js?v=20261008c" defer></script>';
+if (!$crewLite) {
+// Prefetch every day visible in the strip so any day tap is instant (office/PWA only —
+// on the crew app over LTE these seven ~250 KB fetches cost more than the tap they save)
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {
         $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($_sd['date']) . $filterQueryStr . '">';
@@ -1243,12 +1340,14 @@ $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($s
 $extraHead .= '<link rel="prefetch" href="/crm/expenses_appstack.php?mode=quick&return=schedule">';
 $extraHead .= '<link rel="prefetch" href="/crm/jobs/index.php">';
 $extraHead .= '<link rel="prefetch" href="/crm/timeclock/my-timesheet.php">';
+}
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
-        . '&libraries=geometry" defer></script>';
+        . '&libraries=geometry&loading=async" defer></script>';
 }
 ?>
+<?php $crewPage = true; // crew screen — slim vendor set inside the app (appstack_head.php) ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
           <div class="mw-page-header">
@@ -1261,14 +1360,17 @@ if ($apiKey) {
                       <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
-                      <button type="button" class="mw-datepicker-trigger" id="mwDpTrigger2"
+                      <button type="button" class="mw-datepicker-trigger"
                               data-current="<?php echo htmlspecialchars($dayDate); ?>"
-                              data-view="day"
+                              data-mw-dp-commit="navigate"
+                              data-mw-dp-mode="day"
+                              data-mw-dp-nav-set="view=day,date={iso}"
+                              data-mw-dp-nav-clear="start"
                               aria-haspopup="true" aria-expanded="false">
-                          <svg class="mw-dp-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                          <span class="mw-dp-weekday"><?php echo date('D', strtotime($dayDate)); ?></span>
-                          <span class="mw-dp-date"><?php echo date('M j, Y', strtotime($dayDate)); ?></span>
-                          <svg class="mw-dp-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                          <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                          <span class="mw-datepicker-weekday"><?php echo date('D', strtotime($dayDate)); ?></span>
+                          <span class="mw-datepicker-date"><?php echo date('M j, Y', strtotime($dayDate)); ?></span>
+                          <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       <a href="?view=day&date=<?php echo htmlspecialchars($nextDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -1278,13 +1380,16 @@ if ($apiKey) {
                       <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
-                      <button type="button" class="mw-datepicker-trigger" id="mwDpTrigger2"
+                      <button type="button" class="mw-datepicker-trigger"
                               data-current="<?php echo htmlspecialchars($startDate); ?>"
-                              data-view="week"
+                              data-mw-dp-commit="navigate"
+                              data-mw-dp-mode="week"
+                              data-mw-dp-nav-set="start={monday}"
+                              data-mw-dp-nav-clear="view,date"
                               aria-haspopup="true" aria-expanded="false">
-                          <svg class="mw-dp-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                          <span class="mw-dp-date"><?php echo date('M j', strtotime($startDate)); ?> – <?php echo date('M j, Y', strtotime($endDate)); ?></span>
-                          <svg class="mw-dp-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                          <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                          <span class="mw-datepicker-date"><?php echo date('M j', strtotime($startDate)); ?> – <?php echo date('M j, Y', strtotime($endDate)); ?></span>
+                          <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -1293,37 +1398,9 @@ if ($apiKey) {
                   <?php endif; ?>
               </div>
 
-              <!-- ── Date Picker Dropdown ── -->
-              <div class="mw-datepicker-popup" id="mwDpPopup2" role="dialog" aria-label="Date picker" hidden>
-                  <div class="mw-dp-header">
-                      <button type="button" class="mw-dp-nav-btn" id="mwDpPrevMonth" aria-label="Previous month">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                      </button>
-                      <span class="mw-dp-month-label" id="mwDpMonthLabel"></span>
-                      <button type="button" class="mw-dp-nav-btn" id="mwDpNextMonth" aria-label="Next month">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                      </button>
-                  </div>
-                  <div class="mw-dp-weekdays">
-                      <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
-                  </div>
-                  <div class="mw-dp-grid" id="mwDpGrid"></div>
-                  <div class="mw-dp-footer">
-                      <button type="button" class="mw-dp-today-link" id="mwDpTodayBtn">Jump to Today</button>
-                  </div>
-              </div>
-
               <div class="mw-schedule-filters">
                   <!-- Service filter -->
-                  <select id="serviceFilter" class="form-control form-control-sm" onchange="applyFilter()">
-                      <option value="">All Services</option>
-                      <?php foreach ($serviceLabels as $key => $label): ?>
-                          <option value="<?php echo htmlspecialchars($key); ?>"
-                              <?php echo ($serviceFilter === $key) ? 'selected' : ''; ?>>
-                              <?php echo htmlspecialchars($label); ?>
-                          </option>
-                      <?php endforeach; ?>
-                  </select>
+                  <?php echo mwTypeMultiHtml($serviceLabels, $serviceFilter, 'serviceFilter', 'All Services', 'applyFilter'); ?>
                   <!-- Crew filter -->
                   <select id="crewFilter" class="form-control form-control-sm" onchange="applyFilter()">
                       <option value="">All Crews</option>
@@ -1350,6 +1427,15 @@ if ($apiKey) {
                   <?php endif; ?>
               </div>
           </div>
+
+          <?php
+          // Otto owns the schedule: his strip for the day / week in view (jobs.edit only; loads after the page).
+          $ottoStrip = $view === 'day' ? ['date' => $dayDate] : ['from' => $startDate, 'to' => $endDate];
+          include dirname(__DIR__) . '/includes/otto-schedule-strip.php';
+          // Salt & snow route stops show only while a run is on (SnowRunGate): the strip with Start / End run.
+          $snowRunBanner = ['date' => $view === 'day' ? $dayDate : date('Y-m-d')];
+          include dirname(__DIR__) . '/includes/snow-run-banner.php';
+          ?>
 
           <!-- ═══════════════════════════════════════════════
                MISSION CONTROL HEADER (Week View Only)
@@ -1659,8 +1745,20 @@ if ($apiKey) {
                       });
                   ?>
                       <?php
-                      // ─── Day Summary Card variables for this day ───────────
-                      $bcData    = $mcBattleCards[$dateStr] ?? [];
+                      // ─── Day Summary Card data for this day ────────────────
+                      // Merges the week's precomputed battle-card + feasibility batches into the
+                      // single shape partials/day-summary-card.php expects — the same shape
+                      // computeDayBattleCard() returns for a single date (used by
+                      // reschedule-stop.php to refresh just the affected day(s) after a drag,
+                      // without a full page reload).
+                      $bcData = array_merge(
+                          $mcBattleCards[$dateStr] ?? [],
+                          $mcFeasibility[$dateStr] ?? ['verdict'=>'empty','issues'=>[],'signals'=>[],'load_pct'=>0],
+                          [
+                              'duration_min'     => (int)($mcDayStats[$dateStr]['duration_min'] ?? 0),
+                              'has_crew_overlap' => !empty($dayCrewOverlaps[$dateStr]),
+                          ]
+                      );
                       $bcMargin  = $bcData['margin']       ?? null;
                       $bcDensity = $bcData['density']      ?? 0;
                       $bcRisk    = $bcData['weather_risk'] ?? 'low';
@@ -1668,52 +1766,6 @@ if ($apiKey) {
                       $bcRev     = $bcData['revenue']      ?? 0;
                       $bcStops   = $bcData['stops']        ?? 0;
                       $bcDrive   = $bcData['drive_min']    ?? 0;
-
-                      // ─── Feasibility verdict for this day ──────────────────
-                      $bcFeas       = $mcFeasibility[$dateStr] ?? ['verdict'=>'empty','issues'=>[],'signals'=>[],'load_pct'=>0];
-                      $bcVerdict    = $bcFeas['verdict'];   // go | caution | no-go | empty
-                      $bcIssues     = $bcFeas['issues'];
-                      $bcLoadPct    = $bcFeas['load_pct'];
-                      $bcSignals    = $bcFeas['signals'];
-                      $bcLabelMap = ['go' => 'Route GO', 'caution' => 'Caution', 'no-go' => 'No-Go'];
-                      $bcIconMap  = ['go' => '&#10003;', 'caution' => '&#9888;', 'no-go' => '&#10005;'];
-                      $bcVerdictLabel = $bcLabelMap[$bcVerdict] ?? '';
-                      $bcVerdictIcon  = $bcIconMap[$bcVerdict]  ?? '';
-                      $bcTooltip = empty($bcIssues)
-                          ? ($bcVerdict === 'go' ? "All systems go · {$bcLoadPct}% capacity" : '')
-                          : implode(' · ', $bcIssues);
-
-                      // ─── Day Summary Card tier + classes ───────────────────
-                      $dscTier = 'grey';
-                      if ($bcMargin !== null) {
-                          $dscTier = $bcMargin >= 30 ? 'green' : ($bcMargin >= 15 ? 'amber' : 'red');
-                      }
-                      $dscLoss = ($bcMargin !== null && $bcMargin < 0);
-
-                      // Density color class
-                      $dscDensityClass = $bcDensity >= 70 ? '' : ($bcDensity >= 40 ? 'dv-amber' : 'dv-red');
-                      if ($bcStops === 0) $dscDensityClass = 'dv-grey';
-
-                      // Drive time color (inverse: less = better)
-                      $dscDriveClass = $bcDrive <= 30 ? '' : ($bcDrive <= 60 ? 'drv-amber' : 'drv-red');
-                      if ($bcStops === 0) $dscDriveClass = 'drv-grey';
-
-                      // Margin bar fill width (0–100, clamped, negatives shown as 0)
-                      $dscMarginFill = ($bcMargin !== null) ? max(0, min(100, $bcMargin)) : 0;
-
-                      // Time load segments
-                      $dscJobMin   = (int)($mcDayStats[$dateStr]['duration_min'] ?? 0);
-                      $dscDriveMin = (int)$bcDrive;
-                      $dscTotalMin = $dscJobMin + $dscDriveMin;
-                      $dscCapacity = 480; // 8-hour day in minutes
-                      $dscJobPct   = min(85, round(($dscJobMin / max(1, $dscCapacity)) * 100));
-                      $dscDrivePct = min(85 - $dscJobPct, round(($dscDriveMin / max(1, $dscCapacity)) * 100));
-                      $dscDriveOverload = ($dscDriveMin > 0 && $dscJobMin > 0 && $dscDriveMin >= $dscJobMin);
-                      $dscTotalH   = intdiv($dscTotalMin, 60);
-                      $dscTotalM   = $dscTotalMin % 60;
-                      $dscTimeTotalLabel = $dscTotalH > 0 ? "{$dscTotalH}h {$dscTotalM}m" : "{$dscTotalM}m";
-                      $dscTimeTierClass  = $dscTotalMin <= 240 ? 'tl-green' : ($dscTotalMin <= 360 ? 'tl-amber' : 'tl-red');
-                      if ($bcStops === 0) $dscTimeTierClass = 'tl-grey';
 
                       // Legacy values (heatmap + margin class) used by existing JS/CSS
                       $bcHeatmapAlpha = round(($bcDensity / 100) * 0.08, 3);
@@ -1728,108 +1780,7 @@ if ($apiKey) {
                            style="--bc-heat: <?php echo $bcHeatmapAlpha; ?>">
 
                           <!-- ─ Day Summary Card ──────────────────────────── -->
-                          <?php if ($bcStops > 0): ?>
-                          <div class="mw-dsc dsc-tier-<?php echo $dscTier; ?><?php echo $dscLoss ? ' dsc-loss' : ''; ?>"
-                               title="<?php echo htmlspecialchars("Revenue \${$bcRev} · Margin {$bcMargin}% · Density {$bcDensity}/100"); ?>">
-
-                              <!-- Row 1: Revenue + TODAY badge + stop count -->
-                              <div class="mw-dsc-top">
-                                  <span class="mw-dsc-revenue">$<?php echo number_format($bcRev, 0); ?></span>
-                                  <?php if ($isToday): ?>
-                                  <span class="mw-dsc-today-badge">Today</span>
-                                  <?php endif; ?>
-                                  <?php if (!empty($dayCrewOverlaps[$dateStr])): ?>
-                                  <span class="mw-crew-overlap-badge" title="A crew member has multiple stops on this day">&#9888;</span>
-                                  <?php endif; ?>
-                                  <?php if ($dscLoss): ?>
-                                  <span class="mw-dsc-outlier-flag" title="Loss day">&#9888;</span>
-                                  <?php elseif ($bcOutlier): ?>
-                                  <span class="mw-dsc-outlier-flag" title="Low-margin stop">&#9888;</span>
-                                  <?php endif; ?>
-                                  <span class="mw-dsc-stops"><?php echo $bcStops; ?> stop<?php echo $bcStops !== 1 ? 's' : ''; ?></span>
-                              </div>
-
-                              <!-- Row 2: Margin pill + fill bar -->
-                              <?php if ($bcMargin !== null): ?>
-                              <div class="mw-dsc-margin-row">
-                                  <span class="mw-dsc-margin-pill"><?php echo $bcMargin; ?>%</span>
-                                  <div class="mw-dsc-margin-bar-track">
-                                      <div class="mw-dsc-margin-bar-fill" style="width:<?php echo $dscMarginFill; ?>%"></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <!-- Row 3: Density bar + Drive time -->
-                              <div class="mw-dsc-metrics">
-                                  <div class="mw-dsc-density">
-                                      <div class="mw-dsc-density-header">
-                                          <span class="mw-dsc-density-label">Density</span>
-                                          <span class="mw-dsc-density-val <?php echo $dscDensityClass; ?>"><?php echo $bcDensity; ?></span>
-                                      </div>
-                                      <div class="mw-dsc-density-track">
-                                          <div class="mw-dsc-density-fill" style="width:<?php echo $bcDensity; ?>%;background:<?php
-                                              echo $bcDensity >= 70 ? 'linear-gradient(90deg,#34D399,#2D8659)' :
-                                                  ($bcDensity >= 40 ? 'linear-gradient(90deg,#FCD34D,#F59E0B)' : 'linear-gradient(90deg,#F87171,#DC2626)');
-                                          ?>"></div>
-                                      </div>
-                                  </div>
-                                  <div class="mw-dsc-drive">
-                                      <span class="mw-dsc-drive-val <?php echo $dscDriveClass; ?>"><?php echo $bcDrive; ?>m</span>
-                                      <span class="mw-dsc-drive-label">
-                                          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-                                          drive
-                                      </span>
-                                  </div>
-                              </div>
-
-                              <!-- Row 4: Time load segmented bar -->
-                              <?php if ($dscTotalMin > 0): ?>
-                              <div class="mw-dsc-divider"></div>
-                              <div class="mw-dsc-time-row">
-                                  <div class="mw-dsc-time-header">
-                                      <span class="mw-dsc-time-label">Time load</span>
-                                      <span class="mw-dsc-time-total <?php echo $dscTimeTierClass; ?>"><?php echo $dscTimeTotalLabel; ?></span>
-                                  </div>
-                                  <div class="mw-dsc-time-track">
-                                      <div class="mw-dsc-seg-job" style="width:<?php echo $dscJobPct; ?>%"></div>
-                                      <div class="mw-dsc-seg-drive<?php echo $dscDriveOverload ? ' is-overload' : ''; ?>" style="width:<?php echo $dscDrivePct; ?>%"></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <!-- Feasibility verdict row -->
-                              <?php if ($bcVerdict !== 'empty'): ?>
-                              <div class="mw-dsc-divider"></div>
-                              <div class="mw-bc-feasibility mw-bc-feas-<?php echo $bcVerdict; ?>"
-                                   title="<?php echo htmlspecialchars($bcTooltip); ?>">
-                                  <span class="mw-bc-feas-icon"><?php echo $bcVerdictIcon; ?></span>
-                                  <span class="mw-bc-feas-label"><?php echo $bcVerdictLabel; ?></span>
-                                  <?php if (!empty($bcIssues)): ?>
-                                  <span class="mw-bc-feas-issues"><?php echo count($bcIssues); ?> issue<?php echo count($bcIssues) > 1 ? 's' : ''; ?></span>
-                                  <?php else: ?>
-                                  <span class="mw-bc-feas-pct"><?php echo $bcLoadPct; ?>%</span>
-                                  <?php endif; ?>
-                                  <div class="mw-bc-feas-signals">
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['crew'] ?? 'grey'; ?>" title="Crew">&#128100;</span>
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['load'] ?? 'grey'; ?>" title="Load">&#128202;</span>
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['weather'] ?? 'grey'; ?>" title="Weather">&#127780;</span>
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['blocked'] ?? 'grey'; ?>" title="Blocked">&#128683;</span>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <!-- Bottom profit meter -->
-                              <?php if ($bcMargin !== null): ?>
-                              <div class="mw-dsc-profit-meter" title="Margin: <?php echo $bcMargin; ?>%">
-                                  <div class="mw-dsc-profit-fill" style="width:<?php echo $dscMarginFill; ?>%"></div>
-                              </div>
-                              <?php endif; ?>
-                          </div>
-                          <?php else: ?>
-                          <div class="mw-dsc dsc-empty">
-                              <div class="mw-dsc-empty-label">No stops</div>
-                          </div>
-                          <?php endif; ?>
+                          <?php include dirname(__DIR__) . '/partials/day-summary-card.php'; ?>
 
                           <!-- ── Placement Intelligence Strip ──────────────── -->
                           <!-- Hidden until a tray card is selected/hovered. JS  -->
@@ -1858,8 +1809,10 @@ if ($apiKey) {
                           </div>
                           <?php endif; ?>
 
+                          <?php foreach (($appointmentsByDate[$dateStr] ?? []) as $ap) echo mwAppointmentCard($ap); ?>
+
                           <?php if (empty($dayStops)): ?>
-                              <div class="mw-day-empty">No stops</div>
+                              <?php if (empty($appointmentsByDate[$dateStr])): ?><div class="mw-day-empty">No stops</div><?php endif; ?>
                           <?php else: ?>
                               <?php
                               // Convert to indexed array for distance-to-next calculation
@@ -1909,7 +1862,6 @@ if ($apiKey) {
                                       }
                                   ?>
                                   <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?>"
-                                       draggable="true"
                                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                        data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
                                        data-route-order="<?php echo (int)$stop['route_order']; ?>"
@@ -2045,7 +1997,8 @@ if ($apiKey) {
 
                           <?php
                           // Purchase task mini-cards for this day column (week view)
-                          $dtPurchaseTasks = $purchaseTasksByDate[$ds] ?? [];
+                          // $dateStr, not $ds: $ds is left over from an earlier loop (the week's last day), so every column showed that day's tasks
+                          $dtPurchaseTasks = $purchaseTasksByDate[$dateStr] ?? [];
                           foreach ($dtPurchaseTasks as $ptMini):
                               $_ptMiniStatus = $ptMini['purchase_status'] ?? 'requested';
                               $_ptMiniStatusLabels = ['requested'=>'Requested','assigned'=>'Assigned','en_route'=>'En Route','at_vendor'=>'At Vendor','purchased'=>'Purchased','delivered'=>'Delivered','verified'=>'Verified'];
@@ -2125,6 +2078,8 @@ if ($apiKey) {
                                       'plan_number'  => $v['plan_number'] ?? '',
                                       'service_type' => $v['service_type'] ?? '',
                                       'price'        => (float)($v['price_per_visit'] ?? 0),
+                                      'pricing_model' => $v['pricing_model'] ?? 'per_visit',
+                                      'is_contract_billed' => !empty($v['is_contract_billed']),
                                   ];
                               }
                           }
@@ -2142,7 +2097,7 @@ if ($apiKey) {
                            data-visits="<?php echo htmlspecialchars(json_encode($dvVisitsJson)); ?>"
                            data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
                            data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
-                          <button type="button" class="mw-dv-pin-btn" data-stop-id="<?php echo (int)$stop['stop_id']; ?>" title="Pin as 1st stop">
+                          <button type="button" class="mw-dv-pin-btn" data-stop-id="<?php echo (int)$stop['stop_id']; ?>" data-pin="<?php echo htmlspecialchars($stop['route_pin'] ?? ''); ?>" title="Pin as 1st stop">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                           </button>
                           <div class="mw-dv-card-body">
@@ -2233,13 +2188,36 @@ if ($apiKey) {
                           $dvStopDone  = !$dvHasVisits
                                       || ($stop['stop_status'] ?? 'scheduled') === 'completed'
                                       || $dvInvoiceId > 0;
+                          // Skipped = crew/desktop marked the job not-done. Detected from the
+                          // stop status (set once my propagation runs) OR, for stops skipped
+                          // before that propagation existed, from all visits being 'skipped'.
+                          $dvVisitStatuses = array_column($stop['visits'] ?? [], 'visit_status');
+                          $dvAllSkipped = !empty($dvVisitStatuses)
+                              && count(array_filter($dvVisitStatuses, fn($s) => $s === 'skipped')) === count($dvVisitStatuses);
+                          $dvStopSkipped = !$dvStopDone
+                              && (($stop['stop_status'] ?? '') === 'skipped' || $dvAllSkipped);
                           // Pricing model check applies to both done + pending states.
                           $dvPerVisit = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
-                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit = false; break; }
+                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit' || !empty($_v['is_contract_billed'])) {
+                                  $dvPerVisit = false; break;
+                              }
                           }
                           ?>
-                          <?php if ($dvStopDone): ?>
+                          <?php if ($dvStopSkipped): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-skipped">
+                              <span class="mw-dv-skip-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                  Skipped
+                              </span>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen mw-dv-btn-unskip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Undo skip — put this stop back on the route">Unskip</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php elseif ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
                               <span class="mw-dv-done-badge">
                                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -2286,6 +2264,13 @@ if ($apiKey) {
                                   Complete
                               </button>
                               <?php endif; ?>
+                              <button class="mw-dv-btn-skip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      title="Skip this stop — not done today">Skip</button>
+                              <?php if (!empty($stop['visits'][0]['visit_id']) && userHasPermission('jobs.edit')): ?>
+                              <a class="mw-dv-btn-sub" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$stop['visits'][0]['visit_id']; ?>#mw-sub"
+                                 title="Give this job to another company">Subcontract</a>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2315,6 +2300,8 @@ if ($apiKey) {
                                       'plan_number'  => $v['plan_number'] ?? '',
                                       'service_type' => $v['service_type'] ?? '',
                                       'price'        => (float)($v['price_per_visit'] ?? 0),
+                                      'pricing_model' => $v['pricing_model'] ?? 'per_visit',
+                                      'is_contract_billed' => !empty($v['is_contract_billed']),
                                   ];
                               }
                           }
@@ -2395,10 +2382,31 @@ if ($apiKey) {
                           // Pricing model check for done + pending states.
                           $dvPerVisit2 = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
-                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit2 = false; break; }
+                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit' || !empty($_v['is_contract_billed'])) {
+                                  $dvPerVisit2 = false; break;
+                              }
                           }
                           ?>
-                          <?php if ($dvStopDone): ?>
+                          <?php
+                          $dvVisitStatuses2 = array_column($stop['visits'] ?? [], 'visit_status');
+                          $dvStopSkipped2 = !$dvStopDone && !empty($dvVisitStatuses2)
+                              && (($stop['stop_status'] ?? '') === 'skipped'
+                                  || count(array_filter($dvVisitStatuses2, fn($s) => $s === 'skipped')) === count($dvVisitStatuses2));
+                          ?>
+                          <?php if ($dvStopSkipped2): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-skipped">
+                              <span class="mw-dv-skip-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                  Skipped
+                              </span>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen mw-dv-btn-unskip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Undo skip — put this stop back on the route">Unskip</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php elseif ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
                               <span class="mw-dv-done-badge">
                                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -2442,10 +2450,27 @@ if ($apiKey) {
                                   Complete
                               </button>
                               <?php endif; ?>
+                              <button class="mw-dv-btn-skip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      title="Skip this stop — not done today">Skip</button>
+                              <?php if (!empty($stop['visits'][0]['visit_id']) && userHasPermission('jobs.edit')): ?>
+                              <a class="mw-dv-btn-sub" href="/crm/jobs/visit-detail.php?id=<?php echo (int)$stop['visits'][0]['visit_id']; ?>#mw-sub"
+                                 title="Give this job to another company">Subcontract</a>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
                       <?php endforeach; ?>
+                  </div>
+                  <?php endif; ?>
+
+                  <?php $dvAppointments = $appointmentsByDate[$dayDate] ?? []; if ($dvAppointments): ?>
+                  <div class="mw-dv-section mw-dv-section-appointments">
+                      <div class="mw-dv-section-header">
+                          <span class="mw-dv-section-title">Appointments</span>
+                          <span class="mw-dv-section-count"><?php echo count($dvAppointments); ?></span>
+                      </div>
+                      <?php foreach ($dvAppointments as $ap) echo mwAppointmentCard($ap); ?>
                   </div>
                   <?php endif; ?>
 
@@ -2468,7 +2493,7 @@ if ($apiKey) {
                   </div>
                   <?php endif; ?>
 
-                  <?php if (empty($assignedStops) && empty($unassignedStops) && empty($dvPurchaseTasks)): ?>
+                  <?php if (empty($assignedStops) && empty($unassignedStops) && empty($dvPurchaseTasks) && empty($dvAppointments)): ?>
                   <div class="mw-dv-empty">
                       <div class="mw-dv-empty-icon">&#128197;</div>
                       <div class="mw-dv-empty-text">No stops scheduled</div>
@@ -2496,6 +2521,14 @@ if ($apiKey) {
                       </button>
                   </div>
                   <div class="mw-dv-map" id="mwDvMap"></div>
+                  <div class="mw-dv-map-legend">
+                      <span class="mw-dv-legend-item">
+                          <span class="mw-dv-legend-pin mw-dv-legend-pin-done">&#10003;</span> Completed
+                      </span>
+                      <span class="mw-dv-legend-item">
+                          <span class="mw-dv-legend-pin mw-dv-legend-pin-skip">&#10005;</span> Skipped
+                      </span>
+                  </div>
               </div>
           </div>
           <?php endif; ?>
@@ -2592,6 +2625,9 @@ if ($apiKey) {
                       <span class="mw-mc-strip-progress-pill"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
                       <?php endif; ?>
                       <div class="mw-mc-strip-right">
+                          <button type="button" class="mw-mc-topbar-locate mw-mc-topbar-route" id="mwRouteBtn" title="Route map" aria-label="Route map" onclick="MwRouteMap.toggle()">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                  </button>
                           <button class="mw-mc-topbar-locate" id="mobileTrackingDot" title="Checking GPS...">
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
                           </button>
@@ -2600,6 +2636,25 @@ if ($apiKey) {
                               <?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;
                           </span>
                       </div>
+                  </div>
+
+                  <!-- Row 1b: whose jobs · job type (CrewViewScope, 2026-10-14; remembered per person) -->
+                  <?php
+                  $__scopeBase = '?view=day&date=' . urlencode($mobileDate);
+                  $__typeList  = $serviceTypeLabels ?: $serviceLabels;
+                  ?>
+                  <div class="mw-mc-scope-bar">
+                      <?php if ($viewScope['can_switch']): ?>
+                      <div class="mw-mc-scope-toggle" role="group" aria-label="Whose jobs">
+                          <a href="<?php echo htmlspecialchars($__scopeBase . '&scope=mine'); ?>"
+                             class="mw-mc-scope-btn<?php echo $viewScope['scope'] === 'mine' ? ' is-on' : ''; ?>"
+                             <?php echo $viewScope['scope'] === 'mine' ? 'aria-current="true"' : ''; ?>>Mine</a>
+                          <a href="<?php echo htmlspecialchars($__scopeBase . '&scope=all'); ?>"
+                             class="mw-mc-scope-btn<?php echo $viewScope['scope'] === 'all' ? ' is-on' : ''; ?>"
+                             <?php echo $viewScope['scope'] === 'all' ? 'aria-current="true"' : ''; ?>>All crews</a>
+                      </div>
+                      <?php endif; ?>
+                      <?php echo mwTypeMultiHtml($__typeList, $serviceFilter, 'mcServiceFilter', 'All job types', 'mwMcTypeGo', $__scopeBase); ?>
                   </div>
 
                   <!-- Row 2: prev-week · 7 days · next-week -->
@@ -2623,6 +2678,8 @@ if ($apiKey) {
                              <?php if ($sd['is_holiday'] && $sd['holiday_name']): ?>title="<?php echo htmlspecialchars($sd['holiday_name']); ?>"<?php endif; ?>>
                               <span class="mw-mc-strip-day-letter"><?php echo htmlspecialchars($sd['day_letter']); ?></span>
                               <span class="mw-mc-strip-day-num"><?php echo $sd['day_num']; ?></span>
+                              <span class="mw-mc-strip-day-dot<?php echo $sd['dot'] ? ' mw-mc-strip-day-dot-' . $sd['dot'] : ''; ?>"
+                                    <?php if ($sd['dot']): ?>aria-label="<?php echo $sd['dot'] === 'todo' ? 'Work to do' : 'All done'; ?>"<?php else: ?>aria-hidden="true"<?php endif; ?>></span>
                           </a>
                           <?php endforeach; ?>
                       </div>
@@ -2698,189 +2755,8 @@ if ($apiKey) {
               <?php if (empty($user['is_driver'])): ?>
               <div class="mw-ds-wrap<?php echo $isClockedIn ? ' mw-ds-wrap-active' : ''; ?>">
 
-                  <!-- Metrics card -->
-                  <div class="mw-ds-card" id="mwGreetingCard">
-                      <div class="mw-ds-greeting">
-                          <span class="mw-ds-hi"><?php echo htmlspecialchars($dayGreeting . ', ' . $greetingFirstName); ?></span>
-                          <span class="mw-ds-date-lbl"><?php echo date('l, F j', strtotime($mobileDate)); ?></span>
-                      </div>
-                      <?php if ($sc['show_job_count'] || ($sc['show_revenue'] && $summaryRevenue > 0) || ($sc['show_total_time'] && $summaryMinutes > 0)): ?>
-                      <div class="mw-ds-metrics">
-                          <?php if ($sc['show_job_count']): ?>
-                          <div class="mw-ds-metric">
-                              <span class="mw-ds-mval"><?php echo $totalStops; ?></span>
-                              <span class="mw-ds-mlbl"><?php echo $totalStops === 1 ? 'Stop' : 'Stops'; ?></span>
-                          </div>
-                          <?php endif; ?>
-                          <?php if ($sc['show_revenue'] && $summaryRevenue > 0): ?>
-                          <div class="mw-ds-metric">
-                              <span class="mw-ds-mval">$<?php echo number_format($summaryRevenue, 0); ?></span>
-                              <span class="mw-ds-mlbl">Est. Revenue</span>
-                          </div>
-                          <?php endif; ?>
-                          <?php if ($sc['show_total_time'] && $summaryMinutes > 0): ?>
-                          <div class="mw-ds-metric">
-                              <span class="mw-ds-mval"><?php echo $summaryMinutes >= 60 ? round($summaryMinutes / 60, 1) . 'h' : $summaryMinutes . 'm'; ?></span>
-                              <span class="mw-ds-mlbl">Est. Time</span>
-                          </div>
-                          <?php endif; ?>
-                          <?php if ($completedStops > 0 && $totalStops > 0): ?>
-                          <div class="mw-ds-metric mw-ds-metric-done">
-                              <span class="mw-ds-mval"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
-                              <span class="mw-ds-mlbl">Done</span>
-                          </div>
-                          <?php endif; ?>
-                      </div>
-                      <?php endif; ?>
-                  </div>
-                  <script>
-                  (function () {
-                      var STORAGE_KEY = 'mw_greeting_dismissed_<?php echo date('Y-m-d'); ?>';
-                      var card = document.getElementById('mwGreetingCard');
-                      if (!card) return;
-
-                      // Already dismissed today — hide immediately with no animation
-                      if (localStorage.getItem(STORAGE_KEY)) {
-                          card.style.display = 'none';
-                          return;
-                      }
-
-                      function dismissCard() {
-                          card.style.transition = 'opacity .3s ease, max-height .35s ease, margin-bottom .35s ease, padding .35s ease';
-                          card.style.overflow   = 'hidden';
-                          card.style.maxHeight  = card.offsetHeight + 'px';
-                          requestAnimationFrame(function () {
-                              card.style.opacity      = '0';
-                              card.style.maxHeight    = '0';
-                              card.style.marginBottom = '0';
-                              card.style.padding      = '0';
-                          });
-                          setTimeout(function () { card.style.display = 'none'; }, 380);
-                          localStorage.setItem(STORAGE_KEY, '1');
-                      }
-
-                      var startX = 0, startY = 0, tracking = false;
-                      card.addEventListener('touchstart', function (e) {
-                          startX = e.touches[0].clientX;
-                          startY = e.touches[0].clientY;
-                          tracking = true;
-                          card.style.transition = 'none';
-                          card.style.willChange = 'transform, opacity';
-                          e.stopPropagation();
-                      }, { passive: true });
-
-                      card.addEventListener('touchmove', function (e) {
-                          if (!tracking) return;
-                          var dx = e.touches[0].clientX - startX;
-                          var dy = e.touches[0].clientY - startY;
-                          if (Math.abs(dy) > Math.abs(dx) + 10) { tracking = false; card.style.transform = ''; card.style.opacity = ''; return; }
-                          e.stopPropagation();
-                          card.style.transform = 'translateX(' + dx + 'px)';
-                          card.style.opacity   = String(Math.max(0, 1 - Math.abs(dx) / 160));
-                      }, { passive: false });
-
-                      card.addEventListener('touchend', function (e) {
-                          if (!tracking) return;
-                          tracking = false;
-                          e.stopPropagation();
-                          var dx = e.changedTouches[0].clientX - startX;
-                          if (Math.abs(dx) > 80) {
-                              card.style.transition = 'transform .25s ease, opacity .25s ease';
-                              card.style.transform  = 'translateX(' + (dx > 0 ? '110%' : '-110%') + ')';
-                              card.style.opacity    = '0';
-                              setTimeout(dismissCard, 240);
-                          } else {
-                              card.style.transition = 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease';
-                              card.style.transform  = '';
-                              card.style.opacity    = '';
-                          }
-                          card.style.willChange = '';
-                      }, { passive: true });
-                  })();
-                  </script>
-
-                  <!-- Weather AM / PM split -->
-                  <?php if ($sc['show_morning_weather'] || $sc['show_afternoon_weather']): ?>
-                  <div class="mw-ds-weather-row" id="mwWeatherRow">
-                      <?php if ($sc['show_morning_weather']): ?>
-                      <div class="mw-ds-wx mw-ds-wx-am">
-                          <span class="mw-ds-wx-label">Morning</span>
-                          <span class="mw-ds-wx-icon"><?php echo $weatherAM['icon'] ?? '☀️'; ?></span>
-                          <span class="mw-ds-wx-temp"><?php echo round((float)($weatherAM['temp_c'] ?? 8)); ?>&deg;</span>
-                          <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherAM['condition'] ?? 'Clear'))); ?></span>
-                          <?php if (!empty($weatherAM['precip_chance_pct']) && (int)$weatherAM['precip_chance_pct'] > 10): ?>
-                          <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherAM['precip_chance_pct']; ?>%</span>
-                          <?php endif; ?>
-                      </div>
-                      <?php endif; ?>
-                      <?php if ($sc['show_afternoon_weather']): ?>
-                      <div class="mw-ds-wx mw-ds-wx-pm">
-                          <span class="mw-ds-wx-label">Afternoon</span>
-                          <span class="mw-ds-wx-icon"><?php echo $weatherPM['icon'] ?? '⛅'; ?></span>
-                          <span class="mw-ds-wx-temp"><?php echo round((float)($weatherPM['temp_c'] ?? 12)); ?>&deg;</span>
-                          <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherPM['condition'] ?? 'Clear'))); ?></span>
-                          <?php if (!empty($weatherPM['precip_chance_pct']) && (int)$weatherPM['precip_chance_pct'] > 10): ?>
-                          <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherPM['precip_chance_pct']; ?>%</span>
-                          <?php endif; ?>
-                      </div>
-                      <?php endif; ?>
-                  </div>
-                  <?php endif; ?>
-                  <script>
-                  (function () {
-                      var STORAGE_KEY = 'mw_weather_dismissed_<?php echo date('Y-m-d'); ?>';
-                      var row = document.getElementById('mwWeatherRow');
-                      if (!row) return;
-                      if (localStorage.getItem(STORAGE_KEY)) { row.style.display = 'none'; return; }
-
-                      function dismissRow() {
-                          row.style.transition = 'opacity .3s ease, max-height .35s ease, margin-bottom .35s ease';
-                          row.style.overflow   = 'hidden';
-                          row.style.maxHeight  = row.offsetHeight + 'px';
-                          requestAnimationFrame(function () {
-                              row.style.opacity      = '0';
-                              row.style.maxHeight    = '0';
-                              row.style.marginBottom = '0';
-                          });
-                          setTimeout(function () { row.style.display = 'none'; }, 380);
-                          localStorage.setItem(STORAGE_KEY, '1');
-                      }
-
-                      var startX = 0, startY = 0, tracking = false;
-                      row.addEventListener('touchstart', function (e) {
-                          startX = e.touches[0].clientX;
-                          startY = e.touches[0].clientY;
-                          tracking = true;
-                          row.style.transition = 'none';
-                          e.stopPropagation();
-                      }, { passive: true });
-                      row.addEventListener('touchmove', function (e) {
-                          if (!tracking) return;
-                          var dx = e.touches[0].clientX - startX;
-                          var dy = e.touches[0].clientY - startY;
-                          if (Math.abs(dy) > Math.abs(dx) + 10) { tracking = false; row.style.transform = ''; row.style.opacity = ''; return; }
-                          e.stopPropagation();
-                          row.style.transform = 'translateX(' + dx + 'px)';
-                          row.style.opacity   = String(Math.max(0, 1 - Math.abs(dx) / 160));
-                      }, { passive: false });
-                      row.addEventListener('touchend', function (e) {
-                          if (!tracking) return;
-                          tracking = false;
-                          e.stopPropagation();
-                          var dx = e.changedTouches[0].clientX - startX;
-                          if (Math.abs(dx) > 80) {
-                              row.style.transition = 'transform .25s ease, opacity .25s ease';
-                              row.style.transform  = 'translateX(' + (dx > 0 ? '110%' : '-110%') + ')';
-                              row.style.opacity    = '0';
-                              setTimeout(dismissRow, 240);
-                          } else {
-                              row.style.transition = 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease';
-                              row.style.transform  = '';
-                              row.style.opacity    = '';
-                          }
-                      }, { passive: true });
-                  })();
-                  </script>
+                  <!-- Greeting metrics card + AM/PM weather row removed 2026-10-08: Home Base shows them;
+                       the strip header above keeps progress + today's temperature. -->
 
                   <!-- Clock in/out card — only shown when not clocked in (bottom nav handles the clocked-in state) -->
                   <?php if ($sc['show_clock_card'] && !$isClockedIn): ?>
@@ -2936,11 +2812,29 @@ if ($apiKey) {
                       <div class="mw-mc-empty-icon">&#127793;</div>
                       <div class="mw-mc-empty-text">No stops today</div>
                       <div class="mw-mc-empty-sub">Check the weekly view for upcoming work</div>
+                      <?php if ($canFieldCreate): ?>
+                      <button type="button" class="mw-fj-empty-btn" onclick="if(window.MwFieldJob)window.MwFieldJob.open();">&#10133; Add a job here</button>
+                      <?php endif; ?>
                   </div>
               <?php else: ?>
 
                   <?php
                   // Separate completed vs upcoming
+                  // Service history for every visit on the day, in one pass (optional garnish —
+                  // the schedule must render even if it fails).
+                  $mwServiceHistory = [];
+                  try {
+                      require_once APP_ROOT . '/Modules/Jobs/Services/ServiceHistoryService.php';
+                      require_once dirname(__DIR__) . '/partials/service-history.php';
+                      $_shIds = [];
+                      foreach ($mobileStops as $_shStop) {
+                          foreach (($_shStop['visits'] ?? []) as $_shV) { $_shIds[] = (int)($_shV['visit_id'] ?? 0); }
+                      }
+                      $mwServiceHistory = (new ServiceHistoryService(getDB()))->forVisits($_shIds, date('Y-m-d'));
+                  } catch (Throwable $e) {
+                      error_log('[schedule] service history failed: ' . $e->getMessage());
+                  }
+
                   $upcomingStops = [];
                   $completedStopsList = [];
                   foreach ($mobileStops as $idx => $stop) {
@@ -2954,6 +2848,9 @@ if ($apiKey) {
                       }
                   }
                   ?>
+                  <!-- Route From Here button is injected next to the search box by the
+                       inline route script below (mwRfhBtn), so it sits in the fixed
+                       header area and never scrolls away with the card list. -->
 
                   <?php if (!empty($upcomingStops)): ?>
                       <!-- All upcoming stops rendered as compact cards; JS promotes the GPS-matched one -->
@@ -2976,6 +2873,11 @@ if ($apiKey) {
               <?php endif; // empty mobileStops ?>
               <?php endif; // isClockedIn gate ?>
 
+              <?php $mobileAppointments = $appointmentsByDate[$mobileDate] ?? []; if ($mobileAppointments): ?>
+              <div class="mw-mc-section-label">Appointments</div>
+              <div class="mw-appt-list"><?php foreach ($mobileAppointments as $ap) echo mwAppointmentCard($ap); ?></div>
+              <?php endif; ?>
+
               <?php
               // Purchase tasks — always shown regardless of clock-in status
               $mobilePurchaseTasks = $purchaseTasksByDate[$mobileDate] ?? [];
@@ -2992,24 +2894,24 @@ if ($apiKey) {
 
               </div><!-- /.mw-mc-scroll-area -->
 
-              <!-- ── Fixed Bottom Bar ── -->
+              <?php if ($canFieldCreate): ?>
+              <!-- ── Field "Add job" FAB — opens the GPS-first add-job overlay ── -->
+              <button type="button" class="mw-fj-fab" id="mwFieldJobFab"
+                      onclick="if(window.MwFieldJob)window.MwFieldJob.open();"
+                      aria-label="Add a job">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <?php endif; ?>
+
+              <!-- ── Fixed Bottom Bar ──
+                   Same five tabs, same order, as the iOS app: Schedule · Time Clock · Search ·
+                   Receipts · Account. (Route moved to the top bar; Account opens the menu with
+                   profile, vehicle log and sign out.) -->
               <div class="mw-mc-bottombar">
                   <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-active">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                      <span>Today</span>
+                      <span>Schedule</span>
                   </a>
-                  <button type="button" class="mw-mc-bottombar-btn" id="mwRouteBtn" onclick="MwRouteMap.toggle()">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                      <span>Route</span>
-                  </button>
-                  <a href="/crm/expenses_appstack.php?mode=quick&return=schedule" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-receipt">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 7h2m16 0h2M2 17h2m16 0h2"/></svg>
-                      <span>Receipt</span>
-                  </a>
-                  <button type="button" class="mw-mc-bottombar-btn" id="mwScheduleMenuBtn">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-                      <span>Menu</span>
-                  </button>
                   <!-- Clock status button: Pong — ball bouncing = clocked in, frozen = not clocked in -->
                   <button type="button"
                           class="mw-mc-bottombar-btn mw-mc-clock-navbtn <?php echo $isClockedIn ? 'mw-clock-on' : 'mw-clock-off'; ?>"
@@ -3032,12 +2934,52 @@ if ($apiKey) {
                           </svg>
                       </div>
                       <span class="mw-clock-nav-label" id="mwClockNavLabel">
-                          <?php echo $isClockedIn ? '' : 'Clock In'; ?>
+                          <?php echo $isClockedIn ? 'Time Clock' : 'Clock In'; ?>
                       </span>
+                  </button>
+                  <a href="/crm/search.php" class="mw-mc-bottombar-btn">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      <span>Search</span>
+                  </a>
+                  <a href="/crm/expenses_appstack.php?mode=quick&return=schedule" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-receipt">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 7h2m16 0h2M2 17h2m16 0h2"/></svg>
+                      <span>Receipts</span>
+                  </a>
+                  <button type="button" class="mw-mc-bottombar-btn" id="mwScheduleMenuBtn">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      <span>Account</span>
                   </button>
               </div>
 
           </div><!-- /.mw-mc-container -->
+
+          <?php if (in_array($user['role'] ?? '', ['admin', 'manager'], true)): ?>
+          <!-- ── Move Stop Sheet (admin/manager) — driven by schedule-move-stop.js ── -->
+          <div id="mw-move-sheet" class="mw-move-sheet" role="dialog" aria-modal="true" aria-labelledby="mw-move-title" hidden>
+              <div class="mw-move-backdrop" data-move-close></div>
+              <div class="mw-move-panel">
+                  <p class="mw-move-title" id="mw-move-title">Move to another date</p>
+                  <p class="mw-move-sub" id="mw-move-sub"></p>
+                  <div class="mw-move-quick">
+                      <button type="button" class="mw-move-chip" data-move-days="1">Next day</button>
+                      <button type="button" class="mw-move-chip" data-move-days="7">+1 week</button>
+                  </div>
+                  <button type="button" class="mw-datepicker-trigger mw-move-trigger"
+                          data-mw-dp-commit="input" data-mw-dp-target="#mw-move-date"
+                          data-mw-dp-placeholder="Pick a date">
+                      <svg class="mw-datepicker-cal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      <span class="mw-datepicker-date" data-mw-dp-label></span>
+                      <svg class="mw-datepicker-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <input type="date" id="mw-move-date" hidden>
+                  <p class="mw-move-warning" id="mw-move-warning" hidden></p>
+                  <div class="mw-move-actions">
+                      <button type="button" class="mw-move-btn mw-move-btn-cancel" data-move-close>Cancel</button>
+                      <button type="button" class="mw-move-btn mw-move-btn-confirm" id="mw-move-confirm" disabled>Move</button>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
 
           <!-- ── Job Completion Sheet ──────────────────────── -->
           <div id="mw-completion-sheet-backdrop" class="mw-csheet-backdrop"></div>
@@ -3141,163 +3083,32 @@ if ($apiKey) {
 
 /**
  * Desktop Date Picker
- * Renders a custom calendar dropdown. Week-view picks navigate to
- * the Monday of the chosen week; day-view picks navigate to that day.
+ * Auto-initialized by mw-datepicker.js from the trigger's data-mw-dp-*
+ * attributes above. Week-view picks navigate to the Monday of the chosen
+ * week; day-view picks navigate to that day.
  */
-(function () {
-    var trigger  = document.getElementById('mwDpTrigger2');
-    var popup    = document.getElementById('mwDpPopup2');
-    var grid     = document.getElementById('mwDpGrid');
-    var monthLbl = document.getElementById('mwDpMonthLabel');
-    var prevBtn  = document.getElementById('mwDpPrevMonth');
-    var nextBtn  = document.getElementById('mwDpNextMonth');
-    var todayBtn = document.getElementById('mwDpTodayBtn');
-    if (!trigger || !popup) return;
 
-    // Move popup to <body> so no parent overflow/z-index clips it
-    document.body.appendChild(popup);
-    popup.style.position = 'fixed';
-
-    var view    = trigger.dataset.view;            // 'day' | 'week'
-    var current = trigger.dataset.current;         // YYYY-MM-DD (day date or week-start)
-    var viewYear, viewMonth;                       // calendar display state
-
-    var MONTHS = ['January','February','March','April','May','June',
-                  'July','August','September','October','November','December'];
-
-    // ── Helpers ────────────────────────────────────────────────────
-    function parseDate(str) {
-        var p = str.split('-'); return new Date(+p[0], +p[1]-1, +p[2]);
-    }
-    function toISO(d) {
-        return d.getFullYear() + '-' +
-               String(d.getMonth()+1).padStart(2,'0') + '-' +
-               String(d.getDate()).padStart(2,'0');
-    }
-    function mondayOf(d) {
-        var day = d.getDay() || 7;          // treat Sunday as 7
-        var mon = new Date(d);
-        mon.setDate(d.getDate() - (day - 1));
-        return mon;
-    }
-    function isSameDay(a, b) {
-        return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
-    }
-
-    // ── Render calendar grid ────────────────────────────────────────
-    function render() {
-        monthLbl.textContent = MONTHS[viewMonth] + ' ' + viewYear;
-        grid.innerHTML = '';
-
-        var today       = new Date();
-        var selDate     = parseDate(current);
-        var weekMonday  = view === 'week' ? selDate : mondayOf(selDate);
-        var weekSunday  = new Date(weekMonday); weekSunday.setDate(weekMonday.getDate() + 6);
-
-        // First Monday on or before the 1st of the month
-        var first = new Date(viewYear, viewMonth, 1);
-        var firstMon = mondayOf(first);
-
-        var last = new Date(viewYear, viewMonth + 1, 0); // last calendar day of month
-        var cur  = new Date(firstMon);
-        for (var iter = 0; iter < 42; iter++) {          // max 6 weeks, guards against infinite loop
-            var cell = document.createElement('button');
-            cell.type = 'button';
-            cell.textContent = cur.getDate();
-            cell.className = 'mw-dp-cell';
-            var cellIso = toISO(cur);
-            cell.dataset.iso = cellIso;
-
-            var inMonth = (cur.getMonth() === viewMonth && cur.getFullYear() === viewYear);
-            if (!inMonth)              cell.classList.add('mw-dp-cell-other');
-            if (isSameDay(cur, today)) cell.classList.add('mw-dp-cell-today');
-
-            if (view === 'week') {
-                var inSel = (cur >= weekMonday && cur <= weekSunday);
-                if (inSel) cell.classList.add('mw-dp-cell-in-week');
-                if (isSameDay(cur, weekMonday)) cell.classList.add('mw-dp-cell-week-start');
-                if (isSameDay(cur, weekSunday)) cell.classList.add('mw-dp-cell-week-end');
-            } else {
-                if (isSameDay(cur, selDate)) cell.classList.add('mw-dp-cell-selected');
-            }
-
-            cell.addEventListener('click', function () { pick(this.dataset.iso); });
-            grid.appendChild(cell);
-
-            // Advance, then stop once we've passed month-end and completed the week (Mon=1)
-            cur.setDate(cur.getDate() + 1);
-            if (cur > last && cur.getDay() === 1) break;
-        }
-    }
-
-    // ── Navigate ────────────────────────────────────────────────────
-    function pick(iso) {
-        var params = new URLSearchParams(window.location.search);
-        if (view === 'week') {
-            var mon = mondayOf(parseDate(iso));
-            params.set('start', toISO(mon));
-            params.delete('view'); params.delete('date');
-        } else {
-            params.set('view', 'day');
-            params.set('date', iso);
-            params.delete('start');
-        }
-        window.location.search = params.toString();
-    }
-
-    // ── Open / close ────────────────────────────────────────────────
-    function positionPopup() {
-        var rect = trigger.getBoundingClientRect();
-        var popupW = 300;
-        // Centre under trigger, clamped to viewport
-        var left = rect.left + (rect.width / 2) - (popupW / 2);
-        left = Math.max(8, Math.min(left, window.innerWidth - popupW - 8));
-        popup.style.left = left + 'px';
-        popup.style.top  = (rect.bottom + 8) + 'px';
-        // Remove the CSS transform that was for static positioning
-        popup.style.transform = 'none';
-    }
-    function open() {
-        var d = parseDate(current);
-        viewYear  = d.getFullYear();
-        viewMonth = d.getMonth();
-        render();
-        positionPopup();
-        popup.hidden = false;
-        trigger.setAttribute('aria-expanded', 'true');
-        trigger.classList.add('mw-datepicker-open');
-    }
-    function close() {
-        popup.hidden = true;
-        trigger.setAttribute('aria-expanded', 'false');
-        trigger.classList.remove('mw-datepicker-open');
-    }
-
-    trigger.addEventListener('click', function (e) {
-        e.stopPropagation();
-        popup.hidden ? open() : close();
-    });
-
-    prevBtn.addEventListener('click', function () {
-        viewMonth--;
-        if (viewMonth < 0) { viewMonth = 11; viewYear--; }
-        render();
-    });
-    nextBtn.addEventListener('click', function () {
-        viewMonth++;
-        if (viewMonth > 11) { viewMonth = 0; viewYear++; }
-        render();
-    });
-    todayBtn.addEventListener('click', function () { pick(toISO(new Date())); });
-
-    // Close on outside click / Escape
-    document.addEventListener('click', function (e) {
-        if (!popup.hidden && !popup.contains(e.target) && e.target !== trigger) close();
-    });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && !popup.hidden) close();
-    });
-})();
+/* Tick-box job-type pickers: "All" clears the rest, ticking a type clears "All"; applies after a short pause so several ticks go in one trip. */
+var mwTypeTimer = null;
+document.addEventListener('change', function (e) {
+    var box = e.target;
+    if (!box.classList || !(box.classList.contains('mw-typemulti-all') || box.classList.contains('mw-typemulti-one'))) return;
+    var det = box.closest('.mw-typemulti');
+    var all = det.querySelector('.mw-typemulti-all');
+    var ones = det.querySelectorAll('.mw-typemulti-one');
+    if (box === all) { ones.forEach(function (o) { o.checked = false; }); all.checked = true; }
+    else { all.checked = !Array.prototype.some.call(ones, function (o) { return o.checked; }); }
+    var picked = [];
+    ones.forEach(function (o) { if (o.checked) picked.push(o.value); });
+    var input = det.querySelector('input[type=hidden]');
+    input.value = picked.join(',');
+    clearTimeout(mwTypeTimer);
+    mwTypeTimer = setTimeout(function () { window[input.getAttribute('data-done')](); }, 700);
+});
+function mwMcTypeGo() {
+    var input = document.getElementById('mcServiceFilter');
+    location.href = input.getAttribute('data-base') + '&service=' + encodeURIComponent(input.value || 'all');
+}
 
 /**
  * Apply filters: navigate with crew + service params
@@ -3496,7 +3307,7 @@ function getServiceLabel(type) {
 
         fetch('/crm/api/assign-crew.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify(payload)
         })
         .then(function(resp) {
@@ -3655,6 +3466,9 @@ function getServiceLabel(type) {
             if (!lat || !lng || (lat === 0 && lng === 0)) return;
 
             var dist = haversine(userLat, userLng, lat, lng);
+            // Distance on every card, as on the iPhone ("300 m", "2.4 km").
+            var distEl = card.querySelector('[data-eta-dist]');
+            if (distEl) distEl.textContent = dist < 1000 ? (Math.round(dist / 50) * 50 || 50) + ' m' : (dist / 1000).toFixed(1) + ' km';
             if (dist < nearestDist) {
                 nearestDist = dist;
                 nearest = card;
@@ -3751,12 +3565,249 @@ function getServiceLabel(type) {
 </script>
 <script>
 /**
+ * Route From Here + Skip — crew carousel (mobile schedule).
+ * Reorders the upcoming cards by straight-line GPS distance (nearest first),
+ * persists per-day in localStorage, and wires the per-card Skip button to the
+ * existing pow-actions skip_visit endpoint.
+ */
+(function() {
+    'use strict';
+    if (window.innerWidth > 991) return; // mobile card view only
+
+    var ROUTE_DATE  = '<?php echo htmlspecialchars($mobileDate, ENT_QUOTES); ?>';
+    var STORAGE_KEY = 'mw_route_order_' + ROUTE_DATE;
+
+    function area() { return document.querySelector('.mw-mc-scroll-area'); }
+
+    function haversine(la1, lo1, la2, lo2) {
+        var R = 6371000, r = Math.PI / 180;
+        var dLa = (la2 - la1) * r, dLo = (lo2 - lo1) * r;
+        var a = Math.sin(dLa/2)*Math.sin(dLa/2) + Math.cos(la1*r)*Math.cos(la2*r)*Math.sin(dLo/2)*Math.sin(dLo/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Upcoming cards = .mw-mc-card nodes BEFORE the first section label
+    // ("Completed" / "Procurement"). Completed cards live after that label.
+    function anchorNode() { var a = area(); return a ? a.querySelector('.mw-mc-section-label') : null; }
+
+    function upcomingCards() {
+        var a = area(); if (!a) return [];
+        var lbl = anchorNode();
+        return [].slice.call(a.querySelectorAll('.mw-mc-card')).filter(function(c) {
+            return !(lbl && (c.compareDocumentPosition(lbl) & Node.DOCUMENT_POSITION_PRECEDING));
+        });
+    }
+
+    function coordsOf(c) {
+        var lat = parseFloat(c.getAttribute('data-lat')), lng = parseFloat(c.getAttribute('data-lng'));
+        if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return null;
+        return { lat: lat, lng: lng };
+    }
+
+    function placeOrder(cards) {
+        var a = area(); if (!a) return;
+        var anchor = anchorNode();
+        cards.forEach(function(c) { a.insertBefore(c, anchor); });
+    }
+
+    function sortByDistance(uLat, uLng) {
+        var withC = [], without = [];
+        upcomingCards().forEach(function(c) {
+            var co = coordsOf(c);
+            if (co) { c.__d = haversine(uLat, uLng, co.lat, co.lng); withC.push(c); }
+            else { without.push(c); }
+        });
+        withC.sort(function(x, y) { return x.__d - y.__d; });
+        var ordered = withC.concat(without);
+        placeOrder(ordered);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ordered.map(function(c) { return c.getAttribute('data-stop-id'); }))); } catch (e) {}
+        if (area()) area().scrollTop = 0;
+    }
+
+    function applySaved() {
+        var saved;
+        try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) { return; }
+        if (!saved || !saved.length) return;
+        var cards = upcomingCards(), byId = {};
+        cards.forEach(function(c) { byId[c.getAttribute('data-stop-id')] = c; });
+        var ordered = [];
+        saved.forEach(function(id) { if (byId[id]) { ordered.push(byId[id]); delete byId[id]; } });
+        cards.forEach(function(c) { if (byId[c.getAttribute('data-stop-id')]) ordered.push(c); });
+        placeOrder(ordered);
+    }
+
+    // Android-correct GPS: request permission, high accuracy, 15s timeout.
+    function acquire(ok, err) {
+        var native = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+        var Geo = native && window.Capacitor.Plugins ? window.Capacitor.Plugins.Geolocation : null;
+        var opts = { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 };
+        if (Geo) {
+            var fix = function() {
+                Geo.getCurrentPosition(opts)
+                    .then(function(p) { if (p && p.coords) ok(p.coords.latitude, p.coords.longitude); else err('error'); })
+                    .catch(function() { err('error'); });
+            };
+            Geo.checkPermissions().then(function(st) {
+                if (st && (st.location === 'granted' || st.coarseLocation === 'granted')) { fix(); return; }
+                Geo.requestPermissions({ permissions: ['location', 'coarseLocation'] })
+                    .then(function(rq) { if (rq && (rq.location === 'granted' || rq.coarseLocation === 'granted')) fix(); else err('denied'); })
+                    .catch(function() { err('denied'); });
+            }).catch(function() { fix(); });
+            return;
+        }
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(p) { ok(p.coords.latitude, p.coords.longitude); },
+                function(e) { err(e && e.code === 1 ? 'denied' : 'error'); },
+                opts
+            );
+        } else { err('error'); }
+    }
+
+    // ── Square route button (injected into the search bar header) ──
+    var ROUTE_TITLE = 'Route from here — sort stops by nearest';
+    var routeBtn = null, busy = false;
+
+    function toast(msg) {
+        var t = document.createElement('div');
+        t.className = 'mw-rfh-toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        t.offsetHeight;
+        t.classList.add('mw-rfh-toast-show');
+        setTimeout(function() { t.classList.remove('mw-rfh-toast-show'); setTimeout(function() { t.remove(); }, 250); }, 2600);
+    }
+
+    function isSorted() {
+        try { var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); return !!(s && s.length); } catch (e) { return false; }
+    }
+    function setActive(on) { if (routeBtn) routeBtn.classList.toggle('mw-rfh-sq-active', !!on); }
+    function setBusy(on) { busy = on; if (routeBtn) { routeBtn.classList.toggle('mw-rfh-sq-busy', on); routeBtn.disabled = on; } }
+
+    // Restore the server's scheduled order (captured before any saved sort applied).
+    function restoreOriginal() {
+        var cards = upcomingCards(), byId = {};
+        cards.forEach(function(c) { byId[c.getAttribute('data-stop-id')] = c; });
+        var ordered = [];
+        ORIGINAL_ORDER.forEach(function(id) { if (byId[id]) { ordered.push(byId[id]); delete byId[id]; } });
+        cards.forEach(function(c) { if (byId[c.getAttribute('data-stop-id')]) ordered.push(c); });
+        placeOrder(ordered);
+    }
+
+    function onRouteClick() {
+        if (busy) return;
+        if (isSorted()) { // toggle off → back to scheduled order
+            try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+            restoreOriginal();
+            setActive(false);
+            toast('Back to scheduled order');
+            return;
+        }
+        setBusy(true);
+        acquire(
+            function(la, lo) { sortByDistance(la, lo); setBusy(false); setActive(true); toast('Sorted by nearest stop'); },
+            function(reason) {
+                setBusy(false);
+                if (routeBtn) { routeBtn.classList.add('mw-rfh-sq-error'); setTimeout(function() { routeBtn.classList.remove('mw-rfh-sq-error'); }, 1500); }
+                toast(reason === 'denied' ? 'Location permission required' : 'Location unavailable — check GPS');
+            }
+        );
+    }
+
+    var SQ_SVG = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>';
+
+    // Inject the square button to the RIGHT of the search field. The search box
+    // is built by a deferred script, so this is retried until the field exists.
+    function injectRouteButton() {
+        if (document.getElementById('mwRfhBtn')) return true;
+        if (upcomingCards().length < 2) return true; // nothing worth routing
+        var wrap = document.querySelector('.mw-mc-search-wrap');
+        var field = wrap ? wrap.querySelector('.mw-mc-search-field') : null;
+        if (!wrap || !field) return false;
+        wrap.classList.add('mw-mc-search-has-route');
+        routeBtn = document.createElement('button');
+        routeBtn.id = 'mwRfhBtn';
+        routeBtn.type = 'button';
+        routeBtn.className = 'mw-rfh-sq';
+        routeBtn.title = ROUTE_TITLE;
+        routeBtn.setAttribute('aria-label', ROUTE_TITLE);
+        routeBtn.innerHTML = SQ_SVG;
+        field.insertAdjacentElement('afterend', routeBtn);
+        routeBtn.addEventListener('click', onRouteClick);
+        setActive(isSorted());
+        return true;
+    }
+
+    // Capture the server's scheduled order BEFORE applying any saved sort.
+    var ORIGINAL_ORDER = upcomingCards().map(function(c) { return c.getAttribute('data-stop-id'); });
+    applySaved(); // re-apply persisted order on load
+
+    function whenReady(fn) {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+        else fn();
+    }
+    whenReady(function() {
+        var tries = 0;
+        (function tryInject() { if (injectRouteButton()) return; if (++tries < 25) setTimeout(tryInject, 100); })();
+    });
+
+    // ── Skip button (delegated, capture phase to beat card tap-to-expand) ──
+    function bumpCounter() {
+        var pill = document.querySelector('.mw-mc-strip-progress-pill');
+        if (!pill) return;
+        var parts = (pill.textContent || '').split('/');
+        if (parts.length === 2) { pill.textContent = ((parseInt(parts[0], 10) || 0) + 1) + '/' + parts[1].trim(); }
+    }
+    function dropFromSaved(stopId) {
+        try {
+            var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+            if (saved && saved.length) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(saved.filter(function(id) { return String(id) !== String(stopId); })));
+            }
+        } catch (e) {}
+    }
+    document.addEventListener('click', function(e) {
+        var sb = e.target.closest ? e.target.closest('.mw-mc-footer-btn-skip') : null;
+        if (!sb) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!confirm('Skip this job? It will be removed from today’s route.')) return;
+        var visitId = parseInt(sb.getAttribute('data-footer-skip'), 10);
+        var stopId  = sb.getAttribute('data-skip-stop');
+        sb.disabled = true;
+        var csrf = (window.MW_SCHEDULE_STATE && MW_SCHEDULE_STATE.csrf) || window.MW_CSRF || '';
+        fetch('/crm/api/pow-actions.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'skip_visit', visit_id: visitId, csrf_token: csrf })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d && d.success) {
+                dropFromSaved(stopId);
+                bumpCounter();
+                var card = sb.closest('.mw-mc-card');
+                if (card) { card.classList.add('mw-mc-card-removing'); setTimeout(function() { card.remove(); }, 350); }
+            } else {
+                sb.disabled = false;
+                alert((d && d.error) || 'Could not skip this job. Please try again.');
+            }
+        })
+        .catch(function() { sb.disabled = false; alert('Network error — please try again.'); });
+    }, true);
+})();
+</script>
+<script>
+/**
  * Mobile schedule state — embedded by PHP for JS state machine.
  * Used by schedule-pill-workflow.js to restore in-progress timers.
  */
 var MW_SCHEDULE_STATE = {
     csrf: <?php echo json_encode($csrfToken); ?>,
     userId: <?php echo (int)$user['id']; ?>,
+    isCrew: <?php echo json_encode($isCrew); ?>,
+    mobileDate: <?php echo json_encode($mobileDate); ?>,
     extrasRate: <?php
         $extrasRateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
         echo json_encode(round(floatval($extrasRateRow['setting_value'] ?? 5.00), 2));
@@ -3942,17 +3993,43 @@ function mwTogglePurchaseItem(checkbox) {
     });
 }
 </script>
-<script src="../js/mw-schedule-search.js?v=20260422a" defer></script>
+<script src="../js/mw-schedule-search.js?v=20260921a" defer></script>
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
 <script src="../js/route-engine.js?v=20260219a" defer></script>
-<script src="../js/schedule-route-map.js?v=20260226b" defer></script>
+<script src="../js/schedule-route-map.js?v=20260716a" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20260612g" defer></script>
-<script src="../js/schedule-drag-drop.js" defer></script>
+<?php
+// Special requests on arrival — printed ONLY when ops_settings.special_requests_enabled applies to
+// this user (special_requests_user_ids narrows it for testing). Off = this script is never here.
+$__srOn = false;
+try {
+    require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestService.php';
+    $__srOn = (new SpecialRequestService($db))->appliesToUser((int)($user['id'] ?? 0));
+} catch (Throwable $__e) { $__srOn = false; }
+if ($__srOn): ?>
+<script>window.MW_SR = { canAdd: <?= userHasPermission('jobs.edit') ? 'true' : 'false' ?> };</script>
+<script src="<?= _av('/crm/js/mw-special-request.js') ?>" defer></script>
+<?php endif; ?>
+<script src="../js/schedule-pill-workflow.js?v=20261102pins" defer></script>
+<script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
+<?php
+// Jobber-style calendar editing (timeline, drag-resize, add-on-calendar). Off unless ops_settings it_calendar_edit = 1.
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
+if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db)): ?>
+<link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
+<script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?> };</script>
+<script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
+<?php endif; ?>
+<script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
+<script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>
+<?php if ($canFieldCreate): ?>
+<script src="../js/field-job.js?v=20260716a" defer></script>
+<?php endif; ?>
 <?php if ($view === 'day'): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
+<script src="<?= _av('/crm/js/mw-unbilled-work.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-day-map.js') ?>" defer></script>
 <script src="../js/schedule-team-layer.js?v=20260418b" defer></script>
 <?php endif; ?>
@@ -4618,10 +4695,17 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
             btn.textContent = 'Optimising…';
             showMsg('Optimising route…', 'loading');
 
+            var payload = { date: date, csrf_token: CSRF };
+            var hasMap = (typeof MwDayViewMap !== 'undefined');
+            var pinned = (hasMap && MwDayViewMap.getPinnedStopId) ? MwDayViewMap.getPinnedStopId() : null;
+            var pinnedLast = (hasMap && MwDayViewMap.getPinnedLastStopId) ? MwDayViewMap.getPinnedLastStopId() : null;
+            if (pinned) { payload.pinned_first_stop_id = pinned; }
+            if (pinnedLast) { payload.pinned_last_stop_id = pinnedLast; }
+
             fetch('/crm/api/optimize-route.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ date: date, csrf_token: CSRF })
+                body: JSON.stringify(payload)
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -4827,7 +4911,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 fetch('/crm/api/time-clock.php', {
                     method: 'POST',
                     credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
                 })
                 .then(function (r) { return r.json(); })
@@ -4870,7 +4954,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 fetch('/crm/api/time-clock.php', {
                     method: 'POST',
                     credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
                 })
                 .then(function (r) { return r.json(); })
@@ -5416,7 +5500,12 @@ if (startBtn) {
 
         <div class="form-group">
             <label class="form-label">Date</label>
-            <input type="date" id="llDate" class="form-control"
+            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#llDate" aria-haspopup="true" aria-expanded="false">
+                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span class="mw-datepicker-date" data-mw-dp-label></span>
+                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <input type="date" id="llDate" class="form-control" hidden
                    value="<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')); ?>"
                    max="<?php echo date('Y-m-d'); ?>">
         </div>
@@ -5493,7 +5582,7 @@ function submitLogLabor() {
     var promises = checked.map(function(cb) {
         return fetch('/crm/api/time-clock.php', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
             body: JSON.stringify({
                 action: 'admin_add_entry',
                 user_id: parseInt(cb.value),

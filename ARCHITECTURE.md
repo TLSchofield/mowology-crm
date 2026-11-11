@@ -154,9 +154,8 @@ Companion to `CLAUDE.md` (rules). This file documents what exists and where.
     │   │   ├── bootstrap.php          ← Alt bootstrap (loads session + config + auth, sets $user, $db)
     │   │   ├── functions.php          ← Helpers: generateQuoteNumber(), formatCurrency(), etc.
     │   │   ├── messaging.php          ← Unified email + SMS delivery (PHPMailer SMTP email, native mail() SMS)
-    │   │   ├── email_logger.php       ← Writes email send attempts to /crm/email-logs/ for debugging
+    │   │   ├── email_logger.php       ← Shim for EmailLogger: one line per send attempt in app/Storage/logs/email/ (no email text)
     │   │   ├── smtp_mailer.php        ← DEPRECATED — superseded by messaging.php
-    │   │   ├── sms_gateway.php        ← DEPRECATED — superseded by messaging.php
     │   │   ├── email_helper.php       ← DEPRECATED — superseded by messaging.php
     │   │   ├── notifications.php      ← Alert display
     │   │   └── sidebar.php            ← CDN sidebar (still used by quotes/, jobs/, invoices/ modules)
@@ -487,7 +486,7 @@ $result = sendSms($phone, $message, $senderName);
 - From: `no-reply@mowology.ca`, Reply-To: `office@mowology.ca`
 - Supports HTML body + optional PDF attachment
 - Falls back to native `mail()` if PHPMailer unavailable or throws exception
-- Logs all attempts via `email_logger.php` to `/crm/email-logs/`
+- Logs every attempt via `EmailLog` to `app/Storage/logs/email/` (per business, 30 days; time, result, recipient, subject, transport — never the email's text)
 
 ### Backward Compatibility Aliases
 
@@ -516,7 +515,7 @@ All wrapped in `function_exists()` guards.
 | File | Replaced By |
 |------|-------------|
 | `/crm/includes/smtp_mailer.php` | `messaging.php` — PHPMailer SMTP logic |
-| `/crm/includes/sms_gateway.php` | `messaging.php` — carrier gateway logic |
+| `/crm/includes/sms_gateway.php` (deleted 2026-10-12) | `messaging.php` — carrier gateway logic |
 | `/crm/includes/email_helper.php` | `messaging.php` — native mail() email + `companyPrefersAttachment()` |
 
 ### Callers
@@ -617,3 +616,34 @@ Customer fills form on /jobFlow/jobFlow-getQuote.php
 | `clearLoginAttempts($email, $ip)` | `void` | Clear attempts on success |
 
 Snake_case wrappers also exist (e.g., `is_logged_in()`, `require_login()`, `current_user()`).
+
+---
+
+## Receipt & Expense System
+
+Full cross-platform flow documented in **[`docs/crm/receipts-flow.md`](docs/crm/receipts-flow.md)**.
+
+### At a glance
+
+Two client paths → shared PHP parsing services → `media_assets` + `expenses` tables.
+
+| Client | Endpoint | Auth | Layer 1 OCR | Layer 2 OCR |
+|--------|----------|------|-------------|-------------|
+| iOS (SwiftUI) | `app/Modules/Expenses/Api/receipt-upload.php` | JWT Bearer | Apple Vision on-device (`VisionOCRService.swift`) | Google Cloud Vision |
+| Capacitor / CRM web | `app/Modules/Expenses/Api/receipt-intake.php` | CSRF + session | Tesseract (`TesseractPreScreen.php`) | Google Cloud Vision |
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `ios/.../Core/Vision/VisionOCRService.swift` | On-device OCR: vendor, amounts (GST+PST), date, payment method |
+| `ios/.../Features/Receipts/ReceiptReviewView.swift` | Two-phase review form (Vision pre-fill → server merge) |
+| `ios/.../Core/Offline/ReceiptQueue.swift` | Disk-backed offline upload queue |
+| `app/Services/Receipts/ReceiptOCR.php` | Google Cloud Vision OAuth2 + word-confidence extraction |
+| `app/Services/Receipts/ReceiptParser.php` | Text → structured fields (total, GST, PST, date, line items) |
+| `app/Services/Receipts/ReceiptSmartMatch.php` | Vendor fuzzy-match + GPS proximity + category suggestions |
+| `app/Services/Receipts/ReceiptLearning.php` | Per-vendor correction patterns |
+| `app/Services/Receipts/TesseractPreScreen.php` | Tesseract pre-screen + `getVendorTesseractThreshold()` |
+| `public/crm/js/offline-receipts.js` | Web IndexedDB queue, upload retry, confidence dots |
+| `docs/crm/receipts-flow.md` | **Full flow doc** — read this before touching receipt code |
+| `docs/crm/receipts.md` | Async OCR queue infrastructure (dormant; future use) |

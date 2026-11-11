@@ -14,6 +14,7 @@
  *   context_id     - ID in the context table (0 for general)
  *   category       - before, during, after, issue, other
  *   visibility     - internal, client_visible, marketing_eligible
+ *   taken_at       - When the photo was taken, ISO 8601 (optional; used when the photo has no EXIF time)
  *   gps_lat        - Browser geolocation latitude (optional)
  *   gps_lng        - Browser geolocation longitude (optional)
  *   gps_accuracy   - Browser geolocation accuracy in meters (optional)
@@ -50,26 +51,28 @@ header('Content-Type: application/json');
 requireLogin();
 $user = getCurrentUser();
 
-$isAdminOrStaff = in_array($user['role'], ['admin', 'staff']);
-$isCrew         = ($user['role'] === 'crew');
 $requestContext = $_POST['context_type'] ?? '';
 $requestId      = (int)($_POST['context_id'] ?? 0);
 
-// Crew may only upload job_visit photos for visits assigned to them
-if (!$isAdminOrStaff) {
-    if (!$isCrew || $requestContext !== 'job_visit' || $requestId < 1) {
+// Field crew (role 'user') may upload before/after photos to any active job_visit.
+// Authorization MUST NOT depend on clock-in: a "before" photo is taken before the
+// crew clocks in (and may itself start the clock), so gating on a time entry —
+// or on assigned_crew_id, which on a team/truck may not be the individual — would
+// wrongly reject legitimate crew. We only require a valid, existing job_visit.
+// Supervisory roles (admin/staff/manager/owner) may upload to any context.
+$isPrivileged = in_array($user['role'], ['admin', 'staff', 'manager', 'owner']);
+if (!$isPrivileged) {
+    if ($requestContext !== 'job_visit' || $requestId < 1) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Access denied']);
         exit;
     }
-    // Verify this visit is actually assigned to this crew member
     $db = getDB();
-    $vs = $db->prepare("SELECT assigned_crew_id FROM job_visits WHERE id = ? LIMIT 1");
+    $vs = $db->prepare("SELECT id FROM job_visits WHERE id = ? LIMIT 1");
     $vs->execute([$requestId]);
-    $vrow = $vs->fetch(PDO::FETCH_ASSOC);
-    if (!$vrow || (int)$vrow['assigned_crew_id'] !== (int)$user['id']) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Access denied']);
+    if (!$vs->fetchColumn()) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'error' => 'Visit not found']);
         exit;
     }
 }
@@ -87,6 +90,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'POST required']);
     exit;
+}
+
+// --- Special request gate (inert unless ops_settings.special_requests_enabled) ---
+// A live photo of a visit with an unread client request answers 409; the photo queue sends
+// queued_at and passes (logged), so an already-taken photo is never stuck or lost.
+if ($requestContext === 'job_visit' && $requestId > 0) {
+    require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+    SpecialRequestGate::enforce(getDB(), $requestId, (int)$user['id'],
+        isset($_POST['queued_at']), $_POST['queued_at'] ?? null, 'photo', 'error');
 }
 
 // --- Parse context fields ---
@@ -140,7 +152,8 @@ $allSuccess = true;
 
 foreach ($files as $file) {
     // Upload the file
-    $uploadResult = mediaUploadFile($file, (int)$user['id'], $contextType, $browserGps, $altText);
+    $uploadResult = mediaUploadFile($file, (int)$user['id'], $contextType, $browserGps, $altText, null,
+                                    isset($_POST['taken_at']) ? (string)$_POST['taken_at'] : null);
 
     if (!$uploadResult['success']) {
         $results[] = [
@@ -167,7 +180,8 @@ foreach ($files as $file) {
     if (!$isDuplicate) {
         $originalAbsPath = PUBLIC_ROOT . $uploadResult['file_path'];
         $thumbOnlyContexts = ['job_visit', 'quote_visit', 'field_observation'];
-        if (in_array($contextType, $thumbOnlyContexts)) {
+        // Plant ID photos are for Pl@ntNet and a list thumbnail only (2026-10-15).
+        if (in_array($contextType, $thumbOnlyContexts) || $category === 'plant') {
             $variantResult = generateMediaThumbOnly($mediaId, $originalAbsPath);
         } else {
             $variantResult = generateMediaVariants($mediaId, $originalAbsPath);

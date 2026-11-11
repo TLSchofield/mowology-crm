@@ -23,17 +23,19 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/IdempotencyHelper.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
+    // NOT loading location-functions.php here: it defines its own, different
+    // findNearbyProperties($crewLat, $crewLng, $radiusKm) — a name collision
+    // with plan-functions.php's findNearbyProperties(float $lat, float $lng,
+    // int $radiusM, int $limit) (different signature/units/purpose). Loading
+    // both fatals with "Cannot redeclare findNearbyProperties()". This file
+    // doesn't call either variant, so it never needed the include.
 
-    // Load location functions if available
-    $locFuncsPath = CRM_INCLUDES . '/location-functions.php';
-    if (file_exists($locFuncsPath)) {
-        require_once $locFuncsPath;
-    }
-
+    $isJwt = strpos($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '', 'Bearer ') === 0;
     $user = requireLoginOrJwt();
     requirePermission('timer.start');
 
@@ -44,8 +46,42 @@ try {
         $action = $_GET['action'] ?? '';
     } else {
         $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) $input = [];
         $action = $input['action'] ?? '';
+
+        // Session POSTs carry the CSRF token (X-CSRF-Token header or csrf_token in the body);
+        // JWT callers (iOS) are exempt. A stale token answers CSRF_INVALID so the page refreshes
+        // it from /crm/api/get-csrf.php and retries once (2026-10-12 review, as visit-pull-forward).
+        if (!$isJwt) {
+            $token = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $input['csrf_token'] ?? '');
+            if (!verifyCSRFToken($token)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Invalid CSRF token — refresh and retry', 'code' => 'CSRF_INVALID']);
+                exit;
+            }
+        }
     }
+
+    // Plan time log / GPS pings show every crew member's on-site times and positions — office only
+    // (2026-10-12 review: any login could read anyone's GPS trail through these).
+    if (in_array($action, ['plan_time_log', 'gps_pings'], true)
+        && !array_filter(['schedule.edit', 'team.edit'], function ($p) use ($isJwt, $user) {
+               return $isJwt ? jwtUserHasPermission($user, $p) : userHasPermission($p);
+           })) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Not allowed']);
+        exit;
+    }
+
+    // When the phone says it happened: client_time (ISO) from the app, else the web offline
+    // queue's X-Queued-At (ms). OfflineTime::accept() decides whether to trust it.
+    $clientTime = null;
+    if (!empty($input['client_time'])) {
+        $clientTime = (string)$input['client_time'];
+    } elseif (!empty($_SERVER['HTTP_X_QUEUED_AT']) && ctype_digit((string)$_SERVER['HTTP_X_QUEUED_AT'])) {
+        $clientTime = date('c', intdiv((int)$_SERVER['HTTP_X_QUEUED_AT'], 1000));
+    }
+    $isQueued = !empty($input['queued']) || !empty($_SERVER['HTTP_X_QUEUED_AT']);
 
     switch ($action) {
         case 'active':
@@ -71,6 +107,24 @@ try {
                 throw new Exception('visit_id is required');
             }
 
+            // Crew on the visit or office (#15, Fable audit 2026-10-12) — checked here, before the gates,
+            // idempotency replay and auto clock-in, not only deep inside startJobTimer().
+            if (!userMayActOnVisit($visitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
+                exit;
+            }
+
+            // A salt & snow route stop starts only while a run is open (SnowRunGate, 2026-11-03) —
+            // also stops GPS proximity auto-starts. 409, never 5xx: the apps keep 5xx queued.
+            require_once APP_ROOT . '/Modules/Schedule/Services/SnowRunGate.php';
+            $snowRefusal = (new SnowRunGate(getDB()))->refuseStart($visitId);
+            if ($snowRefusal !== null) {
+                http_response_code(409);
+                echo json_encode(['success' => false, 'code' => $snowRefusal['code'], 'error' => $snowRefusal['message']]);
+                exit;
+            }
+
             // Return cached response if this key was already processed.
             if ($idempKey) {
                 $db = getDB();
@@ -82,27 +136,53 @@ try {
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $autoStarted = !empty($input['auto_started']);
 
-            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
+            // A gated user (TrackingSetupGate) must clock in through the checked path;
+            // starting a job must not clock them in around it.
+            require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
+            if (TrackingSetupGate::appliesTo(getTimeClockSetting(TrackingSetupGate::SETTING, ''), (int)$user['id'])
+                && !getActiveClockEntry($user['id'])) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Clock in first, using the Clock In button.', 'tracking_setup_required' => true]);
+                break;
+            }
 
-            // Auto clock-in globally if user is not already clocked in
+            // Special request gate (inert unless ops_settings.special_requests_enabled): an unread
+            // client request on this visit answers 409 to a live tap. Only offline-queue.js replays
+            // carry Idempotency-Key / X-Queued-At here — they pass (logged) so they never stick.
+            require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+            SpecialRequestGate::enforce(getDB(), $visitId, (int)$user['id'],
+                $idempKey !== '' || !empty($_SERVER['HTTP_X_QUEUED_AT']),
+                $_SERVER['HTTP_X_QUEUED_AT'] ?? null, $autoStarted ? 'auto_start' : 'start', 'error');
+
+            // Queued offline? Record when it was tapped, not when it arrived (OfflineTime) —
+            // same rule as app/Modules/Schedule/Api/timer.php.
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $when = OfflineTime::accept($clientTime, date('Y-m-d H:i:s'));
+            if ($when['reject']) {   // over 7 days old: record nothing (the office enters it by hand)
+                if (function_exists('logActivity')) logActivity($user['id'], null, 'job_start_not_recorded', "Visit {$visitId}: " . $when['note']);
+                echo json_encode(['success' => true, 'recorded' => false, 'visit_id' => $visitId, 'message' => $when['note']]);
+                break;
+            }
+            $tapped = $when['from_phone'] ? $when['at'] : null;
+
+            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted, $tapped, $isQueued);
+            if ($isQueued && ($lat === null || $lng === null)) {
+                $when['note'] = trim(($when['note'] ?? '') . ' No location (offline).');
+            }
+            if ($when['note']) {
+                getDB()->prepare("UPDATE job_time_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
+                       ->execute([$when['note'], $entryId]);
+            }
+
+            // Auto clock-in globally if user is not already clocked in — through clockIn(), at the
+            // same tapped time as the timer.
             $autoClockInPerformed = false;
             $autoClockInTime      = null;
             try {
-                if (!isset($db)) $db = getDB();
-                $ckChk = $db->prepare(
-                    "SELECT id FROM time_clock_entries
-                     WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
-                     LIMIT 1"
-                );
-                $ckChk->execute([$user['id']]);
-                if (!$ckChk->fetch()) {
-                    $db->prepare(
-                        "INSERT INTO time_clock_entries
-                         (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at, updated_at)
-                         VALUES (?, NOW(), ?, ?, 'active', NOW(), NOW())"
-                    )->execute([$user['id'], $lat, $lng]);
+                if (!getActiveClockEntry($user['id'])) {
+                    clockIn($user['id'], $lat, $lng, false, $tapped);
                     $autoClockInPerformed = true;
-                    $autoClockInTime      = date('Y-m-d H:i:s');
+                    $autoClockInTime      = $when['at'];
                 }
             } catch (Exception $e) {
                 // Non-fatal — timer already started successfully
@@ -119,7 +199,8 @@ try {
                 'message' => 'Visit timer started',
                 'entry_id' => $entryId,
                 'visit_id' => $visitId,
-                'start_time' => date('Y-m-d H:i:s'),
+                'start_time' => $when['at'],
+                'time_flag' => $when['flag'],
                 'auto_started' => $autoStarted,
                 'auto_clock_in' => (bool)($trackingReqs['auto_clock_in'] ?? false),
                 'tracking_level' => $trackingReqs['tracking_level'] ?? 'standard',
@@ -149,12 +230,41 @@ try {
                 if ($cached !== null) { echo $cached; exit; }
             }
 
+            // Same ownership rule as start (2026-10-12): crew on the visit, own timer, or admin/manager.
+            if (!userMayActOnVisit($visitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'You are not assigned to this visit']);
+                exit;
+            }
+
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes = $input['notes'] ?? null;
             $completeVisit = $input['complete_visit'] ?? true;
 
-            $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit);
+            // Queued offline? The stop counts from when it was tapped — never before this
+            // person's own timer started (OfflineTime notBefore).
+            require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
+            $ownStart = getDB()->prepare("SELECT MAX(start_time) FROM job_time_entries
+                                          WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL");
+            $ownStart->execute([$visitId, $user['id']]);
+            $startedAt = $ownStart->fetchColumn() ?: null;
+            $when = OfflineTime::accept($clientTime, date('Y-m-d H:i:s'), $startedAt ? (string)$startedAt : null);
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($user['id'], null, 'job_stop_not_recorded', "Visit {$visitId}: " . $when['note']);
+                echo json_encode(['success' => true, 'recorded' => false, 'visit_id' => $visitId, 'message' => $when['note']]);
+                break;
+            }
+            if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
+
+            $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit,
+                                       $when['from_phone'] ? $when['at'] : null);
+
+            // Special-request extra work answered before completion goes on the visit's extras now.
+            if ($completeVisit) {
+                require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+                SpecialRequestGate::afterCompletion(getDB(), $visitId);
+            }
 
             $responseStop = json_encode([
                 'success' => true,
@@ -547,7 +657,10 @@ try {
             echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log, gps_pings']);
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    // Was `catch (Exception $e)` — missed Error-class throwables (TypeError,
+    // etc.), which PHP then fails with an empty 500 response instead of the
+    // JSON error body below.
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'job-timer')]);
 }

@@ -1,0 +1,141 @@
+/* =============================================================================
+   ittai-review.css — Review receipts (receipts-review_appstack.php), Ittai v1.2.
+   A calm ledger: figures in a right-aligned tabular column, one quiet line per check
+   (✓ muted ink, ! amber marker + normal ink), hairlines not shadows, and ONE filled
+   colour on the page — the tenant-soft green of a duplicate set's keeper, which means
+   "this one is in the books". Colours, type, spacing and targets from ittai-tokens.css;
+   no hex values. Text is always --it-text or --it-meta (AAA on surface / page / sunk /
+   tenant-soft); amber and green are markers, never small text.
+   ============================================================================= */
+
+body:has(.it-rv),
+body:has(.it-rv) .main,
+body:has(.it-rv) main.content { background: var(--it-page); }
+
+.it-rv {
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+  font-variant-numeric: tabular-nums;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-bottom: calc(var(--it-target-desktop) + var(--it-space-16));
+}
+.it-rv :focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-rv [hidden] { display: none !important; }
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.it-rv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--it-space-4); margin: var(--it-space-6) 0 var(--it-space-3); }
+.it-rv-title { font-size: var(--it-title-28-size); line-height: var(--it-title-28-line); font-weight: var(--it-title-28-weight); margin: 0; letter-spacing: -0.01em; }
+.it-rv-meta { color: var(--it-meta); font-size: var(--it-meta-13-size); line-height: var(--it-meta-13-line); margin: var(--it-space-1) 0 0; }
+.it-rv-link { color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; min-height: var(--it-target-desktop); display: inline-flex; align-items: center; }
+.it-rv-how { color: var(--it-meta); margin: 0 0 var(--it-space-4); max-width: 68ch; }
+
+/* ── Filter (segmented) ───────────────────────────────────────────────────── */
+.it-rv-filter { display: inline-flex; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); padding: 2px; background: var(--it-surface); margin-bottom: var(--it-space-6); }
+.it-rv-filter button { min-height: var(--it-target-desktop); padding: 0 var(--it-space-4); border: 0; background: transparent; color: var(--it-text); border-radius: var(--it-radius-full); font: inherit; cursor: pointer; }
+.it-rv-filter button[aria-checked="true"] { background: var(--it-selected); font-weight: 600; }
+
+/* ── Sections ─────────────────────────────────────────────────────────────── */
+.it-rv-section { margin-bottom: var(--it-space-10); }
+.it-rv-h2 { font-size: var(--it-heading-18-size); line-height: var(--it-heading-18-line); font-weight: var(--it-heading-18-weight); margin: 0 0 var(--it-space-1); }
+.it-rv-sub { color: var(--it-meta); margin: 0 0 var(--it-space-4); }
+
+/* ── Vendor group ─────────────────────────────────────────────────────────── */
+.it-rv-group { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); margin-bottom: var(--it-space-5); overflow: hidden; }
+.it-rv-group-head { display: flex; align-items: center; justify-content: space-between; gap: var(--it-space-3); padding: var(--it-space-3) var(--it-space-5); border-bottom: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); }
+.it-rv-vendor { font-size: var(--it-heading-16-size); line-height: var(--it-heading-16-line); font-weight: var(--it-heading-16-weight); margin: 0; }
+.it-rv-vendor small { color: var(--it-meta); font-weight: 400; font-size: var(--it-meta-13-size); margin-left: var(--it-space-2); }
+
+/* ── Row ──────────────────────────────────────────────────────────────────── */
+.it-rv-rows { list-style: none; margin: 0; padding: 0; }
+.it-rv-row { display: grid; grid-template-columns: var(--it-target-desktop) 64px minmax(0, 1fr) auto; gap: var(--it-space-4); align-items: start; padding: var(--it-space-4) var(--it-space-5); border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-rv-row:first-child { border-top: 0; }
+.it-rv-row.is-checked { background: var(--it-selected); }
+.it-rv-tick { width: var(--it-target-desktop); height: var(--it-target-desktop); display: grid; place-items: center; cursor: pointer; }
+.it-rv-tick input { width: 22px; height: 22px; accent-color: var(--it-tenant); cursor: pointer; }
+.it-rv-thumb { width: 64px; height: 64px; border-radius: var(--it-radius-md); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk) center / cover no-repeat; padding: 0; cursor: zoom-in; }
+.it-rv-thumb { overflow: hidden; }
+.it-rv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it-rv-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.it-rv-thumb.is-none { cursor: default; display: grid; place-items: center; color: var(--it-meta); font-size: var(--it-caption-12-size); }
+.it-rv-main { min-width: 0; }
+.it-rv-line1 { display: flex; align-items: baseline; gap: var(--it-space-3); flex-wrap: wrap; }
+.it-rv-amount { font-size: var(--it-heading-18-size); line-height: var(--it-heading-18-line); font-weight: 600; }
+.it-rv-date, .it-rv-who { color: var(--it-meta); font-size: var(--it-meta-13-size); }
+.it-rv-pass { font-size: var(--it-meta-13-size); font-weight: 600; display: inline-flex; align-items: center; gap: var(--it-space-1); }
+.it-rv-pass::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--it-status-complete); }
+
+.it-rv-checks { list-style: none; margin: var(--it-space-2) 0 0; padding: 0; display: grid; gap: 2px; }
+.it-rv-check { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: var(--it-space-2); color: var(--it-meta); }
+.it-rv-check .it-rv-mark { font-weight: 700; text-align: center; }
+.it-rv-check.is-ok .it-rv-mark { color: var(--it-status-complete); }
+.it-rv-check.is-look { color: var(--it-text); }
+.it-rv-check.is-look .it-rv-mark { color: var(--it-status-attention); }
+.it-rv-ok { color: var(--it-status-complete); font-weight: 700; }
+.it-rv-warn { color: var(--it-status-attention); font-weight: 700; }
+
+.it-rv-note { margin-top: var(--it-space-2); }
+.it-rv-note summary { cursor: pointer; min-height: var(--it-target-desktop); display: inline-flex; align-items: center; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; }
+.it-rv-note p { margin: var(--it-space-1) 0 0; color: var(--it-text); max-width: 72ch; white-space: pre-line; }
+
+.it-rv-actions { display: flex; flex-direction: column; gap: var(--it-space-2); align-items: stretch; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.it-rv-btn { min-height: var(--it-target-desktop); padding: 0 var(--it-space-4); border-radius: var(--it-radius-md); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-surface); color: var(--it-text); font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; white-space: nowrap; }
+.it-rv-btn:hover { background: var(--it-sunk); color: var(--it-text); text-decoration: none; }
+.it-rv-btn-primary { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-rv-btn-primary:hover { background: var(--it-tenant); color: var(--it-on-tenant); filter: brightness(0.94); }
+.it-rv-btn:disabled { cursor: not-allowed; opacity: 1; background: var(--it-sunk); border-color: var(--it-line); color: var(--it-meta); filter: none; }
+.it-rv-btn-quiet { border-color: transparent; background: transparent; text-decoration: underline; text-underline-offset: 3px; font-weight: 500; }
+
+/* ── Duplicate set ────────────────────────────────────────────────────────── */
+.it-rv-dup { border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); overflow: hidden; margin-bottom: var(--it-space-4); background: var(--it-surface); }
+.it-rv-dup-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--it-space-4); align-items: start; padding: var(--it-space-4) var(--it-space-5); border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-rv-dup-row.is-keeper { background: var(--it-tenant-soft); border-top: 0; }
+.it-rv-badge { display: inline-flex; align-items: center; gap: var(--it-space-1); font-size: var(--it-meta-13-size); font-weight: 600; color: var(--it-text); }
+.it-rv-badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--it-tenant); }
+.it-rv-badge.is-copy::before { background: var(--it-status-attention); }
+.it-rv-facts { margin: var(--it-space-1) 0 0; color: var(--it-text); }
+.it-rv-items { margin: var(--it-space-1) 0 0; color: var(--it-meta); font-size: var(--it-meta-13-size); }
+.it-rv-why { display: flex; flex-wrap: wrap; gap: var(--it-space-2); margin-top: var(--it-space-2); }
+.it-rv-why span { border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); padding: 2px var(--it-space-3); font-size: var(--it-meta-13-size); color: var(--it-text); background: var(--it-surface); }
+
+/* ── Sticky approve bar ───────────────────────────────────────────────────── */
+/* Fixed, not sticky: AppStack's .main clips overflow, which stops position: sticky. */
+.it-rv-bar { position: fixed; bottom: var(--it-space-5); right: var(--it-space-6); z-index: 1050; min-width: 360px; display: flex; align-items: center; justify-content: space-between; gap: var(--it-space-4); padding: var(--it-space-3) var(--it-space-5); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); box-shadow: var(--it-shadow-sticky); }
+.it-rv-bar-sum { margin: 0; font-weight: 600; }
+
+/* ── Photo ────────────────────────────────────────────────────────────────── */
+.it-rv-photo { border: 0; border-radius: var(--it-radius-lg); padding: var(--it-space-4); background: var(--it-surface); box-shadow: var(--it-shadow-dialog); max-width: min(92vw, 900px); }
+.it-rv-photo::backdrop { background: color-mix(in srgb, var(--it-text) 55%, transparent); }
+.it-rv-photo form { display: flex; justify-content: flex-end; margin-bottom: var(--it-space-3); }
+.it-rv-photo img { max-width: 100%; max-height: 78vh; display: block; margin: 0 auto; }
+
+/* ── Arrival (one orchestrated reveal, calm) ──────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  .it-rv-group, .it-rv-dup { animation: it-rv-in 260ms ease-out both; }
+  .it-rv-group:nth-child(2), .it-rv-dup:nth-child(2) { animation-delay: 40ms; }
+  .it-rv-group:nth-child(3), .it-rv-dup:nth-child(3) { animation-delay: 80ms; }
+  .it-rv-group:nth-child(n+4), .it-rv-dup:nth-child(n+4) { animation-delay: 120ms; }
+}
+@keyframes it-rv-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── Phone / narrow ───────────────────────────────────────────────────────── */
+@media (max-width: 991px) {
+  /* Above the phone tab bar (.mw-mobile-bottombar: fixed, about 64px + the safe area). */
+  .it-rv-bar { left: var(--it-space-3); right: var(--it-space-3); min-width: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); }
+  .it-rv { padding-bottom: calc(var(--it-target-phone) + 160px); }
+}
+@media (max-width: 720px) {
+  .it-rv { padding-left: var(--it-space-4); padding-right: var(--it-space-4); }
+  .it-rv-row { grid-template-columns: var(--it-target-phone) 56px minmax(0, 1fr); }
+  .it-rv-actions { grid-column: 3; flex-direction: row; flex-wrap: wrap; }
+  .it-rv-dup-row { grid-template-columns: 56px minmax(0, 1fr); }
+  .it-rv-dup-row .it-rv-actions { grid-column: 2; }
+  .it-rv-tick { width: var(--it-target-phone); height: var(--it-target-phone); }
+  .it-rv-btn, .it-rv-filter button, .it-rv-note summary { min-height: var(--it-target-phone); }
+  .it-rv-thumb { width: 56px; height: 56px; }
+  .it-rv-head { flex-direction: column; align-items: flex-start; }
+}

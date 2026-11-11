@@ -23,7 +23,8 @@ if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
 
-// Keyword-to-category mapping for fallback when no vendor match
+// Keyword-to-category mapping for fallback when no vendor match.
+// Category names must match EXPENSE_ACCOUNTING_CATEGORIES in ExpenseConstants.php exactly.
 const CATEGORY_KEYWORDS = [
     'Fuel' => [
         'shell', 'petro', 'chevron', 'esso', 'gas', 'fuel', 'gasoline',
@@ -41,7 +42,11 @@ const CATEGORY_KEYWORDS = [
     ],
     'Disposal/Dump' => [
         'landfill', 'transfer station', 'waste', 'dump', 'disposal',
-        'recycling', 'tipping fee',
+        'recycling', 'tipping fee', 'green waste', 'yard waste', 'composting',
+    ],
+    'Licenses/Permits' => [
+        'permit', 'license fee', 'licence fee', 'municipal fee', 'city fee',
+        'business license', 'occupancy permit',
     ],
     'Repairs/Maintenance' => [
         'repair', 'maintenance', 'service', 'oil change', 'mechanic',
@@ -56,6 +61,10 @@ const CATEGORY_KEYWORDS = [
     ],
     'Office/Admin' => [
         'staples', 'office', 'paper', 'ink', 'printer', 'postage',
+    ],
+    'Safety' => [
+        'safety', 'ppe', 'gloves', 'boots', 'helmet', 'vest',
+        'hard hat', 'first aid',
     ],
 ];
 
@@ -121,6 +130,50 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         if (!empty($vendorMatch['default_gbp_category'])) {
             $result['gbp_category']  = $vendorMatch['default_gbp_category'];
             $result['gbp_confidence'] = $vendorMatch['confidence'];
+        }
+
+        // Patch missing category from OCR context when vendor record has no default —
+        // e.g. City of Vancouver with green waste / landfill text → Disposal/Dump.
+        if (empty($result['accounting_category'])) {
+            $nameLower = strtolower($vendorMatch['name'] ?? '');
+            if (
+                stripos($nameLower, 'landfill') !== false ||
+                stripos($ocrLower, 'green waste') !== false ||
+                stripos($ocrLower, 'yard waste') !== false ||
+                stripos($ocrLower, 'landfill') !== false ||
+                stripos($ocrLower, 'transfer station') !== false
+            ) {
+                $result['accounting_category'] = 'Disposal/Dump';
+                $result['category_confidence'] = 70;
+            } elseif (
+                stripos($ocrLower, 'permit') !== false ||
+                stripos($ocrLower, 'license fee') !== false ||
+                stripos($ocrLower, 'municipal') !== false
+            ) {
+                $result['accounting_category'] = 'Licenses/Permits';
+                $result['category_confidence'] = 65;
+            }
+        }
+    }
+
+    // ── Step 1b: Learned store location names the vendor the text couldn't ──
+    if (!$result['vendor_id'] && $lat !== null && $lng !== null) {
+        $store = nearestKnownStore($db, $lat, $lng);
+        if ($store) {
+            $result['vendor_id']         = (int)$store['vendor_id'];
+            $result['vendor_name']       = $store['vendor_name'];
+            $result['vendor_confidence'] = 55;
+            $result['vendor_gst_exempt'] = !empty($store['gst_exempt']);
+            $result['match_details'][]   = sprintf('Store location: %d m away%s', $store['meters'],
+                $store['receipts_seen'] > 0 ? ", bought here {$store['receipts_seen']}×" : '');
+            if (!empty($store['default_accounting_category'])) {
+                $result['accounting_category'] = $store['default_accounting_category'];
+                $result['category_confidence'] = 50;
+            }
+            if (!empty($store['default_gbp_category'])) {
+                $result['gbp_category']  = $store['default_gbp_category'];
+                $result['gbp_confidence'] = 50;
+            }
         }
     }
 
@@ -222,12 +275,30 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
     $bestMatch = null;
     $bestScore = 0;
 
+    // Phones printed on the receipt, separators stripped ("604-555-1234" → 6045551234).
+    // Comparing the vendor's digits against the raw text only matched receipts that
+    // print the number without separators.
+    if (!function_exists('extractPhoneNumbers')) {
+        require_once __DIR__ . '/ReceiptParser.php';
+    }
+    $ocrPhones = extractPhoneNumbers($ocrLower);
+
+    // ── The commons first: what the receipt itself prints (GST number, phone, domain) resolves
+    //    to a canonical vendor shared across tenants; if this install has that vendor linked,
+    //    that is the strongest evidence there is (95). Fails soft to the local matching below.
+    $kbHit = kbResolveVendorFromOcr($ocrLower, $ocrPhones, $db);
+    if ($kbHit !== null) {
+        return $kbHit;
+    }
+
+    if (!class_exists('VendorIdentity')) require_once dirname(__DIR__, 2) . '/Modules/Knowledge/Services/VendorIdentity.php';
     foreach ($vendors as $vendor) {
         $score = 0;
         $reason = '';
 
-        // Check vendor name
-        if (stripos($ocrLower, strtolower($vendor['name'])) !== false) {
+        // Check vendor name — whole words, and only a name that can identify a vendor (a vendor named "AMOUNT"
+        // or "DATE:" matched nearly every receipt; 2026-10-15).
+        if (VendorIdentity::usableAlias($vendor['name']) && VendorIdentity::textHas($ocrLower, (string)$vendor['name'])) {
             $score = 60;
             $reason = 'Name match: ' . $vendor['name'];
         }
@@ -236,8 +307,8 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
         if ($score === 0 && !empty($vendor['aliases'])) {
             $aliases = array_map('trim', explode(',', $vendor['aliases']));
             foreach ($aliases as $alias) {
-                if (empty($alias)) continue;
-                if (stripos($ocrLower, strtolower($alias)) !== false) {
+                if (empty($alias) || !VendorIdentity::usableAlias($alias)) continue;
+                if (VendorIdentity::textHas($ocrLower, $alias)) {
                     $score = 60;
                     $reason = 'Alias match: ' . $alias;
                     break;
@@ -248,7 +319,12 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
         // Check phone number match (strong signal)
         if (!empty($vendor['phone'])) {
             $cleanPhone = preg_replace('/\D/', '', $vendor['phone']);
-            if (strlen($cleanPhone) >= 7 && strpos($ocrLower, $cleanPhone) !== false) {
+            $last10     = strlen($cleanPhone) >= 10 ? substr($cleanPhone, -10) : null;
+            // Only when the paper names this vendor: a phone learned from a misfiled receipt sent every Lordco receipt to
+            // Costco through the commons (2026-11-06); this is the same door on the local vendor list.
+            if ((($last10 !== null && in_array($last10, $ocrPhones, true))
+                || (strlen($cleanPhone) >= 7 && strpos($ocrLower, $cleanPhone) !== false))
+                && VendorIdentity::namedOnPaper($ocrLower, (string)$vendor['name'], $vendor['aliases'] ?? null)) {
                 $score = max($score, 80);
                 $reason = 'Phone match: ' . $vendor['phone'];
             }
@@ -264,6 +340,49 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
     }
 
     return $bestMatch;
+}
+
+/**
+ * Resolve the receipt through the vendor knowledge commons (app/Modules/Knowledge).
+ * Returns a matchVendorFromOcr()-shaped row for a LINKED local vendor, or null.
+ * A commons vendor with no local row is left to the caller (gateVendorAutoCreation
+ * will create it with the commons' identity and the bridged default category).
+ */
+function kbResolveVendorFromOcr(string $ocrLower, array $ocrPhones, PDO $db): ?array
+{
+    try {
+        $kbFile = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+        if (!defined('APP_ROOT') || !is_file($kbFile)) return null;
+        require_once $kbFile;
+        $kb = new VendorKnowledgeService($db);
+        if (!$kb->ready()) return null;
+        $identity = [
+            'gst_number'   => VendorIdentity::gstNumber($ocrLower),
+            'phone_digits' => $ocrPhones[0] ?? null,
+            'domain'       => preg_match('/\b(?:www\.)?([a-z0-9-]+\.(?:ca|com|net|org|co|io|shop))\b/', $ocrLower, $m) ? VendorIdentity::domainOf($m[1]) : null,
+        ];
+        if (!array_filter($identity)) return null;
+        $kbv = $kb->resolve($identity);
+        if (!$kbv) return null;
+        $localId = $kb->localVendorFor((int)$kbv['id']);
+        if (!$localId) return null;
+        $s = $db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt FROM vendors WHERE id = ? AND is_active = 1");
+        $s->execute([$localId]);
+        $v = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$v) return null;
+        // A GST number is the business itself; a phone or web domain is believed only when the paper also names the
+        // vendor (a wrongly learned phone sent every Lordco receipt to Costco, 2026-11-06). Else local matching decides.
+        $byGst = $identity['gst_number'] && !empty($kbv['gst_number']) && $kbv['gst_number'] === $identity['gst_number'];
+        if (!$byGst && !VendorIdentity::namedOnPaper($ocrLower, (string)$v['name'], $v['aliases'] ?? null)
+            && !VendorIdentity::namedOnPaper($ocrLower, (string)($kbv['display_name'] ?? ''))) {
+            return null;
+        }
+        $by = $byGst ? 'GST number' : ($identity['phone_digits'] ? 'phone' : 'web domain');
+        return array_merge($v, ['confidence' => 95, 'reason' => 'Commons match by ' . $by . ': ' . $v['name'], 'kb_vendor_id' => (int)$kbv['id']]);
+    } catch (Throwable $e) {
+        error_log('kbResolveVendorFromOcr: ' . $e->getMessage());
+        return null;
+    }
 }
 
 /**
@@ -374,73 +493,44 @@ function matchGbpByKeywords(string $ocrLower): ?array
  * @param float|null $lng     GPS longitude at receipt upload
  * @return array Array of job suggestions, each with score and match_reasons
  */
-function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
+function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng, ?string $purchaseDate = null, ?string $purchaseTime = null): array
 {
     try {
         // Load plan functions for getCalendarStops()
         require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
 
-        $today = date('Y-m-d');
-        $tomorrow = date('Y-m-d', strtotime('+1 day'));
-        $now = time();
+        // With the receipt's own date, match that day's schedule; with its printed time
+        // too, match against the visits around the moment of purchase. Without either,
+        // fall back to today/tomorrow against the upload time (the original behaviour).
+        $purchaseDate = receiptMatchDate($purchaseDate);
+        $anchorIsPurchase = false;
+        if ($purchaseDate !== null) {
+            $from = $to = $purchaseDate;
+            $anchor = ($purchaseTime !== null && preg_match('/^\d{2}:\d{2}$/', $purchaseTime))
+                ? strtotime($purchaseDate . ' ' . $purchaseTime) : null;
+            $anchorIsPurchase = $anchor !== null && $anchor !== false;
+            if (!$anchorIsPurchase) $anchor = null;
+        } else {
+            $from = date('Y-m-d');
+            $to = date('Y-m-d', strtotime('+1 day'));
+            $anchor = time();
+        }
 
-        // Get all stops for today + tomorrow (no crew filter — we score crew ourselves)
-        $calendarData = getCalendarStops($today, $tomorrow);
+        // All crews' stops (no crew filter — we score crew ourselves)
+        $calendarData = getCalendarStops($from, $to);
 
         $db = getDB();
         $scored = [];
 
         foreach ($calendarData as $date => $stops) {
             foreach ($stops as $stopId => $stop) {
-                $score = 0;
-                $reasons = [];
+                $m = scoreStopForReceipt($stop, (string)$date, $userId, $lat, $lng, $anchor, $anchorIsPurchase, $purchaseDate !== null);
+                $score = $m['score'];
+                $reasons = $m['reasons'];
 
-                // GPS proximity scoring
-                if ($lat !== null && $lng !== null &&
-                    !empty($stop['latitude']) && !empty($stop['longitude'])) {
-                    $distance = haversineDistance($lat, $lng, (float)$stop['latitude'], (float)$stop['longitude']);
-                    if ($distance <= 0.2) {
-                        $score += 50;
-                        $reasons[] = 'GPS within 200m';
-                    } elseif ($distance <= 1.0) {
-                        $score += 30;
-                        $reasons[] = 'GPS within 1km';
-                    } elseif ($distance <= 5.0) {
-                        $score += 10;
-                        $reasons[] = 'GPS within 5km';
-                    }
-                }
-
-                // Crew match: check if current user is assigned to this stop
-                $crewIds = $stop['crew_ids'] ?? [];
-                if (in_array($userId, $crewIds) || ($stop['crew_id'] ?? 0) == $userId) {
-                    $score += 20;
-                    $reasons[] = 'Crew assigned';
-                }
-
-                // Time proximity: compare receipt upload time to stop's estimated arrival
-                if (!empty($stop['estimated_arrival']) && $date === $today) {
-                    $arrivalTime = strtotime($date . ' ' . $stop['estimated_arrival']);
-                    if ($arrivalTime) {
-                        $timeDiff = abs($now - $arrivalTime);
-                        if ($timeDiff <= 3600) {
-                            $score += 20;
-                            $reasons[] = 'Within 1hr of arrival';
-                        } elseif ($timeDiff <= 10800) {
-                            $score += 10;
-                            $reasons[] = 'Within 3hr of arrival';
-                        }
-                    }
-                }
-
-                // Status boost: in_progress stop is likely where user currently is
-                if (($stop['status'] ?? '') === 'in_progress') {
-                    $score += 15;
-                    $reasons[] = 'Stop in progress';
-                }
-
-                // Only include if some signal exists
-                if ($score > 0) {
+                // Date-only matches need a second signal — "same day" alone would list
+                // every stop that day.
+                if ($score > ($purchaseDate !== null ? 10 : 0)) {
                     // Look up contact_id from property
                     $contactId = null;
                     if (!empty($stop['property_id'])) {
@@ -453,24 +543,44 @@ function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
                     $firstVisit = $stop['visits'][0] ?? [];
 
                     $scored[] = [
+                        // Fields required by iOS JobSuggestion struct
+                        'id'               => (int)($firstVisit['plan_id'] ?? $stopId),
+                        'plan_number'      => $firstVisit['plan_number'] ?? null,
+                        'service_type'     => $firstVisit['service_type'] ?? null,
+                        'address'          => $stop['property_address'] ?? null,
+                        // Additional context fields
                         'stop_id'          => (int)$stopId,
                         'property_id'      => (int)($stop['property_id'] ?? 0),
-                        'property_address'  => $stop['property_address'] ?? '',
                         'property_city'     => $stop['property_city'] ?? '',
                         'contact_name'      => $stop['contact_name'] ?? '',
                         'contact_id'        => $contactId ? (int)$contactId : null,
                         'company_name'      => $stop['company_name'] ?? '',
                         'plan_id'           => (int)($firstVisit['plan_id'] ?? 0),
                         'plan_title'        => $firstVisit['plan_title'] ?? '',
-                        'service_type'      => $firstVisit['service_type'] ?? '',
                         'visit_id'          => (int)($firstVisit['visit_id'] ?? 0),
                         'stop_date'         => $date,
                         'score'             => $score,
                         'match_reasons'     => $reasons,
+                        '_start'            => $m['start'],
+                        '_crew'             => $m['crew'],
                     ];
                 }
             }
         }
+
+        // Supplies are usually bought on the way to the job: the purchaser's first stop
+        // starting within 3h after the purchase gets the strongest time signal.
+        if ($anchorIsPurchase) {
+            $next = nextStopAfterPurchase($scored, (int)$anchor);
+            if ($next !== null) {
+                $scored[$next]['score'] += 20;
+                $scored[$next]['match_reasons'][] = 'Next stop after purchase';
+            }
+        }
+        foreach ($scored as &$row) {
+            unset($row['_start'], $row['_crew']);
+        }
+        unset($row);
 
         // Sort by score descending, return top 3
         usort($scored, function ($a, $b) { return $b['score'] - $a['score']; });
@@ -480,6 +590,270 @@ function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
         error_log('suggestJobFromSchedule error: ' . $e->getMessage());
         return [];
     }
+}
+
+
+/**
+ * The receipt's printed date, if it's usable for a schedule lookup: a real
+ * Y-m-d no later than tomorrow (time zones) and no older than a year.
+ */
+function receiptMatchDate(?string $date): ?string
+{
+    if ($date === null || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return null;
+    }
+    $ts = strtotime($date);
+    if ($ts === false || $ts > strtotime('+1 day') || $ts < strtotime('-365 days')) {
+        return null;
+    }
+    return $date;
+}
+
+/**
+ * Score one scheduled stop against a receipt. Pure apart from haversineDistance().
+ *
+ * Purchase-anchored (the receipt printed a time): bought during the visit window
+ * +30, the visit starts later that day within 3h +10 (the next one also gets +20 in
+ * nextStopAfterPurchase), visit ended within the hour before +5. Date-only: +10 for
+ * the same day. Upload-anchored (no receipt date): the original ±1h/±3h of arrival
+ * on today's stops, plus the in-progress boost.
+ *
+ * @return array{score: int, reasons: string[], start: ?int, crew: bool}
+ */
+function scoreStopForReceipt(array $stop, string $stopDate, int $userId, ?float $lat, ?float $lng, ?int $anchor, bool $anchorIsPurchase, bool $dateKnown): array
+{
+    $score = 0;
+    $reasons = [];
+
+    if ($lat !== null && $lng !== null && !empty($stop['latitude']) && !empty($stop['longitude'])) {
+        $distance = haversineDistance($lat, $lng, (float)$stop['latitude'], (float)$stop['longitude']);
+        if ($distance <= 0.2) {
+            $score += 50; $reasons[] = 'GPS within 200m';
+        } elseif ($distance <= 1.0) {
+            $score += 30; $reasons[] = 'GPS within 1km';
+        } elseif ($distance <= 5.0) {
+            $score += 10; $reasons[] = 'GPS within 5km';
+        }
+    }
+
+    $crewIds = $stop['crew_ids'] ?? [];
+    $crew = in_array($userId, $crewIds) || ($stop['crew_id'] ?? 0) == $userId;
+    if ($crew) {
+        $score += 20; $reasons[] = 'Crew assigned';
+    }
+
+    // Visit window: the stop's estimate, else the first visit's scheduled slot.
+    $first = $stop['visits'][0] ?? [];
+    $startStr = $stop['estimated_arrival'] ?: ($first['scheduled_time_start'] ?? null);
+    $endStr   = $stop['estimated_departure'] ?: ($first['scheduled_time_end'] ?? null);
+    $start = $startStr ? strtotime($stopDate . ' ' . $startStr) : false;
+    $start = $start === false ? null : $start;
+    $end = $endStr ? strtotime($stopDate . ' ' . $endStr) : false;
+    if (($end === false || $end === null) && $start !== null) {
+        $end = $start + 60 * (int)($first['estimated_duration'] ?? 60 ?: 60);
+    }
+
+    if ($anchorIsPurchase && $anchor !== null) {
+        $score += 10; $reasons[] = 'Same day as receipt';
+        if ($start !== null) {
+            if ($anchor >= $start - 900 && $anchor <= $end) {
+                $score += 30; $reasons[] = 'Bought during this visit';
+            } elseif ($start > $anchor && $start - $anchor <= 3 * 3600) {
+                $score += 10; $reasons[] = 'Visit within 3h after purchase';
+            } elseif ($anchor > $end && $anchor - $end <= 3600) {
+                $score += 5; $reasons[] = 'Bought just after this visit';
+            }
+        }
+    } elseif ($dateKnown) {
+        $score += 10; $reasons[] = 'Same day as receipt';
+    } elseif ($anchor !== null && $start !== null && $stopDate === date('Y-m-d')) {
+        $timeDiff = abs($anchor - $start);
+        if ($timeDiff <= 3600) {
+            $score += 20; $reasons[] = 'Within 1hr of arrival';
+        } elseif ($timeDiff <= 10800) {
+            $score += 10; $reasons[] = 'Within 3hr of arrival';
+        }
+        if (($stop['status'] ?? $stop['stop_status'] ?? '') === 'in_progress') {
+            $score += 15; $reasons[] = 'Stop in progress';
+        }
+    }
+
+    return ['score' => $score, 'reasons' => $reasons, 'start' => $start, 'crew' => $crew];
+}
+
+/**
+ * Index of the first stop starting after the purchase (within 3h), preferring the
+ * purchaser's own crew. Rows carry '_start' / '_crew' from scoreStopForReceipt().
+ */
+function nextStopAfterPurchase(array $rows, int $purchaseTs): ?int
+{
+    $best = null;
+    foreach ([true, false] as $ownCrewOnly) {
+        foreach ($rows as $i => $r) {
+            if ($ownCrewOnly && empty($r['_crew'])) continue;
+            $start = $r['_start'] ?? null;
+            if ($start === null || $start <= $purchaseTs || $start - $purchaseTs > 3 * 3600) continue;
+            if ($best === null || $start < $rows[$best]['_start']) $best = $i;
+        }
+        if ($best !== null) return $best;
+    }
+    return null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Learned store locations (migration 1124)
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Learned spots within this distance are the same store. */
+const STORE_MATCH_METERS = 150;
+/** A receipt this close to a known store is assumed to be from it. */
+const STORE_SUGGEST_METERS = 300;
+/** A spot shared by this many different vendors is home/office/truck, not a store. */
+const NON_STORE_VENDOR_COUNT = 3;
+
+function vendorLocationsLearnedReady(PDO $db): bool
+{
+    static $ready = null;
+    if ($ready === null) {
+        try {
+            $ready = $db->query("SHOW COLUMNS FROM vendor_locations LIKE 'receipts_seen'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+    }
+    return $ready;
+}
+
+/** Metres between two points. */
+function metersBetween(float $lat1, float $lng1, float $lat2, float $lng2): float
+{
+    return haversineDistance($lat1, $lng1, $lat2, $lng2) * 1000;
+}
+
+/**
+ * Distinct vendors among located receipts within $meters of a point. Pure.
+ * @param array $rows each ['vendor' => id|string, 'lat' => float, 'lng' => float]
+ */
+function distinctVendorsNear(array $rows, float $lat, float $lng, float $meters): int
+{
+    $seen = [];
+    foreach ($rows as $r) {
+        if (metersBetween($lat, $lng, (float)$r['lat'], (float)$r['lng']) <= $meters) {
+            $seen[(string)$r['vendor']] = true;
+        }
+    }
+    return count($seen);
+}
+
+/**
+ * Is this where the crew photographs receipts rather than where they buy — home,
+ * the office, the truck's usual spot? On live data a quarter of located receipts
+ * shared one spot, and three spots each carried 4+ different vendors.
+ */
+function isNonStoreSpot(PDO $db, float $lat, float $lng): bool
+{
+    $dLat = 0.0015;                                   // ~165 m
+    $dLng = 0.0015 / max(0.2, cos(deg2rad($lat)));
+    $stmt = $db->prepare("
+        SELECT COALESCE(CAST(vendor_id AS CHAR), LOWER(vendor_name_raw)) AS vendor, receipt_lat AS lat, receipt_lng AS lng
+        FROM expenses
+        WHERE receipt_lat BETWEEN ? AND ? AND receipt_lng BETWEEN ? AND ?
+    ");
+    $stmt->execute([$lat - $dLat, $lat + $dLat, $lng - $dLng, $lng + $dLng]);
+    $rows = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn($r) => $r['vendor'] !== null && $r['vendor'] !== '');
+    return distinctVendorsNear($rows, $lat, $lng, STORE_MATCH_METERS) >= NON_STORE_VENDOR_COUNT;
+}
+
+/**
+ * Nearest store this receipt could be from: a hand-entered location, or a learned
+ * one confirmed by 2+ receipts. Never at a non-store spot.
+ *
+ * @return array|null vendor row fields + location + 'meters'
+ */
+function nearestKnownStore(PDO $db, float $lat, float $lng, float $maxMeters = STORE_SUGGEST_METERS): ?array
+{
+    try {
+        $learned = vendorLocationsLearnedReady($db);
+        $dLat = 0.004;                                   // ~450 m box, refined below
+        $dLng = 0.004 / max(0.2, cos(deg2rad($lat)));
+        $stmt = $db->prepare("
+            SELECT vl.vendor_id, vl.lat, vl.lng, " . ($learned ? "vl.source, vl.receipts_seen" : "NULL AS source, 0 AS receipts_seen") . ",
+                   v.name AS vendor_name, v.default_accounting_category, v.default_gbp_category, v.gst_exempt
+            FROM vendor_locations vl
+            JOIN vendors v ON v.id = vl.vendor_id AND v.is_active = 1
+            WHERE vl.lat BETWEEN ? AND ? AND vl.lng BETWEEN ? AND ?
+        ");
+        $stmt->execute([$lat - $dLat, $lat + $dLat, $lng - $dLng, $lng + $dLng]);
+
+        $best = null;
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($row['source'] === 'learned' && (int)$row['receipts_seen'] < 2) continue;
+            $m = metersBetween($lat, $lng, (float)$row['lat'], (float)$row['lng']);
+            if ($m <= $maxMeters && ($best === null || $m < $best['meters'])) {
+                $best = $row + ['meters' => (int)round($m)];
+            }
+        }
+        if ($best && isNonStoreSpot($db, $lat, $lng)) {
+            return null;
+        }
+        if ($best) {
+            $best['receipts_seen'] = (int)$best['receipts_seen'];
+        }
+        return $best;
+    } catch (Throwable $e) {
+        error_log('nearestKnownStore: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/** Running centroid after adding one point to a spot seen $n times. Pure. */
+function movedCentroid(float $lat, float $lng, int $n, float $newLat, float $newLng): array
+{
+    $n = max(1, $n);
+    return [round(($lat * $n + $newLat) / ($n + 1), 7), round(($lng * $n + $newLng) / ($n + 1), 7)];
+}
+
+/**
+ * Attach an approved receipt's capture location to its vendor's store spots.
+ * Returns what happened: 'skipped' | 'non_store' | 'confirmed' | 'new'.
+ */
+function learnStoreLocation(PDO $db, int $vendorId, float $lat, float $lng): string
+{
+    if (!vendorLocationsLearnedReady($db)) {
+        return 'skipped';
+    }
+    if (isNonStoreSpot($db, $lat, $lng)) {
+        return 'non_store';
+    }
+    $stmt = $db->prepare("SELECT id, lat, lng, source, receipts_seen FROM vendor_locations WHERE vendor_id = ? AND lat IS NOT NULL AND lng IS NOT NULL");
+    $stmt->execute([$vendorId]);
+    $nearest = null;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $loc) {
+        $m = metersBetween($lat, $lng, (float)$loc['lat'], (float)$loc['lng']);
+        if ($m <= STORE_MATCH_METERS && ($nearest === null || $m < $nearest['m'])) {
+            $nearest = $loc + ['m' => $m];
+        }
+    }
+
+    if ($nearest) {
+        if ($nearest['source'] === 'learned') {
+            [$cLat, $cLng] = movedCentroid((float)$nearest['lat'], (float)$nearest['lng'], (int)$nearest['receipts_seen'], $lat, $lng);
+            $db->prepare("UPDATE vendor_locations SET lat = ?, lng = ?, receipts_seen = receipts_seen + 1, last_seen_at = NOW() WHERE id = ?")
+               ->execute([$cLat, $cLng, $nearest['id']]);
+        } else {
+            // Hand-entered coordinates stay put; just count the confirmation.
+            $db->prepare("UPDATE vendor_locations SET receipts_seen = receipts_seen + 1, last_seen_at = NOW() WHERE id = ?")
+               ->execute([$nearest['id']]);
+        }
+        return 'confirmed';
+    }
+
+    $db->prepare("
+        INSERT INTO vendor_locations (vendor_id, label, lat, lng, source, receipts_seen, last_seen_at)
+        VALUES (?, 'Learned from receipts', ?, ?, 'learned', 1, NOW())
+    ")->execute([$vendorId, round($lat, 7), round($lng, 7)]);
+    return 'new';
 }
 
 
@@ -575,8 +949,9 @@ function gateVendorAutoCreation(string $vendorHint, PDO $db, int $minConfidence 
         // Also check aliases
         if (!empty($vendor['aliases'])) {
             $aliases = array_map('trim', explode(',', $vendor['aliases']));
+            if (!class_exists('VendorIdentity')) require_once dirname(__DIR__, 2) . '/Modules/Knowledge/Services/VendorIdentity.php';
             foreach ($aliases as $alias) {
-                if (empty($alias)) continue;
+                if (empty($alias) || !VendorIdentity::usableAlias($alias)) continue;
                 $aliasLower = strtolower($alias);
 
                 $aliasSim = 0;

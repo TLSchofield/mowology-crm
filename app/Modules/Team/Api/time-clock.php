@@ -3,6 +3,8 @@
  * Time Clock API — Clock In / Clock Out / Status
  * POST: {action: 'clock_in', lat?, lng?, user_id?}
  * POST: {action: 'clock_out', lat?, lng?, notes?, user_id?}
+ * POST: {action: 'break_start' | 'break_end', client_time?}  — the person's own break (BreakService);
+ *       client_time = when it was tapped (ISO 8601), so an offline-queued tap files at the right time
  * GET:  ?action=status
  *
  * Admin/Manager can pass user_id to clock in/out another user.
@@ -25,12 +27,30 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
 
-    requireLogin();
-    $user = getCurrentUser();
+    $user = requireLoginOrJwt();
     requirePermission('timer.start');
+    session_write_close(); // release session lock before DB work
+
+    // Determine action from GET or POST
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $action = $_GET['action'] ?? '';
+    } else {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $action = $input['action'] ?? '';
+
+        // Must run before session_write_close() below — verifyCSRFToken() reads
+        // $_SESSION, which session_write_close() clears from memory.
+        $csrfToken = $input['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+    }
 
     // Release the PHP session lock immediately — this API only reads session data
     // (user identity) and does not write to $_SESSION. Holding the lock blocks
@@ -42,14 +62,6 @@ try {
         http_response_code(403);
         echo json_encode(['error' => 'Time clock not enabled for your role']);
         exit;
-    }
-
-    // Determine action from GET or POST
-    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $action = $_GET['action'] ?? '';
-    } else {
-        $input = json_decode(file_get_contents('php://input'), true);
-        $action = $input['action'] ?? '';
     }
 
     $db = getDB();
@@ -103,6 +115,28 @@ try {
     // Heightened interval from global settings (used during high-risk jobs)
     $gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
 
+    // Idempotency-Key (sent by offline-queue.js replays and the apps): a clock in/out that already
+    // succeeded under this key answers with the same response instead of running again — a replay
+    // after a lost response must not clock out twice (Fable review 2026-10-12; same helper as job-timer).
+    $idempKey = '';
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET' && in_array($action, ['clock_in', 'clock_out', 'break_start', 'break_end'], true)) {
+        $idempKey = trim((string)($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ''));
+        if ($idempKey !== '') {
+            require_once APP_ROOT . '/Core/IdempotencyHelper.php';
+            $cached = null;
+            try {
+                $cached = idempotencyCheck($db, $idempKey, (int)$user['id']);
+            } catch (Throwable $e) {
+                error_log('[time-clock] idempotency check failed: ' . $e->getMessage());
+            }
+            if ($cached !== null) {
+                echo $cached;
+                exit;
+            }
+            ob_start();
+        }
+    }
+
     switch ($action) {
         case 'status':
             $entry = getActiveClockEntry($user['id']);
@@ -112,11 +146,30 @@ try {
                 'success' => true,
                 'location_tracking_enabled' => $locationTrackingEnabled,
                 'device_type' => $deviceType,
-                'is_driver' => !empty($user['is_driver']),
+                // The widget used `is_driver` to mean "track this person even when NOT clocked in".
+                // Nobody is tracked off the clock now (consent covers work hours only), and who is
+                // driving is a per-shift fact — so this is always false for older cached JS, and
+                // the real answer travels as driving_shift.
+                'is_driver' => false,
+                'driving_shift' => (static function () use ($db, $user) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                        return (new TripReportService($db))->shiftState((int)$user['id']);
+                    } catch (Throwable $e) { return 'unasked'; }
+                })(),
                 'gps_interval_standard_ms' => $gpsIntervalStandard,
                 'gps_interval_heightened_ms' => $gpsIntervalHeightened,
                 'auto_arrival_enabled' => getTimeClockSetting('auto_arrival_enabled', '1') === '1',
             ];
+
+            // The break button: allowed for people (not the truck login), paid or not, and the
+            // running break if there is one (BreakService). Additive — never fails the status read.
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+                $statusBase += (new BreakService($db))->clientConfig((int)$user['id']);
+            } catch (Throwable $e) {
+                error_log('[time-clock] break status: ' . $e->getMessage());
+            }
 
             if ($entry) {
                 echo json_encode(array_merge($statusBase, [
@@ -157,7 +210,25 @@ try {
                 $entryId = (int)$existingEntry['id'];
                 $alreadyClockedIn = true;
             } else {
-                $entryId = clockIn($targetUserId, $lat, $lng);
+                // Named users must prove the phone can track before a self clock-in
+                // (TrackingSetupGate). An admin clocking someone in is never gated.
+                if ($targetUserId === $user['id']) {
+                    require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
+                    $refusal = TrackingSetupGate::refusal(
+                        getTimeClockSetting(TrackingSetupGate::SETTING, ''),
+                        (int)$targetUserId,
+                        isset($input['tracking_perms']) && is_array($input['tracking_perms']) ? $input['tracking_perms'] : null
+                    );
+                    if ($refusal !== null) {
+                        http_response_code(403);
+                        echo json_encode(['success' => false, 'error' => $refusal, 'tracking_setup_required' => true]);
+                        break;
+                    }
+                }
+                // Only enforce require_gps_for_clock_in for self clock-ins — an
+                // admin clocking in a different user has no reason to supply
+                // that user's location.
+                $entryId = clockIn($targetUserId, $lat, $lng, $targetUserId === $user['id']);
                 $alreadyClockedIn = false;
             }
 
@@ -171,26 +242,17 @@ try {
             // require pre-trip when there's no "open" trip row for
             // today — meaning either no rows at all, or the latest row
             // is already closed (previous shift's post-trip filed).
-            $preTripRequired = false;
+            // WHO owes a vehicle inspection is decided per SHIFT, not by users.is_driver:
+            //   unasked → the app asks "are you driving this shift?"
+            //   driving with no open trip → pre-trip needed before the vehicle moves
+            $preTripRequired        = false;
+            $driverQuestionRequired = false;
             try {
-                $drvStmt = $db->prepare("SELECT COALESCE(is_driver, 0) AS is_driver FROM users WHERE id = ? LIMIT 1");
-                $drvStmt->execute([$targetUserId]);
-                $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
-                if ($isDriver) {
-                    $tripStmt = $db->prepare("
-                        SELECT COUNT(*) FROM vehicle_trip_reports
-                        WHERE driver_id = ?
-                          AND report_date = ?
-                          AND pre_trip_at IS NOT NULL
-                          AND post_trip_at IS NULL
-                    ");
-                    $tripStmt->execute([$targetUserId, date('Y-m-d')]);
-                    $openTripCount = (int)$tripStmt->fetchColumn();
-                    // No open trip → this is a new shift, pre-trip needed.
-                    if ($openTripCount === 0) {
-                        $preTripRequired = true;
-                    }
-                }
+                require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                $tripSvc    = new TripReportService($db);
+                $shiftState = $tripSvc->shiftState((int)$targetUserId);
+                $driverQuestionRequired = ($shiftState === 'unasked');
+                $preTripRequired        = ($shiftState === 'driving' && !$tripSvc->hasOpenTrip((int)$targetUserId));
             } catch (Throwable $e) {
                 error_log('[time-clock] pre-trip gate check failed: ' . $e->getMessage());
             }
@@ -201,6 +263,7 @@ try {
                 'entry_id'           => $entryId,
                 'clock_in'           => date('Y-m-d H:i:s'),
                 'pre_trip_required'  => $preTripRequired,
+                'driver_question_required' => $driverQuestionRequired,
                 'already_clocked_in' => $alreadyClockedIn,
             ]);
             break;
@@ -218,22 +281,11 @@ try {
             // the matching clock-out.
             if (!$override) {
                 try {
-                    $drvStmt = $db->prepare("SELECT COALESCE(is_driver, 0) AS is_driver FROM users WHERE id = ? LIMIT 1");
-                    $drvStmt->execute([$targetUserId]);
-                    $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
-                    if ($isDriver) {
-                        $tripStmt = $db->prepare("
-                            SELECT id
-                            FROM vehicle_trip_reports
-                            WHERE driver_id = ?
-                              AND report_date = ?
-                              AND pre_trip_at IS NOT NULL
-                              AND post_trip_at IS NULL
-                            ORDER BY id DESC
-                            LIMIT 1
-                        ");
-                        $tripStmt->execute([$targetUserId, date('Y-m-d')]);
-                        $tripRow = $tripStmt->fetch(PDO::FETCH_ASSOC);
+                    // Whoever opened a trip closes it — decided by the open trip itself, not
+                    // by users.is_driver (the owner drives some days and is not "a driver").
+                    require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                    $tripRow = (new TripReportService($db))->openTrip((int)$targetUserId);
+                    {
                         if ($tripRow) {
                             http_response_code(409);
                             echo json_encode([
@@ -311,6 +363,44 @@ try {
             ]);
             break;
 
+        case 'break_start':
+        case 'break_end':
+            // Always the caller's own break. The tap time travels as client_time (the widget sets it
+            // at the tap, so an offline-queued replay keeps it); OfflineTime decides whether to trust it.
+            require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+            $breaks = new BreakService($db);
+            $clientTime = isset($input['client_time']) && is_string($input['client_time']) ? $input['client_time'] : null;
+            if ($clientTime === null && !empty($_SERVER['HTTP_X_QUEUED_AT']) && ctype_digit((string)$_SERVER['HTTP_X_QUEUED_AT'])) {
+                $clientTime = date('c', intdiv((int)$_SERVER['HTTP_X_QUEUED_AT'], 1000));
+            }
+            if ($action === 'break_start' && !$breaks->buttonEnabled()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Breaks are not turned on.']);
+                break;
+            }
+            $r = $action === 'break_start'
+                ? $breaks->start((int)$user['id'], $clientTime)
+                : $breaks->end((int)$user['id'], $clientTime);
+            if (!$r['ok']) {
+                http_response_code($r['status'] ?: 409);
+                echo json_encode(['success' => false, 'error' => $r['error']]);
+                break;
+            }
+            if (!$r['recorded'] && function_exists('logActivity')) {
+                logActivity((int)$user['id'], null, $action . '_not_recorded', (string)$r['note']);
+            }
+            $open = $breaks->openBreak((int)$user['id']);
+            echo json_encode([
+                'success'   => true,
+                'recorded'  => $r['recorded'],
+                'already'   => $r['already'],
+                'on_break'  => $open ? BreakService::publicBreak($open) : null,
+                'minutes'   => $r['minutes'] ?? null,
+                'time_flag' => $r['time_flag'],
+                'message'   => $r['recorded'] ? ($action === 'break_start' ? 'On break' : 'Break ended') : $r['note'],
+            ]);
+            break;
+
         case 'admin_void':
             // Admin/manager only: force-complete an active clock entry for any user.
             if (!in_array($user['role'], ['admin', 'manager'])) {
@@ -324,6 +414,12 @@ try {
                 exit;
             }
             $voidUserId = (int)$input['user_id'];
+            require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+            if (!TimeclockRules::canEditTimeOf((string)$user['role'], (int)$user['id'], $voidUserId)) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Only an admin can close their own shift this way.']);
+                exit;
+            }
             $voidReason = trim($input['reason'] ?? 'admin override');
             $voidEntry  = getActiveClockEntry($voidUserId);
             if (!$voidEntry) {
@@ -341,6 +437,12 @@ try {
                     edited_at     = NOW()
                 WHERE id = ?
             ")->execute([$user['id'], $voidReason, $voidEntry['id']]);
+            TimeEntryGuard::fixDst($db, 'time_clock_entries', (int)$voidEntry['id']);
+            try {   // a break still running ends at the forced clock-out
+                require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+                (new BreakService($db))->afterClockOut($voidUserId, (int)$voidEntry['id']);
+            } catch (Throwable $e) { /* additive (migration 1358) */ }
+            ensureTimesheetExists($voidUserId, date('Y-m-d', strtotime($voidEntry['clock_in'])));
             logActivity($user['id'], null, 'Admin void clock entry #' . $voidEntry['id'] . ' for user #' . $voidUserId, $voidReason);
             echo json_encode(['success' => true, 'message' => 'Clock entry voided']);
             break;
@@ -384,25 +486,43 @@ try {
                 exit;
             }
 
+            // Same guards as /crm/api/time-entry-edit.php (TimeEntryGuard, 2026-10-12): only an
+            // admin adds their own time, never into an approved week, never over another shift.
+            require_once APP_ROOT . '/Modules/Team/Services/TimeEntryGuard.php';
+            if (!TimeclockRules::canEditTimeOf((string)$user['role'], (int)$user['id'], $targetUserId)) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Only an admin can add their own time.']);
+                exit;
+            }
+            if ($why = TimeEntryGuard::refusal($db, $targetUserId, [$clockInDt])) {
+                http_response_code(409);
+                echo json_encode(['error' => $why]);
+                exit;
+            }
+            if ($clash = TimeEntryGuard::overlapping($db, $targetUserId, $clockInDt, $clockOutDt)) {
+                http_response_code(409);
+                echo json_encode(['error' => 'That overlaps another shift (' . date('M j g:i a', strtotime($clash['clock_in']))
+                    . ($clash['clock_out'] ? ' – ' . date('g:i a', strtotime($clash['clock_out'])) : ', still running') . ').']);
+                exit;
+            }
+
             $noteText = 'Manual entry by admin #' . $user['id'];
             if ($entryNotes) $noteText .= ': ' . $entryNotes;
 
             $db->prepare("
                 INSERT INTO time_clock_entries
                     (user_id, clock_in, clock_out, total_minutes, status, notes)
-                VALUES (?, ?, ?,
-                    TIMESTAMPDIFF(MINUTE, ?, ?),
-                    'completed', ?)
+                VALUES (?, ?, ?, ?, 'completed', ?)
             ")->execute([
                 $targetUserId, $clockInDt, $clockOutDt,
-                $clockInDt, $clockOutDt,
+                TimeclockRules::minutesBetween($clockInDt, $clockOutDt),   // real minutes (DST-safe)
                 $noteText,
             ]);
 
             ensureTimesheetExists($targetUserId, $entryDate);
             logActivity($user['id'], null, 'Admin added manual clock entry for user #' . $targetUserId . ' on ' . $entryDate, $noteText);
 
-            $minutes = (strtotime($clockOutDt) - strtotime($clockInDt)) / 60;
+            $minutes = TimeclockRules::minutesBetween($clockInDt, $clockOutDt);
             echo json_encode([
                 'success'       => true,
                 'message'       => 'Clock entry added',
@@ -412,10 +532,24 @@ try {
 
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, admin_void, admin_add_entry']);
+            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, break_start, break_end, admin_void, admin_add_entry']);
+    }
+
+    if ($idempKey !== '') {
+        $idempBody = (string)ob_get_clean();
+        $idempCode = http_response_code();
+        $idempData = json_decode($idempBody, true);
+        if (($idempCode === 200 || $idempCode === false) && is_array($idempData) && !empty($idempData['success'])) {
+            try {
+                idempotencyStore($db, $idempKey, (int)$user['id'], 'time-clock', $action, $idempBody);
+            } catch (Throwable $e) {
+                error_log('[time-clock] idempotency store failed: ' . $e->getMessage());
+            }
+        }
+        echo $idempBody;
     }
 
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'time-clock')]);
 }

@@ -190,6 +190,84 @@ a:hover { text-decoration: underline; }
   margin-bottom: 16px;
 }
 
+/* ─── Billing Summary (account totals) ───────────────────────────────────── */
+.portal-billing-summary {
+  background: var(--p-bg);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius);
+  box-shadow: var(--p-shadow-sm);
+  margin-bottom: 28px;
+  overflow: hidden;
+}
+.portal-billing-summary-head {
+  background: var(--p-bg-subtle);
+  border-bottom: 1px solid var(--p-border);
+  padding: 11px 18px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--p-text-mid);
+}
+.portal-billing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 16px;
+}
+@media (min-width: 540px) {
+  .portal-billing-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.portal-billing-stat {
+  background: var(--p-bg-subtle);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius-sm);
+  padding: 12px 14px;
+}
+.portal-billing-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--p-text-light);
+  margin-bottom: 5px;
+}
+.portal-billing-stat-label svg { flex-shrink: 0; }
+.portal-billing-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--p-forest);
+  letter-spacing: -0.3px;
+}
+.portal-billing-paid  { color: var(--p-green); }
+.portal-billing-due   { color: var(--p-orange); }
+.portal-billing-muted { color: var(--p-text-muted); }
+
+.portal-billing-stat-credit {
+  background: var(--p-bg-subtle);
+  border-color: var(--p-border-mid);
+  position: relative;
+}
+.portal-billing-stat-credit::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: var(--p-radius-sm) 0 0 var(--p-radius-sm);
+  background: var(--p-lime);
+}
+.portal-billing-stat-credit .portal-billing-stat-label { color: var(--p-dark); }
+.portal-billing-credit-value { color: var(--p-green); }
+.portal-billing-stat-sub {
+  font-size: 0.64rem;
+  color: var(--p-text-light);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
 /* ─── Portal Link Copy Box (admin only) ─────────────────────────────────── */
 .portal-link-label { font-size: 0.72rem; color: var(--p-text-muted); margin-bottom: 4px; }
 .portal-link-copy {
@@ -273,6 +351,69 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.07em;
   color: var(--p-text-light);
   margin: 0 0 10px;
+}
+
+/* ─── Payment History Section ────────────────────────────────────────────── */
+.portal-payment-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 0;
+}
+.portal-payment-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--p-bg);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius);
+  padding: 12px 16px;
+  box-shadow: var(--p-shadow-sm);
+}
+.portal-payment-date-block {
+  min-width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.portal-payment-day {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--p-forest);
+  line-height: 1;
+}
+.portal-payment-mon {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--p-text-light);
+  font-weight: 600;
+}
+.portal-payment-divider {
+  width: 1px;
+  height: 36px;
+  background: var(--p-border);
+  flex-shrink: 0;
+}
+.portal-payment-info {
+  flex: 1;
+  min-width: 0;
+}
+.portal-payment-amount {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--p-green);
+  line-height: 1.2;
+}
+.portal-payment-desc {
+  font-size: 0.8rem;
+  color: var(--p-text-mid);
+  margin-top: 2px;
+}
+.portal-payment-inv {
+  color: var(--p-text-light);
+  margin-left: 2px;
 }
 
 /* ─── Document Cards (quotes / invoices) ─────────────────────────────────── */
@@ -410,6 +551,11 @@ a:hover { text-decoration: underline; }
   background: var(--p-bg-subtle);
   border-color: var(--p-border-mid);
   text-decoration: none;
+}
+.portal-btn-sm {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  flex-shrink: 0;
 }
 
 /* Green-outline variant — used for PDF / doc actions */
@@ -802,6 +948,39 @@ a:hover { text-decoration: underline; }
   color: var(--p-text-mid);
   padding: 6px 12px;
 }
+
+/* ── The client unticks lines before signing (QuoteLineChoiceService) ── */
+.portal-line-choice-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--p-bg-subtle);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius-sm);
+  color: var(--p-text-mid);
+  font-size: 15px;
+}
+.portal-table .portal-line-pick { width: 44px; text-align: center; vertical-align: middle; }
+.portal-line-pick input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--p-green); cursor: pointer; }
+.portal-line-pick input[type=checkbox]:disabled { cursor: default; opacity: 0.6; }
+.portal-table tr.is-declined td { color: var(--p-text-muted); }
+.portal-table tr.is-declined td:not(.portal-line-pick) { text-decoration: line-through; }
+.portal-line-declined {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--p-bg-gray);
+  color: var(--p-text-mid);
+  font-size: 12px;
+  text-decoration: none;
+}
+.portal-table tr.is-declined .portal-line-declined { text-decoration: none; }
+@media (max-width: 480px) {
+  .portal-table-choice th, .portal-table-choice td { padding: 9px 6px; }
+  .portal-table-choice .portal-line-pick { width: 30px; padding-left: 2px; padding-right: 2px; }
+  .portal-table-choice .portal-table-num { white-space: nowrap; }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 
 /* ─── Totals Block ───────────────────────────────────────────────────────── */
 .portal-totals {
@@ -1283,3 +1462,50 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.02em;
 }
 
+
+/* ── Crew recommendation photos on a quote ─────────────────────────────────
+   Shown above the line items so the client sees what prompted the suggestion
+   before they see the price. */
+.mw-reco-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mw-reco-gallery-img {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--p-border, #e5e7eb);
+  display: block;
+  transition: transform .15s ease;
+}
+.mw-reco-gallery-img:hover {
+  transform: scale(1.03);
+}
+@media (max-width: 480px) {
+  .mw-reco-gallery-img { width: 100px; height: 100px; }
+}
+
+/* Your Plants (PlantWorkService, 2026-11-04) */
+.portal-plants { margin-bottom: 24px; }
+.portal-plants-address {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--p-text-mid);
+  margin-bottom: 6px;
+}
+.portal-plants-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--p-bg);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius);
+  box-shadow: var(--p-shadow-sm);
+}
+.portal-plants-row { padding: 10px 14px; border-bottom: 1px solid var(--p-border); }
+.portal-plants-row:last-child { border-bottom: none; }
+.portal-plants-name { font-size: 0.9rem; font-weight: 600; color: var(--p-text); }
+.portal-plants-count { font-weight: 400; color: var(--p-text-light); }
+.portal-plants-meta { font-size: 0.78rem; color: var(--p-text-mid); margin-top: 2px; }

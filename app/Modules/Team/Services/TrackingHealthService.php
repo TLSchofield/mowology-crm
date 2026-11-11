@@ -1,0 +1,222 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * TrackingHealthService — notices when a clocked-in, tracked employee's phone has
+ * gone quiet, and says so.
+ *
+ * The 2026-09-19 audit's worst property was SILENCE: a swiped-away app, a revoked
+ * permission or a dead WebView all looked identical to "crew member is parked" —
+ * and old clients re-sent stale positions with fresh timestamps, so a dead phone
+ * looked alive. For salting / snow work, a gap discovered weeks later during a
+ * slip-and-fall claim cannot be repaired. It has to be caught on the day.
+ *
+ * Global-namespace, no autoloader: require_once, then `new TrackingHealthService($db)`.
+ */
+class TrackingHealthService
+{
+    public const DEFAULT_SILENT_MINUTES   = 15;
+    public const DEFAULT_COOLDOWN_MINUTES = 60;
+
+    /** @var PDO */
+    private $db;
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    // ── Pure rules ──────────────────────────────────────────────────────────
+
+    /**
+     * Silent = on the clock long enough to have reported, and nothing heard since
+     * (or ever, this shift). A fix from BEFORE clock-in says nothing about this shift.
+     */
+    public static function isSilent(int $clockInTs, ?int $lastFixTs, int $nowTs, int $silentMinutes): bool
+    {
+        $threshold = max(1, $silentMinutes) * 60;
+        if ($nowTs - $clockInTs < $threshold) {
+            return false;   // just clocked in — give the phone a chance
+        }
+        $lastHeard = ($lastFixTs !== null && $lastFixTs >= $clockInTs) ? $lastFixTs : $clockInTs;
+        return $nowTs - $lastHeard >= $threshold;
+    }
+
+    public static function shouldAlert(?int $lastAlertTs, int $nowTs, int $cooldownMinutes): bool
+    {
+        return $lastAlertTs === null || $nowTs - $lastAlertTs >= max(1, $cooldownMinutes) * 60;
+    }
+
+    /** What the device last said about itself, turned into a likely cause a human can act on. PURE. */
+    public static function likelyCause(?array $health, ?int $clockInTs = null): string
+    {
+        if (!$health) {
+            return 'No device report yet — the app may be closed or out of date.';
+        }
+        // The health row is overwritten on every upload and never expires. A phone whose
+        // background tracker stopped keeps its LAST report forever, so reading the flags
+        // below off a stale row blamed Nigel's 10-day outage (2026-09-23 →) on "Low Power
+        // Mode is on" — a setting from his last good day, when tracking was working fine.
+        $seenTs = isset($health['last_seen_ts']) && is_numeric($health['last_seen_ts']) ? (int)$health['last_seen_ts'] : null;
+        if ($clockInTs !== null && $seenTs !== null && $seenTs < $clockInTs) {
+            return 'The phone\'s background tracker has not reported since ' . date('M j', $seenTs)
+                 . ' — it is not running. Check the app\'s Location permission is "Allow all the time" with Precise on.';
+        }
+        $perm = $health['location_permission'] ?? 'unknown';
+        if ($perm === 'denied')      { return 'Location access is turned off for the app.'; }
+        if (isset($health['precise_location']) && (int)$health['precise_location'] === 0) {
+            return 'Precise Location is off.';
+        }
+        if ($perm === 'when_in_use') { return 'Location is set to "While Using" — the app was probably closed.'; }
+        if (isset($health['battery_optimization_exempt']) && (int)$health['battery_optimization_exempt'] === 0) {
+            return 'Battery optimisation is likely killing the app in the background.';
+        }
+        if (!empty($health['low_power_mode'])) { return 'Low Power Mode is on.'; }
+        if (isset($health['battery_percent']) && (int)$health['battery_percent'] <= 5) {
+            return 'The phone battery was nearly flat.';
+        }
+        return 'The app may have been closed, or the phone has no signal.';
+    }
+
+    /**
+     * Someone who withdrew tracking consent — or, once consent is required, has no current
+     * consent — is SUPPOSED to be silent: the server stores none of their fixes. Alerting on
+     * them is a false alarm forever (found 2026-10-12). PURE.
+     *
+     * @param ?array $latestConsent newest tracking_consents row (withdrawn_at, disclosure_version) or null
+     */
+    public static function consentSilences(?array $latestConsent, bool $consentRequired, bool $hasCurrentConsent): bool
+    {
+        if ($latestConsent !== null && !empty($latestConsent['withdrawn_at'])) {
+            return true;
+        }
+        return $consentRequired && !$hasCurrentConsent;
+    }
+
+    // ── DB ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Everyone on the clock with tracking enabled, with their newest fix this shift.
+     * Truck tablets are included (2026-09-25); people whose consent was withdrawn (or who
+     * lack a required consent) are left out — nothing is collected from them by design.
+     */
+    public function clockedInTrackedUsers(): array
+    {
+        $rows = $this->clockedInTrackedRows();
+        if (!$rows) {
+            return $rows;
+        }
+        require_once __DIR__ . '/TrackingConsentService.php';
+        $consents = new TrackingConsentService($this->db);
+        $required = false;
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM time_clock_settings WHERE setting_key = 'tracking_consent_required'");
+            $s->execute();
+            $required = (string)$s->fetchColumn() === '1';
+        } catch (Throwable $e) { /* setting absent → not required */ }
+        return array_values(array_filter($rows, static function (array $r) use ($consents, $required): bool {
+            $latest = $consents->latest((int)$r['user_id']);
+            return !self::consentSilences($latest, $required, TrackingConsentService::isCurrent($latest));
+        }));
+    }
+
+    private function clockedInTrackedRows(): array
+    {
+        // A person on a tapped break has stopped sharing on purpose (BreakService, 2026-10-13): not
+        // quiet. After the break, silence counts from its end — clock_in_ts is "when sharing last
+        // (re)started", or the phone would read as silent for the whole break the moment it ended.
+        $breakSql = "
+            SELECT u.id AS user_id, u.full_name, tce.id AS clock_entry_id,
+                   IFNULL(u.device_type, 'personal') AS device_type,
+                   UNIX_TIMESTAMP(GREATEST(tce.clock_in, COALESCE((SELECT MAX(b.break_end) FROM time_clock_breaks b
+                     WHERE b.entry_id = tce.id AND b.source = 'manual'), tce.clock_in))) AS clock_in_ts,
+                   (SELECT UNIX_TIMESTAMP(MAX(clh.timestamp)) FROM crew_location_history clh
+                     WHERE clh.crew_id = u.id AND clh.timestamp >= tce.clock_in) AS last_fix_ts
+            FROM time_clock_entries tce
+            JOIN users u ON u.id = tce.user_id
+            WHERE tce.clock_out IS NULL AND tce.status = 'active'
+              AND u.is_active = 1 AND u.location_tracking_enabled = 1
+              AND NOT EXISTS (SELECT 1 FROM time_clock_breaks ob WHERE ob.entry_id = tce.id
+                              AND ob.source = 'manual' AND ob.break_end IS NULL)
+        ";
+        try {
+            return $this->db->query($breakSql)->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            // Break table missing (migration 1318/1358) — never let that silence the sweep itself.
+        }
+        $stmt = $this->db->query("
+            SELECT u.id AS user_id, u.full_name, tce.id AS clock_entry_id,
+                   IFNULL(u.device_type, 'personal') AS device_type,
+                   UNIX_TIMESTAMP(tce.clock_in) AS clock_in_ts,
+                   (SELECT UNIX_TIMESTAMP(MAX(clh.timestamp)) FROM crew_location_history clh
+                     WHERE clh.crew_id = u.id AND clh.timestamp >= tce.clock_in) AS last_fix_ts
+            FROM time_clock_entries tce
+            JOIN users u ON u.id = tce.user_id
+            WHERE tce.clock_out IS NULL AND tce.status = 'active'
+              AND u.is_active = 1 AND u.location_tracking_enabled = 1
+        ");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function latestHealth(int $userId): ?array
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT *, UNIX_TIMESTAMP(last_seen_at) AS last_seen_ts FROM device_tracking_health WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1");
+            $stmt->execute([$userId]);
+            return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {
+            return null;   // migration 1116 not run yet
+        }
+    }
+
+    /** Cooldown lives in time_clock_settings so it works before migration 1116 exists. */
+    public function lastAlertTs(int $userId): ?int
+    {
+        $stmt = $this->db->prepare("SELECT setting_value FROM time_clock_settings WHERE setting_key = ?");
+        $stmt->execute(["tracking_silent_alert_{$userId}"]);
+        $v = $stmt->fetchColumn();
+        return $v !== false && is_numeric($v) ? (int)$v : null;
+    }
+
+    public function markAlerted(int $userId, int $nowTs): void
+    {
+        $key = "tracking_silent_alert_{$userId}";
+        $upd = $this->db->prepare("UPDATE time_clock_settings SET setting_value = ? WHERE setting_key = ?");
+        $upd->execute([(string)$nowTs, $key]);
+        if ($upd->rowCount() === 0) {
+            $exists = $this->db->prepare("SELECT 1 FROM time_clock_settings WHERE setting_key = ?");
+            $exists->execute([$key]);
+            if (!$exists->fetchColumn()) {
+                $this->db->prepare("INSERT INTO time_clock_settings (setting_key, setting_value) VALUES (?, ?)")
+                         ->execute([$key, (string)$nowTs]);
+            }
+        }
+    }
+
+    /**
+     * One sweep. Returns the people found silent and whether each was alerted.
+     *
+     * @param callable(array $row, string $cause, int $minutesSilent): void $notify
+     */
+    public function sweep(int $nowTs, int $silentMinutes, int $cooldownMinutes, callable $notify): array
+    {
+        $found = [];
+        foreach ($this->clockedInTrackedUsers() as $row) {
+            $clockIn = (int)$row['clock_in_ts'];
+            $lastFix = $row['last_fix_ts'] !== null ? (int)$row['last_fix_ts'] : null;
+            if (!self::isSilent($clockIn, $lastFix, $nowTs, $silentMinutes)) {
+                continue;
+            }
+            $userId  = (int)$row['user_id'];
+            $minutes = (int)floor(($nowTs - max($clockIn, $lastFix ?? 0)) / 60);
+            $alerted = false;
+            if (self::shouldAlert($this->lastAlertTs($userId), $nowTs, $cooldownMinutes)) {
+                $notify($row, self::likelyCause($this->latestHealth($userId), $clockIn), $minutes);
+                $this->markAlerted($userId, $nowTs);
+                $alerted = true;
+            }
+            $found[] = ['user_id' => $userId, 'name' => $row['full_name'], 'minutes_silent' => $minutes, 'alerted' => $alerted];
+        }
+        return $found;
+    }
+}

@@ -7,7 +7,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-requirePermission('clients.view');
+requirePermission('clients.edit');
 
 $db = getDB();
 $errors = [];
@@ -30,6 +30,17 @@ $contacts = $contactsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get lifecycle stages
 $stages = getLifecycleStages('company');
+// Keep the stored stage selectable (Sam may set 'opportunity' / 'lost', which are contact-scoped
+// in lifecycle_stages) so saving the form never silently changes — and pins — it.
+$storedCompanyStage = (string)($company['lifecycle_stage'] ?? '');
+if ($stages && $storedCompanyStage !== '' && !in_array($storedCompanyStage, array_column($stages, 'stage_key'), true)) {
+    $stages[] = ['stage_key' => $storedCompanyStage, 'stage_label' => ucwords(str_replace('_', ' ', $storedCompanyStage))];
+}
+
+// "Quotes go to" (migration 1186) — separate from the billing contact
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+$quoteRecipientSvc   = new QuoteRecipientService($db);
+$quoteRecipientReady = $quoteRecipientSvc->hasColumn('companies', 'quote_contact_id');
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -112,6 +123,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $invoiceRouting, $notes ?: null,
                     $companyId
                 ]);
+
+                // A stage changed by hand is pinned: Sam's pipeline rules leave it alone.
+                if ((string)$lifecycleStage !== (string)($company['lifecycle_stage'] ?? '')) {
+                    setCompanyLifecyclePinned($companyId, true);
+                }
+
+                if ($quoteRecipientReady) {
+                    $quoteContactId = !empty($_POST['quote_contact_id']) ? (int)$_POST['quote_contact_id'] : null;
+                    $quoteRecipientSvc->setCompanyQuoteContact($companyId, $quoteContactId);
+                }
 
                 logActivityExtended($user['id'], 'Company updated', "Updated company: {$companyName}", $companyId);
 
@@ -249,6 +270,33 @@ if ($apiKey) {
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Quotes go to -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Quotes go to</h5>
+                                <small class="text-muted">The person who receives quotes for this company's buildings (e.g. the one who takes them to the property managers). Invoices still go to the billing contact.</small>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group mb-0">
+                                    <label for="quote_contact_id">Quote contact</label>
+                                    <select id="quote_contact_id" name="quote_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="Billing contact (default)" <?= $quoteRecipientReady ? '' : 'disabled' ?>>
+                                        <option value="">— Same as each building's billing contact —</option>
+                                        <?php foreach ($contacts as $ct): ?>
+                                            <option value="<?= (int)$ct['id'] ?>" <?= (int)($formData['quote_contact_id'] ?? 0) === (int)$ct['id'] ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars(trim($ct['first_name'] . ' ' . $ct['last_name'])) ?>
+                                                <?php if ($ct['email']): ?>(<?= htmlspecialchars($ct['email']) ?>)<?php endif; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <?php if (!$quoteRecipientReady): ?>
+                                        <small class="text-muted"><strong>Not available — run migration 1186 first.</strong></small>
+                                    <?php else: ?>
+                                        <small class="text-muted">A building can override this on its property page. Applies to new quotes; change an existing quote's recipient on the quote itself.</small>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>

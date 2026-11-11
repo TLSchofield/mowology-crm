@@ -25,11 +25,38 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
+
+// Prevent overlapping runs (CLI only — web requests are admin-gated and rare)
+if (php_sapi_name() === 'cli') {
+    require_once APP_ROOT . '/Core/CronLock.php';
+    \App\Core\CronLock::acquire('auto_clockout');
+}
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/timeclock-functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
+// recordCronRun() lives here and is NOT pulled in by the CLI bootstrap chain.
+// Without it this cron can never report a run, so "no record" on the Database
+// Manager looked identical to "not scheduled" — which is exactly how a truck
+// sat clocked in for 20 h with auto_clock_out_hours set to 12 and nobody able
+// to tell whether the job was running at all.
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+
+$__cronStart = microtime(true);
+$__cronWeb   = php_sapi_name() !== 'cli';
+
+/** Record the run on every exit path, including the early "nothing to do" one. */
+function __autoClockoutRecord(string $status, string $summary, ?string $err = null): void
+{
+    global $__cronStart, $__cronWeb;
+    if (function_exists('recordCronRun')) {
+        recordCronRun('auto_clockout', $status, $summary,
+            (int) round((microtime(true) - $__cronStart) * 1000), $err, $__cronWeb);
+    }
+}
 
 $db = getDB();
 
@@ -48,6 +75,8 @@ $staleStmt->execute([$autoHours]);
 $entries = $staleStmt->fetchAll(PDO::FETCH_ASSOC);
 
 if (empty($entries)) {
+    // A clean no-op is still a run — recording it is the whole point.
+    __autoClockoutRecord('success', 'No stale entries (threshold ' . $autoHours . 'h)');
     echo "No stale entries found.\n";
     exit;
 }
@@ -57,27 +86,35 @@ foreach ($entries as $entry) {
     try {
         $clockInDate = date('Y-m-d', strtotime($entry['clock_in']));
 
-        $db->prepare("
+        // Only a shift still open (Codex review 2026-10-14): one clocked out between the select and
+        // here keeps its real clock-out, and gets no trip close or SMS.
+        $close = $db->prepare("
             UPDATE time_clock_entries
             SET clock_out     = DATE_ADD(clock_in, INTERVAL ? HOUR),
                 total_minutes = ? * 60,
                 status        = 'completed',
                 notes         = CONCAT(COALESCE(notes, ''), ' [auto-completed by cron after ', ?, 'h]'),
                 edited_at     = NOW()
-            WHERE id = ?
-        ")->execute([$autoHours, $autoHours, $autoHours, $entry['id']]);
+            WHERE id = ? AND clock_out IS NULL AND status = 'active'
+        ");
+        $close->execute([$autoHours, $autoHours, $autoHours, $entry['id']]);
+        if ($close->rowCount() !== 1) continue;
 
         ensureTimesheetExists((int)$entry['user_id'], $clockInDate);
 
-        // Close any open trip reports for that date
+        // Close any open trip reports for that date at the auto clock-out time (never before the
+        // pre-trip), remarked "auto-closed" — not pre_trip + 8 h, which could be before or after
+        // the shift ended and read as a real post-trip inspection (2026-10-12 review).
         $db->prepare("
             UPDATE vehicle_trip_reports
-            SET post_trip_at = DATE_ADD(pre_trip_at, INTERVAL 8 HOUR)
+            SET post_trip_at       = GREATEST(pre_trip_at, DATE_ADD(?, INTERVAL ? HOUR)),
+                end_of_day_remarks = TRIM(CONCAT(COALESCE(end_of_day_remarks, ''),
+                                     ' [auto-closed: shift auto clocked out — no post-trip inspection was done]'))
             WHERE driver_id    = ?
               AND report_date  = ?
               AND pre_trip_at  IS NOT NULL
               AND post_trip_at IS NULL
-        ")->execute([$entry['user_id'], $clockInDate]);
+        ")->execute([$entry['clock_in'], $autoHours, $entry['user_id'], $clockInDate]);
 
         // SMS notification — no URLs, 160 chars max
         if (!empty($entry['phone'])) {
@@ -101,5 +138,10 @@ foreach ($entries as $entry) {
         echo "ERROR for entry #{$entry['id']}: " . $e->getMessage() . "\n";
     }
 }
+
+__autoClockoutRecord(
+    $completed === count($entries) ? 'success' : 'warning',
+    "Completed {$completed} of " . count($entries) . " stale entries (threshold {$autoHours}h)"
+);
 
 echo "Done. Completed $completed stale entries.\n";

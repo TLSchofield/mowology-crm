@@ -5,8 +5,13 @@
  */
 
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 // ── Load ContractService via upward search ─────────────────────────────────
 $__dir = __DIR__;
@@ -20,10 +25,13 @@ for ($__i = 0; $__i < 7; $__i++) {
 unset($__dir, $__i);
 
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
+require_once APP_ROOT . '/Modules/PublicForms/Services/PublicFormSecurity.php';
 
-$db    = getDB();
-$svc   = new ContractService($db);
-$error = '';
+$db       = getDB();
+$svc      = new ContractService($db);
+$termsSvc = new ContractTermsService($db);
+$error    = '';
 
 // ── Resolve the signature request ─────────────────────────────────────────
 $token = trim($_GET['token'] ?? '');
@@ -38,6 +46,14 @@ if (empty($token)) {
     }
 }
 
+// The wording sealed with the version being signed — not whatever the template
+// says today. `snapshot => false` means this contract predates migration 1119
+// and we are showing a live resolution instead of a sealed copy.
+$terms = null;
+if ($row) {
+    $terms = $termsSvc->termsForVersion((int)$row['contract_id'], (int)$row['contract_version']);
+}
+
 // ── Handle POST (sign / decline) ──────────────────────────────────────────
 $success = '';
 $action  = $_POST['action'] ?? '';
@@ -47,13 +63,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
         $signerName    = trim($_POST['signer_name'] ?? '');
         $signatureData = trim($_POST['signature_data'] ?? '');
 
+        $acknowledged = !empty($_POST['terms_acknowledged']);
+
         if (empty($signerName)) {
             $error = 'Please enter your full name.';
         } elseif (empty($signatureData) || $signatureData === 'data:,') {
             $error = 'Please draw your signature in the box above.';
+        } elseif (!PublicFormSecurity::isValidSignatureData($signatureData)) {
+            $error = 'The signature is invalid or too large. Please draw it again.';
+        } elseif ($terms && !$acknowledged) {
+            // Server-side too: the checkbox is the record that they were shown
+            // the liability wording, and a client-side-only gate proves nothing.
+            $error = 'Please confirm you have read and agree to the terms and conditions.';
         } else {
             $signerIp = $_SERVER['REMOTE_ADDR'] ?? '';
-            $saved    = $svc->recordSignature($token, $signatureData, $signerIp);
+            $saved    = $svc->recordSignature($token, $signatureData, $signerIp, $acknowledged, $signerName);
             if ($saved) {
                 $success = 'Contract signed successfully. We will be in touch to confirm your service schedule.';
                 $row     = null; // don't re-show the form
@@ -64,9 +88,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
     } elseif ($action === 'decline') {
         $reason   = trim($_POST['decline_reason'] ?? 'No reason given');
         $signerIp = $_SERVER['REMOTE_ADDR'] ?? '';
-        $svc->declineSignature($token, $reason, $signerIp);
-        $success = 'We have recorded your response. If you have questions, call us at (778) 846-9273.';
-        $row     = null;
+        if ($svc->declineSignature($token, $reason, $signerIp)) {
+            $success = 'We have recorded your response. If you have questions, ' . PortalBrand::callPhrase() . '.';
+            $row     = null;
+        } else {
+            $error = 'Could not record your response. The link may have already been used.';
+        }
     }
 }
 
@@ -82,10 +109,10 @@ if ($row) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Service Contract — Mowology</title>
+    <title>Service Contract — <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
-    <script src="https://unpkg.com/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    <script src="/assets/vendor/signature_pad/signature_pad.umd.min.js"></script>
     <style>
         .ctr-sign-meta { font-size:.82rem; color:var(--p-text-mid,#6b7280); margin-bottom:6px; }
         .ctr-sign-meta strong { color:var(--p-text,#1f2937); }
@@ -95,12 +122,26 @@ if ($row) {
         .ctr-billing-label { color:var(--p-text-mid,#6b7280); }
         .ctr-billing-value { font-weight:600; color:var(--p-text,#1f2937); }
         .ctr-sig-note { font-size:.78rem; color:var(--p-text-mid,#6b7280); margin-top:6px; }
+        /* Terms are long. Cap the height so the signature pad stays reachable on
+           a phone, but never hide the text behind a "read more" — a disclaimer
+           the client had to expand is one they can say they never saw. */
+        .ctr-terms-body { font-size:.84rem; line-height:1.6; color:var(--p-text,#1f2937);
+            white-space:pre-line; max-height:340px; overflow-y:auto; padding-right:8px;
+            border-left:3px solid var(--p-border,#e5e7eb); padding-left:14px; }
+        .ctr-terms-ack { display:flex; gap:10px; align-items:flex-start; margin-bottom:18px;
+            font-size:.86rem; line-height:1.5; color:var(--p-text,#1f2937); cursor:pointer; }
+        .ctr-terms-ack input { margin-top:3px; flex-shrink:0; width:18px; height:18px; }
+        .ctr-pdf-actions { margin-bottom:18px; padding:12px 14px; border-radius:8px;
+            background:var(--p-bg-alt,#f8fafc); font-size:.85rem; }
+        .ctr-pdf-link { color:#2D8659; font-weight:600; text-decoration:underline; }
+        .ctr-pdf-sep { color:var(--p-text-mid,#6b7280); margin:0 6px; }
+        .ctr-pdf-note { margin-top:6px; font-size:.79rem; color:var(--p-text-mid,#6b7280); line-height:1.5; }
     </style>
 </head>
 <body>
 
 <header class="portal-header">
-    <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="portal-logo-img">
+    <?= PortalBrand::logoImgHtml() ?>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Service Contract</span>
     <?php if ($clientName): ?>
@@ -123,9 +164,11 @@ if ($row) {
             <p style="color:#6b7280;line-height:1.6;max-width:360px;margin:0 auto;">
                 <?php echo htmlspecialchars($success); ?>
             </p>
+            <?php if (PortalBrand::questionsHtml() !== ''): ?>
             <p style="margin-top:20px;font-size:.85rem;color:#6b7280;">
-                Questions? Call <a href="tel:7788469273">(778) 846-9273</a>
+                <?= PortalBrand::questionsHtml() ?>
             </p>
+            <?php endif; ?>
         </div>
 
     <?php elseif ($error && !$row): ?>
@@ -140,7 +183,7 @@ if ($row) {
             </svg>
             <h2>Link Not Valid</h2>
             <p><?php echo htmlspecialchars($error); ?></p>
-            <p style="margin-top:12px;">Contact us at <a href="tel:7788469273">(778) 846-9273</a></p>
+            <?php if (PortalBrand::contactHtml() !== ''): ?><p style="margin-top:12px;">Contact us at <?= PortalBrand::contactHtml() ?></p><?php endif; ?>
         </div>
 
     <?php elseif ($row): ?>
@@ -221,18 +264,52 @@ if ($row) {
             </div>
         </div>
 
+        <?php if ($terms): ?>
+        <!-- Terms & conditions — shown in full, above the pad, every time. -->
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">Terms &amp; Conditions</div>
+            <div class="portal-info-card-body">
+                <div class="ctr-terms-body"><?php echo htmlspecialchars($terms['body']); ?></div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Signature form -->
         <div class="portal-info-card">
             <div class="portal-info-card-header">Sign This Contract</div>
             <div class="portal-info-card-body">
                 <p style="font-size:.875rem;color:#6b7280;margin-bottom:20px;line-height:1.55;">
-                    By signing below you agree to the terms of this service contract with Mowology Landscaping.
-                    Your digital signature is legally binding.
+                    <?php if ($terms): ?>
+                        By signing below you agree to the Terms &amp; Conditions shown above and to this
+                        service contract with <?= htmlspecialchars(PortalBrand::displayName()) ?>. Your digital signature is legally binding.
+                    <?php else: ?>
+                        By signing below you agree to this service contract with <?= htmlspecialchars(PortalBrand::displayName()) ?>.
+                        Your digital signature is legally binding.
+                    <?php endif; ?>
                 </p>
 
                 <form method="POST" id="signForm">
                     <input type="hidden" name="action" value="sign">
                     <input type="hidden" name="signature_data" id="signatureData">
+
+                    <div class="ctr-pdf-actions">
+                        <a href="/customer/api/contract-pdf.php?token=<?php echo urlencode($token); ?>&amp;inline=1"
+                           target="_blank" rel="noopener" class="ctr-pdf-link">Open a printable copy</a>
+                        <span class="ctr-pdf-sep">&middot;</span>
+                        <a href="/customer/api/contract-pdf.php?token=<?php echo urlencode($token); ?>"
+                           class="ctr-pdf-link">Download PDF</a>
+                        <div class="ctr-pdf-note">
+                            Prefer to sign on paper? Print the copy, sign it and email it back to us &mdash;
+                            or sign below and we&rsquo;ll do the rest.
+                        </div>
+                    </div>
+
+                    <?php if ($terms): ?>
+                        <label class="ctr-terms-ack">
+                            <input type="checkbox" name="terms_acknowledged" id="termsAck" value="1" required>
+                            <span>I have read and agree to the Terms &amp; Conditions above.</span>
+                        </label>
+                    <?php endif; ?>
 
                     <div class="portal-form-group">
                         <label class="portal-form-label">Full Name *</label>
@@ -263,7 +340,7 @@ if ($row) {
                 <!-- Decline section -->
                 <div class="portal-decline-section" style="margin-top:24px;">
                     <button class="portal-decline-toggle"
-                            onclick="document.getElementById('declineForm').classList.toggle('show')">
+                            data-mw-toggle="declineForm">
                         Questions or want to decline? Let us know
                     </button>
                     <form method="POST" class="portal-decline-form" id="declineForm">
@@ -274,9 +351,11 @@ if ($row) {
                         <button type="submit" class="portal-btn" style="background:#6b7280;margin-top:8px;">
                             Decline This Contract
                         </button>
+                        <?php if (PortalBrand::phoneLinkHtml() !== ''): ?>
                         <p style="font-size:.78rem;color:#9ca3af;margin-top:8px;">
-                            Or call us: <a href="tel:7788469273">(778) 846-9273</a>
+                            Or call us: <?= PortalBrand::phoneLinkHtml() ?>
                         </p>
+                        <?php endif; ?>
                     </form>
                 </div>
             </div>
@@ -287,10 +366,10 @@ if ($row) {
 </div><!-- /portal-container -->
 
 <footer style="text-align:center;padding:24px;font-size:.78rem;color:#9ca3af;">
-    &copy; <?php echo date('Y'); ?> Mowology Landscaping &mdash; (778) 846-9273
+    &copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::displayName()) ?><?php if (PortalBrand::phone() !== ''): ?> &mdash; <?= htmlspecialchars(PortalBrand::phone()) ?><?php endif; ?>
 </footer>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function () {
     var canvas = document.getElementById('signaturePad');
     if (!canvas) return;
@@ -333,5 +412,6 @@ if ($row) {
 }());
 </script>
 
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

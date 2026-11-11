@@ -38,6 +38,17 @@ final class ScheduleCache {
         return stops
     }
 
+    /// Quote visits for the day (2026-10-15) — their own file beside the stops, same key.
+    func saveAppointments(_ appointments: [Appointment], forDate dateString: String) {
+        guard let data = try? JSONEncoder().encode(appointments) else { return }
+        try? data.write(to: cacheDir.appendingPathComponent("appointments-\(dateString).json"))
+    }
+
+    func loadAppointments(forDate dateString: String) -> [Appointment]? {
+        guard let data = try? Data(contentsOf: cacheDir.appendingPathComponent("appointments-\(dateString).json")) else { return nil }
+        return try? JSONDecoder().decode([Appointment].self, from: data)
+    }
+
     // MARK: - Maintenance
 
     /// Deletes cached files older than `days`. Safe to call from any context.

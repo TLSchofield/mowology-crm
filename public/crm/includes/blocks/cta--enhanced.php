@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced CTA Block Renderer — Green gradient banner with dual buttons
  *
@@ -41,7 +42,7 @@ $uid           = 'mw-cta-' . ($block['id'] ?? uniqid());
 .mw-cta__actions { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var section = document.getElementById('<?= h($uid) ?>');
   if (!section) return;

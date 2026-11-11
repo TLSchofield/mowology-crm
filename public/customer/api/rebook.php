@@ -27,6 +27,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -42,6 +43,7 @@ try {
     }
 
     $db = getDB();
+    require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
 
     // Resolve the visit → plan → property → contact, and verify ownership
     $stmt = $db->prepare("
@@ -55,13 +57,33 @@ try {
         JOIN properties pr ON pr.id = jp.property_id
         JOIN contacts c ON c.id = pr.site_contact_id
         WHERE jv.id = ?
-          AND c.portal_token = ?
+          AND c.portal_token = ?" . PortalTokenService::liveSql($db, 'c') . "
         LIMIT 1
     ");
     $stmt->execute([$visitId, $token]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$visit) {
         throw new Exception('Visit not found for this client');
+    }
+
+    // One rebook (and one office email) per visit per day, whatever its status became (security
+    // review, low, 2026-10-12): the portal link could otherwise be used to flood office@.
+    $todayStmt = $db->prepare("
+        SELECT id FROM quote_requests
+        WHERE source = 'portal_rebook' AND contact_id = ?
+          AND (project_description LIKE ? OR project_description LIKE ?)
+          AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+        LIMIT 1
+    ");
+    $todayStmt->execute([(int)$visit['contact_id'], '%Visit ID reference: #' . $visitId, '%Visit ID reference: #' . $visitId . "\n%"]);
+    if ($todayRow = $todayStmt->fetch(PDO::FETCH_ASSOC)) {
+        echo json_encode([
+            'success' => true,
+            'duplicate' => true,
+            'request_id' => (int)$todayRow['id'],
+            'message' => 'We already have your request for this visit today — we\'ll be in touch soon!',
+        ]);
+        exit;
     }
 
     // Deduplicate — if a quote_request for this contact+property+service already exists
@@ -130,15 +152,19 @@ try {
             require_once $messagingFile;
         }
         if (function_exists('sendCrmEmail')) {
-            $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : 'office@mowology.ca';
-            $siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+            $adminEmail = defined('ADMIN_EMAIL') ? ADMIN_EMAIL : PortalBrand::email();
+            $siteUrl    = PortalBrand::appUrl();
             $subject    = 'Client rebook request — ' . $customerName;
             $body = '<h2>New rebook request from ' . htmlspecialchars($customerName) . '</h2>
 <p><strong>Service:</strong> ' . htmlspecialchars($serviceLabel) . '</p>
 <p><strong>Property:</strong> ' . htmlspecialchars($visit['property_address'] ?? '') . '</p>
 ' . ($notes !== '' ? '<p><strong>Note:</strong><br>' . nl2br(htmlspecialchars($notes)) . '</p>' : '') . '
 <p><a href="' . $siteUrl . '/crm/products/quote-requests.php">Review in CRM →</a></p>';
-            @sendCrmEmail($adminEmail, $subject, $body, 'Mowology Admin');
+            if ($adminEmail !== '') {
+                @sendCrmEmail($adminEmail, $subject, $body, PortalBrand::name() . ' Admin');
+            } else {
+                error_log('Rebook request not emailed: this business has no email in Business Settings.');
+            }
         }
     } catch (Throwable $e) { /* non-fatal */ }
 

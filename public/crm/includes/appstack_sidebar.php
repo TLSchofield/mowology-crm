@@ -13,7 +13,7 @@
  *                   'work-zones', 'users', 'settings', 'privacy', 'certification'
  *
  * Nav items support two types:
- *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
+ *   - Section headers: ['type' => 'header', 'label' => 'Section Name', 'head' => 'otto'] (head = the department head shown beside it)
  *   - Nav links:       ['key' => '...', 'label' => '...', 'icon' => '...', 'href' => '...', 'perm' => '...']
  *
  * The 'perm' key is optional — if present, the item is hidden if the user
@@ -22,105 +22,151 @@
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
 
-// Unread message count for badge (silent fail if messages table not yet created)
-$_mwUnreadMessages = 0;
-try {
-    if (isset($user['id'])) {
-        $__msgStmt = getDB()->prepare("SELECT COUNT(*) FROM messages WHERE to_user_id = ? AND is_read = 0");
-        $__msgStmt->execute([(int)$user['id']]);
-        $_mwUnreadMessages = (int)$__msgStmt->fetchColumn();
+// The outside accountant's login sees the Ledger and nothing else (AccountantFence, 2026-10-13).
+if (!empty($mwLedgerOnly)): ?>
+<nav id="sidebar" class="sidebar">
+    <div class="sidebar-content js-simplebar">
+        <a class="sidebar-brand" href="/crm/ledger/"><span class="align-middle">Ledger</span></a>
+        <ul class="sidebar-nav">
+            <li class="sidebar-header">Ledger</li>
+            <?php require_once dirname(__DIR__) . '/ledger/_nav.php';
+            $__here = strtok((string)($_SERVER['REQUEST_URI'] ?? ''), '?');
+            foreach (mwLedgerPages() as $__k => [$__l, $__h, $__i]): ?>
+            <li class="sidebar-item<?php echo $__here === $__h ? ' active' : ''; ?>"><a class="sidebar-link" href="<?php echo htmlspecialchars($__h); ?>"><i class="align-middle" data-feather="<?php echo htmlspecialchars($__i); ?>"></i> <span class="align-middle"><?php echo htmlspecialchars($__l); ?></span></a></li>
+            <?php endforeach; ?>
+            <li class="sidebar-item"><a class="sidebar-link" href="/crm/logout_secure.php"><i class="align-middle" data-feather="log-out"></i> <span class="align-middle">Sign out</span></a></li>
+        </ul>
+        <p class="mw-ledger-sidebar-note">Read-only accountant access. Each page you open is recorded.</p>
+    </div>
+</nav>
+<?php return; endif;
+
+require_once __DIR__ . '/nav-items.php';   // $navItems + badge counts, shared with the phone menu (mobile-nav.php)
+
+// ── Ittai design: the seven AI heads ARE the navigation (round 6, owner 2026-11-10) ──────────────────
+// With the it_design choice on ($itShell, appstack_head.php) each head is a row (portrait ringed by its
+// state, name, AI tag, the state in words), opening that head's pages; a square card beside the row says
+// what the head is doing. Collapsed, the sidebar is a 72 px rail whose rows open a flyout. Order and seats
+// follow the Ittai v1.2 Six + One. Same items, permissions and badges as the classic menu below.
+if (!empty($itShell)):
+    $__h = static function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
+    // The brief behind the state words and Kaname's page is the owner's (same gate as the Action Board).
+    $__itOwner = false;
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+        $__itDesk = new CharlieDeskService(getDB());
+        $__itOwner = $__itDesk->ready() && $__itDesk->isOwner((array)$user);
+    } catch (Throwable $__e) { /* not the owner, then */ }
+    $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, $__itOwner);
+    // Order (Tim, 2026-11-10): Kaname first; the head you are with second, so the open list and the card always
+    // land in the same place; then the rest in the order a job travels — Mia brings it in, Sam prices it, Otto
+    // does it, Yui talks to the client, Penny banks it, Ada keeps the lights on. The phone menu keeps the Six + One order.
+    $__itPipeline = ['mia', 'sam', 'otto', 'yui', 'penny', 'ada'];
+    $__itFirst = []; $__itHere = []; $__itRest = [];
+    foreach ($__itBlocks as $__b) {
+        if ($__b['slug'] === 'charlie') $__itFirst[] = $__b;
+        elseif (!empty($__b['here'])) $__itHere[] = $__b;
+        else $__itRest[(int)array_search($__b['slug'], $__itPipeline, true)] = $__b;
     }
-} catch (Throwable $__e) { /* table may not exist yet */ }
-
-// Overdue task count + pending purchase count for badge (silent fail if tasks table not yet created)
-$_mwOverdueTasks = 0;
-$_mwPendingPurchases = 0;
-try {
-    if (isset($user['id'])) {
-        $__taskStmt = getDB()->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND due_date IS NOT NULL AND due_date < CURDATE()");
-        $__taskStmt->execute([(int)$user['id']]);
-        $_mwOverdueTasks = (int)$__taskStmt->fetchColumn();
-
-        $__purStmt = getDB()->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND (purchase_status IS NULL OR purchase_status NOT IN ('verified'))");
-        $_mwPendingPurchases = (int)$__purStmt->fetchColumn();
-    }
-} catch (Throwable $__e) { /* table may not exist yet */ }
-$_mwTaskBadge = $_mwOverdueTasks + $_mwPendingPurchases;
-
-$navItems = [
-
-    // ── Overview ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Overview'],
-    ['key' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'sliders', 'href' => '/crm/dashboard_appstack.php'],
-
-    // ── Clients ───────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Clients'],
-    ['key' => 'clients',   'label' => 'Contacts',  'icon' => 'users',   'href' => '/crm/clients_appstack.php',    'perm' => 'clients.view'],
-    ['key' => 'companies', 'label' => 'Companies', 'icon' => 'home',    'href' => '/crm/companies/index.php',     'perm' => 'clients.view'],
-
-    // ── Pipeline ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Pipeline'],
-    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwTaskBadge],
-    ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
-    ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
-    ['key' => 'jobs',      'label' => 'Jobs',      'icon' => 'briefcase',  'href' => '/crm/jobs/index.php',         'perm' => 'jobs.view'],
-    ['key' => 'invoices',  'label' => 'Invoices',  'icon' => 'file-text',  'href' => '/crm/invoices/index.php',     'perm' => 'billing.view'],
-
-    // ── Schedule ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Schedule'],
-    ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
-    ['key' => 'live-map',    'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
-    ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
-    ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
-    ['key' => 'clusters',    'label' => 'Route Clusters', 'icon' => 'layers',  'href' => '/crm/jobs/clusters_appstack.php', 'perm' => 'jobs.view'],
-
-    // ── Financials ────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Financials'],
-    ['key' => 'accounting',    'label' => 'Accounting',    'icon' => 'book-open',   'href' => '/crm/accounting_appstack.php',         'perm' => 'expenses.view'],
-    ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
-    ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
-    ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
-    ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'expenses.view'],
-
-    // ── Growth ────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Growth'],
-    ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
-    ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
-    ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
-    ['key' => 'referrals', 'label' => 'Referrals',       'icon' => 'gift',     'href' => '/crm/marketing/referrals.php', 'perm' => 'marketing.view'],
-    ['key' => 'cms',       'label' => 'Website CMS',     'icon' => 'edit-3',   'href' => '/crm/cms-pages_appstack.php', 'perm' => 'marketing.edit'],
-
-    // ── Fleet ─────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Fleet'],
-    ['key' => 'driver',       'label' => 'Driver Portal',   'icon' => 'truck',       'href' => '/crm/driver-portal.php'],
-    ['key' => 'trip-reports', 'label' => 'Trip Reports',    'icon' => 'clipboard',   'href' => '/crm/trip-reports_appstack.php', 'perm' => 'team.view'],
-
-    // ── Communications ────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Communications'],
-    ['key' => 'messages', 'label' => 'Messages', 'icon' => 'message-circle', 'href' => '/crm/messages_appstack.php', 'badge' => $_mwUnreadMessages],
-
-    // ── Team ──────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Team'],
-    ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
-    ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
-    ['key' => 'quiz',          'label' => 'Knowledge Quiz',  'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
-    ['key' => 'certification', 'label' => 'Certification',    'icon' => 'award',       'href' => '/crm/certification_appstack.php'],
-    ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
-
-    // ── Library ───────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Library'],
-    ['key' => 'photos',    'label' => 'Photo Timeline', 'icon' => 'camera',  'href' => '/crm/photos_appstack.php',        'perm' => 'jobs.view'],
-    ['key' => 'products',  'label' => 'Products',      'icon' => 'package',  'href' => '/crm/products/index.php',         'perm' => 'products.view'],
-    ['key' => 'portfolio',     'label' => 'Portfolio',       'icon' => 'image',    'href' => '/crm/portfolio/index.php',        'perm' => 'portfolio.view'],
-    ['key' => 'before-after', 'label' => 'Before & After', 'icon' => 'columns',  'href' => '/crm/before-after_appstack.php',  'perm' => 'portfolio.view'],
-    ['key' => 'media',         'label' => 'Media Library',  'icon' => 'folder',   'href' => '/cms/cms-media_appstack.php',     'perm' => 'photos.upload'],
-
-];
+    ksort($__itRest);
+    $__itBlocks = array_merge($__itFirst, $__itHere, array_values($__itRest));
+    unset($__itPipeline, $__itFirst, $__itHere, $__itRest, $__b);
+    $__itNav = ['heads' => []];
+    try {
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadNavService.php';
+        $__itNav = HeadNavService::forShell(getDB(), $__itOwner);
+    } catch (Throwable $__e) { /* the menu still works without the state words */ }
+    require_once APP_ROOT . '/Services/BusinessIdentity.php';
+    require_once __DIR__ . '/ittai-icons.php';
+    $__itBiz = (string)(BusinessIdentity::get()['name'] ?? '');
+    if ($__itBiz === '') $__itBiz = 'Ittai';
+    $__itWords = preg_split('/\s+/', trim($__itBiz)) ?: [$__itBiz];
+    $__itInit = count($__itWords) > 1 ? mb_substr($__itWords[0], 0, 1) . mb_substr($__itWords[1], 0, 1) : mb_substr($__itBiz, 0, 2);
+    $__itInit = mb_strtoupper($__itInit);
+    $__itRole = ucfirst((string)($user['role'] ?? 'staff'));
+    $__itUser = (string)($user['name'] ?? '');
+    $__itSymbol = is_file(dirname(__DIR__) . '/img/ittai/ittai-symbol-24.svg') ? '/crm/img/ittai/ittai-symbol-24.svg' : '';
+    $__itStates = ['working', 'approval', 'blocked', 'idle', 'unavailable'];
+    // Which group is open on load: the one holding this page, else the chief of staff's.
+    $__itOpen = '';
+    foreach ($__itBlocks as $__b) { if (!empty($__b['here'])) { $__itOpen = $__b['slug']; break; } }
+    if ($__itOpen === '') $__itOpen = 'charlie';
+    itIconSprite();
+?>
+<nav id="sidebar" class="sidebar it-sidebar" aria-label="Main navigation">
+    <?php /* Outside the scroll container so SimpleBar can't clip it: sits on the sidebar's right edge. */ ?>
+    <button type="button" class="it-cb" aria-label="Collapse sidebar"><svg class="it-ic" width="24" height="24" aria-hidden="true"><use href="#it-i-left"/></svg></button>
+    <div class="sidebar-content js-simplebar">
+        <div class="it-top">
+            <a class="it-mark" href="/crm/dashboard_appstack.php" aria-label="Ittai, home"><?php if ($__itSymbol !== ''): ?><img class="it-logo" src="<?php echo $__h($__itSymbol); ?>" alt="" width="24" height="24"><?php endif; ?><img class="it-wm" src="/crm/img/ittai/ittai-wordmark.svg" alt="" height="26"></a>
+        </div>
+        <?php /* No search box here (Tim, 2026-11-10): the one search is top right, in Kaname's band. */ ?>
+        <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
+        <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
+            $__hd    = (array)(($__itNav['heads'] ?? [])[$__slug] ?? []);
+            $__st    = in_array($__hd['state'] ?? '', $__itStates, true) ? $__hd['state'] : '';
+            $__word  = (string)($__hd['word'] ?? '');
+            if ($__st === '') $__word = '';   // no known state: no state span at all
+            $__line  = (string)($__hd['line'] ?? '');
+            if ($__line === '') $__line = (string)($__hd['reason'] ?? '');
+            // A click on a head opens her first page with her work line ready (Tim, 2026-11-10); Kaname's is her brief.
+            $__ws    = (string)($__hd['workspace'] ?? '');
+            if ($__ws === '' && !empty($__items[0]['href'])) $__ws = (string)$__items[0]['href'];
+            $__ring  = 'it-pt it-pt-' . ($__st !== '' ? $__st : 'none');
+            $__isOpen = ($__slug === $__itOpen);
+            // The head you are with (the group holding this page) keeps its card open on every page, so a page
+            // click never dismisses it and the live line runs from the page up into the card (Tim, 2026-11-10).
+            $__sel   = (bool)$__here;
+            $__aria  = $__name . ', AI, ' . $__role . ($__word !== '' ? '. ' . $__word . '.' : '.');
+            $__stHtml = $__word !== ''
+                ? '<span class="it-s it-s-' . $__st . '"><svg class="it-si" width="12" height="12" aria-hidden="true"><use href="#it-st-' . $__st . '"/></svg>' . $__h($__word) . '</span>'
+                : '';
+            
+            // The head's pages: printed once, used by the open group and again in the rail flyout.
+            ob_start();
+            foreach ($__items as $__item): $__on = ($activePage === $__item['key']); ?>
+                <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
+            <?php endforeach;
+            $__pages = ob_get_clean();
+        ?>
+            <li class="it-grp<?php echo $__sel ? ' is-sel' : ''; ?><?php echo $__here ? ' is-here' : ''; ?><?php echo $__slug === 'charlie' ? ' it-kan' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" data-workspace="<?php echo $__h($__ws); ?>">
+                <button type="button" class="it-grow" aria-expanded="<?php echo $__isOpen ? 'true' : 'false'; ?>" aria-controls="it-acc-<?php echo $__h($__slug); ?>" aria-label="<?php echo $__h($__aria); ?>">
+                    <?php /* Round 7 (Tim's sketch, 2026-11-10): name on the left, the portrait on the spine at the right; the state is
+                             the ring and glyph (the word stays in the aria-label and on the card); Kaname carries the owner's count. */ ?>
+                    <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span><?php if ($__slug === 'charlie' && (int)($__hd['needs_you'] ?? 0) > 0): ?><span class="it-chip it-chip-need"><?php echo $__h($__word); ?></span><?php endif; ?></span><?php if ($__slug === 'charlie'): ?><span class="it-l2"><?php echo $__h($__role); ?></span><?php endif; ?></span>
+                    <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"><?php if ($__st !== ''): ?><svg class="it-bd it-bd-<?php echo $__st; ?>" width="16" height="16" aria-hidden="true"><use href="#it-st-<?php echo $__st; ?>"/></svg><?php endif; ?></span>
+                </button>
+                <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
+                <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
+                    <span class="<?php echo $__ring; ?> it-pt-lg"><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
+                    <?php /* The card is the row enlarged (Tim, 2026-11-10): face, name, role. No state word, no second AI tag;
+                             the state stays in the ring and the aria-label, the word in the rail flyout. */ ?>
+                    <span class="it-hpn"><b><?php echo $__h($__name); ?></b></span>
+                    <span class="it-hpd"><?php echo $__h($__role); ?></span>
+                    <?php if ($__line !== ''): ?><p class="it-hpl"><?php echo $__h($__line); ?></p><?php endif; ?>
+                </div>
+                <div class="it-fly" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', ' . $__role); ?>">
+                    <div class="it-fh">
+                        <span class="<?php echo $__ring; ?>"><img src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="36" height="36" alt="" loading="lazy"></span>
+                        <span class="it-gt"><span class="it-l1"><b><?php echo $__h($__name); ?></b><span class="it-tag">AI</span></span><span class="it-l2"><?php echo $__h($__role); ?></span></span>
+                        <?php echo $__stHtml; ?>
+                    </div>
+                    <ul class="it-subs"><?php echo $__pages; ?></ul>
+                </div>
+            </li>
+        <?php endforeach; ?>
+        </ul></nav>
+        <div class="it-prof">
+            <a class="it-pcard" href="/crm/settings.php" aria-label="<?php echo $__h($__itBiz . ', ' . $__itUser . ', ' . $__itRole . '. Business settings'); ?>"><span class="it-disc"><?php echo $__h($__itInit); ?></span><span class="it-pt2"><b><?php echo $__h($__itBiz); ?></b><span><?php echo $__h($__itUser . ' · ' . $__itRole); ?></span></span><svg class="it-ch it-ic" width="16" height="16" aria-hidden="true"><use href="#it-i-updown"/></svg></a>
+        </div>
+    </div>
+</nav>
+<?php return; endif;
 ?>
 <nav id="sidebar" class="sidebar">
     <div class="sidebar-content js-simplebar">
         <a class="sidebar-brand" href="/crm/dashboard_appstack.php">
-            <span class="align-middle" style="font-size:1.25rem; letter-spacing:-0.5px;">Mowology</span>
+            <span class="align-middle" style="font-size:1.25rem; letter-spacing:-0.5px;"><?php echo htmlspecialchars(function_exists('_idFromName') ? _idFromName() : ''); ?></span>
         </a>
 
         <ul class="sidebar-nav">
@@ -129,7 +175,11 @@ $navItems = [
 
                 // Section header
                 if (isset($item['type']) && $item['type'] === 'header'): ?>
-                    <li class="sidebar-header"><?php echo htmlspecialchars($item['label']); ?></li>
+                    <li class="sidebar-header<?php echo !empty($item['head']) ? ' mw-sb-headed' : ''; ?>"><?php echo htmlspecialchars($item['label']); ?>
+                        <?php if (!empty($item['head'])): $__h = $item['head']; ?>
+                        <span class="mw-sb-head" title="<?php echo htmlspecialchars(ucfirst($__h)); ?> heads this department"><img src="/crm/img/heads/<?php echo htmlspecialchars($__h); ?>.jpg" alt="" width="20" height="20" loading="lazy"><?php echo htmlspecialchars(ucfirst($__h)); ?></span>
+                        <?php endif; ?>
+                    </li>
                 <?php continue; endif;
 
                 // Permission check
@@ -197,6 +247,18 @@ $navItems = [
             <?php endif; ?>
 
             <?php if (($user['role'] ?? '') === 'admin'): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'system-health') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/ada_appstack.php">
+                    <i class="align-middle" data-feather="activity"></i>
+                    <span class="align-middle">System Health</span>
+                </a>
+            </li>
+            <li class="sidebar-item<?php echo ($activePage === 'agents') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/agents_appstack.php">
+                    <i class="align-middle" data-feather="users"></i>
+                    <span class="align-middle">Agent Studio</span>
+                </a>
+            </li>
             <li class="sidebar-item<?php echo ($activePage === 'system-log') ? ' active' : ''; ?>">
                 <a class="sidebar-link" href="/crm/system-log_appstack.php">
                     <i class="align-middle" data-feather="alert-circle"></i>

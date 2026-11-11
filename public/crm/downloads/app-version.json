@@ -1,20 +1,28 @@
 {
-    "android": {
-        "version": "1.1.1",
-        "build": 6,
-        "min_version": "1.1.0",
-        "min_build": 5,
-        "apk_url": "/crm/downloads/mowology-crew.apk",
-        "released": "2026-06-12",
-        "release_notes": "Updated app icon to Mowology logo.",
-        "force_update": false
-    },
-    "ios": {
-        "version": "1.0.0",
-        "min_version": "1.0.0",
-        "store_url": "",
-        "released": "2026-03-03",
-        "release_notes": "Initial release.",
-        "force_update": false
-    }
+  "android": {
+    "version": "2.2.11",
+    "build": 43,
+    "min_version": "2.2.10",
+    "min_build": 42,
+    "apk_url": "/crm/downloads/mowology-crew-2.2.11-test.apk",
+    "released": "2026-11-09",
+    "release_notes": "The bottom bar now moves and behaves like the iPhone's: tap a tab again for its shortcut, hold New to add a job.",
+    "force_update": false,
+    "native_camera": false,
+    "native_visit": false,
+    "native_receipts": true,
+    "native_plants": true,
+    "native_signup": false,
+    "native_day": true,
+    "native_crew_schedule": true,
+    "apk_sha256": "01053043092f71e2e51f1113b61c919b47134e1f973a8194821c45332a0fadcc"
+  },
+  "ios": {
+    "version": "1.0.0",
+    "min_version": "1.0.0",
+    "store_url": "",
+    "released": "2026-03-03",
+    "release_notes": "Initial release.",
+    "force_update": false
+  }
 }

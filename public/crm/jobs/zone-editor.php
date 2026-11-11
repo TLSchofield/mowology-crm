@@ -62,8 +62,9 @@ if (!empty($_GET['return_to'])) {
 $pageTitle  = 'Zone Editor — ' . htmlspecialchars($property['address'] ?? 'Property');
 $activePage = 'jobs';
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
-            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initZoneEditor" async defer></script>';
+$mdtVer     = @filemtime(dirname(__DIR__) . '/js/map-draw/map-draw-tool.js') ?: '1';
+$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
+            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initZoneEditor" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -186,7 +187,7 @@ $extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
         <div class="d-flex align-items-center justify-content-between mt-2">
             <p class="text-muted small mb-0">
                 <i data-feather="info" class="me-1"></i>
-                Yellow = arrival border. Coloured = work zones. Hover a zone to see its name.
+                Yellow = arrival border. Coloured = work zones. Drag a node to fine-tune a saved zone (auto-saves).
             </p>
             <div id="tileCacheStatus" class="mw-tile-status" style="display:none;"></div>
         </div>
@@ -221,6 +222,13 @@ function initZoneEditor() {
             const b2 = document.getElementById('btn-draw-zone');
             if (b1) b1.disabled = false;
             if (b2) b2.disabled = false;
+
+            // Property label pinned to top-left of the map
+            const addrChip = document.createElement('div');
+            addrChip.style.cssText = 'background:#fff;padding:4px 10px;border-radius:20px;box-shadow:0 1px 4px rgba(0,0,0,.35);font-size:12px;font-weight:600;color:#1a1a1a;margin:8px;white-space:nowrap;pointer-events:none;';
+            addrChip.textContent = <?= json_encode($property['address'] ?? 'Property #' . $propertyId) ?>;
+            tool.getMap().controls[google.maps.ControlPosition.TOP_LEFT].push(addrChip);
+
             loadZones();
             if (typeof feather !== 'undefined') feather.replace();
         },
@@ -248,9 +256,28 @@ function addZoneOverlay(z) {
         color:       color,
         strokeColor: color,
         fillOpacity: isArrival ? 0.08 : 0.18,
-        weight:      isArrival ? 3 : 2
+        weight:      isArrival ? 3 : 2,
+        editable:    true
     });
-    if (overlay) zoneOverlays[z.id] = overlay;
+    if (overlay) {
+        zoneOverlays[z.id] = overlay;
+        // Vertices are draggable — persist geometry changes (debounced in the engine).
+        tool.bindZoneEdit(overlay, function (coords) { saveZoneEdit(z.id, coords); });
+    }
+}
+
+// Persist a node drag/insert/remove on an already-saved zone.
+function saveZoneEdit(id, coords) {
+    if (!coords || coords.length < 3) return;
+    MapDrawTool.updateZone(GEOFENCE_API, {
+        csrfToken:  CSRF_TOKEN,
+        geofenceId: id,
+        coords:     coords
+    }).then(function (data) {
+        if (!data || !data.success) { console.warn('Zone update failed:', data); return; }
+        const z = zoneList.find(function (zz) { return zz.id === id; });
+        if (z) z.ring = MapDrawTool.ringFromCoords(coords);
+    }).catch(function (err) { console.warn('Zone update error:', err); });
 }
 
 function startDrawArrivalBorder() {

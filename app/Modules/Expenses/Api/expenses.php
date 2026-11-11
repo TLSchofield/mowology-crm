@@ -8,6 +8,10 @@
  * POST: {action: 'update', id, ...fields}
  * POST: {action: 'delete', id}
  * POST: {action: 'suggest', ocr_text, lat, lng, job_id}  — smart categorization
+ * GET:  ?action=penny_read&id=X  — Penny's pending read where it differs (PennyReadService)
+ * POST: {action: 'penny_apply'|'penny_keep', id, csrf_token}  — "Use Penny's version" / "Keep mine"
+ * POST: {action: 'penny_ask', id, csrf_token}  — "Ask Penny": her live read of this one receipt (capped)
+ * GET:  ?action=item_suggestions&vendor_id=N&q=…  — "Add Item" picker (ExpenseLookupService)
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -27,6 +31,11 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';
+    // Every change to an expense goes through the one gate (migration 1233).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -67,7 +76,7 @@ try {
 
         case 'delete':
             if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
-            handleDelete($db, $input);
+            handleDelete($db, $input, $user);
             break;
 
         case 'suggest':
@@ -109,6 +118,60 @@ try {
             handlePriceTrend($db);
             break;
 
+        case 'approve_preview':   // GET — what approving teaches Penny (her approve window, 2026-10-14)
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+            echo json_encode(['success' => true] + (new BookkeeperDeskService($db))->approvalPreview((int)($_GET['id'] ?? 0)));
+            break;
+
+        // ── Receipt lines ↔ the shared catalogue (ReceiptCatalogService, migration 1378) ──
+        case 'catalog_lines':     // GET id — each line's link / suggestion / "Add" draft, and the families
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+            $rc = new ReceiptCatalogService($db);
+            $fams = array_map(fn($f) => ['slug' => $f['slug'], 'name' => $f['name']], (new CatalogService($db))->families());
+            $eid = (int)($_GET['id'] ?? 0);
+            $own = $db->prepare("SELECT created_by FROM expenses WHERE id = ?");
+            $own->execute([$eid]);
+            $owner = $own->fetchColumn();
+            $who = expenseActor();
+            if ($owner === false || (empty($who['is_admin']) && (int)$owner !== (int)$who['id'])) throw new Exception('Expense not found');
+            $ready = $rc->ready();
+            echo json_encode(['success' => true, 'ready' => $ready, 'can_decide' => !empty($who['is_admin']),
+                              'lines' => $ready ? $rc->forExpense($eid) : (object)[], 'families' => $fams]);
+            break;
+
+        case 'catalog_search':    // GET q, family?
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+            $fam = trim((string)($_GET['family'] ?? ''));
+            echo json_encode(['success' => true, 'results' => (new ReceiptCatalogService($db))->search(mb_substr((string)($_GET['q'] ?? ''), 0, 80), $fam !== '' ? $fam : null)]);
+            break;
+
+        case 'catalog_price_history': // GET product_id
+            require_once APP_ROOT . '/Modules/Expenses/Services/ProductPriceHistoryService.php';
+            $prices = new ProductPriceHistoryService($db);
+            $productId = (int)($_GET['product_id'] ?? 0);
+            $history = $prices->history($productId);
+            echo json_encode(['success' => true, 'product' => $history['product'], 'by_vendor' => $prices->byVendor($productId), 'history' => $history['history']]);
+            break;
+
+        case 'catalog_confirm':   // POST line_id, product_id — "yes" / "it's this one"
+        case 'catalog_dismiss':   // POST line_id — "not this"
+        case 'catalog_add':       // POST line_id, family, name, brand? — "Add to catalogue"
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            echo json_encode(handleCatalogLine($db, $input, $action));
+            break;
+
+        case 'personal_choices':  // GET — who a Personal receipt can be charged to (the Personal button, 2026-10-19)
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
+            echo json_encode(['success' => true, 'shareholders' => (new ExpensePersonalService($db, expenseGate($db)))->shareholders()]);
+            break;
+
+        case 'mark_personal':     // POST {id, account?} — Personal, charged to a shareholder; no GST claimed
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            handleMarkPersonal($db, $input);
+            break;
+
         case 'approve':
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
@@ -119,6 +182,25 @@ try {
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
             handleReject($db, $input, $user);
+            break;
+
+        case 'file_booked':   // a receipt in a filed year: keep it, teach Penny, book nothing
+            if (!userHasPermission('expenses.approve')) throw new Exception('Permission denied: expenses.approve required');
+            if (!$input || !verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+            echo json_encode((new ExpenseApprovalService($db))->fileAsBooked((int)($input['id'] ?? 0), $user));
+            break;
+
+        case 'batch_approve':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handleBatchApprove($db, $input, $user);
+            break;
+
+        case 'batch_reject':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handleBatchReject($db, $input, $user);
             break;
 
         case 'pending_approval':
@@ -148,7 +230,7 @@ try {
 
         case 'qb_retry':
             if (!$canSend) throw new Exception('Permission denied: expenses.send required');
-            handleQbRetry($db);
+            handleQbRetry($db, $input ?? []);
             break;
 
         case 'reassign_job':
@@ -175,13 +257,113 @@ try {
             handleDeleteLineItem($db, $input);
             break;
 
+        case 'split':
+            // GET ?action=split&id=N — the split by line saved on the receipt, and Penny's
+            // per-line proposal (job / category / stock) for the edit modal's "Split by line".
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseSplitService.php';
+            $splitSvc = new ExpenseSplitService($db);
+            echo json_encode($splitSvc->ready()
+                ? ['success' => true, 'ready' => true] + $splitSvc->propose((int)($_GET['id'] ?? 0))
+                : ['success' => true, 'ready' => false, 'lines' => [], 'current' => [], 'jobs' => [], 'suggest' => false]);
+            break;
+
+        case 'update_line_item':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleUpdateLineItem($db, $input);
+            break;
+
+        case 'item_suggestions':
+            // GET ?action=item_suggestions&vendor_id=N&q=… — the "Add Item" picker: this vendor's
+            // usual items, then its catalogue, other CRM products only on a typed search.
+            require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+            echo json_encode(['success' => true] + (new ExpenseLookupService($db))
+                ->vendorItemSuggestions((int)($_GET['vendor_id'] ?? 0), (string)($_GET['q'] ?? '')));
+            break;
+
+        case 'penny_read':
+        case 'penny_apply':
+        case 'penny_keep':
+        case 'penny_ask':
+            // "Penny's read" in the expense modal (web + Android): her pending suggestion where it
+            // differs, "Use Penny's version" / "Keep mine" (PennyReadService, 2026-10-13). Rights are
+            // per receipt — crew see and apply on their own open receipts, approvers apply + approve.
+            handlePennyRead($db, $action, $input ?? null, $user);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
 
 } catch (Throwable $e) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    http_response_code(ApiResponse::isSafe($e) ? 400 : 500);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'expenses.php')]);
+}
+
+/**
+ * Who is asking, for the shared receipt rules (review round 2, 2026-10-12): the office (admin/manager
+ * or expenses.approve) sees and edits everyone's receipts; crew see and edit their own.
+ */
+function expenseActor(): array
+{
+    $u = getCurrentUser() ?: [];
+    return ['id' => (int)($u['id'] ?? 0),
+            'is_admin' => ExpenseService::isOffice((string)($u['role'] ?? ''), userHasPermission('expenses.approve'))];
+}
+
+/** GET ?action=penny_read&id=N · POST {action: penny_apply|penny_keep, id, csrf_token} */
+function handlePennyRead(PDO $db, string $action, ?array $input, array $user): void
+{
+    require_once APP_ROOT . '/Modules/Expenses/Services/PennyReadService.php';
+    $canApprove = userHasPermission('expenses.approve');
+    $actor = ['id' => (int)($user['id'] ?? 0), 'office' => ExpenseService::isOffice((string)($user['role'] ?? ''), $canApprove),
+              'can_approve' => $canApprove];
+    $svc = new PennyReadService($db);
+    if ($action === 'penny_read') {
+        $res = $svc->read((int)($_GET['id'] ?? 0), $actor);
+        if (!$res['ok']) http_response_code((int)($res['code'] ?? 400));
+        echo json_encode($res['ok'] ? ['success' => true, 'read' => $res['read'], 'can_ask' => !empty($res['can_ask'])]
+                                    : ['success' => false, 'error' => $res['error']]);
+        return;
+    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $id = (int)($input['id'] ?? 0);
+    if ($action === 'penny_ask') {
+        $res = $svc->ask($id, $actor);
+        echo json_encode(['success' => !empty($res['ok'])] + $res);
+        return;
+    }
+    $res = $action === 'penny_apply' ? $svc->apply($id, $user, $actor) : $svc->keep($id, $user, $actor);
+    echo json_encode(['success' => !empty($res['ok'])] + $res);
+}
+
+/** Refuse a desktop change the iPhone path would refuse (ExpenseService::editBlockReason). */
+function assertCanEditExpense(PDO $db, int $expenseId): void
+{
+    if ($expenseId <= 0) throw new Exception('Expense ID required');
+    $st = $db->prepare("SELECT id, created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?");
+    $st->execute([$expenseId]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) throw new Exception('Expense not found');
+    if (($why = ExpenseService::editBlockReason($row, expenseActor())) !== null) throw new Exception($why);
+}
+
+/** Refuse a receipt photo this user may not see (Codex review 2026-10-14). */
+function assertMayUseReceiptMedia(PDO $db, ?int $mediaId): void
+{
+    if (!$mediaId) return;
+    $a = expenseActor();
+    if (!ExpenseService::userMayUseReceiptMedia($db, $mediaId, (int)$a['id'], (bool)$a['is_admin'])) {
+        throw new Exception('That receipt photo isn\'t yours to attach');
+    }
+}
+
+/** The expense a line item belongs to. */
+function lineItemExpenseId(PDO $db, int $lineItemId): int
+{
+    $st = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");
+    $st->execute([$lineItemId]);
+    return (int)$st->fetchColumn();
 }
 
 
@@ -193,6 +375,12 @@ function handleList(PDO $db): void
 
     $where = ['1=1'];
     $params = [];
+    // Crew see their own receipts; the office sees everyone's (same as the iPhone list).
+    $actor = expenseActor();
+    if (!$actor['is_admin']) {
+        $where[]  = 'e.created_by = ?';
+        $params[] = $actor['id'];
+    }
 
     if (!empty($_GET['category'])) {
         $where[] = 'e.accounting_category = ?';
@@ -254,7 +442,8 @@ function handleList(PDO $db): void
                v.name AS vendor_name,
                u.full_name AS created_by_name,
                ma.file_path AS receipt_path,
-               ma.stored_filename AS receipt_filename
+               ma.stored_filename AS receipt_filename,
+               ma.mime_type AS receipt_mime
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN users u ON u.id = e.created_by
@@ -268,18 +457,42 @@ function handleList(PDO $db): void
 
     // Route receipt images through the auth-gated proxy instead of exposing
     // direct /uploads/receipts/ paths. Uses media_id for clean URL.
+    // receipt_thumb: a small cached JPEG for the list (full photos were ~1.6 MB each, 2026-10-14);
+    // receipt_kind: image | pdf | email (an emailed receipt — the email itself, opened sandboxed).
     foreach ($rows as &$row) {
         if (!empty($row['receipt_media_id'])) {
             $row['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$row['receipt_media_id'];
+            $mime = strtolower((string)($row['receipt_mime'] ?? ''));
+            $row['receipt_kind'] = strpos($mime, 'html') !== false ? 'email' : (strpos($mime, 'pdf') !== false ? 'pdf' : 'image');
+            $row['receipt_thumb'] = $row['receipt_kind'] === 'image' ? $row['receipt_path'] . '&thumb=1' : null;
         } else {
             $row['receipt_path'] = null;
+            $row['receipt_kind'] = null;
+            $row['receipt_thumb'] = null;
         }
+    }
+    unset($row);
+
+    // Which bank line each receipt is linked to, so the list can show it (and the popup can say which line).
+    $bankLinks = [];
+    $bankDataThrough = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+        $bankSvc = new BankLineReceipts($db);
+        $bankLinks = $bankSvc->linksFor(array_column($rows, 'id'));
+        $bankDataThrough = $bankSvc->dataThrough();
+    } catch (Throwable $e) {
+        error_log('expenses list bank links: ' . $e->getMessage());
+    }
+    foreach ($rows as &$row) {
+        $row['bank_line'] = $bankLinks[(int)$row['id']] ?? null;
     }
     unset($row);
 
     echo json_encode([
         'success'  => true,
         'expenses' => $rows,
+        'bank_data_through' => $bankDataThrough,
         'total'    => $total,
         'page'     => $page,
         'per_page' => $perPage,
@@ -295,12 +508,23 @@ function handleList(PDO $db): void
  */
 function handleReviewQueue(PDO $db): void
 {
+    // Not while Penny has the receipt on her desk (prepared, waiting for the owner): it
+    // would be sent before she's approved it, and she'd then show it as already handled.
+    $pennyHolds = '';
+    try {
+        if ($db->query("SHOW TABLES LIKE 'expense_suggestions'")->rowCount() > 0) {
+            $pennyHolds = "AND NOT EXISTS (SELECT 1 FROM expense_suggestions ps
+                                           WHERE ps.expense_id = e.id AND ps.source = 'live' AND ps.status = 'pending')";
+        }
+    } catch (Throwable $e) { /* no Penny → no hold */ }
+
     $countStmt = $db->prepare("
         SELECT COUNT(*), SUM(e.total)
         FROM expenses e
-        WHERE e.status IN ('draft', 'approved')
+        WHERE e.status = 'approved'
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+          {$pennyHolds}
     ");
     $countStmt->execute();
     $totals      = $countStmt->fetch(PDO::FETCH_NUM);
@@ -314,9 +538,10 @@ function handleReviewQueue(PDO $db): void
                v.name AS vendor_name
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
-        WHERE e.status IN ('draft', 'approved')
+        WHERE e.status = 'approved'
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+          {$pennyHolds}
         ORDER BY e.expense_date DESC, e.created_at DESC
         LIMIT 100
     ");
@@ -362,6 +587,8 @@ function handleGet(PDO $db): void
     $expense = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$expense) throw new Exception('Expense not found');
+    $actor = expenseActor();
+    if (!$actor['is_admin'] && (int)$expense['created_by'] !== $actor['id']) throw new Exception('Expense not found');
 
     // Route receipt image through auth-gated proxy
     if (!empty($expense['receipt_media_id'])) {
@@ -381,6 +608,32 @@ function handleGet(PDO $db): void
     $logStmt->execute([$id]);
     $expense['send_history'] = $logStmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Matched bank transaction, if any (drives the "Matched Transaction" section
+    // in the Edit Expense modal — see BankImportService::attachExpenseMatch()).
+    $matchStmt = $db->prepare("
+        SELECT id AS transaction_id, transaction_date, description, amount,
+               bank_account, matched_at, matched_by
+        FROM accounting_transactions
+        WHERE matched_expense_id = ?
+        LIMIT 1
+    ");
+    $matchStmt->execute([$id]);
+    $expense['matched_transaction'] = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    // One of several receipts paid by one line (migration 1372): the line, and the other receipts on it.
+    require_once APP_ROOT . '/Modules/Accounting/Services/BankLineReceipts.php';
+    $blr = new BankLineReceipts($db);
+    $lineId = $blr->lineFor((int)$id);
+    if ($lineId !== null && !$expense['matched_transaction']) {
+        $m = $db->prepare("SELECT id AS transaction_id, transaction_date, description, amount, bank_account, matched_at, matched_by
+                           FROM accounting_transactions WHERE id = ?");
+        $m->execute([$lineId]);
+        $expense['matched_transaction'] = $m->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if ($lineId !== null && $expense['matched_transaction']) {
+        $g = $blr->group((int)$id);
+        $expense['matched_transaction']['shared_with'] = $g ? array_values(array_filter($g['receipts'], fn($r) => $r !== (int)$id)) : [];
+    }
+
     // Load stored line items (with product details)
     $liStmt = $db->prepare("
         SELECT eli.*,
@@ -399,17 +652,32 @@ function handleGet(PDO $db): void
         $expense['line_items'] = $storedItems;
         $expense['line_items_stored'] = true;
     } else {
-        // Fallback: parse from raw OCR text
+        // Fallback: parse from raw OCR text (after a rescan this column holds the JSON
+        // Vision response, not text — ocrTextFromStored() handles both)
         $expense['line_items'] = [];
         if (!empty($expense['raw_ocr_json'])) {
             require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-            $parsed = parseReceiptText($expense['raw_ocr_json']);
-            $expense['line_items'] = $parsed['line_items'] ?? [];
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            $storedText = ocrTextFromStored($expense['raw_ocr_json']);
+            if ($storedText !== '') {
+                $parsed = parseReceiptText($storedText, null, getVendorLineItemProfile(!empty($expense['vendor_id']) ? (int)$expense['vendor_id'] : null));
+                $expense['line_items'] = $parsed['line_items'] ?? [];
+            }
         }
         $expense['line_items_stored'] = false;
     }
     // Keep backward-compatible key
     $expense['parsed_line_items'] = $expense['line_items'];
+
+    // Printed facts (receipt_facts, migration 1227) — "12:22–12:39 · ticket 43176009 · ••1234".
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        $expense['receipt_facts'] = (new ReceiptFactsService($db))->forExpense($id);
+        $expense['receipt_facts_line'] = ReceiptFactsService::line($expense['receipt_facts']);
+    } catch (Throwable $e) {
+        $expense['receipt_facts'] = null;
+        $expense['receipt_facts_line'] = '';
+    }
 
     echo json_encode(['success' => true, 'expense' => $expense]);
 }
@@ -428,6 +696,24 @@ function handleCreate(PDO $db, ?array $input, array $user): void
 
     if ($total <= 0 && empty($input['description'])) {
         throw new Exception('Total amount or description is required');
+    }
+
+    // Status on create is restricted to non-approval states — 'approved'/'rejected'/
+    // 'forwarded' require the audited handleApprove()/handleReject()/sendReceiptToAccounting()
+    // paths, which stamp approved_by/approved_at. Never let a caller set those directly here.
+    $requestedStatus = $input['status'] ?? 'draft';
+    $status = in_array($requestedStatus, ['draft', 'pending_approval'], true) ? $requestedStatus : 'draft';
+
+    // One photo, one expense: a repeat of this create (second tap, retry) answers with
+    // the expense already made from the photo instead of inserting another (#408-#410).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseCreateGuard.php';
+    $createGuard  = new ExpenseCreateGuard($db);
+    $guardMediaId = !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null;
+    assertMayUseReceiptMedia($db, $guardMediaId);
+    $existingId   = $createGuard->claim($guardMediaId);
+    if ($existingId !== null) {
+        echo json_encode(ExpenseCreateGuard::existingResponse($existingId));
+        return;
     }
 
     // ── Run anomaly detection ─────────────────────────────────────
@@ -456,102 +742,33 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         // Budget service non-critical
     }
 
-    $stmt = $db->prepare("
-        INSERT INTO expenses
-            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
-             accounting_category, gbp_category, payment_method, receipt_media_id,
-             receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
-             job_id, property_id, contact_id, notes, status,
-             odometer_start, odometer_end, fuel_litres, fuel_price_per_litre,
-             created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-    $stmt->execute([
-        $expenseDate,
-        !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-        $input['vendor_name_raw'] ?? null,
-        $input['description'] ?? null,
-        (float)($input['amount'] ?? 0),
-        (float)($input['gst_amount'] ?? 0),
-        (float)($input['pst_amount'] ?? 0),
-        $total,
-        $input['accounting_category'] ?? null,
-        $input['gbp_category'] ?? null,
-        $input['payment_method'] ?? null,
-        !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
-        !empty($input['receipt_lat']) ? (float)$input['receipt_lat'] : null,
-        !empty($input['receipt_lng']) ? (float)$input['receipt_lng'] : null,
-        (int)($input['match_confidence'] ?? 0),
-        $anomalyFlags ?: null,
-        $anomalyScore,
-        $input['raw_ocr_json'] ?? null,
-        !empty($input['job_id']) ? (int)$input['job_id'] : null,
-        !empty($input['property_id']) ? (int)$input['property_id'] : null,
-        !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
-        $input['notes'] ?? null,
-        $input['status'] ?? 'draft',
-        !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
-        !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
-        !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
-        !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
-        $user['id'],
-    ]);
-
-    $expenseId = (int)$db->lastInsertId();
-
-    // Save line items if provided
-    if (!empty($input['line_items']) && is_array($input['line_items'])) {
-        saveLineItems($db, $expenseId, $input['line_items']);
-
-        // ── Record line item prices for intelligence ──────────────
-        if (!empty($input['vendor_id'])) {
-            try {
-                require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
-                recordLineItemPrices($expenseId, (int)$input['vendor_id'], $input['line_items'], $expenseDate);
-            } catch (Throwable $e) {
-                error_log('Price intelligence error: ' . $e->getMessage());
-            }
-        }
+    // Through the expense gate (migration 1233): the insert, its line items, the printed
+    // facts, the duplicate check, the capture baseline + line-item lessons (only when the
+    // receipt was OCR'd), line prices, and the audit row — the same door as every other save.
+    try {
+        $created = expenseGate($db)->apply(null, ExpenseGate::rowFromInput($input, [
+            'expense_date'  => $expenseDate,
+            'total'         => $total,
+            'anomaly_flags' => $anomalyFlags ?: null,
+            'anomaly_score' => $anomalyScore,
+            'status'        => $status,
+            'created_by'    => (int)$user['id'],
+        ]) + (!empty($input['line_items']) && is_array($input['line_items']) ? ['line_items' => $input['line_items']] : []),
+            ExpenseGate::actor($user), 'desktop_create', [
+            'ocr_parsed'  => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input['ocr_parsed'] : null,
+            'learn_lines' => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']) ? $input : null,
+            'price_intel' => true,
+            // Anyone's save teaches now, provisionally; the desk confirms or overturns (same rule as expense-save.php).
+            'learn_now'   => !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']),
+        ]);
+        $expenseId = (int)$created['expense_id'];
+    } finally {
+        $createGuard->release($guardMediaId);   // the INSERT is in: the next request sees it
     }
 
-    // Record OCR corrections for learning (only if receipt was OCR'd)
-    if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
-        try {
-            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            $ocrParsed = is_string($input['ocr_parsed']) ? json_decode($input['ocr_parsed'], true) : $input['ocr_parsed'];
-            if (is_array($ocrParsed)) {
-                recordCorrections(
-                    !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-                    $input['vendor_name_raw'] ?? null,
-                    $ocrParsed,
-                    $input,
-                    $input['raw_ocr_json']
-                );
-            }
-        } catch (Throwable $e) {
-            // Learning is non-critical — log and continue
-            error_log('Receipt learning error: ' . $e->getMessage());
-        }
-    }
-
-    // Auto-send if enabled
-    if (!empty($input['auto_send'])) {
-        require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
-        $config = getReceiptForwardingConfig($db);
-        if ($config['enabled'] && $config['auto_send'] && !empty($input['receipt_media_id'])) {
-            sendReceiptToAccounting([
-                'expense_id'         => $expenseId,
-                'media_id'           => (int)$input['receipt_media_id'],
-                'vendor'             => $input['vendor_name_raw'] ?? 'Unknown',
-                'subtotal'           => (string)($input['amount'] ?? '0.00'),
-                'gst_amount'         => (string)($input['gst_amount'] ?? '0.00'),
-                'total'              => (string)$total,
-                'date'               => $expenseDate,
-                'job_id'             => $input['job_id'] ?? null,
-                'accounting_category'=> $input['accounting_category'] ?? '',
-            ]);
-        }
-    }
+    // No auto-send on create (review round 2, 2026-10-12): a new expense is always draft /
+    // pending_approval, and only approved receipts go to the accountant — the old auto_send emailed
+    // the client-supplied values of an unapproved receipt. Approve it, then send.
 
     echo json_encode([
         'success' => true,
@@ -568,12 +785,13 @@ function handleReassignJob(PDO $db, ?array $input): void
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
+    assertCanEditExpense($db, $id);
 
     $jobId = isset($input['job_id']) && $input['job_id'] !== null && $input['job_id'] !== ''
         ? (int)$input['job_id'] : null;
 
-    $stmt = $db->prepare("UPDATE expenses SET job_id = ? WHERE id = ?");
-    $stmt->execute([$jobId, $id]);
+    // Through the expense gate (audited; a posted receipt is re-posted on the new job).
+    expenseGate($db)->apply($id, ['job_id' => $jobId], ExpenseGate::actor(getCurrentUser()), 'desktop_reassign_job');
 
     echo json_encode(['success' => true, 'job_id' => $jobId]);
 }
@@ -591,13 +809,28 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT * FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');
 
-    $expenseDate = $input['expense_date'] ?? date('Y-m-d');
-    $total = (float)($input['total'] ?? 0);
+    // The JWT path's rule (ExpenseService::editBlockReason): crew edit only their own, nobody edits a
+    // receipt sent to accounting, an approved receipt is the office's to change.
+    if (($why = ExpenseService::editBlockReason($existing, expenseActor())) !== null) throw new Exception($why);
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+    $expenseDate = ReceiptAmountRules::inputValue($input, $existing, 'expense_date');
+    $totalValue = ReceiptAmountRules::inputValue($input, $existing, 'total');
+    $total = $totalValue === null ? null : (float)$totalValue;
+
+    // Status can only move between non-approval states here — 'approved'/'rejected'/
+    // 'forwarded' require the audited handleApprove()/handleReject()/sendReceiptToAccounting()
+    // paths, which stamp approved_by/approved_at. A plain edit never downgrades or upgrades
+    // past that boundary; anything outside the safe set falls back to whatever it already was.
+    $requestedStatus = $input['status'] ?? $existing['status'];
+    $status = in_array($requestedStatus, ['draft', 'pending_approval'], true)
+        ? $requestedStatus
+        : $existing['status'];
 
     // ── Re-run anomaly detection on update ──────────────────────────
     $anomalyFlags = '';
@@ -606,7 +839,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
         $anomalyData = array_merge($input, [
             'id'           => $id,
-            'total'        => $total,
+            'total'        => (float)($total ?? 0),
             'expense_date' => $expenseDate,
             'created_by'   => $user['id'],
         ]);
@@ -617,126 +850,137 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         error_log('Anomaly detection error (update): ' . $e->getMessage());
     }
 
-    $stmt = $db->prepare("
-        UPDATE expenses SET
-            expense_date = ?,
-            vendor_id = ?,
-            vendor_name_raw = ?,
-            description = ?,
-            amount = ?,
-            gst_amount = ?,
-            pst_amount = ?,
-            total = ?,
-            accounting_category = ?,
-            gbp_category = ?,
-            payment_method = ?,
-            receipt_media_id = ?,
-            match_confidence = ?,
-            anomaly_flags = ?,
-            anomaly_score = ?,
-            job_id = ?,
-            property_id = ?,
-            contact_id = ?,
-            notes = ?,
-            status = ?,
-            odometer_start = ?,
-            odometer_end = ?,
-            fuel_litres = ?,
-            fuel_price_per_litre = ?
-        WHERE id = ?
-    ");
-    $stmt->execute([
-        $expenseDate,
-        !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-        $input['vendor_name_raw'] ?? null,
-        $input['description'] ?? null,
-        (float)($input['amount'] ?? 0),
-        (float)($input['gst_amount'] ?? 0),
-        (float)($input['pst_amount'] ?? 0),
-        $total,
-        $input['accounting_category'] ?? null,
-        $input['gbp_category'] ?? null,
-        $input['payment_method'] ?? null,
-        !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
-        (int)($input['match_confidence'] ?? 0),
-        $anomalyFlags ?: null,
-        $anomalyScore,
-        !empty($input['job_id']) ? (int)$input['job_id'] : null,
-        !empty($input['property_id']) ? (int)$input['property_id'] : null,
-        !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
-        $input['notes'] ?? null,
-        $input['status'] ?? 'draft',
-        !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
-        !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
-        !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
-        !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
-        $id,
+    // Through the expense gate (migration 1233): only the fields that changed are written and
+    // audited; line items replaced when sent; the split by line kept in step (or set / ended
+    // when the modal sends one); printed facts and the duplicate check re-run; line-item
+    // lessons recorded (header / category lessons are recorded once, at approval or send,
+    // against the capture baseline). A posted receipt is reversed and posted again.
+    $receiptMediaValue = ReceiptAmountRules::inputValue($input, $existing, 'receipt_media_id');
+    assertMayUseReceiptMedia($db, empty($receiptMediaValue) ? null : (int)$receiptMediaValue);
+    $changes = [
+        'expense_date'        => $expenseDate,
+        'vendor_id'           => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'vendor_id')) ? null : (int)$v),
+        'vendor_name_raw'     => ReceiptAmountRules::inputValue($input, $existing, 'vendor_name_raw'),
+        'description'         => ReceiptAmountRules::inputValue($input, $existing, 'description'),
+        'amount'              => (($v = ReceiptAmountRules::inputValue($input, $existing, 'amount')) === null ? null : (float)$v),
+        'gst_amount'          => (($v = ReceiptAmountRules::inputValue($input, $existing, 'gst_amount')) === null ? null : (float)$v),
+        'pst_amount'          => (($v = ReceiptAmountRules::inputValue($input, $existing, 'pst_amount')) === null ? null : (float)$v),
+        'total'               => $total,
+        'accounting_category' => ReceiptAmountRules::inputValue($input, $existing, 'accounting_category'),
+        'gbp_category'        => ReceiptAmountRules::inputValue($input, $existing, 'gbp_category'),
+        'payment_method'      => ReceiptAmountRules::inputValue($input, $existing, 'payment_method'),
+        'receipt_media_id'    => empty($receiptMediaValue) ? null : (int)$receiptMediaValue,
+        // The desktop edit form doesn't send match_confidence / property_id / contact_id —
+        // absent keys keep the stored value instead of being wiped to 0/NULL on every edit.
+        'match_confidence'    => array_key_exists('match_confidence', $input) ? (int)$input['match_confidence'] : (int)($existing['match_confidence'] ?? 0),
+        'anomaly_flags'       => $anomalyFlags ?: null,
+        'anomaly_score'       => $anomalyScore,
+        'job_id'              => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'job_id')) ? null : (int)$v),
+        'property_id'         => expenseKeptId($input, $existing, 'property_id'),
+        'contact_id'          => expenseKeptId($input, $existing, 'contact_id'),
+        'notes'               => ReceiptAmountRules::inputValue($input, $existing, 'notes'),
+        'status'              => $status,
+        'odometer_start'      => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'odometer_start')) ? null : (int)$v),
+        'odometer_end'        => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'odometer_end')) ? null : (int)$v),
+        'fuel_litres'         => (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'fuel_litres')) ? null : (float)$v),
+        'fuel_price_per_litre'=> (empty($v = ReceiptAmountRules::inputValue($input, $existing, 'fuel_price_per_litre')) ? null : (float)$v),
+    ];
+    if (isset($input['line_items']) && is_array($input['line_items'])) $changes['line_items'] = $input['line_items'];
+    if (array_key_exists('split', $input)) {
+        $choices = ExpenseSplitService::choices($input['split']);
+        if ($choices !== null) $changes['allocations'] = $choices;
+    }
+    $res = expenseGate($db)->apply($id, $changes, ExpenseGate::actor($user), 'desktop_modal', [
+        'learn_lines' => !empty($existing['raw_ocr_json']) ? $input : null,
+        'price_intel' => true,
     ]);
 
-    // Update line items if provided
-    if (isset($input['line_items']) && is_array($input['line_items'])) {
-        // Reverse inventory for old linked products
-        reverseLineItemInventory($db, $id);
-        // Delete old line items and insert new ones
-        $delStmt = $db->prepare("DELETE FROM expense_line_items WHERE expense_id = ?");
-        $delStmt->execute([$id]);
-        if (!empty($input['line_items'])) {
-            saveLineItems($db, $id, $input['line_items']);
-
-            // ── Record line item prices for intelligence ──────────────
-            $vendorId = !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null;
-            if ($vendorId) {
-                try {
-                    require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
-                    recordLineItemPrices($id, $vendorId, $input['line_items'], $expenseDate);
-                } catch (Throwable $e) {
-                    error_log('Price intelligence error (update): ' . $e->getMessage());
-                }
-            }
-        }
-    }
-
-    // Record corrections for learning (re-parse stored OCR and compare to updated values)
-    $ocrText = $existing['raw_ocr_json'] ?? '';
-    if (!empty($ocrText)) {
-        try {
-            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            $ocrParsed = parseReceiptText($ocrText);
-            recordCorrections(
-                !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-                $input['vendor_name_raw'] ?? null,
-                $ocrParsed,
-                $input,
-                $ocrText
-            );
-        } catch (Throwable $e) {
-            error_log('Receipt learning error (update): ' . $e->getMessage());
-        }
-    }
-
-    echo json_encode(['success' => true, 'message' => 'Expense updated']);
+    echo json_encode(['success' => true, 'message' => 'Expense updated', 'reposted' => !empty($res['reposted'])]
+        + (!empty($res['repost_failed']) ? ['warning' => 'Saved — but its journal entry could not be updated, so the books still show the old amounts. Tell Penny: the journal entry for this receipt needs reposting.'] : []));
 }
 
 
-function handleDelete(PDO $db, ?array $input): void
+
+/** The expense gate for this request — the one door for every expense change. */
+/** A person's catalogue decision on one receipt line: thin controller over ReceiptCatalogService. */
+function handleCatalogLine(PDO $db, ?array $input, string $action): array
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $lineId = (int)($input['line_id'] ?? 0);
+    $s = $db->prepare("SELECT e.id, e.created_by FROM expense_line_items l JOIN expenses e ON e.id = l.expense_id WHERE l.id = ?");
+    $s->execute([$lineId]);
+    $exp = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$exp) throw new Exception('Line not found');
+    // Not money: a receipt sent to accounting can still be linked. The office only: an answer teaches the
+    // SHARED catalogue (every company's next receipt), like approving teaches Penny.
+    $actor = expenseActor();
+    if (empty($actor['is_admin'])) throw new Exception('The office links receipt lines to the catalogue');
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptCatalogService.php';
+    $rc = new ReceiptCatalogService($db);
+    $by = (int)$actor['id'] ?: null;
+    if ($action === 'catalog_confirm') $r = $rc->confirm($lineId, (int)($input['product_id'] ?? 0), $by);
+    elseif ($action === 'catalog_dismiss') $r = $rc->dismiss($lineId, $by);
+    else {
+        $unit = (string)($input['size_unit'] ?? '');
+        $qty = (float)($input['size_qty'] ?? 0);
+        $size = $qty > 0 && in_array($unit, ['l', 'ml', 'kg', 'g', 'm', 'cm', 'pc'], true) ? ['qty' => $qty, 'unit' => $unit] : null;
+        $r = $rc->add($lineId, (string)($input['family'] ?? ''), mb_substr((string)($input['name'] ?? ''), 0, 255),
+                      ($b = trim((string)($input['brand'] ?? ''))) !== '' ? mb_substr($b, 0, 120) : null, $by, $size);
+    }
+    return ['success' => !empty($r['ok'])] + $r + (empty($r['ok']) ? ['error' => $r['message'] ?? 'Not saved'] : [])
+           + ['lines' => $rc->forExpense((int)$exp['id'])];
+}
+
+/** The Personal button: thin controller over ExpensePersonalService (the gate does the rest). */
+function handleMarkPersonal(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Expense ID required');
+    $check = $db->prepare("SELECT id, created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?");
+    $check->execute([$id]);
+    $existing = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$existing) throw new Exception('Expense not found');
+    if (($why = ExpenseService::editBlockReason($existing, expenseActor())) !== null) throw new Exception($why);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePersonalService.php';
+    $account = isset($input['account']) && $input['account'] !== '' ? (string)$input['account'] : null;
+    $res = (new ExpensePersonalService($db, expenseGate($db)))->mark($id, $account, ExpenseGate::actor(getCurrentUser()));
+    echo json_encode(['success' => true, 'expense_id' => $id, 'shareholder' => $res['shareholder'], 'changed' => $res['changed'] ?? []]);
+}
+
+function expenseGate(PDO $db): ExpenseGate
+{
+    static $gate = null;
+    return $gate ?? ($gate = new ExpenseGate($db));
+}
+
+/** Sent → use it (empty clears it); absent → keep what's stored. */
+function expenseKeptId(array $input, array $existing, string $key): ?int
+{
+    if (array_key_exists($key, $input)) {
+        return !empty($input[$key]) ? (int)$input[$key] : null;
+    }
+    return !empty($existing[$key]) ? (int)$existing[$key] : null;
+}
+
+function handleDelete(PDO $db, ?array $input, array $user): void
 {
     if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
         throw new Exception('Invalid security token');
     }
 
-    $id = (int)($input['id'] ?? 0);
-    if (!$id) throw new Exception('Expense ID required');
+    // Shared with the iOS swipe-to-delete (expense-delete.php): owner-or-admin, and a
+    // receipt already forwarded to accounting can't be deleted from either client.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    $isAdmin = in_array($user['role'] ?? '', ['admin', 'manager'], true) || userHasPermission('expenses.approve');
+    $result  = (new ExpenseService($db, expenseGate($db)))->delete(
+        (int)($input['id'] ?? 0),
+        ['id' => (int)$user['id'], 'is_admin' => $isAdmin, 'source' => 'desktop_delete']
+    );
 
-    // Reverse inventory for linked line items before CASCADE delete removes them
-    reverseLineItemInventory($db, $id);
-
-    $stmt = $db->prepare("DELETE FROM expenses WHERE id = ?");
-    $stmt->execute([$id]);
-
-    if ($stmt->rowCount() === 0) throw new Exception('Expense not found');
-
-    echo json_encode(['success' => true, 'message' => 'Expense deleted']);
+    echo json_encode($result);
 }
 
 
@@ -791,83 +1035,28 @@ function handleStats(PDO $db): void
 
 function handleCheckDuplicates(PDO $db): void
 {
-    // Accept both GET and POST (GET for quick checks from frontend)
-    $vendorName = $_GET['vendor_name'] ?? null;
-    $vendorId   = !empty($_GET['vendor_id']) ? (int)$_GET['vendor_id'] : null;
-    $total      = isset($_GET['total']) ? (float)$_GET['total'] : null;
-    $date       = $_GET['expense_date'] ?? null;
-    $excludeId  = !empty($_GET['exclude_id']) ? (int)$_GET['exclude_id'] : null;
-
-    if ($total === null || $total <= 0 || empty($date)) {
-        echo json_encode(['success' => true, 'has_duplicates' => false, 'duplicates' => []]);
-        return;
-    }
-
-    // Build query: match total exactly, date within +/- 3 days
-    $where = ['ABS(e.total - ?) < 0.01', 'e.expense_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)'];
-    $params = [$total, $date, $date];
-
-    // Exclude self (for edit mode)
-    if ($excludeId) {
-        $where[] = 'e.id != ?';
-        $params[] = $excludeId;
-    }
-
-    // Vendor matching (optional but strengthens signal)
-    $vendorClause = [];
-    if ($vendorId) {
-        $vendorClause[] = 'e.vendor_id = ?';
-        $params[] = $vendorId;
-    }
-    if ($vendorName && strlen(trim($vendorName)) >= 2) {
-        $vendorClause[] = 'e.vendor_name_raw LIKE ?';
-        $params[] = '%' . trim($vendorName) . '%';
-    }
-
-    // If we have vendor info, require vendor OR name match alongside total+date
-    // If no vendor info, just match on total+date (weaker but still useful)
-    if (!empty($vendorClause)) {
-        $where[] = '(' . implode(' OR ', $vendorClause) . ')';
-    }
-
-    $whereClause = implode(' AND ', $where);
-
-    $stmt = $db->prepare("
-        SELECT e.id, e.expense_date, e.total, e.status,
-               e.vendor_name_raw,
-               v.name AS vendor_name,
-               ma.file_path AS receipt_path
-        FROM expenses e
-        LEFT JOIN vendors v ON v.id = e.vendor_id
-        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
-        WHERE {$whereClause}
-        ORDER BY e.expense_date DESC
-        LIMIT 5
-    ");
-    $stmt->execute($params);
-    $duplicates = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Route receipt images through proxy
-    foreach ($duplicates as &$dup) {
-        if (!empty($dup['receipt_media_id'])) {
-            $dup['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$dup['receipt_media_id'];
-        } else {
-            $dup['receipt_path'] = null;
-        }
-    }
-    unset($dup);
+    // Shared with the iOS review form (expense-lookup.php?type=duplicates).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    $duplicates = (new ExpenseLookupService($db))->findDuplicates(
+        $_GET['vendor_name'] ?? null,
+        !empty($_GET['vendor_id']) ? (int)$_GET['vendor_id'] : null,
+        isset($_GET['total']) ? (float)$_GET['total'] : null,
+        $_GET['expense_date'] ?? null,
+        !empty($_GET['exclude_id']) ? (int)$_GET['exclude_id'] : null
+    );
 
     echo json_encode([
         'success'        => true,
-        'has_duplicates'  => count($duplicates) > 0,
-        'duplicates'      => $duplicates,
+        'has_duplicates' => count($duplicates) > 0,
+        'duplicates'     => $duplicates,
     ]);
 }
 
 
 /**
  * POST {action:'merge', keep_id, discard_id, csrf_token}
- * Merge two duplicate expense records: keep one, delete the other.
+ * Merge two duplicate expense records: keep one; the other is rejected "Merged into
+ * receipt #N" and kept on record (never deleted — CRA six-year retention).
  * If the discarded expense has a receipt and the kept one doesn't,
  * the receipt is transferred before deletion.
  */
@@ -880,10 +1069,15 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     $discardId = (int)($input['discard_id'] ?? 0);
     if (!$keepId || !$discardId) throw new Exception('keep_id and discard_id are required');
     if ($keepId === $discardId) throw new Exception('Cannot merge an expense with itself');
+    // Both must be expenses this user may change (Codex review 2026-10-14): merge deletes one.
+    assertCanEditExpense($db, $keepId);
+    assertCanEditExpense($db, $discardId);
 
     // Fetch both expenses (full rows for per-field merge)
-    $stmt = $db->prepare("SELECT * FROM expenses WHERE id IN (?, ?)");
-    $stmt->execute([$keepId, $discardId]);
+    // Ids are ints, so plain (unprepared) queries are safe here — and they avoid MySQL
+    // 1615 "Prepared statement needs to be re-prepared", which this host raises when a
+    // statement touches many tables (the DELETE cascades) and the table cache is short.
+    $stmt = $db->query("SELECT * FROM expenses WHERE id IN (" . $keepId . ", " . $discardId . ")");
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $keep    = null;
@@ -899,9 +1093,6 @@ function handleMergeExpenses(PDO $db, ?array $input): void
 
     // Per-field merge: apply selected values from the discard to the keep expense
     if (!empty($fields)) {
-        $updates = [];
-        $params  = [];
-
         // Map field keys to DB columns (some fields group multiple columns)
         $fieldMap = [
             'vendor'             => ['vendor_id', 'vendor_name_raw'],
@@ -918,32 +1109,40 @@ function handleMergeExpenses(PDO $db, ?array $input): void
             'receipt'            => ['receipt_media_id'],
         ];
 
+        $merged = [];
         foreach ($fields as $key => $choice) {
             if ($choice !== 'discard' || !isset($fieldMap[$key])) continue;
-
-            foreach ($fieldMap[$key] as $col) {
-                $updates[] = "{$col} = ?";
-                $params[]  = $discard[$col] ?? null;
-            }
+            foreach ($fieldMap[$key] as $col) $merged[$col] = $discard[$col] ?? null;
         }
 
-        if (!empty($updates)) {
-            $params[] = $keepId;
-            $db->prepare("UPDATE expenses SET " . implode(', ', $updates) . " WHERE id = ?")
-               ->execute($params);
+        $footed = array_merge($keep, $merged);
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+        $footingError = ReceiptAmountRules::footingErrorMessage(
+            (float)($footed['amount'] ?? 0) + (float)($footed['recycling_tax'] ?? 0),   // recycling tax is part of the total (migration 1005)
+            (float)($footed['gst_amount'] ?? 0),
+            (float)($footed['pst_amount'] ?? 0),
+            (float)($footed['total'] ?? 0)
+        );
+        if ($footingError !== null) throw new Exception('Cannot merge expenses: ' . $footingError);
+
+        // Through the expense gate (audited as the merge; MySQL 1615 re-prepare is the gate's).
+        if ($merged) {
+            expenseGate($db)->apply($keepId, $merged, ExpenseGate::actor(getCurrentUser()), 'desktop_merge');
         }
     } else {
         // Legacy behavior: transfer receipt if kept has none and discarded has one
         if (empty($keep['receipt_media_id']) && !empty($discard['receipt_media_id'])) {
-            $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")
-               ->execute([$discard['receipt_media_id'], $keepId]);
+            expenseGate($db)->apply($keepId, ['receipt_media_id' => (int)$discard['receipt_media_id']], ExpenseGate::actor(getCurrentUser()), 'desktop_merge');
         }
     }
 
-    // Delete the duplicate
-    $db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$discardId]);
+    // Never delete (six-year record): the merged-away receipt is rejected "Merged into
+    // receipt #N" and kept — through the gate's audited 'reject', which also reverses its
+    // journal entry if it had already posted to the books.
+    expenseGate($db)->apply($discardId, ['status' => 'rejected', 'rejection_reason' => 'Merged into receipt #' . $keepId],
+        ExpenseGate::actor(getCurrentUser()), 'desktop_merge', ['transition' => 'reject', 'allow_locked' => true]);
 
-    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' deleted, #' . $keepId . ' kept.']);
+    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' set aside (kept on record), #' . $keepId . ' kept.']);
 }
 
 
@@ -971,11 +1170,12 @@ function handleMergeReceipt(PDO $db, ?array $input): void
 
     $keepReceipt = $input['keep_receipt'] ?? 'target';
     $sourceMediaId = !empty($input['source_media_id']) ? (int)$input['source_media_id'] : null;
+    assertCanEditExpense($db, $targetId);
+    assertMayUseReceiptMedia($db, $sourceMediaId);
 
     // If user chose the new receipt, update the target
     if ($keepReceipt === 'source' && $sourceMediaId) {
-        $stmt = $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?");
-        $stmt->execute([$sourceMediaId, $targetId]);
+        expenseGate($db)->apply($targetId, ['receipt_media_id' => $sourceMediaId], ExpenseGate::actor(getCurrentUser()), 'desktop_merge_receipt');
     }
 
     echo json_encode([
@@ -997,142 +1197,18 @@ function handleLinkProduct(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
-    $lineItemId = (int)($input['line_item_id'] ?? 0);
-    if (!$lineItemId) throw new Exception('Line item ID required');
-
+    // Shared with the iOS line-item endpoint (expense-line-items.php): links, trains the
+    // vendor catalog, and records the SKU → product memory for the next receipt.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $own = $db->prepare("SELECT expense_id FROM expense_line_items WHERE id = ?");
+    $own->execute([(int)($input['line_item_id'] ?? 0)]);
+    assertCanEditExpense($db, (int)$own->fetchColumn());
     $newProductId = isset($input['product_id']) && $input['product_id'] !== null && $input['product_id'] !== ''
         ? (int)$input['product_id']
         : null;
-
-    // Fetch current line item (with name for training)
-    $stmt = $db->prepare("SELECT eli.id, eli.product_id, eli.quantity, eli.name, eli.expense_id,
-                                 e.vendor_id
-                          FROM expense_line_items eli
-                          LEFT JOIN expenses e ON e.id = eli.expense_id
-                          WHERE eli.id = ?");
-    $stmt->execute([$lineItemId]);
-    $li = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$li) throw new Exception('Line item not found');
-
-    $oldProductId = $li['product_id'] ? (int)$li['product_id'] : null;
-    $qty = (float)$li['quantity'];
-
-    // Reverse old product inventory
-    if ($oldProductId) {
-        updateProductInventory($db, $oldProductId, -$qty);
-    }
-
-    // Update the link
-    $upd = $db->prepare("UPDATE expense_line_items SET product_id = ? WHERE id = ?");
-    $upd->execute([$newProductId, $lineItemId]);
-
-    // Apply new product inventory
-    if ($newProductId) {
-        updateProductInventory($db, $newProductId, $qty);
-    }
-
-    // ── Train as you link ────────────────────────────────────────────
-    // When office staff links a line item name to a product, teach the
-    // vendor_products catalog so future receipts from the same vendor
-    // auto-match without manual linking.
-    if ($newProductId && !empty($li['vendor_id']) && !empty($li['name'])) {
-        try {
-            teachVendorProduct($db, (int)$li['vendor_id'], $li['name'], $newProductId);
-        } catch (Throwable $trainErr) {
-            error_log('Train-as-you-link error: ' . $trainErr->getMessage());
-            // Non-fatal — linking still succeeds
-        }
-    }
-
-    // Return updated line item with product details
-    $result = $db->prepare("
-        SELECT eli.*, p.name AS product_name, p.sku AS product_sku, p.track_inventory
-        FROM expense_line_items eli
-        LEFT JOIN products p ON p.id = eli.product_id
-        WHERE eli.id = ?
-    ");
-    $result->execute([$lineItemId]);
-    $updated = $result->fetch(PDO::FETCH_ASSOC);
+    $updated = (new ExpenseLineItemService($db))->link((int)($input['line_item_id'] ?? 0), $newProductId);
 
     echo json_encode(['success' => true, 'line_item' => $updated]);
-}
-
-
-/**
- * Save line items array for an expense. Also applies inventory adjustments
- * for any items that already have a product_id set.
- */
-function saveLineItems(PDO $db, int $expenseId, array $lineItems): void
-{
-    $stmt = $db->prepare("
-        INSERT INTO expense_line_items
-            (expense_id, product_id, name, quantity, unit_price, line_total, sku_raw, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-
-    foreach ($lineItems as $idx => $li) {
-        $productId = !empty($li['product_id']) ? (int)$li['product_id'] : null;
-        $qty = (float)($li['quantity'] ?? 1);
-        $unitPrice = isset($li['unit_price']) && $li['unit_price'] !== null && $li['unit_price'] !== ''
-            ? (float)$li['unit_price']
-            : null;
-        $lineTotal = (float)($li['line_total'] ?? $li['amount'] ?? 0);
-        $name = $li['name'] ?? 'Unknown Item';
-        $skuRaw = $li['sku_raw'] ?? null;
-
-        $stmt->execute([
-            $expenseId,
-            $productId,
-            $name,
-            $qty,
-            $unitPrice,
-            $lineTotal,
-            $skuRaw,
-            $idx,
-        ]);
-
-        // Apply inventory adjustment for linked products
-        if ($productId) {
-            updateProductInventory($db, $productId, $qty);
-        }
-    }
-}
-
-
-/**
- * Reverse inventory adjustments for all linked line items of an expense.
- * Call this BEFORE deleting line items or the expense itself.
- */
-function reverseLineItemInventory(PDO $db, int $expenseId): void
-{
-    $stmt = $db->prepare("
-        SELECT product_id, quantity
-        FROM expense_line_items
-        WHERE expense_id = ? AND product_id IS NOT NULL
-    ");
-    $stmt->execute([$expenseId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    foreach ($rows as $row) {
-        updateProductInventory($db, (int)$row['product_id'], -(float)$row['quantity']);
-    }
-}
-
-
-/**
- * Adjust current_stock on a product (only if track_inventory = 1).
- * Positive delta = purchase adds stock; negative = reversal.
- */
-function updateProductInventory(PDO $db, int $productId, float $qtyDelta): void
-{
-    if ($qtyDelta == 0) return;
-
-    $stmt = $db->prepare("
-        UPDATE products
-        SET current_stock = current_stock + ?
-        WHERE id = ? AND track_inventory = 1
-    ");
-    $stmt->execute([$qtyDelta, $productId]);
 }
 
 
@@ -1263,30 +1339,29 @@ function handleApprove(PDO $db, ?array $input, array $user): void
         throw new Exception('Invalid security token');
     }
 
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
     $id = (int)($input['id'] ?? 0);
-    if (!$id) throw new Exception('Expense ID required');
-
-    // Verify expense exists
-    $check = $db->prepare("SELECT id, status, created_by FROM expenses WHERE id = ?");
-    $check->execute([$id]);
-    $expense = $check->fetch(PDO::FETCH_ASSOC);
-    if (!$expense) throw new Exception('Expense not found');
-
-    // Prevent self-approval (the creator cannot approve their own expense)
-    if ((int)$expense['created_by'] === (int)$user['id']) {
-        throw new Exception('Cannot approve your own expense');
+    $result = (new ExpenseApprovalService($db, expenseGate($db)))->approve($id, $user, ['source' => 'desktop_approval']);
+    // Penny's waiting read of it is decided too (her track record counts it), and a corrected field
+    // redoes the vendor's other waiting reads — as on her card, after the page has its answer.
+    $redo = [];
+    if (!empty($result['success'])) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+            $desk = new BookkeeperDeskService($db);
+            $redo = $desk->decideOffCard($id, (int)$user['id']);
+        } catch (Throwable $e) { error_log('Penny off-card decision #' . $id . ': ' . $e->getMessage()); }
     }
-
-    $stmt = $db->prepare("
-        UPDATE expenses SET
-            status = 'approved',
-            approved_by = ?,
-            approved_at = NOW()
-        WHERE id = ?
-    ");
-    $stmt->execute([$user['id'], $id]);
-
-    echo json_encode(['success' => true, 'message' => 'Expense approved']);
+    echo json_encode($result + ($redo ? ['penny_redo' => count($redo)] : []));
+    if ($redo) {
+        if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+        ignore_user_abort(true);
+        set_time_limit(300);
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptBookkeeperService.php';
+            (new BookkeeperDeskService($db, new ReceiptBookkeeperService($db)))->rereadVendor($redo);
+        } catch (Throwable $e) { error_log('Penny reread (receipts page): ' . $e->getMessage()); }
+    }
 }
 
 
@@ -1301,39 +1376,51 @@ function handleReject(PDO $db, ?array $input, array $user): void
         throw new Exception('Invalid security token');
     }
 
-    $id = (int)($input['id'] ?? 0);
-    if (!$id) throw new Exception('Expense ID required');
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->reject(
+        (int)($input['id'] ?? 0),
+        $user,
+        (string)($input['rejection_reason'] ?? '')
+    );
+    echo json_encode($result);
+}
 
-    $reason = trim($input['rejection_reason'] ?? '');
-    if (empty($reason)) throw new Exception('Rejection reason is required');
 
-    // Verify expense exists
-    $check = $db->prepare("SELECT id, created_by FROM expenses WHERE id = ?");
-    $check->execute([$id]);
-    $expense = $check->fetch(PDO::FETCH_ASSOC);
-    if (!$expense) throw new Exception('Expense not found');
-
-    $stmt = $db->prepare("
-        UPDATE expenses SET
-            status = 'rejected',
-            approved_by = ?,
-            approved_at = NOW(),
-            rejection_reason = ?
-        WHERE id = ?
-    ");
-    $stmt->execute([$user['id'], $reason, $id]);
-
-    // Notify the expense creator via activity log
-    try {
-        $db->prepare("
-            INSERT INTO activity_log (user_id, action, entity_type, entity_id, details, created_at)
-            VALUES (?, 'expense_rejected', 'expense', ?, ?, NOW())
-        ")->execute([$user['id'], $id, json_encode(['reason' => $reason])]);
-    } catch (Throwable $e) {
-        // Activity log is non-critical
+/**
+ * POST {action: 'batch_approve', expense_ids: [1,2,3]}
+ * Approves multiple expenses in one call — mobile multi-select approval.
+ */
+function handleBatchApprove(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
     }
 
-    echo json_encode(['success' => true, 'message' => 'Expense rejected']);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->approveBatch($input['expense_ids'] ?? [], $user);
+    echo json_encode($result);
+}
+
+
+/**
+ * POST {action: 'batch_reject', expense_ids: [1,2,3], rejection_reason: '...'}
+ * Rejects multiple expenses with the same reason — mobile multi-select rejection.
+ */
+function handleBatchReject(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->rejectBatch(
+        $input['expense_ids'] ?? [],
+        $user,
+        (string)($input['rejection_reason'] ?? '')
+    );
+    echo json_encode($result);
 }
 
 
@@ -1413,9 +1500,11 @@ function handleQbStatus(PDO $db): void
     echo json_encode(['success' => true, 'status' => $status]);
 }
 
-function handleBatchForward(PDO $db, array $input): void
+function handleBatchForward(PDO $db, ?array $input): void
 {
+    if (!verifyCSRFToken(ApiResponse::csrfToken($input ?? []))) throw new Exception('Invalid security token');
     require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
+    // Only approved receipts are forwarded — qbForwardExpense() refuses the rest with the reason.
 
     $ids = $input['expense_ids'] ?? [];
     if (!is_array($ids) || empty($ids)) {
@@ -1435,8 +1524,9 @@ function handleBatchForward(PDO $db, array $input): void
     echo json_encode(['success' => true] + $result);
 }
 
-function handleQbRetry(PDO $db): void
+function handleQbRetry(PDO $db, ?array $input): void
 {
+    if (!verifyCSRFToken(ApiResponse::csrfToken($input ?? []))) throw new Exception('Invalid security token');
     require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
     $result = qbRetryFailed($db);
     echo json_encode(['success' => true] + $result);
@@ -1450,35 +1540,10 @@ function handleQbRetry(PDO $db): void
  */
 function handleSearchJobs(PDO $db): void
 {
-    $q = trim($_GET['q'] ?? '');
-    if (strlen($q) < 2) {
-        echo json_encode(['success' => true, 'jobs' => []]);
-        return;
-    }
-
-    $like = '%' . $q . '%';
-    $stmt = $db->prepare("
-        SELECT
-            jp.id,
-            jp.plan_number,
-            jp.service_type,
-            jp.status,
-            p.address,
-            CONCAT(c.first_name, ' ', c.last_name) AS contact_name
-        FROM job_plans jp
-        LEFT JOIN properties p ON p.id = jp.property_id
-        LEFT JOIN contacts c ON c.id = p.site_contact_id
-        WHERE (
-              jp.plan_number LIKE ?
-              OR jp.service_type LIKE ?
-              OR p.address LIKE ?
-              OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?
-          )
-        ORDER BY jp.status = 'active' DESC, jp.id DESC
-        LIMIT 15
-    ");
-    $stmt->execute([$like, $like, $like, $like]);
-    $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Shared with the iOS review form (expense-lookup.php?type=jobs). Rows now carry
+    // property_id + contact_id so the mobile job pill can persist all three identifiers.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    $jobs = (new ExpenseLookupService($db))->searchJobs($_GET['q'] ?? '', isset($_GET['date']) ? (string)$_GET['date'] : null);
 
     echo json_encode(['success' => true, 'jobs' => $jobs]);
 }
@@ -1495,117 +1560,12 @@ function handleRescan(PDO $db, ?array $input, array $user): void
     if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
         throw new Exception('Invalid security token');
     }
-
     $expenseId = (int)($input['expense_id'] ?? 0);
     if (!$expenseId) throw new Exception('Expense ID required');
-
-    // Fetch the expense to get the stored receipt image path
-    $stmt = $db->prepare("
-        SELECT e.id, e.receipt_media_id, e.vendor_id, e.job_id,
-               ma.file_path, ma.stored_filename
-        FROM expenses e
-        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
-        WHERE e.id = ?
-    ");
-    $stmt->execute([$expenseId]);
-    $expense = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$expense) throw new Exception('Expense not found');
-    if (empty($expense['file_path'])) throw new Exception('No receipt image found for this expense. Upload a receipt first.');
-
-    // Resolve the absolute file path on disk
-    $filePath = PUBLIC_ROOT . '/' . ltrim($expense['file_path'], '/');
-    // Some receipts may be stored with an absolute path already
-    if (!file_exists($filePath)) {
-        $filePath = $expense['file_path'];
-    }
-    if (!file_exists($filePath)) {
-        throw new Exception('Receipt image file not found on disk. It may have been moved or deleted.');
-    }
-
-    // Load OCR + parsing services
-    require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
-    require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-    require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
-    require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-    require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
-    require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
-
-    // Pre-screen with Tesseract (cost-saving)
-    $preScreen = tesseractPreScreen($filePath);
-    $preScreenDecision = $preScreen['decision'];
-
-    $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
-    $ocrSource  = 'none';
-
-    if ($preScreenDecision === 'use_tesseract') {
-        $ocrResult = ['success' => true, 'text' => $preScreen['text'], 'raw_response' => null, 'error' => null];
-        $ocrSource = 'tesseract';
-    } elseif ($preScreenDecision === 'use_vision') {
-        $ocrResult = extractTextFromImage($filePath);
-        $ocrSource = 'vision';
-    }
-
-    $ocrAvailable = $ocrResult['success'];
-    $ocrText = $ocrResult['text'] ?? '';
-
-    $parsed = [];
-    $suggestions = [];
-
-    if ($ocrAvailable && !empty($ocrText)) {
-        $rawResponse = $ocrResult['raw_response'] ?? null;
-        $parsed = parseReceiptText($ocrText, $rawResponse);
-        $suggestions = suggestReceiptMeta($ocrText, null, null, $expense['job_id'] ?? null);
-
-        $vendorIdForMatch = !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id']
-                          : (!empty($expense['vendor_id']) ? (int)$expense['vendor_id'] : 0);
-
-        if ($vendorIdForMatch) {
-            $parsed = applyLearnedPatterns($vendorIdForMatch, $parsed, $ocrText);
-            $parsed = matchVendorProducts($vendorIdForMatch, $ocrText, $parsed);
-        }
-    }
-
-    // Persist the fresh OCR text back to the expense (so future opens show it)
-    if ($ocrAvailable && !empty($ocrText)) {
-        $rawJson = $ocrResult['raw_response'] ? json_encode($ocrResult['raw_response']) : $ocrText;
-        $upd = $db->prepare("UPDATE expenses SET raw_ocr_json = ? WHERE id = ?");
-        $upd->execute([$rawJson, $expenseId]);
-    }
-
-    // Re-persist line items from fresh parse — clear old OCR-derived items
-    // (keep items that already have a product link, those were manually verified)
-    $freshItems = $parsed['line_items'] ?? [];
-    if (!empty($freshItems)) {
-        // Delete only unlinked line items (no product_id) — preserve manually linked ones
-        $delUnlinked = $db->prepare("DELETE FROM expense_line_items WHERE expense_id = ? AND product_id IS NULL");
-        $delUnlinked->execute([$expenseId]);
-        // Insert fresh items (they start unlinked; office can re-link via Link button)
-        saveLineItems($db, $expenseId, $freshItems);
-        // Re-fetch stored items to return accurate line_items_stored data
-        $liStmt = $db->prepare("
-            SELECT eli.*, p.name AS product_name, p.sku AS product_sku
-            FROM expense_line_items eli
-            LEFT JOIN products p ON p.id = eli.product_id
-            WHERE eli.expense_id = ?
-            ORDER BY eli.sort_order, eli.id
-        ");
-        $liStmt->execute([$expenseId]);
-        $storedItems = $liStmt->fetchAll(PDO::FETCH_ASSOC);
-        $parsed['line_items'] = $storedItems;
-        $parsed['line_items_stored'] = true;
-    }
-
-    echo json_encode([
-        'success'            => true,
-        'ocr_available'      => $ocrAvailable,
-        'ocr_source'         => $ocrSource,
-        'ocr_text'           => $ocrText,
-        'parsed'             => $parsed,
-        'suggestions'        => $suggestions,
-        'pre_screen'         => $preScreen,
-        'line_items_stored'  => !empty($freshItems),
-    ]);
+    assertCanEditExpense($db, $expenseId);
+    // The pipeline lives in ExpenseRescanService (shared with the iPhone, 2026-10-11).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseRescanService.php';
+    echo json_encode((new ExpenseRescanService($db, expenseGate($db)))->rescan($expenseId, ExpenseGate::actor($user), 'desktop_rescan'));
 }
 
 
@@ -1620,50 +1580,9 @@ function handleAddLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
-    $expenseId = (int)($input['expense_id'] ?? 0);
-    if (!$expenseId) throw new Exception('Expense ID required');
-
-    $name = trim($input['name'] ?? '');
-    if (!$name) throw new Exception('Item name required');
-
-    $qty       = (float)($input['quantity'] ?? 1);
-    $unitPrice = isset($input['unit_price']) && $input['unit_price'] !== '' ? (float)$input['unit_price'] : null;
-    $lineTotal = isset($input['line_total']) && $input['line_total'] !== '' ? (float)$input['line_total']
-               : ($unitPrice !== null ? $unitPrice * $qty : 0.0);
-    $productId = !empty($input['product_id']) ? (int)$input['product_id'] : null;
-
-    // Get next sort_order
-    $sortStmt = $db->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM expense_line_items WHERE expense_id = ?");
-    $sortStmt->execute([$expenseId]);
-    $sortOrder = (int)$sortStmt->fetchColumn();
-
-    $ins = $db->prepare("
-        INSERT INTO expense_line_items (expense_id, product_id, name, quantity, unit_price, line_total, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ");
-    $ins->execute([$expenseId, $productId, $name, $qty, $unitPrice, $lineTotal, $sortOrder]);
-    $newId = (int)$db->lastInsertId();
-
-    if ($productId) {
-        updateProductInventory($db, $productId, $qty);
-
-        // Also teach vendor catalog if vendor known
-        $vendorStmt = $db->prepare("SELECT vendor_id FROM expenses WHERE id = ?");
-        $vendorStmt->execute([$expenseId]);
-        $vendorId = (int)$vendorStmt->fetchColumn();
-        if ($vendorId) {
-            try { teachVendorProduct($db, $vendorId, $name, $productId); } catch (Throwable $e) {}
-        }
-    }
-
-    $result = $db->prepare("
-        SELECT eli.*, p.name AS product_name, p.sku AS product_sku
-        FROM expense_line_items eli
-        LEFT JOIN products p ON p.id = eli.product_id
-        WHERE eli.id = ?
-    ");
-    $result->execute([$newId]);
-    $item = $result->fetch(PDO::FETCH_ASSOC);
+    assertCanEditExpense($db, (int)($input['expense_id'] ?? 0));
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $item = (new ExpenseLineItemService($db, expenseGate($db)))->by(ExpenseGate::actor(getCurrentUser()), 'desktop_line')->add((int)($input['expense_id'] ?? 0), $input);
 
     echo json_encode(['success' => true, 'line_item' => $item]);
 }
@@ -1679,64 +1598,34 @@ function handleDeleteLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
-    $lineItemId = (int)($input['line_item_id'] ?? 0);
-    if (!$lineItemId) throw new Exception('Line item ID required');
-
-    // Reverse inventory
-    $stmt = $db->prepare("SELECT product_id, quantity FROM expense_line_items WHERE id = ?");
-    $stmt->execute([$lineItemId]);
-    $li = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($li && $li['product_id']) {
-        updateProductInventory($db, (int)$li['product_id'], -(float)$li['quantity']);
-    }
-
-    $del = $db->prepare("DELETE FROM expense_line_items WHERE id = ?");
-    $del->execute([$lineItemId]);
+    assertCanEditExpense($db, lineItemExpenseId($db, (int)($input['line_item_id'] ?? 0)));
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    (new ExpenseLineItemService($db, expenseGate($db)))->by(ExpenseGate::actor(getCurrentUser()), 'desktop_line')->delete((int)($input['line_item_id'] ?? 0));
 
     echo json_encode(['success' => true]);
 }
 
 
 /**
- * Teach the vendor_products catalog: when office staff manually links a
- * line item name → product, record it so future receipts from the same
- * vendor auto-match without any manual work.
- *
- * Logic:
- *  - If a vendor_products row already exists for this vendor+product, add
- *    the OCR name as an alias (comma-sep in ocr_aliases).
- *  - If no row exists yet, create one.
+ * Update a single line item's name/quantity/unit_price/line_total —
+ * a correction path for OCR mistakes (mis-parsed discounts, wrong qty,
+ * bad item name) that previously required delete + re-add.
  */
-function teachVendorProduct(PDO $db, int $vendorId, string $ocrName, int $productId): void
+function handleUpdateLineItem(PDO $db, ?array $input): void
 {
-    $ocrNameNorm = strtoupper(trim($ocrName));
-    if (!$ocrNameNorm) return;
-
-    // Check if this vendor already has a mapping for this product
-    $check = $db->prepare("SELECT id, ocr_aliases FROM vendor_products WHERE vendor_id = ? AND product_id = ? LIMIT 1");
-    $check->execute([$vendorId, $productId]);
-    $existing = $check->fetch(PDO::FETCH_ASSOC);
-
-    if ($existing) {
-        // Add OCR name to aliases if not already there
-        $aliases = array_filter(array_map('trim', explode(',', $existing['ocr_aliases'] ?? '')));
-        if (!in_array($ocrNameNorm, array_map('strtoupper', $aliases), true)) {
-            $aliases[] = $ocrNameNorm;
-            $upd = $db->prepare("UPDATE vendor_products SET ocr_aliases = ? WHERE id = ?");
-            $upd->execute([implode(',', $aliases), $existing['id']]);
-        }
-    } else {
-        // Fetch product name to use as the catalog entry name
-        $pStmt = $db->prepare("SELECT name, sku FROM products WHERE id = ?");
-        $pStmt->execute([$productId]);
-        $product = $pStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$product) return;
-
-        // Create a new vendor_products entry
-        $ins = $db->prepare("
-            INSERT INTO vendor_products (vendor_id, product_id, name, category, ocr_aliases, is_active)
-            VALUES (?, ?, ?, 'Materials', ?, 1)
-        ");
-        $ins->execute([$vendorId, $productId, $product['name'], $ocrNameNorm]);
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
     }
+
+    assertCanEditExpense($db, lineItemExpenseId($db, (int)($input['line_item_id'] ?? 0)));
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $service = (new ExpenseLineItemService($db, expenseGate($db)))->by(ExpenseGate::actor(getCurrentUser()), 'desktop_line');
+    $item = $service->update((int)($input['line_item_id'] ?? 0), $input);
+
+    echo json_encode(['success' => true, 'line_item' => $item]);
 }
+
+
+// teachVendorProduct() now lives in app/Services/Receipts/ExpenseLineItems.php so the
+// JWT line-item endpoint and ExpenseLineItemService share it with this file.

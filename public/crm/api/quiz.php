@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user      = getCurrentUser();
 $userId    = (int)$user['id'];
@@ -63,8 +64,10 @@ function postInput(): array
 
 function verifyCsrf(array $input): void
 {
-    if (function_exists('verifyCSRFToken')) {
-        verifyCSRFToken($input['csrf_token'] ?? '');
+    // The result used to be ignored, so any page could post here as the user (Fable review 2026-10-12).
+    $token = (string)($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+    if (!function_exists('verifyCSRFToken') || !verifyCSRFToken($token)) {
+        qErr('Invalid CSRF token', 403);
     }
 }
 
@@ -740,6 +743,15 @@ switch ($action) {
             $qids = selectSeasonalQuestions($db, $userId, $categoryId, $sessionLength);
         }
 
+        // Our own plant photos from today's sites first (SitePlantQuizService, 2026-10-16) — any-category or plant/weed quizzes.
+        try {
+            if (($categoryId === null || in_array((int)$categoryId, [1, 2], true)) && is_file(APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php')) {
+                require_once APP_ROOT . '/Modules/Quiz/Services/SitePlantQuizService.php';
+                $__site = (new SitePlantQuizService($db))->todaySiteQuestionIds((int)$userId, null, 4, $categoryId !== null ? (int)$categoryId : null);
+                if ($__site) $qids = SitePlantQuizService::mergeSiteFirst($qids, $__site, (int)$sessionLength);
+            }
+        } catch (Throwable $__e) { error_log('quiz today sites: ' . $__e->getMessage()); }
+
         if (count($qids) < 1) {
             qErr('No questions available for this category yet. Ask an admin to add some!');
         }
@@ -838,6 +850,11 @@ switch ($action) {
         $sess->execute([$sessionId, $userId]);
         $session = $sess->fetch(PDO::FETCH_ASSOC);
         if (!$session) qErr('Session not found or already complete', 404);
+
+        // Question membership — same guard as app/Modules/Quiz/Api/answer.php: an answer
+        // for a question outside the session would farm mastery on arbitrary questions.
+        $sessionQids = array_map('intval', explode(',', (string)($session['question_ids'] ?? '')));
+        if (!in_array($questionId, $sessionQids, true)) qErr('Question not part of this session', 403);
 
         $dup = $db->prepare("SELECT id FROM quiz_answers WHERE session_id=? AND question_id=?");
         $dup->execute([$sessionId, $questionId]);
@@ -1252,10 +1269,10 @@ switch ($action) {
         $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $ext      = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? $ext : 'jpg';
         $filename = 'quiz_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-        $destDir  = PUBLIC_ROOT . '/uploads/quiz';
+        $destDir  = uploadsDir('quiz');
         if (!is_dir($destDir)) mkdir($destDir, 0755, true);
         if (!move_uploaded_file($file['tmp_name'], $destDir . '/' . $filename)) qErr('Failed to save file');
-        qOk(['image_path' => '/uploads/quiz/' . $filename]);
+        qOk(['image_path' => uploadsUrl('quiz') . '/' . $filename]);
 
     // ── Admin: deactivate question ─────────────────────────────────────────────
     case 'delete_question':
@@ -1394,6 +1411,15 @@ switch ($action) {
             );
             $doneStmt->execute([$userId]);
             $done = (bool)$doneStmt->fetch();
+
+            if (!$done) {
+                $exStmt = $db->prepare("SELECT quiz_exempt FROM users WHERE id = ?");
+                $exStmt->execute([$userId]);
+                $exRow = $exStmt->fetch(PDO::FETCH_ASSOC);
+                if (!empty($exRow['quiz_exempt'])) {
+                    $done = true;
+                }
+            }
         }
         qOk(['enabled' => $enabled, 'done' => $done, 'session_length' => $sessionLen]);
 
@@ -1403,6 +1429,23 @@ switch ($action) {
         $sessionId = (int)($input['session_id'] ?? 0);
         $correct   = max(0, (int)($input['questions_correct'] ?? 0));
         $asked     = max(1, (int)($input['questions_asked'] ?? 3));
+        if ($sessionId > 0) {
+            // The score comes from the caller's own session, never from the numbers posted
+            // (Fable review 2026-10-12). Not tied to completed_at: the app posts this in
+            // parallel with 'finish', so the answers are the record.
+            $own = $db->prepare("SELECT questions_count FROM quiz_sessions WHERE id = ? AND user_id = ?");
+            $own->execute([$sessionId, $userId]);
+            $ownRow = $own->fetch(PDO::FETCH_ASSOC);
+            if (!$ownRow) qErr('Session not found', 404);
+            $agg = $db->prepare("SELECT COUNT(*) AS answered, COALESCE(SUM(is_correct), 0) AS correct FROM quiz_answers WHERE session_id = ?");
+            $agg->execute([$sessionId]);
+            $aggRow  = $agg->fetch(PDO::FETCH_ASSOC) ?: ['answered' => 0, 'correct' => 0];
+            if ((int)$aggRow['answered'] === 0) qErr('No answers recorded for this session');
+            $asked   = max(1, (int)$ownRow['questions_count'], (int)$aggRow['answered']);
+            $correct = min($asked, (int)$aggRow['correct']);
+        }
+        // No session id = an offline quiz synced later (mw-quiz-offline.js); its numbers are
+        // still the device's (listed for Tim).
         $pct       = (int)round($correct / $asked * 100);
 
         // INSERT IGNORE — idempotent, safe to call twice on same day
@@ -1493,10 +1536,10 @@ switch ($action) {
         $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $ext      = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? $ext : 'jpg';
         $filename = 'lib_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-        $destDir  = PUBLIC_ROOT . '/uploads/quiz';
+        $destDir  = uploadsDir('quiz');
         if (!is_dir($destDir)) mkdir($destDir, 0755, true);
         if (!move_uploaded_file($file['tmp_name'], $destDir . '/' . $filename)) qErr('Failed to save file');
-        qOk(['image_path' => '/uploads/quiz/' . $filename]);
+        qOk(['image_path' => uploadsUrl('quiz') . '/' . $filename]);
 
     default:
         qErr('Unknown action', 404);

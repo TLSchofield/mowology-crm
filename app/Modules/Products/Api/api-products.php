@@ -18,12 +18,24 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
 
 requireLogin();
 $user = getCurrentUser();
 
 header('Content-Type: application/json');
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requirePermission('products.edit');
+    $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+}
 
 $action = $_GET['action'] ?? null;
 $db = getDB();
@@ -337,6 +349,7 @@ try {
             $stmt->execute($params);
 
             $productId = $db->lastInsertId();
+            (new FieldRecommendationService($db))->applyProductFlags((int)$productId, $data);
             echo json_encode([
                 'success' => true,
                 'id' => $productId,
@@ -438,9 +451,36 @@ try {
                 $params[] = !empty($data['icon_set_id']) ? (int)$data['icon_set_id'] : null;
             }
 
+            // Price audit (Fable audit #25, 2026-10-12): record what the price was and what it became.
+            $priceFields = $hasMinPrice ? ['base_price', 'min_price', 'base_cost'] : ['base_price', 'base_cost'];
+            $priceBefore = null;
+            try {
+                $pb = $db->prepare("SELECT name, " . implode(', ', $priceFields) . " FROM products WHERE id = ?");
+                $pb->execute([$data['id']]);
+                $priceBefore = $pb->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (\Throwable $e) {
+                error_log('[api-products] price snapshot failed for product #' . (int)$data['id'] . ': ' . $e->getMessage());
+            }
+
             $params[] = $data['id'];
             $stmt = $db->prepare("UPDATE products SET {$setClauses} WHERE id = ?");
             $stmt->execute($params);
+
+            if ($priceBefore !== null) {
+                require_once APP_ROOT . '/Modules/Technology/Services/AuditDiff.php';
+                $priceAfter = [
+                    'base_price' => $data['base_price'] ?? 0,
+                    'min_price'  => !empty($data['min_price']) ? $data['min_price'] : null,
+                    'base_cost'  => $data['base_cost'] ?? 0,
+                ];
+                $priceChanges = AuditDiff::changes($priceBefore, $priceAfter, $priceFields, $priceFields);
+                if ($priceChanges && function_exists('logActivityExtended')) {
+                    logActivityExtended((int)$user['id'], 'Product price changed',
+                        'Product #' . (int)$data['id'] . ' ' . (string)$priceBefore['name'] . ': ' . AuditDiff::describe($priceChanges));
+                }
+            }
+
+            (new FieldRecommendationService($db))->applyProductFlags((int)$data['id'], $data);
 
             echo json_encode([
                 'success' => true,
@@ -688,7 +728,7 @@ try {
             throw new Exception('Product, measurement group, and pricing model are required');
         }
 
-        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft'];
+        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft', 'per_yard_area'];
         if (!in_array($data['pricing_model'], $validModels)) {
             throw new Exception('Invalid pricing model');
         }
@@ -696,6 +736,16 @@ try {
         $validFreqs = ['one_off', 'daily', '7_day', '14_day', '21_day', 'monthly', 'seasonal'];
         $freq = (isset($data['default_frequency']) && in_array($data['default_frequency'], $validFreqs))
             ? $data['default_frequency'] : 'one_off';
+
+        // per_yard_area (migration 1189): depth + minimum yards go in their own UPDATE, so the
+        // INSERT/UPDATE below stay exactly as on production (and work before 1189 runs).
+        $saveYardParams = function ($ruleId) use ($db, $data) {
+            if (($data['pricing_model'] ?? '') !== 'per_yard_area') return;
+            require_once APP_ROOT . '/Services/QuoteCalculator.php';
+            $p = QuoteCalculator::yardRuleParams($data);
+            $db->prepare("UPDATE product_pricing_rules SET depth_inches = ?, min_units = ? WHERE id = ?")
+               ->execute([$p['depth_inches'], $p['min_units'], (int)$ruleId]);
+        };
 
         if (!empty($data['id'])) {
             // Update
@@ -720,6 +770,7 @@ try {
                 $data['id'],
                 $data['product_id'],
             ]);
+            $saveYardParams($data['id']);
             echo json_encode(['success' => true, 'message' => 'Pricing rule updated']);
         } else {
             // Create
@@ -743,7 +794,9 @@ try {
                 $data['notes'] ?? null,
                 $data['is_active'] ?? 1,
             ]);
-            echo json_encode(['success' => true, 'id' => $db->lastInsertId(), 'message' => 'Pricing rule created']);
+            $newRuleId = $db->lastInsertId();
+            $saveYardParams($newRuleId);
+            echo json_encode(['success' => true, 'id' => $newRuleId, 'message' => 'Pricing rule created']);
         }
 
     } elseif ($action === 'delete-pricing-rule') {
@@ -1259,6 +1312,6 @@ try {
     http_response_code(400);
     echo json_encode([
         'success' => false,
-        'error' => $e->getMessage()
+        'error' => ApiResponse::message($e, 'api-products')
     ]);
 }

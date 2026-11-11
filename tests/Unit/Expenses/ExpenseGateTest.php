@@ -1,0 +1,430 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * ExpenseGate — the one door for every expense change (migration 1233). Each change is
+ * validated, written (only what changed), audited (who / where / before / after), and each
+ * learning / books signal fires exactly once.
+ */
+class ExpenseGateTest extends TestCase
+{
+    private PDO $db;
+    private ExpenseGateHooksSpy $hooks;
+    private ExpenseGate $gate;
+
+    protected function setUp(): void
+    {
+        $this->db = ExpenseGateTestDb::make();
+        ExpenseGateTestDb::lawnboy412($this->db);
+        $this->hooks = new ExpenseGateHooksSpy();
+        $this->gate = new ExpenseGate($this->db, $this->hooks);
+    }
+
+    private function audit(int $id): array
+    {
+        $s = $this->db->prepare("SELECT * FROM expense_change_log WHERE expense_id = ? ORDER BY id");
+        $s->execute([$id]);
+        return $s->fetchAll();
+    }
+
+    private function row(int $id): array
+    {
+        return $this->db->query("SELECT * FROM expenses WHERE id = {$id}")->fetch();
+    }
+
+    private const TIM = ['id' => 6, 'kind' => 'user'];
+
+    // ── Create ──────────────────────────────────────────────────────────
+
+    public function test_a_create_writes_audits_and_teaches_once(): void
+    {
+        $res = $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_id' => 7, 'vendor_name_raw' => 'LAWNBOY', 'amount' => 40, 'gst_amount' => 2, 'raw_ocr_json' => 'LAWNBOY CBM 1 40.00',
+            'line_items_source' => 'ocr',
+        ], ['expense_date' => '2026-10-08', 'total' => 42.00, 'status' => 'pending_approval', 'created_by' => 6])
+            + ['line_items' => [['name' => 'CBM', 'quantity' => 1, 'line_total' => 40, 'product_id' => 11]]],
+            self::TIM, 'ios_save', ['ocr_parsed' => ['total' => 42], 'learn_lines' => ['line_items' => []], 'price_intel' => true]);
+
+        $id = $res['expense_id'];
+        $this->assertSame('create', $res['action']);
+        $this->assertSame('pending_approval', $this->row($id)['status']);
+        $this->assertSame(1, (int)$this->db->query("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = {$id}")->fetchColumn());
+        $this->assertSame(3.0, (float)$this->db->query("SELECT current_stock FROM products WHERE id = 11")->fetchColumn(), 'stock in');
+        $a = $this->audit($id);
+        $this->assertCount(1, $a);
+        $this->assertSame(['create', 'ios_save', 6], [$a[0]['action'], $a[0]['source'], (int)$a[0]['actor_user_id']]);
+        foreach (['storeBaseline', 'learnLines', 'facts', 'duplicates', 'priceIntel'] as $h) {
+            $this->assertSame(1, $this->hooks->count($h), $h . ' once');
+        }
+        $this->assertSame(0, $this->hooks->count('learnConfirmed'), 'not confirmed yet');
+    }
+
+    public function test_a_missing_subtotal_is_total_less_taxes_on_create_and_money_edits_only(): void
+    {
+        // Pure rule (2026-11-06: 77 receipts had amount 0.00 beside a total and taxes).
+        $this->assertSame(11.37, ExpenseGate::withDerivedSubtotal([], ['total' => 12.36, 'gst_amount' => 0.55, 'pst_amount' => 0.44, 'amount' => 0.0], true)['amount']);
+        $this->assertSame(10.0, ExpenseGate::withDerivedSubtotal([], ['total' => 10.5, 'gst_amount' => 0.5, 'amount' => 10.0], true)['amount'], 'a read subtotal is kept');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal(['total' => 12.36, 'amount' => 0], ['notes' => 'x'], false), 'a non-money edit leaves it');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal([], ['total' => 1.0, 'gst_amount' => 1.0], true), 'never zero or negative');
+        $this->assertSame(9.0, ExpenseGate::withDerivedSubtotal(['status' => 'draft', 'total' => 9.0, 'amount' => 0.0, 'gst_amount' => 0.0], ['gst_amount' => 0.0], false)['amount'], 'no tax: subtotal = total');
+        // Codex review 2026-11-06: an explicit 0 stands, and a posted receipt's books never move by this.
+        $this->assertSame(0.0, ExpenseGate::withDerivedSubtotal(['status' => 'draft', 'total' => 105.0, 'gst_amount' => 5.0], ['amount' => 0.0, 'total' => 105.0], false)['amount'], 'explicit 0 kept');
+        $this->assertArrayNotHasKey('amount', ExpenseGate::withDerivedSubtotal(['status' => 'approved', 'total' => 105.0, 'amount' => 0.0, 'gst_amount' => 5.0], ['total' => 105.0], false), 'posted: never derived');
+
+        // Through the gate: a capture with a total and taxes but no subtotal is saved with one.
+        $res = $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_name_raw' => 'CHEVRON', 'gst_amount' => 0.55, 'pst_amount' => 0.44,
+        ], ['expense_date' => '2026-10-23', 'total' => 12.36, 'status' => 'draft', 'created_by' => 6]), self::TIM, 'upload');
+        $this->assertSame(11.37, (float)$this->row($res['expense_id'])['amount']);
+    }
+
+    public function test_an_office_phone_save_teaches_once_on_create(): void
+    {
+        $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_id' => 7, 'vendor_name_raw' => 'LAWNBOY', 'amount' => 40, 'gst_amount' => 2, 'raw_ocr_json' => 'LAWNBOY 40.00',
+        ], ['expense_date' => '2026-10-08', 'total' => 42.00, 'status' => 'pending_approval', 'created_by' => 6]),
+            self::TIM, 'ios_save', ['ocr_parsed' => ['total' => 42], 'learn_now' => true]);
+        $this->assertSame(1, $this->hooks->count('learnConfirmed'), 'the manager\'s own save is the confirmation');
+        $this->assertTrue($this->hooks->calls['learnConfirmed'][0][3], 'a pending_approval row is allowed to teach (args: id, baseline, filedCopy, allowPending)');
+    }
+
+    public function test_a_draft_phone_save_never_teaches_even_with_learn_now(): void
+    {
+        $this->gate->apply(null, ExpenseGate::rowFromInput([
+            'vendor_id' => 7, 'vendor_name_raw' => 'LAWNBOY', 'amount' => 40, 'gst_amount' => 2, 'raw_ocr_json' => 'LAWNBOY 40.00',
+        ], ['expense_date' => '2026-10-08', 'total' => 42.00, 'status' => 'draft', 'created_by' => 6]),
+            self::TIM, 'ios_save', ['ocr_parsed' => ['total' => 42], 'learn_now' => true]);
+        $this->assertSame(0, $this->hooks->count('learnConfirmed'), 'an unfinished draft is not a confirmation');
+    }
+
+    public function test_a_create_cannot_be_born_approved(): void
+    {
+        $res = $this->gate->apply(null, ['expense_date' => '2026-10-08', 'total' => 5, 'status' => 'approved'], self::TIM, 'desktop_create');
+        $this->assertSame('draft', $this->row($res['expense_id'])['status'], 'only the audited approve may set approved');
+    }
+
+    // ── Update ──────────────────────────────────────────────────────────
+
+    public function test_only_what_changed_is_written_and_audited_with_before_and_after(): void
+    {
+        $res = $this->gate->apply(412, ['total' => 218.40, 'gst_amount' => 10, 'accounting_category' => 'Tools/Equipment', 'notes' => 'two bags'],
+                                  self::TIM, 'desktop_modal');
+        $this->assertSame(['accounting_category', 'notes'], $res['changed']);
+        $a = $this->audit(412);
+        $this->assertCount(1, $a);
+        $this->assertSame('accounting_category,notes', $a[0]['fields']);
+        $this->assertSame(['accounting_category' => 'Materials', 'notes' => null], json_decode($a[0]['before_text'], true));
+        $this->assertSame(['accounting_category' => 'Tools/Equipment', 'notes' => 'two bags'], json_decode($a[0]['after_text'], true));
+        $this->assertSame(1, $this->hooks->count('learnBank'), 'a person re-categorised it: the bank-rule lesson, once');
+        $this->assertSame(0, $this->hooks->count('repost'), 'not posted yet — nothing to re-post');
+    }
+
+    public function test_nothing_changed_is_no_write_no_audit_no_learning(): void
+    {
+        $res = $this->gate->apply(412, ['total' => '218.4', 'accounting_category' => 'Materials', 'job_id' => ''], self::TIM, 'desktop_modal');
+        $this->assertTrue($res['noop']);
+        $this->assertCount(0, $this->audit(412));
+        $this->assertSame([], $this->hooks->calls);
+    }
+
+    public function test_a_bad_date_or_amount_is_refused(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->gate->apply(412, ['expense_date' => '2026-13-40'], self::TIM, 'desktop_modal');
+    }
+
+    public function test_status_can_only_close_through_its_audited_transition(): void
+    {
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_modal');
+        $this->assertSame('pending_approval', $this->row(412)['status'], 'a plain edit never approves');
+        $this->assertSame(0, $this->hooks->count('learnConfirmed'));
+
+        $res = $this->gate->apply(412, ['status' => 'approved', 'approved_by' => 9, 'approved_at' => 'now'], ['id' => 9, 'kind' => 'user'],
+                                  'approval', ['transition' => 'approve', 'learn_baseline' => ['total' => 218.40]]);
+        $this->assertSame('approve', $res['action']);
+        $this->assertSame('approved', $this->row(412)['status']);
+        $this->assertSame(1, $this->hooks->count('learnConfirmed'), 'approval teaches the header lessons, once');
+        $this->assertSame(['total' => 218.40], $this->hooks->calls['learnConfirmed'][0][1], 'the inbox baseline is passed through');
+    }
+
+    public function test_impossible_gst_is_refused_on_an_edit_kept_flagged_on_a_capture_and_never_approved(): void
+    {
+        $status = (string)$this->row(412)['status'];
+        try {
+            $this->gate->apply(412, ['gst_amount' => 999.00], self::TIM, 'desktop_modal');
+            $this->fail('a person can\'t save GST bigger than the receipt');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString("can't be right", $e->getMessage());
+        }
+        $this->assertNotSame(999.0, (float)$this->row(412)['gst_amount']);
+
+        $new = $this->gate->apply(null, ['expense_date' => '2026-05-01', 'vendor_name_raw' => 'CHEVRON', 'amount' => 0, 'gst_amount' => 5.00, 'total' => 2.61,
+                                         'status' => 'pending_approval', 'created_by' => 6], self::TIM, 'ios_save');
+        $id = (int)$new['expense_id'];
+        $this->assertGreaterThan(0, $id, 'a phone capture is never lost');
+        $this->assertStringContainsString('GST_WRONG', (string)$this->row($id)['anomaly_flags']);
+        try {
+            $this->gate->apply($id, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+            $this->fail('it can\'t be approved like that');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('Check the GST', $e->getMessage());
+        }
+        $this->gate->apply($id, ['gst_amount' => 0.12, 'amount' => 2.49], self::TIM, 'desktop_modal');
+        $this->assertStringNotContainsString('GST_WRONG', (string)$this->row($id)['anomaly_flags'], 'fixed: the flag goes');
+        $this->assertSame($status, (string)$this->row(412)['status']);
+    }
+
+    public function test_approving_links_the_bank_line_once(): void
+    {
+        $this->gate->apply(412, ['status' => 'approved'], self::TIM, 'desktop_approve', ['transition' => 'approve']);
+        $this->assertSame(1, $this->hooks->count('linkBank'), 'reconciliation is tried when it is approved');
+        $this->gate->apply(412, ['notes' => 'checked'], self::TIM, 'desktop_modal');
+        $this->assertSame(1, $this->hooks->count('linkBank'), 'not again on a later edit');
+    }
+
+    public function test_a_receipt_sent_to_accounting_keeps_its_money(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'forwarded', forwarded_to_accounting = 1 WHERE id = 412");
+        try {
+            $this->gate->apply(412, ['total' => 1.00], self::TIM, 'desktop_modal');
+            $this->fail('a sent receipt must not drift');
+        } catch (Exception $e) {
+            $this->assertStringContainsString('sent to accounting', $e->getMessage());
+        }
+        $res = $this->gate->apply(412, ['raw_ocr_json' => 'LAWNBOY …'], ['id' => null, 'kind' => 'system'], 'receipt_facts', ['allow_locked' => true]);
+        $this->assertSame(['raw_ocr_json'], $res['changed'], 'the text is not money — it may still arrive');
+        $this->assertSame(1, $this->hooks->count('facts'));
+    }
+
+    public function test_only_if_guards_a_conditional_write(): void
+    {
+        $this->db->exec("UPDATE expenses SET job_id = 77 WHERE id = 412");
+        $res = $this->gate->apply(412, ['job_id' => 501], ['id' => null, 'kind' => 'penny'], 'trip_attribution',
+                                  ['only_if' => function (array $e) { return empty($e['job_id']); }]);
+        $this->assertTrue($res['noop']);
+        $this->assertSame(77, (int)$this->row(412)['job_id'], 'never overwrites a job that is there');
+    }
+
+    public function test_locked_if_checks_lines_inside_the_write_transaction(): void
+    {
+        $res = $this->gate->apply(412, ['line_items' => [['name' => 'Replacement', 'line_total' => 200]]],
+            ['id' => null, 'kind' => 'system'], 'penny_auto', [
+                'locked_if' => static function (array $snapshot): bool {
+                    foreach ($snapshot['lines'] as $line) {
+                        if ($line['product_id'] !== null) return false;
+                    }
+                    return empty($snapshot['allocations']);
+                },
+            ]);
+
+        $this->assertTrue($res['noop']);
+        $this->assertSame(2, (int)$this->db->query("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = 412")->fetchColumn());
+        $this->assertSame(0, count($this->audit(412)), 'a refused conditional write changes and audits nothing');
+    }
+
+    // ── Posted receipts: append-only ─────────────────────────────────────
+
+    public function test_a_posted_receipt_is_reposted_once_and_a_rejected_one_reversed(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $res = $this->gate->apply(412, ['job_id' => 501], self::TIM, 'desktop_reassign_job');
+        $this->assertTrue($res['reposted']);
+        $this->assertSame(1, $this->hooks->count('repost'));
+        $this->assertSame('books re-posted', $this->audit(412)[0]['note']);
+
+        $this->gate->apply(412, ['notes' => 'checked'], self::TIM, 'desktop_modal');
+        $this->assertSame(1, $this->hooks->count('repost'), 'a note is not the books');
+
+        $this->gate->apply(412, ['status' => 'rejected', 'rejection_reason' => 'dupe'], self::TIM, 'approval', ['transition' => 'reject']);
+        $this->assertSame(1, $this->hooks->count('unpost'), 'rejected after posting: its entry is reversed');
+    }
+
+    public function test_a_failed_repost_saves_nothing(): void
+    {
+        // Codex nightly 2026-11-05: the receipt committed first and a failed repost was only logged,
+        // so it read $210 while the books kept the old amount. Now the change and the books go together.
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $total = $this->row(412)['total'];
+        $this->hooks->repostThrows = 'ledger unavailable';
+        try {
+            $this->gate->apply(412, ['total' => 210.00], self::TIM, 'desktop_modal');
+            $this->fail('a repost failure must surface');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('ledger unavailable', $e->getMessage());
+        }
+        $this->assertSame($total, $this->row(412)['total'], 'the receipt keeps what the books show');
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public function test_a_failed_reversal_keeps_the_receipt_approved(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->hooks->unpostThrows = 'ledger unavailable';
+        try {
+            $this->gate->apply(412, ['status' => 'rejected', 'rejection_reason' => 'dupe'], self::TIM, 'approval', ['transition' => 'reject']);
+            $this->fail('a reversal failure must surface');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('ledger unavailable', $e->getMessage());
+        }
+        $this->assertSame('approved', $this->row(412)['status'], 'not rejected while its entry is still live');
+    }
+
+    public function test_inside_someone_elses_transaction_the_repost_joins_it(): void
+    {
+        // Was "the repost waits for the nightly repost" — a job that never existed (Fable 2026-10-13).
+        // Posting joins a caller's transaction now, so the books move with the change.
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->db->beginTransaction();
+        $res = $this->gate->apply(412, ['total' => 210.00], self::TIM, 'penny_card');
+        $this->db->commit();
+        $this->assertSame(1, $this->hooks->count('repost'));
+        $this->assertTrue($res['reposted']);
+        $this->assertSame('books re-posted', $this->audit(412)[0]['note']);
+    }
+
+    public function test_inside_someone_elses_transaction_a_failed_repost_throws_so_the_caller_rolls_back(): void
+    {
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->hooks->repostThrows = 'Accounting period 2026-10 is locked; cannot post.';
+        $this->db->beginTransaction();
+        $threw = false;
+        try {
+            $this->gate->apply(412, ['total' => 210.00], self::TIM, 'penny_card');
+        } catch (RuntimeException $e) {
+            $threw = true;
+        }
+        $this->db->rollBack();
+        $this->assertTrue($threw, 'half a repost must never be committed by the caller');
+        $this->assertSame(218.4, (float)$this->db->query("SELECT total FROM expenses WHERE id = 412")->fetchColumn());
+    }
+
+    // ── Lines ───────────────────────────────────────────────────────────
+
+    public function test_one_line_change_is_audited_and_teaches_once(): void
+    {
+        $res = $this->gate->apply(412, ['line_item' => ['op' => 'update', 'id' => 230, 'name' => 'CBM bark mulch', 'quantity' => 3, 'line_total' => 120]],
+                                  self::TIM, 'desktop_line');
+        $this->assertSame('lines', $res['action']);
+        $this->assertSame(3.0, (float)$this->db->query("SELECT current_stock FROM products WHERE id = 11")->fetchColumn(), '2 + (3 − 2)');
+        $this->assertSame(1, $this->hooks->count('learnLineOp'));
+        $this->assertSame('update', $this->hooks->calls['learnLineOp'][0][0]);
+        $this->assertSame('Black Composted Bark Mulch', $this->hooks->calls['learnLineOp'][0][1]['name'], 'the line before, for the rename lesson');
+
+        $this->expectExceptionMessage('Line item not found');
+        $this->gate->apply(412, ['line_item' => ['op' => 'delete', 'id' => 999]], self::TIM, 'desktop_line');
+    }
+
+    // ── Split by line ───────────────────────────────────────────────────
+
+    public function test_a_split_through_the_gate_is_saved_audited_and_learned_once(): void
+    {
+        $res = $this->gate->apply(412, ['allocations' => ExpenseGateTestDb::split412()], self::TIM, 'penny_card');
+        $this->assertSame('split', $res['action']);
+        $this->assertCount(2, $res['allocations']);
+        $this->assertSame(1, $this->hooks->count('learnSplit'));
+        $after = json_decode($this->audit(412)[0]['after_text'], true)['allocations'];
+        $this->assertEquals([['Richardson Sun & Shade Lawn Seed 5 kg', null, true, 120.0, 6.0, 8.4], ['Black Composted Bark Mulch', 501, false, 80.0, 4.0, 0.0]],
+            array_map(function ($a) { return [$a['label'], $a['job_id'], $a['stock'], $a['net'], $a['gst'], $a['pst']]; }, $after));
+
+        $again = $this->gate->apply(412, ['allocations' => ExpenseGateTestDb::split412()], self::TIM, 'desktop_modal');
+        $this->assertTrue($again['noop'], 'the same split saved again is not a change');
+        $this->assertSame(1, $this->hooks->count('learnSplit'));
+
+        $off = $this->gate->apply(412, ['allocations' => []], self::TIM, 'desktop_modal');
+        $this->assertSame(['allocations'], $off['changed']);
+        $this->assertFalse((new ExpenseSplitService($this->db))->hasSplit(412));
+        $this->assertTrue($this->gate->apply(412, ['allocations' => []], self::TIM, 'desktop_modal')['noop'], 'off when already off: nothing');
+    }
+
+    public function test_a_line_edit_on_a_split_receipt_rebalances_and_reposts(): void
+    {
+        $this->gate->apply(412, ['allocations' => ExpenseGateTestDb::split412()], self::TIM, 'penny_card');
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        // The mulch was 2 × $45, not 2 × $40: the total moves too.
+        $this->gate->apply(412, ['total' => 228.90, 'amount' => 210, 'gst_amount' => 10.50], self::TIM, 'desktop_modal');
+        $this->gate->apply(412, ['line_item' => ['op' => 'update', 'id' => 230, 'name' => 'Black Composted Bark Mulch', 'quantity' => 2, 'line_total' => 90]],
+                           self::TIM, 'desktop_line');
+        $by = array_column((new ExpenseSplitService($this->db))->forExpense(412), null, 'line_item_id');
+        $this->assertSame([90.0, 4.5, 0.0, 501], [$by[230]['net_amount'], $by[230]['gst_amount'], $by[230]['pst_amount'], $by[230]['job_id']],
+                          'Tim\'s choices kept, the money worked out again');
+        $this->assertSame(2, $this->hooks->count('repost'));
+    }
+
+    public function test_split_learning_teaches_penny_the_next_lawnboy_receipt(): void
+    {
+        $gate = new ExpenseGate($this->db);   // real hooks
+        $gate->apply(412, ['allocations' => [
+            ['line_item_id' => 229, 'accounting_category' => 'Tools/Equipment'],   // Tim says: the seed spreader kit, not stock
+            ['line_item_id' => 230, 'job_id' => 501, 'accounting_category' => 'Materials'],
+        ]], self::TIM, 'penny_card');
+        $lesson = $this->db->query("SELECT * FROM expense_split_lessons WHERE line_key = 'richardson sun shade lawn seed 5 kg'")->fetch();
+        $this->assertSame(['Tools/Equipment', 0, 0], [$lesson['accounting_category'], (int)$lesson['is_stock'], (int)$lesson['to_job']]);
+        $p = (new ExpenseSplitService($this->db))->propose(412);
+        $seed = array_column($p['lines'], null, 'line_item_id')[229];
+        $this->assertSame(['Tools/Equipment', 'learned'], [$seed['accounting_category'], $seed['rule']]);
+    }
+
+    public function test_bank_desk_alignment_never_teaches_a_bank_rule_back(): void
+    {
+        $this->gate->apply(412, ['accounting_category' => 'Fuel'], ['id' => null, 'kind' => 'penny'], 'bank_desk');
+        $this->gate->apply(412, ['accounting_category' => 'Materials'], self::TIM, 'bank_desk');
+        $this->assertSame(0, $this->hooks->count('learnBank'));
+    }
+
+    public function test_reopen_puts_an_approved_receipt_back_to_draft_and_out_of_the_books(): void
+    {
+        // ReceiptBankCheck (2026-10-15): no statement line for an approved debit receipt.
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->gate->apply(412, ['status' => 'draft'], ['id' => null, 'kind' => 'penny'], 'bank_check');
+        $this->assertSame('approved', $this->row(412)['status'], 'a plain edit never re-opens');
+        $this->assertSame(0, $this->hooks->count('unpost'));
+
+        $this->gate->apply(412, ['status' => 'draft', 'notes' => 'no chequing line'], ['id' => null, 'kind' => 'penny'], 'bank_check', ['transition' => 'reopen']);
+        $this->assertSame('draft', $this->row(412)['status']);
+        $this->assertSame(1, $this->hooks->count('unpost'), 'its entry is reversed');
+    }
+
+    public function test_reopen_is_narrow(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->db->exec("UPDATE expenses SET status = 'rejected' WHERE id = 412");
+        $this->gate->apply(412, ['status' => 'draft'], ['id' => null, 'kind' => 'penny'], 'bank_check', ['transition' => 'reopen']);
+    }
+
+    public function test_reopen_carries_nothing_but_status_and_a_note(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->db->exec("UPDATE expenses SET status = 'approved' WHERE id = 412");
+        $this->gate->apply(412, ['status' => 'draft', 'total' => 1.00], ['id' => null, 'kind' => 'penny'], 'bank_check', ['transition' => 'reopen']);
+    }
+
+    // ── Delete ──────────────────────────────────────────────────────────
+
+    public function test_delete_keeps_the_row_in_the_audit_and_reverses_the_books(): void
+    {
+        $this->gate->apply(412, ['allocations' => ExpenseGateTestDb::split412()], self::TIM, 'penny_card');
+        $this->gate->apply(412, [ExpenseGate::DELETE => true], self::TIM, 'desktop_delete');
+        $this->assertFalse($this->db->query("SELECT id FROM expenses WHERE id = 412")->fetch());
+        $this->assertSame(0, (int)$this->db->query("SELECT COUNT(*) FROM expense_line_allocations WHERE expense_id = 412")->fetchColumn());
+        $last = $this->audit(412)[1];
+        $this->assertSame('delete', $last['action']);
+        $this->assertSame(218.4, (float)json_decode($last['before_text'], true)['total']);
+        $this->assertSame(1, $this->hooks->count('unpost'));
+        $this->assertSame(0.0, (float)$this->db->query("SELECT current_stock FROM products WHERE id = 44")->fetchColumn(), 'the seed it brought in leaves stock again');
+    }
+
+    public function test_a_delete_whose_books_entry_cannot_be_reversed_is_refused_and_the_receipt_stays(): void
+    {
+        // Fable 2026-10-13: the unpost error was swallowed, the receipt deleted, its journal entry left live.
+        $this->hooks->unpostThrows = 'Accounting period 2026-10 is locked; cannot post.';
+        try {
+            $this->gate->apply(412, [ExpenseGate::DELETE => true], self::TIM, 'desktop_delete');
+            $this->fail('expected the delete to be refused');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('locked', $e->getMessage());
+        }
+        $this->assertNotFalse($this->db->query("SELECT id FROM expenses WHERE id = 412")->fetch(), 'the receipt is still there');
+    }
+}

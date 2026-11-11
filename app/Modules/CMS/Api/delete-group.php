@@ -26,6 +26,8 @@ require_once CRM_INCLUDES . '/functions.php';
 header('Content-Type: application/json');
 
 requireLogin();
+// Same permission as save-page.php (Fable review 2026-10-12): any login is not enough to change the public site.
+requirePermission('marketing.edit');
 $user = getCurrentUser();
 
 if (!in_array($user['role'], ['admin'])) {

@@ -31,9 +31,33 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
+
+// Prevent overlapping runs (CLI only — web requests are admin-gated and rare)
+if (php_sapi_name() === 'cli') {
+    require_once APP_ROOT . '/Core/CronLock.php';
+    \App\Core\CronLock::acquire('forgot_clockout_sms');
+}
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
+// recordCronRun() is not pulled in by the CLI bootstrap chain; without it this
+// cron can never report and the Database Manager shows "Never run" forever,
+// which is indistinguishable from "not scheduled".
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+
+$__cronStart = microtime(true);
+
+function __fcoRecord(string $status, string $summary, ?string $err = null): void
+{
+    global $__cronStart;
+    if (function_exists('recordCronRun')) {
+        recordCronRun('forgot_clockout_sms', $status, $summary,
+            (int) round((microtime(true) - $__cronStart) * 1000), $err,
+            php_sapi_name() !== 'cli');
+    }
+}
 
 $db  = getDB();
 $log = [];
@@ -48,9 +72,13 @@ function fcoLog(string $msg): void {
 fcoLog('=== Forgot Clock-Out SMS Cron started ===');
 
 // Check feature flag
-$enabledRow = $db->query("SELECT value FROM ops_settings WHERE `key` = 'forgot_clockout_sms_enabled' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-if (!$enabledRow || $enabledRow['value'] !== '1') {
+// ops_settings columns are setting_key / setting_value (migration 202). This read `value`/`key`
+// and died with "Unknown column 'value'" on every run until 2026-10-13.
+$enabledRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'forgot_clockout_sms_enabled' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+if (!$enabledRow || (string)$enabledRow['setting_value'] !== '1') {
     fcoLog('Feature disabled — exiting');
+    // Disabled is a legitimate outcome, not a non-run — say so rather than stay silent.
+    __fcoRecord('success', 'Feature disabled (forgot_clockout_sms_enabled != 1)');
     exit;
 }
 
@@ -72,6 +100,12 @@ try {
 } catch (\PDOException $e) {
     $hasForgotCol = false;
     fcoLog('forgot_sms_sent_at column missing — run migration 1004 first');
+}
+// Without the column there is no "already texted" record ('0' reads as empty), so every run
+// would text the same person again. Send nothing until the migration is in (2026-10-12).
+if (!$hasForgotCol) {
+    __fcoRecord('error', 'Not sent: forgot_sms_sent_at column missing (run migration 1004)', 'missing column');
+    exit;
 }
 
 try {
@@ -192,8 +226,10 @@ try {
     }
 
     fcoLog("=== Done. Sent: {$sent}, Skipped: {$skipped} ===");
+    __fcoRecord('success', "Sent: {$sent}, Skipped: {$skipped}");
 
 } catch (\Throwable $e) {
     fcoLog('FATAL: ' . $e->getMessage());
+    __fcoRecord('error', 'Cron failed', $e->getMessage());
     exit(1);
 }

@@ -25,6 +25,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/BankLineReceipts.php';
+
 class BankImportService
 {
     private PDO $db;
@@ -32,23 +34,62 @@ class BankImportService
     /** Per-page raw OCR text captured during extractTextViaImagickOcr(). */
     private array $rawPageTexts = [];
 
-    // Known bank CSV presets — column mapping and skip-header-rows count
+    /**
+     * One preview run's bookkeeping (reset by preview()/enrichRows()), 2026-10-13:
+     *   dupUsed     — existing lines already counted as "this row is a duplicate". A file with TWO
+     *                 identical charges (Lawnboy $84 x2 on Oct 7) against ONE existing line is one
+     *                 duplicate and one new line, not two duplicates.
+     *   expClaimed  — receipts already matched to a row in this file: one receipt, one bank charge.
+     */
+    private array $dupUsed = [];
+    private array $expClaimed = [];
+
+    // Known bank/credit-card CSV presets — column mapping, skip-header-rows count,
+    // and `kind` ('bank' | 'credit_card'). `kind` drives transaction routing:
+    //   bank        — debit=expense, credit=income (income rows are invoice-matched)
+    //   credit_card — charge=expense, refund=expense reversal, payment=settlement
+    //                 (no income/invoice matching; see classifyCreditCardRow + parseCSV)
     private const BANK_PRESETS = [
-        'td'        => ['name' => 'TD Bank',    'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'rbc'       => ['name' => 'RBC',         'date' => 2, 'description' => 4, 'debit' => 6, 'credit' => 7, 'skip' => 1],
-        'bmo'       => ['name' => 'BMO',         'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'cibc'      => ['name' => 'CIBC',        'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'scotiabank'=> ['name' => 'Scotiabank',  'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'generic'   => ['name' => 'Generic',     'date' => 0, 'description' => 1, 'amount' => 2,               'skip' => 1],
+        'td'         => ['name' => 'TD Bank',            'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'rbc'        => ['name' => 'RBC',                'kind' => 'bank', 'date' => 2, 'description' => 4, 'debit' => 6, 'credit' => 7, 'skip' => 1],
+        'bmo'        => ['name' => 'BMO',                'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'cibc'       => ['name' => 'CIBC',               'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'scotiabank' => ['name' => 'Scotiabank',         'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'vancity'    => ['name' => 'Vancity (Bank)',     'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        // ── Credit card statements ────────────────────────────────────────────────
+        // TD credit card exports vary: some have Debit/Credit columns, others a single
+        // signed Amount column (charges positive, payments/credits negative). The
+        // single-amount mapping covers both because parseCSV treats a missing
+        // debit/credit pair as single-amount. We default to debit/credit; the header
+        // detector (detectStatementType) upgrades to single-amount when it sees one.
+        'td_cc'      => ['name' => 'TD Credit Card',     'kind' => 'credit_card', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'vancity_cc' => ['name' => 'Vancity Credit Card','kind' => 'credit_card', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'generic'    => ['name' => 'Generic',            'kind' => 'bank', 'date' => 0, 'description' => 1, 'amount' => 2,               'skip' => 1],
+        // Unrecognized institution but with separate Debit/Credit columns (e.g.
+        // Vancity's downloadable statement, which has no bank name in the file).
+        'generic_dc' => ['name' => 'Generic (Debit/Credit)', 'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'generic_cc' => ['name' => 'Generic Credit Card','kind' => 'credit_card', 'date' => 0, 'description' => 1, 'amount' => 2,        'skip' => 1],
     ];
 
     // Default fallback accounts when no rule matches
     private const DEFAULT_INCOME_CODE  = '4900';
     private const DEFAULT_EXPENSE_CODE = '6900';
+    private const CREDIT_CARD_CODE     = '2400';   // Credit Card Payable (liability)
+
+    /** Import date ('Y-m-d'); tests pin it. A year-less row is never dated after it. */
+    private ?string $today = null;
+
+    /** The account summary a Vancity (EBCDIC) statement prints on page 1: suffix => opening/closing. */
+    private array $pdfSummary = [];
 
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    private function today(): string
+    {
+        return $this->today ?? date('Y-m-d');
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -59,6 +100,57 @@ class BankImportService
      * Detect bank preset from filename.
      * Returns preset key or 'generic'.
      */
+    private ?InvoiceReconciliationService $reconSvc = null;
+
+    /** Lazily built — no autoloader on production, so require the file here. */
+    /**
+     * What commit() does with a deposit auto-matched to an invoice's ledger row. Pure.
+     *
+     *  - Not an e-Transfer match (Stripe/processor — the webhook closes those) or no
+     *    invoice → 'transfer_only': the deposit is a cash-clearing transfer, invoice untouched.
+     *  - Payments already recorded on the invoice and not yet linked to any deposit that
+     *    add up exactly to the deposit → 'link_recorded' (allocation_ids): link them; the
+     *    invoice is NOT credited again.
+     *  - Invoice still open (not paid/cancelled, balance > 0) → 'allocate' (amount): record
+     *    the payment through InvoiceReconciliationService::applyAllocation().
+     *  - Otherwise (already paid, nothing to link) → 'transfer_only'.
+     *
+     * @param array|null $invoice  ['status' => string, 'balance_due' => float|string]
+     * @param array $unlinked      [['id' => int, 'amount' => float], ...] the invoice's
+     *                             allocations with transaction_id NULL
+     * @return array{action:string, allocation_ids?:int[], amount?:float}
+     */
+    public static function invoiceMatchPlan(string $matchMethod, ?array $invoice, float $depositAmount, array $unlinked): array
+    {
+        $deposit = round($depositAmount, 2);
+        if ($matchMethod !== 'etransfer' || !$invoice || $deposit <= 0) {
+            return ['action' => 'transfer_only'];
+        }
+        if ($unlinked) {
+            if (!class_exists('InvoiceReconciliationService')) {
+                require_once __DIR__ . '/InvoiceReconciliationService.php';
+            }
+            $pick = InvoiceReconciliationService::exactSubset(array_map(fn($a) => round((float)$a['amount'], 2), $unlinked), $deposit);
+            if ($pick !== null) {
+                return ['action' => 'link_recorded', 'allocation_ids' => array_map(fn($i) => (int)$unlinked[$i]['id'], $pick)];
+            }
+        }
+        $status = (string)($invoice['status'] ?? '');
+        if (!in_array($status, ['paid', 'cancelled'], true) && round((float)($invoice['balance_due'] ?? 0), 2) > 0.005) {
+            return ['action' => 'allocate', 'amount' => $deposit];
+        }
+        return ['action' => 'transfer_only'];
+    }
+
+    private function reconciliationService(): InvoiceReconciliationService
+    {
+        if ($this->reconSvc === null) {
+            require_once __DIR__ . '/InvoiceReconciliationService.php';
+            $this->reconSvc = new InvoiceReconciliationService($this->db);
+        }
+        return $this->reconSvc;
+    }
+
     public function detectPreset(string $filename): string
     {
         $lower = strtolower($filename);
@@ -78,6 +170,82 @@ class BankImportService
         return self::BANK_PRESETS[$key] ?? null;
     }
 
+    /**
+     * Return the routing kind ('bank' | 'credit_card') for a preset key.
+     * Unknown keys default to 'bank'.
+     */
+    public function getPresetKind(string $key): string
+    {
+        return self::BANK_PRESETS[$key]['kind'] ?? 'bank';
+    }
+
+    /**
+     * Detect the statement type from a CSV header row (and optionally filename),
+     * returning a preset key: distinguishes Vancity bank, TD credit card, and
+     * Vancity credit card from one another.
+     *
+     * Header-based detection is best-effort — bank/CC CSV exports are inconsistent
+     * (TD in particular often ships headerless). The UI dropdown remains
+     * authoritative; this only improves the auto-selected default.
+     *
+     * Strategy:
+     *   1. Identify the institution from the header text / filename (vancity, td, …).
+     *   2. Decide bank vs credit-card from column-name signatures
+     *      (credit-card statements mention card/visa/mastercard/posted; bank
+     *       statements mention withdrawal/deposit/cheque/balance).
+     *
+     * @param string $headerLine First (header) line of the CSV
+     * @param string $filename   Original upload filename (optional hint)
+     * @return string preset key, or '' when nothing matched (caller falls back)
+     */
+    public function detectStatementType(string $headerLine, string $filename = ''): string
+    {
+        // Normalize: collapse punctuation/underscores (CSV commas, filename
+        // separators) to single spaces so word-boundary matches work on tokens
+        // like "td_visa" or "vancity_chequing".
+        $hay = strtolower(preg_replace('/[^a-z0-9]+/i', ' ', $headerLine . ' ' . $filename) ?? '');
+
+        // Credit-card signals: explicit card wording, or a "posted"/"transaction"
+        // date pairing typical of card exports.
+        $looksCC = (bool)preg_match('/\b(credit\s*card|visa|mastercard|master\s*card|amex|american\s+express|card\s*(no|number|holder)?|posted\s+date)\b/', $hay);
+        // Bank signals: chequing/withdrawal/deposit columns, or a plain "debits/credits"
+        // header pair (e.g. Vancity's downloadable "Date,Description,Debits,Credits,Balance"
+        // export, which carries no institution name at all).
+        $looksBank = (bool)preg_match('/\b(withdrawal|deposit|cheque|chequing|chequed|opening\s+balance|account\s+balance|debits|credits)\b/', $hay);
+
+        // Separate debit/credit columns (as opposed to a single signed amount column)?
+        $hasDebitCredit = (bool)preg_match('/\b(debit|withdrawal)s?\b/', $hay)
+                       && (bool)preg_match('/\b(credit|deposit)s?\b/', $hay);
+
+        $isVancity = (bool)preg_match('/\b(vancity|vcty)\b/', $hay);
+        $isTd      = (bool)preg_match('/\b(td|toronto\s*dominion)\b/', $hay);
+
+        if ($isVancity) {
+            return ($looksCC && !$looksBank) ? 'vancity_cc' : 'vancity';
+        }
+        if ($isTd) {
+            if ($looksCC && !$looksBank) {
+                return 'td_cc';
+            }
+            return 'td';
+        }
+
+        // Institution unknown — still classify bank vs CC, and split vs single-amount,
+        // so routing and column mapping are correct. Without this, an unrecognized
+        // bank export with separate Debit/Credit columns fell through to the
+        // 'generic' preset (a SINGLE signed amount column), which silently misreads
+        // the Debits column as a positive "amount" and flips every expense to income —
+        // and breaks true-duplicate detection since the row's type no longer matches
+        // the type already recorded for that transaction.
+        if ($looksCC && !$looksBank) {
+            return 'generic_cc';
+        }
+        if ($looksBank && $hasDebitCredit) {
+            return 'generic_dc';
+        }
+        return '';
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // PARSE + PREVIEW
     // ══════════════════════════════════════════════════════════════════════════
@@ -92,19 +260,30 @@ class BankImportService
      * @param int    $skipRows  Number of header rows to skip
      * @param string $bankName  Label for the bank account
      */
-    public function preview(string $content, array $mapping, int $skipRows = 1, string $bankName = ''): array
+    public function preview(string $content, array $mapping, int $skipRows = 1, string $bankName = '', string $kind = 'bank'): array
     {
         require_once __DIR__ . '/RulesEngine.php';
         $engine = new RulesEngine($this->db);
 
-        $rows   = $this->parseCSV($content, $mapping, $skipRows);
+        $rows   = $this->parseCSV($content, $mapping, $skipRows, $kind);
         $totals = ['income' => 0, 'expense' => 0, 'duplicates' => 0, 'matched' => 0, 'rows' => count($rows)];
+        $this->dupUsed = []; $this->expClaimed = [];
 
         // Load account IDs for defaults
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
         $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $ccPayableId      = $this->getAccountId(self::CREDIT_CARD_CODE);
 
         foreach ($rows as &$row) {
+            // ── Credit-card settlement: the monthly payment that moves cash from the
+            //    bank to the card is a TRANSFER (excluded from P&L), not an expense.
+            //    Flagged here so it is never double-counted against the CC statement's
+            //    individual charges. Applies to both the CC statement's "payment
+            //    received" line and the bank statement's "pay credit card" debit.
+            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId, $kind === 'credit_card' ? 'credit_card' : 'bank')) {
+                continue; // transfer — excluded from income/expense totals
+            }
+
             // Apply rules engine for preview categorization
             $match = $engine->previewMatch($row['description'], '', $row['type']);
             if ($match) {
@@ -123,7 +302,7 @@ class BankImportService
             }
 
             // Two-stage duplicate / match detection (same logic as enrichRows)
-            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type']);
+            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'], $kind === 'credit_card' ? 'credit_card' : 'bank');
             if ($trueDupe) {
                 $row['is_duplicate']    = true;
                 $row['duplicate_type']  = 'true_duplicate';
@@ -227,8 +406,30 @@ class BankImportService
         string $bankName = '',
         string $accountName = '',
         bool $skipDuplicates = true,
-        int $bankAccountId = 0
+        int $bankAccountId = 0,
+        ?array $balanceCheck = null
     ): array {
+
+        foreach ($rows as $index => $row) {
+            self::validateCommitAmounts($row, $index + 1);
+        }
+        // A bank line cannot post after the day it is imported. A future date means
+        // the year was mis-inferred — refuse the batch rather than book it.
+        $latestAllowed = date('Y-m-d', strtotime($this->today() . ' +1 day'));
+        $future = array_values(array_filter($rows, static fn($r) => (string)($r['date'] ?? '') > $latestAllowed));
+        if ($future) {
+            throw new RuntimeException(sprintf(
+                '%d row(s) are dated after today (first: %s "%s") — check the statement year before importing.',
+                count($future), $future[0]['date'], substr((string)($future[0]['description'] ?? ''), 0, 60)
+            ), 422);
+        }
+
+        $this->dupUsed = [];
+        foreach ($rows as $index => $row) {
+            $duplicateId = $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], (string)$row['type']);
+            $rows[$index]['is_duplicate'] = $duplicateId !== null;
+            $rows[$index]['duplicate_tx_id'] = $duplicateId;
+        }
 
         $sessionId = $this->createSession([
             'filename'        => $bankName ?: 'bank_import',
@@ -238,6 +439,28 @@ class BankImportService
             'row_count'       => count($rows),
             'created_by'      => $userId,
         ]);
+
+        // Persist the statement reconciliation result so an import that does NOT tie
+        // out to its opening/closing balance is flagged for review (not silent).
+        $reconciledFlag = null;
+        if ($balanceCheck !== null && !empty($balanceCheck['available'])) {
+            $reconciledFlag = !empty($balanceCheck['matches']) ? 1 : 0;
+            try {
+                $this->db->prepare(
+                    "UPDATE bank_import_sessions
+                        SET balance_opening = ?, balance_closing = ?, balance_discrepancy = ?, reconciled = ?
+                      WHERE id = ?"
+                )->execute([
+                    $balanceCheck['opening']     ?? null,
+                    $balanceCheck['closing']     ?? null,
+                    $balanceCheck['discrepancy'] ?? null,
+                    $reconciledFlag,
+                    $sessionId,
+                ]);
+            } catch (\Throwable $ignored) {
+                // Columns may not exist yet (migration 1068 not run) — never block the import.
+            }
+        }
 
         $imported   = 0;
         $skipped    = 0;
@@ -264,8 +487,19 @@ class BankImportService
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
+            $bankIds = $this->bankAccountIds();
             foreach ($rows as $row) {
+                // A line printed for another account on the same statement (a Vancity savings
+                // section) goes to that account — only ever a chart account of sub_type bank.
+                $rowBankId = $bankAccountId;
+                if (!empty($row['bank_account_id']) && in_array((int)$row['bank_account_id'], $bankIds, true)) {
+                    $rowBankId = (int)$row['bank_account_id'];
+                }
                 $rawAmount  = $row['type'] === 'expense' ? -$row['amount'] : $row['amount'];
+                // bank_import_rows.type is ENUM('income','expense'); credit-card
+                // settlement rows carry type='transfer' on the ledger — stage them
+                // as 'expense' (the full row, incl. type/cc_role, is preserved in raw_row).
+                $stagedType = in_array($row['type'], ['income', 'expense'], true) ? $row['type'] : 'expense';
                 $matchStatus = 'unmatched';
                 $matchExpId  = null;
 
@@ -275,12 +509,21 @@ class BankImportService
                     $matchStatus = 'true_duplicate';
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
-                        $row['type'], $row['amount'], $row['account_id'],
+                        $stagedType, $row['amount'], $row['account_id'],
                         null, 1, $row['duplicate_tx_id'] ?? null,
                         $row['rule_id'] ?? null, json_encode($row),
                         $matchStatus, null,
                     ]);
                     continue;
+                }
+
+                // A receipt already joined to a statement line (earlier in this file, or an earlier
+                // import) takes no second one: this row is its own charge (2026-10-13, Lawnboy $84 x2).
+                if (!empty($row['match_candidate']) && !empty($row['matched_expense_id'])) {
+                    $taken = $this->db->prepare("SELECT 1 FROM accounting_transactions x JOIN bank_import_rows xr ON xr.transaction_id = x.id
+                                                  WHERE x.reference_type = 'expense' AND x.reference_id = ? LIMIT 1");
+                    $taken->execute([(int)$row['matched_expense_id']]);
+                    if ($taken->fetchColumn()) { $row['match_candidate'] = false; $row['matched_expense_id'] = null; }
                 }
 
                 // ── Reconcile matched expense receipts ────────────────────────
@@ -316,7 +559,7 @@ class BankImportService
                               job_id             = COALESCE(job_id, ?)
                             WHERE id = ?
                         ")->execute([
-                            $accountName, $bankAccountId ?: null, $sessionId,
+                            $accountName, $rowBankId ?: null, $sessionId,
                             $expenseId, $confidence,
                             (float)($row['gst_amount'] ?? 0),
                             !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
@@ -332,7 +575,7 @@ class BankImportService
                             $row['description'],
                             $row['auto_cat'] ? 1 : 0,
                             $row['rule_id'] ?? null,
-                            $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                            $accountName, $rowBankId ?: null, $sessionId, $userId,
                         ]);
                         $txId = (int)$this->db->lastInsertId();
                         // Upgrade to reconciled with match metadata
@@ -356,6 +599,14 @@ class BankImportService
                         ]);
                     }
 
+                    // The statement line says where the money came from (2026-10-12).
+                    $this->checkReceiptFunding($expenseId, $txId, $userId ? (int)$userId : null);
+
+                    // Capture rollback intent: a pre-existing expense tx is only
+                    // un-reconciled; a tx we created in this session is deleted.
+                    $row['_revert'] = $existingTxId
+                        ? ['unflag_tx' => [(int)$existingTxId]]
+                        : ['delete_tx' => [$txId]];
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
                         $row['type'], $row['amount'], $row['account_id'],
@@ -370,6 +621,17 @@ class BankImportService
                 }
 
                 // ── Reconcile processor payment (Stripe/PayPal/etc) to invoice ─
+                if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
+                    $invTxId       = (int)$row['matched_invoice_tx_id'];
+                    $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
+                    $owns = $this->db->prepare("SELECT 1 FROM accounting_transactions WHERE id = ? AND reference_type = 'invoice' AND reference_id = ?");
+                    $owns->execute([$invTxId, $invoiceIdForDeposit]);
+                    if (!$invoiceIdForDeposit || !$owns->fetchColumn()) {
+                        $row['match_candidate'] = false;
+                        $row['matched_invoice_tx_id'] = null;
+                    }
+                }
+
                 if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
                     $invTxId       = (int)$row['matched_invoice_tx_id'];
                     $processingFee = (float)($row['processing_fee'] ?? 0);
@@ -387,47 +649,118 @@ class BankImportService
                           matched_at        = NOW(),
                           matched_by        = 'auto'
                         WHERE id = ?
-                    ")->execute([$accountName, $bankAccountId ?: null, $sessionId, $confidence, $invTxId]);
+                    ")->execute([$accountName, $rowBankId ?: null, $sessionId, $confidence, $invTxId]);
 
-                    // Insert the bank deposit as a bank_import transaction (actual cash received)
+                    // The deposit is NOT a second income row: the invoice's own ledger
+                    // row already recognizes this revenue (double-count in P&L / GST
+                    // otherwise). What happens to the invoice goes through the allocation
+                    // ledger (InvoiceReconciliationService), never a direct UPDATE:
+                    //   link_recorded — the money was already recorded on this invoice
+                    //                   (Record Payment / e-Transfer inbox): link those
+                    //                   payments to this deposit; the invoice is unchanged.
+                    //   allocate      — an e-Transfer for an invoice still open: record the
+                    //                   payment with applyAllocation() (allocation row linked
+                    //                   to this deposit, invoice paid/partial, its income row,
+                    //                   and on production the pipeline-stage hook).
+                    //   transfer_only — Stripe/processor (closed by the webhook) or already
+                    //                   paid: the deposit is a cash-clearing transfer.
+                    // Either way the deposit ends as type='transfer' once fully accounted for
+                    // (mirrors InvoiceReconciliationService::recomputeDepositRow()).
+                    $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
+                    $matchMethod   = $row['match_method'] ?? '';
+                    $depositAmount = round((float)$row['amount'], 2);
+                    $priorInvoice  = null;
+                    $priorInvoiceTx = null;
+                    $invoiceTxDelta = null;
+                    $newAllocationIds = [];
+
+                    $invState = null;
+                    $unlinked = [];
+                    if ($matchMethod === 'etransfer' && $invoiceIdForDeposit) {
+                        $invRow = $this->db->prepare("
+                            SELECT total, amount_paid, balance_due, status, payment_method, paid_at
+                            FROM invoices WHERE id = ? LIMIT 1
+                        ");
+                        $invRow->execute([$invoiceIdForDeposit]);
+                        $invState = $invRow->fetch(PDO::FETCH_ASSOC) ?: null;
+                        $ua = $this->db->prepare("
+                            SELECT id, amount FROM invoice_payment_allocations
+                            WHERE invoice_id = ? AND transaction_id IS NULL AND amount > 0
+                            ORDER BY payment_date ASC, id ASC
+                        ");
+                        $ua->execute([$invoiceIdForDeposit]);
+                        $unlinked = $ua->fetchAll(PDO::FETCH_ASSOC);
+                    }
+                    $plan = self::invoiceMatchPlan($matchMethod, $invState, $depositAmount, $unlinked);
+
                     $txStmt->execute([
-                        $row['date'], 'income', $row['account_id'], $row['amount'],
+                        $row['date'], $plan['action'] === 'transfer_only' ? 'transfer' : 'income',
+                        $row['account_id'], $row['amount'],
                         0, $row['description'],
-                        0, null, $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                        0, null, $accountName, $rowBankId ?: null, $sessionId, $userId,
                     ]);
                     $txId = (int)$this->db->lastInsertId();
 
-                    // Store payment reference on the bank deposit row (audit trail)
-                    if ($payRef) {
-                        $this->db->prepare("
-                            UPDATE accounting_transactions SET payment_reference = ? WHERE id = ?
-                        ")->execute([$payRef, $txId]);
-                    }
+                    if ($plan['action'] === 'link_recorded') {
+                        // Deposit → transfer, linked to the payments already on the invoice.
+                        $this->reconciliationService()->linkAllocationsToDeposit($txId, $plan['allocation_ids'], $userId);
+                    } elseif ($plan['action'] === 'allocate') {
+                        // Snapshot BEFORE recording, so rollback() restores it exactly.
+                        $priorInvoice = [
+                            'id'             => $invoiceIdForDeposit,
+                            'status'         => $invState['status'],
+                            'amount_paid'    => $invState['amount_paid'],
+                            'balance_due'    => $invState['balance_due'],
+                            'payment_method' => $invState['payment_method'],
+                            'paid_at'        => $invState['paid_at'],
+                        ];
+                        $snap = $this->db->prepare("SELECT id, amount, gst_amount, transaction_date FROM accounting_transactions WHERE id = ?");
+                        $snap->execute([$invTxId]);
+                        $priorInvoiceTx = $snap->fetch(PDO::FETCH_ASSOC) ?: null;
 
-                    // Close the invoice if this was an e-Transfer (Stripe closes via webhook)
-                    $matchMethod   = $row['match_method'] ?? '';
-                    $invoiceId     = (int)($row['matched_invoice_id'] ?? 0);
-                    if ($matchMethod === 'etransfer' && $invoiceId) {
-                        // Fetch invoice total so we can set amount_paid correctly
-                        $invRow = $this->db->prepare("
-                            SELECT total, amount_paid FROM invoices
-                            WHERE id = ? AND status NOT IN ('paid','cancelled')
-                            LIMIT 1
-                        ");
-                        $invRow->execute([$invoiceId]);
-                        $inv = $invRow->fetch(PDO::FETCH_ASSOC);
-                        if ($inv) {
-                            $this->db->prepare("
-                                UPDATE invoices SET
-                                    status           = 'paid',
-                                    amount_paid      = total,
-                                    balance_due      = 0,
-                                    payment_method   = 'e_transfer',
-                                    paid_at          = COALESCE(paid_at, ?)
-                                WHERE id = ?
-                            ")->execute([$row['date'], $invoiceId]);
+                        $applied = $this->reconciliationService()->applyAllocation(
+                            $invoiceIdForDeposit, $depositAmount, 'e_transfer', $payRef !== '' ? $payRef : null,
+                            (string)$row['date'], $txId, $userId
+                        );
+                        if ($priorInvoiceTx) {
+                            $afterTx = $this->db->prepare("SELECT amount, gst_amount FROM accounting_transactions WHERE id = ?");
+                            $afterTx->execute([$invTxId]);
+                            if ($currentTx = $afterTx->fetch(PDO::FETCH_ASSOC)) {
+                                $invoiceTxDelta = [
+                                    'amount' => (float)$currentTx['amount'] - (float)$priorInvoiceTx['amount'],
+                                    'gst_amount' => (float)$currentTx['gst_amount'] - (float)$priorInvoiceTx['gst_amount'],
+                                ];
+                            }
+                        }
+                        $ids = $this->db->prepare("SELECT id FROM invoice_payment_allocations WHERE transaction_id = ?");
+                        $ids->execute([$txId]);
+                        $newAllocationIds = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
+
+                        // Deposit row from what was allocated: all of it → transfer; a
+                        // remainder (invoice balance was smaller) stays income for that remainder.
+                        // (null = the invoice was settled meanwhile: as before, just a transfer.)
+                        $remaining = $applied === null ? 0.0 : round($depositAmount - (float)$applied['applied'], 2);
+                        if ($remaining > 0.005) {
+                            $this->db->prepare("UPDATE accounting_transactions SET amount = ? WHERE id = ?")
+                                     ->execute([$remaining, $txId]);
+                        } else {
+                            $this->db->prepare("UPDATE accounting_transactions SET type = 'transfer' WHERE id = ?")
+                                     ->execute([$txId]);
                         }
                     }
+
+                    // Flag the deposit + link it to the invoice (audit trail). A remainder
+                    // still counted as income stays 'cleared' rather than 'reconciled'.
+                    $this->db->prepare("
+                        UPDATE accounting_transactions SET
+                          status             = CASE WHEN type = 'transfer' THEN 'reconciled' ELSE status END,
+                          matched_invoice_id = ?,
+                          match_confidence   = ?,
+                          matched_at         = NOW(),
+                          matched_by         = 'auto',
+                          payment_reference  = ?
+                        WHERE id = ?
+                    ")->execute([$invoiceIdForDeposit ?: null, $confidence, $payRef ?: null, $txId]);
 
                     // Auto-create the processing fee as an expense
                     if ($processingFee > 0.01) {
@@ -441,10 +774,28 @@ class BankImportService
                         ")->execute([
                             $row['date'], $feeAcctId, $processingFee,
                             'Payment processing fee — ' . substr($row['description'], 0, 100),
-                            $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                            $accountName, $rowBankId ?: null, $sessionId, $userId,
                         ]);
                     }
 
+                    // Capture what rollback() must undo for this row: un-reconcile the
+                    // invoice's income ledger row; for a payment recorded here, delete its
+                    // allocation and restore the invoice + its ledger row exactly. (A linked
+                    // already-recorded payment unlinks itself when the deposit is deleted:
+                    // the allocation FK sets transaction_id back to NULL.)
+                    $row['_revert'] = ['unflag_tx' => [$invTxId]];
+                    if ($priorInvoice) {
+                        $row['_revert']['restore_invoice'] = $priorInvoice;
+                        $row['_revert']['invoice_delta'] = $depositAmount;
+                    }
+                    if ($newAllocationIds) {
+                        $row['_revert']['delete_allocations'] = $newAllocationIds;
+                    }
+                    if ($priorInvoiceTx) {
+                        $row['_revert']['restore_tx'] = $priorInvoiceTx;
+                        $row['_revert']['tx_delta'] = $invoiceTxDelta;
+                    }
+                    $row['invoice_match_action'] = $plan['action'];
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
                         'income', $row['amount'], $row['account_id'],
@@ -464,16 +815,43 @@ class BankImportService
                     $row['description'],
                     $row['auto_cat'] ? 1 : 0,
                     $row['rule_id'] ?? null,
-                    $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                    $accountName, $rowBankId ?: null, $sessionId, $userId,
                 ]);
                 $txId = (int)$this->db->lastInsertId();
 
+                // An e-Transfer deposit whose money was already recorded against
+                // invoices (Record Payment / e-Transfer inbox) — link those payments
+                // to this deposit now so it isn't booked as a second income and never
+                // shows up as a "likely match". Rolling the session back deletes the
+                // tx, and the FK sets the allocations' transaction_id back to NULL.
+                $linkedRecorded = null;
+                if ($row['type'] === 'income' && $this->isETransfer((string)$row['description'])) {
+                    // A savepoint (Codex review 2026-10-14): the link writes the allocations, then
+                    // turns the deposit into a transfer. A failure between the two left the payment
+                    // linked and the deposit still income — counted twice. Undo the half-step.
+                    $sp = $this->db->inTransaction() && $this->db->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql';
+                    if ($sp) $this->db->exec('SAVEPOINT mw_link_recorded');
+                    try {
+                        $linkedRecorded = $this->reconciliationService()->linkRecordedPaymentsToDeposit($txId, $userId);
+                        if ($sp) $this->db->exec('RELEASE SAVEPOINT mw_link_recorded');
+                    } catch (\Throwable $e) {
+                        if ($sp) { try { $this->db->exec('ROLLBACK TO SAVEPOINT mw_link_recorded'); } catch (\Throwable $e2) { /* outer rollback covers it */ } }
+                        error_log('[BankImportService] link recorded payments tx ' . $txId . ': ' . $e->getMessage());
+                        $linkedRecorded = null;
+                    }
+                }
+                if ($linkedRecorded) {
+                    $row['_revert']           = ['delete_tx' => [$txId]];
+                    $row['linked_recorded']   = $linkedRecorded;
+                    $reconciled++;
+                }
+
                 $rowStmt->execute([
                     $sessionId, $row['date'], $row['description'], $rawAmount,
-                    $row['type'], $row['amount'], $row['account_id'],
+                    $stagedType, $row['amount'], $row['account_id'],
                     $txId, 0, null,
                     $row['rule_id'] ?? null, json_encode($row),
-                    'unmatched', null,
+                    $linkedRecorded ? 'auto_matched' : 'unmatched', null,
                 ]);
 
                 $imported++;
@@ -496,39 +874,545 @@ class BankImportService
             throw $e;
         }
 
-        // Learn from confirmed categorizations — non-critical, runs after commit.
-        try {
-            $this->learnFromCommit($rows, $userId);
-        } catch (Throwable $ignored) {
-            // Learning failure must never surface to the user or undo the import.
-        }
+        // An import never teaches rules: lines committed untouched taught wrong ones (Wave PYRL →
+        // 2400). Only the owner's decisions count (BankRuleLearning, migration 1220, 2026-10-07).
 
         return [
-            'session_id'  => $sessionId,
-            'imported'    => $imported,
-            'skipped'     => $skipped,
-            'duplicates'  => $dupes,
-            'reconciled'  => $reconciled,
+            'session_id'        => $sessionId,
+            'imported'          => $imported,
+            'skipped'           => $skipped,
+            'duplicates'        => $dupes,
+            'reconciled'        => $reconciled,
+            'statement_reconciled' => $reconciledFlag, // 1=ties, 0=discrepancy, null=no balance data
         ];
     }
 
     /**
-     * Rollback an import session — deletes all transactions created in that session.
+     * Rollback an import session — fully reverse everything commit() changed.
+     *
+     * commit() does more than insert bank-import rows: it un-reconciles/closes
+     * pre-existing invoice + expense ledger rows and can mark invoices 'paid'.
+     * A delete-only rollback left those mutations in place (falsely-paid invoices,
+     * orphaned 'reconciled' flags). We now replay the per-row reversal payload that
+     * commit() recorded in bank_import_rows.raw_row._revert, inside one transaction.
+     *
+     * Backward-compatible: sessions committed before this change have no _revert
+     * payload, so they degrade to the original delete-inserted-rows behaviour.
+     *
+     * @return int Number of ledger rows deleted.
      */
-    public function rollback(int $sessionId): int
+    public function rollback(int $sessionId, ?int $userId = null): int
+    {
+        $dateValues = [];
+        $rowsForLock = $this->db->prepare("SELECT transaction_date, raw_row FROM bank_import_rows WHERE session_id = ?");
+        $rowsForLock->execute([$sessionId]);
+        $txIds = [];
+        $invoiceIds = [];
+        foreach ($rowsForLock->fetchAll(PDO::FETCH_ASSOC) as $lockRow) {
+            $dateValues[] = (string)$lockRow['transaction_date'];
+            $decoded = json_decode((string)($lockRow['raw_row'] ?? ''), true);
+            $revert = is_array($decoded) ? ($decoded['_revert'] ?? []) : [];
+            foreach (array_merge($revert['unflag_tx'] ?? [], $revert['delete_tx'] ?? []) as $id) $txIds[] = (int)$id;
+            if (!empty($revert['restore_tx']['transaction_date'])) $dateValues[] = (string)$revert['restore_tx']['transaction_date'];
+            if (!empty($revert['restore_invoice']['id'])) $invoiceIds[] = (int)$revert['restore_invoice']['id'];
+            if (!empty($revert['reopen_invoice']['id'])) $invoiceIds[] = (int)$revert['reopen_invoice']['id'];
+        }
+        if ($txIds) {
+            $in = implode(',', array_fill(0, count($txIds), '?'));
+            $s = $this->db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id IN ({$in})");
+            $s->execute($txIds);
+            $dateValues = array_merge($dateValues, $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        if ($invoiceIds) {
+            $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+            $s = $this->db->prepare("SELECT issue_date FROM invoices WHERE id IN ({$in})");
+            $s->execute($invoiceIds);
+            $dateValues = array_merge($dateValues, $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        require_once __DIR__ . '/LedgerService.php';
+        $ledger = new LedgerService($this->db);
+        foreach (array_unique(array_filter($dateValues)) as $date) {
+            if ($ledger->isLocked((string)$date)) {
+                throw new RuntimeException(substr((string)$date, 0, 7) . ' is locked — the import was not rolled back.');
+            }
+        }
+        $ownTransaction = !$this->db->inTransaction();
+        // Audit trail (Fable audit #25, 2026-10-12): every invoice this undo touches, before → after.
+        $audit = [];
+        $invSnap = $this->db->prepare("SELECT invoice_number, status, amount_paid, balance_due, payment_method, paid_at FROM invoices WHERE id = ?");
+        $snap = function (int $id) use ($invSnap): ?array {
+            $invSnap->execute([$id]);
+            return $invSnap->fetch(PDO::FETCH_ASSOC) ?: null;
+        };
+        $allocSnap = $this->db->prepare("SELECT a.invoice_id, a.amount, i.invoice_number FROM invoice_payment_allocations a LEFT JOIN invoices i ON i.id = a.invoice_id WHERE a.id = ?");
+        if ($ownTransaction) {
+            $this->db->beginTransaction();
+        }
+
+        try {
+            // ── 1. Replay captured reversals (un-reconcile / reopen / delete-created) ──
+            $unflag = $this->db->prepare("
+                UPDATE accounting_transactions SET
+                    status = 'cleared', matched_invoice_id = NULL,
+                    matched_expense_id = NULL, match_confidence = NULL,
+                    matched_at = NULL, matched_by = NULL, import_session_id = NULL
+                WHERE id = ?
+            ");
+            $deleteTx = $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ?");
+            $reopen   = $this->db->prepare("
+                UPDATE invoices SET
+                    status = ?, amount_paid = ?, balance_due = ?,
+                    payment_method = ?, paid_at = ?
+                WHERE id = ? AND status = 'paid'
+            ");
+
+            $rows = $this->db->prepare("SELECT raw_row FROM bank_import_rows WHERE session_id = ?");
+            $rows->execute([$sessionId]);
+            while ($r = $rows->fetch(PDO::FETCH_ASSOC)) {
+                $data   = json_decode($r['raw_row'] ?? '', true);
+                $revert = is_array($data) ? ($data['_revert'] ?? null) : null;
+                if (!is_array($revert)) {
+                    continue;
+                }
+                foreach (($revert['unflag_tx'] ?? []) as $txId) {
+                    $unflag->execute([(int)$txId]);
+                }
+                foreach (($revert['delete_tx'] ?? []) as $txId) {
+                    $deleteTx->execute([(int)$txId]);
+                }
+                if (!empty($revert['reopen_invoice']['id'])) {
+                    // Sessions committed before 2026-10-07 (invoice closed directly).
+                    $pi = $revert['reopen_invoice'];
+                    $before = $snap((int)$pi['id']);
+                    if ($before && $before['status'] === 'paid') $audit[] = ['invoice', (int)$pi['id'], $before, $pi];
+                    $reopen->execute([
+                        $pi['status'], $pi['amount_paid'], $pi['balance_due'],
+                        $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
+                    ]);
+                }
+                // A payment recorded through the allocation ledger: remove the allocation,
+                // then put the invoice and its income ledger row back as they were.
+                foreach (($revert['delete_allocations'] ?? []) as $allocId) {
+                    $allocSnap->execute([(int)$allocId]);
+                    if ($a = $allocSnap->fetch(PDO::FETCH_ASSOC)) $audit[] = ['allocation', (int)$a['invoice_id'], $a, null];
+                    $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE id = ?")->execute([(int)$allocId]);
+                }
+                if (!empty($revert['restore_invoice']['id'])) {
+                    $pi = $revert['restore_invoice'];
+                    if ($before = $snap((int)$pi['id'])) $audit[] = ['invoice', (int)$pi['id'], $before, $pi];
+                    if (isset($revert['invoice_delta'])) {
+                        $this->db->prepare("
+                            UPDATE invoices SET
+                                amount_paid = GREATEST(0, amount_paid - ?),
+                                balance_due = LEAST(total, balance_due + ?),
+                                status = CASE WHEN amount_paid <= 0.005 THEN ? WHEN balance_due <= 0.005 THEN 'paid' ELSE 'partial' END,
+                                payment_method = CASE WHEN amount_paid <= 0.005 THEN ? ELSE payment_method END,
+                                paid_at = CASE WHEN amount_paid <= 0.005 THEN ? ELSE paid_at END
+                            WHERE id = ?
+                        ")->execute([(float)$revert['invoice_delta'], (float)$revert['invoice_delta'],
+                            $pi['status'], $pi['payment_method'], $pi['paid_at'], (int)$pi['id']]);
+                    } else {
+                        $this->db->prepare("
+                        UPDATE invoices SET status = ?, amount_paid = ?, balance_due = ?, payment_method = ?, paid_at = ?
+                        WHERE id = ?
+                        ")->execute([$pi['status'], $pi['amount_paid'], $pi['balance_due'], $pi['payment_method'], $pi['paid_at'], (int)$pi['id']]);
+                    }
+                }
+                if (!empty($revert['restore_tx']['id'])) {
+                    $pt = $revert['restore_tx'];
+                    if (is_array($revert['tx_delta'] ?? null)) {
+                        $this->db->prepare("UPDATE accounting_transactions SET amount = GREATEST(0, amount - ?), gst_amount = GREATEST(0, gst_amount - ?) WHERE id = ?")
+                            ->execute([(float)$revert['tx_delta']['amount'], (float)$revert['tx_delta']['gst_amount'], (int)$pt['id']]);
+                    } else {
+                        $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
+                            ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
+                    }
+                }
+            }
+
+            // ── 2. Delete every ledger row this session INSERTED ──────────────────
+            //   (unmatched bank rows, invoice-match transfers, processing-fee expenses).
+            //   Keyed on import_session_id so the fee rows — which have no
+            //   bank_import_rows.transaction_id link — are also removed.
+            //   Their journal entries are reversed first, in this transaction (2026-10-13):
+            //   they used to stay live until someone approved the orphan proposal.
+            $ids = $this->db->prepare("SELECT id FROM accounting_transactions WHERE import_session_id = ? AND reference_type = 'bank_import'");
+            $ids->execute([$sessionId]);
+            $this->reverseJournalForLines(array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN)), $userId, 'import session ' . $sessionId . ' undone');
+            $del = $this->db->prepare("
+                DELETE FROM accounting_transactions
+                WHERE import_session_id = ? AND reference_type = 'bank_import'
+            ");
+            $del->execute([$sessionId]);
+            $deleted = $del->rowCount();
+
+            $this->db->prepare("UPDATE bank_import_sessions SET status = 'rolled_back' WHERE id = ?")
+                     ->execute([$sessionId]);
+
+            if ($ownTransaction) {
+                $this->db->commit();
+            }
+            foreach (self::rollbackAuditLines($sessionId, $deleted, $audit) as [$invoiceId, $line]) {
+                if (function_exists('logActivityExtended')) {
+                    logActivityExtended($userId, $invoiceId ? 'Payment unapplied (bank import undone)' : 'Bank import rolled back',
+                        $line, null, null, null, $invoiceId);
+                }
+            }
+            return $deleted;
+
+        } catch (Throwable $e) {
+            if ($ownTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Pure: the audit lines for one rollback — one per invoice touched (before → after), then
+     * a summary line. @return array<int, array{0: ?int, 1: string}>  [invoice_id or null, details]
+     */
+    public static function rollbackAuditLines(int $sessionId, int $deleted, array $audit): array
+    {
+        require_once dirname(__DIR__, 2) . '/Technology/Services/AuditDiff.php';
+        $out = [];
+        foreach ($audit as [$kind, $invoiceId, $before, $after]) {
+            if ($kind === 'allocation') {
+                $out[] = [$invoiceId, 'Bank import session #' . $sessionId . ' undone: payment of $' . number_format((float)$before['amount'], 2)
+                    . ' removed from invoice ' . ((string)($before['invoice_number'] ?? '') ?: '#' . $invoiceId)];
+                continue;
+            }
+            $diff = AuditDiff::describe(AuditDiff::changes($before, $after,
+                ['status', 'amount_paid', 'balance_due', 'payment_method', 'paid_at'], ['amount_paid', 'balance_due']));
+            if ($diff === '') continue;
+            $out[] = [$invoiceId, 'Bank import session #' . $sessionId . ' undone: invoice '
+                . ((string)($before['invoice_number'] ?? '') ?: '#' . $invoiceId) . ' — ' . $diff];
+        }
+        $out[] = [null, 'Bank import session #' . $sessionId . ' rolled back: ' . $deleted . ' ledger row(s) deleted, '
+            . count(array_filter($audit, fn($a) => $a[0] === 'invoice')) . ' invoice(s) restored, '
+            . count(array_filter($audit, fn($a) => $a[0] === 'allocation')) . ' payment allocation(s) removed.'];
+        return $out;
+    }
+
+    public static function validateCommitAmounts(array $row, int $rowNumber = 0): void
+    {
+        $prefix = $rowNumber > 0 ? 'Row ' . $rowNumber . ': ' : '';
+        // A zero-dollar line (a waived fee) is harmless and has always imported; only a non-number is refused.
+        if (!isset($row['amount']) || !is_numeric($row['amount'])) {
+            throw new InvalidArgumentException($prefix . 'amount must be a number.');
+        }
+        $gst = $row['gst_amount'] ?? 0;
+        if (!is_numeric($gst) || (float)$gst < 0 || (float)$gst > abs((float)$row['amount'])) {
+            throw new InvalidArgumentException($prefix . 'GST must be numeric and between zero and the transaction amount.');
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // COMMITTED-DUPLICATE CLEANUP
+    //
+    // checkTrueDuplicate() prevents new duplicates going forward, but doesn't
+    // help with rows that were already committed before that fix — e.g. a
+    // statement re-imported over an already-covered period. These two methods
+    // find and safely remove that kind of already-committed duplicate.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Parse a raw "Date,Description,Debits,Credits,Balance" statement export
+     * (Vancity's CSV format — same shape as the regular import, but this path
+     * exists purely to establish ground truth for duplicate verification, not
+     * to categorize/commit transactions) into per-(date, amount) counts.
+     *
+     * @return array [ ['date'=>'YYYY-MM-DD', 'amount'=>float, 'count'=>int], ... ]
+     */
+    public function parseVerificationCsv(string $csvText): array
+    {
+        $months = ['Jan'=>'01','Feb'=>'02','Mar'=>'03','Apr'=>'04','May'=>'05','Jun'=>'06',
+                   'Jul'=>'07','Aug'=>'08','Sep'=>'09','Oct'=>'10','Nov'=>'11','Dec'=>'12'];
+
+        $lines  = preg_split('/\r\n|\r|\n/', trim($csvText));
+        $counts = []; // "date|amount" => count
+
+        foreach ($lines as $line) {
+            if (trim($line) === '') continue;
+            $cols = str_getcsv($line);
+            if (count($cols) < 4) continue;
+            [$date, , $debit, $credit] = $cols;
+
+            if (!preg_match('/^(\d{2})-([A-Za-z]{3})-(\d{4})$/', trim($date), $m)) continue;
+            if (!isset($months[$m[2]])) continue;
+            $iso = $m[3] . '-' . $months[$m[2]] . '-' . $m[1];
+
+            $amt = trim((string) $debit) !== '' ? (float) $debit : (float) $credit;
+            if ($amt <= 0) continue;
+
+            $key = $iso . '|' . number_format($amt, 2, '.', '');
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+
+        $result = [];
+        foreach ($counts as $key => $count) {
+            [$date, $amount] = explode('|', $key);
+            $result[] = ['date' => $date, 'amount' => (float) $amount, 'count' => $count];
+        }
+        return $result;
+    }
+
+    /**
+     * Record the TRUE per-(date, amount) count from a real bank statement, as
+     * confirmed by an admin uploading/pasting the actual export. Ground truth
+     * for findDuplicateGroups()/removeDuplicateRow() — see migration 1113.
+     *
+     * @param array $counts [ ['date'=>'YYYY-MM-DD', 'amount'=>float, 'count'=>int], ... ]
+     * @return int rows upserted
+     */
+    public function recordStatementVerification(array $counts, int $userId): int
     {
         $stmt = $this->db->prepare("
-            DELETE t FROM accounting_transactions t
-            JOIN bank_import_rows r ON r.transaction_id = t.id
-            WHERE r.session_id = ? AND t.reference_type = 'bank_import'
+            INSERT INTO bank_statement_verifications (transaction_date, amount, real_count, verified_by, verified_at)
+            VALUES (?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE real_count = VALUES(real_count), verified_by = VALUES(verified_by), verified_at = NOW()
         ");
-        $stmt->execute([$sessionId]);
-        $deleted = $stmt->rowCount();
+        $n = 0;
+        foreach ($counts as $c) {
+            $date = $c['date'] ?? null;
+            $amt  = isset($c['amount']) ? round((float) $c['amount'], 2) : null;
+            $cnt  = isset($c['count']) ? (int) $c['count'] : null;
+            if (!$date || $amt === null || $cnt === null) continue;
+            $stmt->execute([$date, $amt, $cnt, $userId]);
+            $n++;
+        }
+        return $n;
+    }
 
-        $this->db->prepare("UPDATE bank_import_sessions SET status = 'rolled_back' WHERE id = ?")
-                 ->execute([$sessionId]);
+    /**
+     * Find groups of committed bank_import_rows that share the same
+     * (transaction_date, amount) — i.e. the same real bank line, imported
+     * more than once. Grouped by (date, amount) only, not description, since
+     * the same real transaction's description text varies cosmetically
+     * between import batches/formats (spacing, casing) — see migration 1113.
+     *
+     * How many copies to KEEP depends on whether this (date, amount) has been
+     * verified against a real statement (bank_statement_verifications):
+     *   - Verified: keep exactly `real_count` (the oldest N rows by id) —
+     *     this correctly handles a payer sending several separate real
+     *     transactions of the identical amount on the same day (e.g. a
+     *     property manager paying multiple units the same fee), which a
+     *     naive "any duplicate date+amount is one extra copy" rule would
+     *     wrongly collapse to 1.
+     *   - Verified with real_count=0: no real transaction matches at all —
+     *     flagged `verified_phantom`, never auto-removable (likely a parsing
+     *     error, not a duplicate — needs a human to figure out what it
+     *     actually is before anything is deleted).
+     *   - Unverified: fall back to the original heuristic — keep 1, and only
+     *     offer removal when the extra copy is already type='transfer'
+     *     (reconciled elsewhere, not raw unrecognized income).
+     *
+     * Every candidate also requires zero invoice_payment_allocations rows and
+     * no etransfer_notifications reference, verified or not.
+     *
+     * @return array<int, array{transaction_date:string,amount:float,description:string,verified:bool,real_count:?int,keep:array,candidates:array}>
+     */
+    public function findDuplicateGroups(): array
+    {
+        $groups = $this->db->query("
+            SELECT bir.transaction_date, bir.amount, COUNT(*) AS n,
+                   GROUP_CONCAT(bir.id ORDER BY bir.id) AS row_ids,
+                   MIN(bir.description) AS description,
+                   bsv.real_count AS verified_real_count
+              FROM bank_import_rows bir
+              LEFT JOIN bank_statement_verifications bsv
+                     ON bsv.transaction_date = bir.transaction_date AND bsv.amount = bir.amount
+             GROUP BY bir.transaction_date, bir.amount, bsv.real_count
+            HAVING COUNT(*) > 1
+             ORDER BY bir.transaction_date DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
 
-        return $deleted;
+        if (empty($groups)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($groups as $g) {
+            $rowIds = array_map('intval', explode(',', $g['row_ids']));
+            $rows   = $this->loadDuplicateCandidateRows($rowIds);
+            if (count($rows) < 2) {
+                continue; // a sibling was already removed since the GROUP BY ran
+            }
+
+            usort($rows, fn($a, $b) => $a['row_id'] <=> $b['row_id']);
+
+            $verified   = $g['verified_real_count'] !== null;
+            $realCount  = $verified ? (int) $g['verified_real_count'] : null;
+            $isPhantom  = $verified && $realCount === 0;
+            $keepCount  = $verified ? max(0, $realCount) : 1;
+
+            $keepRows   = array_slice($rows, 0, max(1, $keepCount)); // always visually keep >=1 as "original"
+            $candidateRows = array_slice($rows, count($keepRows));
+
+            $candidates = [];
+            foreach ($candidateRows as $r) {
+                $safe = $r['allocation_count'] === 0 && $r['notification_count'] === 0;
+                if ($isPhantom) {
+                    $r['removable']        = false;
+                    $r['verified_phantom'] = true;
+                } elseif ($verified) {
+                    $r['removable']        = $safe;
+                    $r['verified_phantom'] = false;
+                } else {
+                    $r['removable']        = $safe && $r['tx_type'] === 'transfer';
+                    $r['verified_phantom'] = false;
+                }
+                $candidates[] = $r;
+            }
+
+            $result[] = [
+                'transaction_date' => $g['transaction_date'],
+                'amount'           => (float) $g['amount'],
+                'description'      => $g['description'],
+                'verified'         => $verified,
+                'real_count'       => $realCount,
+                'keep'             => $keepRows[0],
+                'candidates'       => $candidates,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function loadDuplicateCandidateRows(array $rowIds): array
+    {
+        if (empty($rowIds)) {
+            return [];
+        }
+        $in = implode(',', $rowIds);
+        $stmt = $this->db->query("
+            SELECT bir.id AS row_id, bir.session_id, bir.transaction_id, bir.created_at,
+                   at.type AS tx_type,
+                   (SELECT COUNT(*) FROM invoice_payment_allocations ipa WHERE ipa.transaction_id = at.id) AS allocation_count,
+                   (SELECT COUNT(*) FROM etransfer_notifications en WHERE en.bank_transaction_id = at.id) AS notification_count
+              FROM bank_import_rows bir
+              LEFT JOIN accounting_transactions at ON at.id = bir.transaction_id
+             WHERE bir.id IN ($in)
+        ");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Reverse the live journal entry of each bank line about to be deleted, inside the caller's
+     * transaction (posting joins it). A failure throws, so the delete is refused rather than
+     * leaving the books holding money the bank never had. @return int entries reversed
+     */
+    protected function reverseJournalForLines(array $txIds, ?int $userId, string $why): int
+    {
+        $txIds = array_values(array_filter(array_map('intval', $txIds)));
+        if (!$txIds) return 0;
+        // Credit kept from a payment on these lines stays the client's; it stops pointing at a line that goes.
+        require_once __DIR__ . '/ClientCreditService.php';
+        ClientCreditService::unlinkDeposits($this->db, $txIds);
+        require_once __DIR__ . '/LedgerService.php';
+        $ledger = new LedgerService($this->db);
+        $n = 0;
+        foreach ($txIds as $id) {
+            $entryId = $ledger->findEntryIdBySource('bank_import', $id);
+            if ($entryId) { $ledger->reverseEntry($entryId, $userId, $why, 'owner'); $n++; }
+        }
+        return $n;
+    }
+
+    /**
+     * Remove one committed duplicate bank row (and its accounting_transactions
+     * row) after re-verifying it's still safe — never trusts a caller-supplied
+     * "this is fine" flag from an earlier read. Refuses (does not force) if
+     * anything has changed since the row was surfaced as a candidate.
+     *
+     * Two independent grounds for safety, either is sufficient:
+     *   (a) type='transfer' — already reconciled elsewhere, structurally safe
+     *   (b) verified excess — bank_statement_verifications proves fewer real
+     *       copies exist than are currently in the DB, and this row is not
+     *       among the oldest `real_count` (the ones being kept)
+     */
+    public function removeDuplicateRow(int $bankImportRowId, int $userId): array
+    {
+        $row = $this->db->prepare("
+            SELECT bir.id, bir.session_id, bir.transaction_id, bir.transaction_date, bir.amount, bir.description,
+                   at.type AS tx_type
+              FROM bank_import_rows bir
+              LEFT JOIN accounting_transactions at ON at.id = bir.transaction_id
+             WHERE bir.id = ?
+        ");
+        $row->execute([$bankImportRowId]);
+        $row = $row->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new RuntimeException('Row not found.');
+        }
+        if (!$row['transaction_id']) {
+            throw new RuntimeException('Row has no linked transaction — nothing to remove.');
+        }
+
+        // All rows for this (date, amount), oldest first — the true sibling
+        // set regardless of description-text formatting differences.
+        $siblingStmt = $this->db->prepare("
+            SELECT id FROM bank_import_rows
+             WHERE transaction_date = ? AND amount = ?
+             ORDER BY id
+        ");
+        $siblingStmt->execute([$row['transaction_date'], $row['amount']]);
+        $allIds = array_map('intval', $siblingStmt->fetchAll(PDO::FETCH_COLUMN));
+        if (count($allIds) < 2) {
+            throw new RuntimeException('No other copy of this transaction remains — refusing to delete the only record of it.');
+        }
+
+        $verifyStmt = $this->db->prepare("
+            SELECT real_count FROM bank_statement_verifications
+             WHERE transaction_date = ? AND amount = ?
+        ");
+        $verifyStmt->execute([$row['transaction_date'], $row['amount']]);
+        $realCount = $verifyStmt->fetchColumn();
+
+        $verifiedExcess = false;
+        if ($realCount !== false) {
+            $realCount = (int) $realCount;
+            if ($realCount <= 0) {
+                throw new RuntimeException('This (date, amount) has zero matches in the verified statement — needs manual review, not auto-removal.');
+            }
+            $keepIds        = array_slice($allIds, 0, $realCount);
+            $verifiedExcess = !in_array($bankImportRowId, $keepIds, true);
+        }
+
+        if (!$verifiedExcess && $row['tx_type'] !== 'transfer') {
+            throw new RuntimeException('Refusing to remove — not verified against a real statement, and not type=transfer (may represent unrecognized real income).');
+        }
+
+        $allocCheck = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id = ?");
+        $allocCheck->execute([$row['transaction_id']]);
+        if ((int) $allocCheck->fetchColumn() > 0) {
+            throw new RuntimeException('This transaction is referenced by an invoice payment allocation — cannot remove.');
+        }
+
+        $noteCheck = $this->db->prepare("SELECT COUNT(*) FROM etransfer_notifications WHERE bank_transaction_id = ?");
+        $noteCheck->execute([$row['transaction_id']]);
+        if ((int) $noteCheck->fetchColumn() > 0) {
+            throw new RuntimeException('This transaction is linked from a pending e-Transfer notification — cannot remove.');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $this->reverseJournalForLines([(int)$row['transaction_id']], $userId, 'duplicate bank line removed');
+            $this->db->prepare("DELETE FROM bank_import_rows WHERE id = ?")->execute([$bankImportRowId]);
+            $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ?")
+                ->execute([$row['transaction_id']]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        return [
+            'removed_row_id' => $bankImportRowId,
+            'removed_tx_id'  => (int) $row['transaction_id'],
+            'description'    => $row['description'],
+            'amount'         => (float) $row['amount'],
+        ];
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -571,8 +1455,9 @@ class BankImportService
      *
      * @param string $filePath   Absolute path to the uploaded PDF file
      * @param string $bankName   Bank label
+     * @param string $kind       'bank' | 'credit_card' — routes CC settlement flagging
      */
-    public function previewPdf(string $filePath, string $bankName = ''): array
+    public function previewPdf(string $filePath, string $bankName = '', string $kind = 'bank'): array
     {
         if (!defined('VENDOR_ROOT') || !is_file(VENDOR_ROOT . '/autoload.php')) {
             throw new RuntimeException('Composer autoloader not found. Run composer install in the project root.');
@@ -594,8 +1479,11 @@ class BankImportService
         //      groups ("A UG", "7 .34") — same visual result, different encoding scheme
         //      (seen in Vancity VCTY_16310 2025 statements). Caught by isSpacePaddedText.
         // Both cases route through the OCR fallback which renders page images cleanly.
+        $this->pdfSummary = [];
         if ($this->isGarbledText($text) || $this->isSpacePaddedText($text)) {
-            $text = $this->extractTextFallback($filePath);
+            // Native EBCDIC decode first (Vancity 2026+ font) — no poppler/OCR needed.
+            $decoded = $this->decodeEbcdicStatement($text);
+            $text = $decoded ?? $this->extractTextFallback($filePath);
         }
 
         $parsed = $this->parsePdfText($text);
@@ -609,9 +1497,17 @@ class BankImportService
             );
         }
 
-        $result = $this->enrichRows($rows, $bankName, 'pdf');
+        $result = $this->enrichRows($rows, $bankName, 'pdf', $kind);
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
         $result += $this->detectAccountNumber($text);
+        // Every account section the statement prints — including ones with no transactions — so
+        // the statements check can say "in, no activity" (bank_statement_sections, migration 1360).
+        $dates = array_column($rows, 'date');
+        $result['statement_sections'] = self::statementSections(
+            $parsed['sections'] ?? [], $this->pdfSummary,
+            self::statementPeriod($text) ?? ($dates ? [min($dates), max($dates)] : null),
+            $balMeta, $result['detected_account_number'] ?? null
+        );
         return $result;
     }
 
@@ -716,7 +1612,7 @@ class BankImportService
      * @param string $mimeType   e.g. 'image/jpeg', 'image/png'
      * @param string $bankName   Label for the bank account
      */
-    public function previewImage(string $filePath, string $mimeType, string $bankName = ''): array
+    public function previewImage(string $filePath, string $mimeType, string $bankName = '', string $kind = 'bank'): array
     {
         $imageData = file_get_contents($filePath);
         if ($imageData === false || strlen($imageData) < 100) {
@@ -737,7 +1633,7 @@ class BankImportService
             );
         }
 
-        $result = $this->enrichRows($rows, $bankName, 'image');
+        $result = $this->enrichRows($rows, $bankName, 'image', $kind);
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
         $result += $this->detectAccountNumber($text);
         return $result;
@@ -791,9 +1687,23 @@ class BankImportService
         $pattern      = '/^' . $datePat . '\s+(.+?)\s+' . $amtPat . '(?:\s+' . $amtPat . ')?$/i';
 
         // ── Statement year ────────────────────────────────────────────────────
-        $statementYear = date('Y');
-        if (preg_match('/\b(20\d{2})\b/', $text, $ym)) {
-            $statementYear = $ym[1];
+        // Anchor to the LATEST year attached to a date ("DD MON YYYY" / "MON DD, YYYY")
+        // — i.e. the statement-period end. This ignores stray year references (a
+        // print/due date) that would otherwise mis-date the whole statement. Earlier
+        // rows are corrected by the year-rollover pass after parsing.
+        // When a full date is present its LATEST value (the period end, or a due
+        // date a few weeks after it) is the anchor: every year-less row is the most
+        // recent occurrence of its month/day on or before it — order-independent, so
+        // multi-account statements and Dec→Jan periods both date correctly. With only
+        // bare years, fall back to the rollover pass below. Either way, no year-less
+        // row is ever dated after the import date (a Dec-2025 statement imported in
+        // April 2026 once landed as Dec 2026 — 122 future rows).
+        $statementYear = (int)substr($this->today(), 0, 4);
+        $anchorDate    = $this->statementAnchorDate($text);
+        if ($anchorDate !== null) {
+            $statementYear = (int)substr($anchorDate, 0, 4);
+        } elseif (preg_match_all('/\b(20\d{2})\b/', $text, $ym2)) {
+            $statementYear = min(max(array_map('intval', $ym2[1])), $statementYear);
         }
 
         // ── 3-column format detection (WITHDRAWALS | DEPOSITS | BALANCE) ─────
@@ -822,6 +1732,13 @@ class BankImportService
             '/(?:closing|ending|end\s+of\s+period)\s+balance\b.*?(\d{1,3}(?:,\d{3})*\.\d{2})/is',
             $text, $bm
         )) {
+            $closingBalance = $this->parseNumber($bm[1]);
+        }
+
+        // Credit card statements (Vancity Visa) label the closing figure "Statement balance" with the amount
+        // right after it ("Statement balance\t$5,574.08"); the label must touch the amount, so "pay your
+        // statement balance in full" never matches (2026-10-15: every card import showed "closing ?").
+        if ($closingBalance === null && preg_match('/statement\s+balance[ \t]*\$?[ \t]*(\d{1,3}(?:,\d{3})*\.\d{2})/i', $text, $bm)) {
             $closingBalance = $this->parseNumber($bm[1]);
         }
 
@@ -866,18 +1783,46 @@ class BankImportService
         // noise (serial numbers, "continued on next page", column headers) must
         // be dropped — if joined, they corrupt the last transaction on each page
         // and cause the $ -anchored regex to fail, silently losing the row.
+        // Account sections (2026-10-07): a Vancity statement prints one section per account —
+        //   INDEPENDENT BUSINESS ACCOUNT #100058186801 (CONT.)          chequing   → the session's account
+        //   BUSINESS INVESTMENT SAVINGS #100058186819 (RESERVE FUNDS)   savings    → 1020
+        //   BUSINESS JUMPSTART SAVINGS #100058186827 (GST RESERVES)     savings    → 1025
+        //   … CLASS B MEMBERSHIP SHARES #100013640901                  shares     → never imported
+        // each with its own OPENING BALANCE. Every transaction carries the last four digits of
+        // the account it is printed under (statement_account); the section's opening balance
+        // seeds its running balance. A statement with one section is parsed exactly as before.
         $joined           = [];
+        $joinedSection    = [];
         $buf              = '';
+        $bufSection       = '';
+        $section          = '';
+        $sectionOpening   = [];
+        $sharesSections   = [];
+        $sectionKind      = [];   // suffix => primary|savings, every non-shares header seen (even with no lines)
         $noiseLinesDropped = 0;
         foreach ($lines as $raw) {
             $l = trim($raw);
             if ($l === '') {
-                if ($buf !== '') { $joined[] = $buf; $buf = ''; }
+                if ($buf !== '') { $joined[] = $buf; $joinedSection[] = $bufSection; $buf = ''; }
                 continue;
             }
-            if (preg_match($dateStartPat, $l)) {
-                if ($buf !== '') $joined[] = $buf;
+            $isDateLine = (bool)preg_match($dateStartPat, $l);
+            if (!$isDateLine) {
+                $hdr = self::accountSectionHeader($l);
+                if ($hdr !== null) {
+                    $section = $hdr['suffix'];
+                    if ($hdr['kind'] === 'shares') $sharesSections[$section] = true;
+                    elseif (!isset($sectionKind[$section])) $sectionKind[$section] = $hdr['kind'];
+                    if ($hdr['opening'] !== null && !isset($sectionOpening[$section])) $sectionOpening[$section] = $hdr['opening'];
+                } elseif ($section !== '' && !isset($sectionOpening[$section])
+                          && preg_match('/^OPENING\s+BALANCE\s+\$?(-?\d{1,3}(?:,\d{3})*\.\d{2})\s*$/i', $l, $ob)) {
+                    $sectionOpening[$section] = (float)str_replace(',', '', $ob[1]);
+                }
+            }
+            if ($isDateLine) {
+                if ($buf !== '') { $joined[] = $buf; $joinedSection[] = $bufSection; }
                 $buf = $l;
+                $bufSection = $section;
             } elseif ($this->isNoiseLine($l)) {
                 // Explicit noise — serial numbers, footer phrases, column headers, etc.
                 $noiseLinesDropped++;
@@ -893,18 +1838,46 @@ class BankImportService
                 $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
             }
         }
-        if ($buf !== '') $joined[] = $buf;
+        if ($buf !== '') { $joined[] = $buf; $joinedSection[] = $bufSection; }
         $lines = $joined;
+        // The account with the most lines is the statement's own; '' = before any header.
+        $bankSections = array_values(array_filter($joinedSection, static fn($x) => !isset($sharesSections[$x])));
+        $multiSection = count(array_unique($joinedSection)) > 1;
+        $primarySection = '';
+        if ($bankSections) {
+            $counts = array_count_values($bankSections);
+            arsort($counts);
+            $primarySection = (string)array_key_first($counts);
+        }
+        $lastSection = false;
 
         // Track running balance column values (a2) to derive opening balance if
         // no explicit label was found.
         // Also track previous balance for 3-col income/expense type detection.
+        $sectionLines       = [];   // section suffix ('' = before any header) => transactions read
         $runningBalances    = [];
         $prevRunningBalance = $openingBalance;
+        $primaryLastBalance = null;
 
         // ── Parse transaction lines ───────────────────────────────────────────
-        foreach ($lines as $line) {
+        foreach ($lines as $lineIdx => $line) {
             $line = trim($line);
+            $rowSection = $joinedSection[$lineIdx] ?? '';
+            if (isset($sharesSections[$rowSection])) {
+                // Membership shares are not a bank account: never a transaction.
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'shares_section'];
+                continue;
+            }
+            $isPrimary = !$multiSection || $rowSection === $primarySection || ($rowSection === '' && $primarySection === '');
+            if ($multiSection && $rowSection !== $lastSection) {
+                // A new account's lines: read their direction from THEIR balance, not the last account's.
+                if ($lastSection !== false && !$isPrimary) {
+                    $prevRunningBalance = $sectionOpening[$rowSection] ?? null;
+                } elseif ($lastSection !== false && $isPrimary) {
+                    $prevRunningBalance = $primaryLastBalance ?? $openingBalance;
+                }
+                $lastSection = $rowSection;
+            }
             if (strlen($line) < 10) {
                 if ($debug && $line !== '') $rejectLog[] = ['line' => $line, 'reason' => 'too_short'];
                 continue;
@@ -937,8 +1910,9 @@ class BankImportService
             }
 
             // Parse date
-            $dateStr = $dateRaw;
-            if (!preg_match('/\d{4}/', $dateRaw)) {
+            $dateStr      = $dateRaw;
+            $yearInferred = !preg_match('/\d{4}/', $dateRaw);
+            if ($yearInferred) {
                 $dateStr = $dateRaw . ' ' . $statementYear;
             }
             $date = $this->parseDate($dateStr);
@@ -951,11 +1925,13 @@ class BankImportService
             $type   = null;
             $amount = null;
 
-            // Keywords that identify a credit/income transaction
+            // Keywords that identify a credit/income transaction. "PAYROLL" means money in only as a
+            // payroll deposit — "WAVE - PAYROLL FEES" on the Visa is a charge (read as income until
+            // 2026-10-13).
             $isCredit = (bool)preg_match(
-                '/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER\s+IN|REFUND|PREAUTH\s+CREDIT/i',
+                '/\bCR\b|DEPOSIT|CREDIT|PAYROLL(?!\s*FEES?\b)|SALARY|TRANSFER\s+IN|REFUND|PREAUTH\s+CREDIT/i',
                 $desc
-            );
+            ) && !preg_match('/\bFEES?\b/i', $desc);
 
             if ($amt2Raw !== '') {
                 $a1 = $this->parseNumber($amt1Raw);
@@ -974,7 +1950,7 @@ class BankImportService
                         }
                         $amount = $a1;
                         if ($a2 !== null) {
-                            $runningBalances[]   = $a2;
+                            if ($isPrimary) { $runningBalances[] = $a2; $primaryLastBalance = $a2; }
                             $prevRunningBalance  = $a2;
                         }
                     } elseif ($a1 !== null && $a1 == 0 && $a2 !== null && $a2 > 0) {
@@ -986,10 +1962,17 @@ class BankImportService
                 } else {
                     // 2-column or unknown: use ratio heuristic as fallback
                     if ($a1 !== null && $a1 > 0 && ($a2 === null || $a2 > $a1 * 3)) {
-                        // a2 is likely a running balance
-                        $type   = $isCredit ? 'income' : 'expense';
+                        // a2 is likely a running balance. Prefer the balance delta
+                        // (reliable) over description keywords whenever we have a
+                        // previous balance — this is the same signal the 3-column
+                        // path uses, applied here so a missed header still classifies.
+                        if ($a2 !== null && $prevRunningBalance !== null) {
+                            $type = ($a2 > $prevRunningBalance) ? 'income' : 'expense';
+                        } else {
+                            $type = $isCredit ? 'income' : 'expense';
+                        }
                         $amount = $a1;
-                        if ($a2 !== null) $runningBalances[] = $a2;
+                        if ($a2 !== null) { if ($isPrimary) { $runningBalances[] = $a2; $primaryLastBalance = $a2; } $prevRunningBalance = $a2; }
                     } elseif ($a2 !== null && $a2 > 0) {
                         $type   = 'income';
                         $amount = $a2;
@@ -1021,12 +2004,16 @@ class BankImportService
                 continue;
             }
 
+            $sectionLines[$rowSection] = ($sectionLines[$rowSection] ?? 0) + 1;
             $rows[] = [
                 'date'            => $date,
+                '_year_inferred'  => $yearInferred,
                 'description'     => substr($desc, 0, 500),
                 'amount'          => round($amount, 2),
                 'type'            => $type,
                 'raw_line'        => $line,
+                'statement_account' => $multiSection && $rowSection !== '' ? $rowSection : null,
+                'statement_primary' => $multiSection ? $isPrimary : null,
                 'account_id'      => null,
                 'account_name'    => null,
                 'account_code'    => null,
@@ -1037,11 +2024,45 @@ class BankImportService
             ];
         }
 
+        // ── Year assignment for year-less rows ────────────────────────────────
+        // Rows that carried their own year are left alone.
+        if (!empty($rows)) {
+            if ($anchorDate !== null) {
+                foreach ($rows as $k => $r) {
+                    if (!$r['_year_inferred']) continue;
+                    $rows[$k]['date'] = $this->latestOnOrBefore((int)substr($r['date'], 5, 2), (int)substr($r['date'], 8, 2), $anchorDate);
+                }
+            } else {
+                // No full date to anchor on: transactions are chronological, so a
+                // month that drops by six or more marks a Dec → Jan rollover. (A
+                // smaller drop is a new account section restarting the period.)
+                $inferred = array_keys(array_filter($rows, static fn($r) => $r['_year_inferred']));
+                $months   = array_map(static fn($k) => (int)substr($rows[$k]['date'], 5, 2), $inferred);
+                $rollovers = 0;
+                for ($i = 1; $i < count($months); $i++) {
+                    if ($months[$i - 1] - $months[$i] >= 6) $rollovers++;
+                }
+                $year  = $statementYear - $rollovers;
+                $prevM = null;
+                foreach ($inferred as $k) {
+                    $m = (int)substr($rows[$k]['date'], 5, 2);
+                    $d = (int)substr($rows[$k]['date'], 8, 2);
+                    if ($prevM !== null && $prevM - $m >= 6) $year++;
+                    $rows[$k]['date'] = $this->latestOnOrBefore($m, $d, sprintf('%04d-12-31', $year));
+                    $prevM = $m;
+                }
+            }
+            foreach ($rows as $k => $r) unset($rows[$k]['_year_inferred']);
+        }
+
         // ── Derive opening balance from running balance column if not explicit ─
         // In 3-column format: balance_after_row_1 = opening ± row_1_amount.
         if ($openingBalance === null && !empty($runningBalances) && !empty($rows)) {
             $firstBalance = $runningBalances[0];
             $firstRow     = $rows[0];
+            foreach ($rows as $r) {
+                if (($r['statement_primary'] ?? null) !== false) { $firstRow = $r; break; }
+            }
             if ($firstRow['type'] === 'income') {
                 $openingBalance = round($firstBalance - $firstRow['amount'], 2);
             } else {
@@ -1062,9 +2083,23 @@ class BankImportService
             }
         }
 
+        // Every account section: the ones with lines and the headers printed with none.
+        $sections = [];
+        foreach (array_unique(array_merge(array_keys($sectionLines), array_keys($sectionKind))) as $sfx) {
+            $sfx = (string)$sfx;
+            if (isset($sharesSections[$sfx])) continue;
+            $sections[] = [
+                'suffix'  => $sfx,
+                'kind'    => $sectionKind[$sfx] ?? 'primary',
+                'opening' => $sfx === '' ? $openingBalance : ($sectionOpening[$sfx] ?? null),
+                'lines'   => (int)($sectionLines[$sfx] ?? 0),
+            ];
+        }
+
         return [
             'rows'         => $rows,
             'reject_log'   => $rejectLog,
+            'sections'     => $sections,
             'balance_meta' => [
                 'opening'            => $openingBalance,
                 'closing'            => $closingBalance,
@@ -1076,6 +2111,358 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * The statement period "01 JAN 2026 to 31 JAN 2026" / "Jan 1, 2026 - Jan 31, 2026" → [from, to], or null. Pure.
+     */
+    public static function statementPeriod(string $text): ?array
+    {
+        $mon = '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?';
+        $d1 = null; $d2 = null;
+        if (preg_match('/(\d{1,2})\s*' . $mon . '\s*(20\d{2})\s*(?:to|-|–|through)\s*(\d{1,2})\s*' . $mon . '\s*(20\d{2})/i', $text, $m)) {
+            $d1 = sprintf('%s %s %s', $m[1], $m[2], $m[3]); $d2 = sprintf('%s %s %s', $m[4], $m[5], $m[6]);
+        } elseif (preg_match('/' . $mon . '\s*(\d{1,2}),?\s*(20\d{2})\s*(?:to|-|–|through)\s*' . $mon . '\s*(\d{1,2}),?\s*(20\d{2})/i', $text, $m)) {
+            $d1 = sprintf('%s %s %s', $m[2], $m[1], $m[3]); $d2 = sprintf('%s %s %s', $m[5], $m[4], $m[6]);
+        }
+        if ($d1 === null) return null;
+        $a = strtotime($d1); $b = strtotime($d2);
+        if (!$a || !$b || $b < $a || $b - $a > 100 * 86400) return null;
+        return [date('Y-m-d', $a), date('Y-m-d', $b)];
+    }
+
+    /**
+     * The ACCOUNT SUMMARY block on page 1 of a decoded Vancity statement: each account line
+     * ("INDEPENDENT BUSINESS ACCOUNT #100058186801", "…SAVINGS # 10 00 58 18 6 81 9 (RESERVE FUNDS)")
+     * followed by opening, withdrawals, deposits, closing. Kept only when the four add up. Pure.
+     * @return array<string, array{kind: string, opening: float, closing: float}>
+     */
+    public static function vancitySummary(array $lines): array
+    {
+        $out = [];
+        $n = count($lines);
+        $in = false;
+        $num = static function (string $s): ?float {
+            $c = str_replace(' ', '', $s);
+            return preg_match('/^-?\d{1,3}(?:,\d{3})*\.\d{2}$/', $c) ? (float)str_replace(',', '', $c) : null;
+        };
+        for ($i = 0; $i < $n; $i++) {
+            $c = strtoupper(str_replace(' ', '', $lines[$i]));
+            if (strpos($c, 'ACCOUNTSUMMARY') !== false) { $in = true; continue; }
+            if (!$in) continue;
+            if (strpos($c, 'TOTALNUMBEROFCHEQUES') !== false || strpos($c, 'OPENINGBALANCE') !== false) break;
+            if (!preg_match('/#(\d{6,})/', $c, $m)) continue;
+            $nums = [];
+            for ($j = $i + 1; $j < min($n, $i + 8) && count($nums) < 4; $j++) {
+                $v = $num($lines[$j]);
+                if ($v !== null) { $nums[] = $v; continue; }
+                if ($nums || preg_match('/#\d{6,}/', str_replace(' ', '', $lines[$j]))) break;   // another account's line
+            }
+            if (count($nums) < 4 || abs(round($nums[0] - $nums[1] + $nums[2], 2) - $nums[3]) > 0.015) continue;
+            $kind = strpos($c, 'SHARES') !== false ? 'shares' : (strpos($c, 'SAVINGS') !== false ? 'savings' : 'primary');
+            $out[substr($m[1], -4)] = ['kind' => $kind, 'opening' => $nums[0], 'closing' => $nums[3]];
+        }
+        return $out;
+    }
+
+    /**
+     * One row per account section the statement prints — with its period, opening / closing
+     * balance and how many transactions it had (0 = a quiet month, still "in"). Pure.
+     * @param array $parsed   parsePdfText()['sections']: [{suffix, kind, opening, lines}] ('' = before any header)
+     * @param array $summary  vancitySummary(): suffix => {kind, opening, closing}
+     * @param ?array $period  [from, to]
+     * @return array [{suffix, kind, period_from, period_to, opening, closing, lines}]
+     */
+    public static function statementSections(array $parsed, array $summary, ?array $period, array $balMeta = [], ?string $accountNumber = null): array
+    {
+        if (!$period) return [];
+        $summary = array_filter($summary, static fn($x) => $x['kind'] !== 'shares');
+        $primaries = array_keys(array_filter($summary, static fn($x) => $x['kind'] === 'primary'));
+        $out = [];
+        foreach ($parsed as $p) {
+            $sfx = (string)$p['suffix'];
+            if ($sfx === '') {
+                if (count($primaries) === 1) $sfx = (string)$primaries[0];
+                elseif ($accountNumber && strlen($accountNumber) >= 4) $sfx = substr($accountNumber, -4);
+            }
+            $sum = $sfx !== '' ? ($summary[$sfx] ?? null) : null;
+            $primary = $p['kind'] === 'primary' || (string)$p['suffix'] === '';
+            $out[$sfx] = [
+                'suffix' => $sfx, 'kind' => $sum['kind'] ?? ($primary ? 'primary' : 'savings'),
+                'opening' => $sum['opening'] ?? ($p['opening'] ?? ($primary ? ($balMeta['opening'] ?? null) : null)),
+                'closing' => $sum['closing'] ?? ($primary ? ($balMeta['closing'] ?? null) : null),
+                'lines' => ($out[$sfx]['lines'] ?? 0) + (int)$p['lines'],
+            ];
+        }
+        foreach ($summary as $sfx => $sum) {
+            $sfx = (string)$sfx;
+            if (isset($out[$sfx])) continue;
+            $out[$sfx] = ['suffix' => $sfx, 'kind' => $sum['kind'], 'opening' => $sum['opening'], 'closing' => $sum['closing'], 'lines' => 0];
+        }
+        $rows = [];
+        foreach ($out as $x) {
+            $rows[] = $x + ['period_from' => $period[0], 'period_to' => $period[1]];
+        }
+        return $rows;
+    }
+
+    /**
+     * Record the statement's sections for a committed import (bank_statement_sections, migration
+     * 1360). Each maps to a chart account by its last four digits (bank_statement_accounts'
+     * bank name "Vancity ••6819", or a bank account named with them); the statement's own
+     * account falls back to the account the import went to. Input comes back from the browser,
+     * so every field is re-checked. Never blocks an import.
+     */
+    public function recordSections(int $sessionId, array $sections, int $bankAccountId = 0): int
+    {
+        if ($sessionId <= 0 || !$sections) return 0;
+        try {
+            if ($this->db->query("SHOW TABLES LIKE 'bank_statement_sections'")->rowCount() === 0) return 0;
+            $bankIds = $this->bankAccountIds();
+            $ins = $this->db->prepare("
+                INSERT INTO bank_statement_sections
+                    (session_id, account_suffix, bank_account_id, period_from, period_to, opening_balance, closing_balance, line_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $n = 0; $from = null; $to = null;
+            foreach (array_slice(array_values($sections), 0, 10) as $x) {
+                if (!is_array($x)) continue;
+                $sfx = (string)($x['suffix'] ?? '');
+                if ($sfx !== '' && !preg_match('/^\d{4}$/', $sfx)) continue;
+                $pf = (string)($x['period_from'] ?? ''); $pt = (string)($x['period_to'] ?? '');
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $pf) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $pt) || $pt < $pf) continue;
+                if ((strtotime($pt) - strtotime($pf)) > 100 * 86400 || $pt > date('Y-m-d', strtotime($this->today() . ' +1 day'))) continue;
+                $acct = $sfx !== '' ? $this->accountForSuffix($sfx, $bankIds) : null;
+                if ($acct === null && ($x['kind'] ?? '') === 'primary' && $bankAccountId > 0) $acct = $bankAccountId;
+                $num = static fn($v) => is_numeric($v) ? round((float)$v, 2) : null;
+                $ins->execute([$sessionId, $sfx !== '' ? $sfx : null, $acct, $pf, $pt, $num($x['opening'] ?? null),
+                               $num($x['closing'] ?? null), max(0, min(100000, (int)($x['lines'] ?? 0)))]);
+                $n++;
+                $from = $from === null ? $pf : min($from, $pf);
+                $to = $to === null ? $pt : max($to, $pt);
+            }
+            if ($n) {
+                // A statement-only import (every line already in) still says which period it covered.
+                $this->db->prepare("UPDATE bank_import_sessions SET date_from = COALESCE(date_from, ?), date_to = COALESCE(date_to, ?) WHERE id = ?")
+                         ->execute([$from, $to, $sessionId]);
+            }
+            return $n;
+        } catch (Throwable $e) {
+            error_log('bank_statement_sections: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /** The bank account whose expected-statement entry or name carries these four digits, when only one does. */
+    private function accountForSuffix(string $sfx, array $bankIds): ?int
+    {
+        $ids = [];
+        try {
+            $s = $this->db->prepare("SELECT account_id FROM bank_statement_accounts WHERE bank_name_match LIKE ?");
+            $s->execute(['%' . $sfx . '%']);
+            $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) { /* no list yet */ }
+        if (!$ids) {
+            $s = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE sub_type = 'bank' AND (name LIKE ? OR account_number LIKE ?)");
+            $s->execute(['%' . $sfx . '%', '%' . $sfx]);
+            $ids = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        }
+        $ids = array_values(array_unique(array_filter($ids, static fn($i) => in_array($i, $bankIds, true))));
+        return count($ids) === 1 ? $ids[0] : null;
+    }
+
+    /**
+     * An account section header on a multi-account statement (never a transaction line), or null:
+     *   "INDEPENDENT BUSINESS ACCOUNT #100058186801 (CONT.)"               → 6801, primary
+     *   "BUSINESS INVESTMENT SAVINGS #100058186819 (RESERVE FUNDS)"        → 6819, savings
+     *   "BUSINESS JUMPSTART SAVINGS #100058186827 (GST RESERVES) OPENING BALANCE 8.58" → 6827, 8.58
+     *   "SHARES … CLASS B MEMBERSHIP SHARES #100013640901 OPENING BALANCE 7.29" → 0901, shares
+     * A header whose number didn't survive the text extraction still maps by its name
+     * (INVESTMENT SAVINGS / RESERVE FUNDS → 6819, JUMPSTART SAVINGS / GST RESERVES → 6827). Pure.
+     * @return array{suffix: string, kind: string, opening: ?float}|null kind: primary|savings|shares
+     */
+    public static function accountSectionHeader(string $line): ?array
+    {
+        $l = trim($line);
+        if ($l === '' || preg_match('/^\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/i', $l)) return null;
+        $isShares = (bool)preg_match('/\bSHARES?\b/i', $l);
+        $isSavings = (bool)preg_match('/\bSAVINGS\b/i', $l);
+        $isAccount = (bool)preg_match('/\b(?:ACCOUNT|CHEQUING|CHECKING)\b/i', $l);
+        $suffix = null;
+        if (($isShares || $isSavings || $isAccount)
+            && preg_match('/#\s*(\d[\d\s\-]{2,24}\d)/', $l, $m)) {
+            $digits = preg_replace('/\D/', '', $m[1]);
+            if (strlen($digits) >= 4) $suffix = substr($digits, -4);
+        }
+        if ($suffix === null) {
+            if (preg_match('/MEMBERSHIP\s+SHARES/i', $l)) $suffix = 'shares';
+            elseif (preg_match('/JUMPSTART\s+SAVINGS|SAVINGS.*\(\s*GST\s+RESERVES?\s*\)/i', $l)) $suffix = '6827';
+            elseif (preg_match('/INVESTMENT\s+SAVINGS|SAVINGS.*\(\s*RESERVE\s+FUNDS?\s*\)/i', $l)) $suffix = '6819';
+        }
+        if ($suffix === null) return null;
+        $opening = null;
+        if (preg_match('/OPENING\s+BALANCE\s+\$?(-?\d{1,3}(?:,\d{3})*\.\d{2})/i', $l, $o)) {
+            $opening = (float)str_replace(',', '', $o[1]);
+        }
+        return ['suffix' => $suffix, 'kind' => $isShares || $suffix === 'shares' ? 'shares' : ($isSavings ? 'savings' : 'primary'), 'opening' => $opening];
+    }
+
+    /** Chart ids of every bank account (sub_type bank) — where a statement line may be routed. */
+    /**
+     * The statement says whose it is (2026-10-14): when its primary section's last four digits name
+     * exactly one bank account (the statements list, the chart, or — when every earlier import agrees —
+     * the account past statements with those digits were filed under) and the account picked for the upload is a different one, the import
+     * is refused. A session filed under the wrong account put GST Reserves lines on chequing.
+     * Returns the refusal message, or null when the statement doesn't say or agrees.
+     */
+    public function statementAccountMismatch(array $sections, int $chosenAccountId): ?string
+    {
+        if ($chosenAccountId <= 0) return null;
+        $bankIds = $this->bankAccountIds();
+        $found = [];
+        foreach (array_slice(array_values($sections), 0, 10) as $x) {
+            if (!is_array($x) || ($x['kind'] ?? '') !== 'primary') continue;
+            $sfx = (string)($x['suffix'] ?? '');
+            if (!preg_match('/^\d{4}$/', $sfx)) continue;
+            $id = $this->accountForSuffix($sfx, $bankIds) ?? $this->accountFromPastSections($sfx, $bankIds);
+            if ($id !== null) $found[$id] = $sfx;
+        }
+        if (count($found) !== 1) return null;
+        $stmtId = (int)array_key_first($found);
+        if ($stmtId === $chosenAccountId) return null;
+        $name = function (int $id): string {
+            $s = $this->db->prepare("SELECT CONCAT(code, ' ', name) FROM chart_of_accounts WHERE id = ?");
+            $s->execute([$id]);
+            return (string)($s->fetchColumn() ?: ('account #' . $id));
+        };
+        return sprintf('This statement is for %s (••%s), but the import was set to %s. Pick %s and import again.',
+            $name($stmtId), $found[$stmtId], $name($chosenAccountId), $name($stmtId));
+    }
+
+    /** The one bank account every earlier import recorded these four digits under, or null (none, or they disagree). */
+    private function accountFromPastSections(string $sfx, array $bankIds): ?int
+    {
+        try {
+            $s = $this->db->prepare("SELECT DISTINCT bank_account_id FROM bank_statement_sections WHERE account_suffix = ? AND bank_account_id IS NOT NULL");
+            $s->execute([$sfx]);
+            $ids = array_values(array_filter(array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN)), static fn($i) => in_array($i, $bankIds, true)));
+            return count($ids) === 1 ? $ids[0] : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function bankAccountIds(): array
+    {
+        try {
+            return array_map('intval', $this->db->query("SELECT id FROM chart_of_accounts WHERE sub_type = 'bank'")->fetchAll(PDO::FETCH_COLUMN));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Lines printed for another account on the same statement get that account as their bank
+     * account (Reserve funds ••6819 → 1020, GST Reserves ••6827 → 1025, preselected) — by the
+     * section the parser saw them under. A transfer between chequing and a savings account is
+     * printed in BOTH sections; it becomes one transfer (BankAccountSplitService::pairMirrors):
+     *   the chequing line → category = the savings account (money out: type transfer, DR savings /
+     *     CR chequing; money in: DR chequing / CR savings);
+     *   the savings line  → category = its own account, type transfer: the journal posts nothing
+     *     for it (LedgerSyncService), but it stays on the savings account's list so its running
+     *     balance is complete for the statements check.
+     * Lines with no section header (photos, older formats) that follow a running balance of
+     * their own are flagged without a preselected account. Public for tests.
+     */
+    public function routeOtherAccountRows(array $rows): array
+    {
+        require_once __DIR__ . '/BankAccountSplitService.php';
+        $sectioned = array_filter($rows, static fn($r) => array_key_exists('statement_primary', $r) && $r['statement_primary'] !== null);
+        if ($sectioned && array_filter($rows, static fn($r) => ($r['statement_primary'] ?? null) === false)) {
+            foreach ($rows as &$r) {
+                if (($r['statement_primary'] ?? null) !== false) continue;
+                $sfx = (string)($r['statement_account'] ?? '');
+                $code = BankAccountSplitService::codeForSuffix($sfx);
+                $acct = $code ? $this->accountByCode($code) : null;
+                $r['other_account'] = [
+                    'suffix'          => $sfx,
+                    'label'           => $code ? BankAccountSplitService::TARGETS[$code]['label'] : 'account ••' . $sfx,
+                    'bank_account_id' => $acct ? (int)$acct['id'] : null,
+                    'account'         => $acct ? $acct['code'] . ' – ' . $acct['name'] : null,
+                    'by'              => 'statement',
+                ];
+                if ($acct) $r['bank_account_id'] = (int)$acct['id'];
+            }
+            unset($r);
+            return $this->applyMirrors($rows);
+        }
+
+        // No headers: lines that follow a running balance of their own.
+        $keys = array_keys($rows);
+        $lines = [];
+        foreach ($keys as $i => $k) {
+            $r = $rows[$k];
+            $lines[] = StatementCoverageService::lineFromRow(
+                ['id' => $i + 1, 'session_id' => 1, 'transaction_date' => $r['date'] ?? '', 'type' => $r['type'] ?? '', 'amount' => $r['amount'] ?? 0],
+                ['amount' => $r['amount'] ?? 0, 'type' => $r['type'] ?? '', 'raw_line' => $r['raw_line'] ?? ''])
+                + ['description' => (string)($r['description'] ?? '')];
+        }
+        if (count(array_filter($lines, static fn($l) => $l['balance'] !== null)) < 3) return $rows;
+        $split = BankAccountSplitService::split($lines);
+        foreach ($split['chains'] as $c) {
+            if ($c['suggest'] === 'keep') continue;   // chequing activity, or nothing says otherwise
+            foreach ($c['lines'] as $l) {
+                $k = $keys[$l['id'] - 1] ?? null;
+                if ($k === null) continue;
+                $rows[$k]['other_account'] = [
+                    'suffix'          => null,
+                    'label'           => $c['suggest'] === 'exclude' ? 'membership shares — not a bank account; untick it'
+                                         : 'follows a balance of its own (up to $' . number_format((float)($c['max_balance'] ?? 0), 2) . ') — another account?',
+                    'bank_account_id' => null,
+                    'account'         => null,
+                    'by'              => 'balance',
+                    'guess'           => $c['guess'],
+                ];
+            }
+        }
+        return $rows;
+    }
+
+    /** Pair each routed savings line with its chequing twin and make the two one transfer. */
+    private function applyMirrors(array $rows): array
+    {
+        $pairs = BankAccountSplitService::pairMirrors(
+            array_map(static fn($r) => ['date' => $r['date'] ?? '', 'amount' => (float)($r['amount'] ?? 0),
+                                        'in' => ($r['type'] ?? '') === 'income',
+                                        'other' => !empty($r['other_account']['bank_account_id'])], $rows));
+        foreach ($pairs as $savingsKey => $chequingKey) {
+            $acctId = (int)$rows[$savingsKey]['other_account']['bank_account_id'];
+            $acct = $rows[$savingsKey]['other_account']['account'];
+            // the chequing side carries the transfer
+            $rows[$chequingKey]['account_id']   = $acctId;
+            $rows[$chequingKey]['account_name'] = $acct;
+            $rows[$chequingKey]['type']         = $rows[$chequingKey]['type'] === 'income' ? 'income' : 'transfer';
+            $rows[$chequingKey]['auto_cat']     = true;
+            $rows[$chequingKey]['internal_transfer'] = ['with' => $rows[$savingsKey]['other_account']['label'], 'side' => 'chequing'];
+            // the savings side moves nothing in the books
+            $rows[$savingsKey]['account_id']   = $acctId;
+            $rows[$savingsKey]['account_name'] = $acct;
+            $rows[$savingsKey]['type']         = 'transfer';
+            $rows[$savingsKey]['auto_cat']     = true;
+            $rows[$savingsKey]['internal_transfer'] = ['with' => 'chequing', 'side' => 'savings'];
+        }
+        return $rows;
+    }
+
+    private function accountByCode(string $code): ?array
+    {
+        try {
+            $s = $this->db->prepare("SELECT id, code, name FROM chart_of_accounts WHERE code = ? LIMIT 1");
+            $s->execute([$code]);
+            return $s->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
 
     /**
      * Returns true for lines that are page header/footer artifacts in OCR output:
@@ -1155,7 +2542,7 @@ class BankImportService
         }
 
         $income  = round((float)$totals['income'],  2);
-        $expense = round((float)$totals['expense'], 2);
+        $expense = round((float)$totals['expense'] + (float)($totals['transfer_out'] ?? 0), 2);   // card payoffs left the account too
 
         $computed    = $opening !== null ? round($opening + $income - $expense, 2) : null;
         $discrepancy = ($computed !== null && $closing !== null)
@@ -1174,13 +2561,15 @@ class BankImportService
         ];
     }
 
-    private function enrichRows(array $rows, string $bankName, string $source): array
+    private function enrichRows(array $rows, string $bankName, string $source, string $kind = 'bank'): array
     {
+        $this->dupUsed = []; $this->expClaimed = [];
         require_once __DIR__ . '/RulesEngine.php';
         $engine = new RulesEngine($this->db);
 
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
         $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $ccPayableId      = $this->getAccountId(self::CREDIT_CARD_CODE);
         $totals = [
             'income'     => 0.0,
             'expense'    => 0.0,
@@ -1189,7 +2578,30 @@ class BankImportService
             'rows'       => count($rows),
         ];
 
+        if ($kind !== 'credit_card') $rows = $this->routeOtherAccountRows($rows);
+        $totals['other_account'] = 0;
+
         foreach ($rows as &$row) {
+            // A chequing ↔ savings transfer is already decided (routeOtherAccountRows): it is
+            // never a cost, an invoice payment or a card payoff.
+            if (!empty($row['internal_transfer'])) {
+                $row['is_duplicate'] = false; $row['duplicate_type'] = null; $row['duplicate_tx_id'] = null; $row['match_candidate'] = false;
+                $dupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'] === 'income' ? 'income' : 'expense', $kind === 'credit_card' ? 'credit_card' : 'bank');
+                if ($dupe) { $row['is_duplicate'] = true; $row['duplicate_type'] = 'true_duplicate'; $row['duplicate_tx_id'] = $dupe; $totals['duplicates']++; }
+                if (!empty($row['other_account'])) { $totals['other_account']++; continue; }
+                if ($row['type'] === 'income') $totals['income'] += $row['amount']; else $totals['expense'] += $row['amount'];
+                continue;
+            }
+            // ── Credit-card settlement (transfer, excluded from P&L) ───────────
+            //    Catches the monthly "pay credit card" debit on a bank statement
+            //    and the "payment received" credit on a CC statement.
+            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId, $kind === 'credit_card' ? 'credit_card' : 'bank')) {
+                // Not income or expense, but it still left the account: the statement's own
+                // opening + in - out = closing proof must count it (it never balanced with a payoff).
+                if ($kind !== 'credit_card') $totals['transfer_out'] = ($totals['transfer_out'] ?? 0) + abs((float)$row['amount']);
+                continue;
+            }
+
             // ── Auto-categorize via rules engine ──────────────────────────────
             $ruleMatch = $engine->previewMatch($row['description'], '', $row['type']);
             if ($ruleMatch) {
@@ -1209,7 +2621,7 @@ class BankImportService
 
             // ── Two-stage duplicate / match detection ─────────────────────────
             // Stage 1: same transaction already imported from a bank statement?
-            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type']);
+            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type'], $kind === 'credit_card' ? 'credit_card' : 'bank');
 
             if ($trueDupe) {
                 // Real duplicate — same bank import done twice
@@ -1218,6 +2630,13 @@ class BankImportService
                 $row['duplicate_tx_id'] = $trueDupe;
                 $row['match_candidate'] = false;
                 $totals['duplicates']++;
+            } elseif (!empty($row['other_account'])) {
+                // Another account's line (a savings section): never matched to a receipt or an
+                // invoice of this account.
+                $row['is_duplicate']    = false;
+                $row['duplicate_type']  = null;
+                $row['duplicate_tx_id'] = null;
+                $row['match_candidate'] = false;
             } else {
                 // Stage 2: does an approved expense receipt match this bank tx?
                 $expenseMatch = $this->findExpenseMatch(
@@ -1298,6 +2717,10 @@ class BankImportService
                 }
             }
 
+            if (!empty($row['other_account'])) {   // not this account's money: kept out of its balance check
+                $totals['other_account']++;
+                continue;
+            }
             if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
             if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
         }
@@ -1314,7 +2737,7 @@ class BankImportService
     /**
      * Fallback text extraction cascade for PDFs with garbled smalot output:
      *   1. pdftotext (poppler) — works if binary is on PATH
-     *   2. Imagick page rendering + OCR.space API — works if Imagick+curl present
+     *   2. Imagick page rendering + Google Vision or local Tesseract (never a public OCR service)
      *
      * Throws RuntimeException with a clear user-facing message if all fail.
      */
@@ -1327,7 +2750,7 @@ class BankImportService
             // Not available — continue to next option
         }
 
-        // 2 — Imagick (PDF rendering) + OCR.space
+        // 2 — Imagick (PDF rendering) + Vision / Tesseract
         if (class_exists('Imagick') && function_exists('curl_init')) {
             return $this->extractTextViaImagickOcr($filePath);
         }
@@ -1341,8 +2764,8 @@ class BankImportService
     /**
      * Render each PDF page to a JPEG via Imagick (needs Ghostscript in the
      * Imagick build) then run each image through the best available OCR engine:
-     * Google Cloud Vision (DOCUMENT_TEXT_DETECTION) if configured, otherwise
-     * OCR.space as fallback.  Images are processed one page at a time to keep
+     * Google Cloud Vision (DOCUMENT_TEXT_DETECTION) if configured, otherwise a
+     * local Tesseract (never a public OCR service).  Images are processed one page at a time to keep
      * memory manageable.
      */
     private function extractTextViaImagickOcr(string $filePath): string
@@ -1373,8 +2796,7 @@ class BankImportService
             $flat->destroy();
             $page->destroy();
 
-            // For OCR.space: fall back to 100 DPI if still over ~700 KB.
-            // Google Vision handles larger images fine; skip the downgrade for Vision.
+            // Without Vision (Tesseract): fall back to 100 DPI if still over ~700 KB.
             if (!$useVision && strlen($jpegData) > 700000) {
                 $im2 = new \Imagick();
                 $im2->setResolution(100, 100);
@@ -1388,15 +2810,8 @@ class BankImportService
                 $f2->destroy(); $p2->destroy(); $im2->destroy();
             }
 
-            if ($useVision) {
-                $pageText = $this->ocrPageViaGoogleVision($jpegData);
-                if ($pageText === null) {
-                    // Vision call failed — fall back to OCR.space for this page
-                    $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
-                }
-            } else {
-                $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
-            }
+            // Vision, else local Tesseract, else a clear refusal (ocrImageBytes — audit #19).
+            $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
 
             $this->rawPageTexts[$i + 1] = $pageText; // 1-indexed page numbers
             $allText .= $pageText . "\n";
@@ -1419,7 +2834,7 @@ class BankImportService
     /**
      * OCR a JPEG image using Google Cloud Vision DOCUMENT_TEXT_DETECTION.
      * Writes bytes to a temp file, calls the shared ReceiptOCR service, cleans up.
-     * Returns null if the call fails (caller should fall back to OCR.space).
+     * Returns null if the call fails (caller falls back to local Tesseract, else refuses).
      *
      * Uses bounding-box reconstruction instead of Vision's fullTextAnnotation.text.
      * Vision reads multi-column tables column-first (all dates, then all descriptions,
@@ -1560,78 +2975,60 @@ class BankImportService
     }
 
     /**
-     * Send raw image bytes to OCR.space and return the extracted plain text.
-     * Uses OCR_SPACE_API_KEY from config if defined, otherwise the demo key.
-     *
-     * Docs: https://ocr.space/ocrapi
+     * OCR one page image (security review #19, 2026-10-12). Bank statements are the business's most
+     * private papers: they go to Google Cloud Vision (already contracted, ReceiptOCR) or a local
+     * Tesseract on the server — never to a public OCR service. (This used to post every page to
+     * OCR.space, on its shared public demo key whenever OCR_SPACE_API_KEY was not set.)
+     * Neither available, or both fail: refuse with a clear message — nothing is guessed.
      */
     private function ocrImageBytes(string $imageData, string $subtype = 'jpeg'): string
     {
-        if (!function_exists('curl_init')) {
-            throw new RuntimeException('cURL is not available — cannot call OCR API.');
+        $engine = self::ocrEngine($this->isGoogleVisionAvailable(), self::tesseractPath());
+        if ($engine === 'vision') {
+            $text = $this->ocrPageViaGoogleVision($imageData);
+            if ($text !== null && trim($text) !== '') return $text;
+            $engine = self::tesseractPath() !== null ? 'tesseract' : 'none';
         }
-
-        $apiKey = defined('OCR_SPACE_API_KEY') ? OCR_SPACE_API_KEY : 'helloworld';
-        $b64    = 'data:image/' . $subtype . ';base64,' . base64_encode($imageData);
-
-        $ch = curl_init('https://api.ocr.space/parse/image');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_POSTFIELDS     => [
-                'apikey'              => $apiKey,
-                'base64Image'         => $b64,
-                'language'            => 'eng',
-                'isTable'             => 'true',
-                'scale'               => 'true',
-                'isOverlayRequired'   => 'false',
-                'detectOrientation'   => 'true',
-                'OCREngine'           => '2',
-            ],
-        ]);
-
-        $raw      = curl_exec($ch);
-        $curlErr  = curl_error($ch);
-        curl_close($ch);
-
-        if ($raw === false || $raw === '') {
-            throw new RuntimeException('OCR API request failed: ' . $curlErr);
+        if ($engine === 'tesseract') {
+            $text = $this->ocrViaTesseract($imageData, $subtype);
+            if (trim($text) !== '') return $text;
+            throw new RuntimeException('Could not read this scanned statement (Tesseract found no text). Upload the CSV or the bank\'s own PDF instead.');
         }
+        throw new RuntimeException('Scanned statements need Google Vision (GOOGLE_VISION_CREDENTIALS) or Tesseract on the server, and neither is working. '
+            . 'Upload the CSV or the bank\'s own (text) PDF instead.');
+    }
 
-        $data = json_decode($raw, true);
-        if (!is_array($data)) {
-            throw new RuntimeException('OCR API returned an unexpected response.');
-        }
-        if (!empty($data['IsErroredOnProcessing'])) {
-            $msg = isset($data['ErrorMessage']) ? (is_array($data['ErrorMessage']) ? implode('; ', $data['ErrorMessage']) : $data['ErrorMessage']) : 'Unknown OCR error';
-            throw new RuntimeException('OCR processing failed: ' . $msg);
-        }
+    /** Which OCR engine to use: 'vision' | 'tesseract' | 'none'. Never a public web service. PURE. */
+    public static function ocrEngine(bool $visionAvailable, ?string $tesseractPath): string
+    {
+        if ($visionAvailable) return 'vision';
+        return $tesseractPath !== null ? 'tesseract' : 'none';
+    }
 
-        // Check OCR exit code for specific failure modes
-        $exitCode = (int)($data['OCRExitCode'] ?? 0);
-        if ($exitCode === 6) {
-            throw new RuntimeException('OCR API rate limit reached. Please sign up for a free OCR.space key at ocr.space/ocrapi and add it to your config.');
-        }
-        if ($exitCode >= 3 && empty($data['ParsedResults'])) {
-            $msg = isset($data['ErrorMessage'])
-                ? (is_array($data['ErrorMessage']) ? implode('; ', $data['ErrorMessage']) : $data['ErrorMessage'])
-                : ('OCR exit code ' . $exitCode);
-            throw new RuntimeException('OCR processing failed: ' . $msg);
-        }
+    /** The local tesseract binary (TESSERACT_PATH, else the usual places), or null. */
+    private static function tesseractPath(): ?string
+    {
+        if (!function_exists('exec')) return null;
+        $candidates = defined('TESSERACT_PATH') ? [(string)TESSERACT_PATH] : ['/usr/bin/tesseract', '/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract'];
+        foreach ($candidates as $p) if ($p !== '' && @is_executable($p)) return $p;
+        return null;
+    }
 
-        $text = '';
-        foreach ($data['ParsedResults'] ?? [] as $result) {
-            $text .= ($result['ParsedText'] ?? '') . "\n";
+    private function ocrViaTesseract(string $imageData, string $subtype): string
+    {
+        $bin = self::tesseractPath();
+        if ($bin === null) return '';
+        $ext = preg_replace('/[^a-z]/', '', strtolower($subtype)) ?: 'jpg';
+        $tmp = tempnam(sys_get_temp_dir(), 'mw_bi_') . '.' . $ext;
+        if (file_put_contents($tmp, $imageData) === false) return '';
+        try {
+            $out = [];
+            $code = 0;
+            @exec(escapeshellarg($bin) . ' ' . escapeshellarg($tmp) . ' stdout -l eng --psm 6 2>/dev/null', $out, $code);
+            return $code === 0 ? implode("\n", $out) : '';
+        } finally {
+            @unlink($tmp);
         }
-
-        if (trim($text) === '') {
-            // Include a fragment of the raw response to help diagnose unexpected failures
-            $hint = substr(json_encode($data), 0, 200);
-            throw new RuntimeException('OCR returned no text. API response: ' . $hint);
-        }
-
-        return $text;
     }
 
     /**
@@ -1645,6 +3042,176 @@ class BankImportService
         if (strlen($printable) < 20) return false;
         $nonAscii = preg_match_all('/[^\x20-\x7E]/', $printable);
         return ($nonAscii / strlen($printable)) > 0.25;
+    }
+
+    /**
+     * EBCDIC (IBM CP037) byte → ASCII translation table. The Vancity 2026+
+     * statement font encodes glyphs with EBCDIC code points (A–I=0xC1-C9,
+     * J–R=0xD1-D9, S–Z=0xE2-E9, 0–9=0xF0-F9), which smalot emits as raw bytes.
+     */
+    private function ebcdicTable(): array
+    {
+        static $tr = null;
+        if ($tr !== null) return $tr;
+        $m = [0x40 => ' ', 0x4B => '.', 0x4D => '(', 0x4E => '+', 0x50 => '&', 0x5B => '$',
+              0x5C => '*', 0x5D => ')', 0x60 => '-', 0x61 => '/', 0x6B => ',', 0x7A => ':',
+              0x7C => '@', 0x7D => "'", 0x7E => '=', 0x6F => '?', 0x6C => '%', 0x7B => '#'];
+        for ($i = 0; $i <= 8; $i++) $m[0x81 + $i] = chr(ord('a') + $i);   // a-i
+        for ($i = 0; $i <= 8; $i++) $m[0x91 + $i] = chr(ord('j') + $i);   // j-r
+        for ($i = 0; $i <= 7; $i++) $m[0xA2 + $i] = chr(ord('s') + $i);   // s-z
+        for ($i = 0; $i <= 8; $i++) $m[0xC1 + $i] = chr(ord('A') + $i);   // A-I
+        for ($i = 0; $i <= 8; $i++) $m[0xD1 + $i] = chr(ord('J') + $i);   // J-R
+        for ($i = 0; $i <= 7; $i++) $m[0xE2 + $i] = chr(ord('S') + $i);   // S-Z
+        for ($i = 0; $i <= 9; $i++) $m[0xF0 + $i] = chr(ord('0') + $i);   // 0-9
+        $tr = [];
+        foreach ($m as $b => $c) $tr[chr($b)] = $c;
+        $tr[chr(0x0A)] = "\n"; $tr[chr(0x0D)] = "\n"; $tr[chr(0x25)] = "\n"; // EBCDIC LF
+        return $tr;
+    }
+
+    /** True when smalot text is EBCDIC-encoded (high ratio of EBCDIC letter/digit bytes). */
+    private function looksLikeEbcdic(string $utf8): bool
+    {
+        $raw = @mb_convert_encoding($utf8, 'ISO-8859-1', 'UTF-8');
+        if ($raw === false || strlen($raw) < 40) return false;
+        $hits = preg_match_all('/[\xC1-\xC9\xD1-\xD9\xE2-\xE9\xF0-\xF9]/', $raw);
+        return ($hits / strlen($raw)) > 0.25;
+    }
+
+    /**
+     * Decode an EBCDIC-encoded Vancity statement (smalot UTF-8 output) into clean
+     * "DD MON DESCRIPTION AMOUNT BALANCE" lines that parsePdfText can consume, with
+     * the 3-column header + opening balance prepended so the parser uses its reliable
+     * running-balance classification. Returns null when the text isn't EBCDIC.
+     */
+    private function decodeEbcdicStatement(string $utf8): ?string
+    {
+        if (!$this->looksLikeEbcdic($utf8)) return null;
+
+        $raw = mb_convert_encoding($utf8, 'ISO-8859-1', 'UTF-8');
+        $dec = strtr($raw, $this->ebcdicTable());
+        $dec = preg_replace('/[\x00-\x09\x0B\x0C\x0E-\x1F\x80-\xFF]/', ' ', $dec);
+
+        $lines = [];
+        foreach (explode("\n", $dec) as $l) {
+            $l = trim(preg_replace('/\s+/', ' ', $l));
+            if ($l !== '') $lines[] = $l;
+        }
+        $n = count($lines);
+        $isNum = static fn($s) => (bool)preg_match('/^\d{1,3}(?:,\d{3})*\.\d{2}$/', str_replace(' ', '', $s));
+        $this->pdfSummary = self::vancitySummary($lines);
+
+        // Opening balance — first "OPENING BALANCE" label followed by a number line.
+        // This is the primary (chequing) account; the statement also lists Reserve /
+        // GST-reserve sub-accounts further down, each with their own OPENING BALANCE.
+        $opening = null; $startIdx = 0; $openingLabelIdx = -1;
+        for ($i = 0; $i < $n; $i++) {
+            if (stripos($lines[$i], 'OPENING BALANCE') !== false) {
+                for ($k = $i + 1; $k < min($i + 3, $n); $k++) {
+                    if ($isNum($lines[$k])) { $opening = str_replace(' ', '', $lines[$k]); $startIdx = $k + 1; $openingLabelIdx = $i; break 2; }
+                }
+            }
+        }
+
+        // Bound to the primary account: stop at the next account section — a second
+        // "OPENING BALANCE" label or a Reserve/Savings/GST sub-account header. Without
+        // this, the tiny reserve-account transactions corrupt the running balance.
+        $endIdx = $n;
+        for ($i = $startIdx; $i < $n; $i++) {
+            if (stripos($lines[$i], 'OPENING BALANCE') !== false
+                || preg_match('/INVESTMENT\s+SAVINGS|JUMPSTART|RESERVE\s+FUND|GST\s+RESERVE/i', $lines[$i])) {
+                $endIdx = $i;
+                break;
+            }
+        }
+
+        // Reflow each transaction: a date+description line, optional wrapped
+        // description lines, then the amount line and the running-balance line.
+        $monthRe = 'JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC';
+        $isDate  = static fn($s) => (bool)preg_match('/^\d{1,2}(' . $monthRe . ')/i', str_replace(' ', '', $s));
+        $tx = [];
+        for ($i = $startIdx; $i < $endIdx; $i++) {
+            $compact = str_replace(' ', '', $lines[$i]);
+            if (!preg_match('/^(\d{1,2})(' . $monthRe . ')(.*)$/i', $compact, $x)) continue;
+
+            $desc = $x[3];
+            $j = $i + 1;
+            // Absorb wrapped-description lines (e.g. "(SQ SOUTHLANDS NURSERY ... BCCA)")
+            // until we reach the amount column. Stop at a number or the next date.
+            while ($j < $endIdx && !$isNum($lines[$j]) && !$isDate($lines[$j])) {
+                $desc .= str_replace(' ', '', $lines[$j]);
+                $j++;
+            }
+            $nums = [];
+            while ($j < $endIdx && count($nums) < 2 && $isNum($lines[$j])) { $nums[] = str_replace(' ', '', $lines[$j]); $j++; }
+            if (count($nums) < 2) continue;
+            if ($desc === '') $desc = 'TRANSACTION';
+            $tx[] = sprintf('%02d %s %s %s %s', (int)$x[1], strtoupper($x[2]), $desc, $nums[0], $nums[1]);
+            $i = $j - 1;
+        }
+        if (count($tx) < 1) return null;
+
+        // The other accounts' sections (savings, shares) after the primary one: each header,
+        // its opening balance and its transactions, so parsePdfText can route them (2026-10-07).
+        // Headers are recognised by accountSectionHeader(); anything else is skipped.
+        $subs = [];
+        for ($i = $endIdx; $i < $n; $i++) {
+            $h = self::accountSectionHeader($lines[$i]);
+            if ($h === null || $h['kind'] === 'primary') continue;
+            $open = null;
+            // The label sits under the column headings (DATE / DESCRIPTION / WITHDRAWALS / DEPOSITS /
+            // BALANCE), six lines below the account's header — look that far, not past a date line.
+            for ($k = $i; $k < min($i + 9, $n); $k++) {
+                if ($k > $i && preg_match('/^\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)/i', str_replace(' ', '', $lines[$k]))) break;
+                if ($k > $i && self::accountSectionHeader($lines[$k]) !== null) break;
+                if (stripos($lines[$k], 'OPENING BALANCE') === false) continue;
+                if (preg_match('/OPENING\s+BALANCE\s+(\d{1,3}(?:,\d{3})*\.\d{2})/i', $lines[$k], $om)) { $open = $om[1]; break; }
+                for ($q = $k + 1; $q < min($k + 3, $n); $q++) {
+                    if ($isNum($lines[$q])) { $open = str_replace(' ', '', $lines[$q]); break 2; }
+                }
+            }
+            $subs[] = ['idx' => $i, 'line' => $lines[$i], 'open' => $open];
+        }
+        $subTx = [];
+        foreach ($subs as $si => $sub) {
+            $to = $subs[$si + 1]['idx'] ?? $n;
+            $block = [];
+            for ($i = $sub['idx'] + 1; $i < $to; $i++) {
+                $compact = str_replace(' ', '', $lines[$i]);
+                if (!preg_match('/^(\d{1,2})(' . $monthRe . ')(.*)$/i', $compact, $x)) continue;
+                $desc = $x[3];
+                $j = $i + 1;
+                while ($j < $to && !$isNum($lines[$j]) && !$isDate($lines[$j])) { $desc .= str_replace(' ', '', $lines[$j]); $j++; }
+                $nums = [];
+                while ($j < $to && count($nums) < 2 && $isNum($lines[$j])) { $nums[] = str_replace(' ', '', $lines[$j]); $j++; }
+                if (count($nums) < 2) continue;
+                if ($desc === '') $desc = 'TRANSACTION';
+                $block[] = sprintf('%02d %s %s %s %s', (int)$x[1], strtoupper($x[2]), $desc, $nums[0], $nums[1]);
+                $i = $j - 1;
+            }
+            $subTx[] = '';
+            $subTx[] = $sub['line'];
+            if ($sub['open'] !== null) $subTx[] = 'OPENING BALANCE ' . $sub['open'];
+            foreach ($block as $b) $subTx[] = $b;
+        }
+
+        // Preserve the statement period dates so parsePdfText can date rows.
+        // Only "DD MON YYYY" patterns count — those appear in the period header;
+        // transaction lines have no year, and stray references (print/due dates)
+        // are NOT attached to a month, so they can't hijack the year (e.g. a
+        // December-2025 statement printed in 2026 must still date rows as 2025).
+        $periodDates = [];
+        foreach ($lines as $l) {
+            $c = str_replace(' ', '', $l);
+            if (preg_match_all('/(\d{1,2})(' . $monthRe . ')(20\d\d)/i', $c, $pm, PREG_SET_ORDER)) {
+                foreach ($pm as $mm) $periodDates[] = $mm[1] . ' ' . strtoupper($mm[2]) . ' ' . $mm[3];
+            }
+        }
+        $yearLine = $periodDates ? ('STATEMENT PERIOD ' . implode(' to ', $periodDates) . "\n") : '';
+
+        $header = $yearLine . "WITHDRAWALS DEPOSITS BALANCE\n";
+        if ($opening !== null) $header .= "OPENING BALANCE $opening\n";
+        return $header . implode("\n", $tx) . ($subTx ? "\n" . implode("\n", $subTx) : '');
     }
 
     /**
@@ -1725,11 +3292,37 @@ class BankImportService
      * Parse a raw CSV string into normalized row arrays.
      * Handles both debit/credit split and single-amount formats.
      */
-    private function parseCSV(string $content, array $mapping, int $skipRows): array
+    private function parseCSV(string $content, array $mapping, int $skipRows, string $kind = 'bank'): array
     {
-        // Normalize line endings
+        // Normalize line endings; drop a UTF-8 byte-order mark (Vancity's card export starts with one)
+        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
         $content = str_replace(["\r\n", "\r"], "\n", trim($content));
         $lines   = explode("\n", $content);
+
+        // Header-driven layouts. Vancity's card "Transaction history" export (2026) is
+        // Transaction Date, Posted Date, Reference Number, …, Merchant Name, …, Amount ("$75.93",
+        // payments "-$232.07") — not the date/description/debit/credit preset, which read 0 rows.
+        $head = array_map(fn($h) => strtolower(trim((string)$h)), str_getcsv($lines[0] ?? '', ',', '"', ''));
+        $col  = fn(string $name) => array_search($name, $head, true);
+        if ($col('merchant name') !== false && $col('amount') !== false && $col('transaction date') !== false) {
+            $mapping = ['date' => $col('transaction date'), 'description' => $col('merchant name'), 'amount' => $col('amount')];
+            $skipRows = max($skipRows, 1);
+            $kind = 'credit_card';
+        }
+
+        $isCreditCard = ($kind === 'credit_card');
+
+        // One date order per file: if any n/n/yyyy date has a first part over 12, the file is day-first
+        // (d/m/Y). Tried row by row, m/d/Y won for every day ≤ 12 and put those lines in the wrong
+        // month (review 2026-10-12).
+        $dates = [];
+        $j = 0;
+        foreach ($lines as $ln) {
+            if ($j++ < $skipRows || trim($ln) === '') continue;
+            $c = str_getcsv(trim($ln), ',', '"', '');
+            $dates[] = trim($c[$mapping['date'] ?? 0] ?? '');
+        }
+        $this->dayFirst = self::isDayFirst($dates);
 
         $rows = [];
         $i    = 0;
@@ -1741,26 +3334,27 @@ class BankImportService
             // Parse CSV line (handles quoted fields with commas inside)
             $cols = str_getcsv($line, ',', '"', '');
 
-            // Determine amount and type
-            $amount = null;
-            $type   = null;
-
+            // ── Resolve raw debit/credit/single-amount values ────────────────────
+            //   `$signed` is positive when money is OWED on the statement and
+            //   negative when money is paid back / credited. For bank accounts that
+            //   is income(+)/expense(−); for credit cards it is charge(+)/payment(−).
+            $signed = null;
             if (isset($mapping['amount'])) {
-                // Single-amount column: positive=income, negative=expense
-                $raw    = $this->parseNumber($cols[$mapping['amount']] ?? '');
+                $raw = $this->parseNumber($cols[$mapping['amount']] ?? '');
                 if ($raw === null) continue;
-                $type   = $raw >= 0 ? 'income' : 'expense';
-                $amount = abs($raw);
+                // Bank single-amount: +income / −expense.
+                // Credit-card single-amount (TD): +charge / −payment-or-credit.
+                $signed = $isCreditCard ? $raw : $raw;
             } elseif (isset($mapping['debit']) && isset($mapping['credit'])) {
                 $debit  = $this->parseNumber($cols[$mapping['debit']]  ?? '');
                 $credit = $this->parseNumber($cols[$mapping['credit']] ?? '');
 
                 if ($debit !== null && $debit > 0) {
-                    $type   = 'expense';
-                    $amount = $debit;
+                    // Bank: money out (expense). CC: a charge.
+                    $signed = $isCreditCard ? $debit : -$debit;
                 } elseif ($credit !== null && $credit > 0) {
-                    $type   = 'income';
-                    $amount = $credit;
+                    // Bank: money in (income). CC: a payment / refund.
+                    $signed = $isCreditCard ? -$credit : $credit;
                 } else {
                     continue; // Zero row — skip
                 }
@@ -1768,12 +3362,17 @@ class BankImportService
                 continue;
             }
 
-            if ($amount <= 0) continue;
+            if (abs($signed) <= 0) continue;
 
             // Parse date
             $dateRaw = trim($cols[$mapping['date']] ?? '');
             $date    = $this->parseDate($dateRaw);
             if (!$date) continue;
+            // A year-less export date ("Dec 07") gets the current year from
+            // strtotime — take its most recent past occurrence instead.
+            if (!preg_match('/\d{4}|\b\d{1,2}[\/\-][A-Za-z]{3}[\/\-]\d{2}\b|[\/\-]\d{2}$/', $dateRaw)) {
+                $date = $this->latestOnOrBefore((int)substr($date, 5, 2), (int)substr($date, 8, 2), $this->today());
+            }
 
             // Description
             $desc = trim($cols[$mapping['description']] ?? '');
@@ -1782,13 +3381,23 @@ class BankImportService
             }
             $desc = substr($desc, 0, 500);
 
-            $rows[] = [
-                'date'        => $date,
-                'description' => $desc,
-                'amount'      => round($amount, 2),
-                'type'        => $type,
-                'raw_line'    => $line,
-                // These will be set by preview():
+            // ── Resolve type/amount + credit-card role ───────────────────────────
+            if ($isCreditCard) {
+                $row = $this->makeCreditCardRow($date, $desc, $signed, $line);
+            } else {
+                $type   = $signed >= 0 ? 'income' : 'expense';
+                $amount = abs($signed);
+                $row = [
+                    'date'        => $date,
+                    'description' => $desc,
+                    'amount'      => round($amount, 2),
+                    'type'        => $type,
+                    'raw_line'    => $line,
+                ];
+            }
+
+            // Common fields set by preview()/enrichRows() downstream:
+            $row += [
                 'account_id'  => null,
                 'account_name'=> null,
                 'account_code'=> null,
@@ -1797,9 +3406,64 @@ class BankImportService
                 'is_duplicate'=> false,
                 'duplicate_tx_id' => null,
             ];
+            $rows[] = $row;
         }
 
         return $rows;
+    }
+
+    /**
+     * Build a staged row for a single credit-card statement line.
+     *
+     * Routing (no income / invoice matching for cards):
+     *   charge  (signed > 0) → expense, positive amount
+     *   payment (signed < 0, description looks like a CC payment) → settlement;
+     *            tagged cc_payment so applyCcSettlement() routes it to Credit Card
+     *            Payable as a transfer (excluded from P&L — the bank statement's
+     *            matching debit is the real cash movement).
+     *   refund  (signed < 0, anything else) → expense reversal, NEGATIVE amount
+     *            so it nets against the original charge in expense totals/reports.
+     *
+     * @param float $signed  + = charge owed, − = payment/credit on the card
+     */
+    private function makeCreditCardRow(string $date, string $desc, float $signed, string $line): array
+    {
+        $mag = round(abs($signed), 2);
+
+        if ($signed > 0) {
+            // Purchase / charge — a business expense.
+            return [
+                'date'        => $date,
+                'description' => $desc,
+                'amount'      => $mag,
+                'type'        => 'expense',
+                'cc_role'     => 'charge',
+                'raw_line'    => $line,
+            ];
+        }
+
+        if ($this->isCreditCardPayment($desc) || self::isCardStatementPayment($desc)) {
+            // "Payment received — thank you" — settlement, flagged for applyCcSettlement().
+            return [
+                'date'        => $date,
+                'description' => $desc,
+                'amount'      => $mag,
+                'type'        => 'expense',     // staging-safe; promoted to transfer downstream
+                'cc_role'     => 'payment',
+                'cc_payment'  => true,
+                'raw_line'    => $line,
+            ];
+        }
+
+        // Merchant refund / statement credit — reverses an expense (negative amount).
+        return [
+            'date'        => $date,
+            'description' => $desc,
+            'amount'      => -$mag,
+            'type'        => 'expense',
+            'cc_role'     => 'refund',
+            'raw_line'    => $line,
+        ];
     }
 
     /**
@@ -1824,16 +3488,72 @@ class BankImportService
     }
 
     /**
+     * The latest month-attached full date in the statement text ("15 DEC 2025",
+     * "Dec 15, 2025", "15DEC2025"), capped at the import date — i.e. the period
+     * end (or a due date just after it). Null when the text has none.
+     */
+    private function statementAnchorDate(string $text): ?string
+    {
+        $mon = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
+        $found = [];
+        if (preg_match_all('/\b(\d{1,2})\s*(' . $mon . ')[a-z]*\.?,?\s*(20\d{2})(?![.,]?\d)/i', $text, $a, PREG_SET_ORDER)) {
+            foreach ($a as $x) $found[] = [(int)$x[3], $x[2], (int)$x[1]];
+        }
+        if (preg_match_all('/\b(' . $mon . ')[a-z]*\.?\s*(\d{1,2}),?\s*(20\d{2})(?![.,]?\d)/i', $text, $b, PREG_SET_ORDER)) {
+            foreach ($b as $x) $found[] = [(int)$x[3], $x[1], (int)$x[2]];
+        }
+        $latest = null;
+        foreach ($found as [$y, $m, $d]) {
+            $mm = (int)date('n', strtotime("1 $m 2000"));
+            if (!checkdate($mm, $d, $y)) continue;
+            $iso = sprintf('%04d-%02d-%02d', $y, $mm, $d);
+            if ($latest === null || $iso > $latest) $latest = $iso;
+        }
+        if ($latest === null) return null;
+        return min($latest, $this->today());
+    }
+
+    /**
+     * The most recent occurrence of month/day on or before $limit (and never
+     * after the import date) — how a statement line with no year is dated.
+     */
+    private function latestOnOrBefore(int $month, int $day, string $limit): string
+    {
+        $limit = min($limit, $this->today());
+        $year  = (int)substr($limit, 0, 4);
+        for ($i = 0; $i < 8; $i++, $year--) {
+            if (!checkdate($month, $day, $year)) continue;   // 29 Feb in a non-leap year
+            $iso = sprintf('%04d-%02d-%02d', $year, $month, $day);
+            if ($iso <= $limit) return $iso;
+        }
+        return sprintf('%04d-%02d-%02d', (int)substr($limit, 0, 4), $month, $day);
+    }
+
+    /**
      * Attempt to parse a date string in common Canadian bank formats.
      * Returns YYYY-MM-DD string or null.
      */
+    /** Set per file by parseCSV(): the file writes dates day-first (d/m/Y). */
+    private bool $dayFirst = false;
+
+    /** Is a list of n/n/yyyy dates day-first? True when any first part is over 12. Pure. */
+    public static function isDayFirst(array $dates): bool
+    {
+        foreach ($dates as $d) {
+            if (preg_match('#^(\d{1,2})[/\-](\d{1,2})[/\-]\d{2,4}$#', trim((string)$d), $m) && (int)$m[1] > 12 && (int)$m[2] <= 12) return true;
+        }
+        return false;
+    }
+
     private function parseDate(string $s): ?string
     {
         $s = trim($s);
         if (!$s) return null;
 
-        // Try common formats
-        $formats = ['Y-m-d', 'm/d/Y', 'd/m/Y', 'M d, Y', 'M. d, Y', 'd-M-y', 'Y/m/d', 'm-d-Y'];
+        // Try common formats (day-first files try d/m/Y before m/d/Y)
+        $formats = $this->dayFirst
+            ? ['Y-m-d', 'd/m/Y', 'm/d/Y', 'M d, Y', 'M. d, Y', 'd-M-y', 'Y/m/d', 'd-m-Y', 'm-d-Y']
+            : ['Y-m-d', 'm/d/Y', 'd/m/Y', 'M d, Y', 'M. d, Y', 'd-M-y', 'Y/m/d', 'm-d-Y'];
         foreach ($formats as $fmt) {
             $dt = DateTime::createFromFormat($fmt, $s);
             if ($dt && $dt->format($fmt) === $s) {
@@ -1848,6 +3568,112 @@ class BankImportService
         }
 
         return null;
+    }
+
+    /**
+     * Returns true if this description is a credit-card payment/settlement —
+     * either the bank statement's "pay credit card" debit, or the CC statement's
+     * "payment received — thank you" credit. These move cash between the bank
+     * account and the card; they are NOT income or expense (the CC statement's
+     * individual charges are the real expenses) and must not be double-counted.
+     */
+    /**
+     * On a CARD statement, a credit that says "payment" is the payoff, whatever the bank calls it
+     * ("PAYMENT RECEIVED", "ONLINE PAYMENT", "PAYMENT FROM CHQ") — unless it's a refund. Missed,
+     * it became a "refund" and cut expenses by the payoff (review 2026-10-12). Pure.
+     */
+    public static function isCardStatementPayment(string $description): bool
+    {
+        $d = strtoupper($description);
+        // Vancity glues the posting date on: "JUL 13PAYMENT RECEIVED" — no \b between "13" and "P".
+        return (bool)preg_match('/(?<![A-Z])(PAYMENT|PYMT|PMT)\b/', $d)
+            && !preg_match('/\b(REFUND|RETURN|REVERSAL|CREDIT\s+VOUCHER|ADJUSTMENT|CASH\s*BACK|REWARD)/', $d);
+    }
+
+    private function isCreditCardPayment(string $description): bool
+    {
+        $d = ' ' . strtoupper($description) . ' ';
+
+        // The card's own "payment received" / autopay lines.
+        if (preg_match('/\bPAYMENT\b.*\bTHANK\s*YOU\b/', $d)) return true;
+        // A card statement's own bare autopay line ("PRE-AUTHORIZED PAYMENT") — but NOT a bank
+        // statement's pre-authorized bill, which names its payee ("Preauthorized payment TELUS
+        // MOBILITY"): that's a bill. Catching those booked every PAD bill since June 2026 as a
+        // card payoff (Telus, ICBC, insurance, payroll, the RAM loan).
+        if (preg_match('/^\s*(PRE-?AUTH(ORIZED)?|AUTOMATIC|AUTO)\s+PAYMENT\s*(-?\s*THANK\s*YOU)?\s*$/', $d)) return true;
+
+        // A payment from the bank TO a card, in either word order
+        // ("VISA PAYMENT", "PAYMENT - VANCITY VISA", "MASTERCARD PMT", "PAY CREDIT CARD").
+        $card = '(VISA|MASTERCARD|MASTER\s*CARD|AMEX|AMERICAN\s+EXPRESS|CREDIT\s*CARD|CREDITCARD)';
+        if (preg_match('/\b' . $card . '\b.*\b(PAYMENT|PYMT|PMT|PAY)\b/', $d)) return true;
+        if (preg_match('/\b(PAYMENT|PYMT|PMT)\b.*\b' . $card . '\b/', $d)) return true;
+
+        return false;
+    }
+
+    /**
+     * Promote a credit-card settlement row to a TRANSFER against Credit Card
+     * Payable so it is excluded from income/expense reporting. Returns true when
+     * the row was handled (caller should skip further categorization/matching).
+     *
+     * Triggers for:
+     *   (a) CC statement payment lines already flagged cc_payment in parseCSV, and
+     *   (b) bank statement debits whose description looks like a CC payment.
+     *
+     * Falls back to a flagged expense (never a broken FK) if the Credit Card
+     * Payable account is missing from the chart of accounts.
+     */
+    private function applyCcSettlement(array &$row, int $ccPayableId, int $defaultExpenseId, string $kind = 'bank'): bool
+    {
+        $isSettlement = !empty($row['cc_payment'])
+            || (($row['type'] ?? '') === 'expense' && $this->isCreditCardPayment($row['description'] ?? ''))
+            // On the card's OWN statement, "PAYMENT RECEIVED -- THANK YOU" is the payoff (the chequing
+            // line carries the cash) — read as a $250 charge on 2026-10-13.
+            // A line the card parser already called a charge ("GOOGLE *PAYMENT") never is (Fable 2026-10-13).
+            || ($kind === 'credit_card' && ($row['cc_role'] ?? null) !== 'charge' && self::isCardStatementPayment($row['description'] ?? ''));
+        if (!$isSettlement) {
+            return false;
+        }
+
+        $row['cc_payment']      = true;
+        $row['cc_note']         = 'Credit card payment — reconcile against CC statement';
+        $row['amount']          = round(abs((float)$row['amount']), 2);
+        $row['auto_cat']        = true;
+        $row['rule_id']         = null;
+        $row['is_duplicate']    = false;
+        $row['duplicate_type']  = null;
+        $row['duplicate_tx_id'] = null;
+        $row['match_candidate'] = false;
+
+        // Card payoffs go through the duplicate check like every other line: skipping it let
+        // overlapping statement imports re-add the same payoff 2-4 times (2026-10-05).
+        try {
+            // Compared only with lines from the same kind of statement: the card statement's own
+            // payment line and the chequing payoff are two lines, not one imported twice.
+            $dupe = !empty($row['date']) ? $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], 'expense', $kind) : null;
+        } catch (Throwable $e) {
+            $dupe = null;   // never block an import on the check itself
+        }
+        if ($dupe) {
+            $row['is_duplicate']    = true;
+            $row['duplicate_type']  = 'true_duplicate';
+            $row['duplicate_tx_id'] = $dupe;
+        }
+
+        if ($ccPayableId > 0) {
+            $row['type']         = 'transfer';
+            $row['account_id']   = $ccPayableId;
+            $row['account_name'] = 'Credit Card Payable';
+            $row['account_code'] = self::CREDIT_CARD_CODE;
+        } else {
+            // No Credit Card Payable account — keep it a (flagged) expense so the
+            // NOT NULL account_id FK stays valid; the note still warns the user.
+            $row['type']         = 'expense';
+            $row['account_id']   = $defaultExpenseId;
+            $row['account_name'] = 'Miscellaneous Expenses';
+            $row['account_code'] = self::DEFAULT_EXPENSE_CODE;
+        }
+        return true;
     }
 
     /**
@@ -2063,6 +3889,10 @@ class BankImportService
         }
 
         // ── Stage 2: Amount-range match ───────────────────────────────────────
+        // Never for Stripe: a payout bundles several charges, and StripePayoutService books it
+        // from Stripe's own payout data. A range guess tied a payout to one unrelated invoice,
+        // invented a "fee" and then blocked the real booking (review 2026-10-12).
+        if (stripos($bankDescription, 'stripe') !== false) return null;
         $maxGross = round($bankAmount * 1.065, 2);
 
         $stmt = $this->db->prepare("
@@ -2089,11 +3919,13 @@ class BankImportService
               AND t.transaction_date BETWEEN
                   DATE_SUB(?, INTERVAL 7 DAY) AND DATE_ADD(?, INTERVAL 1 DAY)
             ORDER BY day_diff ASC, t.id DESC
-            LIMIT 1
+            LIMIT 2
         ");
         $stmt->execute([$date, $bankAmount, $maxGross, $date, $date]);
-        $match = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$match) return null;
+        $cands = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Only when one invoice fits: two in range is a guess, left for a person.
+        if (count($cands) !== 1) return null;
+        $match = $cands[0];
 
         return [
             'tx_id'            => (int)$match['tx_id'],
@@ -2116,12 +3948,13 @@ class BankImportService
     {
         $stmt = $this->db->query("
             SELECT id FROM chart_of_accounts
-            WHERE (code = '6850'
+            WHERE (code = '6800'
                    OR name LIKE '%processing fee%'
                    OR name LIKE '%payment processing%'
                    OR name LIKE '%bank charge%')
+              AND name NOT LIKE '%meal%'          -- 6850 is Meals & Entertainment on production (2026-10-13)
               AND type = 'expense' AND is_active = 1
-            ORDER BY CASE WHEN code = '6850' THEN 0 ELSE 1 END
+            ORDER BY CASE WHEN code = '6800' THEN 0 ELSE 1 END
             LIMIT 1
         ");
         $id = $stmt->fetchColumn();
@@ -2130,7 +3963,7 @@ class BankImportService
         $this->db->prepare("
             INSERT INTO chart_of_accounts
                 (code, name, type, sub_type, normal_balance, is_active, display_order)
-            VALUES ('6850', 'Payment Processing Fees', 'expense', 'operating', 'debit', 1, 685)
+            VALUES ('6800', 'Bank Charges & Fees', 'expense', 'banking', 'debit', 1, 510)
         ")->execute();
         return (int)$this->db->lastInsertId();
     }
@@ -2141,21 +3974,55 @@ class BankImportService
      * expense-backed transactions are NOT falsely flagged as duplicates.
      * Returns the existing transaction_id, or null.
      */
-    private function checkTrueDuplicate(string $date, float $amount, string $type): ?int
+    /**
+     * @param ?string $kind 'credit_card' or 'bank' — the statement being imported. A card statement's
+     *        own "PAYMENT – THANK YOU" line and the chequing line that paid it are the SAME amount on
+     *        the same day but two different lines; matched across kinds, the chequing payoff was
+     *        dropped as a duplicate and DR 2400 / CR 1010 never booked (review 2026-10-12).
+     */
+    private function checkTrueDuplicate(string $date, float $amount, string $type, ?string $kind = null): ?int
     {
+        // Match directly against accounting_transactions rather than requiring a
+        // bank_import_rows audit entry — historical imports (or transactions created
+        // outside the standard commit path) may lack a bank_import_rows row for the
+        // same transaction, which previously made this check silently miss real
+        // duplicates and let bulk re-uploads re-import already-recorded transactions.
+        //
+        // type IN (?, 'transfer') — not just type = ? — because a prior import of
+        // this exact row may have already been reclassified to 'transfer': an
+        // income deposit auto-matched to an invoice (see the "Book the bank
+        // deposit as a cash-clearing TRANSFER" branch above) or a credit-card
+        // settlement, both relabel the row post-import. Checking only the
+        // incoming row's own type missed every such row on re-import — the
+        // duplicate silently got re-created instead of skipped. Real case: a
+        // July statement re-imported over an already-covered period created 22
+        // duplicate rows this way. 'transfer' is still narrower than dropping
+        // the type filter entirely, which would risk matching an unrelated
+        // expense against an income of the same amount/date.
         $stmt = $this->db->prepare("
-            SELECT r.transaction_id
-            FROM bank_import_rows r
-            JOIN accounting_transactions t ON t.id = r.transaction_id
-            WHERE t.type = ?
-              AND ABS(t.amount - ?) < 0.01
-              AND ABS(DATEDIFF(t.transaction_date, ?)) <= 1
-              AND t.reference_type = 'bank_import'
-            LIMIT 1
+            SELECT id
+            FROM accounting_transactions
+            WHERE type IN (?, 'transfer')
+              AND ABS(amount - ?) < 0.01
+              AND ABS(DATEDIFF(transaction_date, ?)) <= 1
+              AND (reference_type = 'bank_import'
+                   /* a statement line joined to its receipt at import is still a statement line
+                      (2026-10-13): re-importing it re-matched the receipt instead of skipping */
+                   OR (reference_type = 'expense' AND EXISTS (SELECT 1 FROM bank_import_rows bir WHERE bir.transaction_id = accounting_transactions.id)))
+              " . ($kind === null ? '' : ($kind === 'credit_card'
+                    ? "AND bank_account_id IN (SELECT account_id FROM bank_statement_accounts WHERE kind = 'card')"
+                    : "AND (bank_account_id IS NULL OR bank_account_id NOT IN (SELECT account_id FROM bank_statement_accounts WHERE kind = 'card'))")) . "
+            ORDER BY ABS(DATEDIFF(transaction_date, ?)), id
+            LIMIT 20
         ");
-        $stmt->execute([$type, $amount, $date]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? (int)$row['transaction_id'] : null;
+        $stmt->execute([$type, $amount, $date, $date]);
+        // Count-aware: each existing line answers for ONE row of this file.
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if (isset($this->dupUsed[(int)$id])) continue;
+            $this->dupUsed[(int)$id] = true;
+            return (int)$id;
+        }
+        return null;
     }
 
     /**
@@ -2191,19 +4058,20 @@ class BankImportService
                                     AND DATE_ADD(?, INTERVAL 3 DAY)
               AND e.status IN ('approved','forwarded')
               AND bt.id IS NULL
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "   -- one of several on another line (migration 1372)
+              -- already joined to a statement line at an earlier import: one receipt, one charge (2026-10-13)
+              AND NOT EXISTS (SELECT 1 FROM accounting_transactions x JOIN bank_import_rows xr ON xr.transaction_id = x.id
+                               WHERE x.reference_type = 'expense' AND x.reference_id = e.id)
             ORDER BY day_diff ASC, e.expense_date DESC
             LIMIT 5
         ");
         $stmt->execute([$date, $amount, $date, $date]);
-        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $candidates = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
+            fn($c) => !isset($this->expClaimed[(int)$c['id']])));   // matched to an earlier row of this file
 
         if (empty($candidates)) return null;
 
         // Score each candidate and pick the best
-        $descWords = array_filter(
-            array_map('strtolower', preg_split('/[\s\-\/]+/', $description)),
-            function($w) { return strlen($w) >= 4; }
-        );
 
         $best      = null;
         $bestScore = 0;
@@ -2214,12 +4082,8 @@ class BankImportService
             $score  += $dayDiff === 0 ? 20 : ($dayDiff === 1 ? 12 : ($dayDiff === 2 ? 6 : 2));
 
             // Vendor name overlap
-            $vendorLower = strtolower($c['vendor_name_raw'] ?? '');
-            foreach ($descWords as $word) {
-                if (strpos($vendorLower, $word) !== false) {
-                    $score += 20;
-                    break;
-                }
+            if (self::vendorInDescription((string)($c['vendor_name_raw'] ?? ''), $description)) {
+                $score += 20;
             }
 
             if ($score > $bestScore) {
@@ -2229,8 +4093,568 @@ class BankImportService
         }
 
         if (!$best) return null;
+        $this->expClaimed[(int)$best['id']] = true;
 
         return ['expense' => $best, 'confidence' => min($bestScore, 100)];
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // MANUAL RECONCILIATION — expense ↔ bank transaction
+    //
+    // findExpenseMatch() above only runs once, inline during import commit, and
+    // only considers approved/forwarded expenses. There is no later rescan, so
+    // any transaction that misses that single pass (receipt still draft at
+    // import time, amount/date drift) stays unmatched forever. These methods
+    // back a human "find match → attach" flow reachable from both the Edit
+    // Expense modal and the transactions list, mirroring
+    // InvoiceReconciliationService's candidates/attach/detach pattern.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private const EXPENSE_MATCH_THRESHOLD = 30; // lower bar than auto-match — a human confirms
+    /**
+     * A Stripe fee line is split out of a payout by StripePayoutService (description "Stripe fees — payout po_…",
+     * payment_reference = the payout id): Stripe's fee, booked to fees, never a receipt's purchase. Receipt matching
+     * leaves it out (Tim, 2026-10-15: it was offered as a match for a Chevron receipt). SQL for alias `at`.
+     */
+    public const NOT_STRIPE_FEE_SQL = "NOT (COALESCE(at.payment_reference, '') LIKE 'po\\_%' AND at.description LIKE 'Stripe fees%')";
+
+    public static function isStripeFeeLine(string $description, ?string $paymentReference): bool
+    {
+        return strncmp((string)$paymentReference, 'po_', 3) === 0 && strncmp($description, 'Stripe fees', 11) === 0;
+    }
+
+    /**
+     * Amount part of a receipt ↔ bank line score. With Penny's read of the printed total (she disagrees
+     * with the saved one), the PRINTED amount is the receipt: exact to her read = 50; exact only to the
+     * saved (misread) total = 35, said so. Without her read: exact 50, within 2% 35. PURE.
+     * @return array{0: int, 1: string[]}|null
+     */
+    public static function amountScore(float $saved, float $bank, ?float $pennyTotal = null): ?array
+    {
+        $saved = round($saved, 2);
+        $bank = round($bank, 2);
+        $close = static fn(float $a) => abs($a - $bank) <= max(0.5, $a * 0.02);
+        if ($pennyTotal !== null && abs(round($pennyTotal, 2) - $saved) >= 0.01) {
+            $p = round($pennyTotal, 2);
+            if (abs($p - $bank) < 0.01) return [50, ['Exact match to the printed total (Penny\'s read)']];
+            if (abs($saved - $bank) < 0.01) return [35, ['Matches the saved total — Penny read $' . number_format($p, 2) . ' printed']];
+            if ($close($p)) return [35, ['Amount close to the printed total (within 2%)']];
+            return $close($saved) ? [30, ['Amount close (within 2%)']] : null;
+        }
+        if (abs($saved - $bank) < 0.01) return [50, ['Exact amount match']];
+        if ($close($saved)) return [35, ['Amount close (within 2%)']];
+        return null;
+    }
+
+    /** Penny's pending read of an expense's total (expense_suggestions, migration 1125), or null. */
+    private function pennyTotal(int $expenseId): ?float
+    {
+        try {
+            $s = $this->db->prepare("SELECT suggestion_json FROM expense_suggestions WHERE expense_id = ? AND source = 'live' AND status = 'pending' ORDER BY id DESC LIMIT 1");
+            $s->execute([$expenseId]);
+            $j = json_decode((string)$s->fetchColumn(), true);
+            $v = is_array($j) ? ($j['total']['value'] ?? ($j['total'] ?? null)) : null;
+            return is_numeric($v) && (float)$v > 0 ? round((float)$v, 2) : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private const EXPENSE_MATCH_WINDOW_DAYS = 14; // wider than findExpenseMatch()'s ±3d, same reason
+
+    /**
+     * Does the bank line name this vendor? Banks run words together — Vancity writes
+     * "POINTOFSALE(THEHOMEDEPOT7043RICHMONDBCCA)" — so whole-word splitting never found
+     * "Home Depot" and an exact $199.71 same-day match scored 55% (2026-10-13). Compares
+     * letters and digits only: the whole vendor name, or any vendor word of 4+ letters.
+     */
+    public static function vendorInDescription(string $vendor, string $description): bool
+    {
+        $compact = static fn(string $x): string => (string)preg_replace('/[^a-z0-9]+/', '', strtolower($x));
+        $desc = $compact($description);
+        $whole = $compact($vendor);
+        if ($desc === '' || strlen($whole) < 4) return false;
+        if (strpos($desc, $whole) !== false) return true;
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($vendor)) as $w) {
+            if (strlen($w) >= 4 && !in_array($w, ['store', 'shop', 'company', 'canada', 'limited'], true)
+                && strpos($desc, $w) !== false) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Score an expense against a bank transaction for manual-match candidates.
+     * Same signal as findExpenseMatch() (amount, date proximity, vendor/description
+     * overlap) but with wider tolerances and a ranked reasons[] list for display,
+     * since a human reviews before confirming rather than a silent auto-commit.
+     *
+     * @return array{confidence:int, reasons:string[]}|null
+     */
+    private function scoreExpenseTransactionPair(array $expense, array $transaction, ?array $stop = null): ?array
+    {
+        $amt = self::amountScore((float)$expense['total'], (float)$transaction['amount'],
+                                 isset($expense['penny_total']) ? (float)$expense['penny_total'] : null);
+        if ($amt === null) return null; // amounts unrelated
+        [$score, $reasons] = $amt;
+
+        $dayDiff = (int) round(
+            abs(strtotime((string)$transaction['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400
+        );
+        if ($dayDiff === 0)      { $score += 20; $reasons[] = 'Same day'; }
+        elseif ($dayDiff <= 1)   { $score += 15; }
+        elseif ($dayDiff <= 3)   { $score += 10; }
+        elseif ($dayDiff <= 7)   { $score += 5;  $reasons[] = 'Within a week'; }
+        elseif ($dayDiff <= self::EXPENSE_MATCH_WINDOW_DAYS) { $score += 2; }
+        else return null; // beyond the manual-review window
+
+        if (self::vendorInDescription((string)($expense['vendor_name_raw'] ?? ''), (string)$transaction['description'])) {
+            $score += 20;
+            $reasons[] = 'Vendor name matches statement description';
+        }
+        // Otto saw the crew at the place that day (Tim, 2026-10-15: "time, GPS confirmation and date should add strength").
+        if ($o = self::ottoStopBonus($stop, (string)$transaction['transaction_date'])) {
+            $score += $o['points'];
+            $reasons[] = $o['reason'];
+        }
+
+        $score = min(100, $score);
+        if ($score < self::EXPENSE_MATCH_THRESHOLD) return null;
+        return ['confidence' => $score, 'reasons' => $reasons];
+    }
+
+    /**
+     * Otto's GPS evidence for a receipt's bank line: the crew were at the place (SupplierStopService),
+     * and the receipt is tied to that stop by the time printed on it (strongest), the photo's time, or
+     * only the date. Counts when the bank line is dated the stop's day or up to 3 days after (card
+     * payments post late); never for a line dated before the stop.
+     * @return array{points: int, reason: string}|null
+     */
+    public static function ottoStopBonus(?array $stop, string $txDate): ?array
+    {
+        if (!$stop || empty($stop['arrived_at']) || $txDate === '') return null;
+        $lag = (int)round((strtotime($txDate) - strtotime(substr((string)$stop['arrived_at'], 0, 10))) / 86400);
+        if ($lag < 0 || $lag > 3) return null;
+        $points = ['printed' => 20, 'photo' => 15][$stop['basis'] ?? ''] ?? 8;
+        $who = trim(preg_replace('/\s*\(on the clock\)$/', '', (string)($stop['people'] ?? ''))) ?: 'The crew';
+        $at = date('G:i', strtotime((string)$stop['arrived_at']));
+        $how = ['printed' => 'at the time printed on the receipt', 'photo' => 'when the receipt photo was taken'][$stop['basis'] ?? ''] ?? 'that day';
+        return ['points' => $points, 'reason' => 'GPS: ' . $who . ' at ' . trim((string)$stop['place_name']) . ' ' . $at . ' — ' . $how];
+    }
+
+    /** The date printed on the receipt (receipt_facts), or null. Never fails a match. */
+    private function printedDateFor(int $expenseId): ?string
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptFactsService.php';
+            $f = (new ReceiptFactsService($this->db))->forExpense($expenseId);
+            $d = is_array($f) ? (string)($f['printed_date'] ?? '') : '';
+            return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /** Otto's stop for a receipt, or null (never fails a match). */
+    private function stopForExpense(int $expenseId): ?array
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Operations/Services/SupplierStopService.php';
+            return (new SupplierStopService($this->db))->stopForExpense($expenseId);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Candidate bank transactions for a single expense — "Find Match" from the
+     * Edit Expense modal. Only offers transactions not already claimed by another
+     * expense (mirrors findExpenseMatch()'s bt.id IS NULL guard).
+     */
+    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8, ?float $total = null, ?string $date = null, ?string $printedDate = null): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, v.name AS vendor_name, e.amount, e.gst_amount, e.pst_amount, e.accounting_category
+            FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id WHERE e.id = ?
+        ");
+        $stmt->execute([$expenseId]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) return [];
+        // What the Edit Expense form shows right now, before Save — a receipt saved without its
+        // PST ($196.08) matched its $199.71 bank line as "within 2%" (2026-10-13).
+        $expense['saved_total'] = round((float)$expense['total'], 2);   // what the receipt says, for the tip check
+        if ($total !== null && $total > 0) $expense['total'] = round($total, 2);
+        if ($date !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $expense['expense_date'] = $date;
+        // Penny's read of the PRINTED total, when she disagrees with the saved one (a scanner misread):
+        // the bank line for the printed amount is the exact match (Tim, 2026-10-19: Chevron $14.88 printed,
+        // saved $14.69 — the $14.69 line was shown as "exact", the right $14.88 line as "close").
+        $penny = $this->pennyTotal($expenseId);
+        if ($penny !== null && abs($penny - (float)$expense['total']) >= 0.01) $expense['penny_total'] = $penny;
+        $alt = $expense['penny_total'] ?? $expense['total'];
+
+        // The date PRINTED on the receipt is a second anchor: the form's date can be wrong (Dunbar Lumber 2026-10-24:
+        // form said Jun 22, receipt and bank said May 27, so the exact $48.13 line fell outside the window and all
+        // three offered lines tied at 10%). Search and score around both dates, keep each line's best score.
+        $printed = ($printedDate !== null && $printedDate !== '') ? $printedDate : $this->printedDateFor($expenseId);
+        if ($printed !== null && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $printed) || $printed === $expense['expense_date'])) $printed = null;
+        $expense['printed_date'] = $printed;
+        $anchors = [(string)$expense['expense_date']];
+        if ($printed !== null) $anchors[] = $printed;
+
+        $stop = $this->stopForExpense($expenseId);
+        $best = [];
+        foreach ($anchors as $anchor) {
+            $stmt = $this->db->prepare("
+            SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
+            FROM accounting_transactions at
+            WHERE at.type = 'expense'
+              AND at.reference_type = 'bank_import'
+              AND at.matched_expense_id IS NULL
+              AND " . self::NOT_STRIPE_FEE_SQL . "
+              AND (ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02) OR ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02))
+              AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+                                          AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+            ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
+            LIMIT 50
+        ");
+            $stmt->execute([$expense['total'], $expense['total'], $alt, $alt, $anchor, $anchor, $anchor]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
+                $scored = $expense;
+                $scored['expense_date'] = $anchor;
+                $score = $this->scoreExpenseTransactionPair($scored, $tx, $stop);
+                if ($score === null) continue;
+                $id = (int)$tx['id'];
+                $row = [
+                    'transaction_id' => $id,
+                    'date'           => substr((string)$tx['transaction_date'], 0, 10),
+                    'description'    => (string)$tx['description'],
+                    'bank_account'   => (string)($tx['bank_account'] ?? ''),
+                    'amount'         => round((float)$tx['amount'], 2),
+                    'confidence'     => $score['confidence'],
+                    'reasons'        => $score['reasons'],
+                ];
+                if (!isset($best[$id]) || $row['confidence'] > $best[$id]['confidence']) $best[$id] = $row;
+            }
+        }
+        // Receipt and bank agree, the form does not: say so, and hand the UI the date to offer. Decided after the
+        // best row is chosen, so a tie between the two anchors (both capped at 100) cannot lose it.
+        foreach ($best as &$row) {
+            if ($printed !== null && $row['date'] === $printed) {
+                $row['reasons'][] = 'The receipt prints ' . date('M j', strtotime($printed)) . ', the same day as this line — the form says '
+                                  . date('M j', strtotime((string)$expense['expense_date'])) . '. Check the date.';
+                $row['suggest_expense_date'] = $printed;
+            }
+        }
+        unset($row);
+        $out = array_values($best);
+        usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        $out = $this->receiptFactsBoost($out, null, $expenseId);
+        $out = array_slice($out, 0, $limit);
+        // Below them: the same vendor's lines at ANY amount within ±VENDOR_WINDOW_DAYS — a misread total or date
+        // (handwritten 8 read as 3: Champion $184.40 vs the receipt's $134.40, Tim 2026-10-15). Never above an amount match.
+        return array_merge($out, $this->sameVendorLines($expense, array_column($out, 'transaction_id')));
+    }
+
+    public const VENDOR_WINDOW_DAYS = 30;
+
+    /** Do a receipt total and a bank line agree (exact, or within 2% / 50¢ — the candidates' own rule)? Pure. */
+    public static function amountsAgree(float $total, float $line): bool
+    {
+        return abs(round($total, 2) - round($line, 2)) <= max(0.5, round($total, 2) * 0.02) + 0.001;
+    }
+    public const VENDOR_LINES_MAX = 3;
+
+    /** Unmatched bank lines naming the receipt's vendor, any amount, nearest date first. */
+    private function sameVendorLines(array $expense, array $exclude): array
+    {
+        $names = array_values(array_filter([trim((string)($expense['vendor_name'] ?? '')), trim((string)($expense['vendor_name_raw'] ?? ''))]));
+        if (!$names) return [];
+        // Narrow in SQL by the vendor's words (vendorInDescription confirms each in PHP), so no cap can hide a match.
+        $words = [];
+        foreach ($names as $n) {
+            foreach (preg_split('/[^a-z0-9]+/', strtolower($n)) as $w) {
+                if (strlen($w) >= 4 && !in_array($w, ['store', 'shop', 'company', 'canada', 'limited'], true)) $words[$w] = true;
+            }
+        }
+        if (!$words) return [];
+        $like = implode(' OR ', array_fill(0, count($words), 'LOWER(at.description) LIKE ?'));
+        $s = $this->db->prepare("
+            SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
+            FROM accounting_transactions at
+            WHERE at.type = 'expense' AND at.reference_type = 'bank_import' AND at.matched_expense_id IS NULL
+              AND " . self::NOT_STRIPE_FEE_SQL . "
+              AND (at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY)
+                   OR at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY) AND DATE_ADD(?, INTERVAL " . self::VENDOR_WINDOW_DAYS . " DAY))
+              AND ({$like})
+            ORDER BY LEAST(ABS(DATEDIFF(at.transaction_date, ?)), ABS(DATEDIFF(at.transaction_date, ?))) ASC
+            LIMIT 50
+        ");
+        $second = !empty($expense['printed_date']) ? $expense['printed_date'] : $expense['expense_date'];   // no printed date: the same window twice
+        $s->execute(array_merge([$expense['expense_date'], $expense['expense_date'], $second, $second], array_map(fn($w) => '%' . $w . '%', array_keys($words)), [$expense['expense_date'], $second]));
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $tx) {
+            if (in_array((int)$tx['id'], $exclude, true)) continue;
+            $hit = false;
+            foreach ($names as $n) if (self::vendorInDescription($n, (string)$tx['description'])) { $hit = true; break; }
+            if (!$hit) continue;
+            $out[] = self::vendorLine($expense, $tx);
+        }
+        // Two same-vendor charges that could each be "the receipt plus a tip" (two visits): don't pick for the owner.
+        if (count(array_filter($out, fn($l) => !empty($l['tip']))) > 1) {
+            $out = array_map(fn($l) => !empty($l['tip']) ? self::vendorLine(['no_tip' => true] + $expense, ['id' => $l['transaction_id'], 'transaction_date' => $l['date'],
+                    'description' => $l['description'], 'amount' => $l['amount'], 'bank_account' => $l['bank_account']]) : $l, $out);
+        }
+        // The same amount first (a date to check), then a different amount; nearest date within each.
+        usort($out, fn($a, $b) => [empty($a['same_amount']), -$a['confidence']] <=> [empty($b['same_amount']), -$b['confidence']]);
+        return array_slice($out, 0, self::VENDOR_LINES_MAX);
+    }
+
+    /**
+     * A meal's bank charge is the receipt plus a tip the paper didn't carry (Tim, 2026-10-26: Moxies, Ah Long Sushi, Whitespot).
+     * When the receipt is a MEALS receipt, the bank charged $1+ more than the receipt total, the gap is a plausible tip (5–35% of
+     * the pre-tax amount) and the charge is within 3 days of the receipt, say what the tip would be and what the receipt would
+     * become: the tip goes in the PRE-TAX amount (a tip carries no GST or PST), the tax stays as printed, the total is the bank charge.
+     * @return array{tip: float, pct: float, amount: float, total: float}|null
+     */
+    public static function tipSuggestion(array $expense, float $bankAmount, string $bankDate): ?array
+    {
+        if (!in_array(strtolower(trim((string)($expense['accounting_category'] ?? ''))), ['meals', 'meals & entertainment'], true)) return null;
+        $total = round((float)($expense['saved_total'] ?? $expense['total'] ?? 0), 2);
+        $bank = round($bankAmount, 2);
+        $tip = round($bank - $total, 2);
+        if ($total <= 0 || $tip < 1.00) return null;
+        $gst = round((float)($expense['gst_amount'] ?? 0), 2);
+        $pst = round((float)($expense['pst_amount'] ?? 0), 2);
+        $pre = isset($expense['amount']) && (float)$expense['amount'] > 0 ? round((float)$expense['amount'], 2) : round($total - $gst - $pst, 2);
+        if ($pre <= 0) return null;
+        // The receipt must already add up (pre-tax + GST + PST = total); one that doesn't — a tip already in it, a misread — is not ours to guess at.
+        if (abs($pre + $gst + $pst - $total) > 0.011) return null;
+        $pct = $tip / $pre * 100;
+        if ($pct < 5 || $pct > 35) return null;
+        $dates = array_filter([(string)($expense['expense_date'] ?? ''), (string)($expense['printed_date'] ?? '')]);
+        $near = false;
+        foreach ($dates as $d) if (abs((int)round((strtotime(substr($bankDate, 0, 10) . ' 12:00:00 UTC') - strtotime(substr($d, 0, 10) . ' 12:00:00 UTC')) / 86400)) <= 3) $near = true;
+        if (!$near) return null;
+        return ['tip' => $tip, 'pct' => round($pct, 1), 'amount' => round($pre + $tip, 2), 'total' => $bank];
+    }
+
+    /** One same-vendor candidate, shaped like the others; low confidence, says what to check. Pure. */
+    public static function vendorLine(array $expense, array $tx): array
+    {
+        $days = (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400);
+        if (!empty($expense['printed_date'])) {   // the date printed on the receipt counts too: nearest of the two
+            $days = min($days, (int)round(abs(strtotime((string)$tx['transaction_date']) - strtotime((string)$expense['printed_date'])) / 86400));
+        }
+        $amt = round((float)$tx['amount'], 2);
+        $same = abs($amt - round((float)$expense['total'], 2)) < 0.01;
+        $tip = ($same || !empty($expense['no_tip'])) ? null : self::tipSuggestion($expense, $amt, (string)$tx['transaction_date']);
+        $reasons = ['Same vendor'];
+        $reasons[] = $same ? 'Same amount, ' . $days . ' day' . ($days === 1 ? '' : 's') . ' apart — check the date'
+                           : ($tip ? 'Adds a $' . number_format($tip['tip'], 2) . ' tip (' . rtrim(rtrim(number_format($tip['pct'], 1), '0'), '.') . '%) to the receipt — check the paper'
+                                   : 'Different amount ($' . number_format($amt, 2) . ' vs $' . number_format((float)$expense['total'], 2) . ') — check the total');
+        return [
+            'transaction_id' => (int)$tx['id'],
+            'date'           => substr((string)$tx['transaction_date'], 0, 10),
+            'description'    => (string)$tx['description'],
+            'bank_account'   => (string)($tx['bank_account'] ?? ''),
+            'amount'         => $amt,
+            // Same vendor AND amount is a real lead, only the date is off: it must not tie with a different amount.
+            'confidence'     => $same ? max(25, 45 - $days) : ($tip ? max(40, 55 - $days) : max(10, 30 - $days)),
+            'reasons'        => $reasons,
+            'vendor_only'    => true,
+            'same_amount'    => $same,
+            'tip'            => $tip,
+        ];
+    }
+
+    /**
+     * Candidate expenses for a single unmatched bank transaction — "Find Expense
+     * Match" from the transactions list. Deliberately includes draft/pending_approval
+     * expenses, not just approved/forwarded like findExpenseMatch() — a human is
+     * confirming the link here, and an unapproved-at-import-time receipt is exactly
+     * the gap the automatic matcher can never recover from. Attaching does not
+     * change the expense's own approval status.
+     */
+    public function candidateExpensesForTransaction(int $transactionId, int $limit = 8): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, transaction_date, description, amount, matched_expense_id, payment_reference
+            FROM accounting_transactions
+            WHERE id = ? AND type = 'expense' AND reference_type = 'bank_import'
+        ");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction || $transaction['matched_expense_id']) return [];
+        if (self::isStripeFeeLine((string)$transaction['description'], $transaction['payment_reference'] ?? null)) return [];
+
+        $stmt = $this->db->prepare("
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, e.status, e.accounting_category
+            FROM expenses e
+            LEFT JOIN accounting_transactions bt ON bt.matched_expense_id = e.id
+            WHERE e.status IN ('draft','pending_approval','approved','forwarded')
+              AND bt.id IS NULL
+              AND NOT " . BankLineReceipts::linkedSql($this->db, 'e.id') . "
+              AND ABS(e.total - ?) <= GREATEST(0.5, ? * 0.02)
+              AND e.expense_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+                                     AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+            ORDER BY ABS(DATEDIFF(e.expense_date, ?)) ASC
+            LIMIT 50
+        ");
+        $stmt->execute([
+            $transaction['amount'], $transaction['amount'],
+            $transaction['transaction_date'], $transaction['transaction_date'],
+            $transaction['transaction_date'],
+        ]);
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $exp) {
+            $score = $this->scoreExpenseTransactionPair($exp, $transaction);
+            if ($score === null) continue;
+            $out[] = [
+                'expense_id' => (int)$exp['id'],
+                'date'       => substr((string)$exp['expense_date'], 0, 10),
+                'vendor'     => (string)($exp['vendor_name_raw'] ?: 'Unknown vendor'),
+                'category'   => (string)($exp['accounting_category'] ?? ''),
+                'amount'     => round((float)$exp['total'], 2),
+                'status'     => (string)$exp['status'],
+                'confidence' => $score['confidence'],
+                'reasons'    => $score['reasons'],
+            ];
+        }
+        usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        $out = $this->receiptFactsBoost($out, $transactionId, null);
+        return array_slice($out, 0, $limit);
+    }
+
+    /**
+     * Printed receipt facts (card last 4, printed date / time — receipt_facts, migration 1227)
+     * raise a candidate's confidence and say why. Suggestions only: nothing is matched here.
+     */
+    private function receiptFactsBoost(array $rows, ?int $transactionId, ?int $expenseId): array
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/ReceiptFactsService.php';
+            return (new ReceiptFactsService($this->db))->boostBankCandidates($rows, $transactionId, $expenseId);
+        } catch (Throwable $e) {
+            return $rows;
+        }
+    }
+
+    /**
+     * Manually attach a bank transaction to an expense — the human-confirmed
+     * counterpart to findExpenseMatch()'s silent auto-match at import time.
+     * Does not touch the expense's own status (draft/approved/etc.) — purely
+     * records the bookkeeping link between the two rows.
+     */
+    public function attachExpenseMatch(int $transactionId, int $expenseId, int $userId): array
+    {
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+        $stmt = $this->db->prepare("
+            SELECT id, matched_expense_id, transaction_date, description, amount
+            FROM accounting_transactions
+            WHERE id = ? AND type = 'expense' AND reference_type = 'bank_import'
+        ");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction) throw new RuntimeException('Bank transaction not found.');
+        if ($transaction['matched_expense_id']) throw new RuntimeException('Transaction is already matched to an expense.');
+
+        $stmt = $this->db->prepare("SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?"
+            . ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : ''));
+        $stmt->execute([$expenseId]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) throw new RuntimeException('Expense not found.');
+        // A bank line is the same purchase only when the amounts agree (within the candidates' 2%): a same-vendor
+        // line at another amount means the receipt's total is misread — fix and save it first (2026-10-15).
+        if (!self::amountsAgree((float)$expense['total'], (float)$transaction['amount'])) {
+            throw new RuntimeException('The receipt says $' . number_format((float)$expense['total'], 2) . ' and the bank line $'
+                . number_format((float)$transaction['amount'], 2) . ' — correct the receipt total and save it first.');
+        }
+
+        if ((new BankLineReceipts($this->db))->lineFor($expenseId) !== null) throw new RuntimeException('This expense is already matched to another transaction.');
+
+        // Recorded for reporting even though the user picked it manually — falls
+        // back to 0 if the pair is outside the normal scoring window (a deliberate
+        // human override of what the candidate list would have suggested).
+        $score = $this->scoreExpenseTransactionPair($expense, $transaction, $this->stopForExpense($expenseId));
+        $confidence = $score['confidence'] ?? 0;
+
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+              status             = 'reconciled',
+              matched_expense_id = ?,
+              match_confidence   = ?,
+              matched_at         = NOW(),
+              matched_by         = ?
+            WHERE id = ?
+        ")->execute([$expenseId, $confidence, (string)$userId, $transactionId]);
+
+        // A person linked this receipt (head_lessons, migration 1348): what Penny's scoring made of the pair.
+        if ($userId > 0) {
+            require_once __DIR__ . '/PennyLessons.php';
+            PennyLessons::bankLine($this->db, $transactionId, 'receipt_link',
+                $confidence > 0 ? 'possible match (' . (int)$confidence . '%)' : 'no match', 'receipt #' . $expenseId,
+                'receipt_link', $userId);
+        }
+
+        // The bank line is the truth about where the money came from (Vital Auto #384, 2026-10-12).
+        $source = $this->checkReceiptFunding($expenseId, $transactionId, $userId);
+
+        if ($own) $this->db->commit();
+        return ['transaction_id' => $transactionId, 'expense_id' => $expenseId, 'confidence' => $confidence, 'payment_source' => $source];
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Every receipt ↔ statement-line link: the receipt's payment method follows the line's account. */
+    private function checkReceiptFunding(int $expenseId, int $transactionId, ?int $userId): array
+    {
+        try {
+            require_once __DIR__ . '/ReceiptFundingCheck.php';
+            return (new ReceiptFundingCheck($this->db))->onLink($expenseId, $transactionId, $userId ?: null);
+        } catch (Throwable $e) {
+            error_log('Receipt funding check: ' . $e->getMessage());
+            return ['action' => 'error'];
+        }
+    }
+
+    /**
+     * Reverse a manual (or automatic) expense match — restores the transaction to
+     * 'cleared'/unmatched so it can be re-matched or matched to a different expense.
+     */
+    public function detachExpenseMatch(int $transactionId, int $userId): array
+    {
+        $stmt = $this->db->prepare("SELECT id, matched_expense_id FROM accounting_transactions WHERE id = ?");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction || !$transaction['matched_expense_id']) {
+            throw new RuntimeException('Transaction is not currently matched.');
+        }
+        // Several receipts on this line (migration 1372): unmatching the line unmatches them all — in one change.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+        $extras = (new BankLineReceipts($this->db))->detachExtras($transactionId);
+
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+              status             = 'cleared',
+              matched_expense_id = NULL,
+              match_confidence   = NULL,
+              matched_at         = NULL,
+              matched_by         = NULL
+            WHERE id = ?
+        ")->execute([$transactionId]);
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        return ['transaction_id' => $transactionId, 'expense_id' => (int)$transaction['matched_expense_id'], 'also_unmatched' => $extras];
     }
 
     /**
@@ -2344,86 +4768,9 @@ class BankImportService
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // SELF-LEARNING — description → account rule generation
+    // SELF-LEARNING — the description key rules are learned on (BankRuleLearning;
+    // only the owner's decisions teach — an import never does, since 2026-10-07)
     // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * After a successful import, write back learned categorization rules.
-     *
-     * For every committed (non-duplicate) row that had NO existing rule match
-     * (rule_id === null) but does have an account assigned, we upsert a
-     * 'learned' rule in transaction_rules keyed on the normalized description.
-     *
-     * Learned rules sit at priority 9000+ so they never override manual rules.
-     * They are applied automatically on future imports by the existing RulesEngine,
-     * and will continue to work identically when the bank API replaces PDF/OCR.
-     *
-     * Rows that already fired a rule (rule_id set) are skipped — the rule's
-     * match_count is updated by RulesEngine when applyAll() runs.
-     */
-    private function learnFromCommit(array $rows, int $userId): void
-    {
-        // Preload all learned rules for fast duplicate detection (key → id mapping)
-        $existing = $this->db->query("
-            SELECT id, condition_value, account_id
-            FROM transaction_rules
-            WHERE source = 'learned' AND condition_field = 'description'
-        ")->fetchAll(PDO::FETCH_ASSOC);
-
-        $learnedMap = [];
-        foreach ($existing as $r) {
-            $learnedMap[$r['condition_value'] . '|' . $r['account_id']] = (int)$r['id'];
-        }
-
-        // Highest priority among learned rules (so new ones append after existing)
-        $maxPriority = (int)$this->db->query("
-            SELECT COALESCE(MAX(priority), 8999) FROM transaction_rules WHERE source = 'learned'
-        ")->fetchColumn();
-
-        foreach ($rows as $row) {
-            // Skip duplicates and rows without a confirmed account
-            if (!empty($row['is_duplicate']))   continue;
-            if (empty($row['account_id']))       continue;
-            if (!empty($row['rule_id']))         continue; // existing rule already covers this
-
-            $desc      = trim($row['description'] ?? '');
-            $accountId = (int)$row['account_id'];
-            $type      = $row['type'] === 'income' ? 'income' : 'expense';
-
-            $key = $this->normalizeDescriptionKey($desc);
-            if (strlen($key) < 4) continue;
-
-            $mapKey = $key . '|' . $accountId;
-
-            if (isset($learnedMap[$mapKey])) {
-                // Already have a rule for this key+account — increment training count
-                $this->db->prepare("
-                    UPDATE transaction_rules
-                    SET learned_count = learned_count + 1, last_learned_at = NOW()
-                    WHERE id = ?
-                ")->execute([$learnedMap[$mapKey]]);
-            } else {
-                // New pattern — create a low-priority learned rule
-                $maxPriority++;
-                $this->db->prepare("
-                    INSERT INTO transaction_rules
-                        (name, priority, applies_to, condition_field, condition_operator,
-                         condition_value, account_id, transaction_type,
-                         is_active, source, learned_count, last_learned_at, created_by, created_at)
-                    VALUES (?, ?, ?, 'description', 'contains', ?, ?, ?, 1, 'learned', 1, NOW(), ?, NOW())
-                ")->execute([
-                    'Learned: ' . mb_substr($desc, 0, 80),
-                    $maxPriority,
-                    $type,
-                    $key,
-                    $accountId,
-                    $type,
-                    $userId,
-                ]);
-                $learnedMap[$mapKey] = (int)$this->db->lastInsertId();
-            }
-        }
-    }
 
     /**
      * Produce a stable, bank-agnostic key from a raw transaction description.
@@ -2443,6 +4790,12 @@ class BankImportService
      *  "MONTHLY MAINTENANCE FEE"                      → "monthly maintenance fee"
      */
     private function normalizeDescriptionKey(string $desc): string
+    {
+        return self::descriptionKey($desc);
+    }
+
+    /** The bank-agnostic rule key for a description (shared with BankRuleLearning). */
+    public static function descriptionKey(string $desc): string
     {
         $s = strtoupper(trim($desc));
 

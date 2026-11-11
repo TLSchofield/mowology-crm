@@ -1,0 +1,522 @@
+<?php
+/**
+ * Receipt bookkeeper — admin endpoint.
+ *
+ * GET  ?mode=status    Is the bookkeeper usable? Key present / accepted by Anthropic
+ *                      (a free model lookup — the key is never echoed), migration 1125.
+ * GET  ?mode=report    Backtest accuracy per field and cost, per variant (photo / text).
+ * POST {mode: 'backtest', limit, image, csrf_token}
+ *                      Run the bookkeeper over approved receipts not yet backtested,
+ *                      with their final values hidden, and store the scored suggestions.
+ * Dashboard card (BookkeeperDeskService):
+ * GET  ?mode=stats     The card's numbers.
+ * GET  ?mode=queue     Prepared receipts for the carousel.
+ * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
+ * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
+ * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
+ * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
+ * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
+ * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, guidance_id?, csrf_token}
+ *                      → {ok, message, bulk?: {count, total, payee, account_id, account, from, to}, rule_id?}
+ * POST {mode: 'accountant_question', month: 'YYYY-MM', action?: add|drop, csrf_token}  Add a month's unmatched books-against-bank gap
+ *                      to the accountant's list (AccountantQuestionService; admin only; nothing is sent), or leave it alone.
+ * POST {mode: 'bank_bulk_apply', transaction_id, account_id, csrf_token}  "Also put the other N lines from <payee> on
+ *                      <account>": moves each unreviewed line of that payee with its journal entry (BankLineMoveService).
+ * POST {mode: 'bank_rule_off', rule_id, csrf_token}  Undo "I'll file these myself": the learned rule stops.
+ * POST {mode: 'bank_guidance', transaction_id, note?, csrf_token}  Penny explains a line she can't place (Claude, on
+ *                      click only; free reuse per payee, daily cap) — BankGuidanceService. Nothing is filed.
+ * GET  ?mode=bank_invoice&transaction_id=N  A credit: already-recorded payments, its Interac email, ranked open invoices.
+ * GET  ?mode=bank_invoice_report  Read-only: unmatched deposits whose money is already on invoices (counted twice).
+ * POST {mode: 'bank_invoice_record', transaction_id, allocations: [{invoice_id|invoice_number, amount}], sender?, force?, csrf_token}
+ * POST {mode: 'payment_book', transaction_id, signature, csrf_token}  Record a likely payment (PaymentMatchService::book()).
+ * POST {mode: 'payment_undo', log_id, csrf_token}  Undo it (PaymentMatchService::undo()). Queue: 'payments' (pennyCards()).
+ * POST {mode: 'bank_invoice_link', transaction_id, allocation_ids?: [], legacy?: bool, csrf_token}  "Already recorded — link".
+ * POST {mode: 'bank_teach_payer', sender, invoice_id, csrf_token}  This sender pays that invoice's payer (learned).
+ * GET  ?mode=stripe_read&transaction_id=N  Which invoices + fee a Stripe payout line holds (Stripe GETs only).
+ * POST {mode: 'stripe_book', transaction_id, csrf_token}  Book it: transfer + fee line (StripePayoutService).
+ * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
+ * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
+ * POST {mode: 'dupe_merge', keep_id, copy_ids: [..], csrf_token}  Merge into the kept one (removeCopies, expense_merges 1442).
+ *      'dupe_remove' {copy_id, keep_id} is the same call for one copy (now group-checked: it used removeCopy alone).
+ * POST {mode: 'unmerge', copy_id, kind: undo|split, csrf_token}  Undo / Split off (DuplicateReceiptService::unmerge).
+ * GET  ?mode=merged&expense_id=N  Copies merged into this receipt ("Also on this purchase").
+ * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
+ * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable|billed|account|seen|use_bank_line, csrf_token}
+ *
+ * ?mode=, not ?action= (see the /api/ router note in the vault). Owner/admin only:
+ * every backtest call spends API credit.
+ */
+declare(strict_types=1);
+header('Content-Type: application/json');
+
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 6; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
+    }
+    unset($__dir, $__i);
+}
+
+try {
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once CRM_INCLUDES . '/functions.php';
+    requireLogin();
+    requirePermission('expenses.approve');
+    $user = getCurrentUser();
+
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = $method === 'POST' ? (json_decode(file_get_contents('php://input'), true) ?? []) : [];
+    $mode   = $method === 'POST' ? ($input['mode'] ?? '') : ($_GET['mode'] ?? 'status');
+
+    if ($method === 'POST' && !verifyCSRFToken($input['csrf_token'] ?? '')) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+
+    $db = getDB();
+    session_write_close();
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptBookkeeperService.php';
+    $svc = new ReceiptBookkeeperService($db);
+
+    switch ($mode) {
+        case 'status': {
+            $keyPresent = defined('ANTHROPIC_API_KEY') && ANTHROPIC_API_KEY !== '';
+            $keyAccepted = null;
+            if ($keyPresent) {
+                $ch = curl_init('https://api.anthropic.com/v1/models/' . rawurlencode(ReceiptBookkeeperService::model()));
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT        => 20,
+                    CURLOPT_HTTPHEADER     => ['x-api-key: ' . ANTHROPIC_API_KEY, 'anthropic-version: 2023-06-01'],
+                ]);
+                curl_exec($ch);
+                $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                $keyAccepted = $code === 200;
+            }
+            $table = $db->query("SHOW TABLES LIKE 'expense_suggestions'")->rowCount() > 0;
+            echo json_encode([
+                'ok'            => true,
+                'key_present'   => $keyPresent,
+                'key_accepted'  => $keyAccepted,
+                'key_check_http'=> $code ?? null,
+                'model'         => ReceiptBookkeeperService::model(),
+                'migration_1125'=> $table,
+                'ready'         => $keyPresent && $keyAccepted && $table,
+            ]);
+            break;
+        }
+
+        case 'backtest': {
+            if (!$svc->ready()) {
+                throw new RuntimeException('Not ready — check ?mode=status');
+            }
+            set_time_limit(300);
+            $limit = max(1, min(5, (int)($input['limit'] ?? 2)));
+            $image = !empty($input['image']);
+            $stmt = $db->prepare("
+                SELECT e.id FROM expenses e
+                WHERE e.status IN ('approved', 'forwarded')
+                  AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
+                  AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
+                                  WHERE s.expense_id = e.id AND s.source = 'backtest' AND s.used_image = ?)
+                ORDER BY e.expense_date DESC, e.id DESC
+                LIMIT {$limit}
+            ");
+            $stmt->execute([$image ? 1 : 0]);
+            $done = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                $r = $svc->suggest((int)$id, 'backtest', $image);
+                $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];
+            }
+            $left = $db->prepare("
+                SELECT COUNT(*) FROM expenses e
+                WHERE e.status IN ('approved', 'forwarded') AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
+                  AND NOT EXISTS (SELECT 1 FROM expense_suggestions s WHERE s.expense_id = e.id AND s.source = 'backtest' AND s.used_image = ?)
+            ");
+            $left->execute([$image ? 1 : 0]);
+            echo json_encode(['ok' => true, 'ran' => $done, 'remaining' => (int)$left->fetchColumn()]);
+            break;
+        }
+
+        case 'report': {
+            $rows = $db->query("
+                SELECT s.expense_id, s.used_image, s.suggestion_json, s.checks_json, s.input_tokens, s.output_tokens, s.error,
+                       e.accounting_category, e.total, e.gst_amount, e.pst_amount, e.amount, e.job_id,
+                       " . ($db->query("SHOW COLUMNS FROM expenses LIKE 'asset_tag'")->rowCount() ? 'e.asset_tag' : 'NULL AS asset_tag') . "
+                FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+                WHERE s.source = 'backtest'
+                ORDER BY s.id
+            ")->fetchAll(PDO::FETCH_ASSOC);
+            $items = $db->prepare("SELECT name FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+
+            $variants = [];
+            foreach ($rows as $r) {
+                $v = $r['used_image'] ? 'photo+text' : 'text only';
+                $variants[$v] ??= ['receipts' => 0, 'errors' => 0, 'fields' => [], 'in' => 0, 'out' => 0, 'failed_checks' => 0];
+                $agg = &$variants[$v];
+                $agg['receipts']++;
+                $agg['in']  += (int)$r['input_tokens'];
+                $agg['out'] += (int)$r['output_tokens'];
+                if ($r['error']) { $agg['errors']++; unset($agg); continue; }
+                $items->execute([(int)$r['expense_id']]);
+                $score = ReceiptBookkeeperService::score(json_decode($r['suggestion_json'], true) ?: [], $r, $items->fetchAll(PDO::FETCH_COLUMN));
+                foreach ($score as $field => $hit) {
+                    if ($hit === 'n/a') continue;
+                    $agg['fields'][$field] ??= ['right' => 0, 'of' => 0];
+                    $agg['fields'][$field]['of']++;
+                    if ($hit) $agg['fields'][$field]['right']++;
+                }
+                foreach (json_decode((string)$r['checks_json'], true) ?: [] as $c) {
+                    if (empty($c['ok'])) $agg['failed_checks']++;
+                }
+                unset($agg);
+            }
+            foreach ($variants as &$agg) {
+                foreach ($agg['fields'] as &$f) {
+                    $f['pct'] = $f['of'] ? (int)round($f['right'] / $f['of'] * 100) : null;
+                }
+                unset($f);
+                // Claude Opus 5.5 list prices: $4 / $20 per million input / output tokens.
+                $agg['cost_usd'] = round($agg['in'] / 1e6 * 4 + $agg['out'] / 1e6 * 20, 2);
+                $done = max(1, $agg['receipts']);
+                $agg['cost_per_receipt_usd'] = round($agg['cost_usd'] / $done, 3);
+                unset($agg['in'], $agg['out']);
+            }
+            unset($agg);
+            echo json_encode(['ok' => true, 'variants' => $variants]);
+            break;
+        }
+
+        case 'stats':
+        case 'queue':
+        case 'decide':
+        case 'recheck':
+        case 'reject':
+        case 'use_penny_items':
+        case 'prepare': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+            $desk = new BookkeeperDeskService($db, $svc);
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            $dupSvc = new DuplicateReceiptService($db);
+            if (!$desk->ready()) {
+                throw new RuntimeException('Bookkeeper not set up (migration 1125)');
+            }
+            if ($mode === 'stats') {
+                $rate = null;
+                try {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/OwnerFreedomService.php';
+                    $rate = (float)((new OwnerFreedomService($db))->settings()['owner_rate'] ?? 0) ?: null;
+                } catch (Throwable $e) { /* no rate → no net saving */ }
+                echo json_encode(['ok' => true, 'stats' => $desk->stats($rate)]);
+            } elseif ($mode === 'queue') {
+                // Possible duplicates are sorted first and never offered for approval.
+                $dupes = $dupSvc->pairsInLine(60);
+                // Likely cheques come first on the card (Tim, 2026-11-06); "Record" posts bank_invoice_record.
+                ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
+                // Every deposit the payments matcher proposes, first on the card (Tim, 2026-11-06: one matcher, so
+                // the "N deposits matched" line and the cards agree). Record → payment_book; Undo → payment_undo.
+                $payments = [];
+                if (userHasPermission('billing.view')) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+                        $payments = (new PaymentMatchService($db))->pennyCards(12);
+                    } catch (Throwable $e) {
+                        error_log('[bookkeeper] payments: ' . $e->getMessage());
+                    }
+                }
+                echo json_encode(['ok' => true, 'payments' => $payments, 'dupes' => $dupSvc->presentGroups(DuplicateReceiptService::groups($dupes)),
+                                  'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
+            } elseif ($mode === 'decide') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
+                $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
+                $reread = $res['reread']['others'] ?? [];
+                echo json_encode($res);
+                // A lesson made twice: redo the vendor's other waiting reads after the card has its answer.
+                if ($reread) {
+                    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+                    ignore_user_abort(true);
+                    set_time_limit(300);
+                    try { $desk->rereadVendor($reread); } catch (Throwable $e) { error_log('Penny reread: ' . $e->getMessage()); }
+                }
+            } elseif ($mode === 'use_penny_items') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                echo json_encode($desk->usePennyItems((int)($input['suggestion_id'] ?? 0), $user));
+            } elseif ($mode === 'reject') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                echo json_encode($desk->reject((int)($input['suggestion_id'] ?? 0), (string)($input['reason'] ?? ''), $user));
+            } elseif ($mode === 'recheck') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
+                set_time_limit(180);
+                echo json_encode($desk->recheck((int)($input['suggestion_id'] ?? 0)));
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
+                set_time_limit(240);
+                echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2), DuplicateReceiptService::heldIds($dupSvc->pairsInLine(60))));
+            }
+            break;
+        }
+
+        case 'etransfers': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/EtransferDeskService.php';
+            echo json_encode(['ok' => true] + (new EtransferDeskService($db))->queue((int)($_GET['limit'] ?? 10)));
+            break;
+        }
+
+        case 'recurring': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
+            echo json_encode(['ok' => true, 'bills' => (new RecurringBillService($db))->bills()]);
+            break;
+        }
+
+        case 'close_status': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
+            $close = new StatementCloseService($db);
+            $accts = $close->status();
+            $locked = $close->lockedMonths();
+            // Lockable = exact (MonthCloseService): statements, books = bank, no open receipts, no unsorted lines.
+            require_once APP_ROOT . '/Modules/Accounting/Services/MonthCloseService.php';
+            $months = (new MonthCloseService($db))->months();
+            $next = array_values(array_filter($months, fn($m) => !$m['locked'] && !$m['ready']));
+            echo json_encode(['ok' => true, 'ready' => $close->ready(), 'accounts' => $accts, 'locked' => $locked,
+                              'lockable' => array_values(array_map(fn($m) => $m['month'], array_filter($months, fn($m) => $m['ready']))),
+                              'next' => array_slice(array_map(fn($m) => ['month' => $m['month'], 'blockers' => $m['blockers']], $next), 0, 3),
+                              'balances' => $close->hasBalances()]);
+            break;
+        }
+
+        case 'close_missing': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
+            echo json_encode(['ok' => true, 'lines' => (new StatementCloseService($db))->missingLines((int)($_GET['session'] ?? 0))]);
+            break;
+        }
+
+        case 'lock_month': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!isAdmin()) throw new RuntimeException('Only an admin can lock a month');
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/MonthCloseService.php';
+            $ym = (string)($input['month'] ?? '');
+            foreach ((new MonthCloseService($db))->months() as $m) {
+                if ($m['month'] === $ym && !$m['ready']) {   // only an exact month locks (2026-10-14)
+                    echo json_encode(['ok' => false, 'message' => $ym . ' isn\'t exact yet: ' . implode('; ', $m['blockers']) . '.']);
+                    break 2;
+                }
+            }
+            echo json_encode((new StatementCloseService($db))->lockMonth($ym, (int)$user['id']));
+            break;
+        }
+
+        case 'accountant_question': {
+            // The flow line's "Add to list" / "Leave it" for a month's unmatched gap (2026-11-10). Nothing is sent to anyone:
+            // the question's words are written from the books by the service, the press only names the month.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!isAdmin()) throw new RuntimeException('Only an admin can add to the accountant\'s list');
+            require_once APP_ROOT . '/Modules/Accounting/Services/AccountantQuestionService.php';
+            $aq = new AccountantQuestionService($db);
+            $ym = (string)($input['month'] ?? '');
+            $key = AccountantQuestionService::keyFor($ym);
+            if (!$aq->ready()) { echo json_encode(['ok' => false, 'message' => 'Needs migration 1451']); break; }
+            if ($aq->has($key)) { echo json_encode(['ok' => true, 'already' => true, 'message' => 'Already on the accountant\'s list.']); break; }
+            $draft = $aq->draftFor($ym);
+            if ($draft === null) { echo json_encode(['ok' => false, 'message' => $ym . ' isn\'t off the bank any more — nothing added.']); break; }
+            echo json_encode(($input['action'] ?? 'add') === 'drop'
+                ? $aq->drop($key, $draft['month'], $draft['account'], $draft['amount'], (int)$user['id'])
+                : $aq->add($key, $draft['month'], $draft['account'], $draft['amount'], $draft['question'], $draft['evidence'], (int)$user['id']));
+            break;
+        }
+
+        case 'bank_queue':
+        case 'bank_decide':
+        case 'bank_bulk_apply':
+        case 'bank_rule_off':
+        case 'bank_guidance': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankDeskService.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankGuidanceService.php';
+            $bank = new BankDeskService($db);
+            $guide = new BankGuidanceService($db);
+            if ($mode === 'bank_queue') {
+                echo json_encode(['ok' => true, 'ready' => $bank->ready(), 'waiting' => $bank->waiting(),
+                                  'lines' => $guide->decorate($bank->queue((int)($_GET['limit'] ?? 10))),
+                                  'accounts' => $bank->ready() ? $bank->accounts() : [], 'guidance' => $guide->status()]);
+            } elseif ($mode === 'bank_guidance') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                set_time_limit(120);
+                echo json_encode($guide->guide((int)($input['transaction_id'] ?? 0), (string)($input['note'] ?? ''), (int)$user['id']));
+            } elseif ($mode === 'bank_bulk_apply' || $mode === 'bank_rule_off') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
+                set_time_limit(120);
+                echo json_encode($mode === 'bank_rule_off'
+                    ? $bank->ruleOff((int)($input['rule_id'] ?? 0))
+                    : $bank->bulkApply((int)($input['transaction_id'] ?? 0), (int)($input['account_id'] ?? 0), $user));
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
+                $txId = (int)($input['transaction_id'] ?? 0);
+                $res = $bank->decide($txId, (string)($input['action'] ?? ''),
+                    isset($input['account_id']) ? (int)$input['account_id'] : null,
+                    isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user,
+                    !empty($input['expense_id']) ? (int)$input['expense_id'] : null);
+                // Approved after asking Penny: keep her reason on the decision, learn the payee's name.
+                if (!empty($res['ok']) && ($input['action'] ?? '') === 'approve' && !empty($input['guidance_id'])) {
+                    $guide->recordDecision($txId, (int)$input['guidance_id'], (int)$user['id']);
+                }
+                echo json_encode($res);
+            }
+            break;
+        }
+
+        case 'payment_book':
+        case 'payment_undo': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!userHasPermission('billing.edit')) throw new RuntimeException('Permission denied: billing.edit required');
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $pm = new PaymentMatchService($db);
+            if ($mode === 'payment_undo') {
+                echo json_encode($pm->undo((int)($input['log_id'] ?? 0), (int)$user['id']));
+                break;
+            }
+            $tx = (int)($input['transaction_id'] ?? 0);
+            $r = $pm->book([$tx => (string)($input['signature'] ?? '')], (int)$user['id']);
+            $done = $r['booked'][0] ?? null;
+            echo json_encode($done
+                ? ['ok' => true, 'message' => (string)($done['message'] ?? 'Recorded.'), 'log_id' => (int)($done['log_id'] ?? 0)]
+                : ['ok' => false, 'message' => (string)($r['failed'][0]['message'] ?? 'Not recorded.')]);
+            break;
+        }
+
+        case 'bank_invoice':
+        case 'bank_invoice_report':
+        case 'bank_invoice_record':
+        case 'bank_invoice_link':
+        case 'bank_teach_payer': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankInvoiceMatchService.php';
+            ini_set('serialize_precision', '-1');   // 364.65, not 364.6499999999999772… (prod sets 17)
+            $match = new BankInvoiceMatchService($db);
+            if ($mode === 'bank_invoice') {
+                echo json_encode($match->suggest((int)($_GET['transaction_id'] ?? 0)));
+                break;
+            }
+            if ($mode === 'bank_invoice_report') {
+                echo json_encode(['ok' => true] + $match->report((int)($_GET['limit'] ?? 300)));
+                break;
+            }
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!userHasPermission('billing.edit')) throw new RuntimeException('Permission denied: billing.edit required');
+            $txId = (int)($input['transaction_id'] ?? 0);
+            if ($mode === 'bank_invoice_record') {
+                echo json_encode($match->record($txId, (array)($input['allocations'] ?? []), $user,
+                    isset($input['sender']) ? (string)$input['sender'] : null, !empty($input['force'])));
+            } elseif ($mode === 'bank_invoice_link') {
+                echo json_encode($match->linkRecorded($txId, $user, (array)($input['allocation_ids'] ?? []), !empty($input['legacy'])));
+            } else {
+                $sender = trim((string)($input['sender'] ?? ''));
+                $inv = (int)($input['invoice_id'] ?? 0);
+                if ($sender === '' || !$inv) throw new RuntimeException('sender and invoice_id required');
+                $ok = $match->teach($sender, [$inv], (int)$user['id']);
+                echo json_encode(['ok' => $ok, 'message' => $ok ? "Learned: {$sender} pays for that invoice's client." : 'Nothing new to learn (the names already match).']);
+            }
+            break;
+        }
+
+        case 'stripe_read':
+        case 'stripe_book': {
+            // Stripe is READ ONLY (StripePayoutService only lists payouts / balance transactions).
+            require_once APP_ROOT . '/Modules/Accounting/Services/StripePayoutService.php';
+            $svc = new StripePayoutService($db);
+            $txId = (int)($mode === 'stripe_read' ? ($_GET['transaction_id'] ?? 0) : ($input['transaction_id'] ?? 0));
+            if ($mode === 'stripe_read') {
+                $s = $db->prepare("SELECT id, transaction_date, amount, description FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
+                $s->execute([$txId]);
+                $line = $s->fetch(PDO::FETCH_ASSOC);
+                echo json_encode($line ? $svc->read($line) : ['ok' => false, 'reason' => 'Bank line not found']);
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
+                echo json_encode($svc->apply($txId, (int)$user['id']));
+            }
+            break;
+        }
+
+        case 'dismissed_dupes': {
+            // For the receipts page: pairs marked "not a duplicate", so both places agree.
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            $pairs = array_map(fn($k) => array_map('intval', explode('-', $k)), array_keys((new DuplicateReceiptService($db))->dismissed()));
+            echo json_encode(['ok' => true, 'pairs' => $pairs]);
+            break;
+        }
+
+        case 'dupe_remove':
+        case 'dupe_merge': {
+            // Both go through removeCopies(): one duplicate group, waiting copies only, all-or-nothing, an
+            // expense_merges row each (Undo / Split off). dupe_remove used to call removeCopy() with no group check.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            $copies = $mode === 'dupe_merge' ? (array)($input['copy_ids'] ?? []) : [$input['copy_id'] ?? 0];
+            echo json_encode((new DuplicateReceiptService($db))->removeCopies((int)($input['keep_id'] ?? 0), array_map('intval', $copies), $user));
+            break;
+        }
+
+        case 'unmerge': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode((new DuplicateReceiptService($db))->unmerge((int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')));
+            break;
+        }
+
+        case 'merged': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode(['ok' => true, 'merged' => (new DuplicateReceiptService($db))->mergedInto((int)($_GET['expense_id'] ?? 0))]);
+            break;
+        }
+
+        case 'not_dupe': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            // One or many pairs: [[a, b], ...] — "none of these are duplicates" for a group.
+            $dup = new DuplicateReceiptService($db);
+            $res = ['ok' => false, 'message' => 'Nothing to save'];
+            foreach ((array)($input['pairs'] ?? [[$input['a'] ?? 0, $input['b'] ?? 0]]) as $pr) {
+                $res = $dup->dismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
+                if (!$res['ok']) break;
+            }
+            echo json_encode($res);
+            break;
+        }
+
+        case 'questions':
+        case 'answer': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
+            $pq = new PennyQuestionService($db);
+            if ($mode === 'questions') {
+                $pq->scan(10);
+                $pq->scanServiceAccounts();
+                echo json_encode(['ok' => true, 'questions' => $pq->open(5, PennyQuestionService::firstName($user)), 'found_to_bill_month' => $pq->foundToBillMonth()]);
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                echo json_encode($pq->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id'],
+                    PennyQuestionService::firstName($user), isset($input['account_id']) ? (int)$input['account_id'] : null));
+            }
+            break;
+        }
+
+        default:
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Unknown mode']);
+    }
+} catch (Throwable $e) {
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    error_log('bookkeeper.php: ' . $e->getMessage());
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'bookkeeper.php')]);
+}

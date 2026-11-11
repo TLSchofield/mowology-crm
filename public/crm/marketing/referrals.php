@@ -411,7 +411,7 @@ function sendInvite(contactId, firstName) {
   if (!confirm(`Send referral invite email to ${firstName}?`)) return;
   fetch(`${API}?action=send-invite`, {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {'Content-Type':'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
     body: JSON.stringify({contact_id: contactId})
   })
     .then(r => r.json())
@@ -438,7 +438,7 @@ function submitMarkApplied() {
   const note     = document.getElementById('rewardNote').value.trim();
   fetch(`${API}?action=mark-reward-applied`, {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {'Content-Type':'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
     body: JSON.stringify({reward_id: rewardId, note})
   })
     .then(r => r.json())
@@ -453,7 +453,7 @@ function cancelReferral(referralId) {
   if (!confirm('Cancel this referral?')) return;
   fetch(`${API}?action=cancel`, {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {'Content-Type':'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
     body: JSON.stringify({referral_id: referralId})
   })
     .then(r => r.json())
@@ -506,7 +506,7 @@ function saveSettings() {
 
   fetch(`${API}?action=save-settings`, {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {'Content-Type':'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
     body: JSON.stringify(payload)
   })
     .then(r => r.json())

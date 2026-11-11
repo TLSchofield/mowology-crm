@@ -26,6 +26,7 @@ for ($__i = 0; $__i < 6; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
@@ -90,7 +91,7 @@ try {
 
 } catch (\Throwable $e) {
     error_log('OAuth callback error: ' . $e->getMessage());
-    $msg = urlencode('Authentication failed: ' . $e->getMessage());
+    $msg = urlencode('Authentication failed: ' . ApiResponse::message($e, 'oauth-callback'));
     header('Location: ' . $returnUrl . '?error=' . $msg);
     exit;
 }

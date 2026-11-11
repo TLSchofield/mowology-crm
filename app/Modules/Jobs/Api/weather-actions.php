@@ -18,13 +18,37 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/plan-functions.php';
 require_once CRM_ROOT . '/modules/scheduling/rescheduler.php';
 require_once CRM_ROOT . '/modules/snapshots/snapshot-manager.php';
 
+require_once APP_ROOT . '/Modules/Jobs/Services/WeatherActionGuard.php';
+
 requireLogin();
 $user = getCurrentUser();
+
+// Writes need a CSRF token and jobs.edit (WeatherActionGuard). Checked before the
+// session lock is released; $_SESSION stays readable after session_write_close().
+$__csrf = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+$__deny = WeatherActionGuard::reject(
+    $_SERVER['REQUEST_METHOD'] ?? 'GET',
+    $__csrf !== '' && verifyCSRFToken($__csrf),
+    function_exists('userHasPermission') && userHasPermission(WeatherActionGuard::PERMISSION)
+);
+// Reading the list shows clients' addresses and the crews' days: clients.view (office), not any login (Codex 2026-10-15).
+if ($__deny === null && strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST'
+    && !(function_exists('userHasPermission') && userHasPermission('clients.view'))) {
+    $__deny = [403, 'You need permission to view clients (clients.view)'];
+}
+session_write_close(); // release session lock immediately
+if ($__deny !== null) {
+    header('Content-Type: application/json');
+    http_response_code($__deny[0]);
+    echo json_encode(['success' => false, 'error' => $__deny[1]]);
+    exit;
+}
 
 header('Content-Type: application/json');
 
@@ -55,6 +79,10 @@ try {
             WHERE v.scheduled_date BETWEEN ? AND ?
               AND v.weather_status IN ('NOT_OK', 'BORDERLINE')
               AND v.status = 'scheduled'
+              -- Dismissed since its weather was last decided: off the list (Codex 2026-10-15: dismiss did nothing)
+              AND NOT EXISTS (SELECT 1 FROM weather_action_log w
+                              WHERE w.action_type = 'DISMISSED' AND w.entity_type = 'visit' AND w.entity_id = v.id
+                                AND w.created_at >= COALESCE(v.weather_decision_at, '1970-01-01'))
             ORDER BY v.scheduled_date, v.scheduled_time_start
         ");
         $stmt->execute([$dateFrom, $dateTo]);
@@ -177,5 +205,5 @@ try {
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'weather-actions')]);
 }

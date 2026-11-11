@@ -29,6 +29,8 @@ require_once __DIR__ . '/recaptcha-helpers.php';
 require_once __DIR__ . '/helpers/validators.php';
 require_once __DIR__ . '/helpers/pricing.php';
 require_once __DIR__ . '/helpers/classification.php';
+// Tracking helpers are optional: the form works without them.
+if (is_file(__DIR__ . '/helpers/arrival.php')) { require_once __DIR__ . '/helpers/arrival.php'; }
 
 if (!function_exists('h')) {
     function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -166,24 +168,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 }
 
                 // ── 2. Find or create PROPERTY ─────────────────────────────
-                $checkProperty = $db->prepare("SELECT id FROM properties WHERE address = ? LIMIT 1");
-                $checkProperty->execute([$data['address']]);
+                $checkProperty = $db->prepare("SELECT id FROM properties WHERE address = ? AND site_contact_id = ? LIMIT 1");
+                $checkProperty->execute([$data['address'], $contactId]);
                 $existingProperty = $checkProperty->fetch(PDO::FETCH_ASSOC);
 
-                $propType = match($data['property_type']) {
-                    'strata'     => 'strata',
-                    'commercial' => 'commercial',
-                    default      => 'single_family',
-                };
+                $propType = 'single_family';
+                if ($data['property_type'] === 'strata') {
+                    $propType = 'strata';
+                } elseif ($data['property_type'] === 'commercial') {
+                    $propType = 'commercial';
+                }
 
                 $propertyId = null;
                 if ($existingProperty) {
                     $propertyId = (int)$existingProperty['id'];
                     $stmt = $db->prepare("
                         UPDATE properties SET
-                            latitude        = COALESCE(?, latitude),
-                            longitude       = COALESCE(?, longitude),
-                            geocoded_at     = CASE WHEN ? IS NOT NULL THEN NOW() ELSE geocoded_at END,
+                            latitude        = COALESCE(latitude, ?),
+                            longitude       = COALESCE(longitude, ?),
+                            geocoded_at     = CASE WHEN latitude IS NULL AND ? IS NOT NULL THEN NOW() ELSE geocoded_at END,
                             site_contact_id = COALESCE(site_contact_id, ?),
                             updated_at      = NOW()
                         WHERE id = ?
@@ -217,9 +220,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 // ── 3. Log lead event (ROI tracking) ───────────────────────
                 $leadEventId = logLeadEvent(
-                    $_SERVER['HTTP_REFERER'] ?? null,
+                    (function_exists('jfLandingFor') ? jfLandingFor($data['tracking'], (string)($_SERVER['HTTP_HOST'] ?? ''), (string)($_SERVER['HTTP_REFERER'] ?? '')) : '') ?: null,
                     [
-                        'source'   => $data['tracking']['utm_source']   ?? $quoteSource,
+                        'source'   => function_exists('jfSourceFor') ? jfSourceFor($data['tracking'], $quoteSource) : ($data['tracking']['utm_source'] ?? $quoteSource),
                         'medium'   => $data['tracking']['utm_medium']   ?? 'website',
                         'campaign' => $data['tracking']['utm_campaign']  ?? null,
                         'content'  => $data['tracking']['utm_content']   ?? null,
@@ -342,25 +345,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 }
 
                 // ── 7. Update contact consent columns ─────────────────────
-                $stmt = $db->prepare("
-                    UPDATE contacts SET
-                        receive_sms             = ?,
-                        consent_sms             = ?,
-                        consent_quote_followup  = ?,
-                        consent_marketing_email = ?,
-                        consent_timestamp       = NOW(),
-                        consent_ip_address      = ?,
-                        consent_source          = 'website_form'
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $data['consent_sms'] ? 1 : 0,
-                    $data['consent_sms'] ? 1 : 0,
-                    $data['consent_quote'] ? 1 : 0,
-                    $data['consent_marketing'] ? 1 : 0,
-                    $data['ip_address'],
-                    $contactId,
-                ]);
+                $consentUpdates = [];
+                if ($data['consent_sms']) {
+                    $consentUpdates[] = 'receive_sms = 1';
+                    $consentUpdates[] = 'consent_sms = 1';
+                }
+                if ($data['consent_quote']) {
+                    $consentUpdates[] = 'consent_quote_followup = 1';
+                }
+                if ($data['consent_marketing']) {
+                    $consentUpdates[] = 'consent_marketing_email = 1';
+                }
+                if ($consentUpdates) {
+                    $stmt = $db->prepare("
+                        UPDATE contacts SET " . implode(', ', $consentUpdates) . ",
+                            consent_timestamp = NOW(), consent_ip_address = ?, consent_source = 'website_form'
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([$data['ip_address'], $contactId]);
+                }
 
                 // ── 8. Activity log ────────────────────────────────────────
                 $priorityFlag = $classification['is_priority'] ? ' [PRIORITY]' : '';
@@ -391,18 +394,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                         'is_priority'   => $classification['is_priority'],
                         'upsells'       => implode(', ', $upsellLabels),
                     ];
-                    sendQuoteRequestNotifications($notificationData);
+                    $notificationResult = sendQuoteRequestNotifications($notificationData);
+                    if ($notificationResult === false || (is_array($notificationResult) && isset($notificationResult['success']) && !$notificationResult['success'])) {
+                        error_log('[jobFlow-confirm] sendQuoteRequestNotifications returned failure');
+                    }
                 } catch (Throwable $t) {
                     error_log('[jobFlow-confirm] sendQuoteRequestNotifications failed: ' . $t->getMessage());
                 }
 
-                // Customer confirmation email (non-blocking, CASL-compliant)
-                if (!empty($data['email'])) {
-                    try {
-                        sendQuoteConfirmationEmail($data, $servicesCsv);
-                    } catch (Throwable $t) {
-                        error_log('[jobFlow-confirm] sendQuoteConfirmationEmail failed: ' . $t->getMessage());
+                // ── 9b. Campaign event: lead submitted ────────────────────
+                try {
+                    $__dir = dirname(__DIR__);
+                    for ($__i = 0; $__i < 4; $__i++) {
+                        if (is_file($__dir . '/app/Core/paths.php')) {
+                            if (!defined('APP_ROOT')) require_once $__dir . '/app/Core/paths.php';
+                            break;
+                        }
+                        $__dir = dirname($__dir);
                     }
+                    unset($__dir, $__i);
+                    if (defined('APP_ROOT')) {
+                        $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+                        if (file_exists($__emitter)) {
+                            require_once $__emitter;
+                            CampaignEventEmitter::fire(
+                                'lead_submitted', 'lead', $quoteRequestId, $contactId,
+                                [
+                                    'lead_quality'    => $classification['value_tier'] ?? 'unknown',
+                                    'is_priority'     => $classification['is_priority'] ?? false,
+                                    'service_types'   => $servicesCsv,
+                                    'urgency'         => $data['urgency'],
+                                    'city'            => $data['city'],
+                                    'utm_source'      => $data['tracking']['utm_source'] ?? null,
+                                    'utm_campaign'    => $data['tracking']['utm_campaign'] ?? null,
+                                    'consent_sms'     => $data['consent_sms'],
+                                    'consent_marketing' => $data['consent_marketing'],
+                                    'source'          => $quoteSource,
+                                ],
+                                'jobflow'
+                            );
+                        }
+                    }
+                } catch (Throwable $__t) {
+                    error_log('[jobFlow-confirm] campaign event error: ' . $__t->getMessage());
                 }
 
                 // ── 10. Session cleanup & success redirect ─────────────────

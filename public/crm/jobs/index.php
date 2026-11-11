@@ -696,7 +696,7 @@ $activePage = 'jobs';
 
                   fetch('api-jobs.php?action=bulk-delete-plans', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                       body: JSON.stringify({ ids: Array.from(mwPlansBulkSelected) })
                   })
                   .then(function(r) { return r.json(); })

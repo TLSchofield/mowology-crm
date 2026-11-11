@@ -16,10 +16,16 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES  . '/functions.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
 
     requireLogin();
+    if (!userHasPermission('billing.view') && !in_array((string)(getCurrentUser()['role'] ?? ''), ['admin', 'manager'], true)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Not allowed']);
+        exit;
+    }
     session_write_close();
 
     // Accept GET or POST JSON
@@ -327,5 +333,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'profit-risk-factors')]);
 }

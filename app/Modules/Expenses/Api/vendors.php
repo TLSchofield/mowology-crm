@@ -31,6 +31,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
 
     requireLogin();
@@ -140,7 +141,7 @@ try {
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'vendors')]);
 }
 
 
@@ -223,24 +224,11 @@ function handleVendorGet(PDO $db): void
 
 function handleVendorSearch(PDO $db): void
 {
-    $q = trim($_GET['q'] ?? '');
-    if (strlen($q) < 2) {
-        echo json_encode(['success' => true, 'vendors' => []]);
-        return;
-    }
+    // Shared with the iOS review form (expense-lookup.php?type=vendors).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    $vendors = (new ExpenseLookupService($db))->searchVendors($_GET['q'] ?? '');
 
-    $stmt = $db->prepare("
-        SELECT id, name, aliases, default_accounting_category, default_gbp_category
-        FROM vendors
-        WHERE is_active = 1
-          AND (name LIKE ? OR aliases LIKE ?)
-        ORDER BY name
-        LIMIT 20
-    ");
-    $like = '%' . $q . '%';
-    $stmt->execute([$like, $like]);
-
-    echo json_encode(['success' => true, 'vendors' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    echo json_encode(['success' => true, 'vendors' => $vendors]);
 }
 
 
@@ -267,11 +255,17 @@ function handleVendorCreate(PDO $db, ?array $input): void
         $input['notes'] ?? null,
         (int)($input['gst_exempt'] ?? 0),
     ]);
+    $newId = (int)$db->lastInsertId();
+    $gst = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', (string)($input['gst_number'] ?? '')));
+    if ($gst !== '') {
+        try { $db->prepare("UPDATE vendors SET gst_number = ? WHERE id = ?")->execute([mb_substr($gst, 0, 20), $newId]); }
+        catch (Throwable $e) { error_log('Vendor GST number: ' . $e->getMessage()); }
+    }
 
     echo json_encode([
         'success' => true,
         'message' => 'Vendor created',
-        'vendor_id' => (int)$db->lastInsertId(),
+        'vendor_id' => $newId,
     ]);
 }
 
@@ -307,6 +301,13 @@ function handleVendorUpdate(PDO $db, ?array $input): void
         isset($input['is_active']) ? (int)$input['is_active'] : 1,
         $id,
     ]);
+
+    // GST number (2026-10-15): only when the form sends it, so an older form never blanks one Penny filled in.
+    if (array_key_exists('gst_number', $input)) {
+        $gst = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', (string)$input['gst_number']));
+        try { $db->prepare("UPDATE vendors SET gst_number = ? WHERE id = ?")->execute([$gst !== '' ? mb_substr($gst, 0, 20) : null, $id]); }
+        catch (Throwable $e) { error_log('Vendor GST number: ' . $e->getMessage()); }
+    }
 
     echo json_encode(['success' => true, 'message' => 'Vendor updated']);
 }
@@ -572,27 +573,8 @@ function handleDeleteVendorProduct(PDO $db, ?array $input): void
 
 function handleCategories(): void
 {
-    $accounting = [
-        'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
-        'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
-        'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
-    ];
-
-    $gbp = [
-        'Garden center/nursery', 'Hardware store', 'Building materials',
-        'Equipment rental', 'Gas station', 'Waste disposal/landfill',
-        'Restaurant/food', 'Office supply', 'Auto parts',
-        'Wholesale store', 'Other',
-    ];
-
-    $paymentMethods = [
-        'cash', 'credit_card', 'debit', 'company_card', 'etransfer', 'cheque',
-    ];
-
-    echo json_encode([
-        'success' => true,
-        'accounting_categories' => $accounting,
-        'gbp_categories' => $gbp,
-        'payment_methods' => $paymentMethods,
-    ]);
+    // One source of truth for both clients — iOS reads the same list via
+    // expense-lookup.php?type=categories instead of a hard-coded copy.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    echo json_encode(['success' => true] + ExpenseLookupService::categories());
 }

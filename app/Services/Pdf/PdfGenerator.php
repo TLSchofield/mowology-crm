@@ -17,6 +17,9 @@ if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
 
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
+require_once dirname(__DIR__, 2) . '/Modules/Clients/Services/BillToResolver.php';
+
 class PdfGenerator
 {
     private $db;
@@ -32,13 +35,9 @@ class PdfGenerator
         $this->storagePath = STORAGE_ROOT . '/pdfs';
         $this->templatePath = CRM_ROOT . '/templates/pdf';
 
-        // Ensure subdirectories exist
-        if (!is_dir($this->storagePath . '/quotes')) {
-            @mkdir($this->storagePath . '/quotes', 0755, true);
-        }
-        if (!is_dir($this->storagePath . '/invoices')) {
-            @mkdir($this->storagePath . '/invoices', 0755, true);
-        }
+        // Ensure this business's subdirectories exist (per-business folders: PdfStore)
+        PdfStore::dir('quotes');
+        PdfStore::dir('invoices');
     }
 
     /**
@@ -49,43 +48,31 @@ class PdfGenerator
     public function generateQuotePdf(int $quoteId): array
     {
         try {
-            // Fetch quote with related data
-            $stmt = $this->db->prepare("
-                SELECT
-                    q.*,
-                    p.address as property_address,
-                    p.city as property_city,
-                    p.postal_code as property_postal,
-                    p.property_type,
-                    c.company_name,
-                    c.billing_email,
-                    c.billing_phone,
-                    c.billing_address,
-                    c.billing_city,
-                    c.billing_postal_code,
-                    ct.first_name as contact_first,
-                    ct.last_name as contact_last,
-                    ct.email as contact_email,
-                    ct.phone as contact_phone,
-                    u.full_name as created_by_name
-                FROM quotes q
-                LEFT JOIN properties p ON q.property_id = p.id
-                LEFT JOIN companies c ON q.company_id = c.id
-                LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
-                LEFT JOIN users u ON q.created_by = u.id
-                WHERE q.id = ?
-            ");
-            $stmt->execute([$quoteId]);
-            $quote = $stmt->fetch(PDO::FETCH_ASSOC);
+            // Fetch quote through QuoteService so the PDF resolves the customer
+            // name from the SAME source as the on-screen view (quote-request
+            // contact → company contact → site contact → strata/company "C/O"
+            // entity). Previously this used a thin query that only joined the
+            // company primary contact, so company/strata quotes printed "Customer".
+            require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
+            $svc = new QuoteService($this->db);
+            $quote = $svc->getWithContact($quoteId);
 
             if (!$quote) {
                 return ['success' => false, 'error' => 'Quote not found'];
             }
 
+            // Resolve the display name + best contact email/phone for the template.
+            $quote['display_name']  = $svc->resolveDisplayName($quote);
+            $resolvedContact        = $svc->resolveContact($quote);
+            $quote['display_email'] = $resolvedContact['email'];
+            $quote['display_phone'] = $resolvedContact['phone'];
+
             // Fetch line items
             $stmt = $this->db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
             $stmt->execute([$quoteId]);
             $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Lines the client declined on the quote page are not printed (migration 1315).
+            $lineItems = array_values(array_filter($lineItems, fn($li) => empty($li['client_declined'])));
 
             // Render HTML template
             $html = $this->renderTemplate('quote.php', [
@@ -138,12 +125,18 @@ class PdfGenerator
                     i.*,
                     i.bill_to_name as bill_to_name,
                     p.billing_entity_name,
-                    COALESCE(c.company_name, cb.company_name, cp.company_name, cc.company_name) as company_name,
-                    COALESCE(c.payment_terms, cb.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
+                    -- pm = the property management firm (property_manager_id). For a
+                    -- PM-managed strata the firm is the PAYER: the Bill To becomes
+                    -- billing_entity_name C/O pm.company_name (e.g. VR1450 C/O Pacific
+                    -- Quorum). Without pm in this COALESCE, company_name came back NULL
+                    -- and the heading fell back to the on-site contact name.
+                    " . BillToResolver::INVOICE_COMPANY_NAME . " as company_name,
+                    COALESCE(c.payment_terms, cb.payment_terms, pm.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
                     COALESCE(
                         NULLIF(IF(i.billing_address = i.service_address, '', i.billing_address), ''),
                         NULLIF(c.billing_address, ''),
                         NULLIF(cb.billing_address, ''),
+                        NULLIF(pm.billing_address, ''),
                         NULLIF(cp.billing_address, ''),
                         NULLIF(cc.billing_address, ''),
                         NULLIF(i.service_address, ''),
@@ -153,6 +146,7 @@ class PdfGenerator
                         NULLIF(IF(i.billing_city = i.service_city, '', i.billing_city), ''),
                         NULLIF(c.billing_city, ''),
                         NULLIF(cb.billing_city, ''),
+                        NULLIF(pm.billing_city, ''),
                         NULLIF(cp.billing_city, ''),
                         NULLIF(cc.billing_city, ''),
                         NULLIF(i.service_city, ''),
@@ -162,6 +156,7 @@ class PdfGenerator
                         NULLIF(IF(i.billing_province = i.service_province, '', i.billing_province), ''),
                         NULLIF(c.billing_province, ''),
                         NULLIF(cb.billing_province, ''),
+                        NULLIF(pm.billing_province, ''),
                         NULLIF(cp.billing_province, ''),
                         NULLIF(cc.billing_province, ''),
                         NULLIF(i.service_province, '')
@@ -170,6 +165,7 @@ class PdfGenerator
                         NULLIF(IF(i.billing_postal_code = i.service_postal_code, '', i.billing_postal_code), ''),
                         NULLIF(c.billing_postal_code, ''),
                         NULLIF(cb.billing_postal_code, ''),
+                        NULLIF(pm.billing_postal_code, ''),
                         NULLIF(cp.billing_postal_code, ''),
                         NULLIF(cc.billing_postal_code, ''),
                         NULLIF(i.service_postal_code, ''),
@@ -191,11 +187,13 @@ class PdfGenerator
                 LEFT JOIN contacts dc  ON i.contact_id = dc.id
                 LEFT JOIN properties p ON i.property_id = p.id
                 LEFT JOIN companies cb ON p.billing_company_id = cb.id
+                LEFT JOIN companies pm ON p.property_manager_id = pm.id
                 LEFT JOIN companies cp ON p.company_id = cp.id
                 LEFT JOIN companies cc ON dc.company_id = cc.id
                 LEFT JOIN users u      ON i.created_by = u.id
                 LEFT JOIN job_plans jp ON i.plan_id = jp.id
                 LEFT JOIN job_visits jv ON i.visit_id = jv.id
+                " . BillToResolver::INVOICE_COMPANY_JOINS . "
                 WHERE i.id = ?
             ");
             $stmt->execute([$invoiceId]);
@@ -289,6 +287,15 @@ class PdfGenerator
 
         $relPath = $row['pdf_path'];
 
+        // Per-business folders: another business's file is never served. A non-default business reads only
+        // its own t/<key>/ files; the default business keeps the legacy lookup below but refuses any t/ path.
+        if (!Tenant::isDefault()) {
+            return PdfStore::absoluteFromStored($relPath);
+        }
+        if (strpos($relPath, 'pdfs/t/') !== false || strpos($relPath, '..') !== false) {
+            return null;
+        }
+
         // Historically pdf_path was stored as "storage/pdfs/invoices/foo.pdf" relative
         // to project root, but files are actually written under APP_ROOT/Storage/pdfs.
         // Resolve both layouts so we can find the file in either location.
@@ -316,9 +323,69 @@ class PdfGenerator
     }
 
     /**
+     * Generate a client Statement of Account PDF from StatementService data.
+     *
+     * @param array $statement output of StatementService::getStatementData()
+     * @return array{success:bool,path:?string,filename:?string,error:?string}
+     */
+    public function generateStatementPdf(array $statement): array
+    {
+        try {
+            $business = $this->loadBusinessSettings();
+
+            $html = $this->renderTemplate('statement.php', [
+                'statement' => $statement,
+                'business'  => $business,
+            ]);
+
+            $mpdf = $this->createMpdf();
+            $mpdf->WriteHTML($html);
+
+            $dir = PdfStore::dir('statements');
+
+            $contact = $statement['contact'] ?? [];
+            $who = preg_replace('/[^A-Za-z0-9]+/', '-', trim(($contact['last_name'] ?? '') . '-' . ($contact['first_name'] ?? '')));
+            $who = trim($who, '-') ?: ('contact' . (int)($contact['id'] ?? 0));
+            $stamp = date('Ymd', strtotime($statement['generated_at'] ?? 'now'));
+            $filename = 'Statement_' . $who . '_' . $stamp . '.pdf';
+            $fullPath = $dir . '/' . $filename;
+
+            $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);
+
+            return ['success' => true, 'path' => $fullPath, 'filename' => $filename, 'error' => null];
+        } catch (\Throwable $e) {
+            error_log('PdfGenerator::generateStatementPdf error: ' . $e->getMessage());
+            return ['success' => false, 'path' => null, 'filename' => null, 'error' => $e->getMessage()];
+        }
+    }
+
+    /** Load Mowology's own business settings for document headers/footers. */
+    private function loadBusinessSettings(): array
+    {
+        $business = [];
+        try {
+            $hasTagline = false;
+            try {
+                $hasTagline = (bool)$this->db->query("SHOW COLUMNS FROM business_settings LIKE 'company_tagline'")->fetch();
+            } catch (\Throwable $e) { /* ignore */ }
+            $taglineCol = $hasTagline ? ', company_tagline' : '';
+            $row = $this->db->query(
+                "SELECT company_name, company_phone, company_email, company_website,
+                        company_address, gst_registration, pst_registration, business_license,
+                        invoice_message_header, invoice_terms_text,
+                        invoice_payment_instructions, invoice_footer_text
+                        {$taglineCol}
+                 FROM business_settings WHERE id = 1"
+            )->fetch(PDO::FETCH_ASSOC);
+            if ($row) { $business = $row; }
+        } catch (\Throwable $e) { /* business_settings may not exist — ignore */ }
+        return $business;
+    }
+
+    /**
      * Stream a PDF to the browser for download.
      */
-    public function streamPdf(string $filePath, string $filename): void
+    public function streamPdf(string $filePath, string $filename, string $disposition = 'attachment'): void
     {
         // Validate file exists and is readable
         if (!file_exists($filePath)) {
@@ -331,9 +398,10 @@ class PdfGenerator
             die('PDF file is not readable.');
         }
 
-        // Set headers for PDF download
+        // Set headers for PDF download/preview
+        $disposition = $disposition === 'inline' ? 'inline' : 'attachment';
         header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        header('Content-Disposition: ' . $disposition . '; filename="' . basename($filename) . '"');
         header('Content-Length: ' . filesize($filePath));
         header('Cache-Control: private, max-age=0, must-revalidate');
         header('Pragma: public');
@@ -349,6 +417,90 @@ class PdfGenerator
     /**
      * Create an mPDF instance with Mowology defaults.
      */
+    /**
+     * Generate a contract PDF.
+     *
+     * Serves both purposes from one document: a record of an e-signed contract
+     * (with the captured signature rendered in), or a printable copy for wet
+     * signing when it has not been signed yet.
+     *
+     * $versionNumber selects which sealed version's TERMS to print. Defaults to
+     * the contract's current version. This matters: reprinting a contract after
+     * the template was revised must show the wording that was signed, not
+     * today's — which is why the terms come from ContractTermsService rather
+     * than a join.
+     *
+     * @return array{success: bool, path?: string, relative_path?: string, version?: int, filename?: string, error?: string}
+     */
+    public function generateContractPdf(int $contractId, ?int $versionNumber = null): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT c.*,
+                       p.address AS property_address, p.city AS property_city,
+                       ct.first_name, ct.last_name,
+                       co.company_name
+                FROM contracts c
+                LEFT JOIN properties p  ON c.property_id = p.id
+                LEFT JOIN contacts   ct ON c.contact_id  = ct.id
+                LEFT JOIN companies  co ON co.primary_contact_id = ct.id
+                WHERE c.id = ?
+            ");
+            $stmt->execute([$contractId]);
+            $contract = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$contract) {
+                return ['success' => false, 'error' => 'Contract not found'];
+            }
+
+            $version = $versionNumber ?? (int)($contract['current_version'] ?? 1);
+
+            // Terms as sealed with that version.
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
+            $terms = (new ContractTermsService($this->db))->termsForVersion($contractId, $version);
+
+            // The signature for that version, if it has been signed.
+            $signature = null;
+            try {
+                $sig = $this->db->prepare("
+                    SELECT * FROM contract_signatures
+                    WHERE contract_id = ? AND contract_version = ? AND status = 'signed'
+                    ORDER BY signed_at DESC LIMIT 1
+                ");
+                $sig->execute([$contractId, $version]);
+                $signature = $sig->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (\Throwable $e) {
+                // contract_signatures absent in this environment — print the
+                // wet-signature variant rather than failing.
+            }
+
+            // Tenant identity always comes from business_settings, never hardcoded.
+            $biz = [];
+            try {
+                $biz = $this->db->query("SELECT * FROM business_settings WHERE id = 1")
+                                ->fetch(PDO::FETCH_ASSOC) ?: [];
+            } catch (\Throwable $e) {
+            }
+
+            $html = $this->renderTemplate('contract.php', [
+                'contract'    => $contract,
+                'terms'       => $terms,
+                'signature'   => $signature,
+                'biz'         => $biz,
+                'projectRoot' => $this->projectRoot,
+            ]);
+
+            $mpdf = $this->createMpdf();
+            $mpdf->WriteHTML($html);
+
+            $number = $contract['contract_number'] ?? ('CONTRACT-' . $contractId);
+            return $this->savePdf($mpdf, 'contract', $contractId, $number, $version);
+
+        } catch (\Throwable $e) {
+            error_log("PdfGenerator::generateContractPdf error: " . $e->getMessage());
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     private function createMpdf(): \Mpdf\Mpdf
     {
         // Prefer a project-controlled temp dir that we know PHP can write to
@@ -394,21 +546,24 @@ class PdfGenerator
     /**
      * Save PDF to storage and update the database record.
      */
-    private function savePdf(\Mpdf\Mpdf $mpdf, string $type, int $id, string $number): array
+    private function savePdf(\Mpdf\Mpdf $mpdf, string $type, int $id, string $number, ?int $forcedVersion = null): array
     {
-        $dir = $this->storagePath . '/' . $type . 's';
+        // This business's own folder (the default business keeps the original one)
+        $dir = PdfStore::dir($type . 's');
 
-        // Ensure directory exists
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        // Determine next version number. A caller may supply one instead, for
+        // document types that have no pdf_version column to read or write —
+        // contracts are regenerated deterministically from their sealed
+        // version, so there is nothing to track on the row.
+        if ($forcedVersion !== null) {
+            $newVersion = $forcedVersion;
+        } else {
+            $table = ($type === 'quote') ? 'quotes' : 'invoices';
+            $stmt = $this->db->prepare("SELECT pdf_version FROM {$table} WHERE id = ?");
+            $stmt->execute([$id]);
+            $current = $stmt->fetch(PDO::FETCH_ASSOC);
+            $newVersion = (int)($current['pdf_version'] ?? 0) + 1;
         }
-
-        // Determine next version number
-        $table = ($type === 'quote') ? 'quotes' : 'invoices';
-        $stmt = $this->db->prepare("SELECT pdf_version FROM {$table} WHERE id = ?");
-        $stmt->execute([$id]);
-        $current = $stmt->fetch(PDO::FETCH_ASSOC);
-        $newVersion = (int)($current['pdf_version'] ?? 0) + 1;
 
         // Clean filename
         $safeNumber = preg_replace('/[^A-Za-z0-9\-]/', '', $number);
@@ -416,18 +571,20 @@ class PdfGenerator
         $fullPath = $dir . '/' . $filename;
         // Store as project-root-relative path that matches the real on-disk layout:
         // files live under APP_ROOT/Storage/pdfs/... which is app/Storage/pdfs/... from PROJECT_ROOT.
-        $relativePath = 'app/Storage/pdfs/' . $type . 's/' . $filename;
+        $relativePath = PdfStore::relative($type . 's', $filename, 'app/Storage');
 
         // Write PDF file
         $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);
 
-        // Update database
-        $stmt = $this->db->prepare("
-            UPDATE {$table}
-            SET pdf_path = ?, pdf_version = ?, pdf_generated_at = NOW()
-            WHERE id = ?
-        ");
-        $stmt->execute([$relativePath, $newVersion, $id]);
+        // Update database — skipped for types that track nothing on the row.
+        if ($forcedVersion === null) {
+            $stmt = $this->db->prepare("
+                UPDATE {$table}
+                SET pdf_path = ?, pdf_version = ?, pdf_generated_at = NOW()
+                WHERE id = ?
+            ");
+            $stmt->execute([$relativePath, $newVersion, $id]);
+        }
 
         return [
             'success' => true,

@@ -20,6 +20,9 @@ if (!defined('RECAPTCHA_V3_SCORE_THRESHOLD')) {
     define('RECAPTCHA_V3_SCORE_THRESHOLD', 0.5);
 }
 
+// On the server the app code sits beside this folder (public_html/app); in the repo it is one level higher. APP_ROOT knows.
+require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__) . '/app') . '/Modules/PublicForms/Services/PublicFormSecurity.php';
+
 /**
  * Verify a reCAPTCHA token (v2 or v3) with Google's siteverify endpoint.
  *
@@ -84,6 +87,34 @@ function verify_recaptcha(string $token, string $secretKey, ?string $remoteIp = 
     if (!is_array($json)) {
         error_log("reCAPTCHA verify: invalid JSON response");
         return ['success' => false, 'error' => 'invalid_json'];
+    }
+
+    $siteUrl = defined('SITE_URL') ? (string)SITE_URL : null;
+    if ($siteUrl === null) {
+        // Pages that skip public/includes/bootstrap.php (quote form, password reset): resolve the
+        // registered site from cms_sites, the same lookup bootstrap uses, so another business's
+        // domain on this server is accepted. Only active cms_sites domains can come back.
+        $siteFns = (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__) . '/app') . '/Modules/CMS/Services/CmsSiteFunctions.php';
+        try {
+            if (!function_exists('cms_resolveSite') && is_file($siteFns)) require_once $siteFns;
+            if (function_exists('cms_resolveSite')) {
+                $site = cms_resolveSite();
+                if (!empty($site['domain'])) $siteUrl = 'https://' . $site['domain'];
+            }
+        } catch (\Throwable $e) {
+            error_log('reCAPTCHA verify: site lookup failed — ' . $e->getMessage());
+        }
+    }
+    // A business on its own ittai.ca address: its registered address, or every token fails as 'hostname mismatch' (2026-11-09).
+    $siteUrl = PublicFormSecurity::recaptchaSiteUrl($siteUrl, class_exists('Tenant') ? Tenant::appUrl() : '');
+    if (!empty($json['success']) && !PublicFormSecurity::isAllowedRecaptchaHostname(
+        (string)($json['hostname'] ?? ''),
+        $siteUrl,
+        (string)($_SERVER['HTTP_HOST'] ?? '')
+    )) {
+        error_log(sprintf('reCAPTCHA verify: hostname mismatch (Google said "%s", site is "%s")',
+            substr(preg_replace('/[^A-Za-z0-9.:-]/', '?', (string)($json['hostname'] ?? '')), 0, 100), (string)parse_url($siteUrl, PHP_URL_HOST)));
+        return ['success' => false, 'error' => 'hostname_mismatch'];
     }
 
     return $json;
@@ -189,6 +220,18 @@ function recaptcha_audit_log(string $action, array $details, ?string $ip): void
 {
     try {
         $db = getDB();
+        if ($ip !== null && $ip !== '') {
+            $recent = $db->prepare(
+                "SELECT id FROM activity_log
+                 WHERE ip_address = ? AND action LIKE 'recaptcha_%'
+                   AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+                 LIMIT 1"
+            );
+            $recent->execute([$ip]);
+            if ($recent->fetchColumn() !== false) {
+                return;
+            }
+        }
         $db->prepare(
             "INSERT INTO activity_log (user_id, action, details, ip_address)
              VALUES (NULL, ?, ?, ?)"

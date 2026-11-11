@@ -13,10 +13,18 @@
  *   dismiss         — Mark as dismissed with reason
  *   get-rules       — Return observation_product_rules for auto-suggest
  *   get-types       — Return valid observation types
+ *   ask-drafts      — Ask-first drafts the crew saved, waiting for a manager (GET)
+ *   ask-draft       — One Ask-first email as it would go (GET &id=)
+ *   ask-send        — Send it (POST {id, subject, body}) — admin/manager (billing.edit)
+ *   ask-close       — Delete a draft / close an ask (POST {id, reason})
+ *   ask-pitches     — Per-service "what we do" sentence (GET)
+ *   ask-pitch       — Save one (POST {product_id, pitch})
+ *   All ask-* logic lives in FieldAskService; these branches only route.
  *
  * POST /app/Modules/Products/Api/field-observations.php?action=ACTION
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 // Bootstrap
@@ -33,6 +41,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -214,6 +223,17 @@ try {
         $countStmt->execute($params);
         $total = (int)$countStmt->fetchColumn();
 
+        // Migration 1114 adds field_observations.quote_id. Guard the join so this
+        // page keeps working if the code ships before the migration is run.
+        $hasQuoteLink = false;
+        try {
+            $hasQuoteLink = $db->query("SHOW COLUMNS FROM field_observations LIKE 'quote_id'")->rowCount() > 0;
+        } catch (Exception $e) {
+            $hasQuoteLink = false;
+        }
+        $quoteSelect = $hasQuoteLink ? 'q.quote_number, q.status AS quote_status,' : '';
+        $quoteJoin   = $hasQuoteLink ? 'LEFT JOIN quotes q ON q.id = fo.quote_id' : '';
+
         // Fetch page
         $params[] = $perPage;
         $params[] = $offset;
@@ -222,8 +242,11 @@ try {
                    c.first_name AS contact_first, c.last_name AS contact_last, c.email AS contact_email,
                    pr.address AS property_address, pr.city AS property_city,
                    p.name AS product_name, p.image_url AS product_image,
+                   p.base_price AS product_price,
+                   {$quoteSelect}
                    u.full_name AS crew_name
             FROM field_observations fo
+            {$quoteJoin}
             LEFT JOIN contacts c ON c.id = fo.contact_id
             LEFT JOIN properties pr ON pr.id = fo.property_id
             LEFT JOIN products p ON p.id = fo.recommended_product_id
@@ -234,6 +257,17 @@ try {
         ");
         $listStmt->execute($params);
         $observations = $listStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Attach every linked photo. The crew often shoot 2-3 angles and the
+        // office needs to see all of them to price the work, not just the cover.
+        if ($observations) {
+            require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
+            $recoSvc = new FieldRecommendationService($db);
+            foreach ($observations as &$obsRow) {
+                $obsRow['photos'] = $recoSvc->getPhotos((int)$obsRow['id']);
+            }
+            unset($obsRow);
+        }
 
         // Status counts for tabs
         $countsByStatus = [];
@@ -264,8 +298,8 @@ try {
                    c.first_name AS contact_first, c.last_name AS contact_last, c.email AS contact_email,
                    c.phone AS contact_phone,
                    pr.address AS property_address, pr.city AS property_city,
-                   p.name AS product_name, p.selling_price AS product_price,
-                   p.short_description AS product_description, p.image_url AS product_image,
+                   p.name AS product_name, p.base_price AS product_price,
+                   p.description AS product_description, p.image_url AS product_image,
                    u.full_name AS crew_name,
                    ma.file_path AS photo_path, ma.thumbnail_path AS photo_thumb
             FROM field_observations fo
@@ -334,8 +368,8 @@ try {
             SELECT fo.*,
                    c.first_name, c.last_name, c.email AS contact_email, c.receive_marketing,
                    pr.address AS property_address, pr.city AS property_city,
-                   p.name AS product_name, p.selling_price AS product_price,
-                   p.short_description AS product_description,
+                   p.name AS product_name, p.base_price AS product_price,
+                   p.description AS product_description,
                    ma.file_path AS photo_path
             FROM field_observations fo
             JOIN contacts c ON c.id = fo.contact_id
@@ -377,7 +411,7 @@ try {
 
         // Fallback default template
         if (!$subject) {
-            $subject = 'A Recommendation From Your Recent Visit — Mowology';
+            $subject = 'A Recommendation From Your Recent Visit — ' . _idFromName();
         }
         if (!$bodyTemplate) {
             $bodyTemplate = '<p>Hi {{first_name}},</p>'
@@ -385,8 +419,8 @@ try {
                 . '<p><strong>Observation:</strong> {{observation_notes}}</p>'
                 . '{{#product}}<p>We recommend: <strong>{{product_name}}</strong> — {{product_description}}</p>{{/product}}'
                 . '<p>If you\'d like us to take care of this, just reply to this email or give us a call.</p>'
-                . '<p>Thank you for trusting Mowology with your property.</p>'
-                . '<p><strong>The Mowology Team</strong></p>';
+                . '<p>Thank you for trusting ' . htmlspecialchars(_idFromName()) . ' with your property.</p>'
+                . '<p><strong>The ' . htmlspecialchars(_idFromName()) . ' Team</strong></p>';
         }
 
         // Merge fields
@@ -400,7 +434,7 @@ try {
             '{{product_name}}'      => htmlspecialchars($obs['product_name'] ?? ''),
             '{{product_price}}'     => $obs['product_price'] ? '$' . number_format((float)$obs['product_price'], 2) : '',
             '{{product_description}}' => htmlspecialchars($obs['product_description'] ?? ''),
-            '{{company_name}}'      => 'Mowology Landscaping',
+            '{{company_name}}'      => _idCompanyInfo()['company_name'],
         ];
 
         $subject = str_replace(array_keys($mergeData), array_values($mergeData), $subject);
@@ -414,8 +448,9 @@ try {
         }
 
         // Wrap in branded email template
-        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $siteUrl = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
         $year = date('Y');
+        $brandFull = htmlspecialchars(_idCompanyInfo()['company_name']);
         $photoHtml = '';
         if (!empty($obs['photo_path'])) {
             $photoUrl = $siteUrl . $obs['photo_path'];
@@ -433,7 +468,7 @@ try {
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;max-width:600px;">
         <tr><td style="background:#1A5F4A;padding:24px 32px;">
-          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">Mowology Landscaping</h1>
+          <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">{$brandFull}</h1>
           <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">Service Recommendation</p>
         </td></tr>
         <tr><td style="padding:28px 32px;font-size:14px;color:#333;line-height:1.6;">
@@ -442,7 +477,7 @@ try {
         {$photoHtml}
         <tr><td style="background:#0D3B2E;padding:16px 32px;text-align:center;">
           <p style="color:rgba(255,255,255,0.6);font-size:11px;margin:0;">
-            &copy; {$year} Mowology Landscaping &middot; <a href="{$siteUrl}" style="color:#7FD858;">{$siteUrl}</a>
+            &copy; {$year} {$brandFull} &middot; <a href="{$siteUrl}" style="color:#7FD858;">{$siteUrl}</a>
           </p>
         </td></tr>
       </table>
@@ -454,7 +489,7 @@ HTML;
 
         // Send email
         require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
-        $result = sendEmail($obs['contact_email'], $subject, $htmlEmail, null, 'Mowology Landscaping');
+        $result = sendEmail($obs['contact_email'], $subject, $htmlEmail, null, '');
 
         // Update observation status
         $newStatus = $result['success'] ? 'email_sent' : 'approved';
@@ -485,6 +520,54 @@ HTML;
             'message' => $result['success']
                 ? 'Recommendation email sent to ' . $obs['contact_email']
                 : 'Email send failed: ' . ($result['error'] ?? 'Unknown error'),
+        ]);
+
+    // ── APPROVE & QUOTE ──────────────────────────────────────────
+    // Turns a crew recommendation into a real Quote and emails it. Unlike the
+    // legacy 'approve' action (which only sends a rules-engine recommendation
+    // email), this produces something the client can actually accept online.
+    } elseif ($action === 'approve-quote') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new Exception('POST required');
+        if (($user['role'] ?? '') !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Admin access required']);
+            exit;
+        }
+
+        $data = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!verifyCSRFToken($data['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $obsId = intval($data['id'] ?? 0);
+        if (!$obsId) throw new Exception('Observation ID required');
+
+        // The office can correct the price before it reaches the client.
+        $priceOverride = isset($data['price']) && $data['price'] !== ''
+            ? (float)$data['price']
+            : null;
+
+        require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
+        $recoSvc = new FieldRecommendationService($db);
+
+        $quoteId = $recoSvc->buildQuote($obsId, (int)$user['id'], $priceOverride);
+        $sent    = $recoSvc->send($obsId, (int)$user['id']);
+
+        $qStmt = $db->prepare('SELECT quote_number FROM quotes WHERE id = ? LIMIT 1');
+        $qStmt->execute([$quoteId]);
+        $quoteNumber = $qStmt->fetchColumn() ?: null;
+
+        echo json_encode([
+            'success'      => (bool)$sent['success'],
+            'quote_id'     => $quoteId,
+            'quote_number' => $quoteNumber,
+            'status'       => $sent['success'] ? 'email_sent' : 'quote_created',
+            'message'      => $sent['success']
+                ? 'Quote ' . $quoteNumber . ' sent to ' . $sent['email']
+                : 'Quote ' . $quoteNumber . ' created but not sent: ' . ($sent['error'] ?? 'unknown error'),
+            'error'        => $sent['error'] ?? null,
         ]);
 
     // ── DISMISS ──────────────────────────────────────────────────
@@ -525,7 +608,7 @@ HTML;
             echo json_encode(['success' => true, 'rules' => []]);
         } else {
             $rules = $db->query("
-                SELECT opr.*, p.name AS product_name, p.selling_price AS product_price
+                SELECT opr.*, p.name AS product_name, p.base_price AS product_price
                 FROM observation_product_rules opr
                 LEFT JOIN products p ON p.id = opr.recommended_product_id
                 WHERE opr.is_active = 1
@@ -553,6 +636,52 @@ HTML;
             ],
         ]);
 
+    // ── ASK FIRST (migration 1180) — thin routes over FieldAskService ─────
+    } elseif (strpos($action, 'ask-') === 0) {
+        require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
+        $askSvc = new FieldAskService($db);
+        if (!FieldAskService::canSend($db, $user)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Manager or admin access required']);
+            exit;
+        }
+        $data = [];
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $data = json_decode(file_get_contents('php://input'), true) ?? [];
+            if (!verifyCSRFToken($data['csrf_token'] ?? '')) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+                exit;
+            }
+        }
+        $askId = (int)($data['id'] ?? $_GET['id'] ?? 0);
+        switch ($action) {
+            case 'ask-drafts':
+                echo json_encode(['success' => true, 'ready' => $askSvc->ready(), 'drafts' => $askSvc->drafts()]);
+                break;
+            case 'ask-draft':
+                $d = $askSvc->draft($askId, $user);
+                echo json_encode(['success' => $d['ok']] + $d);
+                break;
+            case 'ask-send':
+                $r = $askSvc->send($askId, $user, (string)($data['subject'] ?? ''), (string)($data['body'] ?? ''));
+                echo json_encode(['success' => $r['ok'], 'message' => $r['message']]);
+                break;
+            case 'ask-close':
+                $r = $askSvc->close($askId, $user, trim((string)($data['reason'] ?? '')) ?: 'Ask first: deleted by the office');
+                echo json_encode(['success' => $r['ok'], 'message' => $r['message']]);
+                break;
+            case 'ask-pitches':
+                echo json_encode(['success' => true, 'pitches' => $askSvc->pitches()]);
+                break;
+            case 'ask-pitch':
+                $r = $askSvc->savePitch((int)($data['product_id'] ?? 0), (string)($data['pitch'] ?? ''), $user);
+                echo json_encode(['success' => $r['ok'], 'message' => $r['message']]);
+                break;
+            default:
+                throw new Exception('Invalid action: ' . htmlspecialchars($action));
+        }
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -561,6 +690,6 @@ HTML;
     http_response_code(400);
     echo json_encode([
         'success' => false,
-        'error' => $e->getMessage(),
+        'error' => ApiResponse::message($e, 'field-observations'),
     ]);
 }

@@ -30,6 +30,9 @@ for ($__i = 0; $__i < 6; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Services/Payments/AutopayService.php';
@@ -48,6 +51,10 @@ function apLog(string $msg): void
 }
 
 apLog('=== Autopay Charge Cron started ===');
+
+$__startTime = microtime(true);
+
+try {
 
 $autopay   = new AutopayService($db);
 $processed = 0;
@@ -72,6 +79,8 @@ $newStmt = $db->query("
             SELECT invoice_id FROM autopay_attempts
             WHERE status IN ('pending', 'succeeded')
           )
+      -- an e-Transfer for it is waiting on Penny's card: never charge the card too (2026-10-14)
+      AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
 ");
 
 while ($row = $newStmt->fetch(\PDO::FETCH_ASSOC)) {
@@ -103,6 +112,7 @@ $retryStmt = $db->prepare("
             SELECT invoice_id FROM autopay_attempts
             WHERE status IN ('pending', 'succeeded')
           )
+      AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
     GROUP BY aa.invoice_id
 ");
 $retryStmt->execute();
@@ -123,6 +133,15 @@ while ($row = $retryStmt->fetch(\PDO::FETCH_ASSOC)) {
 
 apLog("=== Done. Processed: {$processed}, Skipped: {$skipped}, Errors: {$errors} ===");
 
+recordCronRun(
+    'autopay_charge',
+    $errors > 0 ? 'warning' : 'success',
+    "{$processed} processed, {$skipped} skipped, {$errors} errors",
+    (int) round((microtime(true) - $__startTime) * 1000),
+    null,
+    PHP_SAPI !== 'cli'
+);
+
 // Return JSON when called via HTTP
 if (PHP_SAPI !== 'cli') {
     header('Content-Type: application/json');
@@ -132,4 +151,22 @@ if (PHP_SAPI !== 'cli') {
         'errors'    => $errors,
         'log'       => $log,
     ]);
+}
+
+} catch (\Throwable $e) {
+    apLog('FATAL: ' . $e->getMessage());
+    error_log('[AutopayCron] Fatal error: ' . $e->getMessage());
+    recordCronRun(
+        'autopay_charge',
+        'error',
+        'Fatal error',
+        (int) round((microtime(true) - $__startTime) * 1000),
+        $e->getMessage(),
+        PHP_SAPI !== 'cli'
+    );
+    if (PHP_SAPI !== 'cli') {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['processed' => 0, 'skipped' => 0, 'errors' => 1, 'log' => $log, 'fatal' => $e->getMessage()]);
+    }
 }

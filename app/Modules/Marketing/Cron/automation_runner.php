@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 $__dir = __DIR__;
@@ -23,16 +24,24 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Accounting/Services/PaymentOnTheWay.php';   // a payment on the way pauses chasing
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/ReminderGate.php';
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
+require_once APP_ROOT . '/Modules/Consent/Services/CaslRules.php';
 
 $db = getDB();
 $log = [];
 $processed = 0;
 $maxActions = 50; // Max queue items per run
+$cronStart = microtime(true);
+$cronFailed = 0; // rules or queued actions that threw this run
 
 function logMsg(string $msg): void {
     global $log;
@@ -59,6 +68,7 @@ foreach ($rules as $rule) {
     } catch (Throwable $e) {
         logMsg("ERROR evaluating rule #{$rule['id']} ({$rule['name']}): " . $e->getMessage());
         error_log("automation_runner rule #{$rule['id']}: " . $e->getMessage());
+        $cronFailed++;
     }
 }
 
@@ -81,6 +91,7 @@ foreach ($pending as $qa) {
 
     try {
         $actionData = json_decode($qa['action_data'] ?? '{}', true) ?: [];
+        $actionData['_trigger_type'] = ruleTriggerType($db, (int)($qa['rule_id'] ?? 0));
         $result = executeQueuedAction($db, $qa['action_type'], $actionData, (int)($qa['contact_id'] ?? 0));
 
         $db->prepare("UPDATE queued_actions SET status='completed', completed_at=NOW() WHERE id=?")->execute([$qa['id']]);
@@ -92,10 +103,23 @@ foreach ($pending as $qa) {
         $db->prepare("UPDATE queued_actions SET status=?, error_message=? WHERE id=?")->execute([$newStatus, $e->getMessage(), $qa['id']]);
         logMsg("  FAILED action #{$qa['id']} ({$qa['action_type']}): " . $e->getMessage() . ($willRetry ? " [will retry]" : " [max retries]"));
         error_log("queued_action #{$qa['id']}: " . $e->getMessage());
+        $cronFailed++;
     }
 }
 
 logMsg("=== Done. Processed $processed actions ===");
+
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+if (function_exists('recordCronRun')) {
+    try {
+        recordCronRun('automation_runner', $cronFailed > 0 ? 'warning' : 'success',
+            count($rules) . ' rule(s) checked, ' . $processed . ' queued action(s) processed' . ($cronFailed > 0 ? ', ' . $cronFailed . ' failed' : ''),
+            (int)round((microtime(true) - $cronStart) * 1000),
+            $cronFailed > 0 ? $cronFailed . ' rule(s)/action(s) failed — see the PHP error log' : null, PHP_SAPI !== 'cli');
+    } catch (Throwable $e) {
+        error_log('automation_runner: could not record the run — ' . $e->getMessage());
+    }
+}
 
 
 // ── Rule Evaluator ─────────────────────────────────────────────────────────
@@ -248,15 +272,72 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
 
         case 'invoice_overdue':
             $days = (int)($config['overdue_days'] ?? 7);
-            $stmt = $db->prepare("$base
-                INNER JOIN invoices i ON i.contact_id = c.id
+            // Audience is whoever the invoice was BILLED to, not invoices.contact_id —
+            // for a strata that column holds the council rep who signed the contract,
+            // while the invoice itself went to the management firm's accounts contact
+            // (snapshotted in invoice_contacts). Mirrors the precedence in
+            // InvoiceRouting::resolveReminderRecipients(), which is the authority;
+            // an invoice routed to a contactless PM inbox matches no contact and is
+            // correctly skipped here rather than falling back to the rep.
+            $stmt = $db->prepare("SELECT DISTINCT c.id, c.first_name, c.last_name, c.email, c.receive_marketing,
+                                         i.id AS invoice_id, i.invoice_number, i.balance_due, i.total,
+                                         i.due_date, i.issue_date, i.created_at, i.contact_id,
+                                         i.company_id, i.property_id
+                                  FROM contacts c
+                INNER JOIN invoices i
+                    ON c.id = CASE WHEN EXISTS (
+                                SELECT 1 FROM invoice_contacts ic0
+                                 WHERE ic0.invoice_id = i.id
+                                   AND (ic0.bounced IS NULL OR ic0.bounced = 0)
+                                   AND ic0.contact_role IN ('primary_recipient','billing_contact','accounting','property_manager','strata_manager')
+                             )
+                             THEN (
+                                SELECT ic.contact_id FROM invoice_contacts ic
+                                 WHERE ic.invoice_id = i.id
+                                   AND (ic.bounced IS NULL OR ic.bounced = 0)
+                                   AND ic.contact_role IN ('primary_recipient','billing_contact','accounting','property_manager','strata_manager')
+                                 ORDER BY FIELD(ic.contact_role,'billing_contact','accounting','primary_recipient','property_manager','strata_manager'), ic.id
+                                 LIMIT 1
+                             )
+                             ELSE i.contact_id END
                 WHERE $mktFilter
                   AND i.status IN ('sent','overdue')
                   AND i.due_date < DATE_SUB(NOW(), INTERVAL ? DAY)
                   AND i.paid_at IS NULL
+                  AND NOT " . PaymentOnTheWay::sql('i', PaymentOnTheWay::hintsReady($db)) . "
             ");
             $stmt->execute([$days]);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Never chase an automated invoicing system (it holds the invoice already).
+            require_once APP_ROOT . '/Modules/Invoices/Services/AutomatedInvoiceInbox.php';
+            $extra = AutomatedInvoiceInbox::extraDomains($db);
+            $gate = new ReminderGate($db);
+            $eligible = [];   // one row per CONTACT (the caller sends one email per row), first passing invoice wins
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                if (AutomatedInvoiceInbox::isAutomated((string)($row['email'] ?? ''), $extra)) continue;
+                $recipients = resolveReminderRecipients((int)$row['invoice_id'], $db);
+                if (!$recipients) continue;
+                $decision = $gate->decide(['id' => $row['invoice_id']] + $row, $recipients);
+                $isHold = !in_array($decision['reason'], ['ok', 'approaching', 'due_today'], true);
+                if ($isHold && $decision['mode'] !== 'off') {
+                    $gate->recordHold($decision, (int)$row['invoice_id']);
+                    logMsg('  ' . ($decision['mode'] === 'shadow' ? 'WOULD HOLD ' : 'HELD ')
+                        . $row['invoice_number'] . ' — ' . $decision['reason'] . ': ' . $decision['detail']);
+                }
+                if (!$decision['send']) continue;
+
+                // Mode on only: the audience row must be one of the chaseable (non-AP) recipients.
+                // Off and shadow keep the legacy audience untouched.
+                $chaseable = $decision['mode'] === 'on' ? $decision['recipients'] : [];
+                if ($chaseable) {
+                    $email = strtolower(trim((string)$row['email']));
+                    $matches = array_filter($chaseable, static function ($recipient) use ($email) {
+                        return strtolower(trim((string)($recipient['email_address'] ?? ''))) === $email;
+                    });
+                    if (!$matches) continue;
+                }
+                $eligible[(int)$row['id']] = $eligible[(int)$row['id']] ?? $row;
+            }
+            return array_values($eligible);
 
         case 'client_inactive':
             $inactiveDays = (int)($config['inactive_days'] ?? 90);
@@ -271,7 +352,10 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
             $tag = $db->quote($config['tag'] ?? '');
             $stmt = $db->query("$base
                 INNER JOIN contact_tags ct ON ct.contact_id = c.id
-                WHERE $mktFilter AND ct.tag = $tag
+                WHERE $mktFilter
+                  AND ct.tag = $tag
+                  AND c.receive_marketing = 1
+                  AND c.email NOT IN (SELECT email COLLATE utf8mb4_general_ci FROM marketing_unsubscribes)
             ");
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -442,10 +526,25 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
 
         case 'send_email':
             if (!$contactId) break;
-            $stmt = $db->prepare("SELECT first_name, last_name, email FROM contacts WHERE id=?");
+            // CASL (Fable review 2026-10-12): a commercial automation (anything but a requested
+            // quote or a bill owed) asks the consent ledger at send time and carries the postal
+            // address + unsubscribe footer — or nothing goes.
+            $commercial = CaslRules::isCommercialTrigger((string)($data['_trigger_type'] ?? ''));
+            $stmt = $db->prepare("SELECT id, first_name, last_name, email, receive_marketing, consent_email_express_at, consent_email_implied_at FROM contacts WHERE id=?");
             $stmt->execute([$contactId]);
             $contact = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($contact && !empty($contact['email'])) {
+                // Always honour the unsubscribe blocklist — even for transactional automations
+                $unsubCheck = $db->prepare("SELECT 1 FROM marketing_unsubscribes WHERE email = ? LIMIT 1");
+                $unsubCheck->execute([strtolower(trim($contact['email']))]);
+                if ($unsubCheck->fetchColumn()) {
+                    logMsg("  [SKIPPED] Contact #$contactId on unsubscribe list — no email sent");
+                    break;
+                }
+                if ($commercial && !canSendMarketing($contact, 'email')) {
+                    logMsg("  [SKIPPED] Contact #$contactId has no marketing consent (CASL) — no email sent");
+                    break;
+                }
                 // Build template vars — include quote data if this action came from a quote trigger
                 $quoteData   = $data['contact'] ?? [];
                 $quoteNumber = $quoteData['quote_number'] ?? '';
@@ -456,7 +555,7 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                     ? date('F j, Y', strtotime($quoteData['quote_valid_until']))
                     : '';
                 $quoteUrl = !empty($quoteData['quote_token'])
-                    ? 'https://mowology.ca/customer/quote.php?token=' . urlencode($quoteData['quote_token'])
+                    ? _idSiteUrl() . '/customer/quote.php?token=' . urlencode($quoteData['quote_token'])
                     : '';
 
                 $vars = [
@@ -474,21 +573,22 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                 if (!empty($data['use_template'])) {
                     try {
                         require_once PUBLIC_ROOT . '/app/Services/Messaging/EmailWrapper.php';
+                        $companyInfo = EmailWrapper::getCompanyInfo();
                         $tplVars = [
                             '{{customer_first_name}}' => $contact['first_name'],
                             '{{customer_name}}'       => trim($contact['first_name'] . ' ' . $contact['last_name']),
                             '{{quote_number}}'        => $quoteNumber,
                             '{{quote_amount}}'        => $quoteAmount,
                             '{{quote_valid_until}}'   => $quoteValidUntil,
-                            '{{company_name}}'        => 'Mowology Landscaping',
-                            '{{company_phone}}'       => '(778) 846-9273',
+                            '{{company_name}}'        => $companyInfo['company_name'],
+                            '{{company_phone}}'       => $companyInfo['company_phone'],
                         ];
                         $tpl = loadEmailTemplate($data['use_template'], $tplVars);
                         if ($tpl && !empty($tpl['subject'])) {
                             $emailSubject = $tpl['subject'];
-                            $emailBody = $quoteUrl
-                                ? EmailWrapper::wrap($tpl['body_html'], 'View Your Quote', $quoteUrl, EmailWrapper::getCompanyInfo())
-                                : $tpl['body_html'];
+                            $emailBody = $commercial
+                                ? $tpl['body_html']
+                                : EmailWrapper::wrap($tpl['body_html'], $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, $companyInfo);
                         }
                     } catch (Throwable $tplEx) {
                         error_log("automation send_email template load failed: " . $tplEx->getMessage());
@@ -499,10 +599,29 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                 if (empty($emailBody)) {
                     $emailSubject = renderTemplate($data['subject'] ?? 'Message from Mowology', $vars);
                     $emailBody    = renderTemplate($data['body'] ?? '', $vars);
+                    // Inline rule text is plain text; the sender is HTML-only, so wrap it
+                    // or it arrives as one run-on paragraph with no clickable link.
+                    if ($emailBody !== '' && stripos($emailBody, '<p') === false && stripos($emailBody, '<table') === false) {
+                        require_once PUBLIC_ROOT . '/app/Services/Messaging/EmailWrapper.php';
+                        $emailBody = $commercial
+                            ? EmailWrapper::textToHtml($emailBody)
+                            : EmailWrapper::wrap(EmailWrapper::textToHtml($emailBody), $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, EmailWrapper::getCompanyInfo());
+                    }
+                }
+
+                if ($commercial && $emailBody !== '') {
+                    $emailBody = CaslRules::composeHtml($emailBody, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
+                    if ($emailBody === null) {
+                        logMsg("  [SKIPPED] Contact #$contactId — no postal address or unsubscribe link for the footer (CASL)");
+                        break;
+                    }
                 }
 
                 if ($emailSubject && $emailBody) {
-                    sendCrmEmail($contact['email'], $emailSubject, $emailBody, trim($contact['first_name'] . ' ' . $contact['last_name']));
+                    // (The 4th argument is an attachment path — the contact's name used to be passed there.)
+                    if (!sendCrmEmail($contact['email'], $emailSubject, $emailBody)) {
+                        throw new RuntimeException('send_email failed for contact #' . $contactId);
+                    }
 
                     // If this was a quote follow-up, record the send
                     if (!empty($quoteData['quote_id'])) {
@@ -542,6 +661,19 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
 
 
 // ── Helper ─────────────────────────────────────────────────────────────────
+
+/** The trigger of the rule that queued an action ('' when unknown → treated as commercial). */
+function ruleTriggerType(PDO $db, int $ruleId): string
+{
+    static $cache = [];
+    if ($ruleId <= 0) return '';
+    if (!array_key_exists($ruleId, $cache)) {
+        $st = $db->prepare("SELECT trigger_type FROM automation_rules WHERE id = ?");
+        $st->execute([$ruleId]);
+        $cache[$ruleId] = (string)($st->fetchColumn() ?: '');
+    }
+    return $cache[$ruleId];
+}
 
 function logRow(PDO $db, int $ruleId, int $contactId, string $triggerType, string $status): void
 {

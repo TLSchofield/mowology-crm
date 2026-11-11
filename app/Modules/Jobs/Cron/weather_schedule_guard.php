@@ -26,6 +26,8 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 // Fatal error handler
 set_error_handler(function($severity, $message, $file, $line) {
@@ -79,6 +81,11 @@ function jsonRespond(array $data): void {
 
 try {
     $db = getDB();
+    // One guard at a time (Codex review 2026-10-15): the cron and a "Run guard" click could both pass the
+    // per-visit "evaluated today" check and both move the same visit. A MySQL lock covers web + CLI.
+    if ((int)$db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.weather_schedule_guard'), 0)")->fetchColumn() !== 1) {
+        jsonRespond(['success' => true, 'skipped' => 'Another weather guard run is in progress.']);
+    }
     $ops = getWeatherOpsConstraints();
     $lookaheadDays = (int)($ops['lookahead_days'] ?? 2);
 
@@ -139,6 +146,11 @@ try {
             $servicePackageIds[] = (int)$visit['service_package_id'];
         }
         $visitRule = aggregateVisitRules($servicePackageIds);
+        // The service's rules couldn't be read (database hiccup): decide nothing, try again next run.
+        if (!empty($visitRule['lookup_failed'])) {
+            $results['errors'][] = "Visit {$visit['visit_number']}: weather rules unavailable — will retry next run";
+            continue;
+        }
 
         // Skip evaluation if policy is ANY
         if (($visitRule['weather_policy'] ?? 'ANY') === 'ANY') {
@@ -169,6 +181,13 @@ try {
         $hourlyWindow = getHourlyForecastWindow($lat, $lon, $visit['scheduled_date'], $timeStart, $timeEnd);
         $evalResult = evaluateVisitWeather($visitRule, $hourlyWindow, $timeStart, $timeEnd);
         $evalResult['visit_rule'] = $visitRule;
+
+        // No forecast (the weather API timed out): not "evaluated today" — the next run tries again instead
+        // of leaving the visit unchecked until tomorrow (Codex review 2026-10-15).
+        if (empty($hourlyWindow)) {
+            $results['errors'][] = "Visit {$visit['visit_number']}: no forecast yet — will retry next run";
+            continue;
+        }
 
         // Save snapshot
         saveWeatherSnapshot($visitId, $evalResult);
@@ -316,12 +335,11 @@ try {
     $results['total_visits'] = count($visits);
 
     $hasErrors = !empty($results['errors'] ?? []);
-    $reschedCount = $results['rescheduled'] ?? 0;
-    $flagCount    = $results['flagged'] ?? 0;
+    require_once APP_ROOT . '/Modules/Jobs/Services/WeatherGuardSummary.php';
     recordCronRun(
         'weather_guard',
         $hasErrors ? 'warning' : 'success',
-        "{$reschedCount} rescheduled, {$flagCount} flagged, {$results['total_visits']} visits checked",
+        WeatherGuardSummary::line($results),
         null,
         $hasErrors ? implode('; ', array_slice((array)$results['errors'], 0, 3)) : null,
         !$isCli
@@ -412,6 +430,7 @@ function runSaltAlerts(PDO $db): array
                 'high' => (float)($day['temp_high'] ?? 0),
                 'condition' => $day['condition'] ?? 'Unknown',
                 'salt' => $needsSalt,
+                'arctic' => $low <= -5,
             ];
 
             if ($needsSalt) {
@@ -502,6 +521,11 @@ function runSaltAlerts(PDO $db): array
             $low = $day['temp_low'] ?? '?';
             $high = $day['temp_high'] ?? '?';
             $condition = ucfirst($day['condition'] ?? 'Unknown');
+            // -5C or colder: contract rate is the daily Arctic salt, so say so up front —
+            // the crew pick "Arctic salt" at the stop (SnowContractService).
+            if (is_numeric($low) && (float)$low <= -5) {
+                $condition = 'ARCTIC salt (-5C) - ' . $condition;
+            }
             $dateLabel = date('M j', strtotime($date));
             $dayName = date('l', strtotime($date));
 
@@ -542,5 +566,104 @@ function runSaltAlerts(PDO $db): array
         error_log('Salt alert error: ' . $e->getMessage());
     }
 
+    // Capture authoritative weather go-decisions for all winter-service visits
+    // on each salt day. These records form the legal basis for the PoW PDF.
+    if (!empty($saltDays)) {
+        $decisionResults = captureSaltWeatherDecisions($db, $saltDays, $triggerTemp);
+        $saltResults['decisions_captured'] = $decisionResults['captured'];
+        $saltResults['decisions_skipped']  = $decisionResults['skipped'];
+        if (!empty($decisionResults['errors'])) {
+            $saltResults['errors'] = array_merge($saltResults['errors'], $decisionResults['errors']);
+        }
+    }
+
     return $saltResults;
+}
+
+/**
+ * For each salt trigger date, find all winter-service visits (snow_removal or
+ * salt_application) scheduled on that date and write an immutable
+ * salt_weather_decisions record containing the full weather context.
+ *
+ * Uses INSERT IGNORE so cron retries are safe.
+ */
+function captureSaltWeatherDecisions(PDO $db, array $saltDays, float $globalTriggerTemp): array
+{
+    $result = ['captured' => 0, 'skipped' => 0, 'errors' => []];
+
+    // EC source metadata (constant for the Vancouver forecast zone)
+    $ecIdentifier = getEnvironmentCanadaIdentifier('Vancouver', 'BC') ?? 'bc-74';
+    $ecSourceUrl  = "https://api.weather.gc.ca/collections/citypageweather-realtime/items?f=json&lang=en-CA&identifier={$ecIdentifier}";
+    $decisionAt   = date('Y-m-d H:i:s');
+
+    foreach ($saltDays as $triggerDate => $dayForecast) {
+        try {
+            // Find all visits on this date with snow_removal or salt_application
+            $stmt = $db->prepare("
+                SELECT DISTINCT jv.id AS visit_id, jp.property_id
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                JOIN plan_line_items pli ON pli.plan_id = jp.id
+                WHERE jv.scheduled_date = ?
+                  AND jv.status IN ('scheduled', 'in_progress')
+                  AND pli.service_type IN ('snow_removal', 'salt_application')
+            ");
+            $stmt->execute([$triggerDate]);
+            $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($visits)) {
+                $result['skipped']++;
+                continue;
+            }
+
+            $overnightLow = (float)($dayForecast['temp_low'] ?? 99);
+            $condition    = (string)($dayForecast['condition'] ?? 'Unknown');
+
+            // The raw_api_response field stores the full parsed day forecast
+            // plus source metadata — sufficient to reproduce the decision context.
+            $rawPayload = json_encode([
+                'source'          => 'Environment Canada',
+                'source_url'      => $ecSourceUrl,
+                'ec_identifier'   => $ecIdentifier,
+                'captured_at_utc' => gmdate('Y-m-d H:i:s') . ' UTC',
+                'trigger_date'    => $triggerDate,
+                'forecast_day'    => $dayForecast,
+                'global_trigger_threshold_c' => $globalTriggerTemp,
+            ]);
+
+            foreach ($visits as $visit) {
+                $inserted = $db->prepare("
+                    INSERT IGNORE INTO salt_weather_decisions
+                        (visit_id, property_id, decision_at, trigger_date,
+                         overnight_low_c, trigger_threshold_c, weather_condition,
+                         data_source, source_station, source_url, raw_api_response)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([
+                    (int)$visit['visit_id'],
+                    (int)$visit['property_id'],
+                    $decisionAt,
+                    $triggerDate,
+                    $overnightLow,
+                    $globalTriggerTemp,
+                    $condition,
+                    'Environment Canada',
+                    'Vancouver / BC — station ' . $ecIdentifier,
+                    $ecSourceUrl,
+                    $rawPayload,
+                ]);
+
+                if ($inserted) {
+                    $result['captured']++;
+                } else {
+                    $result['skipped']++;
+                }
+            }
+
+        } catch (Throwable $e) {
+            $result['errors'][] = "Decision capture for {$triggerDate}: " . $e->getMessage();
+            error_log('captureSaltWeatherDecisions error: ' . $e->getMessage());
+        }
+    }
+
+    return $result;
 }

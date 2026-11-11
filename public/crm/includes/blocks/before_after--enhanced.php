@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced Before & After Block Renderer — Slider cards + lightbox
  *
@@ -179,7 +180,7 @@ $uid = 'mw-ba-' . ($block['id'] ?? uniqid());
 @keyframes baReveal { to { opacity:1; transform:translateY(0); } }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function () {
   'use strict';
   var sectionId = '<?= h($uid) ?>';

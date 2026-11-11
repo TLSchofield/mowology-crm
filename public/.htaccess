@@ -13,7 +13,10 @@ Options -Indexes
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
     # Disable browser features not needed by this app
-    Header always set Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=()"
+    # camera=(self): required for before/after job-photo capture in the Capacitor
+    # WebView. camera=() blocks the camera at the web layer even when the OS
+    # permission is granted, surfacing as "Access denied" on photo capture.
+    Header always set Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=()"
 
     # Content Security Policy
     # - default: self only
@@ -22,7 +25,29 @@ Options -Indexes
     # - frames: 'self' allows same-origin iframes (e.g. /crm/mobile-preview_appstack.php)
     #           https://js.stripe.com for Stripe Payment Element
     # - connect: self + APIs used (Google Maps, Open-Meteo weather, Stripe, Esri tiles for offline cache)
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://js.stripe.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com https://*.tile.openstreetmap.org https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://server.arcgisonline.com; connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com; frame-src 'self' https://www.google.com https://www.recaptcha.net https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';"
+    #
+    # Fable #22 (2026-10-12): the PUBLIC site (head.php pages, CMS pages, /services/*) and the
+    # CUSTOMER portal (/customer/*) send a stricter per-request nonce CSP from PHP
+    # (app/Core/Csp.php — no 'unsafe-inline'/'unsafe-eval' for scripts). MW_NONCE_CSP marks those
+    # URLs so this lax policy is not added on top. If a server ignores env= the browser enforces
+    # both headers, which is still the strict one (its hosts are a subset of these).
+    # The CRM (AppStack), site-admin, jobFlow etc. keep this policy for now — follow-up.
+    <IfModule mod_setenvif.c>
+    SetEnvIf Request_URI "^/$" MW_NONCE_CSP=1
+    SetEnvIf Request_URI "^/customer/" MW_NONCE_CSP=1
+    SetEnvIf Request_URI "^/(index|about|contact|portfolio|privacy|privacy-request|blog|before-after|services_static|cms-render)(\.php)?/?$" MW_NONCE_CSP=1
+    SetEnvIf Request_URI "^/services(/[a-z0-9-]+(\.php)?)?/?$" MW_NONCE_CSP=1
+    SetEnvIf Request_URI "^/[a-z0-9-]+(/[a-z0-9-]+)*/?$" MW_NONCE_CSP=1
+    SetEnvIf Request_URI "^/(crm|site-admin|cms|api|client|bluemoon|downloads|uploads|assets|storage|_media|quote|forgot-password|reset-password|unsubscribe|optin-confirm|sitemap)(/|\.php|$)" !MW_NONCE_CSP
+    # Receipt files (serve-receipt.php) get their own strict policy from PHP instead of the page policy below, whose
+    # object-src 'none' makes Chrome refuse to draw a PDF receipt beside the editor form (2026-10-20). Must stay AFTER the /crm line.
+    SetEnvIf Request_URI "^/crm/api/serve-receipt\.php$" MW_NONCE_CSP=1
+    # The Expenses page draws an emailed PDF receipt beside the editor form (2026-10-22). Chrome needs object-src 'self' for that, on THIS page only.
+    SetEnvIf Request_URI "^/crm/expenses_appstack\.php$" MW_PDF_OBJECT=1
+    </IfModule>
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://js.stripe.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com https://*.tile.openstreetmap.org https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://server.arcgisonline.com; connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com; frame-src 'self' https://www.google.com https://www.recaptcha.net https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';" env=!MW_NONCE_CSP
+    # ...and only the Expenses page: object-src 'none' -> 'self' (see MW_PDF_OBJECT above). Every other page keeps 'none'.
+    Header always edit Content-Security-Policy "object-src 'none'" "object-src 'self'" env=MW_PDF_OBJECT
 
     # Remove server version info
     Header always unset X-Powered-By
@@ -35,7 +60,18 @@ DirectoryIndex index.php index.html
 # PWA manifest MIME type (required for Chrome install prompt)
 <IfModule mod_mime.c>
     AddType application/manifest+json .webmanifest
+    # Android App Links / generic JSON (e.g. /.well-known/assetlinks.json)
+    AddType application/json .json
 </IfModule>
+
+# Android App Links — make sure /.well-known/assetlinks.json is reachable
+# (real file, so the CMS catch-all already skips it) and served as JSON.
+<Files "assetlinks.json">
+    <IfModule mod_headers.c>
+        Header set Content-Type "application/json"
+    </IfModule>
+    Require all granted
+</Files>
 
 # Protect sensitive files
 <FilesMatch "^(config\.php|auth\.php|session_config\.php|secrets\.php)$">
@@ -43,17 +79,85 @@ DirectoryIndex index.php index.html
     Deny from all
 </FilesMatch>
 
+# Internal docs, logs, dumps and editor/OS files — never web-readable (2026-10-12: CLAUDE.md,
+# .git-ftp.log, .DS_Store and *_ARCHITECTURE.md were all public). .well-known and llms.txt unaffected.
+<FilesMatch "(\.(md|log|sql|bak|orig|swp)|\.DS_Store|\.gitignore|\.git-ftp\.log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Data exports, archives and build/runtime config — never served as static files (security audit
+# 2026-10-12 #1/#7: Jobber client CSVs sat downloadable in crm/tmp; composer.lock, php.ini and
+# .user.ini were readable). Downloads the CRM offers are generated by PHP and are unaffected.
+# No page links a static .csv/.xlsx/.zip under public/ (checked 2026-10-12), so nothing is exempt.
+# tests/Unit/Security/WebRootHygieneTest.php keeps this rule and fails on such files outside uploads/.
+<FilesMatch "(\.(csv|xlsx|xls|zip|gz|tgz|tar|bak)|^composer\.(json|lock)|^php\.ini|^\.user\.ini)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Ittai businesses (*.ittai.ca, 2026-10-23): only the app answers there — never the Mowology website, its
+# CMS or its files. <If> (core Apache) so it also covers folders with their own .htaccess; THE_REQUEST is the
+# browser's own request line, so internal rewrites (/api → app) are judged by what was asked for.
+# A path with dot segments or encoded dots/slashes ("/crm/../index.php", "%2e%2e") would pass the allow-list below on
+# its first folder while Apache serves what it resolves to — the app never uses them, so they 404 (reviewer, 2026-10-24).
+<If "%{HTTP_HOST} =~ /\.ittai\.ca\.?(:[0-9]+)?$/i && %{THE_REQUEST} =~ m#^[A-Z]+ [^ ?]*(/\.{1,2}(/|\?| |$)|%2e|%2f|%5c|\\\\)#i">
+    Redirect 404 /
+</If>
+<If "%{HTTP_HOST} =~ /\.ittai\.ca\.?(:[0-9]+)?$/i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(crm|loginAuth|api|customer|client|assets|uploads/t|\.well-known)(/|\?|\s)#i && %{THE_REQUEST} !~ m#^[A-Z]+ /+(favicon\.ico|robots\.txt|service-worker\.js|unsubscribe\.php|optin-confirm\.php|forgot-password/?|reset-password/?)?(\?|\s)#i">
+    Redirect 404 /
+</If>
+
 # ── URL Rewrites ──
 RewriteEngine On
 
-# Force HTTPS (uncomment on production)
-# RewriteCond %{HTTPS} off
-# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# A business's address opens on its sign-in (Ittai).
+RewriteCond %{HTTP_HOST} \.ittai\.ca\.?(:[0-9]+)?$ [NC]
+RewriteRule ^$ /loginAuth/login.php [L,R=302]
+
+# ── Canonical URLs (SEO) ─────────────────────────────────────────────────────
+# One URL per page. Google had indexed http://, www., .php and /home variants
+# of every page as separate documents; every rule here is a 301 so those
+# duplicates consolidate onto the clean https://mowology.ca/<slug> form.
+
+# Scheme + host. Only on the production host so dev hostnames are untouched.
+RewriteCond %{HTTP_HOST} ^(www\.)?mowology\.ca$ [NC]
+RewriteCond %{HTTPS} !=on [OR]
+RewriteCond %{HTTP_HOST} ^www\. [NC]
+RewriteRule ^ https://mowology.ca%{REQUEST_URI} [L,R=301]
+
+# Legacy .php and alias URLs → clean URLs. THE_REQUEST is the browser's
+# original request line, so these never fire on the internal rewrites below
+# (e.g. /privacy → /privacy.php) and cannot loop.
+RewriteCond %{THE_REQUEST} \s/+(index\.php|home)/?[\s?] [NC]
+RewriteRule ^ / [L,R=301]
+RewriteCond %{THE_REQUEST} \s/+(about|contact|portfolio|privacy|privacy-request)\.php[\s?] [NC]
+RewriteRule ^ /%1 [L,R=301]
+RewriteCond %{THE_REQUEST} \s/+services/([a-z0-9-]+)\.php[\s?] [NC]
+RewriteRule ^ /services/%1 [L,R=301]
+# Trailing slash → none on public pages (services/ is a real directory; see
+# services/.htaccess for why /services no longer bounces to /services/).
+RewriteCond %{THE_REQUEST} \s/+(about|contact|portfolio|privacy|privacy-request|quote|services|services/[a-z0-9-]+)/[\s?] [NC]
+RewriteRule ^ /%1 [L,R=301]
+
+# sitemap.xml is generated by sitemap.php (the stale static file was removed)
+RewriteRule ^sitemap\.xml$ /sitemap.php [L]
+
+# mowology.ca/crew → the crew app download (easy to type on a tablet). Point it at the release APK
+# (/crm/downloads/mowology-crew.apk) once 1.7.0 is released to everyone.
+RewriteRule ^crew/?$ /crm/downloads/mowology-crew-2.2.11-test.apk [NC,L,R=302]
+# The old app's own pages (sign-in banner, update page, tracking health) link the fixed name below. On this
+# business's address it leads to the current release too; the other businesses keep the file itself.
+RewriteCond %{HTTP_HOST} ^(www\.)?mowology\.ca$ [NC]
+RewriteRule ^crm/downloads/mowology-crew\.apk$ /crm/downloads/mowology-crew-2.2.11-test.apk [NC,L,R=302]
 
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
 
-# /forgot-password and /reset-password — iOS app password reset flow
+# /forgot-password and /reset-password — iOS app password reset flow. Those pages are the original business's
+# (they mail mowology.ca links), so on a business's ittai address they go to its own sign-in pages (2026-10-23).
+RewriteCond %{HTTP_HOST} \.ittai\.ca\.?(:[0-9]+)?$ [NC]
+RewriteRule ^(forgot|reset)-password/?$ /loginAuth/$1_password.php [L,R=302,QSA]
 RewriteRule ^forgot-password/?$ /forgot-password.php [L,QSA]
 RewriteRule ^reset-password/?$ /reset-password.php [L,QSA]
 
@@ -88,6 +192,21 @@ RewriteRule ^bluemoon/ - [L]
     Header always set X-LiteSpeed-Cache-Control "no-store, no-cache"
 </Files>
 
+# ── Static asset caching (Core Web Vitals) ──────────────────────────────────
+<IfModule mod_headers.c>
+    # Images and fonts never change in place (new content gets a new filename).
+    <FilesMatch "\.(webp|avif|jpe?g|png|gif|svg|ico|woff2?|ttf|otf)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    # CSS/JS: the public site cache-busts with ?v=mtime but the CRM does not
+    # everywhere, so one day rather than one year.
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=86400"
+    </FilesMatch>
+    # HSTS — safe now that every http:// request is 301'd to https:// above.
+    Header always set Strict-Transport-Security "max-age=15552000"
+</IfModule>
+
 # Security: allow JS workers to be fetched with correct MIME and COOP headers
 <FilesMatch "\.worker\.js$">
     Header set Content-Type "application/javascript"
@@ -102,3 +221,10 @@ RewriteRule ^bluemoon/ - [L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^([a-z0-9\-\/]+)/?$ /cms-render.php?page=$1 [L,QSA]
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the “ea-php81” package as the default “PHP” programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php81 .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit

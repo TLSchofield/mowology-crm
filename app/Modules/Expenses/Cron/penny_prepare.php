@@ -1,0 +1,260 @@
+<?php
+/**
+ * Penny prepares receipts — background version of the dashboard card's topUp().
+ *
+ * Until now Penny only prepared receipts while the dashboard was open (2 per round, at
+ * most 3 rounds per page view). This cron works through the draft backlog in the
+ * background: every run it calls BookkeeperDeskService::prepare() for up to N receipts
+ * (default 5, the service's own ceiling), within the SAME daily cap
+ * (ops_settings bookkeeper_daily_cap, else BookkeeperDeskService::DEFAULT_DAILY_CAP = 40).
+ * Once the cap is reached the run does nothing until tomorrow. The cap is not raised here.
+ *
+ * Possible duplicates are held back exactly as bookkeeper.php's 'prepare' mode does:
+ * DuplicateReceiptService::heldIds(pairsInLine(60)).
+ *
+ * Nothing is approved here — Penny only prepares a suggestion; Tim decides on the card.
+ *
+ * Options (CLI):  --dry-run   list what would be prepared; no API call, nothing written
+ *                 --max=N     receipts this run (1..5, default 5)
+ * Browser (admin, via /crm/cron/penny_prepare.php): ?dry_run=1, ?max=N
+ *
+ * Cron (every 15 min, offset from the receipt inbox poll so new email receipts are in) —
+ * schedule in cPanel as:
+ *   5,20,35,50 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Expenses/Cron/penny_prepare.php
+ */
+
+declare(strict_types=1);
+
+$__dir = __DIR__;
+for ($__i = 0; $__i < 5; $__i++) {
+    $__dir = dirname($__dir);
+    if (is_file($__dir . '/app/Core/paths.php')) {
+        require_once $__dir . '/app/Core/paths.php';
+        break;
+    }
+}
+unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database or loads secrets (ANTHROPIC_API_KEY).
+require_once APP_ROOT . '/Core/config.php';
+require_once CRM_INCLUDES . '/functions.php';          // brings CrmFunctions.php → recordCronRun()
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+
+$isCli = (PHP_SAPI === 'cli');
+if (!$isCli) {
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    requireLogin();
+    if (!isAdmin()) { http_response_code(403); exit(json_encode(['success' => false, 'error' => 'Admin only'])); }
+    header('Content-Type: application/json; charset=utf-8');
+}
+
+const PENNY_PREPARE_KEY = 'penny_prepare';
+$startMs = (int)(microtime(true) * 1000);
+
+$dryRun = false;
+$max = 5;
+if ($isCli) {
+    foreach (array_slice($argv ?? [], 1) as $arg) {
+        if ($arg === '--dry-run') $dryRun = true;
+        elseif (strpos($arg, '--max=') === 0) $max = (int)substr($arg, 6);
+    }
+} else {
+    $dryRun = !empty($_GET['dry_run']);
+    if (isset($_GET['max'])) $max = (int)$_GET['max'];
+}
+$max = max(1, min(5, $max));
+
+$log = [];
+$pennyLog = function (string $m) use (&$log): void { $log[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; };
+$readerLine = '';   // the nightly receipt-reader score, carried into the recorded summary
+$finish = function (string $status, string $summary, ?string $error = null) use (&$log, &$readerLine, $startMs, $isCli, $dryRun): void {
+    $summary .= $readerLine;
+    if (!$dryRun) {
+        recordCronRun(PENNY_PREPARE_KEY, $status, $summary, (int)(microtime(true) * 1000) - $startMs, $error, !$isCli);
+    }
+    if ($isCli) { echo implode("\n", $log) . "\n" . $summary . "\n"; exit($status === 'error' ? 1 : 0); }
+    echo json_encode(['success' => $status !== 'error', 'dry_run' => $dryRun, 'message' => $summary, 'log' => $log]);
+    exit;
+};
+
+try {
+    $db = getDB();
+
+    // Once nightly, score the live approved-receipt corpus. A missing migration/column is non-fatal.
+    if (!$dryRun && (int)date('G') === 1) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptParserScoreService.php';
+            $scoreService = new ReceiptParserScoreService($db);
+            $existingScores = $scoreService->latestTwo();
+            $parserScore = (($existingScores[0]['run_date'] ?? '') === date('Y-m-d')) ? null : $scoreService->run();
+            if ($parserScore !== null && empty($parserScore['skipped'])) {
+                $totalScore = $parserScore['summary']['total'];
+                $share = $totalScore['of'] ? 100 * $totalScore['right'] / $totalScore['of'] : 0;
+                $pennyLog('Receipt reader score: ' . number_format($share, 1) . '% totals right (' . $totalScore['right'] . '/' . $totalScore['of'] . ').');
+                $readerLine = ' Receipt reader: ' . number_format($share, 1) . '% totals right (' . $totalScore['right'] . '/' . $totalScore['of'] . ').';
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Receipt reader score skipped (non-fatal): ' . $e->getMessage());
+        }
+    }
+
+    // Receipt facts backfill (migration 1227): parse printed facts for receipts that have OCR text,
+    // copy finished OCR onto never-read receipts, queue never-read receipts with a photo for OCR
+    // (ReceiptFactsService::REOCR_DAILY_CAP a day). Never blocks Penny's own work.
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptFactsService.php';
+        $rf = (new ReceiptFactsService($db))->backfill(ReceiptFactsService::PARSE_PER_RUN, ReceiptFactsService::REOCR_PER_RUN, $dryRun);
+        if ($rf['ready'] && ($rf['parsed'] || $rf['adopted'] || $rf['queued'])) {
+            $pennyLog('Receipt facts: parsed ' . $rf['parsed'] . ', OCR text adopted ' . count($rf['adopted'])
+                      . ', queued for OCR ' . count($rf['queued']) . ($dryRun ? ' (dry run)' : ''));
+        }
+    } catch (Throwable $e) {
+        $pennyLog('Receipt facts backfill failed (non-fatal): ' . $e->getMessage());
+    }
+    // Receipts feed the product catalogue: read a few past receipts (last 120 days) per run
+    // for product proposals on Penny's card. Free (no AI), never creates anything.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
+            $pps = new ProductProposalService($db);
+            if ($pps->ready()) {
+                $bf = $pps->backfill(ProductProposalService::BACKFILL_DAYS, 10);
+                if ($bf['scanned'] > 0) $pennyLog("Product scan: read {$bf['scanned']} receipt(s), {$bf['proposals']} proposal(s), {$bf['left']} left.");
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Product scan skipped: ' . $e->getMessage());
+        }
+    }
+
+    // Statements check (migration 1231): is every bank / card statement in? Computed at most
+    // once a day (cached in ops_settings), whatever this cron's 15-minute cadence.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+            $sc = new StatementCoverageService($db);
+            if ($sc->ready()) {
+                $scRun = $sc->refreshDaily();
+                if ($scRun['ran']) {
+                    $st = StatementCoverageService::strip($scRun['report']);
+                    $pennyLog('Statements check: ' . implode(' · ', array_map(fn($a) => $a['label'] . ($a['ok'] ? ' ✓' : ' ✗ ' . $a['note']), $st['accounts']))
+                              . ($st['gaps'] ? ' · gaps: ' . (count($st['gaps']) + $st['more_gaps']) : ''));
+                }
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Statements check failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/Services/TwinFinder.php';
+            require_once APP_ROOT . '/Modules/Expenses/Services/TwinCheckService.php';
+            $tc = new TwinCheckService($db);
+            if ($tc->ready()) {
+                $r = $tc->refreshDaily();
+                if ($r['ran']) $pennyLog('Twin check: ' . $r['open'] . ' open question(s) ($' . number_format($r['dollars'], 2) . '), new ' . $r['new'] . ', closed ' . $r['closed'] . '.');
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Twin check failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
+    // Look-back review of 2026 (migration 1250), at night: one full rules scan a day (free), then small
+    // Claude batches (5 vendors / payees a run) while some are still unasked and the budget
+    // (ops_settings penny_lookback_budget) lasts. Proposals only — nothing in the books changes here.
+    if (!$dryRun && (int)date('G') >= 1 && (int)date('G') <= 4) {
+        try {
+            require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+            $lb = new LookbackService($db);
+            if ($lb->ready()) {
+                $lastScan = (string)($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'penny_lookback_last_scan'")->fetchColumn() ?: '');
+                $pendingKey = 'penny_lookback_ai_pending';
+                $pending = (int)($db->query("SELECT setting_value FROM ops_settings WHERE setting_key = '{$pendingKey}'")->fetchColumn() ?: 0);
+                if (substr($lastScan, 0, 10) !== date('Y-m-d') || ($pending > 0 && $lb->canSpend())) {
+                    if (function_exists('set_time_limit')) @set_time_limit(300);
+                    $lr = $lb->scan(['ai_calls' => 5]);
+                    $db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'Penny look-back: vendors / payees still to ask Claude')
+                                  ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")->execute([$pendingKey, (string)$lr['ai']['pending']]);
+                    $pennyLog('Look-back: ' . $lr['proposals'] . ' found, ' . ($lr['stored']['inserted'] ?? 0) . ' new; Claude ' . $lr['ai']['calls']
+                              . ' call(s) $' . number_format($lr['ai']['cost'], 4) . ', ' . $lr['ai']['pending'] . ' still to ask.');
+                }
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Look-back scan failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
+    // QuickBooks Online (plan 2026-10-20): when the owner has switched automatic sending on, issued
+    // invoices and their payments go to the connected QuickBooks company (QboSyncService::runQueue).
+    // Its own cron_runs row ('qbo_sync'): a failure or a stopped connection ends in 'warning', so Ada sees it.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
+            $q0 = (int)(microtime(true) * 1000);
+            $qconn = new QboConnectionService($db);
+            $qr = QboSyncService::runAll($qconn);
+            if ($qr['sent'] || $qr['held'] || $qr['failed'] || $qr['stopped']) $pennyLog($qr['summary']);
+            recordCronRun('qbo_sync', $qr['status'], $qr['summary'], (int)(microtime(true) * 1000) - $q0, $qr['notes_text'], !$isCli);
+        } catch (Throwable $e) {
+            $pennyLog('QuickBooks sending failed (non-fatal): ' . $e->getMessage());
+            recordCronRun('qbo_sync', 'error', 'QuickBooks sending failed', null, $e->getMessage(), !$isCli);
+        }
+    }
+
+    $svc = new ReceiptBookkeeperService($db);
+    $desk = new BookkeeperDeskService($db, $svc);
+    if (!$desk->ready()) {
+        $finish('warning', 'Bookkeeper not set up (migration 1125) — nothing prepared.');
+    }
+    // Recovery is local and free: pending, already-prepared line suggestions must not wait
+    // for the model connection to recover.
+    $auto = $desk->autoApplyPennyItems(50, $dryRun);
+    $pennyLog('Penny items: applied ' . $auto['applied'] . ', would apply ' . $auto['would_apply']
+              . ', skipped ' . array_sum($auto['skipped']) . '.');
+    if (!$dryRun && !$svc->ready()) {
+        $finish('warning', 'Bookkeeper not ready (ANTHROPIC_API_KEY missing) — existing Penny items were still processed.');
+    }
+
+    $hold = DuplicateReceiptService::heldIds((new DuplicateReceiptService($db))->pairsInLine(60));
+    if ($hold) $pennyLog('Held back as possible duplicates: ' . count($hold));
+
+    if ($dryRun) {
+        $next = $desk->nextToPrepare($max, $hold);
+        $pennyLog("Daily cap {$next['cap']}, prepared today {$next['today']}, room {$next['room']}.");
+        $pennyLog('Would prepare expense(s): ' . ($next['ids'] ? '#' . implode(', #', $next['ids']) : 'none'));
+        $finish('success', 'DRY RUN — would prepare ' . count($next['ids']) . ' receipt(s).');
+    }
+
+    if (function_exists('set_time_limit')) @set_time_limit(300);
+    // A vendor's layout was just learned: rescan a few of its waiting receipts first (ReaderRelearnService).
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ReaderRelearnService.php';
+        $rl = (new ReaderRelearnService($db))->run();
+        if ($rl['rescanned'] || $rl['failed']) $pennyLog("Reader relearn: rescanned {$rl['rescanned']}, failed {$rl['failed']}, vendors finished {$rl['vendors_done']}.");
+    } catch (Throwable $e) {
+        $pennyLog('Reader relearn skipped: ' . $e->getMessage());
+    }
+    $res = $desk->prepare($max, $hold);
+    if (!empty($res['capped'])) {
+        $finish('success', 'Daily cap reached — nothing prepared until tomorrow.');
+    }
+    $ok = 0;
+    $errors = [];
+    foreach ($res['prepared'] as $p) {
+        if ($p['error'] === null) {
+            $ok++;
+            $pennyLog("Prepared expense #{$p['expense_id']}");
+        } else {
+            $errors[] = "#{$p['expense_id']}: {$p['error']}";
+            $pennyLog("Could not prepare expense #{$p['expense_id']}: {$p['error']}");
+        }
+    }
+    $summary = "Prepared {$ok} receipt(s)" . ($errors ? ', ' . count($errors) . ' failed' : '')
+             . (empty($res['prepared']) ? ' — backlog empty.' : '.');
+    $finish($errors && $ok === 0 ? 'error' : ($errors ? 'warning' : 'success'), $summary, $errors ? implode('; ', $errors) : null);
+} catch (Throwable $e) {
+    $pennyLog('ERROR: ' . $e->getMessage());
+    $finish('error', 'Penny prepare failed: ' . $e->getMessage(), $e->getMessage());
+}

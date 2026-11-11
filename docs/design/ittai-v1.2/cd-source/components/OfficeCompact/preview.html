@@ -1,0 +1,32 @@
+<!-- @dsCard group="AI Office" height=96 subtitle="Live status glyph · 32 and 20 px" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+body{margin:0;background:var(--surface);color:var(--text);font-family:Inter,system-ui,sans-serif}
+.row{display:flex;align-items:center;gap:32px;padding:16px 24px}
+button{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border:0;background:none;padding:0;border-radius:10px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.inline{display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px}
+.inline span{color:var(--meta)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<g id="cmp" fill="none" stroke-width="2.5" stroke-linecap="round">
+<path pathLength="100" stroke-dasharray="64.6 35.4" stroke-dashoffset="-17.7" style="stroke:var(--state-working)" d="M9.73 5.14 A3 3 0 0 1 11.23 4.74 L20.77 4.74 A3 3 0 0 1 22.27 5.14"/>
+<path pathLength="100" stroke-dasharray="64.6 35.4" stroke-dashoffset="-17.7" style="stroke:var(--state-approval)" d="M22.27 5.14 A3 3 0 0 1 23.37 6.24 L28.13 14.5 A3 3 0 0 1 28.54 16"/>
+<path pathLength="100" stroke-dasharray="64.6 35.4" stroke-dashoffset="-17.7" style="stroke:var(--state-approval)" d="M28.54 16 A3 3 0 0 1 28.13 17.5 L23.37 25.76 A3 3 0 0 1 22.27 26.86"/>
+<path pathLength="100" stroke-dasharray="64.6 35.4" stroke-dashoffset="-17.7" style="stroke:var(--state-approval)" d="M22.27 26.86 A3 3 0 0 1 20.77 27.26 L11.23 27.26 A3 3 0 0 1 9.73 26.86"/>
+<path pathLength="100" stroke-dasharray="0.01 21.52" stroke-dashoffset="-17.7" style="stroke:var(--state-idle)" d="M9.73 26.86 A3 3 0 0 1 8.63 25.76 L3.87 17.5 A3 3 0 0 1 3.46 16"/>
+<path pathLength="100" stroke-dasharray="64.6 35.4" stroke-dashoffset="-17.7" style="stroke:var(--state-blocked)" d="M3.46 16 A3 3 0 0 1 3.87 14.5 L8.63 6.24 A3 3 0 0 1 9.73 5.14"/>
+<circle cx="16" cy="16" r="5" stroke-width="1.5" style="stroke:var(--state-working)"/>
+</g></defs></svg>
+<div class="row">
+<button type="button" aria-label="Office: 3 need approval, 2 working, 1 blocked, 1 idle"><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><use href="#cmp"/></svg></button>
+<div class="inline"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><use href="#cmp"/></svg>Office <span>3 need approval · 2 working · 1 blocked · 1 idle</span></div>
+</div>
+</body>
+</html>

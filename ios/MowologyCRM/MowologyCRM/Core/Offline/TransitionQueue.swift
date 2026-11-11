@@ -22,23 +22,28 @@ import SwiftData
 @MainActor
 final class TransitionQueue {
 
-    private let container: ModelContainer
-
-    init() {
+    /// ONE container for the whole app. Every visit screen used to build its own (and the drain
+    /// service built one per call): several SwiftData stacks on the same SQLite file, which is
+    /// how a save ends up spinning on a lock on the main thread (crash 2026-09-21, 0x8BADF00D).
+    static let sharedContainer: ModelContainer = {
         do {
-            container = try ModelContainer(for: PendingTransition.self)
+            return try ModelContainer(for: PendingTransition.self)
         } catch {
-            let config = ModelConfiguration(isStoredInMemoryOnly: true)
-            container = try! ModelContainer(for: PendingTransition.self, configurations: config)
             print("[TransitionQueue] SwiftData init failed, using in-memory fallback: \(error)")
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            return try! ModelContainer(for: PendingTransition.self, configurations: config)
         }
-    }
+    }()
+
+    private var container: ModelContainer { Self.sharedContainer }
+
+    init() {}
 
     // MARK: - Public API
 
     /// Returns the idempotency key to use for this action.
     /// Reuses an existing key if a previous attempt is still pending.
-    func prepare(visitId: Int, action: String, lat: Double? = nil, lng: Double? = nil) -> String {
+    func prepare(visitId: Int, action: String, lat: Double? = nil, lng: Double? = nil, userId: Int? = nil) -> String {
         let ctx = ModelContext(container)
         if let existing = pendingTransition(visitId: visitId, action: action, ctx: ctx) {
             return existing.idempotencyKey
@@ -46,7 +51,14 @@ final class TransitionQueue {
         let t = PendingTransition(action: action, visitId: visitId, lat: lat, lng: lng)
         ctx.insert(t)
         try? ctx.save()
+        Self.setOwner(userId, of: t.idempotencyKey)
         return t.idempotencyKey
+    }
+
+    /// When this pending action was tapped (its queuedAt) — sent as client_time on every attempt.
+    func tappedAt(visitId: Int, action: String) -> Date? {
+        let ctx = ModelContext(container)
+        return pendingTransition(visitId: visitId, action: action, ctx: ctx)?.queuedAt
     }
 
     /// Call after a successful server response to clear the pending record.
@@ -63,6 +75,29 @@ final class TransitionQueue {
     func hasPending(visitId: Int, action: String) -> Bool {
         let ctx = ModelContext(container)
         return pendingTransition(visitId: visitId, action: action, ctx: ctx) != nil
+    }
+
+    // MARK: - Owner (who tapped it — only their login replays it)
+
+    private static func ownerKey(_ idempotencyKey: String) -> String { "mw.transition.owner.\(idempotencyKey)" }
+
+    static func setOwner(_ userId: Int?, of idempotencyKey: String) {
+        guard let userId else { return }
+        UserDefaults.standard.set(userId, forKey: ownerKey(idempotencyKey))
+    }
+
+    static func owner(of idempotencyKey: String) -> Int? {
+        UserDefaults.standard.object(forKey: ownerKey(idempotencyKey)) as? Int
+    }
+
+    static func forgetOwner(of idempotencyKey: String) {
+        UserDefaults.standard.removeObject(forKey: ownerKey(idempotencyKey))
+    }
+
+    /// Job actions still waiting to be sent (sign-out warns about these).
+    func pendingCount() -> Int {
+        let ctx = ModelContext(container)
+        return ((try? ctx.fetch(FetchDescriptor<PendingTransition>())) ?? []).count
     }
 
     // MARK: - Private

@@ -61,7 +61,7 @@ $staff = array_values(array_filter(getStaffMembers(), function ($s) use ($truckI
 }));
 
 $pageTitle = 'Timesheets';
-$activePage = 'timeclock';
+$activePage = 'timesheets';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -70,6 +70,7 @@ $activePage = 'timeclock';
         <h1 class="mw-page-title">Timesheets</h1>
     </div>
     <div class="mw-page-actions">
+        <a href="/crm/timeclock/timesheet-week.php" class="btn btn-sm btn-primary">Week view</a>
         <a href="/crm/timeclock/my-schedule.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="arrow-left"></i> My Schedule
         </a>
@@ -97,8 +98,13 @@ $activePage = 'timeclock';
             <option value="rejected" <?php echo $filterStatus === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
         </select>
 
-        <input type="date" name="week" value="<?php echo htmlspecialchars($filterWeek); ?>"
-               class="form-control form-control-sm" style="width:auto;"
+        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-mode="week" data-mw-dp-target="#week-picker" aria-haspopup="true" aria-expanded="false">
+            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span class="mw-datepicker-date" data-mw-dp-label></span>
+            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <input type="date" id="week-picker" name="week" value="<?php echo htmlspecialchars($filterWeek); ?>"
+               class="form-control form-control-sm" hidden
                placeholder="Week of...">
 
         <button type="submit" class="btn btn-sm" style="background: var(--mw-green); color: #fff;">Filter</button>

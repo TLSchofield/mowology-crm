@@ -1,0 +1,428 @@
+<?php
+/**
+ * Penny's desk for the iOS app — JWT-authenticated.
+ *
+ * GET  /api/expenses/bookkeeper-mobile?mode=queue[&limit=15]
+ *      → {ok, dupes:[{pairs, members[]}], queue[], categories[], asset_tags[{value,label}],
+ *         messages[] (admins: customer billing mail routed to Penny — InboundRouteService::forApp,
+ *         attachment links signed for the app; added 2026-10-08),
+ *         lines {lookback {count, amount, gst, text, url}|null, payments {waiting, waiting_total, high, url, …}|null,
+ *                missing {open, open_amount, no_receipt, no_receipt_amount}|null} (expenses.approve; added 2026-10-08)}
+ * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a message (admins)
+ * POST {mode: 'message_done', key}                     "Done" on a message (admins)
+ * POST {mode: 'decide', suggestion_id, overrides?: {vendor, vendor_id, expense_date,
+ *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
+ * POST {mode: 'reject', suggestion_id, reason}
+ * POST {mode: 'not_dupe', pairs: [[a, b], ...]}
+ * POST {mode: 'merge', keep_id, copy_ids: [..]}       Merge the copies into the kept receipt → {ok, message, merges:{copy:id}, undo}
+ *        (removeCopies + an expense_merges row each, migration 1442). 'remove_dupes' {keep_id, remove_ids} is the
+ *        same call for app builds before 1.3.89.
+ * POST {mode: 'unmerge', copy_id, kind: undo|split}     Undo straight after a merge (asked again) or Split off later
+ *        (two purchases: remembered, Penny learns) — DuplicateReceiptService::unmerge().
+ * POST {mode: 'payment_book', transaction_id, signature}  "Record" on a likely payment (billing.edit) →
+ *      PaymentMatchService::book() — refused if the line changed since it was shown → {ok, message, log_id}
+ * POST {mode: 'payment_undo', log_id}  Undo that booking through the path that made it (PaymentMatchService::undo()).
+ *      The queue's 'payments' come from PaymentMatchService::pennyCards() (every proposed deposit, any kind).
+ * POST {mode: 'cheque_record', transaction_id, invoice_id, amount}  "Record" on a likely cheque (billing.edit) →
+ *      BankInvoiceMatchService::record() (refuses money that looks already recorded). The queue's 'cheques'
+ *      come from InvoiceReconciliationService::likelyCheques(), the same matcher as the web invoices list.
+ * POST {mode: 'undismiss', pairs: [[a, b], ...]}   Undo "Different" on an answered group (DuplicateReceiptService::undismiss).
+ * GET  ?mode=merged&expense_id=N   Copies merged into this receipt ("Also on this purchase"), photos signed for the app.
+ * Each dupes group also carries Penny's verdict, keep_id / keep_line / copy_ids / merge_label / can_swap,
+ * confidence (her record with the vendor) and facts [{label, values[], state: same|differs|missing|info}].
+ * POST {mode: 'remove_dupes', keep_id, remove_ids: [..]}
+ *      → {ok, message, kept, removed[], carried[]}  "Keep this one" — the other copies are
+ *        rejected "Duplicate of receipt #keep" (DuplicateReceiptService::removeCopies; added
+ *        2026-10-07). Never a DELETE.
+ * GET  ?mode=risk&expense_id=N
+ *      → {ok, score, tier, summary, flags:[{code, detail, penny}]}  (RiskExplainer: why the
+ *        receipt has its anomaly score, in Penny's words; added 2026-10-07, read-only)
+ *
+ * GET  ?mode=suggestion&expense_id=N
+ *      → {ok, read: null | {suggestion_id, differs, fields:[{field, label, penny, receipt, reason, confidence}],
+ *         items: null | {penny:[{name, amount}], receipt:[…], penny_sum, receipt_sum}, notes, applied_draft,
+ *         can_apply, apply_approves, can_keep, apply_note}}
+ *      "Penny's read" on the receipt detail (PennyReadService; added 2026-10-13). Open to crew
+ *      for their OWN receipts (see / apply as a draft) — checked before the expenses.approve gate.
+ * POST {mode: 'penny_apply', expense_id}  "Use Penny's version" (approvers: applied + approved)
+ * POST {mode: 'penny_keep', expense_id}   "Keep mine" (approvers only)
+ *
+ * Auth: Authorization: Bearer <jwt>, admin/manager role or the expenses.approve
+ * permission (no CSRF token: there is no session) — except the three Penny's-read modes
+ * above, which PennyReadService::rights() decides per receipt. Skip is client-side, as on the web.
+ *
+ * The mobile counterpart of bookkeeper.php's dashboard-card modes: the SAME service
+ * calls (BookkeeperDeskService::queue/decide, DuplicateReceiptService::dismiss,
+ * ExpenseApprovalService::reject) — nothing is re-implemented here. Two differences:
+ *   - photo links are re-signed as the app's /api/expenses/receipt-image links (the
+ *     web's /crm/api/serve-receipt.php needs a browser session);
+ *   - the select options (categories, "For" tags) travel with the queue, so the app
+ *     offers exactly what the web card offers.
+ * "Remove the copies" (remove_dupes) is the web card's dupe_remove (removeCopy) for a
+ * whole group at once, with empty fields of the kept receipt filled from the copies.
+ *
+ * ?mode=, never ?action= (the /api/ router appends its own action).
+ */
+declare(strict_types=1);
+
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
+    }
+    unset($__dir, $__i);
+}
+
+header('Content-Type: application/json');
+
+/**
+ * The read-only lines on Penny's web card, for the phone (added 2026-10-08): the look-back review
+ * (LookbackService, migration 1250), payments ↔ invoices (PaymentMatchService, migration 1260 — the
+ * cached snapshot; the 4-hourly re-match is left to the web page) and the missing-receipt chaser
+ * (MissingReceiptService, migration 1245). Each is null when its service isn't deployed / migrated.
+ */
+function bkmPennyLines(PDO $db): array
+{
+    $lines = ['lookback' => null, 'payments' => null, 'missing' => null];
+    try {
+        if (is_file(APP_ROOT . '/Modules/Accounting/Services/LookbackService.php')) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+            $l = (new LookbackService($db))->cardLine();
+            if ($l) $lines['lookback'] = $l + ['url' => '/crm/accounting/lookback.php'];
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] lookback: ' . $e->getMessage()); }
+    try {
+        if (is_file(APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php')) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $lines['payments'] = (new PaymentMatchService($db))->cardLine(false);
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] payments: ' . $e->getMessage()); }
+    try {
+        if (is_file(APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php')) {
+            require_once APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php';
+            $m = new MissingReceiptService($db);
+            if ($m->ready()) {
+                $t = $m->totals();
+                $lines['missing'] = ['open' => (int)$t['open'], 'open_amount' => (float)$t['open_amount'],
+                                     'no_receipt' => (int)$t['no_receipt'], 'no_receipt_amount' => (float)$t['no_receipt_amount']];
+            }
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] missing: ' . $e->getMessage()); }
+    return $lines;
+}
+
+try {
+    require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once CRM_INCLUDES . '/functions.php';
+
+    $jwtUser = requireJwt();
+
+    // Penny's read on one receipt (iPhone receipt detail): rights per receipt, so crew reach it
+    // for their own receipts. Before the expenses.approve gate on purpose.
+    $earlyMode = $_SERVER['REQUEST_METHOD'] === 'POST'
+        ? (string)((json_decode((string)file_get_contents('php://input'), true) ?? [])['mode'] ?? '')
+        : (string)($_GET['mode'] ?? '');
+    if (in_array($earlyMode, ['suggestion', 'penny_apply', 'penny_keep'], true)) {
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyReadService.php';
+        $canApprove = jwtUserHasPermission($jwtUser, 'expenses.approve');
+        $actor = ['id' => (int)$jwtUser['id'], 'office' => ExpenseService::isOffice((string)$jwtUser['role'], $canApprove), 'can_approve' => $canApprove];
+        $user = ['id' => (int)$jwtUser['id'], 'role' => $jwtUser['role'], 'full_name' => $jwtUser['name']];
+        $svc = new PennyReadService(getDB());
+        if ($earlyMode === 'suggestion') {
+            $res = $svc->read((int)($_GET['expense_id'] ?? 0), $actor);
+            if (!$res['ok']) http_response_code((int)($res['code'] ?? 400));
+            echo json_encode($res['ok'] ? ['ok' => true, 'read' => $res['read']] : ['ok' => false, 'error' => $res['error']]);
+            exit;
+        }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new RuntimeException('POST required');
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+        IdempotencyGuard::begin(getDB(), (int)$jwtUser['id'], 'bookkeeper-mobile', $earlyMode, ['penny_apply', 'penny_keep']);
+        $body = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $expenseId = (int)($body['expense_id'] ?? 0);
+        echo json_encode($earlyMode === 'penny_apply' ? $svc->apply($expenseId, $user, $actor) : $svc->keep($expenseId, $user, $actor));
+        exit;
+    }
+
+    // expenses.approve, as on the web bookkeeper — a manager role string alone no longer passes
+    // (#17, Fable audit 2026-10-12). Managers hold expenses.approve through their RBAC role.
+    if (!jwtUserHasPermission($jwtUser, 'expenses.approve')) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Permission denied: expenses.approve required']);
+        exit;
+    }
+    // The services read only 'id' (decided_by / dismissed_by / approved_by).
+    $user = ['id' => (int)$jwtUser['id'], 'role' => $jwtUser['role'], 'full_name' => $jwtUser['name']];
+
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = $method === 'POST' ? (json_decode((string)file_get_contents('php://input'), true) ?? []) : [];
+    $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'queue');
+
+    $db = getDB();
+    require_once APP_ROOT . '/Core/IdempotencyGuard.php';
+    IdempotencyGuard::begin($db, (int)$jwtUser['id'], 'bookkeeper-mobile', $mode, ['decide', 'reject', 'not_dupe', 'undismiss', 'remove_dupes', 'merge', 'unmerge', 'move', 'message_done', 'cheque_record', 'payment_book', 'payment_undo']);
+
+    if ($mode === 'risk') {
+        // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
+        require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
+        require_once APP_ROOT . '/Modules/Expenses/Services/RiskExplainer.php';
+        $stmt = $db->prepare("
+            SELECT e.*, COALESCE(v.name, e.vendor_name_raw) AS vendor_name
+            FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
+            WHERE e.id = ?
+        ");
+        $stmt->execute([(int)($_GET['expense_id'] ?? 0)]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'Receipt not found']);
+            exit;
+        }
+        $fresh = detectAnomalies($expense, $db)['details'] ?? [];
+        echo json_encode(['ok' => true] + RiskExplainer::explain($expense, $fresh, RiskExplainer::context($db, $expense)));
+        exit;
+    }
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptBookkeeperService.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptImageLinks.php';
+
+    $desk = new BookkeeperDeskService($db, new ReceiptBookkeeperService($db));
+    if (!$desk->ready()) {
+        throw new RuntimeException('Bookkeeper not set up (migration 1125)');
+    }
+
+    switch ($mode) {
+        case 'queue': {
+            // Possible duplicates are sorted first and never offered for approval (as on the web).
+            $dupSvc = new DuplicateReceiptService($db);
+            $pairs  = $dupSvc->pairsInLine(60);
+            $queue  = $desk->queue((int)($_GET['limit'] ?? 15), DuplicateReceiptService::heldIds($pairs));
+            [$queue, $dupes] = ReceiptImageLinks::resignDesk(
+                $queue, $dupSvc->presentGroups(DuplicateReceiptService::groups($pairs)), time() + ReceiptImageLinks::TTL, ReceiptImageLinks::key(jwtSecret())
+            );
+            $tagLabels = ['truck' => 'Truck', 'equipment' => 'Equipment', 'stock' => 'Shop stock'];
+            $tags = [['value' => 'none', 'label' => 'None']];
+            foreach (ReceiptBookkeeperRules::TAGS as $t) {
+                $tags[] = ['value' => $t, 'label' => $tagLabels[$t] ?? ucfirst($t)];
+            }
+            // Customer billing mail routed to Penny (direct-deposit forms …) — the owner's mail, admins only.
+            $messages = [];
+            if (jwtIsAdmin($jwtUser['role'])) {
+                try {
+                    require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+                    $messages = InboundRouteService::forApp((new InboundRouteService($db))->messages('penny'), time() + 21600, jwtSecret());
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] messages: ' . $e->getMessage());
+                }
+            }
+            // Likely cheques come first on the card (Tim, 2026-11-06). Suggest only; never breaks the card.
+            ini_set('serialize_precision', '-1');   // 1195.36, not 1195.3599999999999 (prod sets 17)
+            $cheques = [];
+            $payments = [];
+            if (jwtUserHasPermission($jwtUser, 'billing.view')) {
+                try {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+                    $cheques = (new InvoiceReconciliationService($db))->likelyCheques(10);   // builds ≤ 1.3.107
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] cheques: ' . $e->getMessage());
+                }
+                try {
+                    // Every deposit the payments matcher proposes (cheques, e-Transfers, EFTs …): 1.3.108 on.
+                    require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+                    $payments = (new PaymentMatchService($db))->pennyCards(12);
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] payments: ' . $e->getMessage());
+                }
+            }
+            echo json_encode([
+                'ok'         => true,
+                'cheques'    => $cheques,
+                'payments'   => $payments,
+                'dupes'      => $dupes,
+                'queue'      => $queue,
+                'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
+                'asset_tags' => $tags,
+                'messages'   => $messages,
+                'lines'      => jwtUserHasPermission($jwtUser, 'expenses.approve') ? bkmPennyLines($db) : null,
+            ]);
+            break;
+        }
+
+        case 'payment_book':
+        case 'payment_undo': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Recording a payment needs billing.edit.']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $pm = new PaymentMatchService($db);
+            if ($mode === 'payment_undo') {
+                echo json_encode($pm->undo((int)($input['log_id'] ?? 0), (int)$user['id']));
+                break;
+            }
+            $tx = (int)($input['transaction_id'] ?? 0);
+            $r = $pm->book([$tx => (string)($input['signature'] ?? '')], (int)$user['id']);
+            $done = $r['booked'][0] ?? null;
+            echo json_encode($done
+                ? ['ok' => true, 'message' => (string)($done['message'] ?? 'Recorded.'), 'log_id' => (int)($done['log_id'] ?? 0)]
+                : ['ok' => false, 'message' => (string)($r['failed'][0]['message'] ?? 'Not recorded.')]);
+            break;
+        }
+
+        case 'cheque_record': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtUserHasPermission($jwtUser, 'billing.edit')) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'message' => 'Recording a payment needs billing.edit.']);
+                break;
+            }
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankInvoiceMatchService.php';
+            echo json_encode((new BankInvoiceMatchService($db))->record(
+                (int)($input['transaction_id'] ?? 0),
+                [['invoice_id' => (int)($input['invoice_id'] ?? 0), 'amount' => round((float)($input['amount'] ?? 0), 2)]],
+                $user
+            ));
+            break;
+        }
+
+        case 'move':
+        case 'message_done': {
+            // "Move to…" / "Done" on one of Penny's messages — InboundRouteService, as the web's inbound-route.php.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtIsAdmin($jwtUser['role'])) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'Admins only']); break; }
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+            $route = new InboundRouteService($db);
+            $ref = ['key' => substr((string)($input['key'] ?? ''), 0, 120)];
+            echo json_encode($mode === 'move'
+                ? $route->move($ref, (string)($input['to'] ?? ''), (int)$user['id'])
+                : $route->done($ref, (int)$user['id']));
+            break;
+        }
+
+        case 'decide': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
+            $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
+            $reread = $res['reread']['others'] ?? [];
+            echo json_encode($res);
+            // Same as the web card: a lesson made twice redoes the vendor's other waiting reads after replying.
+            if ($reread) {
+                if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+                ignore_user_abort(true);
+                set_time_limit(300);
+                try { $desk->rereadVendor($reread); } catch (Throwable $e) { error_log('Penny reread (mobile): ' . $e->getMessage()); }
+            }
+            break;
+        }
+
+        case 'reject': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $stmt = $db->prepare("
+                SELECT s.expense_id FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+                WHERE s.id = ? AND s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
+            ");
+            $stmt->execute([(int)($input['suggestion_id'] ?? 0)]);
+            $expenseId = (int)$stmt->fetchColumn();
+            if (!$expenseId) {
+                echo json_encode(['ok' => false, 'message' => 'This receipt has already been handled']);
+                break;
+            }
+            try {
+                $res = (new ExpenseApprovalService($db))->reject($expenseId, $user, (string)($input['reason'] ?? ''));
+                echo json_encode(['ok' => !empty($res['success']), 'message' => $res['message'] ?? 'Rejected']);
+            } catch (Exception $e) {
+                echo json_encode(['ok' => false, 'message' => ApiResponse::message($e, 'bookkeeper-mobile')]);
+            }
+            break;
+        }
+
+        case 'not_dupe': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            // One or many pairs: [[a, b], ...] — "none of these are duplicates" for a group.
+            $dup = new DuplicateReceiptService($db);
+            $res = ['ok' => false, 'message' => 'Nothing to save'];
+            foreach ((array)($input['pairs'] ?? []) as $pr) {
+                $res = $dup->dismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
+                if (!$res['ok']) break;
+            }
+            echo json_encode($res);
+            break;
+        }
+
+        case 'merge': {
+            // "Merge" on Penny's duplicate card: the copies are set aside into the kept receipt (removeCopies:
+            // one group, waiting copies only, all-or-nothing), each with an expense_merges row for Undo / Split off.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode((new DuplicateReceiptService($db))->removeCopies(
+                (int)($input['keep_id'] ?? 0), array_map('intval', (array)($input['copy_ids'] ?? [])), $user
+            ));
+            break;
+        }
+
+        case 'unmerge': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode((new DuplicateReceiptService($db))->unmerge(
+                (int)($input['copy_id'] ?? 0), $user, (string)($input['kind'] ?? 'split')
+            ));
+            break;
+        }
+
+        case 'undismiss': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $dup = new DuplicateReceiptService($db);
+            $res = ['ok' => false, 'message' => 'Nothing to undo'];
+            $db->beginTransaction();
+            foreach ((array)($input['pairs'] ?? []) as $pr) {
+                $res = $dup->undismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
+                if (!$res['ok']) break;
+            }
+            $res['ok'] ? $db->commit() : $db->rollBack();
+            echo json_encode($res);
+            break;
+        }
+
+        case 'merged': {
+            $rows = (new DuplicateReceiptService($db))->mergedInto((int)($_GET['expense_id'] ?? 0));
+            $exp = time() + ReceiptImageLinks::TTL;
+            $key = ReceiptImageLinks::key(jwtSecret());
+            foreach ($rows as &$r) {
+                $r['receipt_path'] = $r['receipt_media_id'] ? ReceiptImageLinks::appUrl((int)$r['receipt_media_id'], $exp, $key) : null;
+            }
+            unset($r);
+            echo json_encode(['ok' => true, 'merged' => $rows]);
+            break;
+        }
+
+        case 'remove_dupes': {
+            // "Keep this one": every other copy in the duplicate group is set aside the web
+            // card's way (rejected "Duplicate of receipt #keep", kept on record), after its
+            // missing fields are merged into the kept one. Waiting copies only, one group only.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $res = (new DuplicateReceiptService($db))->removeCopies(
+                (int)($input['keep_id'] ?? 0),
+                array_map('intval', (array)($input['remove_ids'] ?? [])),
+                $user
+            );
+            echo json_encode($res);
+            break;
+        }
+
+        default:
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Unknown mode']);
+    }
+} catch (Throwable $e) {
+    error_log('bookkeeper-mobile.php: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'bookkeeper-mobile')]);
+}

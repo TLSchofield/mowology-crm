@@ -8,6 +8,7 @@
  *   MwNative.geo          — background GPS + one-shot position
  *   MwNative.tracking     — session management, health, compliance, geofencing
  *   MwNative.notifications — local push notifications
+ *   MwNative.push          — FCM registration (remote push notifications)
  *   MwNative.network      — online/offline detection
  *
  * Uses two Capacitor plugins:
@@ -27,6 +28,7 @@
     var BackgroundGeolocation = Plugins.BackgroundGeolocation;
     var Geolocation = Plugins.Geolocation;
     var LocalNotifications = Plugins.LocalNotifications;
+    var PushNotifications = Plugins.PushNotifications;
     var Network = Plugins.Network;
     var MwTracking = Plugins.MwTracking; // Custom plugin
     var App = Plugins.App; // For hardware back button + app state
@@ -227,6 +229,33 @@
         _bgWatchId: null,
         _currentActivity: 'UNKNOWN',
 
+        /**
+         * Open this app's OS settings page (so the user can toggle a denied
+         * permission, e.g. Camera). Uses the Android app-details intent via the
+         * App plugin; falls back to the generic Settings screen. Best-effort.
+         */
+        openAppSettings: function() {
+            if (!App || typeof App.openUrl !== 'function') {
+                // @capacitor/app is not installed in the crew app: fall back to the
+                // background-geolocation plugin, which opens this app's settings page.
+                if (BackgroundGeolocation && typeof BackgroundGeolocation.openSettings === 'function') {
+                    try { BackgroundGeolocation.openSettings(); } catch (e) {}
+                    return;
+                }
+                console.warn('[MwNative] no settings opener available');
+                return;
+            }
+            var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
+                ? 'ca.mowology.crew' : null;   // must match applicationId in android/app/build.gradle
+            var url = pkg
+                ? 'intent://' + pkg + '#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
+                : 'app-settings:';
+            App.openUrl({ url: url }).catch(function() {
+                App.openUrl({ url: 'intent://#Intent;action=android.settings.SETTINGS;end' })
+                    .catch(function(err) { console.warn('[MwNative] openAppSettings failed:', err); });
+            });
+        },
+
         // ── Background GPS ──────────────────────────────────
         geo: {
             watchId: null,
@@ -239,7 +268,25 @@
              *
              * position shape: { lat, lng, accuracy, speed, heading, altitude, timestamp }
              */
+            /**
+             * Entry point used by every page. On a v2 APK the NATIVE engine owns capture and
+             * upload, so the page adds no GPS watcher at all — it just makes sure the engine
+             * has a fresh token and is running. Older APKs fall through to the legacy
+             * JS-driven watcher.
+             */
             startBackgroundTracking: function(callback, options) {
+                var self = this;
+                window.MwNative.engine.detect().then(function(version) {
+                    if (version >= 2) {
+                        self._removeAllWatchers();          // anything a pre-update page left running
+                        window.MwNative.engine.start();
+                    } else {
+                        self._legacyStart(callback, options);
+                    }
+                });
+            },
+
+            _legacyStart: function(callback, options) {
                 options = options || {};
 
                 if (!BackgroundGeolocation) {
@@ -272,12 +319,47 @@
             },
 
             /**
+             * Watcher registry, persisted across page loads.
+             *
+             * This is a multi-page app: every navigation throws away the JS context, and
+             * with it the watcher id. The native watcher keeps running at 1 Hz with nobody
+             * listening, the next page adds another, and stopBackgroundTracking() could only
+             * ever remove the CURRENT page's — so clock-out left GPS and the foreground
+             * notification running. Ids live in localStorage so any page can remove them all.
+             */
+            _WATCHER_KEY: 'mw_bg_watcher_ids',
+            _readWatcherIds: function() {
+                try { return JSON.parse(localStorage.getItem(this._WATCHER_KEY) || '[]') || []; }
+                catch (e) { return []; }
+            },
+            _writeWatcherIds: function(ids) {
+                try { localStorage.setItem(this._WATCHER_KEY, JSON.stringify(ids)); } catch (e) { /* private mode */ }
+            },
+            _removeAllWatchers: function() {
+                var ids = this._readWatcherIds();
+                if (this.watchId !== null && ids.indexOf(this.watchId) === -1) ids.push(this.watchId);
+                ids.forEach(function(id) {
+                    try {
+                        var r = BackgroundGeolocation.removeWatcher({ id: id });
+                        if (r && r.catch) r.catch(function() { /* already gone */ });
+                    } catch (e) { /* already gone */ }
+                });
+                this._writeWatcherIds([]);
+                this.watchId = null;
+                window.MwNative._bgWatchId = null;
+                return ids.length;
+            },
+
+            /**
              * Internal — hand off to BackgroundGeolocation.addWatcher
              * with the chosen distance filter. Split out from the
              * public startBackgroundTracking so the async
              * getHealth() path can call back in cleanly.
              */
             _reallyStart: function(callback, distanceFilter) {
+                var self = this;
+                // Drop any watcher a previous page left running before adding ours.
+                this._removeAllWatchers();
                 BackgroundGeolocation.addWatcher({
                     backgroundTitle: 'Mowology GPS Tracking',
                     backgroundMessage: 'Tracking your location for crew management',
@@ -337,6 +419,7 @@
                 }).then(function(id) {
                     window.MwNative.geo.watchId = id;
                     window.MwNative._bgWatchId = id;
+                    self._writeWatcherIds([id]);
                     console.log('[MwNative] Background GPS started, watcher ID:', id);
                 }).catch(function(err) {
                     console.error('[MwNative] Failed to start background GPS:', err);
@@ -348,36 +431,570 @@
              * Stop background GPS tracking and remove the foreground service notification.
              */
             stopBackgroundTracking: function() {
-                if (this.watchId !== null && BackgroundGeolocation) {
-                    BackgroundGeolocation.removeWatcher({ id: this.watchId });
-                    console.log('[MwNative] Background GPS stopped, watcher ID:', this.watchId);
-                    this.watchId = null;
-                    window.MwNative._bgWatchId = null;
+                if (!BackgroundGeolocation) return;
+                var removed = this._removeAllWatchers();
+                console.log('[MwNative] Background GPS stopped — removed ' + removed + ' watcher(s)');
+                // Every clock-out path calls this, but only two pages also stopped the native
+                // session — leaving its notification, wake lock and tracking_active=true behind
+                // (so BootReceiver revived "tracking" after every reboot). Stop it here, once.
+                if (MwTracking && typeof MwTracking.stopSession === 'function') {
+                    try {
+                        var r = MwTracking.stopSession();
+                        if (r && r.catch) r.catch(function() {});
+                    } catch (e) { /* plugin unavailable */ }
                 }
             },
 
             /**
              * One-shot position capture (for clock-in/out GPS).
-             * Returns a Promise resolving to { lat, lng, accuracy }.
+             * Returns a Promise resolving to { lat, lng, accuracy, stale }.
+             *
+             * 2026-11-03: a cold high-accuracy fix inside a truck cab can outlast
+             * the 10 s timeout, and the page then clocked in with no coordinates
+             * and showed "enable location services" to a correctly set-up tablet.
+             * Now: fresh fix (10 s) → any fix ≤5 min old (8 s) → the last position
+             * the background tracker accepted (≤5 min) → a typed error so the page
+             * can say what actually failed. Errors carry .code:
+             *   LOCATION_OFF  device Location switch is off
+             *   PERMISSION    app not allowed to use location
+             *   NO_FIX        allowed, but no position could be obtained
              */
             getCurrentPosition: function() {
                 if (!Geolocation) {
                     return Promise.reject(new Error('Geolocation plugin not available'));
                 }
+                var STALE_MS = 5 * 60 * 1000;
+                var shape = function(pos, stale) {
+                    return {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy,
+                        stale: !!stale
+                    };
+                };
+                var typed = function(code, msg) {
+                    var e = new Error(msg || code);
+                    e.code = code;
+                    return e;
+                };
+                var classify = function(err) {
+                    var m = String((err && err.message) || err || '');
+                    if (/not enabled|disabled/i.test(m)) return 'LOCATION_OFF';
+                    if (/denied|permission/i.test(m)) return 'PERMISSION';
+                    return null;
+                };
                 return Geolocation.getCurrentPosition({
                     enableHighAccuracy: true,
                     timeout: 10000
                 }).then(function(pos) {
-                    return {
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy
-                    };
+                    return shape(pos, false);
+                }).catch(function(err) {
+                    var code = classify(err);
+                    if (code) throw typed(code, err && err.message);
+                    // Fresh fix timed out: take anything the OS already has from the last 5 min.
+                    return Geolocation.getCurrentPosition({
+                        enableHighAccuracy: false,
+                        timeout: 8000,
+                        maximumAge: STALE_MS
+                    }).then(function(pos) {
+                        return shape(pos, true);
+                    }).catch(function(err2) {
+                        var code2 = classify(err2);
+                        if (code2) throw typed(code2, err2 && err2.message);
+                        var last = locationProcessor.lastAccepted;
+                        if (last && typeof last.lat === 'number' && typeof last.lng === 'number'
+                            && (Date.now() - (last.timestamp || 0)) < STALE_MS) {
+                            return { lat: last.lat, lng: last.lng, accuracy: last.accuracy, stale: true };
+                        }
+                        throw typed('NO_FIX', 'No GPS fix within the time allowed');
+                    });
                 });
+            },
+
+            /**
+             * Open the device's Location settings (the master switch), so a crew
+             * member can turn location on without leaving the app. Best-effort.
+             */
+            openLocationSettings: function() {
+                // The crew app does not ship @capacitor/app, so there is no intent-URL
+                // opener (Plugins.App is undefined; see openAppSettings above, which has
+                // silently done nothing for the same reason). The one settings screen we
+                // can reach is the app's own details page via the background-geolocation
+                // plugin; the device Location switch is one level up from there.
+                if (App && typeof App.openUrl === 'function') {
+                    return App.openUrl({ url: 'intent://#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end' })
+                        .catch(function() { return window.MwNative.geo._openBgSettings(); });
+                }
+                return this._openBgSettings();
+            },
+
+            _openBgSettings: function() {
+                if (BackgroundGeolocation && typeof BackgroundGeolocation.openSettings === 'function') {
+                    try { return Promise.resolve(BackgroundGeolocation.openSettings()); } catch (e) { return Promise.reject(e); }
+                }
+                return Promise.reject(new Error('No way to open settings'));
             }
         },
 
         // ── MwTracking (custom plugin) ──────────────────────
+        /**
+         * Native tracking engine (APK 1.3.0+, MwTrackingService v2).
+         *
+         * The page's only jobs: get the native layer a token (it cannot read the httponly
+         * session cookie), show the location disclosure before any permission prompt, and ask
+         * for permissions in the order Android requires. Everything else — capture, queueing,
+         * upload, geofences, obeying the server's stop — runs natively with no page loaded.
+         */
+        engine: {
+            version: 0,
+            _detecting: null,
+            _starting: false,
+
+            detect: function() {
+                var self = this;
+                if (this._detecting) return this._detecting;
+                this._detecting = (MwTracking && typeof MwTracking.engineInfo === 'function')
+                    ? MwTracking.engineInfo().then(function(i) {
+                          self.version = (i && i.engineVersion) || 1;
+                          return self.version;
+                      }).catch(function() { self.version = 1; return 1; })
+                    : Promise.resolve(MwTracking ? 1 : 0);
+                return this._detecting;
+            },
+
+            _postToken: function(csrf) {
+                return fetch('/api/team/tracking-token', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
+                    body: '{}'
+                }).then(function(r) {
+                    return r.json().then(function(d) { return { status: r.status, data: d }; })
+                                   .catch(function() { return { status: r.status, data: null }; });
+                });
+            },
+
+            /**
+             * A tracking token, with CSRF refresh-and-retry.
+             *
+             * MW_CSRF_TOKEN is baked in by appstack_head.php, so it exists only on AppStack
+             * pages. The crew app launches into app-launch.php → homebase.php, which are
+             * standalone pages: there was no token in the markup, the POST came back 403, and
+             * start() gave up WITHOUT STARTING THE NATIVE ENGINE — silently. Drivers were
+             * unaffected because they land on driver-portal.php, which is an AppStack page.
+             * Same refresh-and-retry postClockAction() uses in time-clock-widget.js.
+             */
+            _token: function() {
+                var self = this;
+                return this._postToken(window.MW_CSRF_TOKEN).then(function(res) {
+                    if (res.data && res.data.success) return res.data;
+                    return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            if (!d || !d.token) return null;
+                            window.MW_CSRF_TOKEN = d.token;          // every other caller benefits too
+                            return self._postToken(d.token).then(function(retry) {
+                                if (retry.data && retry.data.success) return retry.data;
+                                console.warn('[MwNative] tracking token refused (' + retry.status + ') — native tracking not started');
+                                return null;
+                            });
+                        })
+                        .catch(function() { return null; });
+                });
+            },
+
+            /** Clock the crew member out from the setup gate. Resolves true on success. */
+            _clockOutFromGate: function () {
+                var post = function (csrf) {
+                    return fetch('/crm/api/time-clock.php', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
+                        body: JSON.stringify({ action: 'clock_out' })
+                    }).then(function (r) { return r.json().catch(function () { return null; }); });
+                };
+                return post(window.MW_CSRF_TOKEN)
+                    .then(function (d) {
+                        if (d && d.success) return true;
+                        // Same CSRF drift this file already handles for the tracking token.
+                        return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+                            .then(function (r) { return r.json(); })
+                            .then(function (c) {
+                                if (!c || !c.token) return false;
+                                window.MW_CSRF_TOKEN = c.token;
+                                return post(c.token).then(function (d2) { return !!(d2 && d2.success); });
+                            });
+                    })
+                    .catch(function () { return false; });
+            },
+
+            _api: function(token, method, query, body) {
+                return fetch('/api/schedule/tracking' + (query || ''), {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: body ? JSON.stringify(body) : undefined
+                }).then(function(r) { return r.ok ? r.json() : null; });
+            },
+
+            /** Resolves true when it is OK to ask for permissions and start. */
+            _ensureDisclosed: function(token) {
+                var self = this;
+                return this._api(token, 'GET', '?mode=consent').then(function(data) {
+                    if (!data || !data.disclosure || !data.consent || data.consent.current) return true;
+                    return self._showDisclosure(data.disclosure, !!data.consent.required).then(function(agreed) {
+                        // null = this page can't show the disclosure; try again on the next one.
+                        // The disclosure ALWAYS precedes the OS permission prompts.
+                        if (agreed === null) return false;
+                        if (!agreed) return false;
+                        return self._api(token, 'POST', '', {
+                            action: 'consent', version: data.disclosure.version,
+                            device: { platform: 'android' }
+                        }).then(function() { return true; });
+                    });
+                }).catch(function() { return true; });   // never block a shift on this fetch
+            },
+
+            /**
+             * Built from the shared .mw-modal component (mowology-brand.css). On the few
+             * standalone pages that don't load the brand stylesheet, wait for one that does
+             * rather than show an unstyled wall of text — resolves null = "ask later".
+             */
+            _showDisclosure: function(d, required) {
+                return new Promise(function(resolve) {
+                    var probe = document.createElement('div');
+                    probe.className = 'mw-modal-overlay';
+                    document.body.appendChild(probe);
+                    var styled = getComputedStyle(probe).position === 'fixed';
+                    document.body.removeChild(probe);
+                    if (!styled) { resolve(null); return; }
+
+                    var esc = function(t) { var e = document.createElement('div'); e.textContent = t == null ? '' : String(t); return e.innerHTML; };
+                    var overlay = document.createElement('div');
+                    overlay.className = 'mw-modal-overlay show';
+                    overlay.innerHTML =
+                        '<div class="mw-modal mw-track-consent" role="dialog" aria-modal="true">' +
+                          '<div class="mw-modal-header"><h3 class="mw-modal-title">' + esc(d.title) + '</h3></div>' +
+                          '<div class="mw-track-consent-body">' +
+                            '<p class="mw-track-consent-summary">' + esc(d.summary) + '</p>' +
+                            (d.sections || []).map(function(sec) {
+                                return '<h4 class="mw-track-consent-heading">' + esc(sec.heading) + '</h4><p>' + esc(sec.body) + '</p>';
+                            }).join('') +
+                          '</div>' +
+                          '<div class="mw-track-consent-actions">' +
+                            '<button type="button" class="btn btn-primary btn-block" data-act="agree">' + esc(d.agree_label || 'I agree') + '</button>' +
+                            '<button type="button" class="btn btn-link btn-block" data-act="later">' + (required ? 'Not now — tracking stays off' : 'Not now') + '</button>' +
+                          '</div>' +
+                        '</div>';
+                    overlay.addEventListener('click', function(ev) {
+                        var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
+                        if (!act) return;
+                        document.body.removeChild(overlay);
+                        resolve(act === 'agree');
+                    });
+                    document.body.appendChild(overlay);
+                });
+            },
+
+            /**
+             * Tracking only survives a pocket if ALL of these hold: location "Allow all the
+             * time", and the app exempt from battery optimisation. The system prompts are easy
+             * to tap past — on the first morning of 1.3.1 one phone ran on "While using" and both
+             * skipped the battery prompt — so a clocked-in phone that is not fully set up gets a
+             * full-screen checklist that stays until it is. It re-checks itself every 1.5 s and
+             * whenever the app comes back from Settings, and closes on its own.
+             *
+             * It must never trap anyone: some phones cannot grant these (work profiles, OEM
+             * quirks, a misreporting API). After 45 s a "continue anyway" link appears (once per
+             * app session). The office still sees the gap: every upload reports the permission
+             * and battery state to device_tracking_health.
+             */
+            _setupOk: function(p) {
+                // gpsEnabled is the DEVICE's Location master switch, which is not the
+                // same thing as the app's permission: on 2026-09-25 the truck tablet had
+                // "Allow all the time" granted and ticked green here while Location was
+                // switched off system-wide, so it reported GPS 0m all day and the gate
+                // said nothing. Only enforced when the field is present — an older APK
+                // that cannot report it must not be blocked by an undefined.
+                if (p && p.gpsEnabled === false) return false;
+                return !!(p && p.location && p.background && p.batteryOptimizationIgnored);
+            },
+
+            /**
+             * The subset that actually makes a fix impossible, as opposed to merely
+             * unreliable. Location permission and the device Location switch are hard
+             * requirements: without them the OS returns nothing, whatever the app does.
+             * Battery exemption is not in that class — it decides how long the OS lets
+             * the service live, not whether a position can be obtained — and, crucially,
+             * the app has no way to grant it: the system dialog needs a manifest
+             * permission the APK has never declared, so the button always rejects. Only
+             * a blocking condition may hold the gate shut.
+             */
+            _setupBlocking: function(p) {
+                if (p && p.gpsEnabled === false) return true;
+                return !(p && p.location && p.background);
+            },
+
+            _setupGate: function() {
+                if (document.getElementById('mw-setup-gate')) return;
+                if (!MwTracking || typeof MwTracking.checkTrackingPermissions !== 'function') return;
+                try { if (sessionStorage.getItem('mw_setup_gate_skipped')) return; } catch (e) {}
+
+                var self = this;
+                if (!document.getElementById('mw-setup-gate-css')) {
+                    var css = document.createElement('style');
+                    css.id = 'mw-setup-gate-css';
+                    css.textContent =
+                        '#mw-setup-gate{position:fixed;inset:0;z-index:2147483646;overflow-y:auto;box-sizing:border-box;' +
+                            'padding:calc(env(safe-area-inset-top,0px) + 28px) 20px calc(env(safe-area-inset-bottom,0px) + 28px);' +
+                            'background:var(--mw-forest);color:var(--mw-ink-0);font-family:system-ui,-apple-system,sans-serif;}' +
+                        '#mw-setup-gate h2{margin:0 0 6px;font-size:1.45rem;font-weight:700;color:var(--mw-lime);}' +
+                        '#mw-setup-gate p{margin:0 0 18px;font-size:.92rem;line-height:1.5;color:var(--mw-light);}' +
+                        '.mw-sg-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;padding:14px;border-radius:14px;' +
+                            'background:var(--mw-dark);}' +
+                        '.mw-sg-dot{flex-shrink:0;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+                            'font-weight:700;font-size:.9rem;background:var(--mw-orange);color:var(--mw-ink-0);}' +
+                        '.mw-sg-row--ok .mw-sg-dot{background:var(--mw-lime);color:var(--mw-forest);}' +
+                        '.mw-sg-main{flex:1;min-width:0;}' +
+                        '.mw-sg-title{font-weight:700;font-size:1rem;}' +
+                        '.mw-sg-how{margin-top:3px;font-size:.82rem;line-height:1.45;color:var(--mw-light);}' +
+                        '.mw-sg-btn{display:block;width:100%;margin-top:10px;padding:13px;border:0;border-radius:10px;font-size:1rem;font-weight:700;' +
+                            'background:var(--mw-lime);color:var(--mw-forest);}' +
+                        '.mw-sg-row--ok .mw-sg-btn,.mw-sg-row--ok .mw-sg-how{display:none;}' +
+                        '.mw-sg-continue{margin-top:20px;}' +
+                        '.mw-sg-skip{display:block;margin:22px auto 0;padding:10px;border:0;background:transparent;font-size:.82rem;' +
+                            'text-decoration:underline;color:var(--mw-light);}';
+                    document.head.appendChild(css);
+                }
+
+                var el = document.createElement('div');
+                el.id = 'mw-setup-gate';
+                el.setAttribute('role', 'dialog');
+                el.setAttribute('aria-modal', 'true');
+                el.innerHTML =
+                    '<h2>Finish setting up tracking</h2>' +
+                    '<p class="mw-sg-lead">These phone settings decide whether location tracking keeps working with the ' +
+                        'phone in your pocket. It only runs while you are clocked in. <b>Location</b> is the one that has ' +
+                        'to be right &mdash; this screen closes by itself as soon as it is.</p>' +
+                    '<div class="mw-sg-row" data-row="location"><span class="mw-sg-dot">1</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Location: Allow all the time</div>' +
+                        '<div class="mw-sg-how">Tap the button, then choose <b>Permissions &rarr; Location &rarr; Allow all the time</b>. ' +
+                            '&ldquo;While using the app&rdquo; stops working when the screen goes off.</div>' +
+                        '<button type="button" class="mw-sg-btn" data-fix="location">Open location setting</button>' +
+                    '</div></div>' +
+                    '<div class="mw-sg-row" data-row="gps" hidden><span class="mw-sg-dot">!</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Location Services: On</div>' +
+                        '<div class="mw-sg-how">Your phone\'s Location switch is OFF. Granting the app permission is not enough &mdash; ' +
+                            'with this off nothing can get a position at all. Swipe down from the top and tap <b>Location</b>, ' +
+                            'or Settings &rarr; Location.</div>' +
+                    '</div></div>' +
+                    '<div class="mw-sg-row" data-row="battery"><span class="mw-sg-dot">2</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Battery: Unrestricted</div>' +
+                        '<div class="mw-sg-how">Tap the button and choose <b>Allow</b>. If nothing pops up: Settings &rarr; Apps &rarr; ' +
+                            'Mowology Crew &rarr; Battery &rarr; <b>Unrestricted</b>. Without it the phone shuts the app down to save power.</div>' +
+                        '<button type="button" class="mw-sg-btn" data-fix="battery">Allow battery use</button>' +
+                    '</div></div>' +
+                    '<div class="mw-sg-row" data-row="notifications"><span class="mw-sg-dot">3</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Notifications: On (recommended)</div>' +
+                        '<div class="mw-sg-how">So the app can tell you when a job timer starts or stops by itself.</div>' +
+                        '<button type="button" class="mw-sg-btn" data-fix="notifications">Turn on notifications</button>' +
+                    '</div></div>' +
+                    '<button type="button" class="mw-sg-btn mw-sg-continue" data-fix="continue" hidden>Continue &mdash; ' +
+                        'I&rsquo;ll sort the battery setting later</button>' +
+                    '<button type="button" class="mw-sg-skip" data-fix="skip" hidden>I can&rsquo;t fix this now &mdash; clock me out</button>';
+
+                var last = null, timer = null, closed = false, skipAllowed = false;
+
+                function paint(p) {
+                    last = p || {};
+                    var ok = {
+                        location:      !!(last.location && last.background),
+                        gps:           last.gpsEnabled !== false,
+                        battery:       !!last.batteryOptimizationIgnored,
+                        notifications: last.notifications !== false
+                    };
+                    // Only surfaced when the device actually says Location is off, so the
+                    // normal setup flow is unchanged for everyone else.
+                    var gpsRow = el.querySelector('[data-row="gps"]');
+                    if (gpsRow) gpsRow.hidden = (last.gpsEnabled !== false);
+                    Object.keys(ok).forEach(function(k) {
+                        var row = el.querySelector('[data-row="' + k + '"]');
+                        if (!row) return;
+                        var dot = row.querySelector('.mw-sg-dot');
+                        if (!dot.getAttribute('data-n')) dot.setAttribute('data-n', dot.textContent);
+                        row.className = 'mw-sg-row' + (ok[k] ? ' mw-sg-row--ok' : '');
+                        dot.textContent = ok[k] ? '✓' : dot.getAttribute('data-n');
+                    });
+                    if (self._setupOk(last)) { close(true); return; }
+                    // Battery exemption cannot be granted from inside the app, and on Samsung
+                    // the "Unrestricted" toggle crew are sent to does not always flip the flag
+                    // this reads. Holding the screen shut on it traps a device that is in fact
+                    // set up correctly: on 2026-09-25 the truck tablet sat here with location
+                    // green and the engine running behind the overlay, unable to get past.
+                    // The row still nags and device_tracking_health still records it.
+                    var blocking = self._setupBlocking(last);
+                    var cont = el.querySelector('[data-fix="continue"]');
+                    if (cont) cont.hidden = blocking;
+                    var skip = el.querySelector('[data-fix="skip"]');
+                    if (skip) skip.hidden = !(skipAllowed && blocking);
+                }
+                function showManualBatteryPath() {
+                    var row = el.querySelector('[data-row="battery"] .mw-sg-how');
+                    if (!row || row.getAttribute('data-manual')) return;
+                    row.setAttribute('data-manual', '1');
+                    row.innerHTML = 'The pop-up did not appear, or the setting did not take. '
+                        + 'Set it by hand: <b>Settings &rarr; Apps &rarr; Mowology Crew &rarr; Battery &rarr; Unrestricted</b>. '
+                        + 'On Samsung this is NOT the same as "Background usage limits" — that screen can already look fine '
+                        + 'while the app is still optimised. Come back here afterwards and it will tick itself.';
+                }
+                function check() {
+                    if (closed) return;
+                    MwTracking.checkTrackingPermissions().then(paint, function (e) {
+                        // Never leave every row unticked with no explanation — that reads as
+                        // "you have set nothing up" when the truth is "we could not look".
+                        var hdr = el.querySelector('.mw-sg-lead');
+                        if (hdr && !hdr.getAttribute('data-err')) {
+                            hdr.setAttribute('data-err', '1');
+                            hdr.innerHTML += '<br><b>This app build cannot read its own permission state, '
+                                + 'so the ticks below may be wrong. Update the app, or use "continue anyway".</b>';
+                        }
+                    });
+                }
+                function close(done) {
+                    if (closed) return;
+                    closed = true;
+                    clearInterval(timer);
+                    document.removeEventListener('visibilitychange', check);
+                    if (el.parentNode) el.parentNode.removeChild(el);
+                    document.body.style.overflow = '';
+                    if (done) {
+                        // Everything is granted now — make sure the engine is actually running with it.
+                        self._starting = false;
+                        self.start();
+                    }
+                }
+
+                el.addEventListener('click', function(ev) {
+                    var fix = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-fix');
+                    if (!fix) return;
+                    if (fix === 'battery') {
+                        // Android only offers the exemption dialog once per install on some
+                        // OEMs, and an older APK may not implement the method at all — both
+                        // rejected here into an empty handler, so the button did nothing and
+                        // said nothing. A crew member taps it, the row stays orange, and the
+                        // only remaining option looks like "continue anyway".
+                        MwTracking.requestBatteryExemption().then(
+                            function() { setTimeout(check, 800); },
+                            function() { showManualBatteryPath(); }
+                        );
+                        // Samsung's "Unrestricted" lives somewhere different from the
+                        // whitelist this checks, so tell them where even on success-but-
+                        // unchanged: re-checking in 3 s catches the dialog being dismissed.
+                        setTimeout(function() {
+                            if (!closed && last && !last.batteryOptimizationIgnored) showManualBatteryPath();
+                        }, 3000);
+                    } else if (fix === 'continue') {
+                        // Not a skip: everything that decides whether a position can be
+                        // obtained is already granted, so the shift stays on the clock and
+                        // tracking carries on. Recorded so the office can still see which
+                        // devices are running without the exemption.
+                        try {
+                            MwTracking.addComplianceEvent({
+                                eventType: 'tracking_setup_battery_deferred',
+                                reason: JSON.stringify(last || {})
+                            });
+                        } catch (e) {}
+                        // "Later" has to mean later. Without this the gate returned on the
+                        // very next page load — every tab, every navigation — which is how a
+                        // nag stops being read and starts being tapped through blind.
+                        try { sessionStorage.setItem('mw_setup_gate_advisory_ack', '1'); } catch (e) {}
+                        close(false);
+                    } else if (fix === 'skip') {
+                        // This used to be "continue anyway": it closed the gate and let the
+                        // shift carry on untracked. The escape now CLOCKS YOU OUT instead,
+                        // so the only two outcomes are "settings fixed" or "not on the
+                        // clock" — you can no longer work a clocked-in shift with tracking
+                        // disabled. The Decision-Log's reason for having an escape at all is
+                        // preserved and is the whole point of this branch: never trap someone
+                        // who cannot grant the settings, because they still have to clock out.
+                        try {
+                            MwTracking.addComplianceEvent({
+                                eventType: 'tracking_setup_skipped',
+                                reason: JSON.stringify(last || {})
+                            });
+                        } catch (e) {}
+                        var btn = ev.target;
+                        btn.disabled = true;
+                        btn.textContent = 'Clocking you out…';
+                        self._clockOutFromGate().then(function (ok) {
+                            if (!ok) {
+                                // Offline or the endpoint refused. Let them out rather than
+                                // trap them, but say plainly that the shift is still open.
+                                try { sessionStorage.setItem('mw_setup_gate_skipped', '1'); } catch (e) {}
+                                alert('Could not reach the server to clock you out. You are STILL CLOCKED IN — '
+                                    + 'clock out from the Time Clock screen, or tell the office.');
+                            }
+                            close(false);
+                        });
+                    } else {
+                        // location / notifications: the permission flow asks for whatever is still
+                        // missing; on Android 11+ "all the time" can only be chosen in Settings, so
+                        // fall back to opening the app's settings page when the prompt changes nothing.
+                        var before = JSON.stringify(last || {});
+                        MwTracking.requestTrackingPermissions().then(function(p) {
+                            paint(p);
+                            if (JSON.stringify(p || {}) === before && BackgroundGeolocation && BackgroundGeolocation.openSettings) {
+                                BackgroundGeolocation.openSettings();
+                            }
+                        }, function() {
+                            if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                        });
+                    }
+                });
+
+                document.body.appendChild(el);
+                document.body.style.overflow = 'hidden';
+                document.addEventListener('visibilitychange', check);   // back from Settings
+                timer = setInterval(check, 1500);
+                setTimeout(function() {
+                    skipAllowed = true;
+                    if (!closed) paint(last);
+                }, 45000);
+                check();
+            },
+
+            start: function() {
+                var self = this;
+                if (this._starting) return;
+                this._starting = true;
+                this._token().then(function(t) {
+                    if (!t || !t.success) { console.warn('[MwNative] no tracking token — native tracking not started'); return null; }
+                    if (!t.token) return null;                          // tracking is off for this user — nothing to do
+                    return self._ensureDisclosed(t.token).then(function(ok) {
+                        if (!ok) return null;
+                        return MwTracking.requestTrackingPermissions().then(function(perms) {
+                            // A blocking condition always gets the screen, every load, until it is
+                            // fixed. An advisory-only shortfall (battery) gets it until they tap
+                            // Continue, then stays quiet for the rest of the app session — it is
+                            // still on the Tracking Health page and still in device_tracking_health.
+                            // Start the session first when we can, so tracking runs regardless.
+                            if (!self._setupOk(perms)) {
+                                var acked = false;
+                                try { acked = !!sessionStorage.getItem('mw_setup_gate_advisory_ack'); } catch (e) {}
+                                if (self._setupBlocking(perms) || !acked) self._setupGate();
+                            }
+                            if (!perms || !perms.location) {
+                                console.warn('[MwNative] location permission refused — native tracking not started');
+                                return null;
+                            }
+                            return MwTracking.startSession({ token: t.token, userId: t.user_id });
+                        });
+                    });
+                }).catch(function(e) {
+                    console.warn('[MwNative] engine start failed:', e);
+                }).then(function() { self._starting = false; });
+            }
+        },
+
         tracking: {
             /**
              * Start a tracking session. Call when user clocks in.
@@ -388,6 +1005,11 @@
                 if (!MwTracking) {
                     console.warn('[MwNative] MwTracking plugin not available');
                     return Promise.resolve({ started: false });
+                }
+                // v2 APK: a session needs a token, which only the engine adapter can fetch.
+                if (window.MwNative.engine.version >= 2) {
+                    window.MwNative.engine.start();
+                    return Promise.resolve({ started: true, engineVersion: 2 });
                 }
                 return MwTracking.startSession({
                     userId: userId,
@@ -510,6 +1132,80 @@
             }
         },
 
+        // ── Push Notifications (FCM) ─────────────────────────
+        // Registers this device for Firebase Cloud Messaging and reports the
+        // resulting token to the backend so PushDispatcher can address this
+        // device (job-completed, job-assigned, etc — mirrors the iOS
+        // DeviceTokenService flow, POSTing to the same /api/device/token
+        // endpoint). Inert until a real Firebase project is provisioned —
+        // Play Services just never delivers a token in the meantime, so
+        // always calling init() is safe.
+        push: {
+            _initialized: false,
+
+            init: function() {
+                if (this._initialized || !PushNotifications) return;
+                this._initialized = true;
+
+                PushNotifications.addListener('registration', function(tokenResult) {
+                    window.MwNative.push._registerToken(tokenResult.value);
+                });
+                PushNotifications.addListener('registrationError', function(err) {
+                    console.warn('[MwNative] Push registration error:', err);
+                });
+                // Tap on a notification → open its deep link in the WebView (Penny's
+                // missing-receipt pushes carry data.url = /crm/my-team.php?penny=missing&id=N).
+                // The plugin retains a tap that launched the app until this listener exists,
+                // so a cold start lands here too. Same-origin paths only.
+                PushNotifications.addListener('pushNotificationActionPerformed', function(action) {
+                    window.MwNative.push.openFromData(action && action.notification && action.notification.data);
+                });
+
+                PushNotifications.requestPermissions().then(function(result) {
+                    if (result.receive === 'granted') {
+                        PushNotifications.register();
+                    } else {
+                        console.log('[MwNative] Push permission not granted:', result.receive);
+                    }
+                }).catch(function(err) {
+                    console.warn('[MwNative] Push permission request failed:', err);
+                });
+            },
+
+            // Re-registers (without re-prompting for permission) on every
+            // foreground transition — retry coverage for a token that failed
+            // to arrive earlier, mirrors iOS's DeviceTokenService behavior.
+            // Safe/idempotent: the backend upsert just refreshes last_seen_at
+            // if the token is unchanged.
+            reregister: function() {
+                if (!this._initialized || !PushNotifications) return;
+                PushNotifications.register();
+            },
+
+            /** Navigate to a push's data.url when it is a path on this site ("/crm/…"). */
+            openFromData: function(data) {
+                var url = data && typeof data.url === 'string' ? data.url : '';
+                if (!/^\/(?!\/)[^\s]*$/.test(url)) return false;
+                var here = window.location.pathname + window.location.search;
+                if (here === url) return false;
+                window.location.href = url;
+                return true;
+            },
+
+            _registerToken: function(token) {
+                fetch('/api/device/token', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_token: token, platform: 'android' })
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (!data.success) console.warn('[MwNative] Device token registration rejected:', data.error);
+                }).catch(function(err) {
+                    console.warn('[MwNative] Device token registration failed:', err);
+                });
+            }
+        },
+
         // ── Network Status ──────────────────────────────────
         network: {
             isOnline: true,
@@ -542,67 +1238,12 @@
     };
 
     // ── D7 — App lifecycle (pause / resume) ─────────────────
-    // When the user backgrounds the app, raise the GPS distance
-    // filter to the STILL bucket (50 m). When they foreground it
-    // again, restore the filter matching the current activity.
-    // Implemented by removing the current watcher and re-adding
-    // with the new filter — the @capacitor-community/background-
-    // geolocation plugin doesn't support live filter updates.
-    if (App && App.addListener) {
-        var pausedFilter = null;
-        App.addListener('pause', function () {
-            if (window.MwNative._bgWatchId === null) return;
-            console.log('[MwNative] App pause → raising GPS filter to STILL (50 m)');
-            pausedFilter = activityDistanceFilter[window.MwNative._currentActivity] || 15;
-            try {
-                BackgroundGeolocation.removeWatcher({ id: window.MwNative._bgWatchId });
-                window.MwNative._bgWatchId = null;
-                window.MwNative.geo.watchId = null;
-            } catch (e) { /* ignore */ }
-            // Re-add at the higher filter so native updates still flow
-            // but drain less battery. Uses the last-known callback via
-            // MwTracking events rather than a fresh JS callback.
-            if (BackgroundGeolocation) {
-                BackgroundGeolocation.addWatcher({
-                    backgroundTitle: 'Mowology GPS Tracking',
-                    backgroundMessage: 'Tracking your location for crew management',
-                    requestPermissions: false,
-                    stale: false,
-                    distanceFilter: 50
-                }, function (location) {
-                    if (!location) return;
-                    if (MwTracking) {
-                        MwTracking.storePoint({
-                            lat: location.latitude,
-                            lng: location.longitude,
-                            accuracy: location.accuracy || 0,
-                            speed: location.speed || 0,
-                            heading: location.bearing || 0,
-                            altitude: location.altitude || 0,
-                            provider: 'fused',
-                            timestamp: location.time || Date.now()
-                        }).catch(function () {});
-                    }
-                }).then(function (id) {
-                    window.MwNative._bgWatchId = id;
-                    window.MwNative.geo.watchId = id;
-                }).catch(function () {});
-            }
-        });
-
-        App.addListener('resume', function () {
-            if (pausedFilter === null) return;
-            console.log('[MwNative] App resume → restoring GPS filter', pausedFilter);
-            // Caller should re-subscribe; for now, just log so the
-            // tracking widget can react via the existing
-            // mw-activity-changed event.
-            document.dispatchEvent(new CustomEvent('mw-app-resumed', {
-                detail: { distanceFilter: pausedFilter }
-            }));
-            pausedFilter = null;
-        });
-        console.log('[MwNative] App pause/resume lifecycle listeners registered');
-    }
+    // REMOVED 2026-09-19: on 'pause' this used to swap the live watcher for a "battery
+    // saving" one whose callback only wrote to the native Room store. But nothing ever
+    // uploads that store (its sync cannot authenticate), and the swap disconnected the
+    // fixes from the widget's uploader — so after the FIRST screen-off the server got the
+    // last pre-sleep position re-sent forever with fresh timestamps. The original watcher
+    // now simply keeps running in the background; useLegacyBridge keeps its callback alive.
 
     // ── Hardware Back Button (Android) ──────────────────────
     // Pages can call e.preventDefault() on the 'mw-native-back' event to
@@ -639,11 +1280,131 @@
     }
 
     // ── Auto-initialize ─────────────────────────────────────
+    /**
+     * The phone's location-permission snapshot, sent with a clock-in so the server can
+     * refuse it for users on the tracking_setup_required list (TrackingSetupGate).
+     * Resolves null — never rejects — when the plugin is missing or slow; the server
+     * treats null as "could not confirm", which refuses only gated users.
+     */
+    window.MwNative.trackingPermissions = function() {
+        if (!MwTracking || typeof MwTracking.checkTrackingPermissions !== 'function') return Promise.resolve(null);
+        return Promise.race([
+            MwTracking.checkTrackingPermissions().then(function(p) { return p || null; }, function() { return null; }),
+            new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 3000); })
+        ]);
+    };
+
+    /**
+     * Camera check at app launch. Before/after photos open the OS camera through the
+     * WebView file chooser; with the app's Camera permission off, the chooser is refused
+     * and the photo button does nothing at all — no error, no dialog (Nigel, 2026-10-06).
+     * The WebView's navigator.permissions does not see the app's grant, so this asks the
+     * native plugin (1.3.3+). Advisory only: it never blocks clock-in. Shown on each app
+     * launch until Camera is on or the crew member taps "Later".
+     * An older APK without requestCameraPermission reports no `camera` field — skip.
+     */
+    window.MwNative.cameraCheck = function() {
+        if (!MwTracking || typeof MwTracking.requestCameraPermission !== 'function') return;
+        if (/\/loginAuth\//.test(location.pathname)) return;           // not signed in yet
+        try { if (sessionStorage.getItem('mw_camera_check_done')) return; } catch (e) {}
+
+        function done() { try { sessionStorage.setItem('mw_camera_check_done', '1'); } catch (e) {} }
+
+        MwTracking.checkTrackingPermissions().then(function(p) {
+            if (!p || p.camera !== false) { if (p && p.camera === true) done(); return; }
+            if (document.getElementById('mw-camera-check')) return;
+
+            if (!document.getElementById('mw-camera-check-css')) {
+                var css = document.createElement('style');
+                css.id = 'mw-camera-check-css';
+                css.textContent =
+                    '#mw-camera-check{position:fixed;left:12px;right:12px;z-index:2147483645;' +
+                        'bottom:calc(env(safe-area-inset-bottom,0px) + 16px);padding:18px 18px 12px;border-radius:16px;' +
+                        'background:var(--mw-forest);color:var(--mw-light);font-family:system-ui,-apple-system,sans-serif;' +
+                        'box-shadow:0 10px 30px rgba(0,0,0,.35);}' +
+                    '#mw-camera-check h3{margin:0 0 4px;font-size:1.1rem;font-weight:700;color:var(--mw-lime);}' +
+                    '#mw-camera-check p{margin:0;font-size:.88rem;line-height:1.45;}' +
+                    '#mw-camera-check .mw-cc-btn{display:block;width:100%;margin-top:14px;padding:13px;border:0;border-radius:10px;' +
+                        'font-size:1rem;font-weight:700;background:var(--mw-lime);color:var(--mw-forest);}' +
+                    '#mw-camera-check .mw-cc-later{display:block;margin:6px auto 0;padding:8px;border:0;background:transparent;' +
+                        'font-size:.82rem;text-decoration:underline;color:var(--mw-light);}';
+                document.head.appendChild(css);
+            }
+
+            var el = document.createElement('div');
+            el.id = 'mw-camera-check';
+            el.setAttribute('role', 'dialog');
+            el.innerHTML =
+                '<h3>Camera is off for this app</h3>' +
+                '<p class="mw-cc-how">Before and after photos can&rsquo;t open the camera until it&rsquo;s on.</p>' +
+                '<button type="button" class="mw-cc-btn" data-cc="allow">Turn on camera</button>' +
+                '<button type="button" class="mw-cc-later" data-cc="later">Later</button>';
+
+            function close() {
+                document.removeEventListener('visibilitychange', recheck);
+                if (el.parentNode) el.parentNode.removeChild(el);
+            }
+            function granted() {
+                done();
+                el.innerHTML = '<h3>&#10003; Camera is on</h3><p>Photos are ready to go.</p>';
+                setTimeout(close, 1500);
+            }
+            function recheck() {
+                if (document.visibilityState !== 'visible') return;      // back from Settings
+                MwTracking.checkTrackingPermissions().then(function(q) { if (q && q.camera) granted(); }, function() {});
+            }
+
+            el.addEventListener('click', function(ev) {
+                var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-cc');
+                if (act === 'later') { done(); close(); return; }
+                if (act !== 'allow') return;
+                MwTracking.requestCameraPermission().then(function(q) {
+                    if (q && q.camera) { granted(); return; }
+                    // Android stops showing the prompt after two refusals — the only way
+                    // left is the app's own Settings page.
+                    var how = el.querySelector('.mw-cc-how');
+                    if (how) how.innerHTML = 'Turn it on in <b>Settings &rarr; Apps &rarr; Mowology Crew &rarr; ' +
+                        'Permissions &rarr; Camera &rarr; Allow only while using the app</b>, then come back.';
+                    if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                }, function() {
+                    if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                });
+            });
+
+            document.addEventListener('visibilitychange', recheck);
+            document.body.appendChild(el);
+        }, function() {});
+    };
+
     window.MwNative.network.init();
     window.MwNative.notifications.init();
+    window.MwNative.push.init();
+    if (document.body) window.MwNative.cameraCheck();
+    else document.addEventListener('DOMContentLoaded', function() { window.MwNative.cameraCheck(); });
+
+    // Re-check registration on every foreground transition, mirroring the
+    // iOS DeviceTokenService's "re-register on every foreground" retry
+    // coverage — cheap and idempotent server-side (upsert keyed on token).
+    if (App && App.addListener) {
+        App.addListener('resume', function () {
+            window.MwNative.push.reregister();
+        });
+    }
 
     // Listen for activity changes and adjust the BG plugin's distance filter
     if (MwTracking && MwTracking.addListener) {
+        // v2 engine → page. The engine acts on its own; these only keep the UI honest.
+        MwTracking.addListener('trackingStopped', function(data) {
+            console.log('[MwNative] Server ended tracking:', data && data.reason);
+            document.dispatchEvent(new CustomEvent('mw-tracking-stopped', { detail: data || {} }));
+        });
+        MwTracking.addListener('autoStarted', function(data) {
+            document.dispatchEvent(new CustomEvent('mw-auto-started', { detail: data || {} }));
+        });
+        MwTracking.addListener('autoStopped', function(data) {
+            document.dispatchEvent(new CustomEvent('mw-auto-stopped', { detail: data || {} }));
+        });
+
         MwTracking.addListener('activityChanged', function(data) {
             window.MwNative._currentActivity = data.activity;
             console.log('[MwNative] Activity changed:', data.activity);
@@ -880,14 +1641,27 @@
                 var minVersion  = android.min_version || android.version || null;
                 var forceUpdate = android.force_update === true;
 
-                if (forceUpdate) {
+                // force_update = everyone below the LATEST version must update. It used to block every
+                // install, the up-to-date ones too, so an updated tablet could never get past it (2026-10-16).
+                if (forceUpdate && (!installed || _semverLessThan(installed, android.version || minVersion))) {
                     _showUpdateOverlay(android);
                     return;
                 }
 
-                // If we can't read the installed version, allow through — avoids
-                // blocking on older APKs that predate the getVersion() interface.
-                if (!minVersion || !installed) return;
+                if (!minVersion) return;   // server sets no minimum — nothing to enforce
+
+                // An APK old enough to predate getVersion() is, by definition, older
+                // than any version that can report one. This used to `return` on an
+                // unknown version, so the oldest installs — precisely the ones the
+                // minimum exists to catch — were the only builds exempt from it.
+                // Safe to block here: the whole module already returned at the top
+                // unless Capacitor.isNativePlatform(), so a desktop browser never
+                // reaches this.
+                if (!installed) {
+                    console.warn('[MwNative] installed version unreadable — treating as pre-getVersion build');
+                    _showUpdateOverlay(android);
+                    return;
+                }
 
                 if (_semverLessThan(installed, minVersion)) {
                     _showUpdateOverlay(android);
@@ -928,7 +1702,7 @@
             'color:#fff;font-family:system-ui,-apple-system,sans-serif;');
 
         el.innerHTML =
-            '<img src="/assets/favicon/android-chrome-192x192.png" ' +
+            '<img src="/assets/favicon-ittai/android-chrome-192x192.png" ' +
                 'style="width:80px;height:80px;border-radius:20px;margin-bottom:1.25rem;" alt="">' +
             '<h2 style="margin:0 0 .4rem;font-size:1.5rem;color:#7FD858;font-weight:700;">Update Required</h2>' +
             '<p style="margin:0 0 .9rem;font-size:1rem;color:#c8e8de;">Mowology Crew' + version + ' is now available.</p>' +
@@ -939,10 +1713,41 @@
                 '-webkit-tap-highlight-color:transparent;min-width:200px;">' +
                 'Download Update' +
             '</a>' +
-            '<p style="margin:1.25rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>';
+            // Android downloads the file but does NOT install it by itself. Without these steps
+            // people tap Download, land back on this screen and assume it failed (2026-09-21).
+            '<ol style="margin:1.4rem 0 0;padding:0 0 0 1.2rem;max-width:300px;text-align:left;' +
+                'font-size:.85rem;line-height:1.6;color:#c8e8de;">' +
+                '<li>Tap <b>Download Update</b>.</li>' +
+                '<li>When it finishes, pull down the notification bar and tap the downloaded file ' +
+                    '(also in Files &rarr; Downloads).</li>' +
+                '<li>If asked, choose <b>Settings &rarr; Allow from this source</b>, go back and tap <b>Install</b>.</li>' +
+                '<li>Open the app again and sign in.</li>' +
+            '</ol>' +
+            '<p style="margin:1.1rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>' +
+            // A blocking update screen must never leave someone stuck ON the clock: if the
+            // install fails or there is no signal to download over, the shift would run to
+            // the 12 h auto clock-out with no way to end it from the phone. Same reasoning
+            // as the setup gate's escape — the way out is clocking out, not carrying on.
+            '<button type="button" id="mw-fu-clockout" style="margin:1.4rem 0 0;background:none;' +
+                'border:1px solid #2f6b55;color:#93c9b8;padding:.6rem 1.2rem;border-radius:8px;' +
+                'font-size:.8rem;-webkit-tap-highlight-color:transparent;">' +
+                'Can&rsquo;t update right now &mdash; clock me out</button>';
 
         document.body.style.overflow = 'hidden';
         document.body.appendChild(el);
+
+        var coBtn = el.querySelector('#mw-fu-clockout');
+        if (coBtn) {
+            coBtn.addEventListener('click', function () {
+                coBtn.disabled = true;
+                coBtn.textContent = 'Clocking you out…';
+                window.MwNative.engine._clockOutFromGate().then(function (ok) {
+                    coBtn.textContent = ok
+                        ? 'Clocked out — you can install the update now'
+                        : 'Could not reach the server. You are STILL CLOCKED IN — tell the office.';
+                });
+            });
+        }
         console.log('[MwNative] Force update overlay shown — installed:', installed, 'required:', data.min_version || data.version);
     }
 

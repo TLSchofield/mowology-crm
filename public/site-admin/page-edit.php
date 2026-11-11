@@ -39,6 +39,7 @@ if ($pageId && !$page) {
 $saved = false;
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_save_page'])) {
+    requireSiteWrite();
     $title       = trim($_POST['title']       ?? '');
     $slug        = trim($_POST['slug']        ?? '');
     $status      = in_array($_POST['status'] ?? '', ['published','draft','archived'])
@@ -144,6 +145,7 @@ if (isset($_GET['created'])): ?>
         <div class="pe-tab-panel <?= $activeTab === 'meta' ? 'active' : '' ?>" id="panel-meta">
             <form method="POST" id="pageMetaForm">
                 <input type="hidden" name="_save_page" value="1">
+                <?= siteCsrfField() ?>
 
                 <div class="pe-card">
                     <div class="pe-card-body">
@@ -653,6 +655,7 @@ function _cms_blockTypePreviewSvg(string $type): string {
 <script>
 const PAGE_ID   = <?= $pageId ?>;
 const SITE_ADMIN_API = '/site-admin/api/sections.php';
+const SA_CSRF = <?= json_encode(siteCsrfToken(), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 const BLOCK_TYPES = <?= json_encode($blockTypes, JSON_HEX_TAG) ?>;
 
 // ── Tab switching ──────────────────────────────────────────────────────────────
@@ -889,7 +892,7 @@ function saveSection() {
         // Update existing
         fetch(SITE_ADMIN_API + '?action=update', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': SA_CSRF},
             body: JSON.stringify({id: _currentEditId, data: formData}),
         })
         .then(r => r.json())
@@ -902,7 +905,7 @@ function saveSection() {
         const sortOrder = document.querySelectorAll('.pe-section-row').length * 10;
         fetch(SITE_ADMIN_API + '?action=create', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': SA_CSRF},
             body: JSON.stringify({page_id: PAGE_ID, block_type: _currentEditType, data: formData, sort_order: sortOrder}),
         })
         .then(r => r.json())
@@ -918,7 +921,7 @@ function deleteSection(id) {
     if (!confirm('Remove this section?')) return;
     fetch(SITE_ADMIN_API + '?action=delete', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': SA_CSRF},
         body: JSON.stringify({id}),
     })
     .then(r => r.json())
@@ -944,7 +947,7 @@ function saveOrder() {
     const ids = [...document.querySelectorAll('.pe-section-row')].map(r => parseInt(r.dataset.id));
     fetch(SITE_ADMIN_API + '?action=reorder', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': SA_CSRF},
         body: JSON.stringify({ids}),
     });
 }

@@ -25,6 +25,7 @@ if (!verifyCSRFToken($csrfToken)) {
     echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
     exit;
 }
+session_write_close();
 
 $quoteId = intval($data['quote_id'] ?? 0);
 $items   = $data['items'] ?? [];

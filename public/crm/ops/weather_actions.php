@@ -1,12 +1,26 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Jobs/Services/SeasonalOutlookService.php';
+require_once dirname(__DIR__) . '/modules/weather/seasonal-outlook-card.php';
 
 requireLogin();
 $user = getCurrentUser();
+// Clients' addresses and the crews' days: office access, as the API (Codex 2026-10-15).
+if (!userHasPermission('clients.view')) { header('Location: /crm/dashboard_appstack.php'); exit; }
 
 $pageTitle = 'Weather Actions';
 $activePage = 'weather-ops';
+
+// Seasonal context for the flagged-visit list below. The action list answers
+// "what moves this week"; the outlook answers "how much winter work should be
+// staffed at all". Null out of season, so nothing renders in summer.
+$seasonalOutlook = null;
+try {
+    $seasonalOutlook = (new SeasonalOutlookService(getDB()))->activeOutlook();
+} catch (Throwable $e) {
+    error_log('Weather actions seasonal outlook unavailable: ' . $e->getMessage());
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -25,6 +39,9 @@ $activePage = 'weather-ops';
               </a>
             </div>
           </div>
+
+          <!-- Winter Seasonal Outlook (Nov-Mar) — hidden out of season -->
+          <?php if ($seasonalOutlook): renderSeasonalOutlookCard($seasonalOutlook, 'full'); endif; ?>
 
           <!-- Summary Cards -->
           <div class="row mb-3" id="summaryCards">
@@ -67,8 +84,20 @@ $activePage = 'weather-ops';
             <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="card-title mb-0">Flagged Visits</h5>
               <div class="d-flex" style="gap:0.5rem;">
-                <input type="date" class="form-control form-control-sm" id="filterFrom" style="width:auto;">
-                <input type="date" class="form-control form-control-sm" id="filterTo" style="width:auto;">
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterFrom"
+                        data-mw-dp-range-group="weather-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" class="form-control form-control-sm" id="filterFrom" hidden>
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterTo"
+                        data-mw-dp-range-group="weather-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" class="form-control form-control-sm" id="filterTo" hidden>
                 <button class="btn btn-sm btn-outline-primary" onclick="loadActions()">Filter</button>
               </div>
             </div>
@@ -122,10 +151,16 @@ $activePage = 'weather-ops';
           <script>
           document.addEventListener('DOMContentLoaded', function() {
             // Set default date range
-            const today = new Date().toISOString().split('T')[0];
-            const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+            // Local dates, not UTC: after 5 pm in Vancouver UTC is already tomorrow (Codex 2026-10-15)
+            const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            const today = ymd(new Date());
+            const nextWeek = ymd(new Date(Date.now() + 7 * 86400000));
             document.getElementById('filterFrom').value = today;
+            document.getElementById('filterFrom').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('filterFrom').dispatchEvent(new Event('change', { bubbles: true }));
             document.getElementById('filterTo').value = nextWeek;
+            document.getElementById('filterTo').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('filterTo').dispatchEvent(new Event('change', { bubbles: true }));
 
             loadActions();
           });
@@ -158,27 +193,28 @@ $activePage = 'weather-ops';
                 ? '<span class="badge badge-danger">NOT OK</span>'
                 : '<span class="badge badge-warning">BORDERLINE</span>';
 
+              // Every server value escaped (Codex 2026-10-15: forecast and log fields went in raw)
               const worstHour = v.worst_hour
-                ? (v.worst_hour.hour ? v.worst_hour.hour.substring(11, 16) : '—') +
-                  ' (' + (v.worst_hour.precip_chance_pct || 0) + '% / ' +
-                  (v.worst_hour.wind_kph || 0) + 'km/h / ' +
-                  (v.worst_hour.temp_c || 0) + '°C)'
+                ? escapeHtml(v.worst_hour.hour ? String(v.worst_hour.hour).substring(11, 16) : '—') +
+                  ' (' + escapeHtml(v.worst_hour.precip_chance_pct || 0) + '% / ' +
+                  escapeHtml(v.worst_hour.wind_kph || 0) + 'km/h / ' +
+                  escapeHtml(v.worst_hour.temp_c || 0) + '°C)'
                 : '—';
 
               const crewName = v.crew_name || '—';
 
               return '<tr>' +
                 '<td><strong>' + escapeHtml(v.visit_number) + '</strong><br><small class="text-muted">' + escapeHtml(crewName) + '</small></td>' +
-                '<td>' + v.scheduled_date + '<br><small>' + (v.scheduled_time_start || '') + '</small></td>' +
+                '<td>' + escapeHtml(v.scheduled_date) + '<br><small>' + escapeHtml(v.scheduled_time_start || '') + '</small></td>' +
                 '<td>' + escapeHtml(v.address || '') + '<br><small class="text-muted">' + escapeHtml(v.city || '') + '</small></td>' +
-                '<td>' + escapeHtml(v.service_name || v.service_type || '—') + '<br><small class="text-muted">' + (v.weather_policy || 'ANY') + '</small></td>' +
+                '<td>' + escapeHtml(v.service_name || v.service_type || '—') + '<br><small class="text-muted">' + escapeHtml(v.weather_policy || 'ANY') + '</small></td>' +
                 '<td>' + statusBadge + '</td>' +
                 '<td>' + escapeHtml(v.weather_reason || '—') + '<br><small class="text-muted">' + escapeHtml(v.snapshot_summary || '') + '</small></td>' +
                 '<td><small>' + worstHour + '</small></td>' +
                 '<td>' +
                   '<div class="btn-group-vertical btn-group-sm">' +
-                    '<button class="btn btn-outline-success" onclick="keepVisit(' + v.visit_id + ')" title="Keep as-is"><i data-feather="check"></i> Keep</button>' +
-                    '<button class="btn btn-outline-danger" onclick="dismissVisit(' + v.visit_id + ')" title="Dismiss"><i data-feather="x"></i> Dismiss</button>' +
+                    '<button class="btn btn-outline-success" onclick="keepVisit(' + parseInt(v.visit_id, 10) + ')" title="Keep as-is"><i data-feather="check"></i> Keep</button>' +
+                    '<button class="btn btn-outline-danger" onclick="dismissVisit(' + parseInt(v.visit_id, 10) + ')" title="Dismiss"><i data-feather="x"></i> Dismiss</button>' +
                   '</div>' +
                   (v.weather_card_path ? '<br><a href="/crm/' + escapeHtml(v.weather_card_path) + '" target="_blank" class="btn btn-sm btn-outline-secondary mt-1"><i data-feather="image"></i></a>' : '') +
                 '</td>' +
@@ -201,9 +237,9 @@ $activePage = 'weather-ops';
               if (details && details.length > 80) details = details.substring(0, 77) + '...';
 
               return '<tr>' +
-                '<td><small>' + l.created_at + '</small></td>' +
+                '<td><small>' + escapeHtml(l.created_at) + '</small></td>' +
                 '<td><span class="badge badge-secondary">' + escapeHtml(l.action_type) + '</span></td>' +
-                '<td>' + l.entity_type + ' #' + l.entity_id + '</td>' +
+                '<td>' + escapeHtml(l.entity_type) + ' #' + escapeHtml(l.entity_id) + '</td>' +
                 '<td><small class="text-muted">' + escapeHtml(details || '') + '</small></td>' +
               '</tr>';
             }).join('');
@@ -222,7 +258,7 @@ $activePage = 'weather-ops';
 
             fetch('/crm/api/weather-actions.php?action=keep', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify({ visit_id: visitId, reason: 'Manual override' })
             })
             .then(r => r.json())
@@ -236,7 +272,7 @@ $activePage = 'weather-ops';
           function dismissVisit(visitId) {
             fetch('/crm/api/weather-actions.php?action=dismiss', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify({ visit_id: visitId })
             })
             .then(r => r.json())
@@ -254,7 +290,7 @@ $activePage = 'weather-ops';
 
             fetch('/crm/api/weather-actions.php?action=run-guard', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: '{}'
             })
             .then(r => r.json())
@@ -283,9 +319,9 @@ $activePage = 'weather-ops';
           }
 
           function escapeHtml(text) {
-            if (!text) return '';
+            if (text === null || text === undefined || text === '') return '';   // 0 stays "0"
             const div = document.createElement('div');
-            div.textContent = text;
+            div.textContent = String(text);
             return div.innerHTML;
           }
           </script>

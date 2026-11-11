@@ -1,0 +1,599 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * TrackingIngestService — the one place a GPS fix is judged before it is stored.
+ *
+ * The rule this exists to enforce: employee location is recorded ONLY while the
+ * employee is on the clock, has tracking enabled, and (once required) has a
+ * current consent record. That boundary used to live in client code alone —
+ * the iOS endpoint stored pings from anyone holding a valid token.
+ *
+ * Also fixes two data-integrity faults found in the 2026-09-19 audit:
+ *   - every ping was stamped NOW() on receipt, so an offline queue replayed hours
+ *     later landed as one burst at the reconnect moment (and could auto-start a
+ *     job the crew had left). Fixes now carry their DEVICE time, bounded.
+ *   - the 10 s receipt-time rate limit then discarded all but one replayed ping
+ *     while answering success, so clients deleted the rest.
+ *
+ * Accepts the legacy single-ping body {lat,lng,accuracy,visit_id} and the batch
+ * body {points:[{id,t,lat,lng,acc,speed,heading,mock,visit_id}], device:{…}}.
+ *
+ * Global-namespace, no autoloader: require_once, then `new TrackingIngestService($db)`.
+ */
+class TrackingIngestService
+{
+    public const MAX_BATCH               = 500;
+    public const MAX_FUTURE_SECONDS      = 300;        // device clocks drift; 5 min is generous
+    public const MAX_AGE_SECONDS         = 259200;     // 72 h — older than any plausible offline queue
+    public const SHIFT_GRACE_SECONDS     = 120;        // a fix just before clock-in / after clock-out
+    public const MIN_GAP_SECONDS         = 4;          // thinning within a batch
+    public const LEGACY_MIN_GAP_SECONDS  = 9;          // live single-ping cadence guard
+    public const FRESH_SECONDS           = 120;        // only a fix this recent may trigger auto-arrival
+
+    /** @var PDO */
+    private $db;
+    /** @var array<string,bool> */
+    private $columnCache = [];
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    // ── Pure rules ──────────────────────────────────────────────────────────
+
+    /**
+     * Normalise either request shape into a list of points with second-resolution `ts`.
+     * A point with no device time is stamped $nowTs and flagged, so callers can tell
+     * a live legacy ping from a genuinely timestamped fix.
+     */
+    public static function normalizePoints(array $input, int $nowTs): array
+    {
+        $raw = isset($input['points']) && is_array($input['points'])
+            ? array_slice($input['points'], 0, self::MAX_BATCH)
+            : [$input];
+
+        $out = [];
+        foreach ($raw as $p) {
+            if (!is_array($p) || !isset($p['lat'], $p['lng']) || !is_numeric($p['lat']) || !is_numeric($p['lng'])) {
+                continue;
+            }
+            $t = $p['t'] ?? null;
+            $hasDeviceTime = is_numeric($t) && (float)$t > 0;
+            // Accept epoch milliseconds or seconds — a seconds value read as ms lands in 1970.
+            $ts = $hasDeviceTime ? (int)((float)$t > 1.0e11 ? (float)$t / 1000 : (float)$t) : $nowTs;
+
+            $acc = $p['acc'] ?? $p['accuracy'] ?? null;
+            $id  = isset($p['id']) && is_string($p['id']) && preg_match('/^[0-9a-fA-F-]{36}$/', $p['id']) ? strtolower($p['id']) : null;
+
+            $out[] = [
+                'id'              => $id,
+                'ts'              => $ts,
+                'has_device_time' => $hasDeviceTime,
+                'lat'             => (float)$p['lat'],
+                'lng'             => (float)$p['lng'],
+                'acc'             => is_numeric($acc) && (float)$acc > 0 ? (float)$acc : null,
+                'speed'           => isset($p['speed']) && is_numeric($p['speed']) && (float)$p['speed'] >= 0 ? (float)$p['speed'] : null,
+                'heading'         => isset($p['heading']) && is_numeric($p['heading']) && (float)$p['heading'] >= 0 ? (int)round((float)$p['heading']) % 360 : null,
+                'mock'            => !empty($p['mock']),
+                'visit_id'        => isset($p['visit_id']) && (int)$p['visit_id'] > 0 ? (int)$p['visit_id'] : null,
+                'tier'            => in_array($p['tier'] ?? null, ['baseline', 'enhanced'], true) ? $p['tier'] : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * @param array<int, array{0:int, 1:?int}> $shifts [clockInTs, clockOutTs|null] — null = still open
+     * @param array<int, array{0:int, 1:?int}> $pauses tapped breaks [startTs, endTs|null] — location is
+     *        not collected on a break (2026-10-13), so a fix inside one is refused, not stored
+     * @return string 'ok' | 'bad_coords' | 'future' | 'too_old' | 'outside_shift' | 'on_break'
+     */
+    public static function classify(array $point, int $nowTs, array $shifts, array $pauses = []): string
+    {
+        if ($point['lat'] < -90 || $point['lat'] > 90 || $point['lng'] < -180 || $point['lng'] > 180
+            || ($point['lat'] == 0.0 && $point['lng'] == 0.0)) {
+            return 'bad_coords';
+        }
+        if ($point['ts'] > $nowTs + self::MAX_FUTURE_SECONDS) {
+            return 'future';
+        }
+        if ($point['ts'] < $nowTs - self::MAX_AGE_SECONDS) {
+            return 'too_old';
+        }
+        foreach ($shifts as [$in, $out]) {
+            $end = $out ?? ($nowTs + self::MAX_FUTURE_SECONDS);
+            if ($point['ts'] >= $in - self::SHIFT_GRACE_SECONDS && $point['ts'] <= $end + self::SHIFT_GRACE_SECONDS) {
+                foreach ($pauses as [$ps, $pe]) {
+                    if ($point['ts'] > $ps && ($pe === null || $point['ts'] < $pe)) return 'on_break';
+                }
+                return 'ok';
+            }
+        }
+        return 'outside_shift';
+    }
+
+    /** Oldest-first, dropping fixes closer than MIN_GAP_SECONDS to the one kept before them. */
+    public static function thin(array $points): array
+    {
+        usort($points, static fn (array $a, array $b): int => $a['ts'] <=> $b['ts']);
+        $kept = [];
+        $last = null;
+        foreach ($points as $p) {
+            if ($last !== null && $p['ts'] - $last < self::MIN_GAP_SECONDS) {
+                continue;
+            }
+            $kept[] = $p;
+            $last   = $p['ts'];
+        }
+        return $kept;
+    }
+
+    /**
+     * What the device should do next. The SERVER owns the work-hours boundary: a
+     * client told tracking_allowed=false must stop capturing, which is how an
+     * auto clock-out or an admin edit finally reaches a phone in someone's pocket.
+     */
+    public static function policy(bool $userActive, bool $trackingEnabled, bool $consentOk, bool $clockedIn, ?int $activeVisitId, bool $onBreak = false): array
+    {
+        $reason = null;
+        if (!$userActive)          { $reason = 'account_inactive'; }
+        elseif (!$trackingEnabled) { $reason = 'tracking_disabled'; }
+        elseif (!$consentOk)       { $reason = 'consent_required'; }
+        elseif (!$clockedIn)       { $reason = 'not_clocked_in'; }
+        elseif ($onBreak)          { $reason = 'on_break'; }   // the break button pauses sharing (2026-10-13)
+
+        $allowed = $reason === null;
+        return [
+            'tracking_allowed' => $allowed,
+            'reason'           => $reason,
+            'clocked_in'       => $clockedIn,
+            'on_break'         => $clockedIn && $onBreak,
+            // Enhanced = on a job. Dense, high-accuracy fixes are the proof-of-presence
+            // record (salting / snow liability), so this must never back off when stationary.
+            'tier'             => !$allowed ? 'off' : ($activeVisitId ? 'enhanced' : 'baseline'),
+            'active_visit_id'  => $allowed ? $activeVisitId : null,
+            'baseline'         => ['interval_s' => 60, 'distance_m' => 50, 'accuracy' => 'balanced'],
+            'enhanced'         => ['interval_s' => 15, 'distance_m' => 8,  'accuracy' => 'best'],
+            'status_poll_s'    => 300,
+        ];
+    }
+
+    // ── DB ──────────────────────────────────────────────────────────────────
+
+    /** @return array{active:bool, tracking:bool} */
+    public function userFlags(int $userId): array
+    {
+        $stmt = $this->db->prepare("SELECT is_active, location_tracking_enabled FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return ['active' => !empty($row['is_active']), 'tracking' => !empty($row['location_tracking_enabled'])];
+    }
+
+    /** Clock entries overlapping the replay horizon, as [inTs, outTs|null]. */
+    public function shifts(int $userId, int $nowTs): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT UNIX_TIMESTAMP(clock_in) AS t_in, UNIX_TIMESTAMP(clock_out) AS t_out
+            FROM time_clock_entries
+            WHERE user_id = ? AND clock_in >= FROM_UNIXTIME(?)
+            ORDER BY clock_in ASC
+        ");
+        $stmt->execute([$userId, $nowTs - self::MAX_AGE_SECONDS - 86400]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [(int)$r['t_in'], $r['t_out'] !== null ? (int)$r['t_out'] : null];
+        }
+        return $out;
+    }
+
+    /**
+     * Tapped breaks overlapping the replay horizon, as [startTs, endTs|null]. GPS-found breaks are
+     * not pauses — they are read FROM the fixes. Missing table (migration 1318) → none.
+     */
+    public function pauses(int $userId, int $nowTs): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT UNIX_TIMESTAMP(break_start) AS t_s, UNIX_TIMESTAMP(break_end) AS t_e
+                FROM time_clock_breaks
+                WHERE user_id = ? AND source = 'manual'
+                  AND (break_end IS NULL OR break_end >= FROM_UNIXTIME(?))
+            ");
+            $stmt->execute([$userId, $nowTs - self::MAX_AGE_SECONDS - 86400]);
+            $out = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[] = [(int)$r['t_s'], $r['t_e'] !== null ? (int)$r['t_e'] : null];
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** On a tapped break right now (on an open shift) — the policy tells the phone to stop sharing. */
+    public function onBreak(int $userId): bool
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 1 FROM time_clock_breaks b
+                JOIN time_clock_entries e ON e.id = b.entry_id AND e.clock_out IS NULL AND e.status = 'active'
+                WHERE b.user_id = ? AND b.source = 'manual' AND b.break_end IS NULL LIMIT 1
+            ");
+            $stmt->execute([$userId]);
+            return (bool)$stmt->fetchColumn();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Consent is only enforced once an admin turns it on (time_clock_settings
+     * tracking_consent_required = 1) — flipping it before the apps ship their
+     * consent screen would silently stop all tracking.
+     */
+    public function consentOk(int $userId): bool
+    {
+        if (!function_exists('getTimeClockSetting') || getTimeClockSetting('tracking_consent_required', '0') !== '1') {
+            return true;
+        }
+        require_once __DIR__ . '/TrackingConsentService.php';
+        return (new TrackingConsentService($this->db))->hasCurrentConsent($userId);
+    }
+
+    /**
+     * Judge and store a request's fixes.
+     *
+     * @param callable(int $visitId): bool $mayStampVisit  is the caller crew on this visit?
+     * @param callable(float $lat, float $lng): bool $isOffice  home-geofence classification
+     * `newest` is the newest stored fix that is NOT a mock location — the only kind that may
+     * trigger auto-arrival or departure.
+     *
+     * @return array{accepted: array, rejected: array, stored: int, newest: ?array, last_id: int}
+     */
+    public function ingest(int $userId, array $points, int $nowTs, callable $mayStampVisit, callable $isOffice): array
+    {
+        $shifts   = $this->shifts($userId, $nowTs);
+        $pauses   = $this->pauses($userId, $nowTs);
+        $accepted = [];
+        $rejected = [];
+        $ok       = [];
+
+        foreach ($points as $p) {
+            $verdict = self::classify($p, $nowTs, $shifts, $pauses);
+            if ($verdict === 'ok') {
+                $ok[] = $p;
+                continue;
+            }
+            // outside_shift is retryable: an offline clock-in may simply not have synced yet.
+            $rejected[] = ['id' => $p['id'], 'reason' => $verdict, 'retryable' => $verdict === 'outside_shift'];
+        }
+
+        $hasUuid     = $this->hasColumn('crew_location_history', 'point_uuid');
+        $visitCache  = [];
+        $stored      = 0;
+        $lastId      = 0;
+        $newest      = null;
+
+        $thinned = self::thin($ok);
+        $keptIds = array_fill_keys(array_map(static function (array $p): string { return (string)$p['id']; }, $thinned), true);
+        foreach ($ok as $p) {
+            if (!isset($keptIds[(string)$p['id']])) {
+                $accepted[] = ['id' => $p['id'], 'thinned' => true];
+            }
+        }
+
+        foreach ($thinned as $p) {
+            // Duplicate guard on FIX time (index range scan), not receipt time — a replayed
+            // queue must not be throttled away, and a future-dated row must not poison it.
+            $gap = $p['has_device_time'] ? self::MIN_GAP_SECONDS : self::LEGACY_MIN_GAP_SECONDS;
+            $dup = $this->db->prepare("
+                SELECT id FROM crew_location_history
+                WHERE crew_id = ? AND timestamp BETWEEN FROM_UNIXTIME(?) AND FROM_UNIXTIME(?)
+                LIMIT 1
+            ");
+            $dup->execute([$userId, $p['ts'] - $gap, $p['ts'] + ($p['has_device_time'] ? $gap : 0)]);
+            if ($dup->fetchColumn()) {
+                $accepted[] = ['id' => $p['id'], 'duplicate' => true];
+                continue;
+            }
+
+            // A client-supplied visit_id feeds the customer-facing route proof — never trust it.
+            $visitId = $p['visit_id'];
+            if ($visitId !== null) {
+                if (!array_key_exists($visitId, $visitCache)) {
+                    $visitCache[$visitId] = (bool)$mayStampVisit($visitId);
+                }
+                if (!$visitCache[$visitId]) {
+                    $visitId = null;
+                }
+            }
+
+            $office = $visitId === null && $isOffice($p['lat'], $p['lng']) ? 1 : 0;
+            $acc    = $p['acc'] !== null ? (int)round($p['acc']) : null;
+
+            try {
+                if ($hasUuid) {
+                    $insertStmt = $this->db->prepare("
+                        INSERT IGNORE INTO crew_location_history
+                            (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp,
+                             point_uuid, received_at, speed_mps, heading_deg, is_mock, tier)
+                        VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), ?, NOW(), ?, ?, ?, ?)
+                    ");
+                    $insertStmt->execute([$userId, $p['lat'], $p['lng'], $acc, $visitId, $office, $p['ts'],
+                                          $p['id'], $p['speed'], $p['heading'], $p['mock'] ? 1 : 0, $p['tier']]);
+                } else {
+                    $insertStmt = $this->db->prepare("
+                        INSERT INTO crew_location_history
+                            (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?))
+                    ");
+                    $insertStmt->execute([$userId, $p['lat'], $p['lng'], $acc, $visitId, $office, $p['ts']]);
+                }
+                if ($insertStmt->rowCount() !== 1) {
+                    $accepted[] = ['id' => $p['id'], 'duplicate' => true];
+                    continue;
+                }
+                $lastId = (int)$this->db->lastInsertId() ?: $lastId;
+                $stored++;
+                $accepted[] = ['id' => $p['id']];
+                // A mock (simulated) fix is stored as evidence but never stands for where the
+                // crew is: `newest` drives auto-arrival and departure, so it skips mocks.
+                if (!$p['mock'] && ($newest === null || $p['ts'] > $newest['ts'])) {
+                    $newest = $p;
+                }
+            } catch (Throwable $e) {
+                // One bad row must never fail the batch — the client would retry it forever.
+                error_log("TrackingIngestService: point rejected for user {$userId}: " . $e->getMessage());
+                $rejected[] = ['id' => $p['id'], 'reason' => 'store_failed', 'retryable' => false];
+            }
+        }
+
+        return ['accepted' => $accepted, 'rejected' => $rejected, 'stored' => $stored, 'newest' => $newest, 'last_id' => $lastId];
+    }
+
+    /** Record what the device says about itself, so a silent phone is visible to the office. */
+    public function recordHealth(int $userId, array $device, ?int $newestFixTs): void
+    {
+        $deviceId = isset($device['id']) && is_string($device['id']) ? substr($device['id'], 0, 64) : '';
+        if ($deviceId === '' || !$this->hasTable('device_tracking_health')) {
+            return;
+        }
+        $perm = in_array($device['permission'] ?? null, ['always', 'when_in_use', 'denied'], true) ? $device['permission'] : 'unknown';
+        $bool = static fn ($v) => $v === null ? null : (int)(bool)$v;
+        $prevLowPower = null; $hadRow = false;
+        try {
+            $prev = $this->db->prepare("SELECT low_power_mode FROM device_tracking_health WHERE user_id = ? AND device_id = ? LIMIT 1");
+            $prev->execute([$userId, $deviceId]);
+            $row = $prev->fetch(PDO::FETCH_ASSOC);
+            if ($row !== false) {
+                $hadRow = true;
+                $prevLowPower = $row['low_power_mode'] === null ? null : (int)$row['low_power_mode'];
+            }
+        } catch (Throwable $e) {
+            // Transition logging is a nice-to-have; the health upsert below must still run.
+        }
+        try {
+            $this->db->prepare("
+                INSERT INTO device_tracking_health
+                    (user_id, device_id, platform, app_version, location_permission, precise_location,
+                     battery_optimization_exempt, low_power_mode, battery_percent, queue_depth, last_point_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), NOW())
+                ON DUPLICATE KEY UPDATE
+                    platform = VALUES(platform), app_version = VALUES(app_version),
+                    location_permission = VALUES(location_permission), precise_location = VALUES(precise_location),
+                    battery_optimization_exempt = VALUES(battery_optimization_exempt),
+                    low_power_mode = VALUES(low_power_mode), battery_percent = VALUES(battery_percent),
+                    queue_depth = VALUES(queue_depth),
+                    last_point_at = COALESCE(VALUES(last_point_at), last_point_at),
+                    last_seen_at = NOW()
+            ")->execute([
+                $userId, $deviceId,
+                isset($device['platform']) ? substr((string)$device['platform'], 0, 16) : null,
+                isset($device['app_version']) ? substr((string)$device['app_version'], 0, 24) : null,
+                $perm,
+                $bool($device['precise'] ?? null),
+                $bool($device['battery_opt_exempt'] ?? null),
+                $bool($device['low_power'] ?? null),
+                isset($device['battery']) && is_numeric($device['battery']) ? max(0, min(100, (int)$device['battery'])) : null,
+                isset($device['queue_depth']) && is_numeric($device['queue_depth']) ? max(0, (int)$device['queue_depth']) : null,
+                $newestFixTs,
+            ]);
+        } catch (Throwable $e) {
+            error_log("TrackingIngestService: health upsert failed for user {$userId}: " . $e->getMessage());
+        }
+
+        $transition = self::lowPowerTransition($hadRow, $prevLowPower, $bool($device['low_power'] ?? null));
+        if ($transition !== null && $this->hasTable('compliance_events')) {
+            try {
+                $this->db->prepare("
+                    INSERT INTO compliance_events (user_id, event_type, reason, metadata, device_timestamp, created_at)
+                    VALUES (?, ?, ?, ?, FROM_UNIXTIME(?), NOW())
+                ")->execute([
+                    $userId, $transition, 'Seen on upload (not the exact moment it was switched)',
+                    json_encode([
+                        'device_id' => $deviceId,
+                        'platform'  => $device['platform'] ?? null,
+                        'battery'   => $device['battery'] ?? null,
+                    ]),
+                    $newestFixTs ?? time(),
+                ]);
+            } catch (Throwable $e) {
+                error_log("TrackingIngestService: low-power event failed for user {$userId}: " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Low Power Mode / Battery Saver on↔off, as an event worth keeping. The health row
+     * holds only the latest state, so without this there is no history of when a phone
+     * was put into power saving during a shift. A first report that is already ON counts
+     * as "on"; unknown (null) never produces an event. PURE.
+     */
+    public static function lowPowerTransition(bool $hadRow, ?int $prev, ?int $now): ?string
+    {
+        if ($now === null) {
+            return null;
+        }
+        if (!$hadRow || $prev === null) {
+            return $now === 1 ? 'low_power_on' : null;
+        }
+        if ($prev === $now) {
+            return null;
+        }
+        return $now === 1 ? 'low_power_on' : 'low_power_off';
+    }
+
+    /**
+     * Shape the device's compliance events (setup gate skipped, manual overrides, …).
+     * Each needs an id (so the phone can delete it once stored), a type and a millisecond
+     * timestamp; anything else is optional. Unknown or absurd timestamps are dropped.
+     *
+     * @return array<int, array{id:string,type:string,ts:int,lat:?float,lng:?float,acc:?int,visit_id:?int,job_id:?int,reason:?string,metadata:?string}>
+     */
+    public static function normalizeEvents(array $input, int $nowTs): array
+    {
+        $raw = isset($input['events']) && is_array($input['events']) ? $input['events'] : [];
+        $out = [];
+        foreach (array_slice($raw, 0, 200) as $ev) {
+            if (!is_array($ev)) continue;
+            $id   = isset($ev['id']) ? substr((string)$ev['id'], 0, 64) : '';
+            $type = isset($ev['type']) ? substr(trim((string)$ev['type']), 0, 40) : '';
+            $ms   = isset($ev['t']) && is_numeric($ev['t']) ? (int)$ev['t'] : 0;
+            $ts   = $ms > 100000000000 ? intdiv($ms, 1000) : $ms;      // ms or s, either way
+            if ($id === '' || $type === '' || $ts <= 0) continue;
+            if ($ts > $nowTs + self::MAX_FUTURE_SECONDS || $ts < $nowTs - 30 * 86400) continue;
+            $out[] = [
+                'id'       => $id,
+                'type'     => $type,
+                'ts'       => $ts,
+                'lat'      => isset($ev['lat']) && is_numeric($ev['lat']) ? (float)$ev['lat'] : null,
+                'lng'      => isset($ev['lng']) && is_numeric($ev['lng']) ? (float)$ev['lng'] : null,
+                'acc'      => isset($ev['acc']) && is_numeric($ev['acc']) ? (int)round((float)$ev['acc']) : null,
+                'visit_id' => !empty($ev['visit_id']) ? (int)$ev['visit_id'] : null,
+                'job_id'   => !empty($ev['job_id']) ? (int)$ev['job_id'] : null,
+                'reason'   => isset($ev['reason']) ? substr((string)$ev['reason'], 0, 1000) : null,
+                'metadata' => isset($ev['metadata']) ? substr((string)$ev['metadata'], 0, 4000) : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * An event is about the device, so it is always kept — but its POSITION is employee
+     * location, and location may only be kept while collection is allowed (active, opted in,
+     * consented) AND the event happened inside a shift. Otherwise the coordinates are dropped
+     * and the event is stored without them. PURE.
+     *
+     * @param array<int, array{0:int, 1:?int}> $shifts as shifts()
+     */
+    public static function withoutLocationUnlessAllowed(array $events, bool $mayCollect, array $shifts, int $nowTs, array $pauses = []): array
+    {
+        foreach ($events as &$e) {
+            $onShift = false;
+            if ($mayCollect && isset($e['ts'])) {
+                foreach ($shifts as [$in, $out]) {
+                    $end = $out ?? ($nowTs + self::MAX_FUTURE_SECONDS);
+                    if ($e['ts'] >= $in - self::SHIFT_GRACE_SECONDS && $e['ts'] <= $end + self::SHIFT_GRACE_SECONDS) {
+                        $onShift = true;
+                        break;
+                    }
+                }
+                // No location on a tapped break, the same rule as fixes (classify).
+                foreach ($pauses as [$ps, $pe]) {
+                    if ($e['ts'] > $ps && ($pe === null || $e['ts'] < $pe)) { $onShift = false; break; }
+                }
+            }
+            if (!$onShift) {
+                $e['lat'] = null;
+                $e['lng'] = null;
+                $e['acc'] = null;
+            }
+        }
+        unset($e);
+        return $events;
+    }
+
+    /**
+     * Store compliance events; duplicates (same user, type and second) are counted as done
+     * so a replayed queue never double-writes. Returns the ids the device may now delete.
+     * $mayCollect: may this user's location be kept at all (active, opted in, consent) —
+     * coordinates are kept only then, and only for events inside a shift.
+     *
+     * @return array{stored:int, done:string[]}
+     */
+    public function ingestComplianceEvents(int $userId, array $events, bool $mayCollect = false): array
+    {
+        $done = []; $stored = 0;
+        if (!$events || !$this->hasTable('compliance_events')) {
+            return ['stored' => 0, 'done' => array_column($events, 'id')];
+        }
+        $nowTs  = time();
+        $events = self::withoutLocationUnlessAllowed($events, $mayCollect, $mayCollect ? $this->shifts($userId, $nowTs) : [], $nowTs,
+            $mayCollect ? $this->pauses($userId, $nowTs) : []);
+        try {
+            $dup = $this->db->prepare("
+                SELECT 1 FROM compliance_events
+                WHERE user_id = ? AND event_type = ? AND ABS(TIMESTAMPDIFF(SECOND, device_timestamp, FROM_UNIXTIME(?))) < 2 LIMIT 1
+            ");
+            $ins = $this->db->prepare("
+                INSERT INTO compliance_events
+                    (user_id, event_type, latitude, longitude, accuracy_meters, visit_id, job_id, reason, metadata, device_timestamp, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), NOW())
+            ");
+            foreach ($events as $e) {
+                $dup->execute([$userId, $e['type'], $e['ts']]);
+                if (!$dup->fetchColumn()) {
+                    $ins->execute([$userId, $e['type'], $e['lat'], $e['lng'], $e['acc'], $e['visit_id'], $e['job_id'], $e['reason'], $e['metadata'], $e['ts']]);
+                    $stored++;
+                }
+                $done[] = $e['id'];
+            }
+        } catch (Throwable $ex) {
+            error_log("TrackingIngestService: compliance insert failed for user {$userId}: " . $ex->getMessage());
+        }
+        return ['stored' => $stored, 'done' => $done];
+    }
+
+    // ── Schema probes (migration 1116 is run by hand) ───────────────────────
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        $key = "{$table}.{$column}";
+        if (!isset($this->columnCache[$key])) {
+            try {
+                // information_schema, not SHOW COLUMNS … LIKE ?: with native (non-emulated)
+                // prepares MySQL rejects a placeholder in SHOW, the probe threw, and every
+                // fix was silently stored WITHOUT its uuid/tier as if 1116 had never run.
+                $stmt = $this->db->prepare("
+                    SELECT 1 FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1
+                ");
+                $stmt->execute([$table, $column]);
+                $this->columnCache[$key] = (bool)$stmt->fetchColumn();
+            } catch (Throwable $e) {
+                $this->columnCache[$key] = false;
+            }
+        }
+        return $this->columnCache[$key];
+    }
+
+    private function hasTable(string $table): bool
+    {
+        $key = "{$table}.*";
+        if (!isset($this->columnCache[$key])) {
+            try {
+                $stmt = $this->db->prepare("
+                    SELECT 1 FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1
+                ");
+                $stmt->execute([$table]);
+                $this->columnCache[$key] = (bool)$stmt->fetchColumn();
+            } catch (Throwable $e) {
+                $this->columnCache[$key] = false;
+            }
+        }
+        return $this->columnCache[$key];
+    }
+}

@@ -2,156 +2,604 @@
 //  ReceiptReviewView.swift
 //  MowologyCRM
 //
-//  Review and confirm OCR-parsed receipt fields before saving.
+//  Review and confirm OCR-parsed receipt fields before saving. Feature-for-feature
+//  parity with the Android/WebView review card (public/crm/expenses_appstack.php,
+//  #mobileReviewPanel): captured-image preview, vendor autocomplete that unlinks the
+//  vendor_id when retyped, GST/PST with live subtotal↔total arithmetic, GPS job
+//  suggestion pills + job search, duplicate warnings (exact-image and amount/date),
+//  server-driven category list, Save vs Save & Send, and a "Snap Another / Done"
+//  loop after a successful save.
 //
 
 import SwiftUI
 
 struct ReceiptReviewView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var usesAccessibleAmounts: Bool { appStyle.isEnabled && dynamicTypeSize.isAccessibilitySize }
+    @Environment(\.itAppStyle) private var appStyle
+
+    /// What the user chose after a successful save.
+    enum SaveFollowUp { case snapAnother, done }
 
     @ObservedObject var viewModel: ReceiptsViewModel
     let intake: ReceiptIntakeResponse
+    let imageData: Data?
+    let lat: Double?
+    let lng: Double?
     @Binding var isPresented: Bool
+    var onRetake: (() -> Void)? = nil
+    var onDiscard: (() -> Void)? = nil
+    var onSaved: (SaveFollowUp) -> Void
 
-    // Pre-fill from OCR
+    // Form state — pre-filled from OCR
     @State private var vendorName:     String
+    @State private var vendorId:       Int?
     @State private var expenseDate:    Date
     @State private var amount:         String
     @State private var gst:            String
+    @State private var pst:            String
     @State private var total:          String
     @State private var category:       String
     @State private var paymentMethod:  String
-    @State private var notes:          String
+    @State private var description:    String = ""
+    @State private var selectedJob:    JobPick?
 
-    private let categories = [
-        "Materials", "Fuel", "Equipment", "Subcontractor", "Disposal",
-        "Safety", "Tools", "Office", "Meals", "Other",
+    // Line items — editable pre-save. Every rename / "not an item" / manual add is
+    // sent with ocr_name so the server learns per-vendor (same as the Android card).
+    @State private var items:          [ReceiptLineItem]
+    @State private var renameIndex:    Int?
+    @State private var renameText:     String = ""
+    @State private var showAddItem     = false
+    @State private var addItemName:    String = ""
+    @State private var addItemAmount:  String = ""
+
+    // Lookups
+    @State private var vendorResults:  [VendorSearchResult] = []
+    @State private var vendorSearchTask: Task<Void, Never>?
+    @State private var suppressVendorSearch = false
+    @State private var jobSearch:      String = ""
+    @State private var jobResults:     [JobSearchResult] = []
+    @State private var jobSearchTask:  Task<Void, Never>?
+    @State private var duplicates:     [DuplicateExpense] = []
+    @State private var duplicatesAcknowledged = false
+    @State private var showDiscardConfirm = false
+    @State private var showDuplicateConfirm = false
+    @State private var pendingAndSend = false
+
+    // Post-save
+    @State private var showSavedDialog = false
+    @State private var savedMessage = ""
+    @State private var showImageFull = false
+    @State private var decodedImage: UIImage?
+    /// The keyboard is up: the pinned receipt shrinks so the field being typed stays in view on a small phone.
+    @State private var keyboardUp = false
+    @State private var showRetakeConfirm = false
+
+    private enum Field: Hashable { case vendor, amount, gst, pst, total, jobSearch, description }
+    @FocusState private var focus: Field?
+
+    private static let fallbackCategories = [
+        "Materials", "Fuel", "Tools/Equipment", "Repairs/Maintenance",
+        "Disposal/Dump", "Subcontractors", "Marketing", "Office/Admin",
+        "Overhead", "Licenses/Permits", "Meals", "Vehicle", "Other",
     ]
-    private let paymentMethods = ["credit_card", "debit", "cash", "etransfer", "company_card"]
+    private static let fallbackPayments = ["cash", "credit_card", "debit", "company_card", "etransfer", "cheque", "owner_paid"]
 
-    init(viewModel: ReceiptsViewModel, intake: ReceiptIntakeResponse, isPresented: Binding<Bool>) {
-        self.viewModel   = viewModel
-        self.intake      = intake
+    init(viewModel: ReceiptsViewModel,
+         intake: ReceiptIntakeResponse,
+         imageData: Data?,
+         lat: Double?,
+         lng: Double?,
+         isPresented: Binding<Bool>,
+         onRetake: (() -> Void)? = nil,
+         onDiscard: (() -> Void)? = nil,
+         onSaved: @escaping (SaveFollowUp) -> Void) {
+        self.viewModel    = viewModel
+        self.intake       = intake
+        self.imageData    = imageData
+        self.lat          = lat
+        self.lng          = lng
         self._isPresented = isPresented
+        self.onRetake     = onRetake
+        self.onDiscard    = onDiscard
+        self.onSaved      = onSaved
 
         let p = intake.parsed
         let s = intake.suggestions
+        let totalD = p?.totalDouble ?? 0
+        let gstD   = p?.gstDouble ?? 0
+        let pstD   = p?.pst.flatMap(Double.init) ?? 0
+        // Same derivation as Android: use the parsed subtotal, else total − taxes.
+        let subtotalD = p?.subtotal.flatMap(Double.init) ?? (totalD > 0 ? totalD - gstD - pstD : 0)
+
         _vendorName    = State(initialValue: s?.vendorName ?? p?.vendorHint ?? "")
+        _vendorId      = State(initialValue: s?.vendorId)
         _expenseDate   = State(initialValue: Self.parseDate(p?.date))
-        _amount        = State(initialValue: p?.subtotal ?? p?.total ?? "")
-        _gst           = State(initialValue: p?.gst ?? "")
-        _total         = State(initialValue: p?.total ?? "")
+        _amount        = State(initialValue: subtotalD > 0 ? Self.money(subtotalD) : "")
+        _gst           = State(initialValue: gstD > 0 ? Self.money(gstD) : "")
+        _pst           = State(initialValue: pstD > 0 ? Self.money(pstD) : "")
+        _total         = State(initialValue: totalD > 0 ? Self.money(totalD) : "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
-        _paymentMethod = State(initialValue: p?.paymentMethod ?? "credit_card")
-        _notes         = State(initialValue: "")
+        // The card on the receipt (when the server matched one) decides the payment method.
+        _paymentMethod = State(initialValue: intake.card?.paymentMethod ?? p?.paymentMethod ?? "credit_card")
+        // One decisive schedule match starts selected; "No Job" or another pill undoes it.
+        _selectedJob   = State(initialValue: intake.jobSuggestions?.first(where: { $0.autoSelect == true }).map { JobPick(suggestion: $0) })
+        _items         = State(initialValue: p?.lineItems ?? [])
     }
+
+    private var categories: [String] {
+        var list = viewModel.accountingCategories.isEmpty ? Self.fallbackCategories : viewModel.accountingCategories
+        if !category.isEmpty && !list.contains(category) { list.insert(category, at: 0) }
+        return list
+    }
+
+    private var paymentMethods: [String] {
+        viewModel.paymentMethods.isEmpty ? Self.fallbackPayments : viewModel.paymentMethods
+    }
+
+    private var totalValue: Double { ReceiptNumber.parse(total) ?? 0 }
+    // Submit stays tappable; with no total it says why and goes to the field (Tim, 2026-11-06: "it wouldn't let me but
+    // didn't tell me why"). The total stays required: drafts with no total would all pair up as duplicates (same $0.00).
+    private var canSave: Bool { !viewModel.isSaving }
+    @State private var totalMissing = false
 
     var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            // The receipt stays in view while the fields scroll beneath it, so each amount can be checked against the
+            // paper (Tim, 2026-11-06). Opens zoomed to the receipt's width; pinch, drag, double-tap.
+            if let ui = capturedImage {
+                pinnedReceipt(ui)
+            }
             Form {
+                unreadSection
                 receiptImageSection
+                summarySection
+                duplicateSection
+                totalSection
                 vendorSection
-                amountsSection
+                jobSection
                 categorySection
-                notesSection
+                lineItemsSection
+                descriptionSection
 
                 if let err = viewModel.saveError {
                     Section {
-                        Text(err).foregroundStyle(.red).font(.subheadline)
+                        Text(err).foregroundStyle(appStyle.blocked).font(appStyle.font(.subheadline))
                     }
+                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                 }
+            }
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .itAppForm()
+            .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { isPresented = false }
-                        .foregroundStyle(Color.MW.green)
+                    Button("Cancel") { showDiscardConfirm = true }
+                        .foregroundStyle(appStyle.tenant)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        Task { await save() }
+                        Task { await attemptSave(andSend: false) }
                     } label: {
                         if viewModel.isSaving {
-                            ProgressView().tint(Color.MW.green)
+                            ProgressView().tint(appStyle.tenant)
                         } else {
-                            Text("Save").font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.MW.green)
+                            Text("Submit").font(appStyle.font(.subheadline, weight: .semibold))
+                                .foregroundStyle(canSave ? appStyle.tenant : appStyle.meta)
                         }
                     }
-                    .disabled(viewModel.isSaving || total.isEmpty)
+                    .disabled(!canSave)
                 }
             }
         }
         .presentationDragIndicator(.visible)
+        // Never by a swipe: a downward drag on the pinned receipt (at its top when it opens) could close the sheet and
+        // lose the review. Cancel stays.
+        .interactiveDismissDisabled(true)
+        .task(id: imageData) { decodedImage = imageData.flatMap { UIImage(data: $0) } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
+        .task {
+            await viewModel.loadCategories()
+            await runDuplicateCheck()
+        }
+        .onChange(of: amount) { _, _ in if [.amount, .gst, .pst].contains(focus) { recalcTotal() } }
+        .onChange(of: gst)    { _, _ in if [.amount, .gst, .pst].contains(focus) { recalcTotal() } }
+        .onChange(of: pst)    { _, _ in if [.amount, .gst, .pst].contains(focus) { recalcTotal() } }
+        .onChange(of: total)  { _, _ in if focus == .total { recalcSubtotal() } }
+        .onChange(of: vendorName) { _, new in handleVendorTyped(new) }
+        .onChange(of: jobSearch)  { _, new in handleJobTyped(new) }
+        .fullScreenCover(isPresented: $showImageFull) {
+            if let ui = capturedImage {
+                ZoomableCapturedImageView(image: ui)
+            }
+        }
+        // Save-time duplicate confirm — desktop web uses confirm(); Android toasts and
+        // allows. This is the explicit version: one tap to proceed, one to go back.
+        .alert("Discard this receipt?", isPresented: $showDiscardConfirm) {
+            Button("Discard", role: .destructive) { onDiscard?(); isPresented = false }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("It won't be saved. Only discard it if you don't need this receipt.")
+        }
+        .alert("Discard this receipt and retake?", isPresented: $showRetakeConfirm) {
+            Button("Retake", role: .destructive) { onRetake?() }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("Your edits on this form will be lost. If you cancel the camera, this receipt comes back.")
+        }
+        .alert("Possible duplicate", isPresented: $showDuplicateConfirm) {
+            Button("Save anyway") {
+                duplicatesAcknowledged = true
+                Task { await performSave(andSend: pendingAndSend) }
+            }
+            Button("Go back", role: .cancel) {}
+        } message: {
+            Text(duplicateSummary)
+        }
+        // "Snap Another / Done" — the batch loop Android shows after each save.
+        .confirmationDialog(savedMessage, isPresented: $showSavedDialog, titleVisibility: .visible) {
+            Button("Snap Another") { finish(.snapAnother) }
+            Button("Done") { finish(.done) }
+        }
+        .alert("Rename item", isPresented: Binding(get: { renameIndex != nil }, set: { if !$0 { renameIndex = nil } })) {
+            TextField("Item name", text: $renameText)
+            Button("Save") {
+                if let i = renameIndex, items.indices.contains(i) {
+                    let v = renameText.trimmingCharacters(in: .whitespaces)
+                    if !v.isEmpty { items[i].name = v }
+                }
+                renameIndex = nil
+            }
+            Button("Cancel", role: .cancel) { renameIndex = nil }
+        } message: {
+            Text("Corrections teach the parser what this line really says for this vendor.")
+        }
+        .alert("Add missed item", isPresented: $showAddItem) {
+            TextField("Item name (as printed)", text: $addItemName)
+            TextField("Line total ($)", text: $addItemAmount)
+                .keyboardType(.decimalPad)
+            Button("Add") {
+                let n = addItemName.trimmingCharacters(in: .whitespaces)
+                if !n.isEmpty { items.append(ReceiptLineItem(name: n, amount: ReceiptNumber.parse(addItemAmount) ?? 0, manual: true)) }
+                addItemName = ""; addItemAmount = ""
+            }
+            Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
+        }
     }
 
     // MARK: - Sections
 
     private var receiptImageSection: some View {
         Section {
-            HStack {
-                Spacer()
-                AsyncImage(url: URL(string: "https://mowology.ca\(intake.parsed?.vendorHint ?? "")")) { img in
-                    img.resizable().scaledToFit().frame(maxHeight: 180).clipShape(RoundedRectangle(cornerRadius: 10))
-                } placeholder: {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(.systemGray5))
+            // The photo itself is pinned above the form (pinnedReceipt); only the no-photo placeholder sits here.
+            if capturedImage == nil {
+                HStack {
+                    Spacer()
+                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                        .fill(appStyle.sunk)
                         .frame(height: 120)
-                        .overlay {
-                            VStack(spacing: 6) {
-                                Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.secondary)
-                                if intake.ocrAvailable {
-                                    Label("OCR: \(intake.ocrSource?.uppercased() ?? "–")", systemImage: "text.viewfinder")
-                                        .font(.caption2).foregroundStyle(Color.MW.green)
-                                }
-                            }
-                        }
+                        .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
+                    Spacer()
                 }
-                Spacer()
+            }
+            HStack(spacing: 8) {
+                ocrBadge
+                if intake.gstValidation?.valid == false {
+                    Label(intake.gstValidation?.message ?? "Tax math doesn't add up — check the amounts", systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.caption2))
+                        .foregroundStyle(appStyle.attention)
+                }
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    /// The captured photo, decoded once (`.task(id: imageData)`): a fresh UIImage on every render made the zoom view
+    /// re-fit and lose the user's place on each keystroke (review 2026-11-06).
+    private var capturedImage: UIImage? { decodedImage }
+
+    /// The receipt pinned above the form: about 40% of the screen, zoomed to its width; the corner button opens it full screen.
+    private func pinnedReceipt(_ ui: UIImage) -> some View {
+        ReceiptZoomView(image: ui)
+            .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
+            .frame(maxWidth: .infinity)
+            .frame(height: UIScreen.main.bounds.height * (keyboardUp ? 0.2 : 0.4))
+            .animation(.easeOut(duration: 0.2), value: keyboardUp)
+            .background(appStyle.sunk)
+            .overlay(alignment: .bottomTrailing) {
+                Button { showImageFull = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(appStyle.font(.caption, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .padding(10)
+                .accessibilityLabel("Show the receipt full screen")
+            }
+            .overlay(alignment: .bottom) { Divider() }
+            .accessibilityElement(children: .contain)   // keeps the full-screen button its own element
+    }
+
+    private var readBadgeText: String {
+        if intake.totalSource == "device" { return "Read on the phone" }
+        switch intake.ocrSource {
+        case "vision":    return "Read by Google"
+        case "tesseract": return "Read locally"
+        default:          return "Read from the photo"
+        }
+    }
+
+    @ViewBuilder
+    private var ocrBadge: some View {
+        if intake.ocrAvailable && !(intake.ocrText ?? "").isEmpty {
+            Label(readBadgeText, systemImage: "text.viewfinder")
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+        } else if intake.ocrAvailable {
+            Label("No text found", systemImage: "questionmark.circle")
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.attention)
+        } else {
+            Label("Manual entry", systemImage: "pencil")
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+        }
+    }
+
+    @ViewBuilder
+    private var duplicateSection: some View {
+        if intake.duplicateImage != nil {
+            Section {
+                Label {
+                    Text("This exact receipt image was already uploaded. You may be about to create a duplicate expense — please verify before saving.")
+                        .font(appStyle.font(.caption))
+                } icon: {
+                    Image(systemName: "doc.on.doc.fill").foregroundStyle(appStyle.attention)
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        } else if !duplicates.isEmpty {
+            Section("Possible duplicate\(duplicates.count == 1 ? "" : "s")") {
+                ForEach(duplicates) { d in
+                    HStack {
+                        Image(systemName: "doc.on.doc").foregroundStyle(appStyle.attention)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.displayVendor).font(appStyle.font(.subheadline, weight: .semibold))
+                            Text("$\(d.total, specifier: "%.2f") on \(d.expenseDate) · \(d.status.replacingOccurrences(of: "_", with: " "))")
+                                .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                        }
+                    }
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    // MARK: - Review by exception
+
+    /// True while the job is still the one the server picked from the schedule.
+    private var jobAutoSelected: Bool { selectedJob != nil }
+
+    private var readFailed: Bool {
+        let p = intake.parsed
+        let noTotal  = (p?.totalDouble ?? 0) <= 0
+        let noVendor = (intake.suggestions?.vendorName ?? p?.vendorHint ?? "").isEmpty
+        return !intake.ocrAvailable || (noTotal && noVendor)
+    }
+
+    private var totalConfirmed: Bool {
+        let p = intake.parsed
+        // Total, subtotal and a printed (not estimated) GST must be present, and a GST validation the
+        // server sent must say valid (none sent is fine). PST may be absent: when subtotal + GST alone
+        // equals the total to the cent, no PST was charged (fuel, GST-only items) — the arithmetic proves it.
+        guard intake.totalSource != nil, let t = p?.totalDouble, t > 0,
+              let sub = p?.subtotal.flatMap(Double.init),
+              let g = p?.gstDouble, !gstEstimated else { return false }
+        if let gv = intake.gstValidation, gv.valid != true { return false }
+        let ps = p?.pst.flatMap(Double.init) ?? 0
+        return abs(sub + g + ps - t) <= 0.02
+    }
+
+    private var gstEstimated: Bool { intake.parsed?.gstEstimated == true }
+
+    private var confirmedFields: [String] {
+        var f: [String] = []
+        if totalConfirmed && !gstEstimated { f.append("Total") }
+        if intake.suggestions?.vendorId != nil && intake.suggestions?.vendorNeedsReview != true { f.append("Vendor") }
+        if let d = intake.parsed?.date, !d.isEmpty { f.append("Date") }
+        if intake.card != nil { f.append("Card") }
+        if intake.jobSuggestions?.contains(where: { $0.autoSelect == true }) == true { f.append("Job") }
+        return f
+    }
+
+    /// Fields that need a look — never hidden, never collapsed.
+    private var attentionFields: [String] {
+        var f: [String] = []
+        if (intake.parsed?.totalDouble ?? 0) <= 0 { f.append("Total is missing") }
+        else if !totalConfirmed { f.append("Total, subtotal and tax don't add up or weren't confirmed") }
+        if gstEstimated { f.append("GST is estimated") }
+        else if intake.parsed?.gstDouble == nil { f.append("GST is missing") }
+        // PST missing matters only when the numbers don't close without it.
+        if intake.parsed?.pst.flatMap(Double.init) == nil && !totalConfirmed && (intake.parsed?.totalDouble ?? 0) > 0 {
+            f.append("PST is missing — add it or leave it at zero")
+        }
+        if (intake.suggestions?.vendorName ?? intake.parsed?.vendorHint ?? "").isEmpty { f.append("Vendor is missing") }
+        else if intake.suggestions?.vendorId == nil || intake.suggestions?.vendorNeedsReview == true { f.append("Vendor needs a look") }
+        if (intake.parsed?.date ?? "").isEmpty { f.append("Date is missing") }
+        return f
+    }
+
+    @ViewBuilder
+    private var unreadSection: some View {
+        if readFailed {
+            Section {
+                Label("Couldn't read this receipt — retake, or save it and fill in what you know", systemImage: "exclamationmark.triangle.fill")
+                    .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.attention)
+                if onRetake != nil {
+                    Button {
+                        showRetakeConfirm = true
+                    } label: {
+                        Label("Retake", systemImage: "camera")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                            .foregroundStyle(appStyle.tenant)
+                    }
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var summarySection: some View {
+        let confirmed = readFailed ? [] : confirmedFields
+        let attention = readFailed ? [] : attentionFields
+        if !confirmed.isEmpty || !attention.isEmpty {
+            Section {
+                if !confirmed.isEmpty {
+                    DisclosureGroup {
+                        Text(confirmed.joined(separator: " · "))
+                            .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                    } label: {
+                        Label("\(confirmed.count) field\(confirmed.count == 1 ? "" : "s") confirmed", systemImage: "checkmark.circle.fill")
+                            .font(appStyle.font(.subheadline)).foregroundStyle(appStyle.tenant)
+                    }
+                }
+                ForEach(attention, id: \.self) { line in
+                    Label(line, systemImage: "exclamationmark.circle.fill")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
+                }
+            }
+            .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+        }
+    }
+
+    private var totalSection: some View {
+        Section {
+            (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+                Text("Total").font(appStyle.font(.title3, weight: .semibold))
+                if !usesAccessibleAmounts { Spacer() }
+                HStack {
+                    Text("$").foregroundStyle(appStyle.meta)
+                    TextField("0.00", text: $total)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(appStyle.font(.title3, weight: .semibold))
+                        .frame(width: usesAccessibleAmounts ? nil : 110)
+                        .focused($focus, equals: .total)
+                    if let c = intake.parsed?.total, !c.isEmpty { confidenceDot(70) }
+                }
+            }
+            amountRow(label: "Subtotal", value: $amount, field: .amount)
+            amountRow(label: "GST",      value: $gst,    field: .gst)
+            amountRow(label: "PST",      value: $pst,    field: .pst)
+        } header: {
+            if totalMissing && totalValue <= 0 {
+                Label("Type the total from the receipt to submit. The phone couldn't read it.", systemImage: "exclamationmark.circle.fill")
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.blocked)
+                    .textCase(nil)
+            }
+        } footer: {
+            Text("Editing subtotal or tax recalculates the total; editing the total recalculates the subtotal.")
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var vendorSection: some View {
         Section("Vendor") {
             HStack {
                 TextField("Vendor name", text: $vendorName)
-                if let conf = intake.suggestions?.vendorConfidence, conf > 0 {
+                    .focused($focus, equals: .vendor)
+                    .autocorrectionDisabled()
+                if vendorId != nil {
+                    Image(systemName: "link").font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
+                } else if let conf = intake.suggestions?.vendorConfidence, conf > 0, !vendorName.isEmpty {
                     confidenceDot(conf)
                 }
             }
+            if focus == .vendor && !vendorResults.isEmpty {
+                ForEach(vendorResults) { v in
+                    Button {
+                        pickVendor(v)
+                    } label: {
+                        HStack {
+                            Text(v.name).foregroundStyle(appStyle.text)
+                            Spacer()
+                            if let cat = v.defaultAccountingCategory {
+                                Text(cat).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                            }
+                        }
+                    }
+                }
+            }
             DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
-                .tint(Color.MW.green)
+                .tint(appStyle.tenant)
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
-    private var amountsSection: some View {
-        Section("Amounts") {
-            amountRow(label: "Subtotal", value: $amount)
-            amountRow(label: "GST (5%)", value: $gst)
-            Divider()
+    private var jobSection: some View {
+        Section("Job") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    jobPill(title: "No Job", subtitle: nil, selected: selectedJob == nil) { selectedJob = nil }
+                    ForEach(intake.jobSuggestions ?? []) { s in
+                        let pick = JobPick(suggestion: s)
+                        jobPill(title: pick.title, subtitle: pick.subtitle, selected: selectedJob == pick) { selectedJob = pick }
+                    }
+                    if let j = selectedJob, !(intake.jobSuggestions ?? []).contains(where: { $0.planId == j.id }) {
+                        jobPill(title: j.title, subtitle: j.subtitle, selected: true) {}
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            if let pick = selectedJob, jobAutoSelected, intake.jobSuggestions?.first(where: { $0.autoSelect == true })?.planId == pick.id {
+                Label("Picked from the schedule", systemImage: "calendar")
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+            }
             HStack {
-                Text("Total").font(.subheadline.weight(.semibold))
-                Spacer()
-                TextField("0.00", text: $total)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.subheadline.weight(.semibold))
-                    .frame(width: 90)
+                Image(systemName: "magnifyingglass").foregroundStyle(appStyle.meta)
+                TextField("Search jobs by client, address or job #", text: $jobSearch)
+                    .focused($focus, equals: .jobSearch)
+                    .autocorrectionDisabled()
+            }
+            if focus == .jobSearch && !jobResults.isEmpty {
+                ForEach(jobResults) { j in
+                    Button {
+                        selectedJob = JobPick(search: j)
+                        jobSearch = ""
+                        jobResults = []
+                        focus = nil
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(JobPick(search: j).title).foregroundStyle(appStyle.text)
+                            if let a = j.address { Text(a).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+                        }
+                    }
+                }
             }
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
-    private func amountRow(label: String, value: Binding<String>) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            TextField("0.00", text: value)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 90)
+    private func jobPill(title: String, subtitle: String?, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(appStyle.font(.caption, weight: .semibold)).lineLimit(appStyle.isEnabled ? nil : 1)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(appStyle.font(.caption2)).lineLimit(appStyle.isEnabled ? nil : 1).opacity(0.8)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: appStyle.isEnabled ? 48 : nil)
+            .background(selected ? appStyle.tenant : appStyle.sunk)
+            .foregroundStyle(selected ? appStyle.onTenant : appStyle.text)
+            .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
     }
 
     private var categorySection: some View {
@@ -163,45 +611,299 @@ struct ReceiptReviewView: View {
             Picker("Payment", selection: $paymentMethod) {
                 ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
             }
+            if let card = intake.card {
+                Label("\(card.display) — from the receipt", systemImage: "creditcard.fill")
+                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
+            }
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    /// Detected line items — editable pre-save on both platforms: tap to rename, swipe
+    /// for "Not an item", "+ Add missed item" for lines OCR dropped. Each row keeps the
+    /// parser's original name so the correction becomes a per-vendor lesson on save.
+    private var activeItemCount: Int { items.filter { !$0.removed }.count }
+
+    private var itemsSum: Double {
+        items.filter { !$0.removed }.reduce(0) { $0 + ($1.amountDouble ?? 0) }
+    }
+
+    private var subtotalReference: Double? {
+        let s = ReceiptNumber.parse(amount) ?? 0
+        if s > 0 { return s }
+        let t = totalValue
+        return t > 0 ? t : nil
+    }
+
+    @ViewBuilder
+    private var lineItemsMeta: some View {
+        let source = intake.parsed?.lineItemsSource
+        if source == "llm" {
+            Label("AI extracted — please verify each line", systemImage: "sparkles")
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.progress)
+        } else if source == "vision" && intake.parsed?.escalationReason != nil {
+            Label("Re-read with Vision for better item detail", systemImage: "eye")
+                .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+        }
+        if activeItemCount > 0, let ref = subtotalReference {
+            let tol = max(0.05, ref * 0.01)
+            if abs(itemsSum - ref) > tol {
+                Label(String(format: "Items total $%.2f ≠ subtotal $%.2f — a line may be missing or mis-read", itemsSum, ref), systemImage: "exclamationmark.triangle.fill")
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.attention)
+            } else {
+                Label("Items add up to the subtotal", systemImage: "checkmark.circle.fill")
+                    .font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+            }
         }
     }
 
-    private var notesSection: some View {
-        Section("Notes (optional)") {
-            TextField("Any additional details…", text: $notes, axis: .vertical)
-                .lineLimit(3, reservesSpace: true)
+    private var lineItemsSection: some View {
+        Section {
+            DisclosureGroup("\(activeItemCount) item\(activeItemCount == 1 ? "" : "s") detected") {
+                lineItemsMeta
+                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 4) {
+                                Text(item.name ?? "Unknown Item")
+                                    .font(appStyle.font(.subheadline))
+                                    .strikethrough(item.removed)
+                                    .foregroundStyle(item.removed ? appStyle.meta : appStyle.text)
+                                if item.productId != nil {
+                                    Image(systemName: "link").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+                                }
+                                if item.manual {
+                                    Text("added").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                                } else if item.nameSource == "learned" {
+                                    Text("learned").font(appStyle.font(.caption2)).foregroundStyle(appStyle.tenant)
+                                }
+                            }
+                            if let sku = item.skuRaw, !sku.isEmpty {
+                                Text(sku).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                            }
+                        }
+                        if let qty = item.quantity, qty > 1 {
+                            Text("×\(qty, specifier: "%g")")
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
+                        }
+                        Spacer()
+                        Text(item.amount.map { "$\($0)" } ?? "—")
+                            .font(appStyle.font(.subheadline))
+                            .strikethrough(item.removed)
+                            .foregroundStyle(item.removed ? appStyle.meta : ((item.amountDouble ?? 0) < 0 ? appStyle.blocked : appStyle.text))
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !item.removed else { return }
+                        renameText = item.name ?? ""
+                        renameIndex = idx
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if item.manual && !item.removed {
+                            Button(role: .destructive) { items.remove(at: idx) } label: { Label("Remove", systemImage: "trash") }
+                        } else if item.removed {
+                            Button { items[idx].removed = false } label: { Label("Restore", systemImage: "arrow.uturn.backward") }
+                                .tint(appStyle.tenant)
+                        } else {
+                            Button(role: .destructive) { items[idx].removed = true } label: { Label("Not an item", systemImage: "xmark") }
+                        }
+                    }
+                }
+                Button {
+                    showAddItem = true
+                } label: {
+                    Label("Add missed item", systemImage: "plus.circle")
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.tenant)
+                }
+            }
+        } footer: {
+            Text("Tap an item to rename it, swipe left to mark it as not an item. Corrections teach the parser for this vendor.")
         }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
-    // MARK: - Confidence dot
+    private var descriptionSection: some View {
+        Section("Description (optional)") {
+            TextField("What was this for?", text: $description, axis: .vertical)
+                .lineLimit(2, reservesSpace: true)
+                .focused($focus, equals: .description)
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    private func amountRow(label: String, value: Binding<String>, field: Field) -> some View {
+        (usesAccessibleAmounts ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
+            Text(label).foregroundStyle(appStyle.meta)
+            if !usesAccessibleAmounts { Spacer() }
+            HStack {
+                Text("$").foregroundStyle(appStyle.meta)
+                TextField("0.00", text: value)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: usesAccessibleAmounts ? nil : 90)
+                    .focused($focus, equals: field)
+            }
+        }
+    }
 
     private func confidenceDot(_ confidence: Int) -> some View {
-        let color: Color = confidence >= 80 ? Color.MW.green : confidence >= 50 ? Color.MW.orange : .red
+        let color: Color = confidence >= 70 ? appStyle.tenant : confidence >= 40 ? appStyle.attention : .red
         return Circle().fill(color).frame(width: 8, height: 8)
+    }
+
+    // MARK: - Arithmetic (mirrors recalcMobileTotal / recalcMobileSubtotal)
+
+    private func recalcTotal() {
+        let sub = ReceiptNumber.parse(amount) ?? 0, g = ReceiptNumber.parse(gst) ?? 0, p = ReceiptNumber.parse(pst) ?? 0
+        let t = sub + g + p
+        let formatted = t > 0 ? Self.money(t) : ""
+        if formatted != total { total = formatted }
+    }
+
+    private func recalcSubtotal() {
+        let t = ReceiptNumber.parse(total) ?? 0, g = ReceiptNumber.parse(gst) ?? 0, p = ReceiptNumber.parse(pst) ?? 0
+        let sub = t - g - p
+        let formatted = sub > 0 ? Self.money(sub) : ""
+        if formatted != amount { amount = formatted }
+    }
+
+    // MARK: - Vendor / job lookups
+
+    private func handleVendorTyped(_ text: String) {
+        if suppressVendorSearch { suppressVendorSearch = false; return }
+        guard focus == .vendor else { return }
+        // Retyping the vendor unlinks the suggested vendor_id — same as Android's
+        // input handler — so the typed name is what gets saved and displayed.
+        vendorId = nil
+        vendorSearchTask?.cancel()
+        let q = text.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2 else { vendorResults = []; return }
+        vendorSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            let results = await viewModel.searchVendors(q)
+            guard !Task.isCancelled else { return }
+            vendorResults = results
+        }
+    }
+
+    private func pickVendor(_ v: VendorSearchResult) {
+        suppressVendorSearch = true
+        vendorName = v.name
+        vendorId = v.id
+        if category.isEmpty, let cat = v.defaultAccountingCategory { category = cat }
+        vendorResults = []
+        focus = nil
+    }
+
+    private func handleJobTyped(_ text: String) {
+        jobSearchTask?.cancel()
+        let q = text.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2 else { jobResults = []; return }
+        jobSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            let results = await viewModel.searchJobs(q)
+            guard !Task.isCancelled else { return }
+            jobResults = results
+        }
+    }
+
+    // MARK: - Duplicates
+
+    private func runDuplicateCheck() async {
+        guard intake.duplicateImage == nil, totalValue > 0 else { return }
+        duplicates = await viewModel.checkDuplicates(
+            total: totalValue,
+            date: Self.iso(expenseDate),
+            vendorName: vendorName.isEmpty ? nil : vendorName,
+            vendorId: vendorId
+        )
+    }
+
+    private var duplicateSummary: String {
+        if intake.duplicateImage != nil { return "This exact receipt image was already uploaded." }
+        guard let d = duplicates.first else { return "" }
+        let more = duplicates.count > 1 ? " (+\(duplicates.count - 1) more)" : ""
+        return "\(d.displayVendor) — $\(String(format: "%.2f", d.total)) on \(d.expenseDate)\(more) already exists."
     }
 
     // MARK: - Save
 
-    private func save() async {
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let saved = await viewModel.saveExpense(
-            vendorId:      intake.suggestions?.vendorId,
-            vendorName:    vendorName,
-            date:          fmt.string(from: expenseDate),
-            amount:        Double(amount) ?? 0,
-            gst:           Double(gst)    ?? 0,
-            total:         Double(total)  ?? 0,
+    private func attemptSave(andSend: Bool) async {
+        guard totalValue > 0 else {
+            withAnimation { totalMissing = true }
+            focus = .total
+            return
+        }
+        totalMissing = false
+        focus = nil
+        if !duplicatesAcknowledged {
+            await runDuplicateCheck()
+            if intake.duplicateImage != nil || !duplicates.isEmpty {
+                pendingAndSend = andSend
+                showDuplicateConfirm = true
+                return
+            }
+        }
+        await performSave(andSend: andSend)
+    }
+
+    private func performSave(andSend: Bool) async {
+        let draft = ExpenseDraft(
+            vendorId:      vendorId,
+            vendorName:    vendorName.trimmingCharacters(in: .whitespaces),
+            date:          Self.iso(expenseDate),
+            amount:        ReceiptNumber.parse(amount) ?? 0,
+            gst:           ReceiptNumber.parse(gst) ?? 0,
+            pst:           ReceiptNumber.parse(pst) ?? 0,
+            total:         totalValue,
             category:      category,
             paymentMethod: paymentMethod,
-            notes:         notes,
+            description:   description.trimmingCharacters(in: .whitespacesAndNewlines),
+            notes:         "",
             mediaId:       intake.mediaId,
+            rawOcrText:    intake.ocrText,
             ocrParsed:     intake.parsed,
-            lat:           nil, lng: nil
+            lineItems:     items,
+            lineItemsSource: intake.parsed?.lineItemsSource,
+            job:           selectedJob,
+            lat:           lat,
+            lng:           lng,
+            andSend:       andSend
         )
-        if saved { isPresented = false }
+        guard let response = await viewModel.saveExpense(draft) else { return }
+
+        let haptic = UINotificationFeedbackGenerator()
+        if andSend {
+            if response.sent == true {
+                haptic.notificationOccurred(.success)
+                savedMessage = "Saved & sent to accounting"
+            } else {
+                haptic.notificationOccurred(.warning)
+                savedMessage = "Saved, but send failed: \(response.sendError ?? "unknown error")"
+            }
+        } else {
+            haptic.notificationOccurred(.success)
+            savedMessage = response.filed == true ? "Filed: already in the closed books, linked to its bank line" : "Submitted for review"
+        }
+        showSavedDialog = true
+    }
+
+    private func finish(_ followUp: SaveFollowUp) {
+        isPresented = false
+        onSaved(followUp)
     }
 
     // MARK: - Helpers
+
+    private static func money(_ v: Double) -> String { String(format: "%.2f", v) }
+
+    private static func iso(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: d)
+    }
 
     private static func parseDate(_ string: String?) -> Date {
         guard let string else { return .now }
@@ -218,7 +920,34 @@ struct ReceiptReviewView: View {
         case "cash":          return "Cash"
         case "etransfer":     return "e-Transfer"
         case "company_card":  return "Company Card"
+        case "cheque":        return "Cheque"
+        case "owner_paid":    return "Paid personally (owner)"
         default:              return method.capitalized
+        }
+    }
+}
+
+// MARK: - Full-screen captured image
+
+/// Pinch/pan viewer for the just-captured photo (a local UIImage, not a URL —
+/// ReceiptDetailView's ReceiptZoomView handles the server-hosted case).
+private struct ZoomableCapturedImageView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            // Same view as the pinned receipt: opens at the receipt's width, pinch / drag / double-tap.
+            ReceiptZoomView(image: image).ignoresSafeArea(edges: .bottom)
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(appStyle.font(.title))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding()
+            }
+            .accessibilityLabel("Close")
         }
     }
 }

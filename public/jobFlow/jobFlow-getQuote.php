@@ -26,6 +26,8 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/recaptcha-helpers.php';
 require_once __DIR__ . '/helpers/validators.php';
 require_once __DIR__ . '/helpers/pricing.php';
+// Tracking helpers are optional: the form works without them.
+if (is_file(__DIR__ . '/helpers/arrival.php')) { require_once __DIR__ . '/helpers/arrival.php'; }
 
 if (!function_exists('h')) {
     function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -51,7 +53,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         }
     }
     if (!isset($_SESSION['jf_track']['referrer']) && !empty($_SERVER['HTTP_REFERER'])) {
-        $_SESSION['jf_track']['referrer'] = substr((string)$_SERVER['HTTP_REFERER'], 0, 500);
+        // Scheme, host and path only: a referer can carry a search query or a name.
+        $_SESSION['jf_track']['referrer'] = function_exists('jfCleanUrl') ? jfCleanUrl((string)$_SERVER['HTTP_REFERER']) : '';
+    }
+    // First touch: which of our pages (or which outside site) sent them here. Set once; a reload or step back never replaces it.
+    if (empty($_SESSION['jf_track']['arrival_done']) && function_exists('jfArrivalFromReferer')) {
+        $_SESSION['jf_track']['arrival_done'] = 1;                     // locked even when there is no usable referer: a later visit never becomes the "first" one
+        $__arrival = jfArrivalFromReferer($_SERVER['HTTP_REFERER'] ?? null, (string)($_SERVER['HTTP_HOST'] ?? ''));
+        if ($__arrival['from_page'] !== null) { $_SESSION['jf_track']['from_page'] = $__arrival['from_page']; }
+        elseif ($__arrival['ref_host'] !== null) { $_SESSION['jf_track']['ref_host'] = $__arrival['ref_host']; }
+        unset($__arrival);
     }
 }
 $jfTrack = $_SESSION['jf_track'] ?? [];
@@ -64,27 +75,12 @@ $responseTimeBadge = getResponseTimeBadge();
 $showV2Challenge      = false;
 $error                = '';
 $errors               = [];
-$existingAddresses    = [];
-$showAddressOptions   = false;
 
 // ── POST handling ──────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     error_log('[jobFlow-getQuote] POST received | IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
 
-    // ── Address confirmation sub-step ──────────────────────────────────────
-    if (isset($_POST['address_confirmed'])) {
-        if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($_POST['csrf_token'] ?? ''))) {
-            $error = 'Security check failed. Please refresh and try again.';
-        } else {
-            $_SESSION['quote_data'] = $_SESSION['temp_quote_data'] ?? [];
-            unset($_SESSION['temp_quote_data']);
-            header('Location: jobFlow-confirm.php');
-            exit();
-        }
-
-    } else {
-        // ── Main form submission ───────────────────────────────────────────
-
+    // -- Main form submission --
         // 1. CSRF
         if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($_POST['csrf_token'] ?? ''))) {
             $error = 'Security check failed. Please refresh and try again.';
@@ -101,16 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $rlWindow    = 900;   // 15 minutes
                     $rlMax       = 10;    // submissions, not verification calls
                     $rlWindowTs  = date('Y-m-d H:i:s', time() - $rlWindow);
-                    // Ensure table exists (RecaptchaVerify may not have run yet if token absent)
-                    $rlDb->exec("
-                        CREATE TABLE IF NOT EXISTS recaptcha_rate_limit (
-                            id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                            ip            VARCHAR(45)  NOT NULL,
-                            window_start  DATETIME     NOT NULL,
-                            attempt_count INT UNSIGNED NOT NULL DEFAULT 1,
-                            INDEX idx_ip_window (ip, window_start)
-                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                    ");
+                    // recaptcha_rate_limit comes from migration 1346 (no runtime DDL — Fable audit #27)
                     $rlDb->prepare("DELETE FROM recaptcha_rate_limit WHERE window_start < ?")
                          ->execute([$rlWindowTs]);
                     $rlStmt = $rlDb->prepare(
@@ -182,13 +169,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 4. Check for existing contact
                 $db = getDB();
                 $stmt = $db->prepare("
-                    SELECT c.id AS contact_id, c.first_name, c.last_name, c.email, c.phone,
-                           p.id AS property_id, p.address, p.city, p.postal_code
+                    SELECT c.id AS contact_id
                     FROM contacts c
-                    LEFT JOIN properties p ON c.id = p.site_contact_id
                     WHERE (c.phone = ? AND c.phone != '')
                        OR (c.email = ? AND c.email != '')
-                    ORDER BY p.created_at DESC
+                    LIMIT 1
                 ");
                 $stmt->execute([$clean['phone'], $clean['email']]);
                 $existingRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -201,21 +186,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 if (!empty($existingRecords)) {
-                    // Show address choice to returning contact
-                    $showAddressOptions = true;
-                    $existingAddresses  = $existingRecords;
                     $sessionPayload['existing_contact_id']  = $existingRecords[0]['contact_id'] ?? null;
-                    $sessionPayload['existing_property_id'] = $existingRecords[0]['property_id'] ?? null;
-                    $sessionPayload['address_relationship'] = 'same_address';
-                    $_SESSION['temp_quote_data'] = $sessionPayload;
-                } else {
-                    // New contact — straight to confirm
-                    $_SESSION['quote_data'] = $sessionPayload;
-                    // Regenerate CSRF after successful Step 1
-                    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-                    header('Location: jobFlow-confirm.php');
-                    exit();
                 }
+                $_SESSION['quote_data'] = $sessionPayload;
+                // Regenerate CSRF after successful Step 1
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                header('Location: jobFlow-confirm.php');
+                exit();
 
             } else {
                 $error = $showV2Challenge && count($errors) === 1 && isset($errors['recaptcha'])
@@ -224,7 +201,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } // end: rate limit passed
         } // end: CSRF passed
-    }
 }
 
 // ── Form pre-fill ──────────────────────────────────────────────────────────
@@ -260,7 +236,7 @@ $serviceOptions = [
     <title>Get Your Free Quote — Mowology</title>
     <meta name="description" content="Get a free landscaping or snow removal quote from Mowology. Vancouver's trusted property care company. Fast response guaranteed.">
     <link rel="stylesheet" href="/assets/css/master.css">
-    <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260305">
+    <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260902">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script async src="https://maps.googleapis.com/maps/api/js?key=<?php echo h(GOOGLE_MAPS_API_KEY); ?>&libraries=places"></script>
 <?php if ($useV3): ?>
@@ -320,36 +296,6 @@ $serviceOptions = [
             <div class="alert alert-danger" role="alert"><?php echo h($error); ?></div>
         <?php endif; ?>
 
-        <?php if ($showAddressOptions): ?>
-        <!-- ── Address confirmation ─────────────────────────────────────── -->
-        <div class="address-options">
-            <h3>We Found Your Information!</h3>
-            <p>It looks like you've requested a quote before. Is this for the same address?</p>
-
-            <form method="POST" action="">
-                <input type="hidden" name="csrf_token" value="<?php echo h($_SESSION['csrf_token']); ?>">
-                <input type="hidden" name="address_confirmed" value="1">
-
-                <?php foreach ($existingAddresses as $existing): ?>
-                    <?php if (empty($existing['address'])) continue; ?>
-                    <label class="address-card">
-                        <input type="radio" name="address_relationship" value="same_address" checked>
-                        <strong><?php echo h($existing['address'] ?? ''); ?></strong><br>
-                        <small><?php echo h(trim(($existing['city'] ?? '') . ' ' . ($existing['postal_code'] ?? ''))); ?></small>
-                    </label>
-                <?php endforeach; ?>
-
-                <label class="address-card">
-                    <input type="radio" name="address_relationship" value="new_address">
-                    <strong>A different property address</strong><br>
-                    <small>I'm requesting service at a new location</small>
-                </label>
-
-                <button type="submit" class="submit-button">Continue to Quote Review</button>
-            </form>
-        </div>
-
-        <?php else: ?>
         <!-- ── Main quote form ─────────────────────────────────────────── -->
         <form method="POST" action="" id="quote-form" novalidate>
             <input type="hidden" name="csrf_token" value="<?php echo h($_SESSION['csrf_token']); ?>">
@@ -459,7 +405,7 @@ $serviceOptions = [
                     foreach ($serviceOptions as $key => $label):
                         $checked = in_array($key, $selectedServices, true);
                     ?>
-                    <label class="service-card <?php echo $checked ? 'selected' : ''; ?>">
+                    <label class="jf-service-card <?php echo $checked ? 'selected' : ''; ?>">
                         <input type="checkbox" name="service_types[]" value="<?php echo h($key); ?>"
                                <?php echo $checked ? 'checked' : ''; ?>>
                         <span class="service-icon"><?php echo $serviceIcons[$key] ?? ''; ?></span>
@@ -586,7 +532,6 @@ $serviceOptions = [
             <button type="submit" class="submit-button">Continue to Quote Review &rarr;</button>
             <p class="form-privacy-note">Your information is never shared or sold.</p>
         </form>
-        <?php endif; ?>
 
     </main>
 </div>
@@ -652,7 +597,7 @@ function initAutocomplete() {
     });
 
     // Service card visual toggle
-    document.querySelectorAll('.service-card').forEach(card => {
+    document.querySelectorAll('.jf-service-card').forEach(card => {
         card.addEventListener('change', function() {
             this.classList.toggle('selected', this.querySelector('input[type="checkbox"]').checked);
         });

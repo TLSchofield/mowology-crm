@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE: install.sh fills in __HOME__ and copies the result to ~/Library/LaunchAgents.
+  Runs the messages bridge every 5 minutes as Tim (a user agent, not a system daemon).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ca.mowology.messages-bridge</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>__HOME__/Library/Application Support/mowology-bridge/bridge.py</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/mowology/messages-bridge.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/mowology/messages-bridge.log</string>
+</dict>
+</plist>

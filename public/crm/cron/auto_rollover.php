@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * LEGACY SHIM — auto_rollover.php
  * Real logic lives at /app/Modules/Jobs/Cron/auto_rollover.php

@@ -7,8 +7,8 @@ return [
     'slug'  => 'commercial-landscape-maintenance',
     'title' => 'Commercial Landscape Maintenance',
 
-    'meta_title'       => 'Commercial Landscape Maintenance Vancouver | Mowology',
-    'meta_description' => 'Professional commercial landscape maintenance for offices, retail centres, and business parks in Vancouver, Burnaby and Richmond. Reliable crews, full insurance, and photo-verified service.',
+    'meta_title'       => 'Commercial Lawn Care & Landscape Maintenance Vancouver | Mowology',
+    'meta_description' => 'Commercial landscape maintenance for offices, retail centres and business parks in Vancouver, Burnaby and Richmond. Insured crews, photo-verified visits.',
     'meta_keywords'    => 'commercial landscaping vancouver, commercial grounds maintenance, office landscaping burnaby, business park landscaping richmond, commercial lawn care',
     'og_image'         => '/assets/img/hero/hero-lawn-care-1920x1080.jpg',
 
@@ -72,7 +72,7 @@ return [
     'cta' => [
         'headline'       => 'Get a Free Commercial Landscaping Quote',
         'subheadline'    => 'Free property assessment and detailed proposal. No obligation.',
-        'primary_text'   => 'Request Free Quote',
+        'primary_text'   => 'Book a Commercial Site Walk',
         'primary_url'    => '/quote?service=maintenance&property_type=commercial&src=commercial-landing',
         'secondary_text' => 'Call 778-846-9273',
         'secondary_url'  => 'tel:7788469273',

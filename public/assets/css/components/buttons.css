@@ -3,7 +3,10 @@
    ===================================================== */
 
 .btn {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
     padding: 14px 32px;
     text-decoration: none;
     border-radius: var(--radius-sm);
@@ -15,14 +18,14 @@
 }
 
 .btn-primary {
-    background: var(--color-accent);
+    background: #be4c00;
     color: white;
 }
 
 .btn-primary:hover {
-    background: #c75003;
+    background: #993d00;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(232, 93, 4, 0.3);
+    box-shadow: 0 5px 15px rgba(190, 76, 0, 0.3);
 }
 
 .btn-secondary {
@@ -37,16 +40,16 @@
 }
 
 .btn-primary-large {
-    background: var(--color-accent);
+    background: #be4c00;
     color: white;
     padding: 18px 40px;
     font-size: 18px;
 }
 
 .btn-primary-large:hover {
-    background: #c75003;
+    background: #993d00;
     transform: translateY(-2px);
-    box-shadow: 0 5px 20px rgba(232, 93, 4, 0.4);
+    box-shadow: 0 5px 20px rgba(190, 76, 0, 0.4);
 }
 
 .btn-secondary-large {

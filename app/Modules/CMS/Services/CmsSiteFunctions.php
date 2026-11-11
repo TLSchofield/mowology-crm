@@ -79,17 +79,22 @@ function cms_resolveSite(?string $domain = null): array
  */
 function cms_getDefaultSite(): array
 {
+    require_once dirname(__DIR__, 3) . '/Services/BusinessIdentity.php';
+    $b = BusinessIdentity::get();
+    $digits = preg_replace('/\D+/', '', $b['phone']);
+    if (strlen($digits) === 11 && $digits[0] === '1') $digits = substr($digits, 1);
+    $host = (string)preg_replace('#[/:?].*$#', '', strtolower((string)preg_replace('#^(https?://)?(www\.)?#i', '', $b['website'])));
     return [
         'id'                  => 1,
         'slug'                => 'mowology',
-        'domain'              => 'mowology.ca',
-        'name'                => 'Mowology',
-        'tagline'             => 'A HIGHER DEGREE OF SERVICE',
+        'domain'              => $host,
+        'name'                => $b['name'],
+        'tagline'             => '',
         'logo_path'           => '/assets/img/logo/mowology-logo.jpg',
         'favicon_dir'         => '/assets/favicon',
-        'phone_display'       => '778-846-9273',
-        'phone_tel'           => '7788469273',
-        'email'               => 'office@mowology.ca',
+        'phone_display'       => strlen($digits) === 10 ? substr($digits, 0, 3) . '-' . substr($digits, 3, 3) . '-' . substr($digits, 6) : $b['phone'],
+        'phone_tel'           => $digits,
+        'email'               => $b['email'],
         'locale'              => 'en_CA',
         'timezone'            => 'America/Vancouver',
         'theme_id'            => null,
@@ -269,6 +274,46 @@ function cms_authenticateSiteUser(int $siteId, string $email, string $password):
     // Remove password hash from returned data
     unset($user['password_hash']);
     return $user;
+}
+
+/**
+ * Site-admin login throttle (Fable review 2026-10-12). Uses the CRM's login_attempts table with
+ * the email prefixed "site-admin:" — 5 per (email, IP), 20 per IP, 15 per email in 10 minutes.
+ * A database error refuses the login (fail closed) and is logged.
+ */
+function cms_siteLoginThrottled(string $email, string $ip): bool
+{
+    $key = 'site-admin:' . strtolower(trim($email));
+    try {
+        $st = getDB()->prepare("
+            SELECT SUM(email = ? AND ip_address = ?) AS pair, SUM(ip_address = ?) AS ip, SUM(email = ?) AS em
+            FROM login_attempts
+            WHERE (email = ? OR ip_address = ?)
+              AND attempted_at > DATE_SUB(NOW(), INTERVAL 600 SECOND)
+        ");
+        $st->execute([$key, $ip, $ip, $key, $key, $ip]);
+        $n = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+        return cms_siteLoginOverLimit((int)($n['pair'] ?? 0), (int)($n['ip'] ?? 0), (int)($n['em'] ?? 0));
+    } catch (Throwable $e) {
+        error_log('cms_siteLoginThrottled: ' . $e->getMessage() . ' — refusing login');
+        return true;
+    }
+}
+
+/** Pure: the ceilings for cms_siteLoginThrottled(). */
+function cms_siteLoginOverLimit(int $pair, int $perIp, int $perEmail): bool
+{
+    return $pair >= 5 || $perIp >= 20 || $perEmail >= 15;
+}
+
+function cms_recordSiteLoginFailure(string $email, string $ip): void
+{
+    try {
+        getDB()->prepare("INSERT INTO login_attempts (email, ip_address) VALUES (?, ?)")
+               ->execute(['site-admin:' . strtolower(trim($email)), $ip]);
+    } catch (Throwable $e) {
+        error_log('cms_recordSiteLoginFailure: ' . $e->getMessage());
+    }
 }
 
 /**

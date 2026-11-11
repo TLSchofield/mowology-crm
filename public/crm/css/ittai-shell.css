@@ -1,0 +1,697 @@
+/* =============================================================================
+   ittai-shell.css — the Ittai v1.2 frame (sidebar + top bar) on every office page.
+   Loaded by appstack_head.php only when the viewer chose the new design (body.it-shell).
+   Round 6 (2026-11-10): the seven AI heads ARE the sidebar (appstack_sidebar.php) — a row per head,
+   a square card beside it, a 72 px rail with flyouts. Tokens from ittai-tokens.css.
+   "body.it-shell.it-shell" outranks the AppStack + brand sidebar rules without !important.
+   ============================================================================= */
+
+/* ── Panel: 280 px, flat, hairline on the right ── */
+body.it-shell.it-shell .sidebar.it-sidebar {
+  position: relative;
+  overflow: visible;
+  width: 280px; min-width: 280px; max-width: 280px;
+  background: var(--it-surface);
+  border-right: var(--it-stroke-hairline) solid var(--it-line);
+  box-shadow: none;
+  font-family: var(--it-font-sans);
+  color: var(--it-text);
+}
+body.it-shell.it-shell .it-sidebar .sidebar-content {
+  position: sticky; top: 0; left: 0;
+  display: flex; flex-direction: column;
+  width: 100%; height: 100vh; max-height: 100vh; min-height: 0;   /* not min-height: 100%: the wrapper stretches, and a column as tall as the page cannot stick */
+  overflow-x: hidden; overflow-y: auto;
+  background: var(--it-surface);
+  border-right: 0;
+}
+body.it-shell.it-shell .it-sidebar a { color: var(--it-text); text-decoration: none; }
+body.it-shell .it-sidebar ul { list-style: none; margin: 0; padding: 0; }   /* weak on purpose: .it-subs sets its own padding */
+/* Low specificity on purpose: every button rule below (.it-grow, .it-cb) must outrank this reset. On 2026-11-10 it
+   zeroed the head rows' padding and pushed the portraits half out of the sidebar on production. */
+body.it-shell .it-sidebar button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; }
+body.it-shell.it-shell .it-sidebar b { font-weight: 600; }
+body.it-shell.it-shell .it-ic,
+body.it-shell.it-shell .it-si { flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+body.it-shell.it-shell .it-sidebar .it-ch { color: var(--it-meta); width: 16px; height: 16px; }
+
+/* AppStack hides the sidebar off-canvas under 992 px; the phone has its own menu */
+@media (max-width: 991.98px) {
+  body.it-shell.it-shell .sidebar.it-sidebar,
+  body.it-shell.it-shell .sidebar.it-sidebar.collapsed { width: 280px; min-width: 280px; max-width: 280px; margin-left: -280px; }
+  body.it-shell.it-shell .sidebar.it-sidebar.toggled { margin-left: 0; }
+}
+
+/* ── Top row: the mark, and the collapse button on the sidebar's right edge ── */
+body.it-shell.it-shell .it-top { display: flex; align-items: center; height: 56px; padding: 0 16px; flex: none; }
+body.it-shell.it-shell .it-mark { display: flex; align-items: center; gap: 10px; min-width: 44px; height: 44px; }
+body.it-shell.it-shell .it-logo { width: 24px; height: 24px; display: block; }
+body.it-shell.it-shell .it-wm { height: 26px; width: auto; display: block; }
+body.it-shell.it-shell .it-cb {
+  position: absolute; top: 6px; right: -22px; z-index: 1036;
+  width: 44px; height: 44px; border-radius: var(--it-radius-full);
+  display: flex; align-items: center; justify-content: center;
+}
+body.it-shell.it-shell .it-cb::before {
+  content: ""; position: absolute; left: 6px; top: 6px; width: 32px; height: 32px;
+  border-radius: var(--it-radius-full); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line);
+}
+body.it-shell.it-shell .it-cb:hover::before { background: var(--it-selected); }
+body.it-shell.it-shell .it-cb .it-ic { position: relative; width: 24px; height: 24px; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-cb { display: none; } }
+
+/* ── A head's row ── */
+body.it-shell.it-shell .it-nv { flex: 0 0 auto; }
+body.it-shell.it-shell .it-grp { position: relative; border-top: var(--it-stroke-hairline) solid var(--it-line); }
+/* The spine (round 7): a hairline down the right of every group, through the portraits' centres (28 px from the edge) */
+body.it-shell.it-shell .it-grp::before { content: ""; position: absolute; top: 0; bottom: 0; right: 27px; width: 1px; background: var(--it-line); z-index: 1; pointer-events: none; }
+body.it-shell.it-shell .it-grow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 36px; column-gap: 8px; align-items: center;
+  width: 100%; height: 44px; padding: 0 10px 0 12px; position: relative;
+}
+body.it-shell.it-shell .it-kan .it-grow { height: auto; min-height: 56px; padding: 6px 10px 6px 12px; }
+body.it-shell.it-shell .it-chip-need { height: 18px; padding: 0 6px; border-color: var(--it-state-approval); color: var(--it-state-approval); }
+body.it-shell.it-shell .it-l1 { flex-wrap: wrap; row-gap: 2px; }
+body.it-shell.it-shell .it-grow:hover,
+body.it-shell.it-shell .it-pg:hover { background: var(--it-selected); }
+body.it-shell.it-shell .it-gt { display: block; min-width: 0; }
+body.it-shell.it-shell .it-l1,
+body.it-shell.it-shell .it-l2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+body.it-shell.it-shell .it-l1 { font-size: 14px; line-height: 20px; }
+body.it-shell.it-shell .it-l1 b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.it-shell.it-shell .it-l2 { font-size: 13px; line-height: 16px; color: var(--it-meta); white-space: nowrap; }
+body.it-shell.it-shell .it-tag {
+  flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px;
+  border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta);
+}
+/* The portrait, ringed by the head's state; idle is a dashed ring */
+body.it-shell.it-shell .it-pt { position: relative; z-index: 2; display: block; width: 36px; height: 36px; border-radius: var(--it-radius-full); box-shadow: 0 0 0 2px var(--it-line); background: var(--it-surface); }
+body.it-shell.it-shell .it-pt img { display: block; width: 100%; height: 100%; border-radius: var(--it-radius-full); object-fit: cover; }
+body.it-shell.it-shell .it-pt-working { box-shadow: 0 0 0 2px var(--it-state-working); }
+body.it-shell.it-shell .it-pt-approval { box-shadow: 0 0 0 2px var(--it-state-approval); }
+body.it-shell.it-shell .it-pt-blocked { box-shadow: 0 0 0 2px var(--it-state-blocked); }
+body.it-shell.it-shell .it-pt-unavailable { box-shadow: 0 0 0 2px var(--it-state-unavailable); }
+body.it-shell.it-shell .it-pt-idle { box-shadow: none; outline: 2px dashed var(--it-state-idle); outline-offset: 0; }
+body.it-shell.it-shell .it-bd { display: block; position: absolute; left: -7px; bottom: -4px; padding: 1px; border-radius: var(--it-radius-full); background: var(--it-surface); fill: none; stroke: currentColor; stroke-width: 1.75; }
+body.it-shell.it-shell .it-bd-working { color: var(--it-state-working); }
+body.it-shell.it-shell .it-bd-approval { color: var(--it-state-approval); }
+body.it-shell.it-shell .it-bd-blocked { color: var(--it-state-blocked); }
+body.it-shell.it-shell .it-bd-idle { color: var(--it-state-idle); }
+body.it-shell.it-shell .it-bd-unavailable { color: var(--it-state-unavailable); }
+body.it-shell.it-shell .it-s { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+body.it-shell.it-shell .it-s-working { color: var(--it-state-working); }
+body.it-shell.it-shell .it-s-approval { color: var(--it-state-approval); }
+body.it-shell.it-shell .it-s-blocked { color: var(--it-state-blocked); }
+body.it-shell.it-shell .it-s-idle { color: var(--it-state-idle); }
+body.it-shell.it-shell .it-s-unavailable { color: var(--it-state-unavailable); }
+body.it-shell.it-shell .it-s .it-si { width: 12px; height: 12px; }
+body.it-shell.it-shell .it-chip {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+  border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full);
+  font-size: 12px; line-height: 16px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--it-text);
+}
+
+/* ── The open head's pages: a 180 ms accordion, closed = display:none ── */
+body.it-shell.it-shell .it-acc {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows 180ms ease-out, display 180ms allow-discrete;
+}
+body.it-shell.it-shell .it-acc[hidden] { display: none; grid-template-rows: 0fr; }
+@starting-style { body.it-shell.it-shell .it-acc { grid-template-rows: 0fr; } }
+body.it-shell.it-shell .it-acci { overflow: hidden; min-height: 0; }
+body.it-shell.it-shell .it-subs { position: relative; padding: 0 56px 4px 0; }
+body.it-shell.it-shell .it-pg {
+  position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px;
+  font-size: 14px; line-height: 20px; font-weight: 400;
+}
+body.it-shell.it-shell .it-pl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.it-shell.it-shell .it-pg[aria-current="page"] { background: var(--it-selected); font-weight: 500; }
+body.it-shell.it-shell .it-pg[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--it-tenant-mark); }
+/* The live page draws its line to its head: across to the spine, then up the spine to the portrait (JS sets --it-live-top / --it-live).
+   Ittai navy, not the tenant colour: the wiring is Ittai's, the selected row is the tenant's (Tim, 2026-11-10). */
+body.it-shell.it-shell .it-pg[aria-current="page"] .it-pl { flex: 0 1 auto; }   /* the label shrinks to its text so the line starts right after it */
+body.it-shell.it-shell .it-pg[aria-current="page"]::after { content: ""; flex: 1 1 auto; min-width: 12px; height: 2px; margin: 0 -41px 0 4px; background: var(--it-brand); }
+body.it-shell.it-shell .it-grp.is-live::after { content: ""; position: absolute; right: 27px; width: 2px; margin-right: -0.5px; top: var(--it-live-top, 0px); height: var(--it-live, 0px); background: var(--it-brand); z-index: 1; pointer-events: none; }
+
+/* ── The square head card beside the row (JS places it; 1024 px and up only) ── */
+/* The head card: the same square rounded card — portrait on top, name, role, state, the head's current line —
+   floating CENTRED on the rail line beside the head's row (Tim, 2026-11-10). A spacer in the sidebar keeps its
+   room, so the pages move down beneath it; the row's small portrait steps aside while it is open (one face). */
+body.it-shell.it-shell .it-grp { display: flex; flex-direction: column; }
+body.it-shell.it-shell .it-grp > .it-grow { order: 0; }
+body.it-shell.it-shell .it-grp > .it-hp-space { order: 1; flex: none; margin: 2px 0 10px; }
+body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
+body.it-shell.it-shell .it-hp-space[hidden] { display: none; }
+body.it-shell.it-shell .it-hp {
+  display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 0;
+  flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px;
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; box-shadow: var(--it-shadow-menu);
+  opacity: 0; transform: translateY(-6px);
+  transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete;
+}
+body.it-shell.it-shell .it-hp.is-open {
+  display: flex; opacity: 1; transform: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out, display 180ms allow-discrete;
+}
+@starting-style { body.it-shell.it-shell .it-hp.is-open { opacity: 0; transform: translateY(-6px); } }
+body.it-shell.it-shell .it-hp:not([data-placed]) { visibility: hidden; }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hp.is-open, body.it-shell.it-shell .it-hp-space { display: none !important; } }
+body.it-shell.it-shell .it-pt-lg { width: 44px; height: 44px; margin: 0 auto 2px; }
+body.it-shell.it-shell .it-grp.has-card .it-grow .it-pt { visibility: hidden; }
+body.it-shell.it-shell .it-grp.has-card .it-grow:focus-visible { outline: none; }   /* the card stands in for the row: no empty ring (Tim, 2026-11-10) */
+/* …and so does the row's name and tag (the card carries them); Kaname's needs-you chip stays */
+body.it-shell.it-shell .it-grp.has-card .it-grow .it-l1 > b, body.it-shell.it-shell .it-grp.has-card .it-grow .it-l1 > .it-tag, body.it-shell.it-shell .it-grp.has-card .it-grow .it-l2 { visibility: hidden; }
+body.it-shell.it-shell .it-hpn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 600; }
+body.it-shell.it-shell .it-hpd { font-size: 13px; line-height: 18px; color: var(--it-meta); }
+body.it-shell.it-shell .it-hp .it-s { margin-top: 2px; }
+/* The card is the head, not her status report (Tim, 2026-11-10): the current line stays in the aria-label only */
+body.it-shell.it-shell .it-hpl { display: none; }
+
+/* Card gutter (Tim, 2026-11-10): the enlarged head card is 200px wide, centred 28px in from the sidebar's edge, so it
+   overhangs the page by 72px. Every page's content steps right of it (overhang + 16px air) wherever the card can show:
+   desktop, sidebar open. The rail and the phone menu have no card, so they keep AppStack's own padding. */
+@media (min-width: 1024px) {
+  body.it-shell.it-shell .sidebar.it-sidebar:not(.collapsed) + .main > main.content { padding-left: var(--it-card-gutter, 88px); }
+}
+
+/* ── Profile: pinned to the bottom ── */
+body.it-shell.it-shell .it-prof { position: relative; margin-top: auto; flex: none; border-top: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-surface); }
+body.it-shell.it-shell .it-pcard { display: grid; grid-template-columns: 36px minmax(0, 1fr) 16px; column-gap: 12px; align-items: center; width: 100%; height: 56px; padding: 0 12px; }
+body.it-shell.it-shell .it-pcard:hover { background: var(--it-selected); }
+body.it-shell.it-shell .it-disc {
+  display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--it-radius-full);
+  background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); font-size: 13px; line-height: 16px; font-weight: 600; color: var(--it-text);
+}
+body.it-shell.it-shell .it-pt2 { display: block; min-width: 0; }
+body.it-shell.it-shell .it-pt2 b { display: block; font-size: 14px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.it-shell.it-shell .it-pt2 span { display: block; font-size: 13px; line-height: 16px; color: var(--it-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The AppStack hamburger is the phone's; on a desktop screen the edge chevron folds the rail instead */
+@media (min-width: 992px) { body.it-shell.it-shell .navbar .sidebar-toggle { display: none; } }
+
+/* ── The rail: 72 px, one 52 px button per head, a flyout for its pages ── */
+@media (min-width: 992px) { body.it-shell.it-shell .sidebar.it-sidebar.collapsed { width: 72px; min-width: 72px; max-width: 72px; margin-left: 0; } }
+body.it-shell.it-shell .sidebar.collapsed .it-wm,
+body.it-shell.it-shell .sidebar.collapsed .it-grow > .it-gt,
+body.it-shell.it-shell .sidebar.collapsed .it-grow > .it-s,
+body.it-shell.it-shell .sidebar.collapsed .it-grow > .it-ch,
+body.it-shell.it-shell .sidebar.collapsed .it-acc,
+body.it-shell.it-shell .sidebar.collapsed .it-pt2,
+body.it-shell.it-shell .sidebar.collapsed .it-pcard > .it-ch,
+body.it-shell.it-shell .sidebar.collapsed .it-top { justify-content: center; padding: 0; }
+body.it-shell.it-shell .sidebar.collapsed .it-mark { justify-content: center; }
+body.it-shell.it-shell .sidebar.collapsed .it-grow,
+body.it-shell.it-shell .sidebar.collapsed .it-kan .it-grow { display: flex; align-items: center; justify-content: center; height: 52px; min-height: 52px; padding: 0; }
+body.it-shell.it-shell .sidebar.collapsed .it-grp::before { right: 35px; }
+body.it-shell.it-shell .sidebar.collapsed .it-grp.is-live::after { display: none; }
+body.it-shell.it-shell .sidebar.collapsed .it-grp.is-here .it-grow,
+body.it-shell.it-shell .sidebar.collapsed .it-grp.is-sel .it-grow { background: var(--it-selected); }
+body.it-shell.it-shell .sidebar.collapsed .it-grp.is-here::before,
+body.it-shell.it-shell .sidebar.collapsed .it-grp.is-sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--it-tenant-mark); z-index: 1; }
+body.it-shell.it-shell .sidebar.collapsed .it-pcard { display: flex; justify-content: center; padding: 8px 0; height: 56px; }
+body.it-shell.it-shell.it-rail .it-hp, body.it-shell.it-shell .sidebar.collapsed .it-hp-space { display: none !important; }
+body.it-shell.it-shell .it-fly {
+  display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: min(272px, calc(100vw - 160px)); padding-bottom: 4px; overflow: hidden;
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 10px; box-shadow: var(--it-shadow-menu);
+  opacity: 0; transform: translateX(-8px);
+  transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete;
+}
+body.it-shell.it-shell.it-rail .it-fly.is-open {
+  display: block; opacity: 1; transform: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out, display 180ms allow-discrete;
+}
+@starting-style { body.it-shell.it-shell.it-rail .it-fly.is-open { opacity: 0; transform: translateX(-8px); } }
+body.it-shell.it-shell .it-fh { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 56px; padding: 8px 12px; border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.it-shell .it-fly .it-subs::before { display: none; }
+body.it-shell.it-shell .it-fly .it-pg { padding-left: 16px; }
+body.it-shell.it-shell .it-fly .it-pg[aria-current="page"]::before { display: none; }
+
+/* Focus: every control */
+body.it-shell.it-shell .it-sidebar :focus-visible,
+body.it-shell.it-shell .it-ws :focus-visible { outline: 2px solid var(--it-focus); outline-offset: -2px; border-radius: 6px; }
+
+/* ── A head's strip: portrait + kanji, name · role, what the kanji means ── */
+body.it-shell .it-sb-strip { list-style: none; margin-top: var(--it-space-3); }
+body.it-shell .it-sb-strip:first-child { margin-top: 0; }
+
+body.it-shell .it-sb-toggle {
+  width: 100%;
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: var(--it-space-3);
+  padding: var(--it-space-2) var(--it-space-3);
+  border: 0;
+  border-top: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+body.it-shell .it-sb-toggle:hover { background: var(--it-selected); }
+body.it-shell .it-sb-toggle:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; }
+
+body.it-shell .it-sb-face { position: relative; width: 40px; height: 40px; }
+body.it-shell .it-sb-face img {
+  position: absolute; left: 2px; top: 2px;
+  width: 34px; height: 34px;
+  border-radius: var(--it-radius-full);
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--it-line);
+}
+body.it-shell .it-sb-kanji {
+  position: absolute; right: -3px; bottom: -3px;
+  width: 20px; height: 20px;
+  border-radius: var(--it-radius-full);
+  background: var(--it-surface);
+  border: var(--it-stroke-hairline) solid var(--it-line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Zen Kaku Gothic New", var(--it-font-sans);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--it-text);
+}
+
+body.it-shell .it-sb-who { display: flex; flex-direction: column; min-width: 0; }
+body.it-shell .it-sb-name {
+  font-size: var(--it-body-14-size);
+  line-height: var(--it-body-14-line);
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.it-shell .it-sb-role { font-size: var(--it-meta-13-size); line-height: 18px; font-weight: 400; color: var(--it-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.it-shell .it-sb-means {
+  font-size: var(--it-caption-12-size);
+  line-height: var(--it-caption-12-line);
+  font-weight: 500;
+  color: var(--it-meta);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.it-shell .it-sb-means [lang="ja"] { font-family: "Zen Kaku Gothic New", var(--it-font-sans); color: var(--it-text); }
+
+body.it-shell .it-sb-chev { color: var(--it-meta); transition: transform 160ms ease; }
+body.it-shell .it-sb-strip.is-closed .it-sb-chev { transform: rotate(-90deg); }
+
+/* The block the current page is in: the strip's face ring takes the tenant mark */
+body.it-shell .it-sb-strip.is-here .it-sb-face img { box-shadow: 0 0 0 2px var(--it-tenant-mark); }
+
+/* ── Top bar in the shell: sticky, so the one search (top right) stays put; Kaname's line below sticks under it ── */
+/* 56 px like the sidebar's lockup row, so the navbar's bottom hairline and the line under Kaname's row are one line (Tim, 2026-11-10) */
+body.it-shell.it-shell .navbar { position: sticky; top: 0; z-index: 1030; display: flex; align-items: center; height: 56px; min-height: 56px; padding-top: 0; padding-bottom: 0; }
+
+/* ── Kaname's line: her alerts run off HER sidebar row (Tim, 2026-11-10), not the top nav. One subject at a time.
+   ittai-shell.js levels this card with her row and draws the hairline from her portrait to its left edge. ── */
+body.it-shell.it-shell .it-kan-line { position: sticky; top: 57px; z-index: 1029; display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 0 0 16px; padding: 0 8px 0 12px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); font-size: 14px; line-height: 20px; color: var(--it-text); }
+body.it-shell.it-shell .it-kan-subject { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 8px; border-radius: 10px; color: var(--it-meta); text-decoration: none; }
+body.it-shell.it-shell .it-kan-subject:hover { background: var(--it-selected); color: var(--it-text); }
+body.it-shell.it-shell .it-kan-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.it-shell.it-shell .it-kan-subject.is-alert { color: var(--it-status-attention); font-weight: 500; }
+body.it-shell.it-shell .it-kan-subject.is-alert .it-si { flex: none; fill: currentColor; stroke: none; }
+body.it-shell.it-shell .it-kan-age { flex: none; font-size: 13px; color: var(--it-meta); font-weight: 400; }
+body.it-shell.it-shell .it-kan-more { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 28px; height: 22px; padding: 0 6px; border: var(--it-stroke-hairline) solid var(--it-status-attention); border-radius: var(--it-radius-full); color: var(--it-status-attention); font-size: 12px; font-weight: 600; text-decoration: none; }
+body.it-shell.it-shell .it-kan-heads { display: inline-flex; align-items: center; gap: 10px; flex: none; margin: 0 6px; }
+body.it-shell.it-shell .it-kan-head { width: 28px; height: 28px; }
+body.it-shell.it-shell .it-kan-head .it-bd { left: -6px; bottom: -3px; }
+body.it-shell.it-shell .it-kan-open { display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 0 8px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; color: var(--it-text); }
+body.it-shell.it-shell .it-kan-line a:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; border-radius: 10px; }
+/* the hairline from her portrait on the spine to the card's edge (fixed, placed by ittai-shell.js) */
+.it-kan-link { position: fixed; z-index: 1040; height: 0; border-top: 1px solid var(--it-line); border-top-color: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); pointer-events: none; }
+.it-kan-link[hidden] { display: none; }
+@media (max-width: 1200px) { body.it-shell.it-shell .it-kan-age { display: none; } }
+@media (max-width: 1023px) { body.it-shell.it-shell .it-kan-line { position: static; } .it-kan-link { display: none; } }
+
+/* ── Top bar: a flat white strip with a hairline ── */
+body.it-shell.it-shell .navbar-bg {
+  background: var(--it-surface);
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+  box-shadow: none;
+}
+body.it-shell.it-shell .main { background: var(--it-page); }
+
+/* ── Phone (≤ 991 px): top bar, bottom bar and the slide-up menu's head blocks ── */
+body.it-shell.it-shell .mw-mobile-topbar {
+  background: var(--it-surface);
+  color: var(--it-text);
+  border-bottom: var(--it-stroke-hairline) solid var(--it-line);
+}
+body.it-shell.it-shell .mw-mobile-topbar-title { color: var(--it-text); font-family: var(--it-font-sans); font-weight: 600; }
+body.it-shell.it-shell .mw-mobile-search-btn { color: var(--it-meta); }
+body.it-shell.it-shell .mw-mobile-search-btn:active { background: var(--it-selected); color: var(--it-text); }
+
+body.it-shell.it-shell .mw-mobile-bottombar { background: var(--it-surface); border-top: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.it-shell .mw-mobile-nav-btn { color: var(--it-meta); font-family: var(--it-font-sans); }
+body.it-shell.it-shell .mw-mobile-nav-btn.mw-mobile-nav-active,
+body.it-shell.it-shell .mw-mobile-nav-btn.mw-mobile-nav-active svg { color: var(--it-tenant); }
+body.it-shell.it-shell .mw-mobile-nav-btn.mw-mobile-nav-active::before { background: var(--it-selected); }
+
+body.it-shell .it-mb-block { margin: 0; }
+body.it-shell .it-mb-block .it-sb-toggle { min-height: 64px; }
+body.it-shell .it-mb-items { list-style: none; margin: 0 0 var(--it-space-2); padding: 0 0 0 52px; }
+body.it-shell .it-mb-items[hidden] { display: none; }
+body.it-shell .it-mb-link {
+  display: flex; align-items: center; gap: var(--it-space-3);
+  min-height: 48px;                                   /* phone touch target */
+  padding: 0 var(--it-space-3);
+  border-radius: var(--it-radius-sm);
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-size: var(--it-body-16-size);
+  text-decoration: none;
+}
+body.it-shell .it-mb-link svg { width: 18px; height: 18px; color: var(--it-meta); stroke-width: 1.5; flex: none; }
+body.it-shell .it-mb-link:active,
+body.it-shell .it-mb-link:hover { background: var(--it-selected); color: var(--it-text); text-decoration: none; }
+body.it-shell .it-mb-link.is-active { background: var(--it-selected); box-shadow: inset 3px 0 var(--it-tenant-mark); font-weight: 600; }
+body.it-shell .it-mb-badge {
+  margin-left: auto;
+  min-width: 24px; padding: 0 6px;
+  border: var(--it-stroke-hairline) solid var(--it-status-attention);
+  border-radius: var(--it-radius-full);
+  color: var(--it-status-attention);
+  font-size: var(--it-caption-12-size);
+  font-weight: 500;
+  text-align: center;
+}
+
+/* The clock banner in the phone menu: a quiet panel, one green action */
+body.it-shell.it-shell .mw-mobile-clock-banner { background: var(--it-sunk); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); }
+body.it-shell.it-shell .mw-mobile-clock-label { color: var(--it-meta); letter-spacing: 0; text-transform: none; font-size: var(--it-meta-13-size); font-weight: 500; }
+body.it-shell.it-shell .mw-mobile-clock-btn { background: var(--it-tenant); color: var(--it-on-tenant); border-radius: var(--it-radius-md); }
+
+/* ── Workspace frame (Kaname's morning brief now; a head's job + advice later) ── */
+.it-design .it-ws { background: var(--it-page); }
+.it-ws { --it-gap: 216px; padding: 24px 24px 48px 0; min-width: 0; font-family: var(--it-font-sans); color: var(--it-text); }
+@media (max-width: 1023px) { .it-ws { --it-gap: 0px; padding-left: 12px; } }
+body:not(.it-shell) .it-ws { --it-gap: 0px; }   /* beside the classic sidebar there is no card to clear */
+body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
+.it-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; padding: 0; }
+.it-ws ul { list-style: none; margin: 0; padding: 0; }
+
+/* The advice layer: bars while a job is open (work), two-column panels at rest */
+.it-adv { margin-left: var(--it-gap); min-width: 0; container-type: inline-size; }
+.it-ws.work .it-adv-list { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-ai { min-width: 0; background: var(--it-surface); border-top: var(--it-stroke-hairline) solid var(--it-line); }
+.it-ah {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) 20px; align-items: center; column-gap: 12px;
+  width: 100%; min-height: 44px; padding: 12px 16px; font: inherit; font-size: 14px; line-height: 20px; color: var(--it-text);
+  background: none; border: 0; text-align: left; cursor: pointer;
+}
+.it-ah:hover { background: var(--it-selected); }
+.it-ah .it-ch { color: var(--it-meta); transition: transform 180ms ease-out; }
+.it-ah[aria-expanded="true"] .it-ch { transform: rotate(180deg); }
+.it-ab { display: none; grid-template-rows: 0fr; opacity: 0; }
+.it-ah[aria-expanded="true"] + .it-ab { display: grid; grid-template-rows: 1fr; opacity: 1; }
+.it-abi { overflow: hidden; min-height: 0; }
+.it-abc { padding: 4px 16px 16px 48px; }
+.it-ws.rest .it-adv-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.it-ws.rest .it-ai { border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; overflow: hidden; }
+.it-ai.wide { grid-column: 1 / -1; }
+.it-ws.rest .it-ai.shut { grid-column: 1 / -1; order: 9; border: 0; border-top: var(--it-stroke-hairline) solid var(--it-line); border-radius: 0; }
+@media (max-width: 900px) { .it-ws.rest .it-adv-list { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 900px) { .it-ws.rest .it-adv-list { grid-template-columns: minmax(0, 1fr); } }
+.it-idl { display: none; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 16px; padding: 4px 12px; font-size: 14px; line-height: 20px; color: var(--it-meta); text-align: center; }
+.it-idl .it-si { color: var(--it-state-idle); }
+.it-ws.rest .it-idl { display: flex; }
+.it-jobx { display: flex; flex-direction: column; min-width: 0; max-height: 2400px; }
+.it-ws.rest .it-jobx { display: none; max-height: 0; opacity: 0; }
+.it-ws.anim .it-ab { transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out, display 200ms allow-discrete; transition-delay: var(--d, 0ms); }
+.it-ws.anim .it-jobx { overflow: hidden; transition: max-height 180ms ease-out, opacity 180ms ease-out, display 180ms allow-discrete; }
+.it-ws.anim.closing .it-jobx { display: none; max-height: 0; opacity: 0; }
+
+/* Kaname's morning brief */
+.it-kb { margin-left: var(--it-gap); max-width: 720px; padding-top: 24px; }
+.it-kb h2 { margin: 0 0 4px; font-size: 20px; line-height: 28px; font-weight: 600; }
+.it-kb-asof { margin: 0 0 8px; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-kb-need { display: flex; align-items: center; gap: 6px; margin: 0 0 16px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--it-state-approval); }
+.it-kb-need .it-si { width: 16px; height: 16px; }
+.it-kb-list { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-kb-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 56px; padding: 6px 4px; border-top: var(--it-stroke-hairline) solid var(--it-line); font-size: 14px; line-height: 20px; }
+.it-kb-face { width: 28px; height: 28px; border-radius: var(--it-radius-full); object-fit: cover; box-shadow: 0 0 0 2px var(--it-line); }
+.it-kb-text { min-width: 0; }
+.it-kb-open { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; }
+.it-kb h3 { margin: 32px 0 8px; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--it-meta); }
+.it-kb-handled { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+.it-kb-handled li { display: flex; align-items: center; min-height: 44px; padding: 0 4px; border-top: var(--it-stroke-hairline) solid var(--it-line); font-size: 14px; line-height: 20px; color: var(--it-meta); }
+.it-kb-empty { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--it-meta); }
+
+/* The job strip: a head's job across the top of her pages (Penny's duplicate receipt). A hairline rail runs
+   through the middle: what the two receipts say, the two photos, the two answers, then where it lands. */
+.it-job { margin: 0; padding: 8px 20px 6px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; container-type: inline-size; font-family: var(--it-font-sans); color: var(--it-text); }
+.it-job[hidden], .it-job [hidden] { display: none; }
+.it-job-t { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 18px; line-height: 24px; font-weight: 600; }
+.it-job-t .it-tag { flex: none; font-size: 12px; line-height: 16px; font-weight: 500; padding: 0 5px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 6px; color: var(--it-meta); }
+.it-job-c { margin-left: auto; font-size: 13px; line-height: 18px; font-weight: 400; color: var(--it-meta); }
+/* Kaname's space, always there at the top of the main page (Tim, 2026-11-10): her count and line, and the way to her brief */
+
+/* The strip sits in line with the cards below it (Tim, 2026-11-10): the page gutter already keeps every page clear of the head's card */
+/* The decision and the picture are two cards side by side: the strip left, the graph in its own right column */
+.it-job-outer { container-type: inline-size; margin: 0 0 24px; }
+.it-job-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; column-gap: 24px; align-items: start; }
+/* no picture yet (Yui): the strip takes the whole row */
+.it-job-wrap:has(> .it-job-viz[hidden]) { grid-template-columns: minmax(0, 1fr); }
+/* When the strip needs more room, the graph collapses; the card never scrolls (Tim, 2026-11-10). ittai-job.js adds is-solo
+   when the rail would overflow with the graph beside it, and takes it off again when the width allows. */
+.it-job-wrap.is-solo { grid-template-columns: minmax(0, 1fr); }
+.it-job-wrap.is-solo > .it-job-viz { display: none; }
+@media (max-width: 1023px) { .it-job-wrap { grid-template-columns: minmax(0, 1fr); row-gap: 16px; } }
+.it-job-body { display: block; }
+.it-job-outer { --it-rail: var(--it-line); --it-rail: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
+.it-job-rail { position: relative; }
+.it-job-viz { margin: 0; padding: 16px 20px; min-width: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); font-family: var(--it-font-sans); color: var(--it-text); }
+/* The rail runs on past the Ledger into the graph (Tim, 2026-11-10): a chart icon sits on the graph card's left edge at the
+   rail's height (ittai-job.js sets --it-rail-y), with the line crossing the gap to it from the strip's right edge. */
+.it-job-viz { position: relative; }
+.it-job-viz::before { content: ""; position: absolute; left: -45px; width: 45px; top: var(--it-rail-y, 50%); height: 1px; background: var(--it-rail); pointer-events: none; }
+.it-job-viz-node { position: absolute; left: -18px; top: var(--it-rail-y, 50%); transform: translateY(-50%); z-index: 1; }
+.it-job-viz-node .it-job-ic { width: 20px; height: 20px; }
+.it-job-viz figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; line-height: 20px; margin-bottom: 8px; }
+.it-job-viz figcaption b { font-weight: 600; }
+.it-job-viz figcaption span { color: var(--it-meta); font-variant-numeric: tabular-nums; }
+.it-job-viz svg { display: block; width: 100%; height: auto; }
+.it-job-viz .it-viz-bar { fill: var(--it-sunk); stroke: var(--it-line); stroke-width: 1; }
+.it-job-viz .it-viz-now { fill: var(--it-tenant); }
+.it-job-viz .it-viz-lbl { font: 500 12px/16px var(--it-font-sans); fill: var(--it-meta); }
+.it-job-viz-gst { margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); font-variant-numeric: tabular-nums; }
+.it-job-viz-gst span { color: var(--it-meta); }
+/* The feeder from the head's card is the rail itself continued: the same 1 px hairline (Tim: navy was too heavy) */
+.it-job-link, .it-job-link-stub { position: fixed; z-index: 1040; pointer-events: none; border: 0 solid var(--it-line); border-color: color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); box-sizing: border-box; }
+.it-job-link-stub { height: 0; border-top-width: 1px; }
+.it-job-link { border-left-width: 1px; border-bottom-width: 1px; }
+.it-job-link.is-up { border-bottom-width: 0; border-top-width: 1px; }
+.it-job-link.is-flat { border-left-width: 0; border-bottom-width: 0; border-top-width: 1px; margin: 0; }
+.it-job-link[hidden], .it-job-link-stub[hidden] { display: none; }
+.it-job-rail { position: relative; display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-bottom: 16px; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+/* the rail: one line across the strip, from its left edge (where the feeder from the card arrives) to the Ledger */
+.it-job-rail::before { content: ""; position: absolute; left: -24px; right: 0; top: 50%; height: 1px; background: var(--it-rail); pointer-events: none; }
+.it-job-rail > *, .it-job-cols > li, .it-job-split > * { position: relative; flex: none; }
+/* From the triangle the line opens into the frame that holds the split, and closes again before the Ledger */
+.it-job-split { display: flex; align-items: center; gap: 10px; padding: 12px 10px 12px 40px; margin-left: -32px; margin-right: 26px; border: var(--it-stroke-hairline) solid var(--it-rail); border-right: 0; border-radius: 14px 0 0 14px; }
+/* the rejoin: from the frame's top and bottom edges two lines close onto the rail, which carries on to the Ledger */
+.it-job-split::after { content: ""; position: absolute; top: -1px; bottom: -1px; right: -26px; width: 26px; background: var(--it-rail); pointer-events: none;
+  clip-path: polygon(0 0, 100% 50%, 0 100%, 0 calc(100% - 1px), calc(100% - 4.5px) 50%, 0 1px); }
+.it-job-conf { z-index: 2; }
+/* every column is symmetric about the rail: kept above, the knot on the line, waiting below */
+.it-job-col { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 72px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.it-job-cols { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.it-job-col:not(:has(.it-job-top:not(:empty))):not(:has(.it-job-bot:not(:empty))) { min-width: 44px; }   /* a disc alone needs no more room than itself */
+.it-job-top { align-self: end; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-bot { align-self: start; font-size: 14px; line-height: 24px; color: var(--it-text); white-space: nowrap; }
+.it-job-col:has(.it-job-disc-same) .it-job-bot { color: var(--it-meta); opacity: .6; }
+.it-job-lblcol { justify-items: start; min-width: 0; }
+.it-job-keeplbl { font-weight: 600; color: var(--it-brand); }
+.it-job-copylbl { font-weight: 600; color: var(--it-meta); }
+.it-job-m { width: 28px; height: 28px; }
+/* the confidence triangle: on the rail, right after the Receipts anchor (as on the phone, below its top anchor) */
+.it-job-conf { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-knowledge-discovered); flex: none; }
+.it-job-conf .it-si { fill: currentColor; stroke: none; }
+/* the knowledge triangle (SPEC-v1.2 "Confidence"): new = three loose lines, noticed = broken triangle (both the discovered
+   colour), known = solid blue, mastered = gold with the page-coloured keyline */
+.it-job-conf.is-forming .it-si, .it-job-conf.is-held .it-si { fill: none; stroke: currentColor; }
+.it-job-conf.is-known { color: var(--it-knowledge-understood); }
+.it-job-conf.is-mastered { color: var(--it-knowledge-mastered); }
+/* the line circles every icon: a surface gap, then a ring in the line's colour */
+.it-job-disc { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--it-radius-full); border: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-sunk); color: var(--it-meta); box-shadow: 0 0 0 3px var(--it-surface), 0 0 0 4px var(--it-line); }
+.it-job-disc-same { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-job-disc-differs { background: var(--it-sunk); border: 2px solid var(--it-status-attention); color: var(--it-status-attention); }
+.it-job-disc-missing { background: var(--it-sunk); border: 2px solid var(--it-meta); color: var(--it-meta); }
+.it-job-disc-info { background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); }
+.it-job-imgs { min-width: 96px; row-gap: 10px; }
+.it-job-fig { margin: 0; display: grid; justify-items: center; gap: 4px; width: 96px; }
+.it-job-imgs .it-job-fig:first-child { align-self: end; }
+.it-job-imgs .it-job-fig:last-child { align-self: start; }
+.it-job-fig img, .it-job-noimg { display: block; width: 48px; aspect-ratio: 4 / 3; height: auto; object-fit: cover; border-radius: 10px; background: var(--it-sunk); }
+.it-job-fig.is-keep img, .it-job-fig.is-keep .it-job-noimg { outline: 2px solid var(--it-brand); outline-offset: 0; }
+.it-job-fig figcaption { font-size: 12px; line-height: 16px; color: var(--it-meta); text-align: center; max-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.it-job-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
+.it-job-acts { min-width: 148px; }
+.it-job-acts .it-btn-fill { align-self: end; }
+.it-job-acts .it-btn-line { align-self: start; }
+.it-job-acts .it-btn { width: 100%; }
+.it-job .it-btn { display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; column-gap: 8px; min-height: 56px; padding: 8px 16px; border-radius: 10px; border: 2px solid transparent; font: inherit; font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; text-align: left; }
+.it-job .it-btn .it-job-ic { grid-row: 1 / span 2; width: 20px; height: 20px; }
+.it-job .it-btn-fill .it-job-ic { transform: rotate(90deg); }   /* the merge arrow points along the horizontal flow */
+.it-job .it-btn b { font-weight: 600; }
+.it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
+.it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-job .it-btn-line { background: var(--it-surface); border-color: var(--it-brand); color: var(--it-brand); }
+.it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
+.it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
+.it-job-anchor:hover { color: var(--it-text); text-decoration: none; }
+.it-ad { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
+.it-ad-fill { background: var(--it-brand); color: var(--it-on-tenant); }
+.it-ad-sm { width: 36px; height: 36px; }
+.it-job-anchor .it-ad .it-job-ic { width: 24px; height: 24px; }
+/* View, on the rail between the two receipts */
+.it-job-view { position: relative; display: flex; flex-direction: column; align-items: center; background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 12px; line-height: 16px; color: var(--it-meta); cursor: pointer; min-width: 44px; min-height: 44px; justify-content: center; }
+.it-job-view > span:last-child { position: absolute; top: calc(100% - 2px); white-space: nowrap; }
+.it-job-view:hover .it-ad { background: var(--it-selected); }
+.it-job-view:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; border-radius: 8px; }
+.it-job-dlg { border: 0; border-radius: 14px; padding: 16px; max-width: min(1200px, 92vw); background: var(--it-surface); color: var(--it-text); box-shadow: var(--it-shadow-dialog); font-family: var(--it-font-sans); }
+.it-job-dlg::backdrop { background: color-mix(in srgb, var(--it-text) 40%, transparent); }
+.it-job-dlg-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.it-job-dlg-fig { margin: 0; display: grid; justify-items: center; gap: 8px; }
+.it-job-dlg-fig img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; border-radius: 10px; background: var(--it-sunk); }
+.it-job-dlg-fig.is-keep img { outline: 2px solid var(--it-brand); outline-offset: 0; }
+.it-job-dlg-fig figcaption { font-size: 14px; line-height: 20px; color: var(--it-meta); text-align: center; }
+.it-job-dlg-fig.is-keep figcaption { color: var(--it-brand); font-weight: 500; }
+.it-job-dlg-close { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 2px solid var(--it-brand); border-radius: 10px; background: var(--it-surface); color: var(--it-brand); font: inherit; font-weight: 600; cursor: pointer; }
+.it-job-dlg-close:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
+.it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
+.it-job-rail.is-enter { animation: it-job-in 200ms ease-out; }
+/* The ink line (Tim's pick, 2026-11-10): after Merge, the frame's words fade, one navy stroke is drawn along the rail,
+   each knot dissolves as the ink reaches it, the frame is erased behind it, the Ledger fills, then the ink lightens. */
+.it-job-ink { position: absolute; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: var(--it-brand); transform-origin: left center; pointer-events: none; z-index: 3; transition: background-color 400ms ease-out; }
+.it-job-ink.is-light { background: var(--it-rail); }
+.it-job-rail.is-inking .it-job-top, .it-job-rail.is-inking .it-job-bot, .it-job-rail.is-inking .it-job-fig, .it-job-rail.is-inking .it-job-acts, .it-job-rail.is-inking .it-job-view > span:last-child { opacity: 0; transition: opacity 250ms ease-out; pointer-events: none; }
+.it-job-rail.is-inking .it-job-split { transition: border-color 600ms linear; }
+.it-job-rail.is-inking .it-job-split::after { transition: background-color 600ms linear; }
+.it-job-rail.is-erasing .it-job-split { border-color: transparent; }
+.it-job-rail.is-erasing .it-job-split::after { background: transparent; }
+.it-job-rail .is-gone { transform: scale(0); opacity: 0; transition: transform 160ms ease-in, opacity 160ms ease-in; }
+.it-job-rail .it-ad.is-lit { background: var(--it-brand); color: var(--it-on-tenant); transition: background-color 200ms ease-out, color 200ms ease-out; }
+@keyframes it-job-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+.it-job .it-btn:focus-visible, .it-job-skip:focus-visible, .it-job-undo:focus-visible, .it-job-anchor:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+@container (max-width: 900px) {
+  .it-job-rail { gap: 16px; }
+}
+
+/* Penny's e-Transfer job (Tim's phone reference, 2026-11-10): Bank → the fraction → the triangle → the frame with the
+   e-Transfer above the rail and the invoice(s) below → Record payment → Ledger. Same rail, same discs, same buttons. */
+/* "2/3": how many of the three pieces (the Interac email, the invoice match, the bank deposit) are already in hand.
+   Large numerals either side of a slanted hairline, the match's name beside them; a station on the rail, so it sits on surface. */
+.it-job-pieces { display: flex; align-items: center; gap: 12px; padding: 0 8px; }
+.it-job-frac { position: relative; background: var(--it-surface); display: block; flex: none; width: 72px; height: 72px; font-size: 24px; line-height: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--it-text); }
+.it-job-frac b { font-weight: 600; }
+/* The inferred fraction (SPEC-v1.2, Tim's drawing): an equilateral triangle on the rail with only its two upper sides drawn,
+   the rail itself being the third; the whole (3) inside it, the joined count (2) beside its left side. The surface behind
+   the box hides the rail under the triangle, so the two strokes ARE the rail there. */
+.it-job-frac b { position: absolute; }
+.it-job-frac-n { left: 12px; top: 0; transform: translateX(-50%); }
+.it-job-frac-d { left: 35px; top: 12px; transform: translateX(-50%); }
+.it-job-frac-s { position: absolute; left: 0; top: 0; overflow: visible; fill: none; stroke: var(--it-rail); stroke-width: 1px; stroke-linejoin: miter; pointer-events: none; }
+.it-job-frac-d { color: var(--it-meta); }
+/* the two sides, named: the transfer (who sent it, when the email came) above, the invoice(s) (who they are for, when issued) below */
+.it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
+/* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */
+.it-job-rail[data-kind="receipt"] .it-job-cols .it-job-top, .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-bot, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-side { display: grid; justify-items: start; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: nowrap; }
+.it-job-side b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); }
+.it-job-side-top { align-self: end; }
+.it-job-side-bot { align-self: start; }
+.it-job-side-bot b { color: var(--it-brand); }
+/* the receipt job: its name opens the file */
+.it-job-rc-view { color: inherit; text-decoration: underline; text-decoration-color: var(--it-line); text-underline-offset: 3px; }
+.it-job-rc-view:hover, .it-job-rc-view:focus-visible { color: var(--it-brand); text-decoration-color: currentColor; }
+.it-job-rail[data-kind="receipt"] .it-btn-fill .it-job-ic { transform: none; }
+.it-job-sides .it-job-disc-flow { justify-self: start; margin-left: 4px; }
+/* Record points along the flow already: no turned arrow (the duplicate job turns its merge arrow) */
+.it-job-rail[data-kind="etransfer"] .it-btn-fill .it-job-ic { transform: none; }
+@container (max-width: 900px) {
+}
+
+/* Yui's job strip: a message on the left, the form that answers it on the right */
+.it-job-yui .it-job-split { padding-top: 16px; padding-bottom: 16px; }
+.it-job-left { min-width: 240px; max-width: 320px; justify-items: start; grid-template-rows: none; }
+.it-job-what { display: grid; gap: 2px; justify-items: start; }
+.it-job-who { font-size: 14px; line-height: 20px; font-weight: 600; }
+.it-job-at { font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-subj { font-size: 14px; line-height: 20px; font-weight: 500; }
+.it-job-quote { margin: 0; font-size: 14px; line-height: 20px; color: var(--it-text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.it-job-addr, .it-job-why { margin: 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+/* Read the whole email (Tim, 2026-11-10): a quiet link; the full text opens in place and scrolls inside the card */
+.it-job-read, .it-job-readless { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0 -8px -4px; padding: 0 4px; border: 0; background: none; font: inherit; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-job-read:hover, .it-job-readless:hover { color: var(--it-text); }
+.it-job-read:focus-visible, .it-job-readless:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: -2px; border-radius: 6px; }
+.it-job-left.is-open { max-width: 440px; }
+.it-job-full { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; padding-right: 6px; justify-items: start; }
+.it-job-fulltext, .it-job-earliertext { margin: 0; font-size: 14px; line-height: 20px; color: var(--it-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.it-job-earlier { width: 100%; }
+.it-job-earlier summary { cursor: pointer; font-size: 13px; line-height: 18px; min-height: 28px; display: flex; align-items: center; color: var(--it-meta); }
+.it-job-earliertext { color: var(--it-meta); margin-top: 4px; }
+.it-job-fullmeta { margin: 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-fullmeta:empty, .it-job-earliertext:empty { display: none; }
+.it-job-more { margin: 0; padding: 0; list-style: none; }
+.it-job-more li { font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-right { min-width: 300px; max-width: 360px; display: block; }
+.it-job-form { display: grid; gap: 8px; }
+.it-job-form label { display: grid; gap: 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-ctl { min-height: 44px; padding: 0 12px; border: var(--it-stroke-hairline) solid var(--it-meta); border-radius: 10px; background: var(--it-surface); color: var(--it-text); font: inherit; font-size: 14px; }
+textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
+.it-job-warn { display: flex; gap: 6px; align-items: center; margin: 0; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--it-status-attention); }
+.it-job-found { list-style: none; margin: 0; padding: 0; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 10px; max-height: 176px; overflow: auto; }
+.it-job-found:empty { display: none; }
+.it-job-found button { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 0 12px; background: none; border: 0; font: inherit; font-size: 14px; color: var(--it-text); text-align: left; cursor: pointer; }
+.it-job-found button:hover { background: var(--it-selected); }
+.it-job-draft { display: inline-flex; align-items: center; justify-self: start; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; font-size: 14px; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-ctl:focus-visible, .it-job-found button:focus-visible, .it-job-draft:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+
+/* Reduced motion: nothing slides, fades or rotates; open things simply appear */
+@media (prefers-reduced-motion: reduce) {
+  body.it-shell.it-shell .it-acc,
+  body.it-shell.it-shell .it-hp,
+  body.it-shell.it-shell .it-hp.is-open,
+  body.it-shell.it-shell .it-fly,
+  body.it-shell.it-shell.it-rail .it-fly.is-open,
+  .it-ah .it-ch,
+  .it-ab,
+  .it-ws.anim .it-ab,
+  .it-ws.anim .it-jobx { transition: none; }
+  .it-job-rail.is-enter { animation: none; }
+  .it-job-ink { display: none; }
+  @starting-style {
+    body.it-shell.it-shell .it-acc { grid-template-rows: 1fr; }
+    body.it-shell.it-shell .it-hp.is-open,
+    body.it-shell.it-shell.it-rail .it-fly.is-open { opacity: 1; transform: none; border-radius: 14px; }
+  }
+}
+
+/* Penny's month-balancing job (Tim, 2026-11-10): the e-Transfer frame; after the two buttons the month's disc (what the month stands at
+   once this line is settled: ✓ exact, ≠ the difference, ✗ lines or receipts open, ℹ waiting), then the Ledger. The other months are a quiet row in the foot. */
+.it-job-after { min-width: 96px; }
+.it-job-after .it-job-top, .it-job-after .it-job-bot { color: var(--it-meta); font-size: 13px; }
+.it-job-rail[data-kind="month"] .it-job-cols .it-job-top, .it-job-rail[data-kind="month"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-rail[data-kind="month"] .it-btn-fill .it-job-ic { transform: none; }
+.it-job-mrow { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; margin-left: 16px; color: var(--it-meta); }
+.it-job-mrow:empty { display: none; }
+.it-job-mchip { font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.it-job-mchip.is-carried { opacity: .6; }
+.it-job-mchip.is-focus { color: var(--it-text); font-weight: 600; opacity: 1; }
+
+/* The resting line (Tim, 2026-11-10): the line is always there; with nothing to decide it runs bare from the Bank to the Ledger.
+   The caption sits on the line (surface behind it) and speaks only for Penny's queue, never for the books. */
+.it-job-rail[data-kind="idle"] { justify-content: flex-start; min-height: 100px; }   /* tall enough for the anchors' labels, which hang below the icons */
+.it-job-idle { flex: none; margin: 0 auto; padding: 0 14px; background: var(--it-surface); font-size: 14px; line-height: 24px; color: var(--it-meta); }
+
+/* "Wrong account" on the month job: the strip asks what the payee is, with the chart to pick from; Save / Back replace the two buttons. */
+.it-job-choose { align-items: stretch; min-width: 260px; }
+.it-job-q { display: grid; gap: 6px; font-size: 13px; line-height: 18px; color: var(--it-meta); align-self: end; }
+.it-job-sel { min-height: 40px; max-width: 280px; padding: 0 8px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 8px; background: var(--it-surface); font: inherit; font-size: 14px; color: var(--it-text); }
+.it-job-sel:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-job-choose-btns { display: flex; gap: 10px; align-self: start; }

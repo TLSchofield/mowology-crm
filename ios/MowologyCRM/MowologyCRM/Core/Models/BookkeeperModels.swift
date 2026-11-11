@@ -1,0 +1,796 @@
+//
+//  BookkeeperModels.swift
+//  MowologyCRM
+//
+//  Penny's desk — GET/POST /api/expenses/bookkeeper-mobile.
+//  Mirrors the web card's queue (BookkeeperDeskService::queue) and duplicate groups
+//  (DuplicateReceiptService::groups). Every field is optional and numbers may arrive
+//  as strings (PDO returns DECIMAL columns as strings), so nothing here fails a decode.
+//
+
+import Foundation
+
+// MARK: - Loose JSON value
+
+/// Any JSON value. Penny's suggestion values are strings, numbers, null, or (line items) arrays.
+enum BKValue: Decodable, Equatable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case array([BKValue])
+    case object([String: BKValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let d = try? c.decode(Double.self) { self = .number(d) }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else if let a = try? c.decode([BKValue].self) { self = .array(a) }
+        else if let o = try? c.decode([String: BKValue].self) { self = .object(o) }
+        else { self = .null }
+    }
+
+    /// Text form, as the web card would put it in an input. Whole numbers lose the ".0".
+    var text: String? {
+        switch self {
+        case .string(let s): return s
+        case .number(let d):
+            return d == d.rounded() && abs(d) < 1e12 ? String(Int(d)) : String(d)
+        case .bool(let b): return b ? "true" : "false"
+        default: return nil
+        }
+    }
+
+    var double: Double? {
+        switch self {
+        case .number(let d): return d
+        case .string(let s): return Double(s.trimmingCharacters(in: .whitespaces))
+        default: return nil
+        }
+    }
+
+    var int: Int? {
+        switch self {
+        case .number(let d): return Int(d)
+        case .string(let s): return Int(s.trimmingCharacters(in: .whitespaces)) ?? Double(s).map { Int($0) }
+        default: return nil
+        }
+    }
+}
+
+// MARK: - Tolerant decode helpers
+
+extension KeyedDecodingContainer {
+    func bkInt(_ key: Key) -> Int? {
+        (try? decodeIfPresent(BKValue.self, forKey: key))?.int
+    }
+    func bkDouble(_ key: Key) -> Double? {
+        (try? decodeIfPresent(BKValue.self, forKey: key))?.double
+    }
+    func bkString(_ key: Key) -> String? {
+        (try? decodeIfPresent(BKValue.self, forKey: key))?.text
+    }
+    func bkBool(_ key: Key) -> Bool? {
+        guard let v = try? decodeIfPresent(BKValue.self, forKey: key) else { return nil }
+        switch v {
+        case .bool(let b): return b
+        case .number(let d): return d != 0
+        case .string(let s): return ["1", "true", "yes"].contains(s.lowercased())
+        default: return nil
+        }
+    }
+}
+
+// MARK: - Queue
+
+/// One of Penny's field reads: her value, why, and how sure she is.
+struct BKSuggestedField: Decodable, Equatable {
+    let value: BKValue
+    let reason: String?
+    let confidence: String?
+
+    private enum CodingKeys: String, CodingKey { case value, reason, confidence }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        value = (try? c.decodeIfPresent(BKValue.self, forKey: .value)) ?? .null
+        reason = c.bkString(.reason)
+        confidence = c.bkString(.confidence)
+    }
+
+    init(value: BKValue, reason: String?, confidence: String?) {
+        self.value = value; self.reason = reason; self.confidence = confidence
+    }
+}
+
+/// A hard check on the read ("Total = subtotal + GST + PST", "Category: Fuel").
+struct BKCheck: Decodable, Identifiable, Equatable {
+    let id: UUID
+    let ok: Bool
+    let message: String
+
+    private enum CodingKeys: String, CodingKey { case ok, message }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = UUID()
+        ok = c.bkBool(.ok) ?? false
+        message = c.bkString(.message) ?? ""
+    }
+
+    init(ok: Bool, message: String) { id = UUID(); self.ok = ok; self.message = message }
+
+    static func == (a: BKCheck, b: BKCheck) -> Bool { a.ok == b.ok && a.message == b.message }
+}
+
+struct BookkeeperItem: Decodable, Identifiable, Equatable {
+    var id: Int { suggestionId }
+
+    let suggestionId: Int
+    let expenseId: Int
+    let status: String
+    let vendor: String?
+    let vendorId: Int?
+    let date: String?
+    let submittedBy: String?
+    let imageURL: String?
+    /// field name → Penny's read (vendor, accounting_category, asset_tag, job, subtotal, gst, pst, total, line_items, notes)
+    let suggestion: [String: BKSuggestedField]
+    let jobTitle: String?
+    let checks: [BKCheck]
+    /// The owner's saved-but-not-approved values, if any — the form reopens with them.
+    var savedDraft: [String: BKValue]?
+
+    private enum CodingKeys: String, CodingKey {
+        case suggestionId = "suggestion_id", expenseId = "expense_id", status, vendor
+        case vendorId = "vendor_id", date, submittedBy = "submitted_by", imageURL = "image_url"
+        case suggestion, jobTitle = "job_title", checks, savedDraft = "saved_draft"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        suggestionId = c.bkInt(.suggestionId) ?? 0
+        expenseId = c.bkInt(.expenseId) ?? 0
+        status = c.bkString(.status) ?? "draft"
+        vendor = c.bkString(.vendor)
+        vendorId = c.bkInt(.vendorId)
+        date = c.bkString(.date)
+        submittedBy = c.bkString(.submittedBy)
+        imageURL = c.bkString(.imageURL)
+        // A field that isn't {value, reason, confidence} (e.g. an odd shape) is skipped, not fatal.
+        var fields: [String: BKSuggestedField] = [:]
+        if let raw = try? c.decodeIfPresent([String: BKValue].self, forKey: .suggestion) {
+            for (k, v) in raw {
+                guard case .object(let o) = v else { continue }
+                fields[k] = BKSuggestedField(value: o["value"] ?? .null,
+                                             reason: o["reason"]?.text,
+                                             confidence: o["confidence"]?.text)
+            }
+        }
+        suggestion = fields
+        jobTitle = c.bkString(.jobTitle)
+        checks = (try? c.decodeIfPresent([BKCheck].self, forKey: .checks)) ?? []
+        if let d = try? c.decodeIfPresent([String: BKValue].self, forKey: .savedDraft) {
+            savedDraft = d
+        } else {
+            savedDraft = nil
+        }
+    }
+
+    init(suggestionId: Int, expenseId: Int, status: String, vendor: String?, vendorId: Int?, date: String?,
+         submittedBy: String?, imageURL: String?, suggestion: [String: BKSuggestedField], jobTitle: String?,
+         checks: [BKCheck], savedDraft: [String: BKValue]?) {
+        self.suggestionId = suggestionId; self.expenseId = expenseId; self.status = status
+        self.vendor = vendor; self.vendorId = vendorId; self.date = date; self.submittedBy = submittedBy
+        self.imageURL = imageURL; self.suggestion = suggestion; self.jobTitle = jobTitle
+        self.checks = checks; self.savedDraft = savedDraft
+    }
+
+    /// Penny's value for a field, as text.
+    func suggested(_ field: String) -> String? { suggestion[field]?.value.text }
+
+    /// What the form opens with: the saved draft's value if there is one, else Penny's.
+    func current(_ field: String) -> String? {
+        if let d = savedDraft, let v = d[field] { return v.text }
+        return suggested(field)
+    }
+}
+
+// MARK: - Duplicates
+
+struct BKDupeMember: Decodable, Identifiable, Equatable {
+    let id: Int
+    let expenseDate: String?
+    let total: Double?
+    let status: String?
+    let vendorName: String?
+    let vendorNameRaw: String?
+    let receiptPath: String?
+    let submittedBy: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, expenseDate = "expense_date", total, status, vendorName = "vendor_name"
+        case vendorNameRaw = "vendor_name_raw", receiptPath = "receipt_path", submittedBy = "submitted_by"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        expenseDate = c.bkString(.expenseDate)
+        total = c.bkDouble(.total)
+        status = c.bkString(.status)
+        vendorName = c.bkString(.vendorName)
+        vendorNameRaw = c.bkString(.vendorNameRaw)
+        receiptPath = c.bkString(.receiptPath)
+        submittedBy = c.bkString(.submittedBy)
+    }
+
+    init(id: Int, expenseDate: String?, total: Double?, status: String?, vendorName: String?,
+         receiptPath: String?, submittedBy: String?) {
+        self.id = id; self.expenseDate = expenseDate; self.total = total; self.status = status
+        self.vendorName = vendorName; self.vendorNameRaw = nil; self.receiptPath = receiptPath
+        self.submittedBy = submittedBy
+    }
+
+    var displayVendor: String { vendorName ?? vendorNameRaw ?? "Unknown vendor" }
+    var isWaiting: Bool { status == "draft" || status == "pending_approval" }
+}
+
+/// One row of the facts side by side (server: DuplicateReceiptService::factRows). state:
+/// same (a tick), differs (highlighted), missing (a value not read — "–"), info (not compared).
+struct BKDupeFactRow: Decodable, Equatable, Identifiable {
+    var id: String { label }
+    let label: String
+    let values: [String?]
+    let state: String
+
+    private enum CodingKeys: String, CodingKey { case label, values, state }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label = c.bkString(.label) ?? ""
+        values = ((try? c.decodeIfPresent([BKValue?].self, forKey: .values)) ?? []).map { v in
+            guard let t = v?.text, !t.isEmpty else { return nil }
+            return t
+        }
+        state = c.bkString(.state) ?? "info"
+    }
+
+    init(label: String, values: [String?], state: String) { self.label = label; self.values = values; self.state = state }
+}
+
+struct BKDupeGroup: Decodable, Identifiable, Equatable {
+    var id: String { members.map { String($0.id) }.joined(separator: "-") }
+    let pairs: [[Int]]
+    let members: [BKDupeMember]
+    // Penny's presentation (server 2026-11-06, DuplicateReceiptService::presentGroup); nil from an older server.
+    let verdict: String?
+    let evidence: String?
+    let confidence: String?
+    let keepId: Int?
+    let keepReason: String?
+    let copyIds: [Int]
+    let canSwap: [Int]
+    let facts: [BKDupeFactRow]
+
+    private enum CodingKeys: String, CodingKey {
+        case pairs, members, verdict, evidence, confidence, facts
+        case keepId = "keep_id", keepReason = "keep_reason", copyIds = "copy_ids", canSwap = "can_swap"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = (try? c.decodeIfPresent([[BKValue]].self, forKey: .pairs)) ?? []
+        pairs = raw.map { $0.compactMap { $0.int } }.filter { $0.count == 2 }
+        members = (try? c.decodeIfPresent([BKDupeMember].self, forKey: .members)) ?? []
+        verdict = c.bkString(.verdict)
+        evidence = c.bkString(.evidence)
+        confidence = c.bkString(.confidence)
+        keepId = c.bkInt(.keepId)
+        keepReason = c.bkString(.keepReason)
+        copyIds = ((try? c.decodeIfPresent([BKValue].self, forKey: .copyIds)) ?? []).compactMap { $0.int }
+        canSwap = ((try? c.decodeIfPresent([BKValue].self, forKey: .canSwap)) ?? []).compactMap { $0.int }
+        facts = (try? c.decodeIfPresent([BKDupeFactRow].self, forKey: .facts)) ?? []
+    }
+
+    init(pairs: [[Int]], members: [BKDupeMember], verdict: String? = nil, evidence: String? = nil, confidence: String? = nil,
+         keepId: Int? = nil, keepReason: String? = nil, copyIds: [Int] = [], canSwap: [Int] = [], facts: [BKDupeFactRow] = []) {
+        self.pairs = pairs; self.members = members; self.verdict = verdict; self.evidence = evidence
+        self.confidence = confidence; self.keepId = keepId; self.keepReason = keepReason
+        self.copyIds = copyIds; self.canSwap = canSwap; self.facts = facts
+    }
+}
+
+/// A copy merged into a receipt ("Also on this purchase") — GET bookkeeper-mobile?mode=merged&expense_id=N.
+struct BKMergedCopy: Decodable, Identifiable, Equatable {
+    var id: Int { copyId }
+    let copyId: Int
+    let expenseDate: String?
+    let total: Double?
+    let receiptPath: String?
+    let mergedAt: String?
+    let mergedBy: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case copyId = "copy_id", expenseDate = "expense_date", total, receiptPath = "receipt_path"
+        case mergedAt = "merged_at", mergedBy = "merged_by"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        copyId = c.bkInt(.copyId) ?? 0
+        expenseDate = c.bkString(.expenseDate)
+        total = c.bkDouble(.total)
+        receiptPath = c.bkString(.receiptPath)
+        mergedAt = c.bkString(.mergedAt)
+        mergedBy = c.bkString(.mergedBy)
+    }
+}
+
+struct BKMergedResponse: Decodable {
+    let ok: Bool
+    let merged: [BKMergedCopy]
+    private enum CodingKeys: String, CodingKey { case ok, merged }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        merged = (try? c.decodeIfPresent([BKMergedCopy].self, forKey: .merged)) ?? []
+    }
+}
+
+// MARK: - Responses
+
+struct BKTagOption: Decodable, Hashable {
+    let value: String
+    let label: String
+}
+
+/// A cheque deposit in the bank that likely pays an open invoice (InvoiceReconciliationService::likelyCheques(), the
+/// same matcher as the web invoices list). Shown first on Penny's card; "Record" posts cheque_record — never automatic.
+struct BKChequeMatch: Decodable, Identifiable, Equatable {
+    struct Invoice: Decodable, Equatable {
+        let id: Int
+        let number: String
+        let payer: String
+        let balanceDue: Double
+        private enum CodingKeys: String, CodingKey { case id, number, payer, balanceDue = "balance_due" }
+    }
+    struct Other: Decodable, Equatable {
+        let invoiceId: Int
+        let invoiceNumber: String
+        let balanceDue: Double
+        let apply: Double
+        private enum CodingKeys: String, CodingKey { case invoiceId = "invoice_id", invoiceNumber = "invoice_number", balanceDue = "balance_due", apply }
+    }
+    struct Fact: Decodable, Equatable, Hashable {
+        let label: String
+        let cheque: String
+        let invoice: String
+        /// same | differs | missing | info
+        let state: String
+    }
+    let txId: Int
+    let amount: Double
+    let payer: String?
+    let memo: String
+    let label: String
+    let confidence: Int
+    let invoice: Invoice
+    let apply: Double
+    let verdict: String
+    let confidenceLine: String
+    let facts: [Fact]
+    let others: [Other]
+
+    var id: Int { txId }
+
+    private enum CodingKeys: String, CodingKey {
+        case txId = "tx_id", amount, payer, memo, label, confidence, invoice, apply, verdict
+        case confidenceLine = "confidence_line", facts, others
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        txId = try c.decode(Int.self, forKey: .txId)
+        amount = (try? c.decode(Double.self, forKey: .amount)) ?? 0
+        payer = c.bkString(.payer)
+        memo = c.bkString(.memo) ?? ""
+        label = c.bkString(.label) ?? "Cheque deposit"
+        confidence = (try? c.decode(Int.self, forKey: .confidence)) ?? 0
+        invoice = try c.decode(Invoice.self, forKey: .invoice)
+        apply = (try? c.decode(Double.self, forKey: .apply)) ?? 0
+        verdict = c.bkString(.verdict) ?? ""
+        confidenceLine = c.bkString(.confidenceLine) ?? ""
+        facts = (try? c.decodeIfPresent([Fact].self, forKey: .facts)) ?? []
+        others = (try? c.decodeIfPresent([Other].self, forKey: .others)) ?? []
+    }
+}
+
+/// A deposit the payments matcher proposes (PaymentMatchService::pennyCards()): cheque, e-Transfer, EFT … paying one or
+/// more invoices. Record posts payment_book with the signature (refused if the line changed); Undo posts payment_undo.
+struct BKPaymentMatch: Decodable, Identifiable, Equatable {
+    struct Target: Decodable, Equatable, Hashable {
+        let number: String
+        let payer: String
+        let amount: Double
+    }
+    struct Fact: Decodable, Equatable, Hashable {
+        let label: String
+        let deposit: String
+        let invoice: String
+        let state: String
+    }
+    let txId: Int
+    let signature: String
+    let amount: Double
+    let memo: String
+    let label: String
+    let payer: String?
+    let confidence: String
+    let verdict: String
+    let evidence: [String]
+    let flags: [String]
+    let targets: [Target]
+    let facts: [Fact]
+    /// What the tap does, from the server: "Link · bank line to the payment" when the payment is already on the invoice,
+    /// "Record · $X on INV-…" when it records one (Tim, 2026-11-07).
+    struct Button: Decodable, Equatable { let title: String; let detail: String }
+    let button: Button?
+
+    var id: Int { txId }
+
+    private enum CodingKeys: String, CodingKey {
+        case txId = "tx_id", signature, amount, memo, label, payer, confidence, verdict, evidence, flags, targets, facts, button
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        txId = try c.decode(Int.self, forKey: .txId)
+        signature = c.bkString(.signature) ?? ""
+        amount = (try? c.decode(Double.self, forKey: .amount)) ?? 0
+        memo = c.bkString(.memo) ?? ""
+        label = c.bkString(.label) ?? "Bank deposit"
+        payer = c.bkString(.payer)
+        confidence = c.bkString(.confidence) ?? ""
+        verdict = c.bkString(.verdict) ?? ""
+        evidence = (try? c.decodeIfPresent([String].self, forKey: .evidence)) ?? []
+        flags = (try? c.decodeIfPresent([String].self, forKey: .flags)) ?? []
+        targets = (try? c.decodeIfPresent([Target].self, forKey: .targets)) ?? []
+        facts = (try? c.decodeIfPresent([Fact].self, forKey: .facts)) ?? []
+        button = try? c.decodeIfPresent(Button.self, forKey: .button)
+    }
+
+    /// "INV-2026-0465", or "3 invoices".
+    var targetLine: String { targets.count == 1 ? targets[0].number : "\(targets.count) invoices" }
+}
+
+struct BookkeeperQueueResponse: Decodable {
+    let ok: Bool
+    /// Every deposit the payments matcher proposes — first on the card (1.3.108). Older servers send none.
+    let payments: [BKPaymentMatch]
+    /// Likely cheques for open invoices — first on the card (Tim, 2026-11-06). Older servers send none.
+    let cheques: [BKChequeMatch]
+    let dupes: [BKDupeGroup]
+    let queue: [BookkeeperItem]
+    let categories: [String]
+    let assetTags: [BKTagOption]
+    /// Customer billing mail routed to Penny (admins) — older servers send none.
+    let messages: [PennyMessage]
+    /// Penny's read-only web-card lines (look-back, payments ↔ invoices, missing receipts) — older servers send none.
+    let lines: PennyLines?
+    let error: String?
+
+    private enum CodingKeys: String, CodingKey { case ok, payments, cheques, dupes, queue, categories, assetTags = "asset_tags", messages, lines, error }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        payments = (try? c.decodeIfPresent([BKPaymentMatch].self, forKey: .payments)) ?? []
+        cheques = (try? c.decodeIfPresent([BKChequeMatch].self, forKey: .cheques)) ?? []
+        dupes = (try? c.decodeIfPresent([BKDupeGroup].self, forKey: .dupes)) ?? []
+        queue = (try? c.decodeIfPresent([BookkeeperItem].self, forKey: .queue)) ?? []
+        categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? []
+        assetTags = (try? c.decodeIfPresent([BKTagOption].self, forKey: .assetTags)) ?? BKTagOption.defaults
+        messages = (try? c.decodeIfPresent([PennyMessage].self, forKey: .messages)) ?? []
+        lines = try? c.decodeIfPresent(PennyLines.self, forKey: .lines)
+        error = c.bkString(.error)
+    }
+}
+
+// MARK: - Penny's read-only lines (bookkeeper-mobile queue → lines; added 2026-10-08)
+
+/// The look-back review, payments matched to invoices, and the missing-receipt chaser — counts only;
+/// each one is approved on the web page it links to.
+struct PennyLines: Decodable, Equatable {
+    struct Lookback: Decodable, Equatable {
+        let count: Int
+        let amount: Double
+        let gst: Double
+        let text: String
+        let url: String
+        private enum CodingKeys: String, CodingKey { case count, amount, gst, text, url }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            count = c.bkInt(.count) ?? 0
+            amount = c.bkDouble(.amount) ?? 0
+            gst = c.bkDouble(.gst) ?? 0
+            text = c.bkString(.text) ?? ""
+            url = c.bkString(.url) ?? "/crm/accounting/lookback.php"
+        }
+    }
+    struct Payments: Decodable, Equatable {
+        let waiting: Int
+        let waitingTotal: Double
+        let high: Int
+        let url: String
+        private enum CodingKeys: String, CodingKey { case waiting, high, url, waitingTotal = "waiting_total" }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            waiting = c.bkInt(.waiting) ?? 0
+            waitingTotal = c.bkDouble(.waitingTotal) ?? 0
+            high = c.bkInt(.high) ?? 0
+            url = c.bkString(.url) ?? "/crm/accounting/payment-match.php"
+        }
+    }
+    struct Missing: Decodable, Equatable {
+        let open: Int
+        let openAmount: Double
+        let noReceipt: Int
+        let noReceiptAmount: Double
+        private enum CodingKeys: String, CodingKey {
+            case open, openAmount = "open_amount", noReceipt = "no_receipt", noReceiptAmount = "no_receipt_amount"
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            open = c.bkInt(.open) ?? 0
+            openAmount = c.bkDouble(.openAmount) ?? 0
+            noReceipt = c.bkInt(.noReceipt) ?? 0
+            noReceiptAmount = c.bkDouble(.noReceiptAmount) ?? 0
+        }
+    }
+
+    let lookback: Lookback?
+    let payments: Payments?
+    let missing: Missing?
+
+    private enum CodingKeys: String, CodingKey { case lookback, payments, missing }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lookback = try? c.decodeIfPresent(Lookback.self, forKey: .lookback)
+        payments = try? c.decodeIfPresent(Payments.self, forKey: .payments)
+        missing = try? c.decodeIfPresent(Missing.self, forKey: .missing)
+    }
+}
+
+// MARK: - Penny's messages (customer billing mail routed to her — InboundRouteService::forApp)
+
+/// "Vancouver Management wants your direct-deposit details — the form is attached; fill it in and
+/// email vidhya@vml.ca." A reminder for Tim: Penny never fills in or sends banking details.
+struct PennyMessage: Decodable, Identifiable, Equatable {
+    let key: String
+    let text: String
+    let subject: String
+    let at: String
+    let emailTo: String?
+    let note: String?
+    let contactURL: String?
+    let attachments: [PennyAttachment]
+
+    var id: String { key }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, text, subject, at, note, attachments
+        case emailTo = "email_to"
+        case contactURL = "contact_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = c.bkString(.key) ?? UUID().uuidString
+        text = c.bkString(.text) ?? ""
+        subject = c.bkString(.subject) ?? ""
+        at = c.bkString(.at) ?? ""
+        emailTo = c.bkString(.emailTo)
+        note = c.bkString(.note)
+        contactURL = c.bkString(.contactURL)
+        attachments = (try? c.decodeIfPresent([PennyAttachment].self, forKey: .attachments)) ?? []
+    }
+}
+
+/// A kept attachment with a short-lived signed link (opens in Safari / Quick Look).
+struct PennyAttachment: Decodable, Identifiable, Equatable {
+    let id: Int
+    let filename: String
+    let url: String
+
+    private enum CodingKeys: String, CodingKey { case id, filename, url }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        filename = c.bkString(.filename) ?? "attachment.pdf"
+        url = c.bkString(.url) ?? ""
+    }
+}
+
+extension BKTagOption {
+    /// The web card's "For" choices, used if the server sends none.
+    static let defaults: [BKTagOption] = [
+        BKTagOption(value: "none", label: "None"),
+        BKTagOption(value: "truck", label: "Truck"),
+        BKTagOption(value: "equipment", label: "Equipment"),
+        BKTagOption(value: "stock", label: "Shop stock"),
+    ]
+}
+
+/// decide / reject / not_dupe → {ok, message, approved?, saved_draft?, blocked?}
+struct BookkeeperActionResponse: Decodable {
+    let ok: Bool
+    let message: String?
+    let approved: Bool?
+    let savedDraft: Bool?
+    let blocked: Bool?
+    let error: String?
+    /// merge: the server recorded each copy (expense_merges), so Undo / Split off can bring it back.
+    let undo: Bool?
+    /// payment_book: the payments matcher's log row, for Undo.
+    let logId: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case ok, message, approved, savedDraft = "saved_draft", blocked, error, undo, logId = "log_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        message = c.bkString(.message)
+        approved = c.bkBool(.approved)
+        savedDraft = c.bkBool(.savedDraft)
+        blocked = c.bkBool(.blocked)
+        error = c.bkString(.error)
+        undo = c.bkBool(.undo)
+        logId = try? c.decodeIfPresent(Int.self, forKey: .logId)
+    }
+}
+
+// MARK: - Penny's risk explanation (GET /api/expenses/bookkeeper-mobile?mode=risk)
+
+struct ReceiptRiskFlag: Decodable, Identifiable, Equatable {
+    var id: String { code }
+    let code: String
+    let detail: String?
+    let penny: String
+
+    private enum CodingKeys: String, CodingKey { case code, detail, penny }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        code = c.bkString(.code) ?? ""
+        detail = c.bkString(.detail)
+        penny = c.bkString(.penny) ?? (c.bkString(.detail) ?? "")
+    }
+}
+
+struct ReceiptRiskResponse: Decodable, Equatable {
+    let ok: Bool
+    let score: Int
+    let tier: String
+    let summary: String
+    let flags: [ReceiptRiskFlag]
+
+    private enum CodingKeys: String, CodingKey { case ok, score, tier, summary, flags }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        score = c.bkInt(.score) ?? 0
+        tier = c.bkString(.tier) ?? "none"
+        summary = c.bkString(.summary) ?? ""
+        flags = (try? c.decodeIfPresent([ReceiptRiskFlag].self, forKey: .flags)) ?? []
+    }
+}
+
+// MARK: - Penny's read on one receipt (GET /api/expenses/bookkeeper-mobile?mode=suggestion)
+// PennyReadService::read() — her pending suggestion where it differs from the receipt (2026-10-13).
+
+struct PennyReadField: Decodable, Identifiable, Equatable {
+    var id: String { field }
+    let field: String
+    let label: String
+    let penny: String?
+    let receipt: String?
+    let reason: String
+    let confidence: String
+
+    private enum CodingKeys: String, CodingKey { case field, label, penny, receipt, reason, confidence }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        field = c.bkString(.field) ?? ""
+        label = c.bkString(.label) ?? ""
+        penny = c.bkString(.penny)
+        receipt = c.bkString(.receipt)
+        reason = c.bkString(.reason) ?? ""
+        confidence = c.bkString(.confidence) ?? ""
+    }
+}
+
+struct PennyReadItem: Decodable, Equatable {
+    let name: String
+    let amount: Double
+
+    private enum CodingKeys: String, CodingKey { case name, amount }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.bkString(.name) ?? ""
+        amount = c.bkDouble(.amount) ?? 0
+    }
+}
+
+struct PennyReadItems: Decodable, Equatable {
+    let penny: [PennyReadItem]
+    let receipt: [PennyReadItem]
+    let pennySum: Double
+    let receiptSum: Double
+
+    private enum CodingKeys: String, CodingKey { case penny, receipt, pennySum = "penny_sum", receiptSum = "receipt_sum" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        penny = (try? c.decodeIfPresent([PennyReadItem].self, forKey: .penny)) ?? []
+        receipt = (try? c.decodeIfPresent([PennyReadItem].self, forKey: .receipt)) ?? []
+        pennySum = c.bkDouble(.pennySum) ?? 0
+        receiptSum = c.bkDouble(.receiptSum) ?? 0
+    }
+}
+
+struct PennyRead: Decodable, Equatable {
+    let suggestionId: Int
+    let differs: Bool
+    let fields: [PennyReadField]
+    let items: PennyReadItems?
+    let notes: String
+    let appliedDraft: Bool
+    let canApply: Bool
+    let applyApproves: Bool
+    let canKeep: Bool
+    let applyNote: String
+
+    private enum CodingKeys: String, CodingKey {
+        case suggestionId = "suggestion_id", differs, fields, items, notes, appliedDraft = "applied_draft",
+             canApply = "can_apply", applyApproves = "apply_approves", canKeep = "can_keep", applyNote = "apply_note"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        suggestionId = c.bkInt(.suggestionId) ?? 0
+        differs = c.bkBool(.differs) ?? false
+        fields = (try? c.decodeIfPresent([PennyReadField].self, forKey: .fields)) ?? []
+        items = try? c.decodeIfPresent(PennyReadItems.self, forKey: .items)
+        notes = c.bkString(.notes) ?? ""
+        appliedDraft = c.bkBool(.appliedDraft) ?? false
+        canApply = c.bkBool(.canApply) ?? false
+        applyApproves = c.bkBool(.applyApproves) ?? false
+        canKeep = c.bkBool(.canKeep) ?? false
+        applyNote = c.bkString(.applyNote) ?? ""
+    }
+}
+
+/// {ok, read: PennyRead | null}
+struct PennyReadResponse: Decodable {
+    let ok: Bool
+    let read: PennyRead?
+    let error: String?
+
+    private enum CodingKeys: String, CodingKey { case ok, read, error }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        read = try? c.decodeIfPresent(PennyRead.self, forKey: .read)
+        error = c.bkString(.error)
+    }
+}

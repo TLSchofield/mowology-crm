@@ -30,7 +30,7 @@ $fullTitle  = $adminTitle ? h($adminTitle) . ' — ' . h($siteName) : h($siteNam
   <script src="/crm/js/feather-helper.js"></script>
 
   <!-- Admin styles -->
-  <link rel="stylesheet" href="/site-admin/css/admin.css">
+  <link rel="stylesheet" href="/site-admin/css/admin.css?v=20261012">
 
   <?= $extraHead ?>
 </head>

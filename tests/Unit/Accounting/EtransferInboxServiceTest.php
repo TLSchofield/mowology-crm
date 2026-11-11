@@ -1,0 +1,264 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Tests for EtransferInboxService::parseInteracEmail() and extractInvoiceNumber().
+ *
+ * Exercised against a real Interac notification email captured from the
+ * office@mowology.ca inbox (manual-claim format) plus a synthetic auto-deposit
+ * variant. Pure static methods — no database required.
+ */
+class EtransferInboxServiceTest extends TestCase
+{
+    /** Real "claim your deposit" email body (name/amount are real but public-facing on the invoice). */
+    private const CLAIM_SUBJECT = 'Interac e-Transfer: Claim your $396.17 from ALEX SHI KE WANG by July 3, 2026';
+    private const CLAIM_BODY = "Hi mowology office,\r\n\r\nYour funds expire soon!\r\n\$396.17\r\n\r\n"
+        . "Select your financial institution to deposit funds.\r\n\r\nVancity: https://etransfer.interac.ca/x\r\n\r\nOR\r\n\r\n"
+        . "Select a different Institution: https://etransfer.interac.ca/y\r\n\r\nExpiry: July 3, 2026\r\n\r\n"
+        . "Message:\r\nHere is the payment for June for Alex Wang(INV-2026-0096). I've added \$18.01 because I forgot to pay the GST last month\r\n\r\n"
+        . "Transfer Details\r\n\r\nDate: June 3, 2026\r\nReference Number: CAkvXmaZ\r\nSent From: ALEX SHI KE WANG\r\nAmount: \$396.17 (CAD)\n\nFAQ: https://www.interac.ca";
+
+    public function test_parses_amount_from_structured_field(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame(396.17, $p['amount']);
+    }
+
+    public function test_parses_sender_name(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('ALEX SHI KE WANG', $p['sender_name']);
+    }
+
+    public function test_parses_reference_number(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('CAkvXmaZ', $p['reference_number']);
+    }
+
+    public function test_extracts_invoice_number_from_memo(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('INV-2026-0096', $p['invoice_hint']);
+    }
+
+    public function test_memo_captured_without_transfer_details(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertStringContainsString('payment for June', $p['memo']);
+        $this->assertStringNotContainsString('Reference Number', $p['memo']);
+    }
+
+    public function test_detects_claim_type(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('claim', $p['transfer_type']);
+    }
+
+    public function test_amount_falls_back_to_subject_when_body_lacks_field(): void
+    {
+        $subject = 'Interac e-Transfer: KAMALJEET SINGH sent you $66.15. Claim your deposit!';
+        $p = EtransferInboxService::parseInteracEmail($subject, 'no structured amount here');
+        $this->assertSame(66.15, $p['amount']);
+        $this->assertSame('KAMALJEET SINGH', $p['sender_name']);
+    }
+
+    public function test_detects_autodeposit_type(): void
+    {
+        $body = "Hi,\nReference Number: ABC123\nSent From: JANE DOE\nAmount: \$120.00 (CAD)\n"
+              . "Your money has been automatically deposited into your account.";
+        $p = EtransferInboxService::parseInteracEmail('Interac e-Transfer: JANE DOE sent you money', $body);
+        $this->assertSame('autodeposit', $p['transfer_type']);
+        $this->assertSame(120.00, $p['amount']);
+    }
+
+    public function test_extract_invoice_number_normalises_variants(): void
+    {
+        $this->assertSame('INV-2026-0096', EtransferInboxService::extractInvoiceNumber('paid inv 2026 96'));
+        $this->assertSame('INV-2026-0096', EtransferInboxService::extractInvoiceNumber('INV-2026-0096'));
+        $this->assertSame('INV-2026-0308', EtransferInboxService::extractInvoiceNumber('invoice 2026-0308'));
+        $this->assertSame('INV-2026-0224', EtransferInboxService::extractInvoiceNumber('Invoice 2026 0224'));
+        $this->assertSame('INV-2026-0226', EtransferInboxService::extractInvoiceNumber('invoice 2026-0226'));
+        $this->assertNull(EtransferInboxService::extractInvoiceNumber('no invoice here'));
+    }
+
+    public function test_handles_email_with_no_parseable_fields(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail('Random subject', 'nothing useful');
+        $this->assertNull($p['amount']);
+        $this->assertNull($p['sender_name']);
+        $this->assertNull($p['reference_number']);
+        $this->assertNull($p['invoice_hint']);
+    }
+
+    // ── paymentBlockReason() ──────────────────────────────────────────────────
+
+    public function test_payable_statuses_are_not_blocked(): void
+    {
+        foreach (['sent', 'viewed', 'partial', 'overdue', 'draft'] as $status) {
+            $this->assertNull(
+                EtransferInboxService::paymentBlockReason($status, 'INV-2026-0001'),
+                "status {$status} should be payable"
+            );
+        }
+    }
+
+    public function test_paid_invoice_blocked_with_duplicate_warning(): void
+    {
+        $msg = EtransferInboxService::paymentBlockReason('paid', 'INV-2026-0096');
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('already fully paid', $msg);
+        $this->assertStringContainsString('duplicate', $msg);
+        $this->assertStringContainsString('INV-2026-0096', $msg);
+    }
+
+    public function test_cancelled_invoice_blocked_with_status(): void
+    {
+        $msg = EtransferInboxService::paymentBlockReason('cancelled', 'INV-2026-0100');
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('cancelled', $msg);
+        $this->assertStringContainsString("can't take a payment", $msg);
+    }
+
+    /**
+     * A manually forwarded Interac notification (staff hit Forward instead of
+     * it arriving directly from notify@payments.interac.ca) — Apple Mail
+     * prefixes every original line with "> ", which used to leak into
+     * sender_name/reference_number/amount extraction. Captured 2026-08-07.
+     */
+    private const FORWARDED_SUBJECT = 'Fwd: Interac e-Transfer: 1355183 B.C. LTD. sent you $1,050.95. Claim your deposit!';
+    private const FORWARDED_BODY = "\r\n\r\n> Begin forwarded message:\r\n>\r\n"
+        . "> From: \"1355183 B.C. LTD.\" <notify@payments.interac.ca>\r\n"
+        . "> Subject: Interac e-Transfer: 1355183 B.C. LTD. sent you \$1,050.95. Claim your deposit!\r\n"
+        . "> Date: August 7, 2026 at 10:06:22 AM PDT\r\n"
+        . "> To: Mowology <mowology@icloud.com>\r\n\r\n"
+        . "> Hi Mowology,\r\n> Your funds await!\r\n> \$1,050.95\r\n"
+        . "> Select your financial institution to deposit funds.\r\n"
+        . "> Expiry: Sept 5, 2026\r\n"
+        . "> Transfer Details\r\n"
+        . "> Date:\r\n> Aug 7, 2026\r\n"
+        . "> Reference Number:\r\n> CAQFjfaF\r\n"
+        . "> Sent From:\r\n> 1355183 B.C. LTD.\r\n"
+        . "> Amount:\r\n> \$1,050.95 (CAD)\r\n";
+
+    public function test_forwarded_email_strips_quote_markers_from_sender(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertSame('1355183 B.C. LTD.', $p['sender_name']);
+    }
+
+    public function test_forwarded_email_parses_reference_number(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertSame('CAQFjfaF', $p['reference_number']);
+    }
+
+    public function test_forwarded_email_parses_amount(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertSame(1050.95, $p['amount']);
+    }
+
+    /**
+     * Regression: "Begin forwarded message:" contains "message:" which the
+     * old unanchored /i memo regex matched case-insensitively, capturing the
+     * entire forwarded blob (headers, tracking URLs, the works) as the
+     * "customer memo" and dumping it into the Pending e-Transfers panel.
+     * This transfer has no real Message: field — memo must come back null.
+     */
+    public function test_forwarded_email_does_not_mistake_forwarded_header_for_memo(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertNull($p['memo']);
+    }
+
+    public function test_real_memo_still_extracted_when_forwarded(): void
+    {
+        $body = "> Begin forwarded message:\r\n>\r\n"
+            . "> From: \"ALEX WANG\" <notify@payments.interac.ca>\r\n\r\n"
+            . "> Message:\r\n> Payment for INV-2026-0096, thanks!\r\n\r\n"
+            . "> Transfer Details\r\n> Reference Number:\r\n> CAkvXmaZ\r\n";
+        $p = EtransferInboxService::parseInteracEmail('Fwd: test', $body);
+        $this->assertSame('Payment for INV-2026-0096, thanks!', $p['memo']);
+    }
+
+    // ── Claim deposit link + expiry (Penny's deposit alerts) ─────────────
+
+    public function test_claim_email_gives_the_bank_deposit_link_and_expiry(): void
+    {
+        $body = str_replace('https://etransfer.interac.ca/x', 'https://etransfer.interac.ca/redirectFrom?fiID=CA000809&cuID=1&pID=CAkvXmaZ&lvt=abc', self::CLAIM_BODY)
+              . "\nClick here to manage notification preferences from: https://etransfer.interac.ca/manageUserPreferences?tkn=zzz";
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, $body);
+        $this->assertSame('https://etransfer.interac.ca/redirectFrom?fiID=CA000809&cuID=1&pID=CAkvXmaZ&lvt=abc', $p['deposit_url']);
+        $this->assertSame('2026-07-03', $p['expires_on']);
+    }
+
+    public function test_without_a_bank_link_the_other_institution_link_is_used(): void
+    {
+        $this->assertSame('https://etransfer.interac.ca/x', EtransferInboxService::depositLink(self::CLAIM_BODY));
+    }
+
+    public function test_links_on_other_hosts_are_never_returned(): void
+    {
+        $this->assertNull(EtransferInboxService::depositLink("Vancity: https://etransfer.interac.ca.evil.com/x\nOther: http://etransfer.interac.ca/y"));
+    }
+
+    public function test_expiry_from_subject_when_body_has_none(): void
+    {
+        $this->assertSame('2026-10-30', EtransferInboxService::expiryDate('Interac e-Transfer: Claim your $262.50 from STRATA BCS4079 by Oct 30', '', 'Wed, 30 Sep 2026 10:00:00 -0700'));
+        $this->assertSame('2026-09-30', EtransferInboxService::expiryDate('Interac e-Transfer: Claim your $60.90 from KAMALJEET SINGH by Sept 30', '', '2026-09-01'));
+        $this->assertSame('2027-01-05', EtransferInboxService::expiryDate('Claim your $10.00 from A B by Jan 5', '', '2026-12-10'));
+    }
+
+    public function test_autodeposit_has_no_deposit_link(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail("Interac e-Transfer: You've received $66.15 from KAMALJEET SINGH and it has been automatically deposited.",
+            "Your funds have been automatically deposited into your account. https://etransfer.interac.ca/x");
+        $this->assertNull($p['deposit_url']);
+        $this->assertNull($p['expires_on']);
+    }
+
+    public function test_only_interac_or_our_own_forward_can_vouch_for_a_notice(): void
+    {
+        $this->assertSame('interac', EtransferInboxService::noticeSource('notify@payments.interac.ca', 'INTERAC e-Transfer: STRATA BCS4079 sent you money.'));
+        $this->assertSame('interac', EtransferInboxService::noticeSource('STRATA <notify@payments.interac.ca>', 'INTERAC e-Transfer: x'));
+        $this->assertSame('forwarded', EtransferInboxService::noticeSource('office@mowology.ca', 'Fwd: INTERAC e-Transfer: x'));
+        $this->assertSame('reply', EtransferInboxService::noticeSource('client@gmail.com', "Re: INTERAC e-Transfer: I'll send it Friday"));
+        $this->assertSame('untrusted', EtransferInboxService::noticeSource('client@gmail.com', 'INTERAC e-Transfer: Message INV-2026-0400'));
+        $this->assertSame('untrusted', EtransferInboxService::noticeSource('notify@payments.interac.ca.evil.net', 'INTERAC e-Transfer: x'));
+        $this->assertSame('untrusted', EtransferInboxService::noticeSource('office@mowology.ca', 'INTERAC e-Transfer: x'));
+        $this->assertSame('unknown', EtransferInboxService::noticeSource(null, 'INTERAC e-Transfer: x'));
+    }
+
+    /** Money the owner SENT is not a payment to us — the $288.75 to 1498724 B.C. LTD. (2026-10-13). */
+    public function testOutgoingNoticesAreNotPayments(): void
+    {
+        $this->assertTrue(EtransferInboxService::isOutgoingNotice('Interac e-Transfer: Your $288.75 transfer to 1498724 B.C. LTD. has been successfully deposited.'));
+        $this->assertTrue(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: Your transfer to JOHN SMITH was accepted'));
+        $this->assertFalse(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: STRATA BCS4079 sent you money.'));
+        $this->assertFalse(EtransferInboxService::isOutgoingNotice('Interac e-Transfer: Claim your $262.50'));
+        $this->assertFalse(EtransferInboxService::isOutgoingNotice('INTERAC e-Transfer: KAMALJEET SINGH has sent you $66.15 (CAD) and the money has been automatically deposited.'));
+    }
+
+    public function test_2026_10_layout_memo_inside_transfer_details_and_several_invoices(): void
+    {
+        // Alberta 3025 Strata, 2026-10-14: "Message:" inside the Transfer Details box, before "Date:".
+        $body = "Hi MOWOLOGY LAWNS AND LANDSCAPES LTD,\nFunds Deposited!\n$165.38\nYour funds have been automatically deposited into your account at Vancity.\n"
+              . "Vancity\nAccount ending in 6801\nTransfer Details\nMessage:\nInvs 2026-0251 and 0383\nDate:\nOct 14, 2026\n"
+              . "Reference Number:\nCA6GjAAj\nSent From:\nAlberta 3025 Strata\nAmount:\n\$165.38 (CAD)\n";
+        $p = EtransferInboxService::parseInteracEmail("Interac e-Transfer: You've received $165.38 from Alberta 3025 Strata and it has been automatically deposited.", $body);
+        $this->assertSame('Invs 2026-0251 and 0383', $p['memo']);
+        $this->assertSame(['INV-2026-0251', 'INV-2026-0383'], $p['invoice_hints']);
+        $this->assertSame('INV-2026-0251', $p['invoice_hint']);
+        $this->assertSame('autodeposit', $p['transfer_type']);
+    }
+
+    public function test_invoice_number_lists(): void
+    {
+        $this->assertSame(['INV-2026-0308'], EtransferInboxService::extractInvoiceNumbers('invoice 2026-0308'));
+        $this->assertSame(['INV-2026-0012', 'INV-2026-0013', 'INV-2026-0014'], EtransferInboxService::extractInvoiceNumbers('INV-2026-0012, 0013 & 14'));
+        $this->assertSame([], EtransferInboxService::extractInvoiceNumbers('thanks for the great work'));
+    }
+}

@@ -1,0 +1,6 @@
+# /services (no trailing slash) is the canonical Services hub URL; the root
+# .htaccess rewrites it to the CMS. Because this directory really exists,
+# Apache's DirectorySlash would otherwise 301 /services → /services/?page=services
+# (leaking the rewrite's query string and splitting the page's ranking signals).
+# Directory listings are already disabled site-wide (Options -Indexes).
+DirectorySlash Off

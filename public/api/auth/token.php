@@ -6,6 +6,8 @@ declare(strict_types=1);
  *
  * BlueMoon Web — JWT Token Endpoint
  * Issues a signed JWT for authenticated Mowology users.
+ * Two-step sign-in (2026-11-06) covers WEB sign-in only for now: this phone sign-in is unchanged, because the
+ * installed apps cannot show a code field. A later phase adds it here with an app update.
  *
  * POST /api/auth/token
  * Body (JSON): { "email": "...", "password": "..." }
@@ -57,7 +59,9 @@ if ($requestOrigin === '') {
 } elseif (in_array($requestOrigin, $allowedOrigins, true)) {
     $corsOrigin = $requestOrigin;
 } else {
-    $corsOrigin = $allowedOrigins[0]; // fallback to first allowed origin for dev
+    // Unknown origin: no CORS header at all (Fable audit 2026-10-12). It used to echo
+    // http://localhost:5173 — harmless to browsers elsewhere, but a needless grant.
+    $corsOrigin = null;
 }
 
 if ($corsOrigin !== null) {
@@ -86,17 +90,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $raw = file_get_contents('php://input');
 $body = json_decode($raw ?: '{}', true);
 
-$email    = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
-$password = isset($body['password']) ? (string)$body['password']                  : '';
-$audience = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
+$credential = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
+$password   = isset($body['password']) ? (string)$body['password']                  : '';
+$audience   = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
 // Valid audiences: 'web' (BlueMoon), 'mobile' (iOS/Android)
 $audience = in_array($audience, ['web', 'mobile'], true) ? $audience : 'web';
 
-if ($email === '' || $password === '') {
+if ($credential === '' || $password === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'Email and password are required']);
+    echo json_encode(['error' => 'Email (or username) and password are required']);
     exit;
 }
+// Keep $email alias for rate-limiting calls below
+$email = $credential;
 
 // ── Rate limiting ──────────────────────────────────────────────────────────
 require_once APP_ROOT . '/Core/Auth/auth.php';
@@ -116,10 +122,10 @@ try {
     $stmt = $db->prepare("
         SELECT id, email, password_hash, full_name, role, is_active
         FROM users
-        WHERE LOWER(email) = ?
+        WHERE LOWER(email) = ? OR LOWER(username) = ?
         LIMIT 1
     ");
-    $stmt->execute([$email]);
+    $stmt->execute([$credential, $credential]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Check active — treat NULL/missing is_active as active (matches web login behaviour)
@@ -141,6 +147,13 @@ if (!$user || !isset($user['password_hash']) || !password_verify($password, (str
     exit;
 }
 
+// The outside accountant's login is web-only and confined to the Ledger — never an app token (2026-10-13).
+if (!AccountantFence::jwtAllowed((string)($user['role'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['error' => 'This login works on the website only.']);
+    exit;
+}
+
 // ── Success — clear rate limit, log activity ───────────────────────────────
 clearLoginAttempts($email, $ip);
 
@@ -150,8 +163,8 @@ try {
 
     $loginAction = $audience === 'mobile' ? 'iOS app login' : 'BlueMoon web login';
     $db->prepare("
-        INSERT INTO activity_log (user_id, client_id, action, details, ip_address)
-        VALUES (?, NULL, ?, ?, ?)
+        INSERT INTO activity_log (user_id, action, details, ip_address)
+        VALUES (?, ?, ?, ?)
     ")->execute([(int)$user['id'], $loginAction, 'JWT issued', $ip]);
 
 } catch (Throwable $e) {
@@ -160,11 +173,25 @@ try {
 }
 
 // ── Build JWT (hand-rolled, no dependency) ─────────────────────────────────
-$secret = defined('BLUEMOON_JWT_SECRET') ? BLUEMOON_JWT_SECRET : JWT_SECRET_FALLBACK();
+// No fallback key (Fable review 2026-10-12): without a real secret, sign nothing.
+if (!defined('BLUEMOON_JWT_SECRET') || strlen((string)BLUEMOON_JWT_SECRET) < 32) {
+    error_log('token.php: BLUEMOON_JWT_SECRET missing or too short — refusing to issue tokens');
+    http_response_code(500);
+    echo json_encode(['error' => 'Sign-in is not configured on the server', 'code' => 'jwt_secret_missing']);
+    exit;
+}
+// The same key validateJwtToken() checks: each business its own, derived from this secret (Ittai, 2026-10-23).
+$secret = (class_exists('Tenant') && !Tenant::isDefault())
+    ? hash_hmac('sha256', 'tenant:' . Tenant::key(), (string)BLUEMOON_JWT_SECRET)
+    : (string)BLUEMOON_JWT_SECRET;
 
 $header  = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
 $now     = time();
+// Mobile tokens live 30 days — crew must survive server outages and long
+// weekends without being forced to re-authenticate. Web tokens stay short.
 $aud = $audience === 'mobile' ? 'ios' : 'bluemoon';
+$ttl = $audience === 'mobile' ? (30 * 24 * 3600) : (8 * 3600);
+
 $payload = base64url_encode(json_encode([
     'iss'   => 'mowology',
     'aud'   => $aud,
@@ -173,7 +200,9 @@ $payload = base64url_encode(json_encode([
     'name'  => (string)($user['full_name'] ?? ''),
     'role'  => (string)($user['role'] ?? 'user'),
     'iat'   => $now,
-    'exp'   => $now + (8 * 3600),   // 8-hour expiry
+    'exp'   => $now + $ttl,
+    // A password change or reset invalidates this token (Fable review 2026-10-12; JwtAuth checks it).
+    'pwd_v' => substr(hash('sha256', (string)$user['password_hash']), 0, 8),
 ]));
 
 $signature = base64url_encode(
@@ -183,6 +212,15 @@ $signature = base64url_encode(
 $token = $header . '.' . $payload . '.' . $signature;
 
 // ── Respond ────────────────────────────────────────────────────────────────
+// The app greets the business and its chief of staff by their shown names (Claudia walk 1, 2026-11-03: the
+// Android day screen still said "Charlie"). Both helpers never throw; empty means "use your default".
+$businessName = $chiefName = '';
+try {
+    require_once APP_ROOT . '/Services/BusinessIdentity.php';
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
+    $businessName = (string)(BusinessIdentity::get($db)['name'] ?? '');
+    $chiefName = HeadIdentity::chiefName($db);
+} catch (Throwable $e) { error_log('[token] identity names: ' . get_class($e)); }
 http_response_code(200);
 echo json_encode([
     'token' => $token,
@@ -191,8 +229,10 @@ echo json_encode([
         'email' => (string)$user['email'],
         'name'  => (string)($user['full_name'] ?? ''),
         'role'  => (string)($user['role'] ?? 'user'),
+        'business_name' => $businessName,
+        'chief_name'    => $chiefName,
     ],
-    'expires_in' => 8 * 3600,
+    'expires_in' => $ttl,
 ]);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -201,13 +241,4 @@ function base64url_encode(string $data): string {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
 
-/**
- * Fallback secret derivation if BLUEMOON_JWT_SECRET not set in secrets.php.
- * Uses a deterministic site-specific value — NOT cryptographically ideal.
- * Add BLUEMOON_JWT_SECRET to secrets.php for production.
- */
-function JWT_SECRET_FALLBACK(): string {
-    // Combines DB_PASS with a fixed salt — unique per install but stable
-    $base = defined('DB_PASS') ? DB_PASS : 'bluemoon_fallback';
-    return hash('sha256', $base . '_bluemoon_jwt_v1');
-}
+

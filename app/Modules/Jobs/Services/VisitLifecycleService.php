@@ -1,0 +1,963 @@
+<?php
+/**
+ * VisitLifecycleService — visit status/lifecycle, plan pause/resume, exceptions,
+ * invoicing eligibility.
+ *
+ * Extracted (2026-06-18, refactor Phase 2) from the procedural Plan function
+ * library. The global functions in Plan/VisitLifecycle.php delegate here, so all
+ * ~28 callers and the legacy shim are unchanged.
+ *
+ * updateVisitStatus() is the revenue-critical completion path (clock-out →
+ * updateVisitStatus marks the visit complete, fires notifications, and propagates
+ * to calendar_stops). Its DB/side-effect flow is preserved byte-for-byte; only the
+ * deterministic decision logic is pulled into PURE, unit-tested methods:
+ *   isValidVisitStatus / buildStatusSetClauses  (updateVisitStatus)
+ *   buildPropagationSet                          (propagatePlanChanges)
+ *   buildMoveVisitSet                            (moveVisit)
+ *   computeMissingChecklist / computeMissingPhotos (canInvoiceVisit)
+ */
+class VisitLifecycleService
+{
+    public const VALID_VISIT_STATUSES = ['scheduled', 'in_progress', 'completed', 'skipped', 'weather', 'cancelled'];
+
+    /** Allowed plan→visit field propagation map (planCol => visitCol). */
+    private const PROPAGATION_FIELDS = [
+        'assigned_crew_id' => 'default_crew_id',
+        'scheduled_time_start' => 'default_time_start',
+        'scheduled_time_end' => 'default_time_end',
+    ];
+
+    // =========================================================================
+    // DB-backed methods (facade targets)
+    // =========================================================================
+
+    /**
+     * Update a visit's status with proper timestamping and logging.
+     */
+    public static function updateVisitStatus(int $visitId, string $newStatus, int $userId, ?string $notes = null): bool {
+        $db = getDB();
+
+        if (!self::isValidVisitStatus($newStatus)) {
+            return false;
+        }
+
+        // Transition guard (2026-10-12): a completed visit is never turned into skipped /
+        // weather / cancelled (it would drop off billing after the work was done), and a
+        // second "completed" is a no-op — the desktop Complete button and the timer stop it
+        // triggers both called this, so completion hooks (bundle counter, push, emails) ran twice.
+        $cur = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
+        $cur->execute([$visitId]);
+        $current = $cur->fetchColumn();
+        if ($current === false) return false;
+        if (!self::canTransition((string)$current, $newStatus)) {
+            error_log("updateVisitStatus refused {$current} -> {$newStatus} for visit {$visitId}");
+            return false;
+        }
+        if ($current === 'completed' && $newStatus === 'completed') {
+            return true;
+        }
+
+        try {
+            $built = self::buildStatusSetClauses($newStatus, $notes);
+            $params = $built['params'];
+            $params[] = $visitId;
+            $params[] = $current;
+
+            $stmt = $db->prepare("
+                UPDATE job_visits SET " . implode(', ', $built['set']) . " WHERE id = ? AND status = ?
+            ");
+            $stmt->execute($params);
+            if ($stmt->rowCount() !== 1) {
+                return false;
+            }
+
+            // Log activity
+            if (function_exists('logActivityExtended')) {
+                $visit = self::getVisitWithPlan($visitId);
+                if ($visit) {
+                    logActivityExtended(
+                        $userId,
+                        "Visit {$newStatus}",
+                        "Visit {$visit['visit_number']} marked as {$newStatus}" . ($notes ? ": {$notes}" : ''),
+                        $visit['company_id'] ?? null,
+                        null, null, null,
+                        $visit['plan_id'],
+                        $visitId
+                    );
+                }
+            }
+
+            // Completion hooks: profitability snapshot + fertilizer notification
+            if ($newStatus === 'completed') {
+                // Snapshot labor/material/drive costs (VisitCompletionService)
+                if (class_exists('VisitCompletionService')) {
+                    try {
+                        VisitCompletionService::capture($visitId, $userId);
+                    } catch (Throwable $e) {
+                        error_log("VisitCompletionService::capture failed for visit {$visitId}: " . $e->getMessage());
+                    }
+                }
+
+                // Completion notification: fertilizer / prepaid bundles only (Tim: helpful when prepaid)
+                $completedVisit = self::getVisitWithPlan($visitId);
+                if ($completedVisit && !empty($completedVisit['is_prepaid_bundle'])) {
+                    // Fertilizer / prepaid-bundle — rich custom email with photos, materials, progress
+                    try {
+                        if (function_exists('sendFertilizerCompletionNotification')) {
+                            sendFertilizerCompletionNotification($visitId);
+                        }
+                        // Increment application counter
+                        $db->prepare(
+                            "UPDATE job_plans SET bundle_applications_used = bundle_applications_used + 1 WHERE id = ?"
+                        )->execute([$completedVisit['plan_id']]);
+                    } catch (Throwable $e) {
+                        error_log("Fertilizer notification failed for visit {$visitId}: " . $e->getMessage());
+                    }
+                }
+                // No general "job complete" email: the invoice is the completion email (Tim 2026-10-16).
+                // The old sendJobCompleteNotification() call never sent once (it read a column that
+                // doesn't exist); it was removed so a schema change can't start emailing clients.
+
+                // Push-notify admins/other crew that the job is done — see
+                // notifyCompletion() doc comment for why this is one shared
+                // method instead of being duplicated at each write path.
+                self::notifyCompletion($visitId, $userId);
+
+                // An endorsed visit joins the portfolio approval queue once it has both
+                // photos — crew usually press the heart before the after photo exists.
+                self::queueForPortfolio($visitId, $userId);
+
+                // Google review request — every completed visit, same as pow-actions'
+                // end_visit (no crew-heart gate: Google forbids selective solicitation).
+                // The contact's 30-day cooldown stops a second request if both paths run.
+                try {
+                    require_once APP_ROOT . '/Modules/Reviews/Services/ReviewRequestService.php';
+                    ReviewRequestService::maybeSend($visitId, $db);
+                } catch (Throwable $e) {
+                    error_log("Review request failed for visit {$visitId}: " . $e->getMessage());
+                }
+            }
+
+            // Propagate terminal-state visits to calendar_stops so the Schedule
+            // page reflects the change without a manual refresh. Runs for BOTH
+            // 'completed' and 'skipped'.
+            //
+            // Previously only 'completed' propagated. A 'skipped' visit (from the
+            // crew app's Skip button via pow-actions.php, or the desktop view.php
+            // Skip form) left calendar_stops.status stuck on 'scheduled' — and the
+            // desktop Schedule page renders every stop card from stop_status, so a
+            // job the crew skipped still showed as un-done on the desktop. This
+            // mirrors the duplicate logic in pow-actions.php end_visit, which only
+            // covers the direct-complete path.
+            if ($newStatus === 'completed' || $newStatus === 'skipped') {
+                try {
+                    $stopRow = $db->prepare("SELECT stop_id FROM job_visits WHERE id = ?");
+                    $stopRow->execute([$visitId]);
+                    $stopId = $stopRow->fetchColumn();
+                    if ($stopId) {
+                        self::propagateStopStatus((int)$stopId);
+                    }
+                } catch (Throwable $e) {
+                    error_log("updateVisitStatus stop propagation error for visit {$visitId}: " . $e->getMessage());
+                }
+            }
+
+            return true;
+        } catch (Exception $e) {
+            error_log("updateVisitStatus error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Recompute a calendar_stop's status from the current state of its visits
+     * and persist it (only when it actually changes). Drives the stop-card
+     * styling on the Schedule page — desktop AND crew — which reads
+     * calendar_stops.status, not the individual visit statuses.
+     *
+     * The decision logic is the PURE method computeStopStatusFromCounts();
+     * this method only does the DB read/write. The UPDATEs are guarded so a
+     * stop that is already 'completed' is never downgraded to 'skipped'.
+     */
+    public static function propagateStopStatus(int $stopId): void {
+        $db = getDB();
+
+        // pending = visits not yet resolved; done = visits that were serviced.
+        // SUM over boolean expressions is MySQL 5.7+ safe.
+        $stmt = $db->prepare("
+            SELECT
+                SUM(status NOT IN ('completed', 'skipped', 'cancelled')) AS pending,
+                SUM(status = 'completed') AS completed
+            FROM job_visits
+            WHERE stop_id = ?
+        ");
+        $stmt->execute([$stopId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $new = self::computeStopStatusFromCounts(
+            (int)($row['pending'] ?? 0),
+            (int)($row['completed'] ?? 0)
+        );
+        if ($new === null) {
+            return; // nothing resolved yet — leave the stop as 'scheduled'
+        }
+
+        if ($new === 'in_progress') {
+            // Only promote a still-scheduled stop; never clobber a terminal one.
+            $db->prepare("
+                UPDATE calendar_stops SET status = 'in_progress', updated_at = NOW()
+                WHERE id = ? AND status = 'scheduled'
+            ")->execute([$stopId]);
+        } elseif ($new === 'completed') {
+            $db->prepare("
+                UPDATE calendar_stops SET status = 'completed', updated_at = NOW()
+                WHERE id = ? AND status <> 'completed'
+            ")->execute([$stopId]);
+        } else { // 'skipped' — all visits skipped/cancelled, none completed
+            $db->prepare("
+                UPDATE calendar_stops SET status = 'skipped', updated_at = NOW()
+                WHERE id = ? AND status NOT IN ('completed', 'skipped')
+            ")->execute([$stopId]);
+        }
+    }
+
+    /**
+     * Push-notify admins/managers and any other crew on the same stop that a
+     * visit was just completed, so a completion made on one platform/device
+     * shows up as a real-time notification on everyone else's, not just a
+     * pull-refreshed schedule.
+     *
+     * Called from BOTH completion write paths — this method (via
+     * updateVisitStatus()) AND pow-actions.php's end_visit — so the notify
+     * logic lives in exactly one place. This codebase has been bitten before
+     * by "same behavior needed at two write sites, only one gets updated"
+     * (autopay triggering, PDF attachment on invoice-send) — don't repeat
+     * that shape here by copy-pasting this into pow-actions.php too.
+     *
+     * Fire-and-forget: a push failure must never affect visit completion.
+     * No-ops gracefully if push isn't configured yet (ApnsService/FcmService
+     * isConfigured() checks, see PushDispatcher).
+     */
+    public static function notifyCompletion(int $visitId, int $actorUserId): void {
+        try {
+            $db = getDB();
+
+            $visit = self::getVisitWithPlan($visitId);
+            if (!$visit) return;
+
+            $actorStmt = $db->prepare("SELECT full_name FROM users WHERE id = ?");
+            $actorStmt->execute([$actorUserId]);
+            $actorName = $actorStmt->fetchColumn() ?: 'A crew member';
+
+            $address = trim(($visit['property_address'] ?? '') . ', ' . ($visit['property_city'] ?? ''), ' ,');
+
+            // Recipients: admins/managers, plus any other crew on the same
+            // stop (multi-crew jobs) — never the person who just completed it.
+            $adminStmt = $db->prepare("
+                SELECT id FROM users WHERE role IN ('admin', 'manager') AND is_active = 1 AND id != ?
+            ");
+            $adminStmt->execute([$actorUserId]);
+            $recipients = array_column($adminStmt->fetchAll(PDO::FETCH_ASSOC), 'id');
+
+            if (!empty($visit['stop_id'])) {
+                $crewStmt = $db->prepare("
+                    SELECT user_id FROM calendar_stop_crew WHERE stop_id = ? AND user_id != ?
+                ");
+                $crewStmt->execute([$visit['stop_id'], $actorUserId]);
+                $recipients = array_merge($recipients, array_column($crewStmt->fetchAll(PDO::FETCH_ASSOC), 'user_id'));
+            }
+
+            $recipients = array_values(array_unique(array_map('intval', $recipients)));
+            if (empty($recipients)) return;
+
+            require_once APP_ROOT . '/Services/Push/ApnsService.php';
+            require_once APP_ROOT . '/Services/Push/PushDispatcher.php';
+
+            PushDispatcher::notifyUsers(
+                $recipients,
+                'Job Completed',
+                trim("{$actorName} completed {$address}"),
+                ['visit_id' => $visitId, 'screen' => 'schedule']
+            );
+        } catch (Throwable $e) {
+            error_log("notifyCompletion error for visit {$visitId}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Queue a PENDING before/after pair for the manager if the visit is endorsed.
+     * Called on completion and by both visit-flag endpoints. Never throws: the
+     * portfolio is a by-product of the visit, not a condition of it.
+     */
+    public static function queueForPortfolio(int $visitId, ?int $userId = null): void {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("SELECT is_flagged FROM job_visits WHERE id = ?");
+            $stmt->execute([$visitId]);
+            if ((int)$stmt->fetchColumn() !== 1) return;
+
+            require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+            (new BeforeAfterService($db))->queueFromVisit($visitId, $userId);
+            if ($userId) {                                                     // single-operator mode: the owner's heart also approves the pair (after the reply)
+                require_once APP_ROOT . '/Modules/Marketing/Services/MiaHeartFlow.php';
+                MiaHeartFlow::schedule($visitId, (int)$userId);
+            }
+        } catch (Throwable $e) {
+            // ba_pairs may predate migration 1118 — the queue page's sweep picks it up later.
+            error_log("queueForPortfolio error for visit {$visitId}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get a single visit with its plan details.
+     */
+    public static function getVisitWithPlan(int $visitId): ?array {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT jv.*, jp.plan_number, jp.title AS plan_title, jp.service_type,
+                   jp.property_id, jp.company_id, jp.price_per_visit,
+                   jp.contract_id,
+                   jp.quote_id AS plan_quote_id,
+                   jp.is_prepaid_bundle, jp.source_bundle_id, jp.bundle_applications_used,
+                   jp.checklist_template, jp.photo_types_required,
+                   jp.gps_enforcement, jp.checklist_blocks_completion, jp.photos_block_completion,
+                   p.address AS property_address, p.city AS property_city,
+                   co.company_name,
+                   u.full_name AS crew_name
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            LEFT JOIN properties p ON jp.property_id = p.id
+            LEFT JOIN companies co ON jp.company_id = co.id
+            LEFT JOIN users u ON jv.assigned_crew_id = u.id
+            WHERE jv.id = ?
+        ");
+        $stmt->execute([$visitId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    /**
+     * Get plan details with computed stats.
+     */
+    public static function getPlanDetails(int $planId): ?array {
+        $db = getDB();
+
+        $stmt = $db->prepare("
+            SELECT jp.*,
+                   p.address AS property_address, p.city AS property_city,
+                   p.latitude, p.longitude,
+                   NULLIF(p.billing_entity_name, '') AS billing_entity_name,
+                   co.company_name,
+                   mgr.company_name AS pm_firm_name,
+                   COALESCE(ct.id, pc.id) AS contact_id,
+                   COALESCE(ct.first_name, pc.first_name) AS first_name,
+                   COALESCE(ct.last_name, pc.last_name) AS last_name,
+                   COALESCE(ct.email, pc.email) AS contact_email,
+                   COALESCE(ct.phone, pc.phone) AS contact_phone,
+                   u.full_name AS default_crew_name,
+                   creator.full_name AS created_by_name,
+                   q.quote_number,
+                   q.total_amount AS quote_total_amount,
+                   ctr.contract_number,
+                   ctr.status AS contract_status,
+                   ctr.billing_amount AS contract_billing_amount,
+                   ctr.billing_cycle  AS contract_billing_cycle,
+                   ctr.invoice_timing AS contract_invoice_timing
+            FROM job_plans jp
+            LEFT JOIN properties p ON jp.property_id = p.id
+            LEFT JOIN companies co ON jp.company_id = co.id
+            LEFT JOIN companies mgr ON p.property_manager_id = mgr.id
+            LEFT JOIN contacts ct ON co.primary_contact_id = ct.id
+            LEFT JOIN contacts pc ON p.site_contact_id = pc.id
+            LEFT JOIN users u ON jp.default_crew_id = u.id
+            LEFT JOIN users creator ON jp.created_by = creator.id
+            LEFT JOIN quotes q ON jp.quote_id = q.id
+            LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
+            WHERE jp.id = ?
+        ");
+        $stmt->execute([$planId]);
+        $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$plan) return null;
+
+        // Resolve the display name of the client via the canonical BillToResolver.
+        require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+        $plan['client_display_name'] = (new BillToResolver(getDB()))->composeBillToName([
+            'property_billing_entity' => $plan['billing_entity_name'] ?? null,
+            'pm_firm_name'            => $plan['pm_firm_name'] ?? null,
+            'company_name'            => $plan['company_name'] ?? null,
+            'contact_first'           => $plan['first_name'] ?? null,
+            'contact_last'            => $plan['last_name'] ?? null,
+        ]) ?? '';
+
+        // Compute stats
+        $statsStmt = $db->prepare("
+            SELECT
+                COUNT(*) AS total_visits,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS visits_completed,
+                SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) AS visits_scheduled,
+                SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS visits_skipped,
+                SUM(CASE WHEN status = 'weather' THEN 1 ELSE 0 END) AS visits_weather,
+                SUM(CASE WHEN status = 'completed' THEN COALESCE(actual_amount, 0) ELSE 0 END) AS total_revenue,
+                MIN(CASE WHEN status = 'scheduled' AND scheduled_date >= CURDATE() THEN scheduled_date ELSE NULL END) AS next_visit_date
+            FROM job_visits
+            WHERE plan_id = ? AND status != 'cancelled'
+        ");
+        $statsStmt->execute([$planId]);
+        $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
+
+        $plan['total_visits'] = (int)($stats['total_visits'] ?? 0);
+        $plan['visits_completed'] = (int)($stats['visits_completed'] ?? 0);
+        $plan['visits_scheduled'] = (int)($stats['visits_scheduled'] ?? 0);
+        $plan['visits_skipped'] = (int)($stats['visits_skipped'] ?? 0);
+        $plan['visits_weather'] = (int)($stats['visits_weather'] ?? 0);
+        $plan['total_revenue'] = (float)($stats['total_revenue'] ?? 0);
+        $plan['next_visit_date'] = $stats['next_visit_date'];
+
+        return $plan;
+    }
+
+    /**
+     * Get visits for a plan (paginated, ordered).
+     */
+    public static function getPlanVisits(int $planId, ?string $status = null, int $limit = 50, int $offset = 0): array {
+        $db = getDB();
+
+        $sql = "
+            SELECT jv.*,
+                   u.full_name AS crew_name,
+                   cs.route_order,
+                   (SELECT COUNT(*) FROM visit_photos vp WHERE vp.visit_id = jv.id) AS photo_count,
+                   (SELECT COUNT(*) FROM visit_notes vn WHERE vn.visit_id = jv.id) AS note_count
+            FROM job_visits jv
+            LEFT JOIN users u ON jv.assigned_crew_id = u.id
+            LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
+            WHERE jv.plan_id = ?
+              AND jv.status != 'cancelled'
+        ";
+        $params = [$planId];
+
+        if ($status) {
+            $sql .= " AND jv.status = ?";
+            $params[] = $status;
+        }
+
+        $sql .= " ORDER BY jv.scheduled_date DESC, jv.scheduled_time_start ASC LIMIT ? OFFSET ?";
+        $params[] = $limit;
+        $params[] = $offset;
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Pause a plan. Cancels all future scheduled visits.
+     */
+    public static function pausePlan(int $planId, int $userId, string $reason = ''): bool {
+        $db = getDB();
+        try {
+            $db->beginTransaction();
+
+            $stmt = $db->prepare("
+                UPDATE job_plans
+                SET status = 'paused', status_changed_at = NOW(), paused_at = NOW(), paused_reason = ?
+                WHERE id = ? AND status = 'active'
+            ");
+            $stmt->execute([$reason, $planId]);
+
+            if ($stmt->rowCount() === 0) {
+                $db->rollBack();
+                return false;
+            }
+
+            // Cancel future scheduled visits
+            $stmt = $db->prepare("
+                UPDATE job_visits
+                SET status = 'cancelled', status_changed_at = NOW()
+                WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()
+            ");
+            $stmt->execute([$planId]);
+
+            $db->commit();
+            return true;
+        } catch (Exception $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log("pausePlan error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Resume a paused plan. Regenerates visits from today forward.
+     */
+    public static function resumePlan(int $planId, int $userId): bool {
+        $db = getDB();
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare("
+                UPDATE job_plans
+                SET status = 'active', status_changed_at = NOW(),
+                    paused_at = NULL, paused_reason = NULL,
+                    visits_generated_through = NULL
+                WHERE id = ? AND status = 'paused'
+            ");
+            $stmt->execute([$planId]);
+
+            if ($stmt->rowCount() === 0) {
+                $db->rollBack();
+                return false;
+            }
+
+            $db->commit();
+
+            // Regenerate visits (outside transaction — generateVisits manages its own DB operations)
+            generateVisits($planId);
+            return true;
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log("resumePlan error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Propagate plan changes to future unstarted visits.
+     * Only updates visits that are still 'scheduled'.
+     */
+    public static function propagatePlanChanges(int $planId, array $changes, int $userId): void {
+        $db = getDB();
+
+        $built = self::buildPropagationSet($changes);
+        if (empty($built['set'])) return;
+
+        $params = $built['params'];
+        $params[] = $planId;
+
+        $stmt = $db->prepare("
+            UPDATE job_visits
+            SET " . implode(', ', $built['set']) . "
+            WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()
+        ");
+        $stmt->execute($params);
+
+        // If crew changed, update calendar_stops.crew_id for future stops tied only to this plan
+        if (array_key_exists('default_crew_id', $changes)) {
+            $newLeadCrewId = $changes['default_crew_id'] ? (int)$changes['default_crew_id'] : null;
+            // Only update stops where all visits belong to this plan (safe to remap crew)
+            $db->prepare("
+                UPDATE calendar_stops cs
+                INNER JOIN (
+                    SELECT stop_id
+                    FROM job_visits
+                    WHERE status = 'scheduled' AND scheduled_date >= CURDATE() AND stop_id IS NOT NULL
+                    GROUP BY stop_id
+                    HAVING SUM(plan_id != ?) = 0
+                ) AS solo ON solo.stop_id = cs.id
+                SET cs.crew_id = ?, cs.updated_at = NOW()
+            ")->execute([$planId, $newLeadCrewId]);
+        }
+    }
+
+    /**
+     * Skip a specific visit date (weather, holiday, etc.)
+     */
+    public static function skipVisitDate(int $planId, string $date, int $userId, string $reason = ''): bool {
+        $db = getDB();
+        try {
+            // Try to find and skip existing visit
+            $stmt = $db->prepare("
+                UPDATE job_visits
+                SET status = 'skipped', status_changed_at = NOW(),
+                    completion_notes = ?
+                WHERE plan_id = ? AND scheduled_date = ? AND status = 'scheduled'
+            ");
+            $stmt->execute([$reason, $planId, $date]);
+
+            return true;
+        } catch (Exception $e) {
+            error_log("skipVisitDate error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * May a visit go from $from to $to? PURE. Completed is terminal for "not done" states:
+     * completed → skipped / weather / cancelled is refused (reopen to scheduled/in_progress
+     * first). Everything else is allowed; completed → completed is allowed (a no-op).
+     */
+    public static function canTransition(string $from, string $to): bool {
+        if ($from === 'completed' && in_array($to, ['skipped', 'weather', 'cancelled'], true)) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * The visits of a stop that completing the stop may complete and bill. PURE.
+     * Skipped visits are left out — the crew said that work was not done — unless every
+     * visit on the stop is skipped (auto-rollover skipped a stop that was then done anyway).
+     * Rows need 'visit_status'; rows without it are kept.
+     */
+    public static function billableAtStop(array $visits): array {
+        $notSkipped = array_values(array_filter($visits, fn($v) => ($v['visit_status'] ?? '') !== 'skipped'));
+        return $notSkipped ?: array_values($visits);
+    }
+
+    /**
+     * A visit may only be skipped before work starts. An in-progress visit has a
+     * running timer that must be stopped first; terminal states stay terminal.
+     * PURE — no DB.
+     */
+    public static function canSkipFromStatus(string $status, bool $fromDesk = false): bool {
+        if ($status === 'scheduled') return true;
+        // The office may skip a visit that was started by mistake (proximity auto-start while
+        // driving past, or a tap on the wrong card) — the crew's own Skip stays "not yet started"
+        // (2026-11-03). A completed visit is never skipped from anywhere.
+        return $fromDesk && $status === 'in_progress';
+    }
+
+    /**
+     * The visits of a stop that a Skip on the stop card may skip. PURE.
+     * Rows need 'visit_id' and 'visit_status'; a locked or invoiced row is never skipped.
+     * Returns ['skip' => [visit ids], 'refused' => ['<id>: <why>', …]].
+     */
+    public static function skippableAtStop(array $visits, bool $fromDesk): array {
+        $skip = []; $refused = [];
+        foreach ($visits as $v) {
+            $id = (int)($v['visit_id'] ?? 0);
+            if ($id < 1) continue;
+            $status = (string)($v['visit_status'] ?? 'scheduled');
+            if ($status === 'skipped') continue;              // already there — nothing to do
+            if (!empty($v['locked_at']))        { $refused[] = "{$id}: locked"; continue; }
+            if (!empty($v['invoice_id']))       { $refused[] = "{$id}: invoiced"; continue; }
+            if (!self::canSkipFromStatus($status, $fromDesk)) { $refused[] = "{$id}: {$status}"; continue; }
+            $skip[] = $id;
+        }
+        return ['skip' => $skip, 'refused' => $refused];
+    }
+
+    /**
+     * Close the open job timers of a visit the office is skipping after it was started.
+     * An auto-started timer (proximity) was a false positive: voided with no duration. A timer
+     * someone started by hand is ended now, so the minutes already spent stay on the books.
+     * Returns the number of rows touched.
+     */
+    public static function closeOpenTimersForSkip(PDO $db, int $visitId): int {
+        $n = 0;
+        try {
+            $void = $db->prepare("UPDATE job_time_entries
+                                  SET end_time = start_time, duration_minutes = 0, status = 'void',
+                                      notes = TRIM(CONCAT(COALESCE(notes, ''), ' Voided: visit skipped from the schedule after an auto-start.'))
+                                  WHERE visit_id = ? AND status = 'active' AND end_time IS NULL AND auto_started = 1");
+            $void->execute([$visitId]);
+            $n += $void->rowCount();
+            $end = $db->prepare("UPDATE job_time_entries
+                                 SET end_time = NOW(), duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, NOW()), status = 'completed',
+                                     notes = TRIM(CONCAT(COALESCE(notes, ''), ' Ended: visit skipped from the schedule.'))
+                                 WHERE visit_id = ? AND status = 'active' AND end_time IS NULL");
+            $end->execute([$visitId]);
+            $n += $end->rowCount();
+        } catch (Throwable $e) {
+            error_log("closeOpenTimersForSkip visit {$visitId}: " . $e->getMessage());
+        }
+        return $n;
+    }
+
+    /**
+     * Skip every open visit on a stop from the schedule card (desktop Skip, 2026-11-03).
+     * $fromDesk (office) also skips in_progress visits, closing their timers first.
+     *
+     * @return array ['success' => bool, 'skipped' => int[], 'refused' => string[], 'message' => string]
+     */
+    public static function skipStop(int $stopId, int $userId, string $reason = '', bool $fromDesk = false): array {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT id AS visit_id, status AS visit_status, locked_at, invoice_id
+                              FROM job_visits WHERE stop_id = ? AND status <> 'cancelled'");
+        $stmt->execute([$stopId]);
+        $pick = self::skippableAtStop($stmt->fetchAll(PDO::FETCH_ASSOC), $fromDesk);
+        $done = [];
+        foreach ($pick['skip'] as $visitId) {
+            $r = self::skipVisit($visitId, $userId, $reason, $fromDesk);
+            if (!empty($r['success'])) $done[] = $visitId;
+            else $pick['refused'][] = "{$visitId}: " . ($r['message'] ?? 'failed');
+        }
+        if (!$done && !$pick['refused']) {
+            return ['success' => true, 'skipped' => [], 'refused' => [], 'message' => 'Nothing left to skip on this stop'];
+        }
+        return [
+            'success' => (bool)$done,
+            'skipped' => $done,
+            'refused' => $pick['refused'],
+            'message' => $done ? 'Stop skipped' : 'No visit on this stop could be skipped (' . implode('; ', $pick['refused']) . ')',
+        ];
+    }
+
+    /**
+     * Skip a single visit from the field (crew "can't do this one today").
+     * Idempotent: re-skipping an already-skipped visit succeeds without rewriting.
+     *
+     * @return array ['success' => bool, 'message' => string]
+     */
+    public static function skipVisit(int $visitId, int $userId, string $reason = '', bool $fromDesk = false): array {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
+        $stmt->execute([$visitId]);
+        $status = $stmt->fetchColumn();
+
+        if ($status === false) {
+            return ['success' => false, 'message' => 'Visit not found'];
+        }
+        if ($status === 'skipped') {
+            return ['success' => true, 'message' => 'Visit already skipped'];
+        }
+        if (!self::canSkipFromStatus((string)$status, $fromDesk)) {
+            return ['success' => false, 'message' => "A visit that is {$status} cannot be skipped"];
+        }
+        if ($status === 'in_progress') {
+            self::closeOpenTimersForSkip($db, $visitId);
+        }
+
+        $reason = trim($reason);
+        $ok = self::updateVisitStatus($visitId, 'skipped', $userId, $reason !== '' ? $reason : null);
+        return ['success' => $ok, 'message' => $ok ? 'Visit skipped' : 'Failed to skip visit'];
+    }
+
+    /**
+     * Move a single visit to a different date.
+     * Updates the visit date and its calendar stop linkage.
+     */
+    public static function moveVisit(int $visitId, string $newDate, ?string $newTimeStart, int $userId): bool {
+        $db = getDB();
+        try {
+            // Get current visit
+            $stmt = $db->prepare("SELECT * FROM job_visits WHERE id = ? AND status IN ('scheduled', 'skipped')");
+            $stmt->execute([$visitId]);
+            $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$visit) return false;
+
+            // Get plan for property/crew info
+            $planStmt = $db->prepare("SELECT property_id, default_crew_id FROM job_plans WHERE id = ?");
+            $planStmt->execute([$visit['plan_id']]);
+            $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$plan) return false;
+
+            // Ensure stop exists for new date
+            $crewId = $visit['assigned_crew_id'] ?? $plan['default_crew_id'];
+            $newStopId = ensureCalendarStop((int)$plan['property_id'], $newDate, $crewId ? (int)$crewId : null);
+
+            // Finished work stays on its day (VisitCarryGuard, 2026-10-27): a visit that already has an
+            // After photo is completed here and a fresh visit is created on the new date instead.
+            require_once __DIR__ . '/VisitCarryGuard.php';
+            if ((new VisitCarryGuard($db))->splitIfFinished($visitId, $newDate, $newStopId ? (int)$newStopId : null) !== null) {
+                return true;
+            }
+
+            // Update visit — always update scheduled_date; only update stop_id if a valid stop was found
+            $built = self::buildMoveVisitSet($newDate, (int)$newStopId, $newTimeStart);
+            $params = $built['params'];
+            $params[] = $visitId;
+
+            $stmt = $db->prepare("
+                UPDATE job_visits SET " . implode(', ', $built['set']) . " WHERE id = ?
+            ");
+            $stmt->execute($params);
+
+            // The stop it left: remove it if nothing is left on it, or the old day shows an
+            // empty card (and Otto counts work that is not there).
+            $oldStopId = (int)($visit['stop_id'] ?? 0);
+            if ($oldStopId > 0 && $oldStopId !== (int)$newStopId) {
+                require_once __DIR__ . '/CalendarStopTidyService.php';
+                CalendarStopTidyService::deleteIfEmpty($db, $oldStopId);
+            }
+
+            return true;
+        } catch (Exception $e) {
+            error_log("moveVisit error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Check if a visit is eligible for invoicing.
+     * Replaces canInvoiceJob().
+     */
+    public static function canInvoiceVisit(int $visitId): array {
+        $db = getDB();
+
+        $visit = self::getVisitWithPlan($visitId);
+        if (!$visit) {
+            return ['can_invoice' => false, 'missing_requirements' => ['Visit not found'], 'photos_count' => 0];
+        }
+
+        $missing = [];
+
+        // Check checklist completion if required
+        if ($visit['checklist_blocks_completion'] && !empty($visit['checklist_template'])) {
+            $template = json_decode($visit['checklist_template'], true) ?: [];
+            $completed = json_decode($visit['checklist_completed'], true) ?: [];
+            $missing = array_merge($missing, self::computeMissingChecklist($template, $completed));
+        }
+
+        // Check photo requirements if required
+        $photoCount = 0;
+        if ($visit['photos_block_completion'] && !empty($visit['photo_types_required'])) {
+            $requiredTypes = json_decode($visit['photo_types_required'], true) ?: [];
+
+            $pStmt = $db->prepare("SELECT photo_type, COUNT(*) as cnt FROM visit_photos WHERE visit_id = ? GROUP BY photo_type");
+            $pStmt->execute([$visitId]);
+            $uploadedTypes = [];
+            while ($row = $pStmt->fetch(PDO::FETCH_ASSOC)) {
+                $uploadedTypes[$row['photo_type']] = (int)$row['cnt'];
+                $photoCount += (int)$row['cnt'];
+            }
+
+            $missing = array_merge($missing, self::computeMissingPhotos($requiredTypes, $uploadedTypes));
+        } else {
+            $pStmt = $db->prepare("SELECT COUNT(*) FROM visit_photos WHERE visit_id = ?");
+            $pStmt->execute([$visitId]);
+            $photoCount = (int)$pStmt->fetchColumn();
+        }
+
+        // Contract-billed plans are invoiced automatically through the contract —
+        // never via a per-visit invoice.
+        if (!empty($visit['contract_id'])) {
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+            $contractSvc = new ContractService($db);
+            if ($contractSvc->isPlanContractBilled((int)$visit['plan_id'])) {
+                $missing[] = 'This visit is billed under an active contract — invoice via the contract, not per-visit.';
+            }
+        }
+
+        return [
+            'can_invoice' => empty($missing),
+            'missing_requirements' => $missing,
+            'photos_count' => $photoCount,
+        ];
+    }
+
+    // =========================================================================
+    // PURE decision methods (unit-tested — no DB)
+    // =========================================================================
+
+    /** True if $status is one of the six valid visit statuses. */
+    public static function isValidVisitStatus(string $status): bool {
+        return in_array($status, self::VALID_VISIT_STATUSES, true);
+    }
+
+    /**
+     * Build the SET clauses + params for a visit status update (excluding the
+     * trailing WHERE id placeholder, which the caller appends).
+     *
+     * @return array ['set' => string[], 'params' => mixed[]]
+     */
+    public static function buildStatusSetClauses(string $newStatus, ?string $notes): array {
+        $setClauses = ["status = ?", "status_changed_at = NOW()"];
+        $params = [$newStatus];
+
+        if ($newStatus === 'in_progress') {
+            $setClauses[] = "started_at = NOW()";
+        } elseif ($newStatus === 'completed') {
+            $setClauses[] = "completed_at = NOW()";
+            if ($notes) {
+                $setClauses[] = "completion_notes = ?";
+                $params[] = $notes;
+            }
+        } elseif ($newStatus === 'skipped' && $notes) {
+            // Skip reason — same column skipVisitDate() writes it to.
+            $setClauses[] = "completion_notes = ?";
+            $params[] = $notes;
+        }
+
+        return ['set' => $setClauses, 'params' => $params];
+    }
+
+    /**
+     * Decide the calendar_stop status implied by its visits' resolution counts.
+     * PURE — no DB; the persistence guards live in propagateStopStatus().
+     *
+     *   pending > 0, completed = 0  → null         (still scheduled, untouched)
+     *   pending > 0, completed > 0  → 'in_progress' (some done, some left)
+     *   pending = 0, completed > 0  → 'completed'   (all serviced)
+     *   pending = 0, completed = 0  → 'skipped'     (all skipped/cancelled)
+     *
+     * @return string|null One of 'in_progress'|'completed'|'skipped', or null
+     *                     when the stop should be left as-is.
+     */
+    public static function computeStopStatusFromCounts(int $pending, int $completed): ?string {
+        if ($pending === 0) {
+            return $completed > 0 ? 'completed' : 'skipped';
+        }
+        return $completed > 0 ? 'in_progress' : null;
+    }
+
+    /**
+     * Build the SET clauses + params for propagating plan defaults onto future
+     * scheduled visits. Only the allowed plan fields present in $changes are mapped.
+     *
+     * @return array ['set' => string[], 'params' => mixed[]]
+     */
+    public static function buildPropagationSet(array $changes): array {
+        $setClauses = [];
+        $params = [];
+
+        foreach (self::PROPAGATION_FIELDS as $visitCol => $planCol) {
+            if (array_key_exists($planCol, $changes)) {
+                $setClauses[] = "{$visitCol} = ?";
+                $params[] = $changes[$planCol];
+            }
+        }
+
+        return ['set' => $setClauses, 'params' => $params];
+    }
+
+    /**
+     * Build the SET clauses + params for moving a visit. scheduled_date is always
+     * updated; stop_id only when a valid (>0) stop was resolved; time only if given.
+     *
+     * @return array ['set' => string[], 'params' => mixed[]]
+     */
+    public static function buildMoveVisitSet(string $newDate, int $newStopId, ?string $newTimeStart): array {
+        // Remember the first date it had (MySQL assigns left to right, so this must come before
+        // scheduled_date). A recurrence edit keeps visits that were moved (2026-10-12).
+        $setClauses = ["original_scheduled_date = COALESCE(original_scheduled_date, scheduled_date)", "scheduled_date = ?"];
+        $params = [$newDate];
+        if ($newStopId > 0) {
+            $setClauses[] = "stop_id = ?";
+            $params[] = $newStopId;
+        }
+        if ($newTimeStart) {
+            $setClauses[] = "scheduled_time_start = ?";
+            $params[] = $newTimeStart;
+        }
+        return ['set' => $setClauses, 'params' => $params];
+    }
+
+    /**
+     * Given a checklist template (list of item names) and a completed map,
+     * return the "Checklist: X" labels for items not yet completed.
+     */
+    public static function computeMissingChecklist(array $template, array $completed): array {
+        $missing = [];
+        foreach ($template as $item) {
+            if (empty($completed[$item])) {
+                $missing[] = "Checklist: {$item}";
+            }
+        }
+        return $missing;
+    }
+
+    /**
+     * Given required photo types and a map of uploaded counts by type, return the
+     * "Photo: X" labels for types with no uploads.
+     */
+    public static function computeMissingPhotos(array $requiredTypes, array $uploadedCounts): array {
+        $missing = [];
+        foreach ($requiredTypes as $type) {
+            if (empty($uploadedCounts[$type])) {
+                $missing[] = "Photo: {$type}";
+            }
+        }
+        return $missing;
+    }
+}

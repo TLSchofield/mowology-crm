@@ -26,7 +26,10 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
+require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (Fable review 2026-10-12)
 requirePermission('database.manage');
 require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
 
@@ -125,7 +128,7 @@ if ($confirm && $totalMatched > 0) {
             $db->commit();
         } catch (Throwable $e) {
             $db->rollBack();
-            $log[] = '❌ Batch failed (rolled back): ' . $e->getMessage();
+            $log[] = '❌ Batch failed (rolled back): ' . ApiResponse::message($e, 'purge-home-pings');
             break;
         }
     }

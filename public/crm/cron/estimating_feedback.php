@@ -18,6 +18,7 @@
  */
 
 declare(strict_types=1);
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
 $__dir = __DIR__;
@@ -53,6 +54,13 @@ if (!$isCli) {
     }
 }
 
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = !$isCli;
+$cronStatus = 'success';
+$cronError  = null;
+$insertedAccuracy = 0;
+$updatedPrices    = 0;
+
 // ── Main ───────────────────────────────────────────────────────────────
 try {
     $db = getDB();
@@ -76,7 +84,7 @@ try {
         FROM job_plans jp
         JOIN quotes q ON jp.quote_id = q.id
         JOIN expenses e ON e.job_id = jp.id
-        WHERE jp.is_active = 1
+        WHERE jp.status = 'active'
           AND e.status != 'rejected'
           AND q.status NOT IN ('draft')
         LIMIT 200
@@ -236,6 +244,16 @@ try {
         'message'           => "Estimating feedback: {$insertedAccuracy} accuracy records, {$updatedPrices} price index rows updated",
     ];
 
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'estimating_feedback',
+        $cronStatus,
+        "Accuracy records: {$insertedAccuracy}, Price index rows: {$updatedPrices}",
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo $result['message'] . "\n";
         foreach ($log as $entry) {
@@ -249,6 +267,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'estimating_feedback error: ' . $e->getMessage();
     error_log($error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('estimating_feedback', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
 
     if ($isCli) {
         echo "ERROR: " . $error . "\n";
