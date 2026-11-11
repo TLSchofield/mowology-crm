@@ -141,6 +141,7 @@
         node.textContent = '';
         node.appendChild(el('b', '', (s && s.label) || ''));
         ['who', 'when'].forEach(function (k) { if (s && s[k]) node.appendChild(el('span', '', s[k])); });
+        ((s && s.more) || []).forEach(function (t) { if (t) node.appendChild(el('span', '', t)); });   // more lines of evidence (the month job)
     }
     /** Draw queue[0]: clone the skeleton of its kind, fill it, swap it in for the old rail. */
     function render() {
@@ -308,7 +309,22 @@
         for (var i = 0; i < queue.length; i++) if (queue[i].accounts && queue[i].accounts.length) return queue[i].accounts;
         return [];
     }
-    function choose(job, req) {
+    /**
+     * "Ask Penny" (the month job, a line she has no account for): the Bank card's own bank_guidance, on this press only. Her answer
+     * (her words, and the account she would pick) opens the picker with that account chosen; nothing is filed until Save.
+     */
+    function guide(job, req) {
+        if (busy) return;
+        setBusy(true);
+        say('Asking Penny…', false);
+        post({ mode: 'bank_guidance', transaction_id: req.transaction_id }, job).then(function (d) {
+            setBusy(false);
+            if (!(d && d.ok)) { say((d && (d.message || d.error)) || 'Could not ask just now — pick the account yourself.', false); return; }
+            say(d.say || '', false);
+            choose(job, { transaction_id: req.transaction_id, suggested_id: 0 }, { account_id: d.account_id, guidance_id: d.guidance_id });
+        }).catch(function () { setBusy(false); say('Could not ask just now — pick the account yourself.', false); });
+    }
+    function choose(job, req, pre) {
         var acts = root.querySelector('.it-job-rail .it-job-acts');
         if (!acts || root.querySelector('.it-job-choose')) return;
         var box = el('div', 'it-job-col it-job-acts it-job-choose');
@@ -319,6 +335,7 @@
         var o0 = el('option', '', 'Pick an account…'); o0.value = ''; sel.appendChild(o0);
         (job.accounts && job.accounts.length ? job.accounts : chartOf()).forEach(function (a) { var o = el('option', '', a[1]); o.value = String(a[0]); sel.appendChild(o); });
         label.appendChild(sel);
+        if (pre && pre.account_id) sel.value = String(pre.account_id);   // her pick, nothing filed until Save
         var m = el('span', 'it-job-m');
         var row = el('div', 'it-job-choose-btns');
         var save = el('button', 'it-btn it-btn-fill');
@@ -340,8 +357,10 @@
         save.addEventListener('click', function () {
             if (!sel.value) { say('Pick the account first.', false); sel.focus(); return; }
             var tmp = document.createElement('button');
-            tmp.setAttribute('data-request', JSON.stringify({ mode: 'bank_decide', transaction_id: req.transaction_id, action: 'approve',
-                account_id: Number(sel.value), suggested_id: req.suggested_id }));
+            var body = { mode: 'bank_decide', transaction_id: req.transaction_id, action: 'approve', account_id: Number(sel.value) };
+            if (req.suggested_id) body.suggested_id = req.suggested_id;
+            if (pre && pre.guidance_id) body.guidance_id = pre.guidance_id;   // keeps her reason on the decision (bookkeeper.php recordDecision)
+            tmp.setAttribute('data-request', JSON.stringify(body));
             settle(tmp);
         });
     }
@@ -430,6 +449,7 @@
         var job = queue[0];
         if (req.mode === 'pick') { pick(req); return; }
         if (req.mode === 'choose') { choose(job, req); return; }
+        if (req.mode === 'guide') { guide(job, req); return; }
         if (req.mode === 'edit') { editReceipt(req); return; }
         var isApprove = job.kind === 'receipt' && req.action === 'approve';   // the month job's bank lines also say action 'approve'
         var isMerge = req.mode === 'dupe_merge';
