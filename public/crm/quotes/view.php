@@ -154,6 +154,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // The owner declines for the client (a phone no, or silence) or undoes it. Same state the client's own decline
     // makes; sends nothing. QuoteService::decline() / reopen() are the one write path (page + Sam's flow line).
+    if (($action === 'decline' || $action === 'reopen') && function_exists('userHasPermission') && !userHasPermission('billing.edit')) {
+        $message     = 'You do not have permission to change a quote\'s status.';
+        $messageType = 'error';
+        $action      = '';
+    }
     if ($action === 'decline' || $action === 'reopen') {
         $oldStatus = (string)$quote['status'];
         $reasonKey = (string)($_POST['lost_reason'] ?? '');
@@ -170,6 +175,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $message     = $action === 'decline' ? 'Only a sent quote the client has not answered can be declined.' : 'Only a declined quote can be reopened.';
             $messageType = 'error';
+        }
+    }
+
+    if ($action === 'send_followup') {
+        // A stale tab must not email a client about a quote that was declined or answered meanwhile.
+        $fuNow = $db->prepare("SELECT status FROM quotes WHERE id = ?");
+        $fuNow->execute([$quoteId]);
+        if (!QuoteService::canDecline((string)$fuNow->fetchColumn())) {
+            $message     = 'That quote is no longer waiting for an answer, so no follow-up was sent.';
+            $messageType = 'error';
+            $action      = '';
         }
     }
 
@@ -560,9 +576,10 @@ $activePage = 'quotes';
               $daysSent    = $quote['sent_at'] ? (int)floor((time() - strtotime($quote['sent_at'])) / 86400) : 0;
               $fuCount     = (int)($quote['follow_up_count'] ?? 0);
               $canFollowUp = $qOpen && $daysSent >= 2;
+              $canEditStatus = !function_exists('userHasPermission') || userHasPermission('billing.edit');
               $lostLabel   = QuoteService::LOST_REASONS[(string)($quote['lost_reason'] ?? '')] ?? '';
               // One primary action by where the quote is; everything else sits in More.
-              $primary = $qStatus === 'draft' ? 'send' : ($canFollowUp ? 'followup' : ($qOpen ? 'resend' : ($qStatus === 'declined' ? 'reopen' : ($qStatus === 'expired' ? 'resend' : 'accepted'))));
+              $primary = $qStatus === 'draft' ? 'send' : ($canFollowUp ? 'followup' : ($qOpen ? 'resend' : ($qStatus === 'declined' && $canEditStatus ? 'reopen' : ($qStatus === 'expired' ? 'resend' : ($qStatus === 'accepted' ? 'accepted' : 'none')))));
               $postBtn = static function (string $action, string $label, string $icon, string $cls, string $csrf, string $confirm = '') {
                   return '<form method="POST" class="d-inline"><input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrf) . '">'
                       . '<input type="hidden" name="action" value="' . $action . '">'
@@ -594,7 +611,7 @@ $activePage = 'quotes';
                       <?php echo $postBtn('send', $qStatus === 'expired' ? 'Resend Link' : 'Resend', 'send', 'btn btn-primary', $csrfToken); ?>
                   <?php elseif ($primary === 'reopen'): ?>
                       <?php echo $postBtn('reopen', 'Reopen', 'rotate-ccw', 'btn btn-primary', $csrfToken, 'Reopen ' . $quote['quote_number'] . '? It goes back to Sent. Nothing is sent to the client.'); ?>
-                  <?php else: ?>
+                  <?php elseif ($primary === 'accepted'): ?>
                       <?php if (!empty($quote['is_contract'])): ?>
                           <a href="../contracts/create.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
                               <i data-feather="pen-tool" class="mr-1"></i> Create Contract
@@ -639,7 +656,7 @@ $activePage = 'quotes';
                           <?php if (QuoteService::canApproveVerbally($qStatus) && $qStatus !== 'expired'): ?>
                               <button type="button" class="dropdown-item" onclick="showApproveModal()">Approve (Verbal)</button>
                           <?php endif; ?>
-                          <?php if (QuoteService::canDecline($qStatus)): ?>
+                          <?php if ($canEditStatus && QuoteService::canDecline($qStatus)): ?>
                               <button type="button" class="dropdown-item" onclick="showDeclineModal()">Decline</button>
                           <?php endif; ?>
                           <div class="dropdown-divider"></div>

@@ -542,7 +542,7 @@ class QuoteService
         $n = $this->moveOpenStatus(
             "UPDATE quotes SET status = 'declined', lost_reason = ?, pipeline_stage = 'closed_lost', probability = 0,
                     stage_entered_at = NOW(), updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
-            "UPDATE quotes SET status = 'declined', lost_reason = ?, updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
+            "UPDATE quotes SET status = 'declined', updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
             [$reason, $quoteId]
         );
         if ($n === 0) return false;
@@ -562,7 +562,7 @@ class QuoteService
         $n = $this->moveOpenStatus(
             "UPDATE quotes SET status = 'sent', lost_reason = NULL, pipeline_stage = 'quoted', probability = 50,
                     stage_entered_at = NOW(), updated_at = NOW() WHERE id = ? AND status = 'declined'",
-            "UPDATE quotes SET status = 'sent', lost_reason = NULL, updated_at = NOW() WHERE id = ? AND status = 'declined'",
+            "UPDATE quotes SET status = 'sent', updated_at = NOW() WHERE id = ? AND status = 'declined'",
             [$quoteId]
         );
         if ($n === 0) return false;
@@ -583,8 +583,9 @@ class QuoteService
             $s = $this->db->prepare($withStage);
             $s->execute($args);
         } catch (\PDOException $e) {
+            // a business without migration 1110 has no stage or reason columns: status only
             $s = $this->db->prepare($plain);
-            $s->execute($args);
+            $s->execute(array_slice($args, -1));
         }
         return $s->rowCount();
     }
