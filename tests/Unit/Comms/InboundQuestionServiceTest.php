@@ -52,6 +52,57 @@ class InboundQuestionServiceTest extends TestCase
         return (int)$this->db->query("SELECT COUNT(*) FROM $table WHERE $where")->fetchColumn();
     }
 
+    public function testAmbiguousDomainEvidenceGivesWayToTheAccountThatAlreadyHoldsTheSameName(): void
+    {
+        $this->db->exec("INSERT INTO clients (id, display_name) VALUES (4, 'Cedar Court')");
+        $this->db->exec("INSERT INTO contacts (id, first_name, last_name, email) VALUES (10, 'Ron', 'Harvie', 'rharvie@firm.test'), (11, 'Eva', 'Dunn', 'eva@firm.example')");
+        $this->db->exec("INSERT INTO client_contacts (client_id, contact_id) VALUES (2, 10), (1, 11)");
+        $this->row('rharvie@firm.example', 'Ron Harvie', ['strength' => 'weak', 'evidence' => 'domain',
+            'candidates' => json_encode([['client_id' => 1, 'contact_id' => 11, 'name' => 'Acme Holdings Ltd'], ['client_id' => 4, 'contact_id' => 12, 'name' => 'Cedar Court']])]);
+        $q = $this->svc->questions()[0];
+        $this->assertSame(2, $q['suggested_client_id']);
+        $this->assertSame([2, 1, 4], array_column($q['candidates'], 'client_id'));
+        $this->assertStringContainsString('same name as a contact on Birch Strata VR100', $q['why']);
+    }
+
+    public function testASingleEvidenceAccountIsNotOverriddenByANameMatchElsewhere(): void
+    {
+        $this->db->exec("INSERT INTO contacts (id, first_name, last_name, email) VALUES (10, 'John', 'Smith', 'js@firm.test'), (11, 'Eva', 'Dunn', 'eva@firm.example')");
+        $this->db->exec("INSERT INTO client_contacts (client_id, contact_id) VALUES (2, 10), (1, 11)");
+        $this->row('john@firm.example', 'John Smith', ['strength' => 'weak', 'evidence' => 'domain',
+            'candidates' => json_encode([['client_id' => 1, 'contact_id' => 11, 'name' => 'Acme Holdings Ltd']])]);
+        $q = $this->svc->questions()[0];
+        $this->assertSame(1, $q['suggested_client_id'], 'the evidence-based account stays the suggestion');
+        $this->assertSame([2, 1], array_column($q['candidates'], 'client_id'), 'the name match is still offered');
+    }
+
+    public function testAOneWordNameNeverCountsAsTheSamePerson(): void
+    {
+        $this->db->exec("INSERT INTO contacts (id, first_name, last_name, email) VALUES (10, 'Ron', '', 'ron@firm.test')");
+        $this->db->exec("INSERT INTO client_contacts (client_id, contact_id) VALUES (2, 10)");
+        $this->row('ron@other.example', 'Ron', ['strength' => 'weak', 'evidence' => 'domain']);
+        $q = $this->svc->questions()[0];
+        $this->assertNull($q['suggested_client_id']);
+        $this->assertStringNotContainsString('same name', $q['why']);
+    }
+
+    public function testAccountSearchFindsAnAccountByItsContactsEmailDomainAfterThreeCharacters(): void
+    {
+        $this->db->exec("INSERT INTO contacts (id, first_name, last_name, email) VALUES (10, 'Ron', 'Harvie', 'rharvie@vml.example')");
+        $this->db->exec("INSERT INTO client_contacts (client_id, contact_id) VALUES (2, 10)");
+        $this->assertSame([2], array_column($this->svc->accounts('vml'), 'client_id'));
+        $this->assertSame([], $this->svc->accounts('vm'), 'two characters search names only');
+        $this->assertSame([1], array_column($this->svc->accounts('Acme'), 'client_id'), 'names still work');
+    }
+
+    public function testAccountSearchPutsNameMatchesFirstAndSkipsInactiveAccounts(): void
+    {
+        $this->db->exec("INSERT INTO contacts (id, first_name, last_name, email) VALUES (10, 'Ann', 'Birch', 'ann@x.example'), (11, 'Zed', 'Q', 'zed@closed.example')");
+        $this->db->exec("INSERT INTO client_contacts (client_id, contact_id) VALUES (1, 10), (3, 11)");
+        $this->assertSame([2, 1], array_column($this->svc->accounts('birch'), 'client_id'));
+        $this->assertSame([], $this->svc->accounts('closed.example'));
+    }
+
     public function testAManagersDomainServingAnotherAccountNeverBecomesARule(): void
     {
         $this->svc->confirm($this->row('a@pmfirm.test'), 2, 'Ann', 'A', 5);

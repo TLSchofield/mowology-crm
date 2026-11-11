@@ -92,7 +92,7 @@ $__ijCols = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg): st
 };
 $__ijActs = static function (?array $j, string $primaryIcon, string $secondaryIcon) use ($__ijSvg, $__ijFlags): string {
     $btn = static function (string $cls, string $icon, ?array $a) use ($__ijSvg, $__ijFlags): string {
-        return '<button type="button" class="it-btn ' . $cls . '"' . ($a ? ' data-request="' . h(json_encode($a['request'], $__ijFlags)) . '"' : '') . '>'
+        return '<button type="button" class="it-btn ' . $cls . '"' . ($a ? ' data-request="' . h(json_encode($a['request'], $__ijFlags)) . '"' : ' hidden') . '>'
             . $__ijSvg($icon) . '<b>' . h($a['label'] ?? '') . '</b><span>' . h($a['sub'] ?? '') . '</span></button>';
     };
     return '<div class="it-job-col it-job-acts">' . $btn('it-btn-fill', $primaryIcon, $j['primary'] ?? null) . '<span class="it-job-m"></span>' . $btn('it-btn-line', $secondaryIcon, $j['secondary'] ?? null) . '</div>';

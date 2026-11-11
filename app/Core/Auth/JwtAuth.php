@@ -151,6 +151,16 @@ function validateJwtToken(string $token): ?array
         return null;
     }
 
+    // A token names the business it was issued for (2026-11-11, the phone sign-in on ittai.ca): one carried to
+    // another business's address is refused even before its key differs. Tokens without biz (older ones, and
+    // generateMowologyJwt's) are judged by the signature alone, as before.
+    if (array_key_exists('biz', $payload)) {
+        $here = class_exists('Tenant') ? Tenant::key() : 'default';
+        if (!is_string($payload['biz']) || $payload['biz'] !== $here) {
+            return null;
+        }
+    }
+
     return $payload;
 }
 
