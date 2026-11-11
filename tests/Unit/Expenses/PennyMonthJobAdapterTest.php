@@ -1,0 +1,98 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+/** PennyMonthJobAdapter — a month's bank line becomes the strip's job with bookkeeper.php's exact bank_decide requests. */
+class PennyMonthJobAdapterTest extends TestCase
+{
+    private function months(): array
+    {
+        return [
+            ['month' => '2026-01', 'locked' => true,  'ready' => false, 'drift' => ['1010' => 0.0], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-02', 'locked' => false, 'ready' => true,  'drift' => ['1010' => 0.0], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-03', 'locked' => false, 'ready' => false, 'drift' => ['1010' => -15.37], 'receipts' => 2, 'bank_lines' => 31, 'grace_until' => ''],
+            ['month' => '2026-04', 'locked' => false, 'ready' => false, 'drift' => ['1010' => -15.37], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-05', 'locked' => false, 'ready' => false, 'drift' => ['1010' => 0.0], 'receipts' => 0, 'bank_lines' => 4, 'grace_until' => ''],
+            ['month' => '2026-06', 'locked' => false, 'ready' => false, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => '2026-07-16'],
+        ];
+    }
+
+    private function line(array $over = []): array
+    {
+        return $over + [
+            'id' => 4411, 'date' => '2026-03-09', 'type' => 'expense', 'amount' => -61.4, 'description' => 'PURCHASE SHELL #4410 SQUAMISH BC',
+            'current' => ['id' => 9, 'code' => '6900', 'name' => 'Uncategorized Expense'],
+            'suggestion' => ['account_id' => 31, 'code' => '5200', 'name' => 'Fuel', 'reason' => 'Shell is a vendor you book as fuel', 'source' => 'vendor'],
+            'stripe' => false, 'client_payment' => false, 'age' => ['class' => 'timing', 'bucket' => '61-90', 'age' => '246 days', 'why' => ''],
+        ];
+    }
+
+    public function testFocusIsTheOldestOpenMonthWithLinesWaiting(): void
+    {
+        $this->assertSame('2026-03', PennyMonthJobAdapter::focusMonth($this->months())['month']);
+        $this->assertNull(PennyMonthJobAdapter::focusMonth([['month' => '2026-01', 'locked' => false, 'ready' => true, 'bank_lines' => 3]]));
+    }
+
+    public function testOnlyALineWithHerAccountIsOffered(): void
+    {
+        $this->assertTrue(PennyMonthJobAdapter::proposes($this->line()));
+        $this->assertFalse(PennyMonthJobAdapter::proposes($this->line(['suggestion' => null])));
+        $this->assertFalse(PennyMonthJobAdapter::proposes($this->line(['suggestion' => ['account_id' => null, 'code' => null, 'name' => null, 'reason' => 'x', 'source' => 'found_receipt']])));
+        $this->assertFalse(PennyMonthJobAdapter::proposes($this->line(['stripe' => true])), 'a Stripe payout is split by StripePayoutService');
+        $this->assertFalse(PennyMonthJobAdapter::proposes($this->line(['client_payment' => true])), 'a client payment needs the invoice');
+    }
+
+    public function testJobCarriesBankDecidesExactRequests(): void
+    {
+        $month = $this->months()[2];
+        $j = PennyMonthJobAdapter::fromLine($this->line(), $month, PennyMonthJobAdapter::monthDiscs($this->months(), '2026-03'), 1, 3);
+        $this->assertSame('month', $j['kind']);
+        $this->assertSame('bank:4411', $j['key']);
+        $this->assertSame(['mode' => 'bank_decide', 'transaction_id' => 4411, 'action' => 'approve', 'account_id' => 31, 'suggested_id' => 31], $j['primary']['request']);
+        $this->assertSame(['mode' => 'bank_decide', 'transaction_id' => 4411, 'action' => 'keep', 'suggested_id' => 31], $j['secondary']['request']);
+        $this->assertStringContainsString('March', $j['title']);
+        $this->assertStringContainsString('31 bank lines', $j['title']);
+        $this->assertSame('forming', $j['sure'], 'a vendor reading is not a record');
+        $this->assertSame('5200 Fuel', $j['right']['label']);
+        $this->assertStringContainsString('now 6900', $j['left']['when']);
+        $this->assertCount(1, $j['columns'], 'the frame names both sides: no repeated text in a column');
+    }
+
+    public function testAFoundReceiptIsLinkedByTheSameRequest(): void
+    {
+        $l = $this->line(['suggestion' => ['account_id' => 31, 'code' => '5200', 'name' => 'Fuel', 'reason' => 'Matches your Shell receipt', 'source' => 'found_receipt', 'expense_id' => 902]]);
+        $j = PennyMonthJobAdapter::fromLine($l, $this->months()[2], [], 1, 1);
+        $this->assertSame(902, $j['primary']['request']['expense_id']);
+    }
+
+    public function testConfidenceIsHeldOnlyBehindARuleOrALesson(): void
+    {
+        $this->assertSame('held', PennyMonthJobAdapter::sureOf(['source' => 'rule']));
+        $this->assertSame('held', PennyMonthJobAdapter::sureOf(['source' => 'learned']));
+        $this->assertSame('forming', PennyMonthJobAdapter::sureOf(['source' => 'fact']));
+        $this->assertSame('forming', PennyMonthJobAdapter::sureOf([]));
+    }
+
+    public function testDiscsTellExactLockedCarriedAndOpen(): void
+    {
+        $d = PennyMonthJobAdapter::monthDiscs($this->months(), '2026-03');
+        $by = array_column($d, null, 'month');
+        $this->assertSame(['same', 'locked'], [$by['2026-01']['state'], $by['2026-01']['bottom']]);
+        $this->assertSame(['same', 'exact'], [$by['2026-02']['state'], $by['2026-02']['bottom']]);
+        $this->assertSame(['differs', '−15.37'], [$by['2026-03']['state'], $by['2026-03']['bottom']]);
+        $this->assertTrue($by['2026-03']['focus']);
+        $this->assertSame(['−15.37', true], [$by['2026-04']['bottom'], $by['2026-04']['carried']], 'the same gap the month before is carried, not new');
+        $this->assertFalse($by['2026-03']['carried']);
+        $this->assertSame(['missing', '4 lines'], [$by['2026-05']['state'], $by['2026-05']['bottom']]);
+        $this->assertSame(['info', 'waiting'], [$by['2026-06']['state'], $by['2026-06']['bottom']]);
+        $this->assertFalse($by['2026-04']['focus']);
+    }
+
+    public function testRailIsCappedAtTheNewestMonths(): void
+    {
+        $m = [];
+        for ($i = 1; $i <= 14; $i++) $m[] = ['month' => sprintf('2027-%02d', $i > 12 ? 12 : $i), 'locked' => true, 'ready' => false, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0];
+        $this->assertCount(PennyMonthJobAdapter::MAX_DISCS, PennyMonthJobAdapter::monthDiscs($m, null));
+    }
+}

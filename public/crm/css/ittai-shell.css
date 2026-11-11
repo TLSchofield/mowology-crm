@@ -667,3 +667,17 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
     body.it-shell.it-shell.it-rail .it-fly.is-open { opacity: 1; transform: none; border-radius: 14px; }
   }
 }
+
+/* Penny's month-balancing job (Tim, 2026-11-10): the e-Transfer frame, with one disc per month along the rail where the
+   fraction sits (✓ exact or locked, ≠ the difference, ✗ lines or receipts still open, ℹ waiting). The month being worked is marked. */
+.it-job-months { display: flex; gap: 2px; list-style: none; margin: 0; padding: 0 8px; background: var(--it-surface); }
+.it-job-mo { display: grid; grid-template-rows: minmax(24px, 1fr) 28px minmax(24px, 1fr); align-items: center; justify-items: center; row-gap: 8px; min-width: 52px; padding: 0 2px; font-variant-numeric: tabular-nums; }
+.it-job-mo .it-job-top { font-size: 13px; color: var(--it-meta); }
+.it-job-mo .it-job-bot { font-size: 12px; line-height: 16px; color: var(--it-meta); max-width: 64px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-mo.is-focus .it-job-top { color: var(--it-text); font-weight: 600; }
+.it-job-mo.is-focus .it-job-bot { color: var(--it-text); }
+.it-job-rail[data-kind="month"] .it-job-cols .it-job-top, .it-job-rail[data-kind="month"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
+.it-job-rail[data-kind="month"] .it-btn-fill .it-job-ic { transform: none; }
+.it-job-mo.is-carried .it-job-bot { opacity: .6; }
+.it-job-mo { min-width: 46px; }
+.it-job-months { gap: 0; padding: 0 4px; }

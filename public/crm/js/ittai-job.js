@@ -144,7 +144,7 @@
     /** Draw queue[0]: clone the skeleton of its kind, fill it, swap it in for the old rail. */
     function render() {
         var job = queue[0];
-        var kind = job.kind === 'etransfer' ? 'etransfer' : 'duplicate';
+        var kind = job.kind === 'month' ? 'month' : (job.kind === 'etransfer' ? 'etransfer' : 'duplicate');
         var oldRail = root.querySelector('.it-job-rail');
         var rail = tplFor(kind).content.firstElementChild.cloneNode(true);
         root.setAttribute('data-kind', kind);
@@ -183,6 +183,24 @@
             var say = names.map(function (n, i) { return n + (i < pm ? ' \u2713' : ' not yet'); }).join(' \u00b7 ');
             frac.setAttribute('aria-label', pm + ' of ' + pt + ': ' + say);
             frac.setAttribute('title', say);
+        }
+        // the month job: one disc per month along the line
+        var mos = rail.querySelector('.it-job-months');
+        if (mos) {
+            mos.textContent = '';
+            (job.months || []).forEach(function (m) {
+                var li = el('li', 'it-job-mo' + (m.focus ? ' is-focus' : '') + (m.carried ? ' is-carried' : ''));
+                var mlbl = m.label + ': ' + m.bottom + (m.carried ? ' (carried from the month before)' : '');
+                li.appendChild(el('span', 'it-job-top', m.top));
+                var md = el('span', 'it-job-disc it-job-disc-' + m.state);
+                md.setAttribute('role', 'img');
+                md.setAttribute('aria-label', mlbl);
+                md.setAttribute('title', mlbl);
+                md.appendChild(icon(ICON[m.state] || 'info'));
+                li.appendChild(md);
+                li.appendChild(el('span', 'it-job-bot', m.bottom));
+                mos.appendChild(li);
+            });
         }
         side(rail.querySelector('.it-job-side-top'), job.left);
         side(rail.querySelector('.it-job-side-bot'), job.right);

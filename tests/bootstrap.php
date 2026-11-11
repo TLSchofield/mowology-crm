@@ -416,6 +416,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberPriceHistory.p
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberQuoteHistory.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyMonthJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpensePulseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
