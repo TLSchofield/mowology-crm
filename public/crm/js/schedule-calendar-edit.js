@@ -150,7 +150,7 @@
   function refresh() {
     var dates = weekMode ? weekDates : [cfg.date];
     return Promise.all(dates.map(function (d) {
-      return fetch(STOPS_API + '?date=' + encodeURIComponent(d), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return j.stops || []; });
+      return fetch(STOPS_API + '?date=' + encodeURIComponent(d) + (cfg.crew ? '&crew=' + encodeURIComponent(cfg.crew) : ''), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return j.stops || []; });
     })).then(function (lists) { stopsData = [].concat.apply([], lists); render(); });
   }
 
