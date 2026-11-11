@@ -78,7 +78,8 @@ class PennyMonthJobAdapter
                 $discs = self::monthDiscs($months, (string)$m['month']);
                 $facts = self::factsFor($db, $lines);
                 $accounts = self::accountChoices($desk->accounts());
-                foreach ($lines as $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, ($facts[(int)$l['id']] ?? []) + ['accounts' => $accounts]);
+                // the chart rides on the first job only (the picker reads whichever job holds it)
+                foreach ($lines as $i => $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, ($facts[(int)$l['id']] ?? []) + ['accounts' => $i === 0 ? $accounts : []]);
                 break;
             }
             // Nothing to sort: the oldest gap Penny cannot match goes on the accountant's list (a question, never an email)
