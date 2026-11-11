@@ -77,7 +77,8 @@ class PennyMonthJobAdapter
                 if (count($all) < 30) $m['bank_lines'] = count($all);
                 $discs = self::monthDiscs($months, (string)$m['month']);
                 $facts = self::factsFor($db, $lines);
-                foreach ($lines as $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, $facts[(int)$l['id']] ?? []);
+                $accounts = self::accountChoices($desk->accounts());
+                foreach ($lines as $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, ($facts[(int)$l['id']] ?? []) + ['accounts' => $accounts]);
                 break;
             }
             // Nothing to sort: the oldest gap Penny cannot match goes on the accountant's list (a question, never an email)
@@ -370,6 +371,7 @@ class PennyMonthJobAdapter
         $evidence = !empty($s['expense_id']) ? 'Receipt #' . (int)$s['expense_id'] . ' found · Approve links it'
             : ('No receipt' . ($earlier > 0 ? ' · ' . $earlier . ' earlier on ' . (string)$s['code'] : ''));
         $account = trim((string)($facts['account'] ?? ''));
+        $payee = self::payeeOf((string)($line['description'] ?? ''));
         // After this press, the focus month still stands at its difference, with one line fewer
         $after = [];
         foreach ($discs as $d) if (!empty($d['focus'])) $after = $d;
@@ -392,22 +394,51 @@ class PennyMonthJobAdapter
             'sure'       => self::sureOf($s),
             'months'     => $discs,
             'after'      => $after ?: null,
-            'left'       => ['label' => $account !== '' ? $account : 'Bank line', 'who' => self::clip((string)($line['description'] ?? ''), 34),
+            'payee'      => $payee['name'] !== '' ? self::clip($payee['name'], 30) : self::clip((string)($line['description'] ?? ''), 30),
+            'accounts'   => (array)($facts['accounts'] ?? []),
+            'left'       => ['label' => $account !== '' ? $account : 'Bank line', 'who' => self::clip($payee['kind'] !== '' ? $payee['kind'] . ' · ' . ($payee['name'] !== '' ? $payee['name'] : 'no name on it') : $payee['name'], 40),
                              'when' => trim($date . ' · ' . ($isIn ? '+' : '−') . $money . ' · now ' . $current, ' ·')],
-            'right'      => ['label' => $proposed, 'who' => 'Penny proposes', 'when' => $evidence],
+            'right'      => ['label' => $proposed, 'who' => self::clip('Penny: ' . trim((string)($s['reason'] ?? 'proposes')), 62), 'when' => $evidence],
             // the frame names both sides (the line and where it is now, her account), so the one column is the comparison: how long it has waited
             'columns'    => [
                 ['label' => 'Waiting', 'top' => $ageText, 'bottom' => '', 'state' => $ageClass === 'investigate' ? 'missing' : 'info'],
             ],
             'primary'    => ['label' => 'Approve', 'sub' => (string)$s['code'] . (!empty($s['expense_id']) ? ' + link receipt' : ' only'), 'request' => $request],
-            'secondary'  => ['label' => 'Keep it', 'sub' => 'as it is',
-                             'request' => ['mode' => 'bank_decide', 'transaction_id' => $id, 'action' => 'keep', 'suggested_id' => (int)$s['account_id']]],
+            // Wrong account: the strip asks "What is <payee>?" with the chart, and the answer is the same bank_decide approve on the
+            // account the owner picks (no receipt link), which teaches Penny through BankRuleLearning::learnFromCorrection.
+            'secondary'  => ['label' => 'Wrong account', 'sub' => 'tell Penny',
+                             'request' => ['mode' => 'choose', 'transaction_id' => $id, 'suggested_id' => (int)$s['account_id']]],
             'undo'       => null,
-            'start'      => ['label' => 'Bank', 'href' => '/crm/accounting/penny-bank.php', 'icon' => 'bank'],
+            'start'      => ['label' => 'Bank', 'href' => '/crm/accounting/bank-balance-check.php', 'icon' => 'bank'],
             'anchor'     => ['label' => 'Ledger', 'href' => '/crm/ledger/'],
             'index'      => $index,
             'total'      => $total,
         ];
+    }
+
+    /** Pure: the chart as the "Wrong account" picker lists it — [[id, "6120 Vehicle Maintenance"], …]; skips inactive/empty rows. */
+    public static function accountChoices(array $accounts): array
+    {
+        $out = [];
+        foreach ($accounts as $a) {
+            if (empty($a['id']) || trim((string)($a['code'] ?? '')) === '') continue;
+            $out[] = [(int)$a['id'], trim($a['code'] . ' ' . ($a['name'] ?? ''))];
+        }
+        return $out;
+    }
+
+    /**
+     * Pure: a bank line's text with the noise taken off so the PAYEE leads (the strip's width cut "…Ref 20260318164949668880 Canev"
+     * before the name, 2026-11-10): "e-Transfer debit Ref 2026… Canev" → ['e-Transfer debit', 'Canev']; any other text is the name as it is.
+     * @return array{kind:string, name:string}
+     */
+    public static function payeeOf(string $description): array
+    {
+        $d = trim(preg_replace('/\s+/', ' ', $description) ?? '');
+        if (preg_match('/^e-?transfer\s+(debit|credit)\s+ref\s*\S+\s*(.*)$/i', $d, $m)) {
+            return ['kind' => 'e-Transfer ' . strtolower($m[1]), 'name' => trim($m[2])];
+        }
+        return ['kind' => '', 'name' => $d];
     }
 
     private static function clip(string $s, int $n): string

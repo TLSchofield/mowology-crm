@@ -688,3 +688,10 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
    The caption sits on the line (surface behind it) and speaks only for Penny's queue, never for the books. */
 .it-job-rail[data-kind="idle"] { justify-content: flex-start; min-height: 100px; }   /* tall enough for the anchors' labels, which hang below the icons */
 .it-job-idle { flex: none; margin: 0 auto; padding: 0 14px; background: var(--it-surface); font-size: 14px; line-height: 24px; color: var(--it-meta); }
+
+/* "Wrong account" on the month job: the strip asks what the payee is, with the chart to pick from; Save / Back replace the two buttons. */
+.it-job-choose { align-items: stretch; min-width: 260px; }
+.it-job-q { display: grid; gap: 6px; font-size: 13px; line-height: 18px; color: var(--it-meta); align-self: end; }
+.it-job-sel { min-height: 40px; max-width: 280px; padding: 0 8px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 8px; background: var(--it-surface); font: inherit; font-size: 14px; color: var(--it-text); }
+.it-job-sel:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+.it-job-choose-btns { display: flex; gap: 10px; align-self: start; }

@@ -298,6 +298,47 @@
         render();
     }
 
+    /**
+     * "Wrong account" (the month job): the strip asks what the payee is and lists the chart. Save posts the same bank_decide approve the
+     * Approve button does, on the account the owner picks (no receipt link): a person's pick over Penny's suggestion is a lesson
+     * (BankRuleLearning), so she remembers it for this payee. Back puts the two buttons back.
+     */
+    function choose(job, req) {
+        var acts = root.querySelector('.it-job-rail .it-job-acts');
+        if (!acts || root.querySelector('.it-job-choose')) return;
+        var box = el('div', 'it-job-col it-job-acts it-job-choose');
+        var label = el('label', 'it-job-q');
+        label.appendChild(el('span', '', 'What is ' + (job.payee || 'this') + '? Where does it belong?'));
+        var sel = el('select', 'it-job-sel');
+        sel.setAttribute('aria-label', 'Account for ' + (job.payee || 'this line'));
+        var o0 = el('option', '', 'Pick an account…'); o0.value = ''; sel.appendChild(o0);
+        (job.accounts || []).forEach(function (a) { var o = el('option', '', a[1]); o.value = String(a[0]); sel.appendChild(o); });
+        label.appendChild(sel);
+        var m = el('span', 'it-job-m');
+        var row = el('div', 'it-job-choose-btns');
+        var save = el('button', 'it-btn it-btn-fill');
+        save.type = 'button';
+        save.appendChild(el('b', '', 'Save'));
+        save.appendChild(el('span', '', 'Penny remembers'));
+        var back = el('button', 'it-btn it-btn-line');
+        back.type = 'button';
+        back.appendChild(el('b', '', 'Back'));
+        back.appendChild(el('span', '', 'no change'));
+        row.appendChild(save); row.appendChild(back);
+        box.appendChild(label); box.appendChild(m); box.appendChild(row);
+        acts.hidden = true;
+        acts.parentNode.insertBefore(box, acts.nextSibling);
+        sel.focus({ preventScroll: true });
+        back.addEventListener('click', function () { box.remove(); acts.hidden = false; });
+        save.addEventListener('click', function () {
+            if (!sel.value) { say('Pick the account first.', false); sel.focus(); return; }
+            var tmp = document.createElement('button');
+            tmp.setAttribute('data-request', JSON.stringify({ mode: 'bank_decide', transaction_id: req.transaction_id, action: 'approve',
+                account_id: Number(sel.value), suggested_id: req.suggested_id }));
+            settle(tmp);
+        });
+    }
+
     /** "Not this invoice": the card below (same page) has the form to pick another; elsewhere, go to it. */
     function pick(req) {
         var row = req.notification_id ? document.querySelector('#etransfers .mw-et-row[data-id="' + String(req.notification_id).replace(/[^0-9]/g, '') + '"]') : null;
@@ -381,6 +422,7 @@
         try { req = JSON.parse(btn.getAttribute('data-request') || ''); } catch (e) { return; }
         var job = queue[0];
         if (req.mode === 'pick') { pick(req); return; }
+        if (req.mode === 'choose') { choose(job, req); return; }
         if (req.mode === 'edit') { editReceipt(req); return; }
         var isApprove = job.kind === 'receipt' && req.action === 'approve';   // the month job's bank lines also say action 'approve'
         var isMerge = req.mode === 'dupe_merge';
