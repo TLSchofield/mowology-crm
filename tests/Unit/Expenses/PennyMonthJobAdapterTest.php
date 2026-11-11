@@ -133,6 +133,18 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertNull(PennyMonthJobAdapter::askMonth($m, '2026-11-10'), 'not while late statements may still come');
     }
 
+    public function testAMonthAlreadyOnTheListDoesNotHideTheNextNewGap(): void
+    {
+        $m = [
+            ['month' => '2026-01', 'locked' => false, 'ready' => false, 'drift' => ['a' => 7.01], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-02', 'locked' => false, 'ready' => false, 'drift' => ['a' => 7.01], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-03', 'locked' => false, 'ready' => false, 'drift' => ['a' => -15.37], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+        ];
+        $asked = static fn(string $ym): bool => $ym === '2026-01';
+        $this->assertSame('2026-03', PennyMonthJobAdapter::askMonth($m, '2026-11-10', $asked), 'January is on the list; March is a new gap, not February\'s carry');
+        $this->assertNull(PennyMonthJobAdapter::askMonth($m, '2026-11-10', static fn() => true));
+    }
+
     public function testTheGapJobPostsOnlyTheMonthAndNeverEmailsAnyone(): void
     {
         $draft = ['month' => '2026-01', 'account' => '1010 Chequing Account', 'amount' => 7.01, 'question' => 'q', 'evidence' => 'Filed FY2025 cash is $11,017.00; the Dec 31 statements add up to $11,009.99 ($7.01 less).', 'evidence_short' => 'Filed $11,017.00 · statements $11,009.99'];

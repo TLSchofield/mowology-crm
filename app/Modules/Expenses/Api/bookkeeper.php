@@ -325,6 +325,7 @@ try {
             $aq = new AccountantQuestionService($db);
             $ym = (string)($input['month'] ?? '');
             $key = AccountantQuestionService::keyFor($ym);
+            if (!$aq->ready()) { echo json_encode(['ok' => false, 'message' => 'Needs migration 1451']); break; }
             if ($aq->has($key)) { echo json_encode(['ok' => true, 'already' => true, 'message' => 'Already on the accountant\'s list.']); break; }
             $draft = $aq->draftFor($ym);
             if ($draft === null) { echo json_encode(['ok' => false, 'message' => $ym . ' isn\'t off the bank any more — nothing added.']); break; }

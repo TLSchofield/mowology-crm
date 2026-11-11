@@ -129,10 +129,13 @@ class PennyMonthJobAdapter
             require_once __DIR__ . '/../../Accounting/Services/AccountantQuestionService.php';
             $aq = new AccountantQuestionService($db);
             if (!$aq->ready()) return null;
-            $ym = self::askMonth($months, $today ?? date('Y-m-d'));
-            if ($ym === null || $aq->has(AccountantQuestionService::keyFor($ym))) return null;
+            // 1: only an admin may add to the list (bookkeeper.php refuses anyone else, so the job would never clear)
+            if (!function_exists('isAdmin') || !isAdmin()) return null;
+            $ym = self::askMonth($months, $today ?? date('Y-m-d'), static fn(string $m): bool => $aq->has(AccountantQuestionService::keyFor($m)));
+            if ($ym === null) return null;
             self::load();
-            $draft = self::cachedDraft($db, $ym, static fn() => $aq->draftFor($ym, $months));
+            $sig = md5(json_encode(array_values(array_filter($months, static fn($x) => $x['month'] === $ym))));
+            $draft = self::cachedDraft($db, $ym . '|' . $sig, static fn() => $aq->draftFor($ym, $months));
             if ($draft === null) return null;
             $m = null; foreach ($months as $x) if ($x['month'] === $ym) $m = $x;
             return self::fromGap($draft, (array)$m, self::monthDiscs($months, $ym), 0, 0);
@@ -144,7 +147,7 @@ class PennyMonthJobAdapter
 
     /** The question's draft is kept ASK_CACHE_SECONDS (the first month's reads the Dec 31 statements): same month, same amount. */
     public const ASK_CACHE_SECONDS = 600;
-    private static function cachedDraft(PDO $db, string $ym, callable $make): ?array
+    private static function cachedDraft(PDO $db, string $ym, callable $make): ?array   // $ym: the month plus a signature of its figures, so a moved balance is re-read
     {
         $key = 'it_month_job_ask_cache';
         try {
@@ -164,7 +167,7 @@ class PennyMonthJobAdapter
     }
 
     /** Pure: the oldest open month whose gap is new this month and has nothing left to sort; null when none. */
-    public static function askMonth(array $months, string $today): ?string
+    public static function askMonth(array $months, string $today, ?callable $asked = null): ?string
     {
         $prev = null;
         foreach ($months as $m) {
@@ -174,7 +177,7 @@ class PennyMonthJobAdapter
             $isNew = abs($drift - (float)($prev ?? 0.0)) >= self::CENT;
             $quiet = (int)($m['bank_lines'] ?? 0) === 0 && (int)($m['receipts'] ?? 0) === 0;
             $past = empty($m['grace_until']) || (string)$m['grace_until'] <= $today;
-            if ($open && abs($drift) >= self::CENT && $isNew && $quiet && $past) return (string)$m['month'];
+            if ($open && abs($drift) >= self::CENT && $isNew && $quiet && $past && !($asked && $asked((string)$m['month']))) return (string)$m['month'];   // a month already on the list is skipped, the next new gap is still offered
             $prev = !empty($m['locked']) ? null : $drift;
         }
         return null;
