@@ -123,12 +123,18 @@ class IttaiJobTest extends TestCase
         }
         $this->assertDoesNotMatchRegularExpression('/#[0-9a-fA-F]{3,8}\b/', $block, 'tokens only');
         $this->assertStringContainsString('id="it-w-bank"', $this->src('public/crm/includes/ittai-icons.php'));
+        foreach (['function chooseInvoice(', 'Which invoice is this?', 'Is it one of these?', 'None of these', 'JSON.stringify(candidate.request)', "job.mode !== 'choose'", 'primary.hidden = !job.primary', 'function openDirect(', 'openDirect(queue[0]);'] as $n) {
+            $this->assertStringContainsString($n, $js, $n);
+        }
+        foreach (['.it-job-invoice-choose {', '.it-job-candidates {', '.it-job .it-btn[hidden] { display: none; }'] as $n) {
+            $this->assertStringContainsString($n, $css, $n);
+        }
     }
 
     public function testHeadIncludesTheStripOnlyInTheIttaiShell(): void
     {
         $head = $this->src('public/crm/includes/appstack_head.php');
-        $this->assertMatchesRegularExpression('/if \(!empty\(\$itShell\)\) \{ include __DIR__ \. \'\/ittai-kaname-band\.php\'; include __DIR__ \. \'\/ittai-job\.php\'; include __DIR__ \. \'\/ittai-job-yui\.php\'; include __DIR__ \. \'\/ittai-job-mia\.php\'; include __DIR__ \. \'\/ittai-job-mia-ba\.php\'; include __DIR__ \. \'\/ittai-job-sam\.php\'; \}/', $head, "Kaname's line off her row, then the head's job strips, only in the shell");
+        $this->assertMatchesRegularExpression('/if \(!empty\(\$itShell\)\) \{ include __DIR__ \. \'\/ittai-kaname-band\.php\'; include __DIR__ \. \'\/ittai-job\.php\'; include __DIR__ \. \'\/ittai-job-yui\.php\'; include __DIR__ \. \'\/ittai-job-mia\.php\'; include __DIR__ \. \'\/ittai-job-mia-ba\.php\'; include __DIR__ \. \'\/ittai-job-sam\.php\'; include __DIR__ \. \'\/ittai-job-otto\.php\'; \}/', $head, "Kaname's line off her row, then the head's job strips, only in the shell");
         $this->assertStringNotContainsString('ittai-kaname-space', $head, 'the page band is gone: one Kaname, in the topbar');
         $this->assertGreaterThan(strpos($head, '<div class="container-fluid p-0">'), strpos($head, 'ittai-job.php'));
     }

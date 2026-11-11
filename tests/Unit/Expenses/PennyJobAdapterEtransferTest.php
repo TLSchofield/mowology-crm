@@ -165,4 +165,39 @@ class PennyJobAdapterEtransferTest extends TestCase
         $this->assertSame('mastered', PennyJobAdapter::sureOfTransfer('spread', 5, false));
         $this->assertSame('forming', PennyJobAdapter::sureOfTransfer('none', 0, true));
     }
+
+    public function testCandidatesCarryTheExactRecordRequestAndAreCapped(): void
+    {
+        $candidates = [];
+        foreach ([1, 2, 3, 4] as $n) {
+            $candidates[] = ['invoice_number' => 'INV-2026-000' . $n, 'payer_name' => 'Payer ' . $n, 'balance_due' => 364.65, 'invoice_date' => '2026-11-01', 'score' => 60];
+        }
+        $j = PennyJobAdapter::fromTransfer($this->row(), $this->read(), $this->facts(), 1, 1, null, null, $candidates);
+        $this->assertSame('propose', $j['mode']);
+        $this->assertCount(3, $j['candidates']);
+        $this->assertSame(['invoice' => 'INV-2026-0001', 'who' => 'Payer 1', 'owing' => '$364.65', 'issued' => 'Issued Nov 1',
+            'request' => ['action' => 'record', 'notification_id' => 512, 'invoice_numbers' => ['INV-2026-0001'], 'amounts' => ['364.65']]], $j['candidates'][0]);
+    }
+
+    public function testBlankReadingOpensTheChooser(): void
+    {
+        $read = $this->read(['kind' => 'none', 'lines' => [], 'confirmed' => 0]);
+        $candidate = [['invoice_number' => 'INV-2026-0001', 'payer_name' => 'Payer', 'balance_due' => 2000.00, 'invoice_date' => '2026-11-01', 'score' => 60]];
+        $j = PennyJobAdapter::fromTransfer($this->row(), $read, [], 1, 1, null, null, $candidate);
+        $this->assertSame('choose', $j['mode']);
+        $this->assertNull($j['primary']);
+        $this->assertNull($j['secondary']);
+        $this->assertSame('Which invoice?', $j['right']['label']);
+        $this->assertSame('forming', $j['sure']);
+    }
+
+    public function testOffersChoiceTruthTable(): void
+    {
+        $candidate = [['invoice_number' => 'INV-2026-0001']];
+        $this->assertTrue(PennyJobAdapter::offersChoice(['kind' => 'none', 'lines' => []], $candidate));
+        $this->assertTrue(PennyJobAdapter::offersChoice(['kind' => 'leftover', 'lines' => []], $candidate));
+        $this->assertFalse(PennyJobAdapter::offersChoice(['kind' => 'match', 'lines' => []], $candidate));
+        $this->assertFalse(PennyJobAdapter::offersChoice(['kind' => 'none', 'lines' => [['invoice' => 'INV-2026-0001']]], $candidate));
+        $this->assertFalse(PennyJobAdapter::offersChoice(['kind' => 'none', 'lines' => []], []));
+    }
 }

@@ -190,10 +190,11 @@ function isAdmin(): bool {
  *
  * @return bool true = blocked (too many attempts), false = allowed
  */
-function isLoginRateLimited(string $email, ?string $ip = null): bool {
+function isLoginRateLimited(string $email, ?string $ip = null, ?PDO $db = null): bool {
     $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
     try {
-        $db = getDB();
+        // $db: a given business's database (the ittai.ca phone sign-in tries each one, 2026-11-11); default this request's.
+        $db = $db ?? getDB();
         // Three ceilings (Fable review 2026-10-12): the (email, IP) pair as before, plus one IP
         // trying many emails (spraying) and one email tried from many IPs (a distributed guess).
         $stmt = $db->prepare("
@@ -230,10 +231,10 @@ function loginThrottled(int $pair, int $perIp, int $perEmail): bool {
 /**
  * Record a failed login attempt.
  */
-function recordFailedLogin(string $email, ?string $ip = null): void {
+function recordFailedLogin(string $email, ?string $ip = null, ?PDO $db = null): void {
     $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
     try {
-        $db = getDB();
+        $db = $db ?? getDB();
         $stmt = $db->prepare("INSERT INTO login_attempts (email, ip_address) VALUES (?, ?)");
         $stmt->execute([$email, $ip]);
     } catch (Throwable $e) {
@@ -244,10 +245,10 @@ function recordFailedLogin(string $email, ?string $ip = null): void {
 /**
  * Clear login attempts for an email+IP after successful login.
  */
-function clearLoginAttempts(string $email, ?string $ip = null): void {
+function clearLoginAttempts(string $email, ?string $ip = null, ?PDO $db = null): void {
     $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
     try {
-        $db = getDB();
+        $db = $db ?? getDB();
         $stmt = $db->prepare("DELETE FROM login_attempts WHERE email = ? AND ip_address = ?");
         $stmt->execute([$email, $ip]);
     } catch (Throwable $e) {

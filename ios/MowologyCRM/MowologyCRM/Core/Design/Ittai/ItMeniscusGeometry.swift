@@ -12,16 +12,26 @@ import CoreGraphics
 import Foundation
 
 enum ItMeniscusGeometry {
+    /// Returns the array slot occupied by an item identity, or `nil` when the identity is unknown.
+    static func slotIndex(forID id: Int, in ids: [Int]) -> Int? {
+        ids.firstIndex(of: id)
+    }
+
+    /// Converts a logical leading-to-trailing slot into its physical left-to-right index.
+    static func physicalSlotIndex(_ logicalIndex: Int, count: Int, isRightToLeft: Bool) -> Int {
+        isRightToLeft ? count - logicalIndex - 1 : logicalIndex
+    }
+
     /// Bead diameter.
-    static let bead: CGFloat = 50
+    static let bead = ItMeniscusToken.bead
     /// Ring of page colour between the bead and the notch.
-    static let gap: CGFloat = 6
+    static let gap = ItMeniscusToken.gap
     /// How far the bead's top sits above the bar's top edge.
-    static let rise: CGFloat = 22   // 20 until 1.3.84 (the collar touched the selected label, Tim 1.3.82); above 22 the notch rises over the edge
+    static let rise = ItMeniscusToken.rise   // 20 until 1.3.84 (the collar touched the selected label, Tim 1.3.82); above 22 the notch rises over the edge
     /// Horizontal run of each shoulder curve where the straight edge bends into the notch.
-    static let shoulder: CGFloat = 14
+    static let shoulder = ItMeniscusToken.shoulder
     /// Where a shoulder hands over to the arc, in degrees from the bowl's bottom.
-    static let joinDegrees: Double = 80
+    static let joinDegrees = ItMeniscusToken.joinAngle
 
     /// The bowl's radius: the bead plus its ring.
     static var bowl: CGFloat { bead / 2 + gap }
@@ -88,10 +98,10 @@ enum ItMeniscusGeometry {
 
     /// The slide's spring, in slots. The same feel as the SwiftUI spring it replaces (response 0.38, damping 0.78).
     struct Spring: Equatable {
-        static let response = 0.38
-        static let damping = 0.78
+        static let response = ItMeniscusToken.springResponse
+        static let damping = ItMeniscusToken.springDamping
         /// Closer to the target than this (a seventh of a point on an iPhone) counts as landed.
-        static let rest = 0.002
+        static let rest = ItMeniscusToken.springRest
 
         let from: CGFloat
         let to: CGFloat
@@ -102,7 +112,7 @@ enum ItMeniscusGeometry {
         var settleTime: Double {
             let (rate, _, y0, c) = terms
             let reach = abs(y0) + abs(c)
-            return reach <= Self.rest ? 0 : min(1.5, log(reach / Self.rest) / rate)
+            return reach <= Self.rest ? 0 : min(ItMeniscusToken.springCap, log(reach / Self.rest) / rate)
         }
 
         /// Where the bead is and how fast it moves, `t` seconds in.
@@ -128,7 +138,7 @@ enum ItMeniscusGeometry {
     }
 
     /// Seconds between the samples of a slide (one per frame at 120 Hz).
-    static let trackStep = 1.0 / 120
+    static let trackStep = 1.0 / ItMeniscusToken.sampleRate
 
     /// The bead's position at every step of a slide; the last is the target exactly.
     static func track(_ spring: Spring) -> [CGFloat] {
@@ -155,11 +165,11 @@ enum ItMeniscusGeometry {
                      rollAt: Int?, turn: Double, reduceMotion: Bool = false) -> Face {
         let under = nearest(position, count: count)
         let away = abs(position - CGFloat(selected))
-        let settle = under == selected && actions.contains(under) ? Double(min(1, max(0, 1 - away / 0.33))) : 0
+        let settle = under == selected && actions.contains(under) ? Double(min(1, max(0, 1 - away / CGFloat(ItMeniscusToken.actionMorph)))) : 0
         guard let rollAt else { return Face(under: under, settle: settle, roll: 0, angle: 0) }
         // Heading for the rolling tab its icon fades in over the first quarter slot, so it is there to be seen rolling.
-        let fadeIn = travel < 0.01 || reduceMotion ? 1 : Double(min(1, max(0, (travel - away) / 0.25)))
-        let roll = under == rollAt ? 1 : (rollAt == selected && away >= 0.01 ? fadeIn : 0)
+        let fadeIn = travel < CGFloat(ItMeniscusToken.stillEpsilon) || reduceMotion ? 1 : Double(min(1, max(0, (travel - away) / CGFloat(ItMeniscusToken.rollFade))))
+        let roll = under == rollAt ? 1 : (rollAt == selected && away >= CGFloat(ItMeniscusToken.stillEpsilon) ? fadeIn : 0)
         let angle = reduceMotion ? turn : turn + Double(position - CGFloat(rollAt)) * 360
         return Face(under: under, settle: settle, roll: roll, angle: angle)
     }

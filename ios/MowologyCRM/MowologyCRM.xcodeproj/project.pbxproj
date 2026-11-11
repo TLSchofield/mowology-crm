@@ -189,6 +189,7 @@
 		7328437E5B5202BC6519F682 /* YuiJobsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E5A3F21C0623420F54B1E6 /* YuiJobsViewModel.swift */; };
 		4BE78723A4D6BC413F5893F0 /* YuiJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */; };
 		C7B39B432A0464EF8FDA9E43 /* SubcontractBoardSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */; };
+		12DF755055676FC6D57FF40B /* ItBarLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7809827E4FCB89AF167DD5F5 /* ItBarLab.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -376,6 +377,7 @@
 		69E5A3F21C0623420F54B1E6 /* YuiJobsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YuiJobsViewModel.swift; sourceTree = "<group>"; };
 		60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YuiJobsView.swift; sourceTree = "<group>"; };
 		5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubcontractBoardSection.swift; sourceTree = "<group>"; };
+		7809827E4FCB89AF167DD5F5 /* ItBarLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItBarLab.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -735,6 +737,7 @@
 				C4914118B08D22925FEEFD9A /* ItMeniscusGeometry.swift */,
 				F94BAAB31AC20858A44F7CD4 /* ItMeniscusBar.swift */,
 				2535CD860F219960D85ECB23 /* ItMeniscusMotion.swift */,
+				7809827E4FCB89AF167DD5F5 /* ItBarLab.swift */,
 			);
 			path = Ittai;
 			sourceTree = "<group>";
@@ -1008,6 +1011,7 @@
 				7328437E5B5202BC6519F682 /* YuiJobsViewModel.swift in Sources */,
 				4BE78723A4D6BC413F5893F0 /* YuiJobsView.swift in Sources */,
 				C7B39B432A0464EF8FDA9E43 /* SubcontractBoardSection.swift in Sources */,
+				12DF755055676FC6D57FF40B /* ItBarLab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -620,6 +620,14 @@ function pauseVisitTimer($visitId, $userId, $lat = null, $lng = null) {
 function ensureTimesheetExists($userId, $date) {
     $db = getDB();
 
+    // Trucks (users.device_type = 'truck') are vehicles, not employees: their clock and
+    // job-timer rows stay as the cost record, but they never get a timesheet or go to payroll.
+    $typeStmt = $db->prepare("SELECT device_type FROM users WHERE id = ?");
+    $typeStmt->execute([$userId]);
+    if ($typeStmt->fetchColumn() === 'truck') {
+        return;
+    }
+
     // Calculate Monday of the week
     $weekStart = date('Y-m-d', strtotime('monday this week', strtotime($date)));
     $weekEnd = date('Y-m-d', strtotime($weekStart . ' +6 days'));

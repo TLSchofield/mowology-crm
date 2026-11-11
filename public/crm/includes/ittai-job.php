@@ -92,7 +92,7 @@ $__ijCols = static function (?array $j) use ($__ijIcon, $__ijWord, $__ijSvg): st
 };
 $__ijActs = static function (?array $j, string $primaryIcon, string $secondaryIcon) use ($__ijSvg, $__ijFlags): string {
     $btn = static function (string $cls, string $icon, ?array $a) use ($__ijSvg, $__ijFlags): string {
-        return '<button type="button" class="it-btn ' . $cls . '"' . ($a ? ' data-request="' . h(json_encode($a['request'], $__ijFlags)) . '"' : '') . '>'
+        return '<button type="button" class="it-btn ' . $cls . '"' . ($a ? ' data-request="' . h(json_encode($a['request'], $__ijFlags)) . '"' : ' hidden') . '>'
             . $__ijSvg($icon) . '<b>' . h($a['label'] ?? '') . '</b><span>' . h($a['sub'] ?? '') . '</span></button>';
     };
     return '<div class="it-job-col it-job-acts">' . $btn('it-btn-fill', $primaryIcon, $j['primary'] ?? null) . '<span class="it-job-m"></span>' . $btn('it-btn-line', $secondaryIcon, $j['secondary'] ?? null) . '</div>';
@@ -123,6 +123,7 @@ $__ijRail = static function (?array $j) use ($__ijSvg, $__ijFig, $__ijConf, $__i
 $__ijSide = static function (array $side, bool $top): string {
     $out = '<span class="it-job-side it-job-side-' . ($top ? 'top' : 'bot') . '"><b>' . h((string)($side['label'] ?? '')) . '</b>';
     foreach (['who', 'when'] as $k) if (($side[$k] ?? '') !== '') $out .= '<span>' . h((string)$side[$k]) . '</span>';
+    foreach ((array)($side['more'] ?? []) as $m) if ((string)$m !== '') $out .= '<span>' . h((string)$m) . '</span>';   // more lines of evidence (the month job)
     return $out . '</span>';
 };
 /** What the 2/3 counts, in the lower card's own words: the Interac email, the invoice, the bank deposit. */

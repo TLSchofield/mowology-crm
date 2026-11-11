@@ -47,6 +47,13 @@ for (const t of T.stroke.tokens) lines.push(`    static let ${camel(t.name.repla
 lines.push('}', 'enum ItSize {');
 for (const t of T.size.tokens) lines.push(`    static let ${camel(t.name)}: CGFloat = ${px(t.value)}`);
 lines.push('}', '');
+// The meniscus tab bar (SPEC section 14): lengths are CGFloat points, everything else (seconds, degrees, ratios, slots) is Double.
+lines.push('/// The meniscus tab bar numbers (SPEC section 14). iPhone and Android read the same values.', 'enum ItMeniscusToken {');
+for (const t of T.meniscus.tokens) {
+  const type = /px$/.test(String(t.value)) ? 'CGFloat' : 'Double';
+  lines.push(`    /// ${t.usage}`, `    static let ${camel(t.name.replace('meniscus-', ''))}: ${type} = ${px(t.value)}`);
+}
+lines.push('}', '');
 lines.push('/// The type scale: size / line height / weight (Inter).', 'enum ItTextStyle: CaseIterable {');
 const styles = T.type.groups.flatMap(g => g.styles);
 for (const s of styles) lines.push(`    case ${camel(s.name.replace(/-(\d+)$/, '$1'))}`);

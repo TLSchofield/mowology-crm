@@ -63,6 +63,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/ClientRhythm.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ComparablePricing.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamSignals.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/RenewalRadar.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ClientTier.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ObjectionReply.php';
@@ -95,6 +96,9 @@ require_once __DIR__ . '/../app/Core/CronSchedule.php';
 require_once __DIR__ . '/../app/Core/BusinessCrons.php';
 require_once __DIR__ . '/../app/Core/CronLock.php';
 require_once __DIR__ . '/../app/Core/Auth/JwtService.php';
+// One phone sign-in for every business (2026-11-11): token.php's check + token, and the ittai.ca directory
+require_once __DIR__ . '/../app/Core/Auth/PhoneSignIn.php';
+require_once __DIR__ . '/../app/Modules/Auth/Services/BusinessDirectory.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
@@ -421,6 +425,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptServic
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyMonthJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/AccountantQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineEvidence.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptAmountRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptDateCheck.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyReceiptJobAdapter.php';
@@ -671,6 +676,7 @@ require_once __DIR__ . '/../app/Modules/Payroll/Services/PayHours.php';
 require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoPositionService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PruningPlanService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantWorkService.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/PlantLineInfoService.php';
 
 // Live code brought back into git 2026-11-09 (security audit fix 3 B1)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferNudgeService.php';

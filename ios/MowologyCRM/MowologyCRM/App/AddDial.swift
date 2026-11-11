@@ -10,6 +10,7 @@
 
 import SwiftUI
 
+/// Identifies one creation action offered by the Add dial.
 enum AddDialItem: CaseIterable, Identifiable {
     case job, client, task, quote, invoice
 
@@ -42,8 +43,13 @@ enum AddDialItem: CaseIterable, Identifiable {
     }
 }
 
+/// Presents creation actions in a column aligned with the Add tab's physical slot.
 struct AddDial: View {
     @Environment(\.itAppStyle) private var style
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @AppStorage(ItBarLab.dialScrollKey) private var storedDialScroll = false
+    @AppStorage(ItBarLab.largeLabelsKey) private var storedLargeLabels = false
 
     /// The Add slot and how many slots the bar has, so the column rises straight above the bead.
     let slot: Int
@@ -54,9 +60,18 @@ struct AddDial: View {
 
     private let disc: CGFloat = 56
 
+    private var dialScrollEnabled: Bool { ItBarLab.isEnabled("dialScroll", stored: storedDialScroll) }
+    private var barReserve: CGFloat {
+        MainTabView.barReserve + (ItBarLab.isEnabled("largeLabels", stored: storedLargeLabels)
+            ? ItBarLab.barLabelMetrics(contentSize: dynamicTypeSize).extraBarHeight : 0)
+    }
+
     var body: some View {
         GeometryReader { geo in
-            let beadX = ItMeniscusGeometry.beadX(CGFloat(slot), count: slotCount, width: geo.size.width)
+            let physicalSlot = ItMeniscusGeometry.physicalSlotIndex(
+                slot, count: slotCount, isRightToLeft: layoutDirection == .rightToLeft
+            )
+            let beadX = ItMeniscusGeometry.beadX(CGFloat(physicalSlot), count: slotCount, width: geo.size.width)
             ZStack(alignment: .bottomTrailing) {
                 // A light veil, not a dark scrim: the screen stays readable behind the menu.
                 Rectangle()
@@ -66,25 +81,25 @@ struct AddDial: View {
                     .onTapGesture(perform: onClose)
                     .accessibilityHidden(true)
 
-                VStack(alignment: .trailing, spacing: 12) {
-                    ForEach(AddDialItem.column(office: office).reversed()) { item in
-                        Button { onPick(item) } label: {
-                            HStack(spacing: 14) {
-                                Text(item.title)
-                                    .font(style.font(.title3, weight: .medium))
-                                    .foregroundStyle(style.text)
-                                Image(systemName: item.icon)
-                                    .font(.system(size: 22, weight: .medium))
-                                    .foregroundStyle(style.tenant)
-                                    .frame(width: disc, height: disc)
-                                    .background(Circle().fill(style.surface))
-                                    .overlay(Circle().stroke(style.tenant, lineWidth: 1.5))   // a tenant ring: in dark the surface alone sank into the veil
-                                    .shadow(color: style.line, radius: 6, y: 2)
+                Group {
+                    if dialScrollEnabled {
+                        // The plain column when it fits (so it sits exactly where it always did, just above the bead);
+                        // a bottom-anchored scroll view only when the screen is too short for it.
+                        ViewThatFits(in: .vertical) {
+                            choices
+                            ScrollView(.vertical, showsIndicators: false) {
+                                choices
                             }
-                            .contentShape(Rectangle())
+                            .defaultScrollAnchor(.bottom)
+                            .scrollBounceBehavior(.basedOnSize)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Add a \(item.title.lowercased())")
+                        .frame(maxHeight: ItBarLab.dialMaxHeight(
+                            geometryHeight: geo.size.height,
+                            topSafeArea: geo.safeAreaInsets.top,
+                            barReserve: barReserve
+                        ), alignment: .bottom)   // a max-height frame grows to that height: keep the column at its bottom, above the bead
+                    } else {
+                        choices
                     }
                 }
                 .padding(.trailing, max(8, geo.size.width - beadX - disc / 2))
@@ -93,5 +108,29 @@ struct AddDial: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityAction(.escape, onClose)
+    }
+
+    private var choices: some View {
+        VStack(alignment: .trailing, spacing: 12) {
+            ForEach(AddDialItem.column(office: office).reversed()) { item in
+                Button { onPick(item) } label: {
+                    HStack(spacing: 14) {
+                        Text(item.title)
+                            .font(style.font(.title3, weight: .medium))
+                            .foregroundStyle(style.text)
+                        Image(systemName: item.icon)
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(style.tenant)
+                            .frame(width: disc, height: disc)
+                            .background(Circle().fill(style.surface))
+                            .overlay(Circle().stroke(style.tenant, lineWidth: 1.5))   // a tenant ring: in dark the surface alone sank into the veil
+                            .shadow(color: style.line, radius: 6, y: 2)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add a \(item.title.lowercased())")
+            }
+        }
     }
 }

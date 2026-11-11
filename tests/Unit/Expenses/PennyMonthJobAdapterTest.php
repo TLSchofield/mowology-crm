@@ -192,4 +192,31 @@ class PennyMonthJobAdapterTest extends TestCase
             ['id' => 30, 'code' => '', 'name' => 'blank'],
         ]));
     }
+
+    public function testALineWithNoAccountOfHersGetsTheEvidenceAndThePicker(): void
+    {
+        $line = $this->line(['suggestion' => null, 'description' => 'POINTOFSALE(TOZENSUSHIBARVANCOUVERBCCA)', 'amount' => -295.28]);
+        $this->assertFalse(PennyMonthJobAdapter::proposes($line));
+        $this->assertTrue(PennyMonthJobAdapter::unplaced($line));
+        $this->assertFalse(PennyMonthJobAdapter::unplaced($this->line()), 'a proposal is not unplaced');
+        $this->assertFalse(PennyMonthJobAdapter::unplaced($this->line(['suggestion' => null, 'stripe' => true])), 'a Stripe payout is split elsewhere');
+        $this->assertFalse(PennyMonthJobAdapter::unplaced($this->line(['suggestion' => null, 'client_payment' => true])), 'a client payment needs the invoice');
+        $ev = ['First time this payee is on your bank lines', 'No receipt within 14 days', 'No vendor of yours matches'];
+        $j = PennyMonthJobAdapter::fromUnplaced($line, $this->months()[2], [], 1, 1, ['evidence' => $ev, 'guide_left' => 7]);
+        $this->assertSame('No proposal', $j['right']['label']);
+        $this->assertSame($ev[0], $j['right']['who']);
+        $this->assertSame([$ev[2]], $j['right']['more']);
+        $this->assertSame('Choose account', $j['primary']['label']);
+        $this->assertSame(['mode' => 'choose', 'transaction_id' => 4411, 'suggested_id' => 0], $j['primary']['request'], 'no Approve: nothing to approve');
+        $this->assertSame(['mode' => 'guide', 'transaction_id' => 4411], $j['secondary']['request']);
+        $this->assertSame('7 left today', $j['secondary']['sub']);
+    }
+
+    public function testWhenPennyCannotBeAskedTheSecondButtonIsKeepIt(): void
+    {
+        $line = $this->line(['suggestion' => null]);
+        $j = PennyMonthJobAdapter::fromUnplaced($line, $this->months()[2], [], 1, 1, ['evidence' => ['x'], 'guide_left' => 0]);
+        $this->assertSame('Keep it', $j['secondary']['label']);
+        $this->assertSame('keep', $j['secondary']['request']['action']);
+    }
 }

@@ -141,6 +141,7 @@
         node.textContent = '';
         node.appendChild(el('b', '', (s && s.label) || ''));
         ['who', 'when'].forEach(function (k) { if (s && s[k]) node.appendChild(el('span', '', s[k])); });
+        ((s && s.more) || []).forEach(function (t) { if (t) node.appendChild(el('span', '', t)); });   // more lines of evidence (the month job)
     }
     /** Draw queue[0]: clone the skeleton of its kind, fill it, swap it in for the old rail. */
     function render() {
@@ -246,8 +247,11 @@
             conf.setAttribute('aria-label', lbl);
             conf.setAttribute('title', lbl);
         }
-        fillButton(rail.querySelector('.it-btn-fill'), job.primary);
-        fillButton(rail.querySelector('.it-btn-line'), job.secondary);
+        var primary = rail.querySelector('.it-btn-fill'), secondary = rail.querySelector('.it-btn-line');
+        if (primary) primary.hidden = !job.primary;
+        if (secondary) secondary.hidden = !job.secondary;
+        fillButton(primary, job.primary);
+        fillButton(secondary, job.secondary);
         var a = rail.querySelector('.it-job-anchor:not(.it-job-anchor-start)');
         if (a && job.anchor) {
             a.setAttribute('href', job.anchor.href);
@@ -271,7 +275,7 @@
         if (tt) { tt.setAttribute('tabindex', '-1'); tt.focus({ preventScroll: true }); }
         setBusy(true);
         clearTimeout(coolTimer);
-        coolTimer = setTimeout(function () { setBusy(false); }, 600);
+        coolTimer = setTimeout(function () { setBusy(false); openDirect(job); }, 600);
     }
 
     /** Nothing left: the line settles back to its resting state ("Nothing to decide"), keeping the Undo for its 6 s. It is never removed. */
@@ -308,7 +312,22 @@
         for (var i = 0; i < queue.length; i++) if (queue[i].accounts && queue[i].accounts.length) return queue[i].accounts;
         return [];
     }
-    function choose(job, req) {
+    /**
+     * "Ask Penny" (the month job, a line she has no account for): the Bank card's own bank_guidance, on this press only. Her answer
+     * (her words, and the account she would pick) opens the picker with that account chosen; nothing is filed until Save.
+     */
+    function guide(job, req) {
+        if (busy) return;
+        setBusy(true);
+        say('Asking Penny…', false);
+        post({ mode: 'bank_guidance', transaction_id: req.transaction_id }, job).then(function (d) {
+            setBusy(false);
+            if (!(d && d.ok)) { say((d && (d.message || d.error)) || 'Could not ask just now — pick the account yourself.', false); return; }
+            say(d.say || '', false);
+            choose(job, { transaction_id: req.transaction_id, suggested_id: 0 }, { account_id: d.account_id, guidance_id: d.guidance_id });
+        }).catch(function () { setBusy(false); say('Could not ask just now — pick the account yourself.', false); });
+    }
+    function choose(job, req, pre) {
         var acts = root.querySelector('.it-job-rail .it-job-acts');
         if (!acts || root.querySelector('.it-job-choose')) return;
         var box = el('div', 'it-job-col it-job-acts it-job-choose');
@@ -319,6 +338,7 @@
         var o0 = el('option', '', 'Pick an account…'); o0.value = ''; sel.appendChild(o0);
         (job.accounts && job.accounts.length ? job.accounts : chartOf()).forEach(function (a) { var o = el('option', '', a[1]); o.value = String(a[0]); sel.appendChild(o); });
         label.appendChild(sel);
+        if (pre && pre.account_id) sel.value = String(pre.account_id);   // her pick, nothing filed until Save
         var m = el('span', 'it-job-m');
         var row = el('div', 'it-job-choose-btns');
         var save = el('button', 'it-btn it-btn-fill');
@@ -340,10 +360,63 @@
         save.addEventListener('click', function () {
             if (!sel.value) { say('Pick the account first.', false); sel.focus(); return; }
             var tmp = document.createElement('button');
-            tmp.setAttribute('data-request', JSON.stringify({ mode: 'bank_decide', transaction_id: req.transaction_id, action: 'approve',
-                account_id: Number(sel.value), suggested_id: req.suggested_id }));
+            var body = { mode: 'bank_decide', transaction_id: req.transaction_id, action: 'approve', account_id: Number(sel.value) };
+            if (req.suggested_id) body.suggested_id = req.suggested_id;
+            if (pre && pre.guidance_id) body.guidance_id = pre.guidance_id;   // keeps her reason on the decision (bookkeeper.php recordDecision)
+            tmp.setAttribute('data-request', JSON.stringify(body));
             settle(tmp);
         });
+    }
+
+    /** A transfer with no proposed invoice asks "Which invoice is this?" straight away (no Back: there is nothing to go back to). */
+    function openDirect(job) {
+        if (!job || job.mode !== 'choose' || queue[0] !== job || !(job.candidates || []).length) return;
+        chooseInvoice(job, { mode: 'pick', notification_id: Number(String(job.key || '').replace(/[^0-9]/g, '')), href: '/crm/invoices/#etransfers' }, { direct: true });
+    }
+
+    /** Offer Penny's scored invoice candidates; recording still uses the card's existing request and endpoint. */
+    function chooseInvoice(job, req, opts) {
+        var acts = root.querySelector('.it-job-rail .it-job-acts');
+        if (!acts || root.querySelector('.it-job-choose')) return;
+        var box = el('div', 'it-job-col it-job-acts it-job-choose it-job-invoice-choose');
+        box.appendChild(el('span', 'it-job-q', opts && opts.direct ? 'Which invoice is this?' : 'Is it one of these?'));
+        var list = el('div', 'it-job-candidates');
+        (job.candidates || []).forEach(function (candidate) {
+            var pickCandidate = el('button', 'it-btn it-btn-line');
+            pickCandidate.type = 'button';
+            pickCandidate.appendChild(el('b', '', candidate.invoice || ''));
+            pickCandidate.appendChild(el('span', '', [candidate.who, candidate.owing, candidate.issued].filter(Boolean).join(' · ')));
+            pickCandidate.addEventListener('click', function () {
+                var tmp = document.createElement('button');
+                tmp.setAttribute('data-request', JSON.stringify(candidate.request));
+                settle(tmp);
+            });
+            list.appendChild(pickCandidate);
+        });
+        box.appendChild(list);
+        var row = el('div', 'it-job-choose-btns');
+        var none = el('button', 'it-btn it-btn-line');
+        none.type = 'button';
+        none.appendChild(el('b', '', 'None of these'));
+        none.appendChild(el('span', '', 'pick on the card'));
+        none.addEventListener('click', function () { pick(req); });
+        row.appendChild(none);
+        var back = null;
+        if (!(opts && opts.direct)) {
+            back = el('button', 'it-btn it-btn-line');
+            back.type = 'button';
+            back.appendChild(el('b', '', 'Back'));
+            back.appendChild(el('span', '', 'no change'));
+            row.appendChild(back);
+        }
+        box.appendChild(row);
+        acts.hidden = true;
+        acts.parentNode.insertBefore(box, acts.nextSibling);
+        var first = list.querySelector('.it-btn');
+        if (first) first.focus({ preventScroll: true });
+        var leave = function () { box.remove(); acts.hidden = false; var b0 = acts.querySelector('.it-btn:not([hidden])'); if (b0) b0.focus({ preventScroll: true }); };
+        if (back) back.addEventListener('click', leave);
+        box.addEventListener('keydown', function (e) { if (e.key === 'Escape' && back) { e.stopPropagation(); leave(); } });   // direct mode has no Back: Escape stays Skip's
     }
 
     /** "Not this invoice": the card below (same page) has the form to pick another; elsewhere, go to it. */
@@ -428,8 +501,9 @@
         var req;
         try { req = JSON.parse(btn.getAttribute('data-request') || ''); } catch (e) { return; }
         var job = queue[0];
-        if (req.mode === 'pick') { pick(req); return; }
+        if (req.mode === 'pick') { if (job.candidates && job.candidates.length) chooseInvoice(job, req, {}); else pick(req); return; }
         if (req.mode === 'choose') { choose(job, req); return; }
+        if (req.mode === 'guide') { guide(job, req); return; }
         if (req.mode === 'edit') { editReceipt(req); return; }
         var isApprove = job.kind === 'receipt' && req.action === 'approve';   // the month job's bank lines also say action 'approve'
         var isMerge = req.mode === 'dupe_merge';
@@ -559,6 +633,8 @@
         if ('MutationObserver' in window) new MutationObserver(queueFit).observe(root, { childList: true, subtree: true });
         queueFit();
     }
+
+    openDirect(queue[0]);   // the first job is drawn by the server: a 'choose' job asks its question now
 
     window.ItJob = { next: next };
 })();
