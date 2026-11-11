@@ -42037,3 +42037,48 @@ body.mw-books {
   .mw-payroll-table td, .mw-payroll-table th { padding: 6px 8px; }
   .mw-table-card { box-shadow: none; border-color: var(--mw-ink-300); }
 }
+
+/* ══ QUOTE VIEW — quiet header, one status line, one More menu (2026-11-10) ═══════════════════════════════
+ * Replaces the three stacked debug bars and the row of eight buttons on /crm/quotes/view.php.
+ */
+.mw-qv-head { align-items: flex-start; gap: 16px; }
+.mw-qv-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mw-qv-reason { font-size: 12px; font-weight: 600; color: var(--mw-red); background: var(--mw-amber-bg); border: 1px solid var(--mw-amber-line); border-radius: 999px; padding: 1px 10px; }
+.mw-qv-actions { align-items: center; flex-wrap: nowrap; gap: 8px; }
+.mw-qv-actions form { margin: 0; }
+.mw-qv-more .dropdown-menu { min-width: 200px; padding: 6px 0; }
+.mw-qv-more .dropdown-menu form { margin: 0; }
+.mw-qv-more .dropdown-item { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 7px 16px; }
+.mw-qv-more .dropdown-item.mw-qv-danger { color: var(--mw-red); }
+
+.mw-qv-checks { margin: 0 0 16px; border-bottom: 1px solid rgb(13 59 46 / .12); }
+.mw-qv-checks-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 8px 0; background: none; border: 0; text-align: left; font-size: 13px; color: var(--mw-forest); cursor: pointer; }
+.mw-qv-check { opacity: .75; }
+.mw-qv-check.is-warn { color: var(--mw-amber); opacity: 1; font-weight: 600; }
+.mw-qv-check.is-bad { color: var(--mw-red); opacity: 1; font-weight: 600; }
+.mw-qv-check-dot { opacity: .4; }
+.mw-qv-checks-more { margin-left: auto; font-size: 12px; text-decoration: underline; opacity: .6; }
+.mw-qv-checks-panel { display: none; padding: 0 0 12px; font-size: 13px; }
+.mw-qv-checks.is-open .mw-qv-checks-panel { display: block; }
+.mw-qv-checks-table { width: 100%; }
+.mw-qv-checks-table th { width: 120px; padding: 4px 12px 4px 0; font-weight: 600; vertical-align: top; white-space: nowrap; }
+.mw-qv-checks-table td { padding: 4px 0; word-break: break-word; }
+.mw-qv-checks-table small { display: block; opacity: .6; }
+
+.mw-qv-link { margin-top: 16px; }
+.mw-qv-link-row { display: flex; gap: 8px; margin-top: 6px; }
+.mw-qv-link-row .form-control { min-width: 0; flex: 1; font-size: 12px; }
+
+.mw-qv-reasons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.mw-qv-reason-opt { margin: 0; cursor: pointer; }
+.mw-qv-reason-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.mw-qv-reason-opt span { display: inline-block; padding: 6px 14px; border: 1px solid rgb(13 59 46 / .2); border-radius: 999px; font-size: 13px; }
+.mw-qv-reason-opt input:checked + span { background: var(--mw-forest); border-color: var(--mw-forest); color: var(--mw-light); }
+.mw-qv-reason-opt input:focus-visible + span { outline: 2px solid var(--mw-green); outline-offset: 2px; }
+
+@media (max-width: 767px) {
+  .mw-qv-head { flex-direction: column; }
+  .mw-qv-actions { width: 100%; }
+  .mw-qv-actions > form, .mw-qv-actions > .btn { flex: 1; }
+  .mw-qv-actions > form .btn { width: 100%; }
+}
