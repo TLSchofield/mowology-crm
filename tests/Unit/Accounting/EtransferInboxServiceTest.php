@@ -261,4 +261,17 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertSame(['INV-2026-0012', 'INV-2026-0013', 'INV-2026-0014'], EtransferInboxService::extractInvoiceNumbers('INV-2026-0012, 0013 & 14'));
         $this->assertSame([], EtransferInboxService::extractInvoiceNumbers('thanks for the great work'));
     }
+
+    public function test_candidate_scoring_signals(): void
+    {
+        $inv = ['invoice_number' => 'INV-2026-0465', 'balance_due' => 100.00, 'payer_name' => 'GREEN GARDENS'];
+        $this->assertSame(60, EtransferInboxService::scoreCandidate($inv, null, 100.00, null, false), 'exact amount');
+        $this->assertSame(50, EtransferInboxService::scoreCandidate($inv, null, 100.01, null, false), 'cent off');
+        $this->assertSame(20, EtransferInboxService::scoreCandidate($inv, 'GREEN SERVICES', 90.00, null, false), 'shared name plus part payment');
+        $this->assertSame(65, EtransferInboxService::scoreCandidate($inv, null, 90.00, 'Invoice 2026-0465', false), 'full memo number');
+        $this->assertSame(65, EtransferInboxService::scoreCandidate($inv, null, 90.00, 'Payment 0465', false), 'memo trailing digits');
+        $stop = ['invoice_number' => 'INV-2026-0465', 'balance_due' => 100.00, 'payer_name' => 'THE PLAN LTD'];
+        $this->assertSame(5, EtransferInboxService::scoreCandidate($stop, 'STRATA PLAN INC', 90.00, null, false), 'stopwords do not match');
+        $this->assertLessThan(EtransferInboxService::CANDIDATE_MIN, EtransferInboxService::scoreCandidate($inv, null, 90.00, null, false));
+    }
 }

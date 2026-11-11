@@ -93,10 +93,12 @@ class PennyJobAdapter
             $out = [];
             foreach (array_slice($rows, 0, 10) as $et) {   // the desk queue's cap: each read costs a few queries
                 $read = $desk->read($et);
-                if (!self::proposes($read)) continue;
-                $facts = $inbox->invoiceFacts(array_map(fn($l) => (string)$l['invoice'], $read['lines']));
+                $proposed = array_map(fn($l) => (string)$l['invoice'], (array)($read['lines'] ?? []));
+                $candidates = $inbox->candidateInvoices($et['sender_name'] ?? null, (float)($read['active'] ?? 0), $et['memo'] ?? null, $proposed);
+                if (!self::proposes($read) && !self::offersChoice($read, $candidates)) continue;
+                $facts = $inbox->invoiceFacts($proposed);
                 $out[] = self::fromTransfer($et, $read, $facts, 0, 0, fn(string $sender, string $payer): bool => $inbox->paysFor($sender, $payer),
-                    fn(string $sender, string $payer): int => EtransferInboxService::samePayer($sender, $payer) ? $inbox->timesRecordedFrom($sender) : $inbox->timesPaidFor($sender, $payer));
+                    fn(string $sender, string $payer): int => EtransferInboxService::samePayer($sender, $payer) ? $inbox->timesRecordedFrom($sender) : $inbox->timesPaidFor($sender, $payer), $candidates);
             }
             return $out;
         } catch (Throwable $e) {
@@ -120,6 +122,12 @@ class PennyJobAdapter
         return true;
     }
 
+    /** A blank reading may still offer a short, scored list without claiming a match. Pure. */
+    public static function offersChoice(array $read, array $candidates): bool
+    {
+        return empty($read['lines']) && in_array((string)($read['kind'] ?? ''), ['none', 'leftover'], true) && !empty($candidates);
+    }
+
     /**
      * One pending e-Transfer → the generic job shape. Pure.
      * $et is the listPending() row (sender, amount, memo, email_date, bank columns); $read is EtransferDeskService::read()
@@ -130,7 +138,7 @@ class PennyJobAdapter
      * knowledge triangle (sureOfTransfer). None given = no record.
      * The e-Transfer is drawn ABOVE the rail and the invoice(s) BELOW it; the discs on the rail compare them.
      */
-    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total, ?callable $paysFor = null, ?callable $record = null): array
+    public static function fromTransfer(array $et, array $read, array $facts, int $index, int $total, ?callable $paysFor = null, ?callable $record = null, array $candidates = []): array
     {
         $id = (int)($et['id'] ?? $read['id'] ?? 0);
         $sender = trim((string)($et['sender_name'] ?? '')) !== '' ? trim((string)$et['sender_name']) : 'Unknown sender';
@@ -188,25 +196,41 @@ class PennyJobAdapter
         }
         $matched = max(1, min(3, (int)($read['confirmed'] ?? 1)));
         $emailAt = $d($et['email_date'] ?? null, 'M j, g:i a');
+        $choices = [];
+        foreach (array_slice($candidates, 0, 3) as $candidate) {
+            $no = (string)($candidate['invoice_number'] ?? '');
+            $balance = (float)($candidate['balance_due'] ?? 0);
+            if ($no === '') continue;
+            $choices[] = [
+                'invoice' => $no,
+                'who' => (string)($candidate['payer_name'] ?? ''),
+                'owing' => $money($balance),
+                'issued' => !empty($candidate['invoice_date']) ? 'Issued ' . $d((string)$candidate['invoice_date']) : '',
+                'request' => ['action' => 'record', 'notification_id' => $id, 'invoice_numbers' => [$no], 'amounts' => [number_format(min($active, $balance), 2, '.', '')]],
+            ];
+        }
 
         return [
             'head'       => 'penny',
             'kind'       => 'etransfer',
             'key'        => 'et:' . $id,
-            'title'      => 'e-Transfer to record — Penny has matched it',
+            'title'      => $n > 0 ? 'e-Transfer to record — Penny has matched it' : 'e-Transfer to record — choose the invoice',
             'confidence' => trim((string)($read['say'] ?? '')),
             'sure'       => self::sureOfTransfer($kind, count($payers) === 1 && $record !== null ? (int)$record($sender, $client) : 0, $amountState === 'differs' || $payerState === 'differs'),
             'pieces'     => ['matched' => $matched, 'total' => 3],
-            'label'      => $n . ' invoice' . ($n === 1 ? '' : 's') . ' + payment',
+            'label'      => $n > 0 ? $n . ' invoice' . ($n === 1 ? '' : 's') . ' + payment' : 'Invoice + payment',
+            'mode'       => $n > 0 ? 'propose' : 'choose',
+            'candidates' => $choices,
             // the two sides: the e-Transfer above the rail, the invoice(s) below it
             'left'       => ['label' => 'e-Transfer', 'who' => $sender, 'when' => $emailAt !== '' ? 'Interac email ' . $emailAt : '', 'amount' => $money($active)],
-            'right'      => ['label' => $n === 1 ? $numbers[0] : $n . ' invoices', 'who' => $client, 'when' => $issued !== '–' ? $issued : '', 'amount' => $knowOwing ? $money($owing) . ' owing' : ''],
+            'right'      => $n > 0 ? ['label' => $n === 1 ? $numbers[0] : $n . ' invoices', 'who' => $client, 'when' => $issued !== '–' ? $issued : '', 'amount' => $knowOwing ? $money($owing) . ' owing' : ''] : ['label' => 'Which invoice?', 'who' => '', 'when' => '', 'amount' => ''],
             'columns'    => $columns,
             // the amount is already on the rail: the button names only what it pays
-            'primary'    => ['label' => 'Record payment', 'sub' => $n === 1 ? $numbers[0] : $n . ' invoices',
-                             'request' => ['action' => 'record', 'notification_id' => $id, 'invoice_numbers' => $invoiceNumbers, 'amounts' => $amounts]],
-            'secondary'  => ['label' => 'Not this invoice', 'sub' => 'pick on the card',
-                             'request' => ['mode' => 'pick', 'notification_id' => $id, 'href' => '/crm/invoices/#etransfers']],
+            'primary'    => $n > 0 ? ['label' => 'Record payment', 'sub' => $n === 1 ? $numbers[0] : $n . ' invoices',
+                             'request' => ['action' => 'record', 'notification_id' => $id, 'invoice_numbers' => $invoiceNumbers, 'amounts' => $amounts]]
+                             : null,
+            'secondary'  => $n > 0 ? ['label' => 'Not this invoice', 'sub' => 'pick on the card',
+                             'request' => ['mode' => 'pick', 'notification_id' => $id, 'href' => '/crm/invoices/#etransfers']] : null,
             'undo'       => null,
             // Record payment posts the card's own form to the card's own endpoint
             'api'        => '/crm/api/etransfer-confirm.php',
