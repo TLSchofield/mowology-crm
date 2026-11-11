@@ -106,15 +106,20 @@ class TrainingService
     private function people(): array
     {
         $out = [];
-        foreach ($this->db->query("SELECT id, full_name, role FROM users")->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $out[(int)$r['id']] = ['name' => OpsDeskService::firstName((string)$r['full_name']), 'role' => (string)($r['role'] ?? '')];
+        foreach ($this->db->query("SELECT id, full_name, role, device_type FROM users")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['id']] = [
+                'name'  => OpsDeskService::firstName((string)$r['full_name']),
+                'role'  => (string)($r['role'] ?? ''),
+                'truck' => ($r['device_type'] ?? '') === 'truck',
+            ];
         }
         return $out;
     }
 
     private function crew(array $people, int $uid): bool
     {
-        return isset($people[$uid]) && !in_array($people[$uid]['role'], self::OFFICE_ROLES, true);
+        // A truck login is a vehicle: it is never trained, certified or coached.
+        return isset($people[$uid]) && empty($people[$uid]['truck']) && !in_array($people[$uid]['role'], self::OFFICE_ROLES, true);
     }
 
     private function lessons(): array
