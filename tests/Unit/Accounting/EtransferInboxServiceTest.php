@@ -270,6 +270,9 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertSame(20, EtransferInboxService::scoreCandidate($inv, 'GREEN SERVICES', 90.00, null, false), 'shared name plus part payment');
         $this->assertSame(65, EtransferInboxService::scoreCandidate($inv, null, 90.00, 'Invoice 2026-0465', false), 'full memo number');
         $this->assertSame(65, EtransferInboxService::scoreCandidate($inv, null, 90.00, 'Payment 0465', false), 'memo trailing digits');
+        $house = ['invoice_number' => 'INV-2026-1234', 'balance_due' => 100.00, 'payer_name' => 'GREEN GARDENS'];
+        $this->assertSame(5, EtransferInboxService::scoreCandidate($house, null, 90.00, 'Deposit for 1234 Main St', false), 'a house number is not an invoice');
+        $this->assertSame(65, EtransferInboxService::scoreCandidate($house, null, 90.00, 'inv 1234', false), 'but "inv 1234" is');
         $stop = ['invoice_number' => 'INV-2026-0465', 'balance_due' => 100.00, 'payer_name' => 'THE PLAN LTD'];
         $this->assertSame(5, EtransferInboxService::scoreCandidate($stop, 'STRATA PLAN INC', 90.00, null, false), 'stopwords do not match');
         $this->assertLessThan(EtransferInboxService::CANDIDATE_MIN, EtransferInboxService::scoreCandidate($inv, null, 90.00, null, false));

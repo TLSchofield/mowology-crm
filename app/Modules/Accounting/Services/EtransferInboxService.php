@@ -686,9 +686,12 @@ class EtransferInboxService
         $number = strtoupper((string)($inv['invoice_number'] ?? ''));
         $memo = (string)$memo;
         $named = in_array($number, self::extractInvoiceNumbers($memo), true);
+        // a bare run of digits names an invoice only when the memo says "invoice"/"inv"/"#" or the run is zero-padded like the
+        // sequence ("0465"): "Deposit for 1234 Main St" must not point at INV-2026-1234.
         if (!$named && preg_match_all('/\b\d{3,}\b/', $memo, $matches)) {
+            $says = (bool)preg_match('/\binv(?:oice)?s?\b|#/i', $memo);
             foreach ($matches[0] as $digits) {
-                if (substr($number, -strlen($digits)) === $digits) { $named = true; break; }
+                if (($says || $digits[0] === '0') && substr($number, -strlen($digits)) === $digits) { $named = true; break; }
             }
         }
         if ($named) $score += 60;
@@ -715,7 +718,7 @@ class EtransferInboxService
                 '_order_date' => (string)($inv['order_date'] ?? ''),
             ];
         }
-        usort($out, static fn($a, $b) => $b['score'] <=> $a['score'] ?: strcmp($a['_order_date'], $b['_order_date']));
+        usort($out, static fn($a, $b) => $b['score'] <=> $a['score'] ?: (strcmp($a['_order_date'], $b['_order_date']) ?: strcmp($a['invoice_number'], $b['invoice_number'])));   // total order: usort is not stable before PHP 8
         $out = array_slice($out, 0, $limit);
         foreach ($out as &$row) unset($row['_order_date']);
         unset($row);
