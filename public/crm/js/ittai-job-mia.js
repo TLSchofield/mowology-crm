@@ -195,7 +195,8 @@
         setBusy(true);
         say('');
         (a.request.form ? postForm(a.request.url, body) : post(a.request.url, body)).then(function (d) {
-            if (!(d && d.success)) { setBusy(false); say((d && (d.message || d.error)) || 'Could not save. Try again.'); return; }
+            if (!(d && (d.success || d.ok))) {   // Otto's decide answers ok, the rest success
+ setBusy(false); say((d && (d.message || d.error)) || 'Could not save. Try again.'); return; }
             var text = d.message || 'Done.';
             window.dispatchEvent(new CustomEvent('mw:job-done', { detail: { request: body, response: d } }));   // a page may follow (Before & After rows)
             if (d.next) { queue[0] = d.next; setBusy(false); render(); say(text); return; }   // the same pair, its next step
