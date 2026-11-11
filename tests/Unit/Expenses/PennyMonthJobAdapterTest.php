@@ -119,4 +119,51 @@ class PennyMonthJobAdapterTest extends TestCase
         for ($i = 1; $i <= 14; $i++) $m[] = ['month' => sprintf('2027-%02d', $i > 12 ? 12 : $i), 'locked' => true, 'ready' => false, 'drift' => [], 'receipts' => 0, 'bank_lines' => 0];
         $this->assertCount(PennyMonthJobAdapter::MAX_DISCS, PennyMonthJobAdapter::monthDiscs($m, null));
     }
+
+    public function testTheGapGoesToTheListOnlyWhenItsOriginMonthIsClean(): void
+    {
+        $m = [
+            ['month' => '2026-01', 'locked' => false, 'ready' => false, 'drift' => ['a' => 7.01], 'receipts' => 0, 'bank_lines' => 10, 'grace_until' => ''],
+            ['month' => '2026-02', 'locked' => false, 'ready' => false, 'drift' => ['a' => 7.01], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+        ];
+        $this->assertNull(PennyMonthJobAdapter::askMonth($m, '2026-11-10'), 'January still has lines to sort; February only carries its gap');
+        $m[0]['bank_lines'] = 0;
+        $this->assertSame('2026-01', PennyMonthJobAdapter::askMonth($m, '2026-11-10'));
+        $m[0]['grace_until'] = '2026-12-01';
+        $this->assertNull(PennyMonthJobAdapter::askMonth($m, '2026-11-10'), 'not while late statements may still come');
+    }
+
+    public function testAMonthAlreadyOnTheListDoesNotHideTheNextNewGap(): void
+    {
+        $m = [
+            ['month' => '2026-01', 'locked' => false, 'ready' => false, 'drift' => ['a' => 7.01], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-02', 'locked' => false, 'ready' => false, 'drift' => ['a' => 7.01], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+            ['month' => '2026-03', 'locked' => false, 'ready' => false, 'drift' => ['a' => -15.37], 'receipts' => 0, 'bank_lines' => 0, 'grace_until' => ''],
+        ];
+        $asked = static fn(string $ym): bool => $ym === '2026-01';
+        $this->assertSame('2026-03', PennyMonthJobAdapter::askMonth($m, '2026-11-10', $asked), 'January is on the list; March is a new gap, not February\'s carry');
+        $this->assertNull(PennyMonthJobAdapter::askMonth($m, '2026-11-10', static fn() => true));
+    }
+
+    public function testTheGapJobPostsOnlyTheMonthAndNeverEmailsAnyone(): void
+    {
+        $draft = ['month' => '2026-01', 'account' => '1010 Chequing Account', 'amount' => 7.01, 'question' => 'q', 'evidence' => 'Filed FY2025 cash is $11,017.00; the Dec 31 statements add up to $11,009.99 ($7.01 less).', 'evidence_short' => 'Filed $11,017.00 · statements $11,009.99'];
+        $discs = PennyMonthJobAdapter::monthDiscs($this->months(), '2026-03');
+        $j = PennyMonthJobAdapter::fromGap($draft, $this->months()[2], $discs, 1, 1);
+        $this->assertSame('January is $7.01 off the bank — nothing Penny can match', $j['title']);
+        $this->assertSame(['mode' => 'accountant_question', 'month' => '2026-01', 'action' => 'add'], $j['primary']['request'], 'the words are written by the server, not sent');
+        $this->assertSame('drop', $j['secondary']['request']['action']);
+        $this->assertSame("Ricole's list", $j['right']['label']);
+        $this->assertSame('Filed $11,017.00 · statements $11,009.99', $j['right']['when'], 'short on the rail; the whole sentence is in the question');
+        $this->assertSame('on the list', $j['after']['top']);
+        $this->assertSame([], $j['columns']);
+    }
+
+    public function testAReceiptFromTheClosedYearIsNeverOfferedAsALink(): void
+    {
+        require_once __DIR__ . '/../../../app/Modules/Accounting/Services/MonthCloseService.php';
+        $this->assertTrue(PennyMonthJobAdapter::inClosedYear('2025-12-30'), 'University Landscapers, Dec 30 2025: its books are in the filed year');
+        $this->assertTrue(PennyMonthJobAdapter::inClosedYear(''), 'an unknown date is not trusted');
+        $this->assertFalse(PennyMonthJobAdapter::inClosedYear('2026-01-02'));
+    }
 }
