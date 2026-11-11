@@ -918,3 +918,12 @@ could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, 
 - Total minus Balance also falls for a QuickBooks credit memo, which would be recorded as a payment. Ittai originates these invoices, so credit memos belong in Ittai.
 - A `prod-run` preview that touches QuickBooks can renew its sign-in and then roll the new token back. Use `--commit`, and never `return` from a snippet (nothing prints).
 
+## The flow line and the month's books (2026-11-10)
+
+- A month's books-against-bank difference is CUMULATIVE (books minus bank at month end), so a gap born in January shows on every later month. Mark a figure equal to the month before as carried; never ask about it again as a new gap (`PennyMonthJobAdapter::monthDiscs()` / `askMonth()`).
+- Sorting bank lines (Approve moves a line between expense accounts) clears the "lines to sort" blocker but never moves the bank balance: a month with $0 lines left can still be off the bank. The strip's resting caption is "Nothing to decide", never "all clear".
+- `accounting_transactions.bank_account` is empty on bank imports. The account a line came out of is the 1010/1020/1025/2400 side of its journal entry (`journal_entries` source `bank_import`, live: `reversed_by_entry_id IS NULL AND status = 'posted'`).
+- "Keep it" on the Bank card files a `bank_line_reviews` row, which removes the line from the waiting queue: it counts as sorted without a category change.
+- January 2026 chequing sits $7.01 above the bank because filed FY2025 cash ($11,017.00) is $7.01 above the Dec 31 statements ($11,009.99 = 1010 2,679.92 + 1025 8,329.38 + 1020 0.69; the card is not cash). It is question 7 for Ricole, not a bug in the importer: only she can say whether a Jan 1 correcting entry may be posted. Measured 2026-11-10.
+- Nothing goes to Ricole until Tim says so (held since 2026-10-13); the in-app list (`accountant_questions`) is where questions wait, and it is hidden from the accountant's own login.
+
