@@ -46,8 +46,11 @@ class BankLineEvidence
         return strlen($letters) >= 4 ? substr($letters, 0, 10) : '';
     }
 
+    /** An alias this short is a fragment, not a name ("city of", "push", "pnty" are on real vendors, read off receipts): names count, aliases only from this length. */
+    public const MIN_ALIAS_LETTERS = 8;
+
     /**
-     * Pure: the first vendor on file whose name (letters only, 4+) sits inside the line's text; null when none.
+     * Pure: the first vendor on file whose NAME (letters only, 4+) or a long alias (MIN_ALIAS_LETTERS+) sits inside the line's text; null when none.
      * @param list<array{name:string, aliases?:string, default_accounting_category?:string}> $vendors
      * @return array{name:string, category:string}|null
      */
@@ -55,10 +58,11 @@ class BankLineEvidence
     {
         $hay = preg_replace('/[^A-Z]/', '', strtoupper($description)) ?? '';
         foreach ($vendors as $v) {
-            $names = array_merge([(string)$v['name']], array_map('trim', explode(',', (string)($v['aliases'] ?? ''))));
-            foreach ($names as $n) {
+            $names = [[(string)$v['name'], 4]];
+            foreach (explode(',', (string)($v['aliases'] ?? '')) as $al) $names[] = [trim($al), self::MIN_ALIAS_LETTERS];
+            foreach ($names as [$n, $min]) {
                 $k = preg_replace('/[^A-Z]/', '', strtoupper($n)) ?? '';
-                if (strlen($k) >= 4 && strpos($hay, $k) !== false) return ['name' => (string)$v['name'], 'category' => (string)($v['default_accounting_category'] ?? '')];
+                if (strlen($k) >= $min && strpos($hay, $k) !== false) return ['name' => (string)$v['name'], 'category' => (string)($v['default_accounting_category'] ?? '')];
             }
         }
         return null;

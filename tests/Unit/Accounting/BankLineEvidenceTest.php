@@ -57,6 +57,9 @@ class BankLineEvidenceTest extends TestCase
         $this->assertSame(['name' => 'Shell', 'category' => 'Vehicle'], BankLineEvidence::vendorFor('POINTOFSALE(SHELLC01018VANCOUVERBCCA)', $v));
         $this->assertSame('Home Depot', BankLineEvidence::vendorFor('POINTOFSALE(THEHOMEDEPOT7259VANCOUVERBCCA)', $v)['name']);
         $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(TOZENSUSHIBARVANCOUVERBCCA)', $v));
+        $junk = [['name' => 'City of Vancouver Landfill', 'aliases' => 'Vancouver Landfill,city of,push', 'default_accounting_category' => 'Disposal'], ['name' => 'CHEVRON', 'aliases' => 'pnty,date:', 'default_accounting_category' => '']];
+        $this->assertNull(BankLineEvidence::vendorFor('POINTOFSALE(CITYOFVANPARKSANSVANCOUVERBCCA)', $junk), 'a fragment alias ("city of") is not a vendor');
+        $this->assertSame('City of Vancouver Landfill', BankLineEvidence::vendorFor('POINTOFSALE(VANCOUVERLANDFILL1VANCOUVERBCCA)', $junk)['name'], 'a long alias counts');
         $s = BankLineEvidence::summarise(['earlier' => [], 'receipts' => [], 'recurring' => 0, 'vendor' => ['name' => 'Shell', 'category' => 'Vehicle']]);
         $this->assertSame('Vendor on file: Shell (usually Vehicle)', $s[2]);
     }
