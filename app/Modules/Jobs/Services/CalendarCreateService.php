@@ -78,7 +78,9 @@ final class CalendarCreateService
         $s->execute([(int)$result['plan_id'], $plan['plan_start_date']]);
         $v = $s->fetch(PDO::FETCH_ASSOC);
         if (!$v) {
-            return ['success' => false, 'error' => 'The job was created but no visit was placed. Check the plan.', 'plan_id' => (int)$result['plan_id']];
+            // The plan exists: report success so a retry does not create a second plan.
+            return ['success' => true, 'plan_id' => (int)$result['plan_id'], 'visit_id' => null, 'stop_id' => null,
+                    'date' => $plan['plan_start_date'], 'message' => 'Job created, but no visit was placed. Open the job to check it.'];
         }
         return ['success' => true, 'plan_id' => (int)$result['plan_id'], 'visit_id' => (int)$v['id'],
                 'stop_id' => $v['stop_id'] ? (int)$v['stop_id'] : null, 'date' => $plan['plan_start_date']];

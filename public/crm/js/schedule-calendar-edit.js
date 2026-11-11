@@ -142,11 +142,20 @@
         if (block.classList.contains('mw-cal-block--locked')) return;
         var b = findBlock(+block.dataset.visit); if (!b) return;
         var mode = e.target.classList.contains('mw-cal-edge--bottom') ? 'end' : e.target.classList.contains('mw-cal-edge--top') ? 'start' : 'move';
+        if (mode === 'move' && scheduledCount(b.stopId) > 1) {
+          toast('This stop has more than one visit, so it cannot be dragged. Change each visit by its edge.', null, 'error');
+          return;
+        }
         startDrag(e, block, colEl, b, mode, minAt);
       } else {
         startCreate(e, colEl, ci, minAt);
       }
     });
+  }
+  function scheduledCount(stopId) {
+    var n = 0;
+    stopsData.forEach(function (s) { if (s.stop_id === stopId) (s.visits || []).forEach(function (v) { if (v.visit_status === 'scheduled') n++; }); });
+    return n;
   }
   function findBlock(id) { var f = null; crewCols.forEach(function (c) { c.blocks.forEach(function (b) { if (b.visitId === id) f = b; }); }); return f; }
 
@@ -176,7 +185,7 @@
   function commit(b, mode, ns, ne, force) {
     var prevStart = b.start, prevEnd = b.end;
     var req = mode === 'move'
-      ? post(MOVE_API, { stop_id: b.stopId, new_date: cfg.date, new_time: hhmm(ns) + ':00', force: true })
+      ? post(MOVE_API, { stop_id: b.stopId, new_date: cfg.date, new_time: hhmm(ns) + ':00', force: !!force })
       : post(EDIT_API, { action: 'resize', visit_id: b.visitId, start: hhmm(ns), end: hhmm(ne), force: force });
     req.then(function (r) {
       if (r.warning && mode !== 'move') {
@@ -205,15 +214,16 @@
     function draw() { var s = Math.min(a, z), t = Math.max(a, z) || s; ghost.style.top = ((s - DAY_START) * PX_PER_MIN) + 'px'; ghost.style.height = (Math.max(SNAP, t - s) * PX_PER_MIN) + 'px'; }
     draw();
     function move(ev) { if (Math.abs(ev.clientY - y0) > 4) dragged = true; z = snap(minAt(ev)); draw(); }
+    function cancel() { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', cancel); ghost.remove(); }
     function up(ev) {
-      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', cancel);
       var s = Math.min(a, z), t = Math.max(a, z);
       if (!dragged || t - s < SNAP) t = s + 60;
       s = Math.max(DAY_START, s); t = Math.min(1425, Math.max(s + SNAP, t));
       ghost.remove();
       openPopover({ x: ev.clientX, y: ev.clientY, date: cfg.date, start: hhmm(s), end: hhmm(t), crewId: crewCols[ci] ? crewCols[ci].id : 0 });
     }
-    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', cancel);
   }
 
   // ── Create popover ────────────────────────────────────────

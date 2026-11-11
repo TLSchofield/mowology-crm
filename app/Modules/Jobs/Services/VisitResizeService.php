@@ -175,6 +175,22 @@ final class VisitResizeService
         if (!$v || $v['status'] !== 'scheduled') {
             throw new RuntimeException('Only a visit that has not started can be changed.');
         }
+        // Undo input comes from the browser: accept only real times (or both empty) and a sane length.
+        if (($start === null) !== ($end === null)) {
+            throw new InvalidArgumentException('Start and end must both be set or both empty.');
+        }
+        if ($start !== null) {
+            $s = self::toMinutes($start);
+            $e = self::toMinutes($end);
+            if ($s === null || $e === null || $e <= $s) {
+                throw new InvalidArgumentException('Start and end must be times like 09:00.');
+            }
+            $start = self::fromMinutes($s);
+            $end   = self::fromMinutes($e);
+        }
+        if ($override !== null && ($override < self::MIN_MINUTES || $override > self::MAX_MINUTES)) {
+            throw new InvalidArgumentException('That length is not valid.');
+        }
         $this->db->prepare("UPDATE job_visits SET scheduled_time_start = ?, scheduled_time_end = ?, duration_override_minutes = ?, updated_at = NOW() WHERE id = ? AND status = 'scheduled'")
                  ->execute([$start, $end, $override, $visitId]);
     }

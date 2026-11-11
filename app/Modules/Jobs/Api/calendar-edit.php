@@ -114,6 +114,10 @@ try {
             $p = (array)($input['previous'] ?? []);
             try {
                 $resizer->restore((int)($input['visit_id'] ?? 0), $p['start'] ?? null, $p['end'] ?? null, isset($p['override']) ? (int)$p['override'] : null);
+            } catch (InvalidArgumentException $e) {
+                http_response_code(422);
+                echo json_encode(['error' => ApiResponse::message($e, 'calendar-edit')]);
+                break;
             } catch (RuntimeException $e) {
                 http_response_code(409);
                 echo json_encode(['error' => ApiResponse::message($e, 'calendar-edit')]);

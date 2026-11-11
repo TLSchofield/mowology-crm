@@ -109,4 +109,18 @@ final class VisitResizeServiceTest extends TestCase
         $this->expectException(RuntimeException::class);
         (new VisitResizeService($this->db))->resize(1, '09:00', '10:15');
     }
+
+    public function testUndoRefusesJunk(): void
+    {
+        $svc = new VisitResizeService($this->db);
+        foreach ([['x', '10:00', null], ['10:00', '09:00', null], ['09:00', null, null], ['09:00', '10:00', -5], ['09:00', '10:00', 9999]] as $c) {
+            try {
+                $svc->restore(1, $c[0], $c[1], $c[2]);
+                $this->fail('accepted ' . json_encode($c));
+            } catch (InvalidArgumentException $e) {
+                $this->assertTrue(true);
+            }
+        }
+        $this->assertSame('10:00:00', $this->db->query("SELECT scheduled_time_end FROM job_visits WHERE id = 1")->fetchColumn());
+    }
 }

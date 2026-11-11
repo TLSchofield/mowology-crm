@@ -14,7 +14,7 @@
 .mw-cal-anycell { padding: 4px; min-height: 28px; }
 .mw-cal-hour { border-top: 1px solid var(--mw-light); box-sizing: border-box; }
 .mw-cal-body { position: relative; }
-.mw-cal-col { position: relative; background-image: linear-gradient(var(--mw-light) 1px, transparent 1px); background-size: 100% 48px; cursor: crosshair; touch-action: none; }
+.mw-cal-col { position: relative; background-image: linear-gradient(var(--mw-light) 1px, transparent 1px); background-size: 100% 48px; cursor: crosshair; touch-action: pan-y; }
 .mw-cal-block { position: absolute; left: 3px; right: 3px; background: var(--mw-green); color: white; border-radius: 6px; padding: 4px 8px; overflow: hidden; cursor: grab; box-sizing: border-box; font-size: 12px; user-select: none; touch-action: none; }
 .mw-cal-block--drag { opacity: .85; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); z-index: 4; cursor: grabbing; }
 .mw-cal-block--locked { background: var(--mw-light); color: var(--mw-forest); cursor: default; }
