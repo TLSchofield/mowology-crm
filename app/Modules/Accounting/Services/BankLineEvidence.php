@@ -33,6 +33,13 @@ class BankLineEvidence
      */
     public static function stem(string $description): string
     {
+        $l = self::merchantLetters($description);
+        return strlen($l) >= 4 ? substr($l, 0, 10) : '';
+    }
+
+    /** Pure: the merchant of a bank line, letters only and whole (the store number and anything after it removed). */
+    public static function merchantLetters(string $description): string
+    {
         $d = strtoupper(trim(preg_replace('/\s+/', ' ', $description) ?? ''));
         if (preg_match('/^E-?TRANSFER\s+(?:DEBIT|CREDIT)\s+REF\s*\S+\s*(.*)$/', $d, $m)) {
             $d = $m[1];
@@ -42,27 +49,29 @@ class BankLineEvidence
             $cut = preg_match('/\d/', $d, $x, PREG_OFFSET_CAPTURE) ? $x[0][1] : null;   // the store number follows the merchant
             if ($cut !== null && preg_match('/[A-Z]{4}/', substr($d, 0, $cut))) $d = substr($d, 0, $cut);
         }
-        $letters = preg_replace('/[^A-Z]/', '', $d) ?? '';
-        return strlen($letters) >= 4 ? substr($letters, 0, 10) : '';
+        return preg_replace('/[^A-Z]/', '', $d) ?? '';
     }
 
     /** An alias this short is a fragment, not a name ("city of", "push", "pnty" are on real vendors, read off receipts): names count, aliases only from this length. */
     public const MIN_ALIAS_LETTERS = 8;
 
     /**
-     * Pure: the first vendor on file whose NAME (letters only, 4+) or a long alias (MIN_ALIAS_LETTERS+) sits inside the line's text; null when none.
+     * Pure: the first vendor on file whose NAME (letters only, 4+) or a long alias (MIN_ALIAS_LETTERS+) starts the line's merchant text; null when none.
      * @param list<array{name:string, aliases?:string, default_accounting_category?:string}> $vendors
      * @return array{name:string, category:string}|null
      */
     public static function vendorFor(string $description, array $vendors): ?array
     {
-        $hay = preg_replace('/[^A-Z]/', '', strtoupper($description)) ?? '';
+        // the bank text BEGINS with the merchant: a vendor name found in the middle or at the end ("STORE #: 43016" inside APPLESTORE…,
+        // "SANS" inside …PARKSANS…) is a coincidence, and the vendors table holds receipt-OCR fragments as names (measured 2026-11-10)
+        $m = self::merchantLetters($description);
+        $m2 = strpos($m, 'THE') === 0 ? substr($m, 3) : $m;
         foreach ($vendors as $v) {
             $names = [[(string)$v['name'], 4]];
             foreach (explode(',', (string)($v['aliases'] ?? '')) as $al) $names[] = [trim($al), self::MIN_ALIAS_LETTERS];
             foreach ($names as [$n, $min]) {
                 $k = preg_replace('/[^A-Z]/', '', strtoupper($n)) ?? '';
-                if (strlen($k) >= $min && strpos($hay, $k) !== false) return ['name' => (string)$v['name'], 'category' => (string)($v['default_accounting_category'] ?? '')];
+                if (strlen($k) >= $min && (strpos($m, $k) === 0 || strpos($m2, $k) === 0)) return ['name' => (string)$v['name'], 'category' => (string)($v['default_accounting_category'] ?? '')];
             }
         }
         return null;
