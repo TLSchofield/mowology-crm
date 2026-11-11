@@ -177,6 +177,33 @@ try {
                       </div>
                   </div>
 
+                  <?php if (empty($__miaStripShown)): // without Mia's strip (classic shell, or not the owner) the page keeps its own cards ?>
+                  <!-- Failed Posts -->
+                  <div class="card mb-4" id="failedCard" style="display:none;">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="mb-0 text-danger">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                              Failed Posts
+                          </h5>
+                          <span class="badge badge-danger" id="failedBadge">0</span>
+                      </div>
+                      <div class="card-body p-0" id="failedList"></div>
+                  </div>
+
+                  <!-- Pending Approval -->
+                  <?php if ($canApprove): ?>
+                  <div class="card mb-4" id="approvalCard" style="display:none;">
+                      <div class="card-header">
+                          <h5 class="mb-0 text-warning">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              Needs Your Approval
+                          </h5>
+                      </div>
+                      <div class="card-body p-0" id="approvalList"></div>
+                  </div>
+                  <?php endif; ?>
+                  <?php endif; ?>
+
                   <!-- Flagged Visits Awaiting Social Draft (Phase 3) -->
                   <?php if (!empty($flaggedVisitsPendingDraft) && $canEdit): ?>
                   <div class="card mb-4">
@@ -311,6 +338,16 @@ try {
                           renderTrend('trendReach',       s.total_reach,        s.prev_reach);
                           renderTrend('trendLikes',       s.total_likes,        s.prev_likes);
 
+                          // Show failed / approval cards
+                          if (s.failed_posts > 0 && document.getElementById('failedCard')) {
+                              if (document.getElementById('failedCard')) document.getElementById('failedCard').style.display = '';
+                              if (document.getElementById('failedBadge')) document.getElementById('failedBadge').textContent = s.failed_posts;
+                              loadFailed();
+                          }
+                          if (s.pending_approval > 0 && canApprove && document.getElementById('approvalCard')) {
+                              if (document.getElementById('approvalCard')) document.getElementById('approvalCard').style.display = '';
+                              loadPendingApproval();
+                          }
                       });
               }
 
@@ -419,6 +456,52 @@ try {
                       });
               }
 
+              // ── Load failed posts ──────────────────────────────────
+              function loadFailed() {
+                  fetch('/crm/api/social/posts.php?action=failed')
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success || !data.posts.length) return;
+                          var html = '';
+                          data.posts.forEach(function(p) {
+                              html += '<div class="mw-soc-failed-row">';
+                              html += '  <div class="mw-soc-failed-info">';
+                              html += '    <strong>' + esc(p.title || truncate(p.caption, 50)) + '</strong>';
+                              html += '    <div class="text-danger small mt-1">' + esc(p.last_fail_reason || 'Unknown error') + '</div>';
+                              html += '    <div class="text-muted small">Failed ' + p.fail_count + ' time(s) &bull; ' + formatDt(p.updated_at) + '</div>';
+                              html += '  </div>';
+                              if (<?php echo json_encode($canApprove); ?>) {
+                                  html += '  <button class="btn btn-sm btn-outline-danger" onclick="retryPost(' + p.id + ')">Retry</button>';
+                              }
+                              html += '</div>';
+                          });
+                          var fl = document.getElementById('failedList'); if (fl) fl.innerHTML = html;
+                      });
+              }
+
+              // ── Load pending approval ──────────────────────────────
+              function loadPendingApproval() {
+                  fetch('/crm/api/social/posts.php?action=list&status=pending_approval')
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success || !data.posts.length) return;
+                          var html = '';
+                          data.posts.forEach(function(p) {
+                              html += '<div class="mw-soc-upcoming-row">';
+                              html += '  <div class="mw-soc-upcoming-body">';
+                              html += '    <div class="mw-soc-upcoming-meta">' + statusBadge('pending_approval') + '</div>';
+                              html += '    <div class="mw-soc-upcoming-caption">' + esc(truncate(p.caption, 80)) + '</div>';
+                              html += '    <div class="text-muted small">by ' + esc(p.created_by_name || '?') + '</div>';
+                              html += '  </div>';
+                              html += '  <div class="d-flex gap-1">';
+                              html += '    <a href="/crm/marketing/social-post-editor.php?id=' + p.id + '" class="btn btn-sm btn-success">Review</a>';
+                              html += '  </div>';
+                              html += '</div>';
+                          });
+                          var al = document.getElementById('approvalList'); if (al) al.innerHTML = html;
+                      });
+              }
+
               // ── Load platform status ───────────────────────────────
               function loadPlatforms() {
                   fetch('/crm/api/social/accounts.php?action=list')
@@ -466,6 +549,7 @@ try {
                   }).then(function(r) { return r.json(); }).then(function(data) {
                       if (data.success) {
                           loadStats();
+                          loadUpcoming();
                       } else {
                           alert('Error: ' + (data.error || 'Unknown'));
                       }

@@ -95,11 +95,11 @@ class MiaJobAdapter
         return $called >= self::MASTERED_AT ? 'mastered' : ($called >= 2 ? 'known' : 'held');
     }
 
-    /** "Posts Fri Nov 13, 10:00 a.m." for a future time, otherwise "Posts at once" (approving without a time publishes now). */
+    /** "posts Fri Nov 13, 10:00 a.m." for a future time, otherwise "posts shortly" (the publisher cron picks an approved post up on its next run). */
     public static function goesOut(?string $scheduledAt, DateTimeImmutable $now): string
     {
         $t = $scheduledAt ? strtotime($scheduledAt) : false;
-        if (!$t || $t <= $now->getTimestamp()) return 'posts at once';
+        if (!$t || $t <= $now->getTimestamp()) return 'posts shortly';
         return 'posts ' . self::when($t);
     }
 

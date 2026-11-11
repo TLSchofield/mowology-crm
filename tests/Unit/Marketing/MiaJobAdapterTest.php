@@ -64,11 +64,11 @@ class MiaJobAdapterTest extends TestCase
         $j = MiaJobAdapter::queue($this->state(false), [], $waiting, [], ['crew' => [5, 5], 'hand' => [0, 0]], true, $this->now())[0];
         $this->assertSame('approve', $j['kind']);
         $this->assertSame('mastered', $j['sure']);
-        $this->assertSame('posts at once', $j['primary']['sub']);
+        $this->assertSame('posts shortly', $j['primary']['sub']);
         $this->assertSame(['url' => '/crm/api/social/posts.php?action=approve', 'body' => ['id' => 9]], $j['primary']['request']);
         $this->assertSame('Approved 5 of 5 crew-photo drafts.', $j['confidence']);
         $this->assertSame('posts Wed Nov 11, 10:00 a.m.', MiaJobAdapter::goesOut('2026-11-11 10:00:00', $this->now()));
-        $this->assertSame('posts at once', MiaJobAdapter::goesOut('2026-11-01 10:00:00', $this->now()));
+        $this->assertSame('posts shortly', MiaJobAdapter::goesOut('2026-11-01 10:00:00', $this->now()));
     }
 
     public function test_drafts_need_edit_permission_and_default_to_tomorrow_morning(): void
