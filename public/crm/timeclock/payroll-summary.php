@@ -249,101 +249,73 @@ $activePage = 'payroll';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 <?php include dirname(__DIR__) . '/includes/flash.php'; ?>
+<?php
+$periodDays = (int)((strtotime($rangeEnd) - strtotime($rangeStart)) / 86400 + 1);
+$exportUrl  = '?start=' . urlencode($rangeStart) . '&end=' . urlencode($rangeEnd) . '&export=csv';
+?>
 
-<!-- Header -->
-<div class="mw-payroll-header">
-    <div>
-        <h1 class="h3 mb-1">Payroll Summary</h1>
-        <p class="text-muted mb-0">BC overtime rules applied &bull; OT: &gt;8h/day = 1.5&times;, &gt;12h/day = 2&times;, &gt;40h/wk = 1.5&times;</p>
-        <p class="text-muted small mb-0">
-            <?php if ($breaksPaid): ?>
-                Breaks are <strong>paid</strong> &mdash; break time stays in paid hours.
-            <?php else: ?>
-                Breaks are <strong>unpaid</strong> &mdash; tapped break time is taken off each day before overtime is worked out.
-            <?php endif; ?>
+<div class="mw-page-header mw-payroll-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Payroll Summary</h1>
+        <p class="mw-page-subtitle">
+            BC overtime rules applied &middot; &gt;8h/day = 1.5&times;, &gt;12h/day = 2&times;, &gt;40h/wk = 1.5&times;
+            &middot; Breaks are <?php echo $breaksPaid ? 'paid' : 'unpaid'; ?><?php echo $breaksPaid ? '' : ' (taken off each day before overtime)'; ?>
             <a href="/crm/timeclock/settings.php#breaks">Change</a>
         </p>
     </div>
-    <div class="d-flex" style="gap:8px;">
-        <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="list" style="width:14px;height:14px;"></i> All Timesheets
+    <div class="mw-page-actions">
+        <a href="/crm/timeclock/timesheets.php" class="btn btn-outline-secondary btn-sm">
+            <i data-feather="list"></i> All Timesheets
         </a>
         <?php if (function_exists('isAdmin') && isAdmin()): ?>
-        <a href="/crm/accounting/payroll-import.php" class="btn btn-sm btn-outline-secondary" title="Upload Wave's monthly Wages &amp; taxes report so Penny can book the month">
-            <i data-feather="upload" style="width:14px;height:14px;"></i> Import Wave report
+        <a href="/crm/accounting/payroll-import.php" class="btn btn-outline-secondary btn-sm" title="Upload Wave's monthly Wages &amp; taxes report so Penny can book the month">
+            <i data-feather="upload"></i> Import Wave report
         </a>
         <?php endif; ?>
-    </div>
-</div>
-
-<!-- Filter bar -->
-<form method="get" action="/crm/timeclock/payroll-summary.php" id="payrollForm">
-<div class="mw-payroll-filter-bar">
-    <!-- Presets -->
-    <div>
-        <div class="small font-weight-bold mb-1" style="color:#555;">Quick Presets</div>
-        <div class="mw-payroll-preset-btns">
-            <button type="button" class="mw-payroll-preset-btn<?php echo ($rangeStart === $curBiStart && $rangeEnd === $curBiEnd) ? ' active' : ''; ?>"
-                    onclick="setRange('<?php echo $curBiStart; ?>','<?php echo $curBiEnd; ?>')">
-                Current Bi-weekly
-            </button>
-            <button type="button" class="mw-payroll-preset-btn<?php echo ($rangeStart === $prevBiStart && $rangeEnd === $prevBiEnd) ? ' active' : ''; ?>"
-                    onclick="setRange('<?php echo $prevBiStart; ?>','<?php echo $prevBiEnd; ?>')">
-                Previous Bi-weekly
-            </button>
-            <button type="button" class="mw-payroll-preset-btn<?php echo ($rangeStart === $curMonStart && $rangeEnd === $curMonEnd) ? ' active' : ''; ?>"
-                    onclick="setRange('<?php echo $curMonStart; ?>','<?php echo $curMonEnd; ?>')">
-                This Month
-            </button>
-        </div>
-    </div>
-
-    <!-- Custom range -->
-    <div class="d-flex" style="gap:8px; align-items:flex-end;">
-        <div>
-            <label class="small font-weight-bold mb-1" style="color:#555;">From</label>
-            <input type="date" name="start" id="inputStart" value="<?php echo htmlspecialchars($rangeStart); ?>"
-                   class="form-control form-control-sm" style="width:145px;">
-        </div>
-        <div>
-            <label class="small font-weight-bold mb-1" style="color:#555;">To</label>
-            <input type="date" name="end" id="inputEnd" value="<?php echo htmlspecialchars($rangeEnd); ?>"
-                   class="form-control form-control-sm" style="width:145px;">
-        </div>
-        <button type="submit" class="btn btn-sm" style="background:var(--mw-green);color:#fff;">Apply</button>
-    </div>
-
-    <!-- Actions -->
-    <div class="mw-payroll-actions" style="margin-left:auto;">
-        <a href="?start=<?php echo urlencode($rangeStart); ?>&end=<?php echo urlencode($rangeEnd); ?>&export=csv"
-           class="btn btn-sm btn-outline-secondary">
-            <i data-feather="download" style="width:13px;height:13px;"></i> Export CSV
+        <a href="<?php echo $exportUrl; ?>" class="btn btn-outline-secondary btn-sm">
+            <i data-feather="download"></i> Export CSV
         </a>
-        <button type="button" onclick="window.print();" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="printer" style="width:13px;height:13px;"></i> Print
+        <button type="button" onclick="window.print();" class="btn btn-outline-secondary btn-sm">
+            <i data-feather="printer"></i> Print
         </button>
     </div>
 </div>
+
+<form method="get" action="/crm/timeclock/payroll-summary.php" id="payrollForm" class="mw-payroll-toolbar">
+    <div class="mw-payroll-presets" role="group" aria-label="Quick presets">
+        <button type="button" class="mw-filter-tab<?php echo ($rangeStart === $curBiStart && $rangeEnd === $curBiEnd) ? ' active' : ''; ?>"
+                onclick="setRange('<?php echo $curBiStart; ?>','<?php echo $curBiEnd; ?>')">Current bi-weekly</button>
+        <button type="button" class="mw-filter-tab<?php echo ($rangeStart === $prevBiStart && $rangeEnd === $prevBiEnd) ? ' active' : ''; ?>"
+                onclick="setRange('<?php echo $prevBiStart; ?>','<?php echo $prevBiEnd; ?>')">Previous bi-weekly</button>
+        <button type="button" class="mw-filter-tab<?php echo ($rangeStart === $curMonStart && $rangeEnd === $curMonEnd) ? ' active' : ''; ?>"
+                onclick="setRange('<?php echo $curMonStart; ?>','<?php echo $curMonEnd; ?>')">This month</button>
+    </div>
+    <div class="mw-payroll-range">
+        <label>From
+            <input type="date" name="start" id="inputStart" value="<?php echo htmlspecialchars($rangeStart); ?>" class="form-control form-control-sm">
+        </label>
+        <label>To
+            <input type="date" name="end" id="inputEnd" value="<?php echo htmlspecialchars($rangeEnd); ?>" class="form-control form-control-sm">
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    </div>
 </form>
 
-<!-- Period badge -->
-<div class="mb-3">
-    <span class="mw-payroll-period-badge">
-        <i data-feather="calendar" style="width:14px;height:14px;"></i>
-        <?php echo date('M j, Y', strtotime($rangeStart)); ?> &ndash; <?php echo date('M j, Y', strtotime($rangeEnd)); ?>
-        &bull; <?php echo (int)((strtotime($rangeEnd) - strtotime($rangeStart)) / 86400 + 1); ?> days
-    </span>
-    <?php if (date('N', strtotime($rangeStart)) !== '1' || date('N', strtotime($rangeEnd)) !== '7'): ?>
-    <div class="text-muted small mt-1">Overtime is worked out per day and per Sunday&ndash;Saturday week (BC law); days of that week before the range count toward the 40 h but aren&rsquo;t paid again. This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</div>
-    <?php endif; ?>
-</div>
+<p class="mw-payroll-period">
+    <?php echo date('M j, Y', strtotime($rangeStart)); ?> &ndash; <?php echo date('M j, Y', strtotime($rangeEnd)); ?>
+    &middot; <?php echo $periodDays; ?> days
+</p>
+<?php if (date('N', strtotime($rangeStart)) !== '1' || date('N', strtotime($rangeEnd)) !== '7'): ?>
+<p class="mw-payroll-note">Overtime is worked out per day and per Sunday&ndash;Saturday week (BC law); days of that week before the range count toward the 40 h but aren&rsquo;t paid again. This range cuts a week, so weekly overtime only counts the days inside it &mdash; use whole weeks for a pay run.</p>
+<?php endif; ?>
 
-<!-- Payroll Table -->
 <?php if (empty($rows)): ?>
-<div class="mw-schedule-empty">
-    <i data-feather="dollar-sign"></i>
-    <h3>No payroll data</h3>
-    <p>No employees logged hours in the selected date range.</p>
+<div class="mw-table-card">
+    <div class="mw-schedule-empty">
+        <i data-feather="dollar-sign"></i>
+        <h3>No payroll data</h3>
+        <p>No employees logged hours in the selected date range.</p>
+    </div>
 </div>
 <?php else: ?>
 
@@ -357,6 +329,7 @@ foreach ($rows as $r) {
         }
     }
 }
+$grandTotalShift = array_sum(array_column($rows, 'total_shift'));
 ?>
 
 <?php if (!empty($allSubmittedIds)): ?>
@@ -365,27 +338,26 @@ foreach ($rows as $r) {
     <?php foreach ($allSubmittedIds as $sid): ?>
         <input type="hidden" name="timesheet_ids[]" value="<?php echo (int)$sid; ?>">
     <?php endforeach; ?>
-    <button type="submit" name="bulk_approve" value="1" class="btn btn-sm"
-            style="background:var(--mw-green);color:#fff;"
+    <button type="submit" name="bulk_approve" value="1" class="btn btn-primary btn-sm"
             onclick="return confirm('Approve all submitted timesheets in this period?')">
-        <i data-feather="check-circle" style="width:14px;height:14px;"></i>
+        <i data-feather="check-circle"></i>
         Approve All Submitted (<?php echo count($allSubmittedIds); ?> timesheet<?php echo count($allSubmittedIds) !== 1 ? 's' : ''; ?>)
     </button>
 </form>
 <?php endif; ?>
 
+<div class="mw-table-card">
 <div class="table-responsive">
-<table class="mw-payroll-table">
+<table class="mw-table mw-payroll-table">
     <thead>
         <tr>
             <th>Employee</th>
-            <th>Rate</th>
-            <th>Total Hours</th>
-            <th>Breaks</th>
-            <th>Regular</th>
-            <th>OT 1.5&times;</th>
-            <th>OT 2&times;</th>
-            <th>Gross Pay</th>
+            <th class="num">Total hours</th>
+            <th class="num">Breaks</th>
+            <th class="num">Regular</th>
+            <th class="num">OT 1.5&times;</th>
+            <th class="num">OT 2&times;</th>
+            <th class="num">Gross pay</th>
             <th>Status</th>
             <th></th>
         </tr>
@@ -399,84 +371,74 @@ foreach ($rows as $r) {
     <tr>
         <td>
             <div class="mw-payroll-emp-name"><?php echo htmlspecialchars($emp['full_name']); ?></div>
-            <?php if ($rate > 0): ?>
-                <div class="mw-payroll-emp-rate"><?php echo OvertimeCalculator::formatPay($rate); ?>/h</div>
-            <?php endif; ?>
+            <div class="mw-payroll-sub"><?php echo $rate > 0 ? OvertimeCalculator::formatPay($rate) . '/h' : 'No rate set'; ?></div>
         </td>
-        <td>
-            <?php echo $rate > 0 ? OvertimeCalculator::formatPay($rate) . '/h' : '<span class="text-muted">—</span>'; ?>
-        </td>
-        <td><?php echo OvertimeCalculator::minutesToHours($r['total_shift']); ?>
+        <td class="num" data-label="Total hours"><?php echo OvertimeCalculator::minutesToHours($r['total_shift']); ?>
             <?php if ($r['unpaid_min'] > 0): ?>
-                <div class="mw-payroll-emp-rate">of <?php echo OvertimeCalculator::minutesToHours($r['clocked']); ?> clocked</div>
+                <div class="mw-payroll-sub">of <?php echo OvertimeCalculator::minutesToHours($r['clocked']); ?> clocked</div>
             <?php endif; ?>
         </td>
-        <td>
+        <td class="num" data-label="Breaks">
             <?php if ($r['break_min'] > 0): ?>
                 <?php echo OvertimeCalculator::minutesToHours($r['break_min']); ?>
-                <div class="mw-payroll-emp-rate">
+                <div class="mw-payroll-sub">
                     <?php echo $r['break_count']; ?> break<?php echo $r['break_count'] === 1 ? '' : 's'; ?>
-                    &bull; <?php echo $r['unpaid_min'] > 0 ? OvertimeCalculator::minutesToHours($r['unpaid_min']) . ' unpaid' : 'paid'; ?>
+                    &middot; <?php echo $r['unpaid_min'] > 0 ? OvertimeCalculator::minutesToHours($r['unpaid_min']) . ' unpaid' : 'paid'; ?>
                 </div>
             <?php else: ?>
-                <span class="text-muted">—</span>
+                <span class="mw-payroll-dash">&mdash;</span>
             <?php endif; ?>
         </td>
-        <td><?php echo OvertimeCalculator::minutesToHours($pay['regular_minutes']); ?></td>
-        <td>
+        <td class="num" data-label="Regular"><?php echo OvertimeCalculator::minutesToHours($pay['regular_minutes']); ?></td>
+        <td class="num" data-label="OT 1.5&times;">
             <?php if ($pay['ot_1_5_minutes'] > 0): ?>
-                <span style="color:#e67e22; font-weight:700;">
-                    <?php echo OvertimeCalculator::minutesToHours($pay['ot_1_5_minutes']); ?>
-                </span>
+                <span class="mw-payroll-ot15"><?php echo OvertimeCalculator::minutesToHours($pay['ot_1_5_minutes']); ?></span>
             <?php else: ?>
-                <span class="text-muted">—</span>
+                <span class="mw-payroll-dash">&mdash;</span>
             <?php endif; ?>
         </td>
-        <td>
+        <td class="num" data-label="OT 2&times;">
             <?php if ($pay['ot_2_0_minutes'] > 0): ?>
-                <span style="color:#c0392b; font-weight:700;">
-                    <?php echo OvertimeCalculator::minutesToHours($pay['ot_2_0_minutes']); ?>
-                </span>
+                <span class="mw-payroll-ot20"><?php echo OvertimeCalculator::minutesToHours($pay['ot_2_0_minutes']); ?></span>
             <?php else: ?>
-                <span class="text-muted">—</span>
+                <span class="mw-payroll-dash">&mdash;</span>
             <?php endif; ?>
         </td>
-        <td>
+        <td class="num mw-payroll-gross-cell" data-label="Gross pay">
             <?php if ($rate > 0): ?>
                 <span class="mw-payroll-gross"><?php echo OvertimeCalculator::formatPay($pay['gross_pay']); ?></span>
                 <?php if ($pay['has_overtime']): ?>
-                    <span class="mw-ot-badge">OT</span>
+                    <div class="mw-payroll-sub">incl. overtime</div>
                 <?php endif; ?>
             <?php else: ?>
-                <span class="text-muted" title="Set hourly rate in employee profile">No rate set</span>
+                <span class="mw-payroll-dash" title="Set hourly rate in employee profile">&mdash;</span>
             <?php endif; ?>
         </td>
-        <td>
+        <td data-label="Status">
             <span class="mw-ts-status mw-ts-status-<?php echo htmlspecialchars($r['status']); ?>">
                 <?php echo ucfirst(str_replace('_', ' ', $r['status'])); ?>
             </span>
         </td>
-        <td>
-            <a href="/crm/timeclock/timesheets.php?user_id=<?php echo (int)$emp['id']; ?>"
-               class="btn btn-sm btn-outline-secondary" style="font-size:0.7rem; padding:2px 8px;">
-                Timesheets
-            </a>
+        <td class="mw-payroll-action">
+            <a href="/crm/timeclock/timesheets.php?user_id=<?php echo (int)$emp['id']; ?>" class="btn btn-outline-secondary btn-sm">Timesheets</a>
         </td>
     </tr>
     <?php endforeach; ?>
     </tbody>
     <tfoot>
         <tr>
-            <td colspan="3"><strong>Totals</strong></td>
-            <td><strong><?php echo $grandTotalBreak > 0 ? OvertimeCalculator::minutesToHours($grandTotalBreak) : '—'; ?></strong></td>
-            <td><strong><?php echo OvertimeCalculator::minutesToHours($grandTotalReg); ?></strong></td>
-            <td><strong style="color:#e67e22;"><?php echo OvertimeCalculator::minutesToHours($grandTotalOt15); ?></strong></td>
-            <td><strong style="color:#c0392b;"><?php echo OvertimeCalculator::minutesToHours($grandTotalOt20); ?></strong></td>
-            <td><strong class="mw-payroll-gross" style="font-size:1.05rem;"><?php echo OvertimeCalculator::formatPay($grandTotalPay); ?></strong></td>
+            <td>Totals</td>
+            <td class="num" data-label="Total hours"><?php echo OvertimeCalculator::minutesToHours($grandTotalShift); ?></td>
+            <td class="num" data-label="Breaks"><?php echo $grandTotalBreak > 0 ? OvertimeCalculator::minutesToHours($grandTotalBreak) : '—'; ?></td>
+            <td class="num" data-label="Regular"><?php echo OvertimeCalculator::minutesToHours($grandTotalReg); ?></td>
+            <td class="num mw-payroll-ot15" data-label="OT 1.5&times;"><?php echo OvertimeCalculator::minutesToHours($grandTotalOt15); ?></td>
+            <td class="num mw-payroll-ot20" data-label="OT 2&times;"><?php echo OvertimeCalculator::minutesToHours($grandTotalOt20); ?></td>
+            <td class="num mw-payroll-gross" data-label="Gross pay"><?php echo OvertimeCalculator::formatPay($grandTotalPay); ?></td>
             <td colspan="2"></td>
         </tr>
     </tfoot>
 </table>
+</div>
 </div>
 <?php endif; ?>
 

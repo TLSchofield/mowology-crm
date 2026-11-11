@@ -41823,3 +41823,69 @@ body.mw-books {
 .mw-subboard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .mw-subboard-actions .btn { min-height: 44px; display: inline-flex; align-items: center; }
 .mw-subboard-error { font-size: .8rem; font-weight: 600; color: var(--mw-color-danger); margin: 8px 0 0; }
+
+/* ══ Payroll Summary (timeclock/payroll-summary.php) ═════════════════════ */
+.mw-payroll-header .mw-page-subtitle a { margin-left: 4px; }
+.mw-payroll-header .mw-page-actions .btn svg { width: 14px; height: 14px; }
+.mw-payroll-toolbar {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: var(--mw-space-3) var(--mw-space-6); margin-bottom: var(--mw-space-4);
+}
+.mw-payroll-presets { display: flex; flex-wrap: wrap; gap: var(--mw-space-2); }
+.mw-payroll-range { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--mw-space-2); }
+.mw-payroll-range label {
+  display: flex; flex-direction: column; gap: 2px; margin: 0;
+  font-size: var(--mw-text-xs); font-weight: var(--mw-weight-medium); color: var(--mw-ink-500);
+}
+.mw-payroll-range .form-control { width: 150px; }
+.mw-payroll-period { margin: 0 0 var(--mw-space-3); font-size: var(--mw-text-sm); color: var(--mw-ink-700); font-weight: var(--mw-weight-medium); }
+.mw-payroll-note { margin: calc(-1 * var(--mw-space-2)) 0 var(--mw-space-3); font-size: var(--mw-text-xs); color: var(--mw-ink-500); max-width: 70ch; }
+.mw-payroll-table { font-variant-numeric: tabular-nums; }
+.mw-payroll-table th.num, .mw-payroll-table td.num { text-align: right; white-space: nowrap; }
+.mw-payroll-table tbody tr:hover { cursor: default; }
+.mw-payroll-emp-name { font-weight: var(--mw-weight-semibold); color: var(--mw-ink-900); }
+.mw-payroll-sub { font-size: var(--mw-text-xs); color: var(--mw-ink-500); font-weight: var(--mw-weight-regular); }
+.mw-payroll-dash { color: var(--mw-ink-300); }
+.mw-payroll-ot15 { color: var(--mw-color-warning-mid); font-weight: var(--mw-weight-semibold); }
+.mw-payroll-ot20 { color: var(--mw-color-danger); font-weight: var(--mw-weight-semibold); }
+.mw-payroll-gross { font-weight: var(--mw-weight-bold); color: var(--mw-ink-900); }
+.mw-payroll-table .mw-payroll-action { text-align: right; white-space: nowrap; }
+.mw-payroll-table tfoot td {
+  padding: 0.875rem 1rem; background: var(--mw-ink-50); border-top: 2px solid var(--mw-ink-200);
+  font-weight: var(--mw-weight-bold); color: var(--mw-ink-900);
+}
+.mw-payroll-table tfoot .mw-payroll-gross { font-size: var(--mw-text-md); }
+.mw-payroll-table tfoot .mw-payroll-ot15 { color: var(--mw-color-warning-mid); }
+.mw-payroll-table tfoot .mw-payroll-ot20 { color: var(--mw-color-danger); }
+
+@media (max-width: 767px) {
+  .mw-payroll-header { flex-direction: column; }
+  .mw-payroll-header .mw-page-actions { display: flex; flex-wrap: wrap; gap: var(--mw-space-2); }
+  .mw-payroll-presets { max-width: 100%; }
+  .mw-payroll-range .form-control { width: 140px; }
+  .mw-payroll-table th.num, .mw-payroll-table td.num { white-space: normal; }
+  .mw-payroll-table { table-layout: auto; min-width: 0; }
+  .mw-payroll-table thead { display: none; }
+  .mw-payroll-table, .mw-payroll-table tbody, .mw-payroll-table tfoot,
+  .mw-payroll-table tr, .mw-payroll-table td { display: block; width: 100%; }
+  .mw-payroll-table tbody tr { padding: var(--mw-space-3) var(--mw-space-4); border-bottom: 1px solid var(--mw-ink-200); }
+  .mw-payroll-table tbody tr:last-child { border-bottom: none; }
+  .mw-payroll-table td { padding: 3px 0; border: 0; }
+  .mw-payroll-table td.num[data-label], .mw-payroll-table td[data-label="Status"] {
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 var(--mw-space-3);
+  }
+  .mw-payroll-table td[data-label]::before { content: attr(data-label); color: var(--mw-ink-500); font-size: var(--mw-text-xs); }
+  .mw-payroll-table td.num .mw-payroll-sub { flex: 0 0 100%; text-align: right; }
+  .mw-payroll-table .mw-payroll-action { text-align: left; padding-top: var(--mw-space-2); }
+  .mw-payroll-table tfoot tr { padding: var(--mw-space-3) var(--mw-space-4); background: var(--mw-ink-50); border-top: 2px solid var(--mw-ink-200); }
+  .mw-payroll-table tfoot td { padding: 3px 0; border: 0; background: none; }
+  .mw-payroll-table tfoot td:first-child { margin-bottom: 4px; }
+  .mw-payroll-table tfoot td:empty { display: none; }
+}
+@media print {
+  .mw-payroll-header .mw-page-actions, .mw-payroll-toolbar { display: none !important; }
+  .mw-payroll-table .mw-payroll-action, .mw-payroll-table th:last-child { display: none; }
+  .mw-payroll-table tfoot td[colspan] { display: none; }
+  .mw-payroll-table td, .mw-payroll-table th { padding: 6px 8px; }
+  .mw-table-card { box-shadow: none; border-color: var(--mw-ink-300); }
+}
