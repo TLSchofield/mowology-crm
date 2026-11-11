@@ -22,6 +22,7 @@ class MiaJobAdapter
     public const MASTERED_AT = 5;
     public const MAX_FAILED = 5;
     public const MAX_DRAFTS = 3;
+    public const STALE_DAYS = 14;
     public const POSTS_API = '/crm/api/social/posts.php';
     public const EDITOR = '/crm/marketing/social-post-editor.php';
     public const ACCOUNTS = '/crm/marketing/social-accounts.php';
@@ -33,7 +34,7 @@ class MiaJobAdapter
             $now = $now ?? new DateTimeImmutable('now');
             $state = SocialConnectionState::fromAccounts(SocialConnectionState::load($db));
             return self::queue($state, self::failedRows($db), self::waitingRows($db), $canEdit ? self::draftRows($db) : [],
-                self::records($db), $canEdit, $now);
+                self::records($db), $canEdit, $now, self::connectedAt($db));
         } catch (Throwable $e) {
             error_log('MiaJobAdapter::jobs: ' . $e->getMessage());
             return [];
@@ -42,21 +43,28 @@ class MiaJobAdapter
 
     /**
      * @param array $state   SocialConnectionState::fromAccounts()
-     * @param array $failed  rows: id, caption, platforms (csv), detail, thumb_path
+     * @param array $failed  rows: id, status, caption, platforms (csv), detail, thumb_path, updated_at, scheduled_at, created_at
+     * @param array $connected when each login was last renewed: ['meta' => 'Y-m-d H:i:s', 'gbp' => ...] (a reconnect clears a login failure)
      * @param array $waiting rows: id, caption, platforms, scheduled_at, auto_generated, thumb_path, created_by_name
      * @param array $drafts  rows: id, caption, platforms, auto_generated, thumb_path
      * @param array $records ['crew' => [called, agreed], 'hand' => [called, agreed]]
      */
-    public static function queue(array $state, array $failed, array $waiting, array $drafts, array $records, bool $canEdit, DateTimeImmutable $now): array
+    public static function queue(array $state, array $failed, array $waiting, array $drafts, array $records, bool $canEdit, DateTimeImmutable $now, array $connected = []): array
     {
         $jobs = [];
-        $reconnect = !empty($state['needs_reconnect']);
-        if ($reconnect) $jobs[] = self::reconnectJob($state, count($failed));
+        // A login failure still stands only if the login has not been renewed since the post failed.
+        $open = [];
+        foreach ($failed as $r) {
+            if (self::classify((string)($r['detail'] ?? '')) === 'login' && !self::renewedSince($r, $connected)) $open[] = $r;
+        }
+        $reconnect = !empty($state['needs_reconnect']) || $open !== [];
+        // The connection leads: nothing else can go out until it is back.
+        if ($reconnect) $jobs[] = self::reconnectJob($state, count($open) ?: count($failed));
 
         foreach (array_slice($failed, 0, self::MAX_FAILED) as $r) {
             $cause = self::classify((string)($r['detail'] ?? ''));
             if ($cause === 'login' && $reconnect) continue;     // the reconnect card above already asks for it
-            $jobs[] = self::failedJob($r, $cause);
+            $jobs[] = self::failedJob($r, $cause, $now, $cause === 'login');
         }
         if (!$reconnect) {
             foreach ($waiting as $r) $jobs[] = self::approveJob($r, $records, $now);
@@ -68,6 +76,15 @@ class MiaJobAdapter
         foreach ($jobs as $i => &$j) { $j['index'] = $i + 1; $j['total'] = $total; }
         unset($j);
         return $jobs;
+    }
+
+    /** True when the platform's login was renewed after this post last failed (Meta posts: Facebook/Instagram; the rest: Google). */
+    private static function renewedSince(array $r, array $connected): bool
+    {
+        $key = preg_match('/meta|instagram|facebook/i', (string)($r['detail'] ?? '')) ? 'meta' : 'gbp';
+        $at = isset($connected[$key]) ? strtotime((string)$connected[$key]) : false;
+        $failed = strtotime((string)($r['updated_at'] ?? ''));
+        return $at && $failed && $at > $failed;
     }
 
     /** login | ratio | other, from the platform's own error text. */
@@ -119,6 +136,7 @@ class MiaJobAdapter
     private static function reconnectJob(array $state, int $stuck): array
     {
         $reason = (string)preg_replace('/^Reconnect Facebook — /', '', (string)($state['message'] ?? ''));
+        if ($reason === '') $reason = 'The saved login was refused. Nothing is posting until you reconnect.';
         return [
             'head' => 'mia', 'kind' => 'reconnect', 'key' => 'reconnect',
             'title' => 'Facebook has stopped posting',
@@ -132,7 +150,7 @@ class MiaJobAdapter
         ];
     }
 
-    private static function failedJob(array $r, string $cause): array
+    private static function failedJob(array $r, string $cause, DateTimeImmutable $now, bool $renewed = false): array
     {
         $id = (int)$r['id'];
         $platforms = self::platforms((string)($r['platforms'] ?? ''));
@@ -144,6 +162,26 @@ class MiaJobAdapter
             'anchor' => ['label' => 'Calendar', 'href' => '/crm/marketing/social-calendar.php'],
         ];
         $edit = ['label' => 'Edit', 'sub' => 'open the post', 'href' => self::EDITOR . '?id=' . $id];
+        // An old post is never one press from going out: its moment has passed (a spring lawn post in November).
+        $ref = strtotime((string)(($r['scheduled_at'] ?? '') ?: ($r['created_at'] ?? '')));
+        if ($ref && $ref < $now->getTimestamp() - self::STALE_DAYS * 86400) {
+            $live = in_array((string)($r['status'] ?? ''), ['publishing', 'published'], true);   // posts.php will not cancel these
+            return $base + [
+                'title' => 'An old post did not go out',
+                'why' => 'It was meant for ' . date('M j', $ref) . '. Its moment has passed, so it will not be sent as it is.',
+                'primary' => $live ? ['label' => 'Edit', 'sub' => 'change it first', 'href' => self::EDITOR . '?id=' . $id]
+                                   : ['label' => 'Drop it', 'sub' => 'cancel this post', 'request' => ['url' => self::POSTS_API . '?action=delete', 'body' => ['id' => $id]]],
+                'secondary' => $live ? ['label' => 'Leave it', 'sub' => 'for now', 'skip' => true] : $edit,
+            ];
+        }
+        if ($renewed) {
+            return $base + [
+                'title' => 'Facebook is connected again',
+                'why' => 'This post was turned down before you reconnected. It can go out now.',
+                'primary' => ['label' => 'Try again', 'sub' => 'send it once more', 'request' => ['url' => self::POSTS_API . '?action=retry', 'body' => ['id' => $id]]],
+                'secondary' => $edit,
+            ];
+        }
         if ($cause === 'ratio') {
             return $base + [
                 'title' => 'Instagram turned down the picture',
@@ -236,7 +274,8 @@ class MiaJobAdapter
     private static function failedRows(PDO $db): array
     {
         return self::rows($db, "
-            SELECT sp.id, sp.caption, " . self::PLATS . " AS platforms, " . self::THUMB . " AS thumb_path,
+            SELECT sp.id, sp.status, sp.caption, sp.updated_at, sp.scheduled_at, sp.created_at,
+                   " . self::PLATS . " AS platforms, " . self::THUMB . " AS thumb_path,
                    COALESCE(NULLIF((SELECT GROUP_CONCAT(fail_reason ORDER BY platform SEPARATOR ' | ')
                         FROM social_post_platforms WHERE post_id = sp.id AND status <> 'published' AND fail_reason IS NOT NULL), ''), sp.last_fail_reason, '') AS detail
               FROM social_posts sp
@@ -244,6 +283,17 @@ class MiaJobAdapter
                 OR (sp.status IN ('publishing','published') AND EXISTS (
                         SELECT 1 FROM social_post_platforms WHERE post_id = sp.id AND status <> 'published' AND fail_reason IS NOT NULL))
              ORDER BY sp.updated_at DESC LIMIT " . (self::MAX_FAILED + 5));
+    }
+
+    /** @return array{meta?: string, gbp?: string} the latest connected_at per kind of login */
+    private static function connectedAt(PDO $db): array
+    {
+        $out = [];
+        foreach (self::rows($db, "SELECT platform, MAX(connected_at) AS ts FROM social_accounts WHERE is_active = 1 AND connected_at IS NOT NULL GROUP BY platform") as $r) {
+            $k = $r['platform'] === 'gbp' ? 'gbp' : (in_array($r['platform'], ['facebook', 'instagram'], true) ? 'meta' : '');
+            if ($k !== '' && (!isset($out[$k]) || $r['ts'] > $out[$k])) $out[$k] = $r['ts'];
+        }
+        return $out;
     }
 
     private static function waitingRows(PDO $db): array

@@ -44,18 +44,17 @@ class MiaJobAdapterTest extends TestCase
         $this->assertSame(SocialConnectionState::RECONNECT_URL, $q[0]['primary']['href']);
         $this->assertSame([1, 2], array_column($q, 'index'));
         $this->assertSame(2, $q[0]['total']);
-        $this->assertStringContainsString('2 posts did not go out', $q[0]['post']['caption']);
+        $this->assertStringContainsString('1 post did not go out', $q[0]['post']['caption']);
     }
 
     public function test_a_failed_post_gets_the_one_button_that_fixes_its_cause(): void
     {
-        $q = MiaJobAdapter::queue($this->state(false), [$this->failed(1, '(code 36003) aspect ratio'), $this->failed(2, 'no page token'), $this->failed(3, 'odd')], [], [], [], true, $this->now());
+        $q = MiaJobAdapter::queue($this->state(false), [$this->failed(1, '(code 36003) aspect ratio'), $this->failed(3, 'odd')], [], [], [], true, $this->now());
         $this->assertSame('Fix the picture', $q[0]['primary']['label']);
         $this->assertSame('/crm/marketing/social-post-editor.php?id=1', $q[0]['primary']['href']);
-        $this->assertSame('Reconnect', $q[1]['primary']['label']);
-        $this->assertSame('Try again', $q[2]['primary']['label']);
-        $this->assertSame(['url' => '/crm/api/social/posts.php?action=retry', 'body' => ['id' => 3]], $q[2]['primary']['request']);
-        $this->assertSame('odd', $q[2]['detail']);
+        $this->assertSame('Try again', $q[1]['primary']['label']);
+        $this->assertSame(['url' => '/crm/api/social/posts.php?action=retry', 'body' => ['id' => 3]], $q[1]['primary']['request']);
+        $this->assertSame('odd', $q[1]['detail']);
     }
 
     public function test_approve_says_when_it_goes_out_and_carries_her_record(): void
@@ -85,5 +84,37 @@ class MiaJobAdapterTest extends TestCase
     public function test_nothing_waiting_is_an_empty_queue(): void
     {
         $this->assertSame([], MiaJobAdapter::queue($this->state(false), [], [], [], [], true, $this->now()));
+    }
+
+    private function recent(int $id, string $detail, array $over = []): array
+    {
+        return $over + $this->failed($id, $detail) + [];
+    }
+
+    public function test_a_login_failure_puts_the_connection_first_even_when_health_is_not_flagged(): void
+    {
+        $f = $this->failed(2, 'Meta account has no page token.') + ['updated_at' => '2026-11-09 08:00:00', 'status' => 'publishing'];
+        $q = MiaJobAdapter::queue($this->state(false), [$f], [['id' => 9, 'caption' => 'Hi', 'platforms' => 'facebook', 'scheduled_at' => null, 'auto_generated' => 0]], [], [], true, $this->now(), ['meta' => '2026-11-01 08:00:00']);
+        $this->assertSame(['reconnect'], array_column($q, 'kind'), 'the failed post and the approval wait behind the reconnect');
+    }
+
+    public function test_after_a_reconnect_the_post_can_be_tried_again_and_the_connection_card_is_gone(): void
+    {
+        $f = $this->failed(2, 'Meta account has no page token.') + ['updated_at' => '2026-11-09 08:00:00', 'status' => 'publishing', 'scheduled_at' => '2026-11-09 07:00:00'];
+        $q = MiaJobAdapter::queue($this->state(false), [$f], [], [], [], true, $this->now(), ['meta' => '2026-11-10 08:30:00']);
+        $this->assertSame(['failed'], array_column($q, 'kind'));
+        $this->assertSame('Try again', $q[0]['primary']['label']);
+        $this->assertSame('Facebook is connected again', $q[0]['title']);
+    }
+
+    public function test_an_old_post_is_never_one_press_from_going_out(): void
+    {
+        $old = ['updated_at' => '2026-05-21 12:00:00', 'scheduled_at' => '2026-05-21 11:45:00', 'created_at' => '2026-05-20 09:00:00'];
+        $q = MiaJobAdapter::queue($this->state(false), [$this->failed(1, 'odd') + $old + ['status' => 'failed'], $this->failed(2, 'odd') + $old + ['status' => 'publishing']], [], [], [], true, $this->now());
+        $this->assertSame('Drop it', $q[0]['primary']['label']);
+        $this->assertSame(['url' => '/crm/api/social/posts.php?action=delete', 'body' => ['id' => 1]], $q[0]['primary']['request']);
+        $this->assertSame('Edit', $q[1]['primary']['label'], 'posts.php will not cancel a publishing post');
+        $this->assertArrayNotHasKey('request', $q[1]['primary']);
+        $this->assertStringContainsString('May 21', $q[0]['why']);
     }
 }
