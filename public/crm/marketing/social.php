@@ -441,6 +441,9 @@ try {
                               if (p.fail_reason) {
                                   html += '  <div class="mw-soc-upcoming-fail" title="' + esc(p.fail_reason) + '">' + esc(p.fail_short || 'Did not go out.') + '</div>';
                               }
+                              if (p.hold_note) {
+                                  html += '  <div class="mw-soc-upcoming-hold">' + esc(p.hold_note) + '</div>';
+                              }
                               html += '  <div class="mw-soc-upcoming-time">' + timeStr + '</div>';
                               html += '</div>';
                               html += '<div class="mw-soc-upcoming-actions">';

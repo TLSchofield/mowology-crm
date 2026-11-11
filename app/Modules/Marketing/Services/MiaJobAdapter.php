@@ -16,13 +16,13 @@
  * No namespace / no autoloader in production.
  */
 require_once __DIR__ . '/../../Social/Services/SocialConnectionState.php';
+require_once __DIR__ . '/MiaSeasonThemes.php';
 
 class MiaJobAdapter
 {
     public const MASTERED_AT = 5;
     public const MAX_FAILED = 5;
     public const MAX_DRAFTS = 3;
-    public const STALE_DAYS = 14;
     public const POSTS_API = '/crm/api/social/posts.php';
     public const EDITOR = '/crm/marketing/social-post-editor.php';
     public const ACCOUNTS = '/crm/marketing/social-accounts.php';
@@ -61,6 +61,11 @@ class MiaJobAdapter
         // The connection leads: nothing else can go out until it is back.
         if ($reconnect) $jobs[] = self::reconnectJob($state, count($open) ?: count($failed));
 
+        // A seasonal post stays in its season's slot: out of season it is not offered at all (see heldUntil()).
+        $failed = array_values(array_filter($failed, fn($r) => self::heldUntil($r, $now) === null));
+        $waiting = array_values(array_filter($waiting, fn($r) => self::heldUntil($r, $now) === null));
+        $drafts = array_values(array_filter($drafts, fn($r) => self::heldUntil($r, $now) === null));
+
         foreach (array_slice($failed, 0, self::MAX_FAILED) as $r) {
             $cause = self::classify((string)($r['detail'] ?? ''));
             if ($cause === 'login' && $reconnect) continue;     // the reconnect card above already asks for it
@@ -85,6 +90,54 @@ class MiaJobAdapter
         $at = isset($connected[$key]) ? strtotime((string)$connected[$key]) : false;
         $failed = strtotime((string)($r['updated_at'] ?? ''));
         return $at && $failed && $at > $failed;
+    }
+
+    /** Words too general to place a post in a season. */
+    private const GENERIC = ['maintenance', 'commercial', 'strata', 'garden', 'bed', 'planting', 'weekly', 'storm'];
+
+    /**
+     * The date a post's season next opens, or null when it may go out now.
+     * A post's season is the Mia season theme(s) its own words fit best (service type, title, caption). A post that fits
+     * no theme transcends season and is never held. A seasonal post is in season while any of its themes is running.
+     */
+    public static function heldUntil(array $post, DateTimeImmutable $now): ?DateTimeImmutable
+    {
+        $keys = self::seasonKeys($post);
+        if (!$keys) return null;
+        $src = new MiaSeasonThemes();
+        for ($d = 0; $d <= 366; $d++) {
+            $day = $now->modify('+' . $d . ' day');
+            foreach ($src->themesFor($day) as $t) {
+                if (in_array($t['key'], $keys, true)) return $d === 0 ? null : $day;
+            }
+        }
+        return null;
+    }
+
+    /** One line for the posts list: "Held until Apr 1 for its season." or ''. */
+    public static function holdNote(array $post, ?DateTimeImmutable $now = null): string
+    {
+        $at = self::heldUntil($post, $now ?? new DateTimeImmutable('now'));
+        return $at ? 'Held until ' . $at->format('M j') . ' for its season.' : '';
+    }
+
+    /** @return string[] keys of the best-fitting themes ([] = evergreen) */
+    private static function seasonKeys(array $post): array
+    {
+        $text = strtolower(implode(' ', [(string)($post['service_type'] ?? ''), (string)($post['title'] ?? ''), (string)($post['caption'] ?? '')]));
+        $text = str_replace('_', ' ', $text);
+        $best = 0; $keys = [];
+        foreach (MiaSeasonThemes::all() as $t) {
+            $hits = 0;
+            foreach ($t['services'] as $kw) {
+                if (in_array($kw, self::GENERIC, true)) continue;
+                $re = '/\b' . str_replace('\\-', '[\\s-]', preg_quote($kw, '/')) . '/';
+                if (preg_match($re, $text)) $hits++;
+            }
+            if ($hits > $best) { $best = $hits; $keys = [$t['key']]; }
+            elseif ($hits > 0 && $hits === $best) $keys[] = $t['key'];
+        }
+        return $keys;
     }
 
     /** login | ratio | other, from the platform's own error text. */
@@ -162,18 +215,6 @@ class MiaJobAdapter
             'anchor' => ['label' => 'Calendar', 'href' => '/crm/marketing/social-calendar.php'],
         ];
         $edit = ['label' => 'Edit', 'sub' => 'open the post', 'href' => self::EDITOR . '?id=' . $id];
-        // An old post is never one press from going out: its moment has passed (a spring lawn post in November).
-        $ref = strtotime((string)(($r['scheduled_at'] ?? '') ?: ($r['created_at'] ?? '')));
-        if ($ref && $ref < $now->getTimestamp() - self::STALE_DAYS * 86400) {
-            $live = in_array((string)($r['status'] ?? ''), ['publishing', 'published'], true);   // posts.php will not cancel these
-            return $base + [
-                'title' => 'An old post did not go out',
-                'why' => 'It was meant for ' . date('M j', $ref) . '. Its moment has passed, so it will not be sent as it is.',
-                'primary' => $live ? ['label' => 'Edit', 'sub' => 'change it first', 'href' => self::EDITOR . '?id=' . $id]
-                                   : ['label' => 'Drop it', 'sub' => 'cancel this post', 'request' => ['url' => self::POSTS_API . '?action=delete', 'body' => ['id' => $id]]],
-                'secondary' => $live ? ['label' => 'Leave it', 'sub' => 'for now', 'skip' => true] : $edit,
-            ];
-        }
         if ($renewed) {
             return $base + [
                 'title' => 'Facebook is connected again',
@@ -274,7 +315,7 @@ class MiaJobAdapter
     private static function failedRows(PDO $db): array
     {
         return self::rows($db, "
-            SELECT sp.id, sp.status, sp.caption, sp.updated_at, sp.scheduled_at, sp.created_at,
+            SELECT sp.id, sp.status, sp.title, sp.service_type, sp.caption, sp.updated_at, sp.scheduled_at, sp.created_at,
                    " . self::PLATS . " AS platforms, " . self::THUMB . " AS thumb_path,
                    COALESCE(NULLIF((SELECT GROUP_CONCAT(fail_reason ORDER BY platform SEPARATOR ' | ')
                         FROM social_post_platforms WHERE post_id = sp.id AND status <> 'published' AND fail_reason IS NOT NULL), ''), sp.last_fail_reason, '') AS detail
@@ -300,7 +341,7 @@ class MiaJobAdapter
     {
         $auto = self::hasColumn($db, 'social_posts', 'auto_generated') ? 'sp.auto_generated' : '0';
         return self::rows($db, "
-            SELECT sp.id, sp.caption, sp.scheduled_at, $auto AS auto_generated, u.full_name AS created_by_name,
+            SELECT sp.id, sp.title, sp.service_type, sp.caption, sp.scheduled_at, $auto AS auto_generated, u.full_name AS created_by_name,
                    " . self::PLATS . " AS platforms, " . self::THUMB . " AS thumb_path
               FROM social_posts sp LEFT JOIN users u ON u.id = sp.created_by
              WHERE sp.status = 'pending_approval' ORDER BY sp.created_at ASC LIMIT 5");
@@ -310,7 +351,7 @@ class MiaJobAdapter
     {
         $auto = self::hasColumn($db, 'social_posts', 'auto_generated') ? 'sp.auto_generated' : '0';
         return self::rows($db, "
-            SELECT sp.id, sp.caption, $auto AS auto_generated, " . self::PLATS . " AS platforms, " . self::THUMB . " AS thumb_path
+            SELECT sp.id, sp.title, sp.service_type, sp.caption, $auto AS auto_generated, " . self::PLATS . " AS platforms, " . self::THUMB . " AS thumb_path
               FROM social_posts sp
              WHERE sp.status = 'draft' AND TRIM(sp.caption) <> ''
                AND EXISTS (SELECT 1 FROM social_post_platforms WHERE post_id = sp.id)

@@ -107,14 +107,32 @@ class MiaJobAdapterTest extends TestCase
         $this->assertSame('Facebook is connected again', $q[0]['title']);
     }
 
-    public function test_an_old_post_is_never_one_press_from_going_out(): void
+    public function test_a_seasonal_post_waits_for_its_season_and_an_evergreen_one_does_not(): void
     {
-        $old = ['updated_at' => '2026-05-21 12:00:00', 'scheduled_at' => '2026-05-21 11:45:00', 'created_at' => '2026-05-20 09:00:00'];
-        $q = MiaJobAdapter::queue($this->state(false), [$this->failed(1, 'odd') + $old + ['status' => 'failed'], $this->failed(2, 'odd') + $old + ['status' => 'publishing']], [], [], [], true, $this->now());
-        $this->assertSame('Drop it', $q[0]['primary']['label']);
-        $this->assertSame(['url' => '/crm/api/social/posts.php?action=delete', 'body' => ['id' => 1]], $q[0]['primary']['request']);
-        $this->assertSame('Edit', $q[1]['primary']['label'], 'posts.php will not cancel a publishing post');
-        $this->assertArrayNotHasKey('request', $q[1]['primary']);
-        $this->assertStringContainsString('May 21', $q[0]['why']);
+        $lawn = ['caption' => 'We talk a lot about lawns. Clean edges. Fresh cuts.', 'status' => 'failed', 'updated_at' => '2026-11-09 08:00:00'] + $this->failed(1, 'odd');
+        $evergreen = ['caption' => 'Crew on-site. Strata and commercial grounds maintenance across Vancouver.', 'status' => 'failed', 'updated_at' => '2026-11-09 08:00:00'] + $this->failed(2, 'odd');
+        $q = MiaJobAdapter::queue($this->state(false), [$lawn, $evergreen], [], [], [], true, $this->now());
+        $this->assertSame(['failed:2'], array_column($q, 'key'), 'November: the lawn post is parked, the grounds post is not');
+        $april = new DateTimeImmutable('2027-04-10 09:00:00');
+        $q = MiaJobAdapter::queue($this->state(false), [$lawn], [], [], [], true, $april);
+        $this->assertSame(['failed:1'], array_column($q, 'key'), 'in lawn season it is offered again');
+    }
+
+    public function test_the_hold_date_is_when_the_season_next_opens(): void
+    {
+        $lawn = ['caption' => 'Somewhere soft for the lawn kids to land.', 'service_type' => '', 'title' => ''];
+        $at = MiaJobAdapter::heldUntil($lawn, $this->now());
+        $this->assertSame('2027-04-01', $at->format('Y-m-d'));
+        $this->assertSame('Held until Apr 1 for its season.', MiaJobAdapter::holdNote($lawn, $this->now()));
+        $this->assertNull(MiaJobAdapter::heldUntil(['caption' => 'Fall cleanup is booking now.'], $this->now()), 'leaf season is running');
+        $this->assertSame('2027-01-01', MiaJobAdapter::heldUntil(['caption' => 'Spring cleanup is booking now.'], $this->now())->format('Y-m-d'), 'the spring themes (early-bird opens Jan 1), not the leaf theme');
+        $this->assertSame('', MiaJobAdapter::holdNote(['caption' => 'Meet the crew.'], $this->now()));
+    }
+
+    public function test_approvals_and_drafts_are_held_out_of_season_too(): void
+    {
+        $w = [['id' => 9, 'caption' => 'Lawns look great after aeration', 'platforms' => 'facebook', 'scheduled_at' => null, 'auto_generated' => 1, 'created_by_name' => 'Mia']];
+        $d = [['id' => 4, 'caption' => 'Mowing season starts', 'platforms' => 'facebook', 'auto_generated' => 1, 'thumb_path' => 'x.jpg']];
+        $this->assertSame([], MiaJobAdapter::queue($this->state(false), [], $w, $d, [], true, $this->now()));
     }
 }

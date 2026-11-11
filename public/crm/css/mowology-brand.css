@@ -39366,6 +39366,7 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-soc-posts-tools { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
 .mw-soc-link { font-size: .85rem; color: var(--mw-ink-500); }
 .mw-soc-link:hover { color: var(--mw-ink-900); }
+.mw-soc-upcoming-hold { margin-top: 4px; font-size: .8rem; color: var(--mw-ink-500); }
 .mw-soc-upcoming-fail { margin-top: 4px; font-size: .8rem; color: var(--mw-color-danger); cursor: help; }
 
 .mw-dtree-card .card-header.mw-dtree-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; border-bottom: 0; padding: 10px 16px; font-size: .9rem; font-weight: 500; color: var(--mw-ink-700); }
