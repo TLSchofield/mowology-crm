@@ -118,6 +118,7 @@ try {
           AND u.home_lng IS NOT NULL
           AND u.phone IS NOT NULL
           AND u.phone != ''
+          AND IFNULL(u.device_type, 'personal') <> 'truck'
     ");
 
     $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
