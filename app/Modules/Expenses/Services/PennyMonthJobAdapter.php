@@ -48,7 +48,8 @@ class PennyMonthJobAdapter
     {
         try {
             if (!self::enabled($db)) return false;
-            return self::focusMonth(self::months($db)) !== null;
+            $months = self::months($db);
+            return self::focusMonth($months) !== null || self::askCandidate($db, $months) !== null;
         } catch (Throwable $e) {
             error_log('PennyMonthJobAdapter::hasWork: ' . $e->getMessage());
             return false;
@@ -69,7 +70,8 @@ class PennyMonthJobAdapter
             foreach ($months as $m) {
                 if (!empty($m['locked']) || !empty($m['ready']) || (int)($m['bank_lines'] ?? 0) < 1) continue;
                 $all = $desk->queue(30, (string)$m['month']);
-                $lines = array_slice(array_values(array_filter($all, [self::class, 'proposes'])), 0, self::MAX_LINES);
+                $lines = array_values(array_filter($all, [self::class, 'proposes']));
+                $lines = array_slice(self::withoutClosedYearReceipts($db, $lines), 0, self::MAX_LINES);
                 if (!$lines) continue;
                 // the live count (the months summary is up to CACHE_SECONDS old): the queue holds at most 30
                 if (count($all) < 30) $m['bank_lines'] = count($all);
@@ -78,6 +80,8 @@ class PennyMonthJobAdapter
                 foreach ($lines as $l) $out[] = self::fromLine($l, $m, $discs, 0, 0, $facts[(int)$l['id']] ?? []);
                 break;
             }
+            // Nothing to sort: the oldest gap Penny cannot match goes on the accountant's list (a question, never an email)
+            if (!$out && ($ask = self::askCandidate($db, $months)) !== null) $out[] = $ask;
             return $out;
         } catch (Throwable $e) {
             error_log('PennyMonthJobAdapter::jobs: ' . $e->getMessage());
@@ -113,6 +117,139 @@ class PennyMonthJobAdapter
             error_log('PennyMonthJobAdapter::factsFor: ' . $e->getMessage());
         }
         return $out;
+    }
+
+    /**
+     * The "Add to the accountant's list" job for the oldest gap Penny cannot match, or null. A month qualifies when it is off the
+     * bank by an amount that is NEW this month (not carried from the month before), has no waiting bank lines or open receipts
+     * left to sort, is past its waiting days, and is not already on the list (in any state). The words come from the service.
+     */
+    public static function askCandidate(PDO $db, array $months, ?string $today = null): ?array
+    {
+        try {
+            require_once __DIR__ . '/../../Accounting/Services/AccountantQuestionService.php';
+            $aq = new AccountantQuestionService($db);
+            if (!$aq->ready()) return null;
+            // 1: only an admin may add to the list (bookkeeper.php refuses anyone else, so the job would never clear)
+            if (!function_exists('isAdmin') || !isAdmin()) return null;
+            $ym = self::askMonth($months, $today ?? date('Y-m-d'), static fn(string $m): bool => $aq->has(AccountantQuestionService::keyFor($m)));
+            if ($ym === null) return null;
+            self::load();
+            $sig = md5(json_encode(array_values(array_filter($months, static fn($x) => $x['month'] === $ym))));
+            $draft = self::cachedDraft($db, $ym . '|' . $sig, static fn() => $aq->draftFor($ym, $months));
+            if ($draft === null) return null;
+            $m = null; foreach ($months as $x) if ($x['month'] === $ym) $m = $x;
+            return self::fromGap($draft, (array)$m, self::monthDiscs($months, $ym), 0, 0);
+        } catch (Throwable $e) {
+            error_log('PennyMonthJobAdapter::askCandidate: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /** The question's draft is kept ASK_CACHE_SECONDS (the first month's reads the Dec 31 statements): same month, same amount. */
+    public const ASK_CACHE_SECONDS = 600;
+    private static function cachedDraft(PDO $db, string $ym, callable $make): ?array   // $ym: the month plus a signature of its figures, so a moved balance is re-read
+    {
+        $key = 'it_month_job_ask_cache';
+        try {
+            $s = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $s->execute([$key]);
+            $c = json_decode((string)$s->fetchColumn(), true);
+            if (is_array($c) && ($c['ym'] ?? '') === $ym && time() - (int)($c['at'] ?? 0) < self::ASK_CACHE_SECONDS && is_array($c['draft'] ?? null)) return $c['draft'];
+        } catch (Throwable $e) { /* compute */ }
+        $draft = $make();
+        if ($draft !== null) {
+            try {
+                $db->prepare("INSERT INTO ops_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")
+                   ->execute([$key, json_encode(['at' => time(), 'ym' => $ym, 'draft' => $draft])]);
+            } catch (Throwable $e) { /* a miss next time is fine */ }
+        }
+        return $draft;
+    }
+
+    /** Pure: the oldest open month whose gap is new this month and has nothing left to sort; null when none. */
+    public static function askMonth(array $months, string $today, ?callable $asked = null): ?string
+    {
+        $prev = null;
+        foreach ($months as $m) {
+            $drift = 0.0;
+            foreach ((array)($m['drift'] ?? []) as $d) $drift += (float)$d;
+            $open = empty($m['locked']) && empty($m['ready']);
+            $isNew = abs($drift - (float)($prev ?? 0.0)) >= self::CENT;
+            $quiet = (int)($m['bank_lines'] ?? 0) === 0 && (int)($m['receipts'] ?? 0) === 0;
+            $past = empty($m['grace_until']) || (string)$m['grace_until'] <= $today;
+            if ($open && abs($drift) >= self::CENT && $isNew && $quiet && $past && !($asked && $asked((string)$m['month']))) return (string)$m['month'];   // a month already on the list is skipped, the next new gap is still offered
+            $prev = !empty($m['locked']) ? null : $drift;
+        }
+        return null;
+    }
+
+    /**
+     * Pure: a gap Penny cannot match → the strip's job. Add to list posts accountant_question (bookkeeper.php; the server writes
+     * the words from the books); Leave it records that the gap is not to be asked about.
+     * @param array $draft AccountantQuestionService::draftFor()
+     */
+    public static function fromGap(array $draft, array $month, array $discs, int $index, int $total): array
+    {
+        $amount = (float)$draft['amount'];
+        $money = '$' . number_format(abs($amount), 2);
+        $monthName = date('F', strtotime($draft['month'] . '-01'));
+        $after = [];
+        foreach ($discs as $d) if (!empty($d['focus'])) $after = $d;
+        if ($after) { $after['top'] = 'on the list'; $after['label'] = $monthName; }
+        $req = static fn(string $action): array => ['mode' => 'accountant_question', 'month' => (string)$draft['month'], 'action' => $action];
+        return [
+            'head'       => 'penny',
+            'kind'       => 'month',
+            'key'        => 'gap:' . $draft['month'],
+            'title'      => $monthName . ' is ' . $money . ' off the bank — nothing Penny can match',
+            'confidence' => 'I checked every bank line and receipt in ' . $monthName . '; none explains it.',
+            'sure'       => 'forming',
+            'months'     => $discs,
+            'after'      => $after ?: null,
+            'left'       => ['label' => (string)$draft['account'], 'who' => 'Books ' . ($amount > 0 ? '+' : '−') . $money . ($amount > 0 ? ' over' : ' under') . ' the bank', 'when' => 'at the end of ' . $monthName],
+            'right'      => ['label' => 'Ricole\'s list', 'who' => 'Penny adds the question', 'when' => (string)($draft['evidence_short'] ?? 'nothing is sent')],
+            'columns'    => [],
+            'primary'    => ['label' => 'Add to list', 'sub' => 'for Ricole', 'request' => $req('add')],
+            'secondary'  => ['label' => 'Leave it', 'sub' => 'don\'t ask', 'request' => $req('drop')],
+            'undo'       => null,
+            'start'      => ['label' => 'Bank', 'href' => '/crm/accounting/bank-balance-check.php', 'icon' => 'bank'],
+            'anchor'     => ['label' => 'Ledger', 'href' => '/crm/ledger/'],
+            'index'      => $index,
+            'total'      => $total,
+        ];
+    }
+
+    /**
+     * A line whose "found" receipt is dated before this ledger's first month (FY2025: filed, locked, receipts there are never booked
+     * again) is NOT offered here: linking it reverses the line's own entry and the receipt has no 2026 entry to stand in for it, so
+     * the month's books drift from the bank by the amount (seen 2026-11-10, University Landscapers $157.50: receipt of Dec 30 2025,
+     * Approve moved January's books $157.50 off the bank). Such a line stays on the Bank card, where the choice is made knowingly.
+     */
+    public static function withoutClosedYearReceipts(PDO $db, array $lines): array
+    {
+        $ids = [];
+        foreach ($lines as $l) if (!empty($l['suggestion']['expense_id'])) $ids[] = (int)$l['suggestion']['expense_id'];
+        if (!$ids) return $lines;
+        try {
+            self::load();
+            $q = $db->query("SELECT id, expense_date FROM expenses WHERE id IN (" . implode(',', array_unique($ids)) . ")");
+            $dates = [];
+            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $dates[(int)$r['id']] = (string)$r['expense_date'];
+        } catch (Throwable $e) {
+            error_log('PennyMonthJobAdapter::withoutClosedYearReceipts: ' . $e->getMessage());
+            return array_values(array_filter($lines, static fn($l) => empty($l['suggestion']['expense_id'])));   // unsure: leave receipt links to the card
+        }
+        return array_values(array_filter($lines, static function ($l) use ($dates): bool {
+            $eid = (int)($l['suggestion']['expense_id'] ?? 0);
+            return $eid === 0 || !self::inClosedYear($dates[$eid] ?? '');
+        }));
+    }
+
+    /** Pure: is this expense date before the ledger's first month (MonthCloseService::FIRST), or unknown? */
+    public static function inClosedYear(string $expenseDate): bool
+    {
+        return !preg_match('/^\d{4}-\d{2}/', $expenseDate) || substr($expenseDate, 0, 7) < MonthCloseService::FIRST;
     }
 
     /** The months summary, kept CACHE_SECONDS in ops_settings: only what the rail and the blockers need. */

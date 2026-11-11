@@ -420,6 +420,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberQuoteHistory.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyMonthJobAdapter.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/AccountantQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptAmountRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptDateCheck.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyReceiptJobAdapter.php';
