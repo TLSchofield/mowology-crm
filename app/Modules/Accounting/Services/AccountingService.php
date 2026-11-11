@@ -854,6 +854,23 @@ class AccountingService
         if (!in_array($data['status'] ?? 'cleared', ['pending', 'cleared', 'reconciled'], true)) {
             throw new InvalidArgumentException('Invalid transaction status.');
         }
+        self::validateManualEdit($data);
+    }
+
+    /** Fields present in a manual line's create or edit: tax not negative, amount above zero, a known status. */
+    public static function validateManualEdit(array $data): void
+    {
+        if (array_key_exists('amount', $data) && $data['amount'] !== '' && (!is_numeric($data['amount']) || (float)$data['amount'] <= 0)) {
+            throw new InvalidArgumentException('Amount must be greater than zero.');
+        }
+        foreach (['gst_amount', 'pst_amount'] as $f) {
+            if (array_key_exists($f, $data) && $data[$f] !== '' && $data[$f] !== null && (!is_numeric($data[$f]) || (float)$data[$f] < 0)) {
+                throw new InvalidArgumentException('Tax cannot be negative.');
+            }
+        }
+        if (!empty($data['status']) && !in_array($data['status'], ['pending', 'cleared', 'reconciled'], true)) {
+            throw new InvalidArgumentException('Invalid transaction status.');
+        }
     }
 
     public function updateTransaction(int $id, array $data): bool
@@ -944,6 +961,8 @@ class AccountingService
         }
         if (($cur['reference_type'] ?? 'manual') !== 'manual') {
             foreach (self::SOURCE_FIELDS as $f) unset($data[$f]);
+        } else {
+            self::validateManualEdit($data);
         }
         if (($cur['reference_type'] ?? '') === 'bank_import' && isset($data['account_id'])
             && (int)$data['account_id'] > 0 && (int)$data['account_id'] !== (int)$cur['account_id']) {

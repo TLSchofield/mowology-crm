@@ -469,7 +469,7 @@ if ($recurringUnavailable !== null) $summaryParts[] = $recurringUnavailable;
 $runSummary = implode('; ', $summaryParts);
 
 $report = [
-    'success'    => true,
+    'success'    => count($errors) === 0,   // was always true, so Run-now hid failed invoices (Codex 2026-11-11)
     'run_date'   => $today,
     'period'     => $monthLabel,
     'created'    => count($created),
