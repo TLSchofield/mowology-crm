@@ -63,6 +63,12 @@
 
   // ── Timeline (day view) ───────────────────────────────────
   var panel, crewCols = [], stopsData = [], crewList = null;
+  var weekMode = cfg.view === 'week', weekDates = [];
+  function dayLabel(d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+  function collectWeekDates() {
+    var ds = [].map.call(document.querySelectorAll('.mw-day-column[data-date]'), function (c) { return c.dataset.date; });
+    weekDates = ds.filter(function (d, i) { return ds.indexOf(d) === i; });
+  }
 
   function loadCrew() {
     if (crewList) return Promise.resolve(crewList);
@@ -71,12 +77,14 @@
 
   function buildBlocks() {
     var cols = {}, order = [];
+    if (weekMode) weekDates.forEach(function (d) { cols[d] = { id: 0, date: d, name: dayLabel(d), blocks: [], anytime: [] }; order.push(d); });
     function col(id, name) { var k = id || 0; if (!cols[k]) { cols[k] = { id: id || 0, name: name || 'Unassigned', blocks: [], anytime: [] }; order.push(k); } return cols[k]; }
     stopsData.forEach(function (s) {
-      var c = col(s.crew_id, s.crew_name);
+      var c = weekMode ? cols[s.stop_date] : col(s.crew_id, s.crew_name);
+      if (!c) return;
       (s.visits || []).forEach(function (v) {
         var st = toMin(v.scheduled_time_start) != null ? toMin(v.scheduled_time_start) : toMin(s.estimated_arrival);
-        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.contact_name || s.company_name || '' };
+        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.contact_name || s.company_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '' };
         if (st == null) { c.anytime.push(item); return; }
         var en = toMin(v.scheduled_time_end);
         if (en == null || en <= st) en = st + (v.estimated_duration || 60);
@@ -84,12 +92,13 @@
         c.blocks.push(item);
       });
     });
+    if (weekMode) return order.map(function (k) { return cols[k]; });
     return order.sort(function (a, b) { return (a === 0) - (b === 0) || cols[a].name.localeCompare(cols[b].name); }).map(function (k) { return cols[k]; });
   }
 
   function render() {
     crewCols = buildBlocks();
-    if (!crewCols.length) crewCols = [{ id: 0, name: 'Unassigned', blocks: [], anytime: [] }];
+    if (!crewCols.length) crewCols = [{ id: 0, date: cfg.date, name: 'Unassigned', blocks: [], anytime: [] }];
     var hours = '';
     for (var m = DAY_START; m < DAY_END; m += 60) hours += '<div class="mw-cal-hour" style="height:' + (60 * PX_PER_MIN) + 'px">' + label(m) + '</div>';
     var h = '<div class="mw-cal-head"><div class="mw-cal-gutter"></div>' + crewCols.map(function (c) { return '<div class="mw-cal-colhead">' + esc(c.name) + '</div>'; }).join('') + '</div>';
@@ -109,11 +118,12 @@
     return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" style="top:' + top + 'px;height:' + ht + 'px">' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--top"></div>' : '') +
       '<div class="mw-cal-btitle">' + esc(b.title) + '</div><div class="mw-cal-bmeta">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
-      '<div class="mw-cal-bmeta">' + esc(b.addr || '') + '</div>' +
+      '<div class="mw-cal-bmeta">' + esc((weekMode && b.crew ? b.crew + ' \u00b7 ' : '') + (b.addr || '')) + '</div>' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--bottom"></div>' : '') + '</div>';
   }
 
   function nowLine() {
+    if (weekMode) return;
     if (cfg.date !== new Date().toISOString().slice(0, 10) && cfg.date !== localToday()) return;
     var now = new Date(), m = now.getHours() * 60 + now.getMinutes();
     if (m < DAY_START || m > DAY_END) return;
@@ -123,8 +133,10 @@
   function localToday() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
 
   function refresh() {
-    return fetch(STOPS_API + '?date=' + encodeURIComponent(cfg.date), { credentials: 'same-origin' }).then(function (r) { return r.json(); })
-      .then(function (j) { stopsData = j.stops || []; render(); });
+    var dates = weekMode ? weekDates : [cfg.date];
+    return Promise.all(dates.map(function (d) {
+      return fetch(STOPS_API + '?date=' + encodeURIComponent(d), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return j.stops || []; });
+    })).then(function (lists) { stopsData = [].concat.apply([], lists); render(); });
   }
 
   // Gesture state machine: one pointer drag at a time.
@@ -161,13 +173,19 @@
 
   function startDrag(e, el, colEl, b, mode, minAt) {
     e.preventDefault(); el.setPointerCapture(e.pointerId);
-    var s0 = b.start, e0 = b.end, grab = minAt(e) - s0, moved = false, ns = s0, ne = e0;
+    var s0 = b.start, e0 = b.end, grab = minAt(e) - s0, moved = false, ns = s0, ne = e0, ti = +colEl.dataset.ci;
+    var colRects = [].map.call(panel.querySelectorAll('.mw-cal-col'), function (c) { return c.getBoundingClientRect(); });
     el.classList.add('mw-cal-block--drag');
     function move(ev) {
       var m = snap(minAt(ev));
       if (mode === 'end') { ne = Math.min(DAY_END, Math.max(s0 + MIN_LEN, m)); ns = s0; }
       else if (mode === 'start') { ns = Math.max(DAY_START, Math.min(e0 - MIN_LEN, m)); ne = e0; }
       else { var len = e0 - s0; ns = Math.max(DAY_START, Math.min(DAY_END - len, snap(minAt(ev) - grab))); ne = ns + len; }
+      if (weekMode && mode === 'move') {
+        for (var i = 0; i < colRects.length; i++) { if (ev.clientX >= colRects[i].left && ev.clientX < colRects[i].right) { if (i !== ti) { ti = i; } break; } }
+        el.style.transform = 'translateX(' + (colRects[ti].left - colRects[+colEl.dataset.ci].left) + 'px)';
+        if (ti !== +colEl.dataset.ci) moved = true;
+      }
       if (ns !== s0 || ne !== e0) moved = true;
       el.style.top = ((ns - DAY_START) * PX_PER_MIN) + 'px'; el.style.height = ((ne - ns) * PX_PER_MIN) + 'px';
       el.querySelector('.mw-cal-bmeta').textContent = label(ns) + ' \u2013 ' + label(ne);
@@ -176,28 +194,29 @@
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel);
       el.classList.remove('mw-cal-block--drag');
       if (!moved) { render(); return; }
-      commit(b, mode, ns, ne, false);
+      commit(b, mode, ns, ne, false, weekMode && mode === 'move' && crewCols[ti] ? crewCols[ti].date : b.date);
     }
     function cancel() { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); render(); }
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', cancel);
   }
 
-  function commit(b, mode, ns, ne, force) {
+  function commit(b, mode, ns, ne, force, toDate) {
+    toDate = toDate || b.date || cfg.date;
     var prevStart = b.start, prevEnd = b.end;
     var req = mode === 'move'
-      ? post(MOVE_API, { stop_id: b.stopId, new_date: cfg.date, new_time: hhmm(ns) + ':00', force: !!force })
+      ? post(MOVE_API, { stop_id: b.stopId, new_date: toDate, new_time: hhmm(ns) + ':00', force: !!force })
       : post(EDIT_API, { action: 'resize', visit_id: b.visitId, start: hhmm(ns), end: hhmm(ne), force: force });
     req.then(function (r) {
       if (r.warning && mode !== 'move') {
         var c = r.conflicts[0];
-        if (window.confirm('This overlaps another visit for the same person (' + c.start + '–' + c.end + '). Keep it anyway?')) return commit(b, mode, ns, ne, true);
+        if (window.confirm('This overlaps another visit for the same person (' + c.start + '–' + c.end + '). Keep it anyway?')) return commit(b, mode, ns, ne, true, toDate);
         return refresh();
       }
       if (r.error || r._status >= 400) { toast(r.error || 'Could not save that change.', null, 'error'); return refresh(); }
       patchDayCards(r.day_cards);
       var undo;
       if (mode === 'move') {
-        undo = function () { post(MOVE_API, { stop_id: b.stopId, new_date: cfg.date, new_time: hhmm(prevStart) + ':00', force: true }).then(function (u) { patchDayCards(u.day_cards); refresh(); toast('Change undone'); }); };
+        undo = function () { post(MOVE_API, { stop_id: b.stopId, new_date: b.date || cfg.date, new_time: hhmm(prevStart) + ':00', force: true }).then(function (u) { patchDayCards(u.day_cards); refresh(); toast('Change undone'); }); };
       } else {
         var prev = r.previous || {};
         undo = function () { post(EDIT_API, { action: 'undo', visit_id: b.visitId, previous: prev }).then(function (u) { patchDayCards(u.day_cards); refresh(); toast('Change undone'); }); };
@@ -221,7 +240,7 @@
       if (!dragged || t - s < SNAP) t = s + 60;
       s = Math.max(DAY_START, s); t = Math.min(1425, Math.max(s + SNAP, t));
       ghost.remove();
-      openPopover({ x: ev.clientX, y: ev.clientY, date: cfg.date, start: hhmm(s), end: hhmm(t), crewId: crewCols[ci] ? crewCols[ci].id : 0 });
+      openPopover({ x: ev.clientX, y: ev.clientY, date: weekMode && crewCols[ci] ? crewCols[ci].date : cfg.date, start: hhmm(s), end: hhmm(t), crewId: !weekMode && crewCols[ci] ? crewCols[ci].id : 0 });
     }
     document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', cancel);
   }
@@ -335,7 +354,7 @@
           if (!r.success) return err(r.error || 'Could not save.');
           closePopover(); patchDayCards(r.day_cards);
           toast(r.message || 'Created visit');
-          if (cfg.view === 'day') refresh(); else window.location.reload();
+          if (panel && !panel.hidden) refresh(); else if (weekMode) window.location.reload(); else refresh();
         }).catch(function () { btn.disabled = false; err('Network problem: nothing was saved.'); });
     });
   }
@@ -375,6 +394,6 @@
     });
   }
 
-  function init() { if (cfg.view === 'day') mountDay(); else mountWeek(); }
+  function init() { if (weekMode) { collectWeekDates(); mountWeek(); } mountDay(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
