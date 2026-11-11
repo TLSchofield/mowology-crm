@@ -371,6 +371,24 @@ class BeforeAfterService
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /** Approved or rejected pairs, newest decision first, for the page's read-only tabs. */
+    public function decided(string $status, int $limit = 60): array
+    {
+        if (!in_array($status, [self::STATUS_APPROVED, self::STATUS_REJECTED], true)) {
+            return [];
+        }
+        $stmt = $this->db->prepare("
+            SELECT bp.id, bp.label, bp.service, bp.area, bp.approved_at, bp.rejected_reason, " . self::assetSelect() . "
+            FROM ba_pairs bp
+            JOIN media_assets mb ON mb.id = bp.before_id
+            JOIN media_assets ma ON ma.id = bp.after_id
+            WHERE bp.status = ?
+            ORDER BY bp.approved_at DESC, bp.id DESC
+            LIMIT " . max(1, $limit));
+        $stmt->execute([$status]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /** @return array{pending:int, approved:int, rejected:int} */
     public function counts(): array
     {
@@ -437,6 +455,60 @@ class BeforeAfterService
         ]);
 
         return self::publicShape($this->load($pairId));
+    }
+
+    // ── The flow line's extras (switch ops_settings ba_flowline; columns from migration 1450) ──
+
+    /** The owner has looked at the photos for faces, house numbers and licence plates. */
+    public function recordPrivacyCheck(int $pairId, int $userId): void
+    {
+        $this->db->prepare("
+            UPDATE ba_pairs SET privacy_checked_by = ?, privacy_checked_at = NOW(), updated_at = NOW()
+             WHERE id = ? AND status = 'pending'
+        ")->execute([$userId, $pairId]);
+    }
+
+    /** False when the check was not recorded, and when the column does not exist yet (fail closed). */
+    public function privacyChecked(int $pairId): bool
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT privacy_checked_at FROM ba_pairs WHERE id = ?");
+            $stmt->execute([$pairId]);
+            return (string)$stmt->fetchColumn() !== '';
+        } catch (PDOException $e) {
+            return false;
+        }
+    }
+
+    /** What happened to Mia's offered text: 'unedited' or 'edited'. Her record is counted from this. */
+    public function recordOfferState(int $pairId, string $state): void
+    {
+        if (!in_array($state, ['unedited', 'edited'], true)) {
+            return;
+        }
+        $this->db->prepare("UPDATE ba_pairs SET offer_state = ? WHERE id = ? AND status = 'approved'")->execute([$state, $pairId]);
+    }
+
+    /** @return array{0:int,1:int} [offers published, of those published unedited] */
+    public function offerRecord(): array
+    {
+        try {
+            $r = $this->db->query("SELECT COUNT(*) n, COALESCE(SUM(offer_state = 'unedited'), 0) u FROM ba_pairs WHERE offer_state IS NOT NULL AND status = 'approved'")->fetch(PDO::FETCH_ASSOC);
+            return [(int)($r['n'] ?? 0), (int)($r['u'] ?? 0)];
+        } catch (PDOException $e) {
+            return [0, 0];
+        }
+    }
+
+    /** One pending pair as pending() returns it, or null. */
+    public function pendingPair(int $pairId): ?array
+    {
+        foreach ($this->pending() as $row) {
+            if ((int)$row['id'] === $pairId) {
+                return $row;
+            }
+        }
+        return null;
     }
 
     public function reject(int $pairId, int $userId, string $reason): void

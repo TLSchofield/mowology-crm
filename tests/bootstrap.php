@@ -589,6 +589,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.ph
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherActionGuard.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.php';
+require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
 
 // Social (Meta/GBP publishing — credential contract + connection health)
 require_once __DIR__ . '/../app/Modules/Social/Services/SocialEncryption.php';

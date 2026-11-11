@@ -33673,10 +33673,10 @@ textarea.mw-reco-ask-in { resize: vertical; line-height: 1.45; }
 .mw-baq-row:last-child { border-bottom: none; }
 .mw-baq-row.is-done { opacity: 0.25; }
 .mw-baq-photos { display: flex; gap: 8px; flex: 0 0 auto; }
-.mw-baq-photo { margin: 0; width: 160px; }
+.mw-baq-photo { margin: 0; width: 112px; }
 .mw-baq-photo img {
-  width: 160px;
-  height: 160px;
+  width: 112px;
+  height: 112px;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid var(--mw-light);
@@ -33692,6 +33692,24 @@ textarea.mw-reco-ask-in { resize: vertical; line-height: 1.45; }
   text-align: center;
 }
 .mw-baq-form { flex: 1; min-width: 260px; }
+.mw-baq-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.mw-baq-tab { border: 0; background: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; color: var(--mw-dark); cursor: pointer; }
+.mw-baq-tab:hover { background: var(--mw-light); }
+.mw-baq-tab.is-active { background: var(--mw-green); color: var(--mw-card); }
+.mw-baq-tab.is-active .badge { background: var(--mw-card); color: var(--mw-dark); }
+.mw-baq-main { flex: 1; min-width: 0; }
+.mw-baq-title { font-weight: 600; font-size: 1rem; }
+.mw-baq-state { color: var(--mw-dark); font-size: 0.85rem; margin-bottom: 8px; }
+.mw-baq-row-compact { padding: 10px 16px; align-items: center; }
+.mw-baq-row-compact .mw-baq-photo, .mw-baq-row-compact .mw-baq-photo img { width: 64px; height: 64px; }
+.mw-baq-row-compact .mw-baq-state { margin-bottom: 0; }
+.mw-baq-detail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--mw-light); }
+.mw-baq-alts { display: flex; gap: 6px; }
+.mw-baq-consent-row { display: flex; gap: 6px; }
+.mw-baq-actions .btn-link { padding-left: 4px; padding-right: 4px; }
+.q-status.is-ok { color: var(--mw-green); }
+.q-status.is-bad { color: var(--mw-orange); }
+.mw-baq-pane[hidden] { display: none; }
 .mw-baq-private { font-size: 0.85rem; margin-bottom: 8px; }
 .mw-baq-label {
   font-size: 10px;
@@ -33717,7 +33735,26 @@ textarea.mw-reco-ask-in { resize: vertical; line-height: 1.45; }
 @media (max-width: 767px) {
   .mw-baq-row { flex-direction: column; }
   .mw-baq-photos { justify-content: center; }
+  .mw-baq-row-compact { flex-direction: row; }
+  .mw-baq-alts, .mw-baq-consent-row { flex-direction: column; }
 }
+
+/* BA page chrome that used to be inline styles */
+.mw-ba-toolbar { gap: 10px; }
+.mw-ba-filter { width: auto; }
+.mw-ba-hint { font-size: 0.78rem; }
+.mw-ba-footer { gap: 8px; }
+.mw-ba-empty-ico { width: 40px; height: 40px; stroke: var(--mw-wait-line); display: block; margin: 0 auto 1rem; }
+.mw-ba-ph-ico { width: 24px; height: 24px; stroke: var(--mw-wait-line); }
+.mw-ba-grip-ico { width: 14px; height: 14px; color: var(--mw-wait-line); }
+.mw-ba-btn-ico { width: 14px; height: 14px; }
+.mw-ba-empty-wide { grid-column: 1 / -1; padding: 1rem; font-size: 0.8rem; }
+
+/* Mia's Before & After strip: the photos are big enough to check a face, a number or a plate */
+.mw-baq-strip .it-job-fig-col { display: flex; gap: 8px; }
+.mw-baq-strip .it-job-fig { width: 72px; }
+.mw-baq-strip .it-job-fig img { width: 72px; height: 72px; aspect-ratio: auto; }
+.mw-baq-strip .it-job-fig a { display: block; }
 
 /* ── Dashboard Live Operations Map ──────────────────────────────────────── */
 .mw-ops-map-card {
@@ -41884,7 +41921,7 @@ body.mw-books {
 /* ============================================================
    Two-step sign-in settings (public/crm/account/two-step.php)
    ============================================================ */
-.mw-two-step-qr { display: inline-block; padding: .75rem; background: var(--mw-white, #fff); border: 1px solid var(--mw-light); border-radius: 6px; line-height: 0; }
+.mw-two-step-qr { display: inline-block; padding: .75rem; background: var(--mw-card); border: 1px solid var(--mw-light); border-radius: 6px; line-height: 0; }
 .mw-two-step-qr svg { width: 200px; height: 200px; }
 .mw-two-step-field { max-width: 22rem; }
 .mw-two-step-key { font-family: var(--mw-font-mono, monospace); font-size: 1.05rem; letter-spacing: .08em; word-break: break-all; }

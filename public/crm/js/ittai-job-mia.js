@@ -48,6 +48,14 @@
         });
     }
 
+    /** A page-form request (Before & After: the page's own queue_* actions): form fields plus csrf_token, answered with JSON. */
+    function postForm(url, body) {
+        var fd = new FormData();
+        Object.keys(body || {}).forEach(function (k) { fd.append(k, body[k]); });
+        fd.append('csrf_token', root.getAttribute('data-csrf') || token());
+        return fetch(url, { method: 'POST', credentials: 'same-origin', body: fd }).then(function (r) { return r.json(); });
+    }
+
     function setBusy(on) {
         busy = on;
         Array.prototype.forEach.call(root.querySelectorAll('.it-btn, .it-job-skip'), function (b) { b.disabled = on; });
@@ -84,8 +92,16 @@
         conf.setAttribute('title', label);
         conf.querySelector('use').setAttribute('href', '#' + (sure === 'known' ? 'it-st-approval' : 'it-st-approval-' + sure));
 
-        var fig = q('.it-job-fig');
-        if (p.thumb) { fig.querySelector('img').src = p.thumb; fig.hidden = false; } else { fig.hidden = true; }
+        var thumbs = p.thumbs || (p.thumb ? [p.thumb] : []);
+        Array.prototype.forEach.call(root.querySelectorAll('.it-job-fig'), function (fig, i) {
+            var src = thumbs[i];
+            if (src) {
+                fig.querySelector('img').src = src;
+                var link = fig.querySelector('a');
+                if (link) link.href = src;
+                fig.hidden = false;
+            } else { fig.hidden = true; }
+        });
 
         form.textContent = '';
         var tpl = q('.it-job-tpl-' + card.kind);
@@ -93,6 +109,10 @@
             form.appendChild(tpl.content.cloneNode(true));
             var when = field('scheduled_at');
             if (when && card.right) { when.value = card.right.scheduled_at || ''; if (card.right.min) when.min = card.right.min; }
+            Object.keys(card.right || {}).forEach(function (k) {   // a card may offer text for its fields (Before & After)
+                var f = field(k);
+                if (f && k !== 'scheduled_at') f.value = card.right[k] || '';
+            });
         }
         q('.it-job-right').hidden = !tpl;
 
@@ -134,12 +154,16 @@
         if (role === 'primary') {
             (card.fields || []).forEach(function (name) { var f = field(name); if (f) body[name] = f.value; });
             if ((card.fields || []).indexOf('scheduled_at') >= 0 && !body.scheduled_at) { say('Pick a time first.'); return; }
+            var missing = (card.required || []).filter(function (name) { var f = field(name); return !f || !String(f.value).trim(); });
+            if (missing.length) { say(card.requiredMsg || 'Fill that in first.'); var m = field(missing[0]); if (m) m.focus(); return; }
         }
         setBusy(true);
         say('');
-        post(a.request.url, body).then(function (d) {
+        (a.request.form ? postForm(a.request.url, body) : post(a.request.url, body)).then(function (d) {
             if (!(d && d.success)) { setBusy(false); say((d && (d.message || d.error)) || 'Could not save. Try again.'); return; }
             var text = d.message || 'Done.';
+            window.dispatchEvent(new CustomEvent('mw:job-done', { detail: { request: body, response: d } }));   // a page may follow (Before & After rows)
+            if (d.next) { queue[0] = d.next; setBusy(false); render(); say(text); return; }   // the same pair, its next step
             queue.shift();
             if (!queue.length) { setBusy(false); finish(text); return; }
             render();
