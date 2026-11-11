@@ -123,6 +123,21 @@ final class PhoneSignInTest extends TestCase
         $this->assertSame('BlueMoon web login', $db->query('SELECT action FROM activity_log')->fetchColumn());
     }
 
+    public function test_check_only_verifies_the_password_and_writes_nothing(): void
+    {
+        $db = $this->db([$this->user()]);
+        $r = PhoneSignIn::attempt($db, 'greenleaf', 'owner@example.com', 'right password', 'mobile', '10.0.0.1', true);
+        $this->assertSame(['status' => 'match'], $r);
+        $this->assertSame(['limited'], array_column($this->calls, 0), 'no clear, no failure');
+        $this->assertSame(0, (int)$db->query('SELECT COUNT(*) FROM activity_log')->fetchColumn());
+        $this->assertNull($db->query('SELECT last_login FROM users WHERE id = 7')->fetchColumn());
+
+        $this->calls = [];
+        $this->assertSame(['status' => 'invalid'], PhoneSignIn::attempt($db, 'greenleaf', 'owner@example.com', 'wrong', 'mobile', '10.0.0.1', true));
+        $this->assertSame(['status' => 'invalid'], PhoneSignIn::attempt($db, 'greenleaf', 'nobody@example.com', 'right password', 'mobile', '10.0.0.1', true));
+        $this->assertSame(['limited', 'limited'], array_column($this->calls, 0), 'a check-only miss is not recorded: the directory records it when nobody matched');
+    }
+
     public function test_a_wrong_password_or_an_unknown_user_is_invalid_and_recorded(): void
     {
         $db = $this->db([$this->user()]);

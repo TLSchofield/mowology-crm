@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   ['status' => 'ok', 'token', 'user' => [id, email, name, role, business_name, chief_name], 'expires_in']
  *   ['status' => 'rate_limited'] | ['status' => 'invalid'] (failure recorded) | ['status' => 'web_only'] (accountant)
  *   ['status' => 'error'] (database failure, logged) | ['status' => 'not_configured'] (no JWT secret, logged)
+ *   ['status' => 'match'] — check-only mode: the password is right here, nothing was written (see attempt()).
  *
  * The rate-limit helpers (auth.php) act on the given database, not this request's getDB().
  * No namespace / no autoloader in production: require_once.
@@ -39,8 +40,13 @@ final class PhoneSignIn
     /**
      * One sign-in attempt at the business whose database is $db and whose key is $key. $credential is the
      * lower-cased, trimmed email or username; $audience 'web' or 'mobile'.
+     *
+     * $checkOnly (the directory's sweep over every business, review 2026-11-11): verify the password and the
+     * fence, write NOTHING — no failed-login row (a right password at business A must not count as a wrong one
+     * at B and C: on a shared office IP that locked B's crew out), no last_login, no activity, no token. It answers
+     * ['status' => 'match'] instead of 'ok'; the caller records failures itself when no business matched.
      */
-    public static function attempt(PDO $db, string $key, string $credential, string $password, string $audience, string $ip): array
+    public static function attempt(PDO $db, string $key, string $credential, string $password, string $audience, string $ip, bool $checkOnly = false): array
     {
         $email = $credential;   // the rate-limit rows are keyed by what was typed, as before
         $limited = self::$seams['limited'] ?? 'isLoginRateLimited';
@@ -72,14 +78,20 @@ final class PhoneSignIn
             return ['status' => 'error'];
         }
 
-        if (!$user || !isset($user['password_hash']) || !password_verify($password, (string)$user['password_hash'])) {
-            $failed($email, $ip, $db);
+        // An unknown email costs the same as a wrong password (review 2026-11-11): without this the answer came
+        // back in a few milliseconds for an email no business knows, and a stopwatch told which emails exist.
+        $hash = ($user && isset($user['password_hash'])) ? (string)$user['password_hash'] : self::dummyHash();
+        if (!password_verify($password, $hash) || !$user || !isset($user['password_hash'])) {
+            if (!$checkOnly) $failed($email, $ip, $db);
             return ['status' => 'invalid'];
         }
 
         // The outside accountant's login is web-only and confined to the Ledger — never an app token (2026-10-13).
         if (!AccountantFence::jwtAllowed((string)($user['role'] ?? ''))) {
             return ['status' => 'web_only'];
+        }
+        if ($checkOnly) {
+            return ['status' => 'match'];
         }
 
         // ── Success — clear rate limit, log activity ───────────────────────────
@@ -163,6 +175,13 @@ final class PhoneSignIn
 
         $signature = self::b64(hash_hmac('sha256', $header . '.' . $payload, $secret, true));
         return [$header . '.' . $payload . '.' . $signature, $ttl];
+    }
+
+    /** A hash to verify against when there is no user, so the time taken does not say so. Made once per request. */
+    private static function dummyHash(): string
+    {
+        static $h = null;
+        return $h ?? ($h = password_hash('not-a-real-password-' . bin2hex(random_bytes(8)), PASSWORD_DEFAULT));
     }
 
     /** URL-safe base64 without padding (token.php's old base64url_encode). */

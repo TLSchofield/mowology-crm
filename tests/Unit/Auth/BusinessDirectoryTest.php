@@ -8,7 +8,10 @@ final class BusinessDirectoryTest extends TestCase
 {
     /** key → the status that business's attempt answers. */
     private array $answers = [];
-    private array $tried = [];
+    private array $tried = [];      // check-only sweeps, in order
+    private array $issued = [];     // real sign-ins (token issued)
+    private array $failedAt = [];   // businesses where a failure was recorded
+    private array $pdoKey = [];
 
     private function biz(string $key, string $url = '', bool $test = false): array
     {
@@ -19,22 +22,56 @@ final class BusinessDirectoryTest extends TestCase
     {
         $open = function (string $key) use ($broken): PDO {
             if (in_array($key, $broken, true)) throw new PDOException('connection refused');
-            return new PDO('sqlite::memory:');
+            $pdo = new PDO('sqlite::memory:');
+            $this->pdoKey[spl_object_id($pdo)] = $key;
+            return $pdo;
         };
-        $attempt = function (PDO $db, string $key, string $cred, string $pw, string $aud, string $ip): array {
-            $this->tried[] = $key;
+        $attempt = function (PDO $db, string $key, string $cred, string $pw, string $aud, string $ip, bool $checkOnly = false): array {
+            if ($checkOnly) $this->tried[] = $key; else $this->issued[] = $key;
             $s = $this->answers[$key] ?? 'invalid';
             if ($s !== 'ok') return ['status' => $s];
+            if ($checkOnly) return ['status' => 'match', 'user' => ['business_name' => ucfirst($key) . ' Co']];
             return ['status' => 'ok', 'token' => 'tok-' . $key, 'expires_in' => 2592000,
                 'user' => ['id' => 1, 'email' => $cred, 'name' => 'Ann', 'role' => 'admin', 'business_name' => ucfirst($key) . ' Co', 'chief_name' => 'Kaname']];
         };
-        return new BusinessDirectory($businesses, $open, $attempt);
+        $record = function (string $cred, string $ip, PDO $db): void { $this->failedAt[] = $this->pdoKey[spl_object_id($db)]; };
+        return new BusinessDirectory($businesses, $open, $attempt, $record);
     }
 
     protected function setUp(): void
     {
         $this->answers = [];
-        $this->tried = [];
+        $this->tried = $this->issued = $this->failedAt = $this->pdoKey = [];
+    }
+
+    public function test_the_sweep_writes_nothing_and_the_token_is_issued_at_the_one_business_only(): void
+    {
+        $this->answers = ['greenleaf' => 'ok'];
+        $r = $this->directory([$this->biz('default', 'https://mowology.ca'), $this->biz('claudia'), $this->biz('greenleaf')])
+            ->signIn('ann@example.com', 'pw', 'mobile', '10.0.0.1');
+        $this->assertSame('ok', $r['status']);
+        $this->assertSame(['default', 'claudia', 'greenleaf'], $this->tried);
+        $this->assertSame(['greenleaf'], $this->issued, 'last_login, activity and the token: at greenleaf only');
+        $this->assertSame([], $this->failedAt, 'a right password at greenleaf is never a wrong one at default or claudia');
+    }
+
+    public function test_a_wrong_password_is_recorded_at_every_business_that_looked(): void
+    {
+        $r = $this->directory([$this->biz('default', 'https://mowology.ca'), $this->biz('greenleaf')], ['default'])
+            ->signIn('ann@example.com', 'pw', 'mobile', '10.0.0.1');
+        $this->assertSame('invalid', $r['status']);
+        $this->assertSame(['greenleaf'], $this->failedAt, 'default could not look, so nothing is recorded there');
+        $this->assertSame([], $this->issued);
+    }
+
+    public function test_the_second_call_with_a_chosen_business_tries_only_that_one(): void
+    {
+        $this->answers = ['default' => 'ok', 'greenleaf' => 'ok'];
+        $r = $this->directory([$this->biz('default', 'https://mowology.ca'), $this->biz('greenleaf')])
+            ->signIn('ann@example.com', 'pw', 'mobile', '10.0.0.1', 'greenleaf');
+        $this->assertSame('ok', $r['status']);
+        $this->assertSame(['greenleaf'], $this->tried, 'the other matched business is not touched again');
+        $this->assertSame(['greenleaf'], $this->issued);
     }
 
     public function test_one_match_answers_with_its_address_and_token(): void
