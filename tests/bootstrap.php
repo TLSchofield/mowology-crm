@@ -734,3 +734,9 @@ require_once __DIR__ . '/../app/Modules/Subcontract/Services/SubcontractService.
 
 // Automatic database updater (2026-11-09)
 require_once __DIR__ . '/../app/Modules/Database/Services/SchemaUpdater.php';
+
+// Public Ittai calculator tools (platform database only).
+require_once __DIR__ . '/../app/Modules/Tools/Services/ToolCalculator.php';
+require_once __DIR__ . '/../app/Modules/Tools/Services/SavedNumbersService.php';
+require_once __DIR__ . '/../app/Modules/Tools/Services/ToolUsageCounter.php';
+require_once __DIR__ . '/../app/Modules/Tools/Services/ToolResultMailer.php';

@@ -126,6 +126,24 @@ if (!class_exists('Database')) {
     {
         private static ?PDO $pdo = null;
         private static ?PDO $ddl = null;
+        private static ?PDO $platform = null;
+        private static bool $platformTried = false;
+
+        /** The marketing platform database; never falls back to a business database. */
+        public static function platform(): ?PDO
+        {
+            if (self::$platformTried) return self::$platform;
+            self::$platformTried = true;
+            foreach (['ITTAI_PLATFORM_DB_NAME','ITTAI_PLATFORM_DB_USER','ITTAI_PLATFORM_DB_PASS'] as $constant) {
+                if (!defined($constant) || (string)constant($constant) === '') return null;
+            }
+            try {
+                return self::$platform = self::connect(DB_HOST, ITTAI_PLATFORM_DB_NAME, ITTAI_PLATFORM_DB_USER, ITTAI_PLATFORM_DB_PASS);
+            } catch (Throwable $e) {
+                error_log('Platform database connection failed: ' . $e->getMessage());
+                return null;
+            }
+        }
 
         public static function pdo(): PDO
         {

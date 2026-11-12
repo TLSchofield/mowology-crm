@@ -183,6 +183,38 @@ function sendCrmEmail(
     return sendEmailViaSMTP($to, $subject, $htmlBody, $attachmentPath, $from);
 }
 
+/** Send Ittai marketing mail through SMTP without business identity or database logging. */
+function sendPlatformEmail(string $to, string $subject, string $htmlBody, string $plainBody = ''): bool
+{
+    if (!defined('ITTAI_MAIL_FROM') || (string)ITTAI_MAIL_FROM === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) return false;
+    $fromName = defined('ITTAI_MAIL_FROM_NAME') && (string)ITTAI_MAIL_FROM_NAME !== '' ? (string)ITTAI_MAIL_FROM_NAME : 'Ittai';
+    if (!_loadPhpMailer() || !defined('SMTP_HOST') || !defined('SMTP_USER') || !defined('SMTP_PASS')) return false;
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = (string)SMTP_HOST;
+        $mail->Port = defined('SMTP_PORT') ? (int)SMTP_PORT : 465;
+        $mail->SMTPAuth = true;
+        $mail->Username = (string)SMTP_USER;
+        $mail->Password = (string)SMTP_PASS;
+        $mail->SMTPSecure = $mail->Port === 465 ? \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->CharSet = 'UTF-8';
+        $mail->Encoding = '8bit';
+        $mail->setFrom((string)ITTAI_MAIL_FROM, $fromName);
+        $mail->addReplyTo((string)ITTAI_MAIL_FROM, $fromName);
+        $mail->addAddress($to);
+        $mail->Subject = _stripHeaderInjection($subject);
+        $mail->isHTML(true);
+        $mail->Body = $htmlBody;
+        $mail->AltBody = $plainBody !== '' ? $plainBody : trim(strip_tags($htmlBody));
+        $mail->XMailer = 'Ittai';
+        return $mail->send();
+    } catch (Throwable $e) {
+        error_log('sendPlatformEmail error: ' . $e->getMessage());
+        return false;
+    }
+}
+
 
 // ─── PHPMailer Send ──────────────────────────────────────────────────
 
