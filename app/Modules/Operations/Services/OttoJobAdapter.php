@@ -77,7 +77,7 @@ class OttoJobAdapter
                     $slots[$sid] = (new OttoActionService($db))->findSlot((int)$sub['subject_id']);
                 }
             }
-            return self::queue($items, $plans, $slots, self::record($db));
+            return self::queue($items, $plans, $slots, self::record($db), $today ?? date('Y-m-d'));
         } catch (Throwable $e) {
             error_log('OttoJobAdapter::jobs: ' . $e->getMessage());
             return [];
@@ -90,8 +90,9 @@ class OttoJobAdapter
      * @param array $plans  active plans by suggestion id (UnscheduledWorkService::plans)
      * @param array $slots  the weather guard's next good slot by suggestion id ({date, time_start} or null)
      * @param array $record [decided from the flow line or the card, of those followed]
+     * @param ?string $today Y-m-d: a full day or a weather move only means something from today on; null = no cut-off
      */
-    public static function queue(array $items, array $plans, array $slots, array $record): array
+    public static function queue(array $items, array $plans, array $slots, array $record, ?string $today = null): array
     {
         $seen = [];
         $out = [];
@@ -101,6 +102,7 @@ class OttoJobAdapter
             if ($key === '' || isset($seen[$key])) continue;
             $seen[$key] = true;
             $sid = (int)($it['id'] ?? 0);
+            if ($today !== null && in_array($kind, ['overbooked', 'weather'], true) && (string)($it['day'] ?? '') < $today) continue;   // nothing to fix on a day that is gone
             $job = null;
             if ($kind === 'overbooked') {
                 $job = self::overbooked($it);
