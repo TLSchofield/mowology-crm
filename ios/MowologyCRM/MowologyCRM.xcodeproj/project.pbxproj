@@ -190,6 +190,11 @@
 		4BE78723A4D6BC413F5893F0 /* YuiJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */; };
 		C7B39B432A0464EF8FDA9E43 /* SubcontractBoardSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */; };
 		12DF755055676FC6D57FF40B /* ItBarLab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7809827E4FCB89AF167DD5F5 /* ItBarLab.swift */; };
+		291B5A2A8EB59811F549C940 /* PhoneContactsReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D141875CFE460AD58CF043 /* PhoneContactsReader.swift */; };
+		E80AA2719FC675F3216A3882 /* ItPhoneContacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423A94E36C640B19AF9D1EA8 /* ItPhoneContacts.swift */; };
+		BC26C132C58C5C596C428C1C /* PhoneContactsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */; };
+		D248943EED265CB8973697CC /* PhoneContactsLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */; };
+		74E55C91B9A8415C9567531F /* PhoneContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -378,6 +383,11 @@
 		60A69B46AB3B200BA2AD1810 /* YuiJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YuiJobsView.swift; sourceTree = "<group>"; };
 		5E06C24324F7269B128EE546 /* SubcontractBoardSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubcontractBoardSection.swift; sourceTree = "<group>"; };
 		7809827E4FCB89AF167DD5F5 /* ItBarLab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItBarLab.swift; sourceTree = "<group>"; };
+		A0D141875CFE460AD58CF043 /* PhoneContactsReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsReader.swift; sourceTree = "<group>"; };
+		423A94E36C640B19AF9D1EA8 /* ItPhoneContacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItPhoneContacts.swift; sourceTree = "<group>"; };
+		B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsModels.swift; sourceTree = "<group>"; };
+		F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsLogic.swift; sourceTree = "<group>"; };
+		64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -482,6 +492,7 @@
 				146DA49BE70A00338AC2B82B /* Offline */,
 							C6D4E0B37F8C9A0B12345678 /* Design */,
 				D79E2D6DC73D55246D8D2EEF /* Diagnostics */,
+				02C82BC0D05C12CA2715FF7C /* Contacts */,
 );
 			path = Core;
 			sourceTree = "<group>";
@@ -579,6 +590,7 @@
 				853482F52B48392EC1E13DE6 /* Camera */,
 				CC4D45C30CDF9C89F76E1D3E /* Splash */,
 				5ACFA0D8D54243C1A6BAF718 /* Tasks */,
+				4C18CBDF6886F031DD98218C /* Onboarding */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -618,6 +630,7 @@
 				6F66B8D9F16B6360AC3AD4D9 /* BusinessIdentityModels.swift */,
 				117A4FD03D24B6E7D73B9346 /* TaskModels.swift */,
 				1982D3108473258C21742AF6 /* YuiJobsModels.swift */,
+				B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -738,6 +751,7 @@
 				F94BAAB31AC20858A44F7CD4 /* ItMeniscusBar.swift */,
 				2535CD860F219960D85ECB23 /* ItMeniscusMotion.swift */,
 				7809827E4FCB89AF167DD5F5 /* ItBarLab.swift */,
+				423A94E36C640B19AF9D1EA8 /* ItPhoneContacts.swift */,
 			);
 			path = Ittai;
 			sourceTree = "<group>";
@@ -762,6 +776,23 @@
 				1303D0755EC72E72182B115B /* AddInvoiceView.swift */,
 			);
 			path = Tasks;
+			sourceTree = "<group>";
+		};
+		02C82BC0D05C12CA2715FF7C /* Contacts */ = {
+			isa = PBXGroup;
+			children = (
+				A0D141875CFE460AD58CF043 /* PhoneContactsReader.swift */,
+			);
+			path = Contacts;
+			sourceTree = "<group>";
+		};
+		4C18CBDF6886F031DD98218C /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */,
+				64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */,
+			);
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1012,6 +1043,11 @@
 				4BE78723A4D6BC413F5893F0 /* YuiJobsView.swift in Sources */,
 				C7B39B432A0464EF8FDA9E43 /* SubcontractBoardSection.swift in Sources */,
 				12DF755055676FC6D57FF40B /* ItBarLab.swift in Sources */,
+				291B5A2A8EB59811F549C940 /* PhoneContactsReader.swift in Sources */,
+				E80AA2719FC675F3216A3882 /* ItPhoneContacts.swift in Sources */,
+				BC26C132C58C5C596C428C1C /* PhoneContactsModels.swift in Sources */,
+				D248943EED265CB8973697CC /* PhoneContactsLogic.swift in Sources */,
+				74E55C91B9A8415C9567531F /* PhoneContactsViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

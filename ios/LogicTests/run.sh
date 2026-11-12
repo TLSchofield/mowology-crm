@@ -92,3 +92,7 @@ run daycarousel "$SRC/Core/Models/ScheduleDay.swift" "$SRC/Features/Schedule/Day
 # Server address (2026-11-09): the one place the app's server lives; paths become absolute URLs.
 cp "$ROOT/ios/LogicTests/ServerTests.swift" "$OUT/main.swift"
 run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"
+
+# Phone contacts onboarding (2026-11-11): display name, search, select-all-shown, batches of 100, resume point, result tally, wire payload, and the real onboarding map decoding.
+cp "$ROOT/ios/LogicTests/PhoneContactsLogicTests.swift" "$OUT/main.swift"
+run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core/Models/PhoneContactsModels.swift" "$OUT/main.swift"

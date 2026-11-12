@@ -31,6 +31,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 	</dict>
+	<key>NSContactsUsageDescription</key>
+	<string>Lets you choose which of your contacts are clients, so Ittai can add them for you. Only the contacts you pick leave your phone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Used to take before, during and after photos of each job, and to photograph receipts for expense tracking.</string>
 	<key>NSMicrophoneUsageDescription</key>

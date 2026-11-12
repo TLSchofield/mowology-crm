@@ -197,6 +197,10 @@ enum APIEndpoint {
     case businessIdentityContacts
     case businessIdentityAction(mode: String)
 
+    /// Phone contacts onboarding map and actions (JWT, admin).
+    case onboardingMap(knows: String)
+    case onboardingStep
+
     /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
     /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
     case teamHeadAction
@@ -551,6 +555,12 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/settings/business-identity")
             components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
             return components?.url
+        case .onboardingMap(let knows):
+            var components = URLComponents(string: "\(baseURLString)/onboarding/map.php")
+            components?.queryItems = [URLQueryItem(name: "knows", value: knows)]
+            return components?.url
+        case .onboardingStep:
+            return URL(string: "\(baseURLString)/onboarding/step.php")
 
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
@@ -783,6 +793,8 @@ enum APIEndpoint {
              .businessIdentitySearch,
              .businessIdentityContacts,
              .businessIdentityAction,
+             .onboardingMap,
+             .onboardingStep,
              .teamHeadAction,
              .ottoMissedReview,
              .ottoMissedReviewAction,
@@ -846,6 +858,7 @@ enum APIEndpoint {
              .businessIdentityCurrent,
              .businessIdentitySearch,
              .businessIdentityContacts,
+             .onboardingMap,
              .tripReportStatus: return "GET"
 
         case .scheduleTimer,
@@ -875,6 +888,7 @@ enum APIEndpoint {
              .expenseLineItemAction,
              .deviceTokenRegister,
              .businessIdentityAction: return "POST"
+        case .onboardingStep: return "POST"
 
         case .expenseList,
              .bookkeeperQueue,

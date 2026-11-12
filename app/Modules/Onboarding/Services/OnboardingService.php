@@ -30,7 +30,7 @@ class OnboardingService
      * Steps added after the first phone apps shipped: an app that does not know one shows "You're set up" for it,
      * so a client must say which it knows (see knowsFrom) or these are left out of the path as if absent.
      */
-    public const NEW_STEPS = ['terms', 'gst', 'yearend', 'payroll'];
+    public const NEW_STEPS = ['terms', 'contacts', 'gst', 'yearend', 'payroll'];
 
     /**
      * @param list<OnboardingModule>|null $modules
@@ -59,7 +59,7 @@ class OnboardingService
     public static function defaultModules(): array
     {
         // GST after QuickBooks (Tim, 2026-11-06): the book questions follow the books themselves.
-        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(),
+        return [new OnboardingNameModule(), new OnboardingTermsModule(), new OnboardingCompanyModule(), new OnboardingQuickBooksModule(), new OnboardingContactsModule(),
                 new OnboardingBooksModule(), new OnboardingGstModule(), new OnboardingYearEndModule(), new OnboardingPayrollModule(),
                 new OnboardingAccountantModule(), new OnboardingDoneModule()];
     }

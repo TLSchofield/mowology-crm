@@ -72,6 +72,7 @@ struct TeamView: View {
     /// Penny's missing-receipt chaser — everyone's open items + Reassign (penny-chase-mobile).
     @StateObject private var chase: PennyChaseViewModel
     @StateObject private var businessIdentity: BusinessIdentityViewModel
+    @StateObject private var phoneContacts: PhoneContactsViewModel
     @StateObject private var sam: SamCardViewModel
     @StateObject private var otto: HeadCardViewModel
     @StateObject private var mia: HeadCardViewModel
@@ -103,6 +104,7 @@ struct TeamView: View {
 
     init(authSession: AuthSession, readyBriefStore: ReadyBriefStore, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
          teamAPI: TeamHeadAPI? = nil, chaseAPI: PennyChaseAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
+         phoneContactsAPI: PhoneContactsAPI? = nil, phoneContactsReader: PhoneContactsProviding = PhoneContactsReader(),
          showsAccount: Bool = true, selected: String = "penny") {
         self.authSession = authSession
         self.readyBriefStore = readyBriefStore
@@ -112,6 +114,7 @@ struct TeamView: View {
         _penny = StateObject(wrappedValue: PennyCardViewModel(api: deskAPI))
         _chase = StateObject(wrappedValue: PennyChaseViewModel(api: chaseAPI ?? LivePennyChaseAPI(client: client)))
         _businessIdentity = StateObject(wrappedValue: BusinessIdentityViewModel(api: LiveBusinessIdentityAPI(client: client)))
+        _phoneContacts = StateObject(wrappedValue: PhoneContactsViewModel(api: phoneContactsAPI ?? LivePhoneContactsAPI(client: client), reader: phoneContactsReader))
         _sam = StateObject(wrappedValue: SamCardViewModel(api: salesAPI ?? LiveSalesDeskAPI(client: client)))
         let heads = teamAPI ?? LiveTeamHeadAPI(client: client)
         _otto = StateObject(wrappedValue: HeadCardViewModel(head: "otto", api: heads, geocoder: geocoder))
@@ -120,6 +123,12 @@ struct TeamView: View {
         _charlie = StateObject(wrappedValue: HeadCardViewModel(head: "charlie", api: heads, geocoder: geocoder))
         _selected = State(initialValue: selected)
         _cachedBrief = State(initialValue: ReadyBriefSnapshot.load())
+    }
+
+    private var companyIsConfirmed: Bool {
+        if case .confirmed = businessIdentity.state { return true }
+        guard let current = businessIdentity.current, current.identity != nil else { return false }
+        return current.knowledge.stage != .recognized
     }
 
     var body: some View {
@@ -134,6 +143,10 @@ struct TeamView: View {
                             .padding(16)
                             .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
                             .task { if !charlie.hasLoaded && !charlie.isLoading { await charlie.load() } }
+                        if companyIsConfirmed {
+                            ItPhoneContacts(viewModel: phoneContacts)
+                                .ittaiTheme(field: ittaiFieldEnabled)
+                        }
                         ittaiOffice
                             .ittaiTheme(field: ittaiFieldEnabled)
                             .id(Self.cardAnchor)
@@ -192,6 +205,7 @@ struct TeamView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
             .task { await loadBrains() }
+            .task { await businessIdentity.load(); await phoneContacts.load() }
             .task(id: ittaiDesignEnabled) {
                 if ittaiDesignEnabled { await loadReadyBrief() }
             }
