@@ -11,7 +11,6 @@ enum ItBarLab {
     static let scrollTopKey = "ittai.bar.scrollTop"
     static let keyboardCurveKey = "ittai.bar.keyboardCurve"
     static let largeLabelsKey = "ittai.bar.largeLabels"
-    static let dialScrollKey = "ittai.bar.dialScroll"
     /// ON = the system search drawer (`.searchable`); OFF (the default since 2026-11-12) = a plain field in the list.
     /// Every freeze in the diagnostic log followed the first visit to the Search tab.
     static let searchDrawerKey = "ittai.bar.searchDrawer"
@@ -86,6 +85,14 @@ enum ItBarLab {
     /// Clamps the dial's scroll viewport to the space between the top safe area and the bar reserve.
     static func dialMaxHeight(geometryHeight: CGFloat, topSafeArea: CGFloat, barReserve: CGFloat) -> CGFloat {
         max(0, geometryHeight - topSafeArea - barReserve)
+    }
+
+    /// How many Add choices stand in one column. A short screen (landscape) gets a second column beside the first
+    /// instead of a clipped or scrolling list; at least one per column, never more than `itemCount`.
+    static func dialItemsPerColumn(itemCount: Int, availableHeight: CGFloat, itemHeight: CGFloat, spacing: CGFloat) -> Int {
+        guard itemCount > 0 else { return 1 }
+        let fit = Int(((availableHeight + spacing) / (itemHeight + spacing)).rounded(.down))
+        return min(itemCount, max(1, fit))
     }
 
 }

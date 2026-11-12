@@ -31,6 +31,7 @@ final class SearchViewModel: ObservableObject {
     let apiClient: APIClient
     private let locationManager: LocationManager
     private var searchTask: Task<Void, Never>?
+    private var nearbyTriedAt = Date.distantPast
 
     private static let recentsKey = "mw.search.recents.v1"
     private static let maxRecents = 8
@@ -46,8 +47,11 @@ final class SearchViewModel: ObservableObject {
 
     // MARK: Empty state
 
-    /// Fix + "Near you". Cheap to call on every appearance; silent when location isn't available.
-    func refreshNearby() async {
+    /// Fix + "Near you". Silent when location isn't available. Looked up at most once every 30 s unless `force`
+    /// (pull to refresh): the unkeyed `.task` restarted ~50 times a minute and cancelled each request (2026-11-12 log).
+    func refreshNearby(force: Bool = false) async {
+        guard force || Date().timeIntervalSince(nearbyTriedAt) > 30 else { return }
+        nearbyTriedAt = Date()
         if let location = try? await locationManager.currentLocation() {
             fix = location
         }
@@ -241,7 +245,7 @@ struct SearchView: View {
                 OwnerContactView(route: route, apiClient: owner.apiClient, searchVM: vm, authSession: authSession)
             }
             .task { await vm.refreshNearby() }
-            .refreshable { await vm.refreshNearby() }
+            .refreshable { await vm.refreshNearby(force: true) }
             .onReceive(NotificationCenter.default.publisher(for: .mwSearchTop)) { _ in
                 proxy.scrollTo("mw-search-top", anchor: .top)
                 if usesSearchDrawer { isSearchPresented = true } else { plainFieldFocused = true }

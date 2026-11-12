@@ -32,5 +32,10 @@ for (index, scale) in expectedScales.enumerated() {
 
 expect(ItBarLab.dialMaxHeight(geometryHeight: 800, topSafeArea: 50, barReserve: 80) == 670, "available dial height")
 expect(ItBarLab.dialMaxHeight(geometryHeight: 100, topSafeArea: 60, barReserve: 80) == 0, "dial height clamps")
+expect(ItBarLab.dialItemsPerColumn(itemCount: 5, availableHeight: 600, itemHeight: 56, spacing: 12) == 5, "portrait: all five choices in one column")
+expect(ItBarLab.dialItemsPerColumn(itemCount: 5, availableHeight: 229, itemHeight: 56, spacing: 12) == 3, "landscape (Tim's screenshot): three per column, the rest in a second")
+expect(ItBarLab.dialItemsPerColumn(itemCount: 5, availableHeight: 10, itemHeight: 56, spacing: 12) == 1, "never fewer than one per column")
+expect(ItBarLab.dialItemsPerColumn(itemCount: 3, availableHeight: 600, itemHeight: 56, spacing: 12) == 3, "never more than the choices there are")
+expect(ItBarLab.dialItemsPerColumn(itemCount: 0, availableHeight: 600, itemHeight: 56, spacing: 12) == 1, "no choices is still safe")
 
 print("BarLabTests passed")

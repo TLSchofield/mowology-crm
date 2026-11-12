@@ -89,6 +89,9 @@ run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/Serv
 cp "$ROOT/ios/LogicTests/DayCarouselTests.swift" "$OUT/main.swift"
 run daycarousel "$SRC/Core/Models/ScheduleDay.swift" "$SRC/Features/Schedule/DayCarouselRules.swift" "$OUT/main.swift"
 
+cp "$ROOT/ios/LogicTests/ScheduleFilterTests.swift" "$OUT/main.swift"
+run schedulefilter "$SRC/Features/Schedule/ScheduleFilterRules.swift" "$OUT/main.swift"
+
 # Server address (2026-11-09): the one place the app's server lives; paths become absolute URLs.
 cp "$ROOT/ios/LogicTests/ServerTests.swift" "$OUT/main.swift"
 run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"
