@@ -50,3 +50,6 @@ contact names/emails/numbers.** Read `app/Modules/Contacts/Services/ContactImpor
 
 ## Do not
 No token storage, no refresh tokens, no `secrets.php` edits (Tim adds the client secret), no changes to other onboarding steps, no Gmail scopes, no new composer packages.
+
+## Addendum 2026-11-12 (security fix, already in the code)
+`stage(nonce, userId, contacts, grant)` keeps only `sha256(grant)` (`grant_hash` column); the callback creates the grant and puts it only in the redirect (`&grant=`); `google_list` needs `nonce` + `grant` and `take()` compares with `hash_equals`. A wrong user, nonce-only or wrong grant neither returns nor consumes the list. State expiry is 5 minutes.

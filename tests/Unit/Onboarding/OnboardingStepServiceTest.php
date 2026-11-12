@@ -202,7 +202,7 @@ final class OnboardingStepServiceTest extends TestCase
         $db=$this->db();
         $stage=new class {
             public ?array $answer=null;
-            public function take(string $nonce,int $userId):?array{return $this->answer;}
+            public function take(string $nonce,int $userId,string $grant):?array{return $this->answer;}
         };
         $google=static fn(PDO $db)=>['client_id'=>'client-id','state_secret'=>'state-secret','business_key'=>'greenleaf','stage'=>$stage];
         $importer=new class {
@@ -216,7 +216,10 @@ final class OnboardingStepServiceTest extends TestCase
         $expired=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
         $this->assertSame('expired',$expired['error']);
         $stage->answer=[['ref'=>'people/1','first'=>'Ada']];
-        $listed=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
+        // No grant (the secret that only the browser redirect carries) = no list, whatever the stage holds.
+        $noGrant=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
+        $this->assertSame('expired',$noGrant['error']);
+        $listed=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'grant'=>str_repeat('a',32),'knows'=>'contacts']);
         $this->assertSame('Ada',$listed['contacts'][0]['first']);
         $service->apply(7,['key'=>'contacts','do'=>'import','source'=>'google','contacts'=>[['ref'=>'people/1','first'=>'Ada']],'knows'=>'contacts']);
         $this->assertSame('google',$importer->source);

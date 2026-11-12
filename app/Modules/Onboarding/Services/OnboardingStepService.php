@@ -109,7 +109,8 @@ final class OnboardingStepService
                     if (!preg_match('/^[a-f0-9]{32}$/', $nonce)) return ['ok' => false, 'error' => 'expired', 'message' => 'That Google list is no longer available. Start again.'];
                     $google = $this->googleFactory ? $this->google() : null;
                     $stage = $google['stage'] ?? new GoogleContactsStageService($this->db);   // reading a staged list needs no Google settings
-                    $contacts = $stage->take($nonce, $userId);
+                    $grant = strtolower(trim((string)($in['grant'] ?? '')));
+                    $contacts = preg_match('/^[a-f0-9]{32}$/', $grant) ? $stage->take($nonce, $userId, $grant) : null;
                     if ($contacts === null) return ['ok' => false, 'error' => 'expired', 'message' => 'That Google list is no longer available. Start again.'];
                     return ['ok' => true, 'next' => $onboarding->next(), 'contacts' => $contacts];
                 }

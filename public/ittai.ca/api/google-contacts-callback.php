@@ -21,9 +21,9 @@ require_once APP_ROOT . '/Modules/Contacts/Services/GoogleContactsStageService.p
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 
-$redirect = static function (bool $ok, string $nonce = '', string $reason = 'failed'): void {
+$redirect = static function (bool $ok, string $nonce = '', string $reason = 'failed', string $grant = ''): void {
     $location = 'ittai-google://done?ok=' . ($ok ? '1' : '0');
-    $location .= $ok ? '&nonce=' . rawurlencode($nonce) : '&reason=' . rawurlencode($reason);
+    $location .= $ok ? '&nonce=' . rawurlencode($nonce) . '&grant=' . rawurlencode($grant) : '&reason=' . rawurlencode($reason);
     header('Location: ' . $location, true, 302);
     exit;
 };
@@ -52,8 +52,11 @@ try {
     if ($token === null) throw new RuntimeException('Token exchange failed.');
     $contacts = $oauth->fetchContacts($token);
     $db = Database::forBusiness((string)$state['b']);
-    (new GoogleContactsStageService($db))->stage((string)$state['n'], (int)$state['u'], $contacts);
-    $redirect(true, (string)$state['n']);
+    // The grant goes only into this redirect, which the browser session hands to the phone that ran the consent. Someone who
+    // tricked another person into consenting (and so knows the nonce) never sees it, so cannot collect that person's list.
+    $grant = bin2hex(random_bytes(16));
+    (new GoogleContactsStageService($db))->stage((string)$state['n'], (int)$state['u'], $contacts, $grant);
+    $redirect(true, (string)$state['n'], '', $grant);
 } catch (Throwable $e) {
     error_log('Google contacts callback failed: HTTP ' . $oauth->lastHttpStatus());
     $redirect(false, '', 'failed');
