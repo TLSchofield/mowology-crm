@@ -88,6 +88,7 @@ struct TeamView: View {
     private static let cardAnchor = "mw-team-head-card"
     /// Every head's brain (team-mobile ?mode=brains): tapping a face flips it to show theirs.
     @State private var brains: [String: HeadBrainSummary] = [:]
+    @State private var brainsTriedAt = Date.distantPast
     @State private var flipped: String?
     /// Charlie's server-cached brief supplies every Ittai row until that head's own card has loaded.
     @State private var readyBrief: HeadCardResponse?
@@ -544,6 +545,10 @@ struct TeamView: View {
 
     private func loadBrains() async {
         guard showsAccount else { return }   // the static render has no session
+        // Once loaded, or tried in the last 30 s, never again from a restarted `.task`: that task was restarting about
+        // 12 times a second and cancelling each fetch (diagnostic log, 2026-11-11).
+        guard brains.isEmpty, Date().timeIntervalSince(brainsTriedAt) > 30 else { return }
+        brainsTriedAt = Date()
         if let r: TeamBrainsResponse = try? await APIClient(authSession: authSession).request(.teamBrains), r.ok {
             brains = r.brains
         }
@@ -561,6 +566,7 @@ struct TeamView: View {
     }
 
     private func reload() async {
+        await loadBrains()   // pull to refresh retries a failed first fetch (cooldown still applies)
         if ittaiDesignEnabled {
             await readyBriefStore.refresh(authSession: authSession, force: true)
             await loadReadyBrief()

@@ -413,7 +413,11 @@ final class APIClient: ObservableObject {
             }
             return result
         } catch {
-            AppDiagnostics.shared.record(category: "transport.error", message: "\(label) — \(ErrorDetails.describe(error))")
+            if (error as? URLError)?.code == .cancelled || error is CancellationError {
+                AppDiagnostics.shared.recordCancelled(label: label, detail: ErrorDetails.describe(error))
+            } else {
+                AppDiagnostics.shared.record(category: "transport.error", message: "\(label) — \(ErrorDetails.describe(error))")
+            }
             throw error
         }
     }
