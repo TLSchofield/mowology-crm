@@ -119,11 +119,10 @@ class MaterialDeliveryService
         }, $bulk));
     }
 
-    /** Is this receipt the bulk-material order? The material vendor (Lawnboy) or the Materials category. */
-    public static function isMaterialReceipt(string $vendor, string $category, string $materialVendor): bool
+    /** Is this receipt the bulk-material order? The material vendor's (Lawnboy); the Materials category alone is too loose (fasteners, lumber). */
+    public static function isMaterialReceipt(string $vendor, string $materialVendor): bool
     {
-        if ($materialVendor !== '' && stripos($vendor, $materialVendor) !== false) return true;
-        return strcasecmp(trim($category), 'Materials') === 0;
+        return $materialVendor !== '' && stripos($vendor, $materialVendor) !== false;
     }
 
     /**
@@ -134,7 +133,7 @@ class MaterialDeliveryService
     {
         $by = [];
         foreach ($rows as $r) {
-            if (!self::isMaterialReceipt((string)($r['vendor'] ?? ''), (string)($r['accounting_category'] ?? ''), $materialVendor)) continue;
+            if (!self::isMaterialReceipt((string)($r['vendor'] ?? ''), $materialVendor)) continue;
             $id = (int)$r['plan_id'];
             if (!isset($by[$id])) $by[$id] = ['plan_id' => $id, 'address' => (string)($r['address'] ?? ''), 'date' => (string)$r['expense_date'], 'total' => 0.0, 'pending' => false, 'vendor' => (string)($r['vendor'] ?? '')];
             $by[$id]['total'] += (float)($r['total'] ?? 0);
@@ -221,7 +220,7 @@ class MaterialDeliveryService
                 JOIN job_plans jp ON jp.id = e.job_id
                 JOIN properties p ON p.id = jp.property_id
                 LEFT JOIN vendors v ON v.id = e.vendor_id
-                WHERE e.status <> 'rejected' AND e.expense_date >= DATE_SUB(?, INTERVAL 120 DAY)
+                WHERE e.status <> 'rejected' AND e.expense_date >= DATE_SUB(?, INTERVAL 30 DAY)
                   AND jp.status = 'active' AND jp.is_recurring = 0
                   AND NOT EXISTS (
                       SELECT 1 FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status NOT IN ('cancelled', 'skipped')
@@ -249,7 +248,7 @@ class MaterialDeliveryService
             $mv = $this->setting('material_delivery_vendor');
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 // the vendor only: a small Materials receipt (fasteners, edging) must not hide a delivery still to order
-                if ($mv !== '' && stripos((string)$r['vendor'], $mv) !== false) $out[(int)$r['job_id']] = true;
+                if (self::isMaterialReceipt((string)$r['vendor'], $mv)) $out[(int)$r['job_id']] = true;
             }
             return $out;
         } catch (Throwable $e) {

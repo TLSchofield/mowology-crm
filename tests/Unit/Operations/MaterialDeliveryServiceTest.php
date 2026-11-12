@@ -66,11 +66,11 @@ class MaterialDeliveryServiceTest extends TestCase
         $this->assertStringContainsString('Lawnboy charges us $73; we charge $150', $s['basis']);
     }
 
-    public function test_a_material_receipt_is_the_vendor_or_the_materials_category(): void
+    public function test_a_material_receipt_is_the_material_vendors(): void
     {
-        $this->assertTrue(MaterialDeliveryService::isMaterialReceipt('LAWNBOY', '', 'Lawnboy'));
-        $this->assertTrue(MaterialDeliveryService::isMaterialReceipt('Some Yard', 'materials', 'Lawnboy'));
-        $this->assertFalse(MaterialDeliveryService::isMaterialReceipt('Shell', 'Fuel', 'Lawnboy'));
+        $this->assertTrue(MaterialDeliveryService::isMaterialReceipt('LAWNBOY', 'Lawnboy'));
+        $this->assertFalse(MaterialDeliveryService::isMaterialReceipt('Dunbar Lumber', 'Lawnboy'), 'a Materials-category receipt from another vendor is not the order');
+        $this->assertFalse(MaterialDeliveryService::isMaterialReceipt('LAWNBOY', ''));
     }
 
     public function test_bought_with_no_visit_asks_for_the_install_date_even_before_the_receipt_is_approved(): void
@@ -78,7 +78,7 @@ class MaterialDeliveryServiceTest extends TestCase
         $rows = [
             ['eid' => 1, 'expense_date' => '2026-11-04', 'total' => '295.05', 'status' => 'pending_approval', 'vendor' => 'LAWNBOY', 'accounting_category' => 'Materials', 'plan_id' => 160, 'address' => '2845 W 15th'],
             ['eid' => 2, 'expense_date' => '2026-11-05', 'total' => '20.00', 'status' => 'approved', 'vendor' => 'Shell', 'accounting_category' => 'Fuel', 'plan_id' => 160, 'address' => '2845 W 15th'],
-            ['eid' => 3, 'expense_date' => '2026-11-06', 'total' => '50.00', 'status' => 'approved', 'vendor' => 'Shell', 'accounting_category' => 'Fuel', 'plan_id' => 161, 'address' => 'Elsewhere'],
+            ['eid' => 3, 'expense_date' => '2026-11-06', 'total' => '50.00', 'status' => 'approved', 'vendor' => 'Dunbar Lumber', 'accounting_category' => 'Materials', 'plan_id' => 161, 'address' => 'Elsewhere'],
         ];
         $items = MaterialDeliveryService::unplacedItems($rows, 'Lawnboy', '2026-11-11');
         $this->assertCount(1, $items);
