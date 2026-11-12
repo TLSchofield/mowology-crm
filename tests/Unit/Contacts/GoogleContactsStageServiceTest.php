@@ -62,4 +62,18 @@ final class GoogleContactsStageServiceTest extends TestCase
         $this->assertNull($service->take($nonce, 7, ''));
         $this->assertSame([['ref' => 'people/1']], $service->take($nonce, 7, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
     }
+
+    public function test_a_second_consent_on_the_same_nonce_cannot_replace_the_first_list(): void
+    {
+        $service = new GoogleContactsStageService($this->db());
+        $nonce = '0123456789abcdef0123456789abcdef';
+        $service->stage($nonce, 7, [['ref' => 'people/A']], 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+        try {
+            $service->stage($nonce, 7, [['ref' => 'people/B']], 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+            $this->fail('A repeated nonce must be refused.');
+        } catch (PDOException $e) {
+            $this->assertTrue(true);
+        }
+        $this->assertSame([['ref' => 'people/A']], $service->take($nonce, 7, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
+    }
 }

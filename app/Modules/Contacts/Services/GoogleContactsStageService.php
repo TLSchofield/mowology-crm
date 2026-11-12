@@ -18,7 +18,7 @@ final class GoogleContactsStageService
         if (!is_string($payload)) throw new InvalidArgumentException('Contacts could not be staged.');
         // Stay under MEDIUMTEXT (16 MiB) with room to spare: a refused list is told to the owner, never half-saved.
         if (strlen($payload) > 8000000) throw new LengthException('That Google contact list is too large to bring in at once.');
-        $this->db->prepare('DELETE FROM onboarding_google_contacts_stage WHERE nonce = ?')->execute([$nonce]);
+        // A nonce is staged once: a second consent on the same link must fail on the primary key, never replace the first person's list.
         $this->db->prepare('INSERT INTO onboarding_google_contacts_stage (nonce, user_id, grant_hash, payload, created_at) VALUES (?, ?, ?, ?, ?)')
             ->execute([$nonce, $userId, hash('sha256', $grant), $payload, gmdate('Y-m-d H:i:s')]);
     }

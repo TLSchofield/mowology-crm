@@ -101,7 +101,7 @@ final class OnboardingStepService
                     if ($secret === '') throw new RuntimeException('Google state signing is not configured.');
                     $nonce = bin2hex(random_bytes(16));
                     $businessKey = isset($google['business_key']) ? (string)$google['business_key'] : Tenant::key();
-                    $state = GoogleContactsOAuth::signState(['b' => $businessKey, 'u' => $userId, 'n' => $nonce, 'e' => time() + 300], $secret);
+                    $state = GoogleContactsOAuth::signState(['b' => $businessKey, 'u' => $userId, 'n' => $nonce, 'e' => time() + 600], $secret);
                     return ['ok' => true, 'next' => $onboarding->next(), 'url' => GoogleContactsOAuth::authUrl((string)$google['client_id'], GoogleContactsOAuth::REDIRECT_URI, $state), 'nonce' => $nonce];
                 }
                 if ($do === 'google_list') {
