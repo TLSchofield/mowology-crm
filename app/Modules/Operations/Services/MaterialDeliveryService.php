@@ -221,11 +221,11 @@ class MaterialDeliveryService
                 JOIN job_plans jp ON jp.id = e.job_id
                 JOIN properties p ON p.id = jp.property_id
                 LEFT JOIN vendors v ON v.id = e.vendor_id
-                WHERE e.status <> 'rejected' AND e.expense_date >= DATE_SUB(?, INTERVAL 45 DAY)
+                WHERE e.status <> 'rejected' AND e.expense_date >= DATE_SUB(?, INTERVAL 120 DAY)
                   AND jp.status = 'active' AND jp.is_recurring = 0
                   AND NOT EXISTS (
                       SELECT 1 FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status NOT IN ('cancelled', 'skipped')
-                        AND (jv.status <> 'scheduled' OR (jv.stop_id IS NOT NULL AND jv.scheduled_date >= ?)))
+                        AND (jv.status NOT IN ('scheduled', 'weather') OR (jv.stop_id IS NOT NULL AND jv.scheduled_date >= ?)))
                 ORDER BY e.expense_date
             ");
             $st->execute([$today, $today]);
@@ -248,7 +248,8 @@ class MaterialDeliveryService
             $out = [];
             $mv = $this->setting('material_delivery_vendor');
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                if (self::isMaterialReceipt((string)$r['vendor'], (string)$r['accounting_category'], $mv)) $out[(int)$r['job_id']] = true;
+                // the vendor only: a small Materials receipt (fasteners, edging) must not hide a delivery still to order
+                if ($mv !== '' && stripos((string)$r['vendor'], $mv) !== false) $out[(int)$r['job_id']] = true;
             }
             return $out;
         } catch (Throwable $e) {
