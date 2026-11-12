@@ -74,7 +74,7 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 3. **All mail goes through the messaging functions** — `sendEmail()` / `sendCrmEmail()` for
    email, `sendSms()` or a named wrapper for texts. Never call PHPMailer or native mail()
    from page or service code (repo CLAUDE.md rule 9). **Ittai's own mail** (ittai.ca, the free
-   calculators — no business, no database) goes through `sendPlatformEmail()` in SmtpMailer.php:
+   calculators — no business, no database) goes through `sendPlatformEmail()` in PlatformMailer.php (its own file, no CRM mail code loaded):
    sender `ITTAI_MAIL_FROM`, never a business identity, no database logging, off when the constant
    is unset (2026-11-12).
 4. **SMS: native mail() inside `sendSms()` only, never PHPMailer.** ≤160 characters, plain
@@ -99,7 +99,7 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 | Which head owns an inbound message, "Move to…" | InboundRouteService + InboundTopicClassifier — **not in this tree** (see traps) | ingest, Sam/Yui/Penny cards, team-mobile |
 | Client replies nobody answered (Sam's lane vs Yui's) | `UnclaimedReplyService::items()` / `UnclaimedReplyService::lane()` | Yui desk, Sam desk, Kaname, contact timeline |
 | Yui's five sections + brief | `YuiDeskService::desk()` / `YuiDeskService::brief()` (decisions in `app/Modules/Comms/Services/YuiRules.php`) | web card, iPhone Team tab, Kaname |
-| Mail from Ittai itself (marketing address, no business) | `sendPlatformEmail()` in `app/Services/Messaging/SmtpMailer.php` | `public/ittai.ca/api/tool-result-email.php`, the saved-numbers reminder cron |
+| Mail from Ittai itself (marketing address, no business) | `sendPlatformEmail()` in `app/Services/Messaging/PlatformMailer.php` | `public/ittai.ca/api/tool-result-email.php`, the saved-numbers reminder cron |
 | Drafting and sending a Yui message | `YuiDraftService::draftReply()` (Claude, capped) / `YuiDraftService::send()` | `app/Modules/Comms/Api/yui.php` |
 | A message that asks for a payment-detail change, an urgent wire, a password or code, a signer change, or client data to a new address: held, no draft, Tim calls the number on file (2026-11-03, shared/untrusted-content) | `UntrustedAsk::detect()`, shown by `YuiDeskService::holds()`; `YuiDraftService::draftReply()` and `YuiDraftService::send()` refuse a held item | Yui's card (Open / Handled only), Charlie's brief |
 | How long a client reply has waited (weekdays; 3+ is late), bare acknowledgements and staff texts that need nothing | `ReplyClock::stage()` / `ReplyClock::ackOnly()` / `ReplyClock::isStaff()` inside `YuiDeskService::inbox()` | Yui's card, brief headline |

@@ -185,19 +185,6 @@ if (root) {
 
     if (email) {
         email.elements.t.value = String(started);
-        const save = email.elements.save;
-
-        function updateConsentFields() {
-            for (const name of ['news', 'benchmarks']) {
-                email.elements[name].disabled = !save.checked;
-                if (!save.checked) {
-                    email.elements[name].checked = false;
-                }
-            }
-        }
-
-        updateConsentFields();
-        save.addEventListener('change', updateConsentFields);
         email.addEventListener('submit', async function submitEmail(event) {
             event.preventDefault();
             if (!latest) {
@@ -209,8 +196,6 @@ if (root) {
                 tool,
                 inputs: latest.inputs,
                 save: data.has('save'),
-                news: data.has('news'),
-                benchmarks: data.has('benchmarks'),
                 hp: data.get('hp'),
                 t: Number(data.get('t')),
             };

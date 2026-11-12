@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__) . '/_inc/action-bootstrap.php';
+define('TOOLS_REFERRER_POLICY', 'no-referrer');
 
 $isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
 $token = (string) ($isPost ? ($_POST['t'] ?? '') : ($_GET['t'] ?? ''));

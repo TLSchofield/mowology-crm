@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__) . '/_inc/action-bootstrap.php';
+define('TOOLS_REFERRER_POLICY', 'no-referrer');
 
 $isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
 $token = (string) ($isPost ? ($_POST['t'] ?? '') : ($_GET['t'] ?? ''));
@@ -10,7 +11,9 @@ $service = $db ? new SavedNumbersService($db) : null;
 $row = $service ? $service->findConfirm($token) : null;
 $done = null;
 if ($isPost && validPost() && $row) {
-    $done = $service->confirm($token);
+    $news = isset($_POST['news']) && $_POST['news'] === '1';
+    $benchmark = isset($_POST['benchmark']) && $_POST['benchmark'] === '1';
+    $done = $service->confirm($token, $news, $benchmark);
     if ($done) {
         try {
             (new ToolUsageCounter($db))->increment($done['tool'], 'saves_confirmed');
@@ -56,8 +59,17 @@ toolsStart(
             <?php endif; ?>
         <?php endforeach; ?>
     </ul>
+    <p>You're saving these numbers so you can come back to them.</p>
     <form method="post">
         <input type="hidden" name="t" value="<?= h($token) ?>">
+        <label class="check">
+            <input type="checkbox" name="news" value="1">
+            <span><?= h(SavedNumbersService::NEWS_TEXT) ?></span>
+        </label>
+        <label class="check">
+            <input type="checkbox" name="benchmark" value="1">
+            <span><?= h(SavedNumbersService::BENCHMARK_TEXT) ?></span>
+        </label>
         <button type="submit">Confirm and save</button>
     </form>
 <?php else: ?>

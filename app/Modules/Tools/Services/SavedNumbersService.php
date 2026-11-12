@@ -33,7 +33,7 @@ final class SavedNumbersService
         return gmdate('Y-m-d H:i:s');
     }
     /** Creates a pending save and returns its secret action tokens. */
-    public function createPending(string $email, string $tool, array $inputs, bool $news, bool $benchmark, string $source): array
+    public function createPending(string $email, string $tool, array $inputs, string $source): array
     {
         [$confirm, $confirmHash] = self::token();
         [$delete, $deleteHash] = self::token();
@@ -52,8 +52,8 @@ final class SavedNumbersService
             $confirmHash,
             $deleteHash,
             self::SAVE_TEXT,
-            $news ? self::NEWS_TEXT : null,
-            $benchmark ? self::BENCHMARK_TEXT : null,
+            null,
+            null,
             $source,
             $now,
             $now,
@@ -88,7 +88,7 @@ final class SavedNumbersService
     }
 
     /** Confirms a pending save without changing its deletion token. */
-    public function confirm(string $token): ?array
+    public function confirm(string $token, bool $news, bool $benchmark): ?array
     {
         $row = $this->findConfirm($token);
         if (!$row || $row['status'] !== 'pending') {
@@ -96,14 +96,17 @@ final class SavedNumbersService
         }
         $now = $this->now();
         $sql = 'UPDATE saved_numbers SET status=\'confirmed\',confirmed_at=?,last_used_at=?,'
-            . 'consent_save_at=?,consent_news_at=?,consent_benchmark_at=? WHERE id=? AND status=\'pending\'';
+            . 'consent_save_at=?,consent_news_text=?,consent_news_at=?,consent_benchmark_text=?,'
+            . 'consent_benchmark_at=? WHERE id=? AND status=\'pending\'';
         $statement = $this->db->prepare($sql);
         $statement->execute([
             $now,
             $now,
             $now,
-            $row['consent_news_text'] !== null ? $now : null,
-            $row['consent_benchmark_text'] !== null ? $now : null,
+            $news ? self::NEWS_TEXT : null,
+            $news ? $now : null,
+            $benchmark ? self::BENCHMARK_TEXT : null,
+            $benchmark ? $now : null,
             $row['id'],
         ]);
         return $this->findDeleteTokenRow((int) $row['id']);
@@ -140,16 +143,12 @@ final class SavedNumbersService
         return true;
     }
 
-    /** Rotates both secret links for a reminder email. */
-    public function issueReminderTokens(int $id): array
+    /** Creates replacement reminder links without storing them yet. */
+    private function reminderTokens(): array
     {
         [$keep, $keepHash] = self::token();
         [$delete, $deleteHash] = self::token();
-        $statement = $this->db->prepare(
-            'UPDATE saved_numbers SET confirm_token_hash = ?, delete_token_hash = ? WHERE id = ?'
-        );
-        $statement->execute([$keepHash, $deleteHash, $id]);
-        return ['keep' => $keep, 'delete' => $delete];
+        return ['keep' => $keep, 'keep_hash' => $keepHash, 'delete' => $delete, 'delete_hash' => $deleteHash];
     }
 
     /** Purges expired rows and sends due reminders. */
@@ -177,11 +176,23 @@ final class SavedNumbersService
         $statement->execute([$warningCutoff, $unusedCutoff]);
         $remindersSent = 0;
         foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $tokens = $this->issueReminderTokens((int) $row['id']);
+            $claim = $this->db->prepare(
+                'UPDATE saved_numbers SET reminder_sent_at = ? WHERE id = ? AND reminder_sent_at IS NULL'
+            );
+            $claim->execute([$at->format('Y-m-d H:i:s'), $row['id']]);
+            if ($claim->rowCount() !== 1) {
+                continue;
+            }
+            $tokens = $this->reminderTokens();
             if ($remind === null || $remind($row, $tokens['keep'], $tokens['delete']) !== false) {
-                $update = $this->db->prepare('UPDATE saved_numbers SET reminder_sent_at = ? WHERE id = ?');
-                $update->execute([$at->format('Y-m-d H:i:s'), $row['id']]);
+                $update = $this->db->prepare(
+                    'UPDATE saved_numbers SET confirm_token_hash = ?, delete_token_hash = ? WHERE id = ?'
+                );
+                $update->execute([$tokens['keep_hash'], $tokens['delete_hash'], $row['id']]);
                 $remindersSent++;
+            } else {
+                $release = $this->db->prepare('UPDATE saved_numbers SET reminder_sent_at = NULL WHERE id = ?');
+                $release->execute([$row['id']]);
             }
         }
         return [

@@ -6,7 +6,8 @@ function toolsHeaders(): void
 {
     header("Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     header('X-Content-Type-Options: nosniff');
-    header('Referrer-Policy: strict-origin-when-cross-origin');
+    $referrerPolicy = defined('TOOLS_REFERRER_POLICY') ? (string) TOOLS_REFERRER_POLICY : 'strict-origin-when-cross-origin';
+    header('Referrer-Policy: ' . $referrerPolicy);
 }
 
 /** Open the shared tools document and page wrapper. */
@@ -126,15 +127,7 @@ function nextStep(bool $email): void
                 <input type="checkbox" name="save">
                 <span><?= h(SavedNumbersService::SAVE_TEXT) ?></span>
             </label>
-            <label class="check">
-                <input type="checkbox" name="news" disabled>
-                <span><?= h(SavedNumbersService::NEWS_TEXT) ?></span>
-            </label>
-            <label class="check">
-                <input type="checkbox" name="benchmarks" disabled>
-                <span><?= h(SavedNumbersService::BENCHMARK_TEXT) ?></span>
-            </label>
-            <p class="privacy-note">We send this one email. If you tick Save, your numbers are kept until you delete them or don't use them for 12 months.</p>
+            <p class="privacy-note">We send this one email. If you tick Save, we'll ask you to confirm in that email; your numbers are then kept until you delete them or don't use them for 12 months.</p>
             <button type="submit">Email me this result</button>
             <p class="form-status" role="status"></p>
         </form>

@@ -740,3 +740,4 @@ require_once __DIR__ . '/../app/Modules/Tools/Services/ToolCalculator.php';
 require_once __DIR__ . '/../app/Modules/Tools/Services/SavedNumbersService.php';
 require_once __DIR__ . '/../app/Modules/Tools/Services/ToolUsageCounter.php';
 require_once __DIR__ . '/../app/Modules/Tools/Services/ToolResultMailer.php';
+require_once __DIR__ . '/../app/Modules/Tools/Services/ToolThrottle.php';
