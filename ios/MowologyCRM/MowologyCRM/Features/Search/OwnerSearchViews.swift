@@ -754,6 +754,10 @@ final class VoiceSearch: ObservableObject {
     }
 
     func stop() {
+        // The Search screen calls this on EVERY disappear. With nothing running it must change nothing: assigning
+        // `isListening = false` publishes even when it was already false, which redraws the screen (the diagnostic log
+        // named `_voice changed` on SearchView in each freeze, 2026-11-12), and `engine.inputNode` waits on the audio server.
+        guard isListening || isStarting || request != nil || task != nil || stopTimer != nil || engine.isRunning else { return }
         session += 1          // anything still in flight from the old session is ignored
         isStarting = false
         stopTimer?.cancel(); stopTimer = nil
@@ -761,7 +765,7 @@ final class VoiceSearch: ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio(); request = nil
         task?.finish(); task = nil
-        isListening = false
+        if isListening { isListening = false }
         // Both calls wait on the audio server from the main thread: never make them when voice search never took the
         // session (the Search screen calls stop() on every disappear; a slow audio server killed the app, 2026-11-11).
         guard audioSessionTouched else { return }
