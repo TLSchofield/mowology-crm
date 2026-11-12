@@ -7,11 +7,18 @@ if (root) {
     const form = root.querySelector('[data-calculator]');
     const output = root.querySelector('[data-result]');
     const working = root.querySelector('[data-working]');
+    const fullResult = root.querySelector('[data-full-result]');
+    const resultBar = root.querySelector('[data-result-bar]');
     const email = root.querySelector('[data-email-form]');
     const started = Date.now();
     let latest = null;
     let counted = false;
     let visitorChangedInput = false;
+    let fullResultVisible = false;
+
+    function updateResultBarVisibility() {
+        resultBar.hidden = !latest || fullResultVisible;
+    }
 
     function values() {
         return Object.fromEntries(new FormData(form).entries());
@@ -49,7 +56,8 @@ if (root) {
 
     function showLabour(data) {
         const result = data.result;
-        let html = `Each hour you bill costs you <strong>${money(result.costBilled)}</strong>.`;
+        const primary = `Each hour you bill costs you <strong>${money(result.costBilled)}</strong>.`;
+        let html = primary;
         if (result.rate != null) {
             html += result.rate >= result.costBilled
                 ? ` At ${money(result.rate)} you keep <strong>${money(result.difference)}</strong> of every billed hour, before your other costs.`
@@ -63,35 +71,37 @@ if (root) {
             `÷ ${data.inputs.billable}% billable share: ${money(result.costBilled)}`,
         ];
         storeLabour(result);
-        return { html, lines };
+        return { html, primary, lines };
     }
 
     function showMarkup(data) {
         const result = data.result;
-        let html = result.mode === 'markup'
+        const primary = result.mode === 'markup'
             ? `A <strong>${percent(result.markup)}</strong> markup keeps you <strong>${percent(result.margin)}</strong> of the price.`
             : `To keep <strong>${percent(result.margin)}</strong>, mark up by <strong>${percent(result.markup)}</strong>.`;
+        let html = primary;
         if (result.price != null) {
             html += ` On ${money(data.inputs.cost)} of plants, charge <strong>${money(result.price)}</strong> and keep <strong>${money(result.profit)}</strong>.`;
         }
-        return { html, lines: [] };
+        return { html, primary, lines: [] };
     }
 
     function showBreakEven(data) {
         const result = data.result;
-        const html = result.hours == null
+        const primary = result.hours == null
             ? `At ${money(data.inputs.rate)} each hour costs more than it brings in, so no number of hours breaks even. Raise the rate or cut the cost per hour.`
             : `You need <strong>${result.hours.toFixed(1)} billed hours a month</strong> (about <strong>${result.perWeek.toFixed(1)} a week</strong>) before you earn anything.`;
-        return { html, lines: [] };
+        return { html: primary, primary, lines: [] };
     }
 
     function showMow(data) {
         const result = data.result;
-        let html = `Charge <strong>${money(result.final)}</strong> for this mow. That's ${money(result.perOnsiteMinute)} a minute on site.`;
+        const primary = `Charge <strong>${money(result.final)}</strong> for this mow.`;
+        let html = `${primary} That's ${money(result.perOnsiteMinute)} a minute on site.`;
         if (result.minimumApplied) {
             html += ' Your minimum charge sets the price.';
         }
-        return { html, lines: [] };
+        return { html, primary, lines: [] };
     }
 
     function show(data) {
@@ -106,10 +116,12 @@ if (root) {
             display = showMow(data);
         }
         output.innerHTML = `<p>${display.html}</p>`;
+        resultBar.innerHTML = display.primary;
         working.innerHTML = display.lines.length
             ? `<ul class="working">${display.lines.map(function lineItem(line) { return `<li>${line}</li>`; }).join('')}</ul>`
             : '';
         latest = data;
+        updateResultBarVisibility();
         if (email) {
             email.elements.tool.value = tool;
             email.elements.inputs.value = JSON.stringify(data.inputs);
@@ -125,6 +137,7 @@ if (root) {
             show(calculate(tool, values()));
         } catch (error) {
             latest = null;
+            updateResultBarVisibility();
             const match = /Invalid (\w+)/.exec(error.message);
             const key = match && match[1];
             const target = key && root.querySelector(`[data-error="${key}"]`);
@@ -163,6 +176,12 @@ if (root) {
     }
 
     run();
+
+    const resultObserver = new IntersectionObserver(function observeResult(entries) {
+        fullResultVisible = entries[0].isIntersecting;
+        updateResultBarVisibility();
+    }, { threshold: 0.15 });
+    resultObserver.observe(fullResult);
 
     if (email) {
         email.elements.t.value = String(started);

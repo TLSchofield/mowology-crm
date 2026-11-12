@@ -1,1 +1,44 @@
-<?php declare(strict_types=1);define('ITTAI_DIRECTORY_MODE',true);if(!defined('APP_ROOT')){for($d=__DIR__,$i=0;$i<6;$i++,$d=dirname($d))if(is_file($d.'/app/Core/paths.php')){require_once $d.'/app/Core/paths.php';break;}}require_once APP_ROOT.'/Core/config.php';require_once __DIR__.'/_inc/layout.php';toolsStart('Free calculators for garden businesses | Ittai','Four free calculators for garden businesses: labour cost, markup and margin, break-even hours and mowing prices.','https://ittai.ca/tools/','Free calculators for garden businesses');?><header class="hero"><h1>Free calculators for garden businesses</h1><p>Put in your own numbers and get an answer straight away. Nothing is sent anywhere unless you ask for the result by email.</p></header><div class="hub-grid"><?php foreach([['labour-cost','True cost of a labour hour','Include payroll costs, unbilled time, truck, fuel and gear.'],['markup-margin','Markup and margin','See what a markup actually keeps, or find the markup for a target margin.'],['break-even','Break-even hours a month','Find the billed hours that cover fixed costs and your own pay.'],['mow-price','Price a mow from minutes','Count the whole visit, crew size, drive and target margin.']] as $c):?><a class="hub-card" href="/tools/<?=h($c[0])?>/"><h2><?=h($c[1])?></h2><p><?=h($c[2])?></p></a><?php endforeach?></div><?php toolsEnd();
+<?php
+declare(strict_types=1);
+
+define('ITTAI_DIRECTORY_MODE', true);
+if (!defined('APP_ROOT')) {
+    for ($directory = __DIR__, $index = 0; $index < 6; $index++, $directory = dirname($directory)) {
+        if (is_file($directory . '/app/Core/paths.php')) {
+            require_once $directory . '/app/Core/paths.php';
+            break;
+        }
+    }
+}
+require_once APP_ROOT . '/Core/config.php';
+require_once __DIR__ . '/_inc/layout.php';
+
+toolsStart(
+    'Free calculators for garden businesses | Ittai',
+    'Four free calculators for garden businesses: labour cost, markup and margin, break-even hours and mowing prices.',
+    'https://ittai.ca/tools/',
+    'Free calculators for garden businesses'
+);
+
+$tools = [
+    ['labour-cost', 'True cost of a labour hour', 'Price from the hours you can bill, not the hours you pay.'],
+    ['markup-margin', 'Markup and margin', "Markup is added to cost. Margin is what's left of the price."],
+    ['break-even', 'Break-even hours a month', 'Every billed hour pays a slice of the fixed costs. Count the hours it takes.'],
+    ['mow-price', 'Price a mow from minutes', 'Price the whole visit: time on site plus the drive to get there, for everyone on the crew.'],
+];
+?>
+<header class="hero hub-hero">
+    <h1>Free calculators for garden businesses</h1>
+    <p>Work out the numbers your prices depend on. Nothing you type leaves this page unless you ask for an email.</p>
+</header>
+<ul class="hub-list">
+    <?php foreach ($tools as $tool): ?>
+        <li>
+            <a href="/tools/<?= h($tool[0]) ?>/">
+                <span><?= h($tool[1]) ?></span>
+                <small><?= h($tool[2]) ?></small>
+            </a>
+        </li>
+    <?php endforeach; ?>
+</ul>
+<?php toolsEnd(); ?>

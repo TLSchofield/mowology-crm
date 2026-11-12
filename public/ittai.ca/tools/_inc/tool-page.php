@@ -23,35 +23,34 @@ toolsStart(
 );
 ?>
 <article data-tool="<?= h($cfg['slug']) ?>">
-    <header class="hero">
-        <a href="/tools/">All calculators</a>
-        <h1><?= h($cfg['heading']) ?></h1>
-        <p><?= h($cfg['description']) ?></p>
-    </header>
-    <section class="rule-card">
-        <div class="drawing"><?= $cfg['drawing'] ?></div>
-        <div>
-            <h2>Card</h2>
-            <dl>
-                <dt>Rule</dt>
-                <dd><?= h($cfg['rule']) ?></dd>
-                <dt>Common mistake</dt>
-                <dd><?= h($cfg['mistake']) ?></dd>
-                <dt>What varies</dt>
-                <dd><?= h($cfg['varies']) ?></dd>
-            </dl>
-        </div>
-    </section>
-    <section class="calculator">
-        <h2>Form</h2>
-        <form data-calculator novalidate><?= $cfg['form'] ?></form>
-    </section>
-    <section class="result" aria-live="polite">
-        <h2>Result</h2>
-        <div data-result><p>Fill in the form to see your result.</p></div>
-        <div data-working></div>
-    </section>
+    <div class="intro-card">
+        <header class="hero">
+            <a href="/tools/">All calculators</a>
+            <h1><?= h($cfg['heading']) ?></h1>
+            <p><?= h($cfg['description']) ?></p>
+        </header>
+        <section class="rule-card" aria-label="Pricing rule and context">
+            <p class="rule-statement"><?= h($cfg['rule']) ?></p>
+            <p class="mistake-label">The costly mistake</p>
+            <p class="mistake-copy"><?= h($cfg['mistake']) ?></p>
+            <div class="drawing"><?= $cfg['drawing'] ?></div>
+            <details>
+                <summary>Where these numbers come from</summary>
+                <p><?= h($cfg['varies']) ?></p>
+            </details>
+        </section>
+    </div>
+    <div class="calculator-layout">
+        <section class="calculator" aria-label="Calculator inputs">
+            <form data-calculator novalidate><?= $cfg['form'] ?></form>
+        </section>
+        <section class="result" aria-label="Calculated result" aria-live="polite" data-full-result>
+            <div data-result><p>Fill in the form to see your result.</p></div>
+            <div data-working></div>
+        </section>
+    </div>
     <?php nextStep($emailOn); ?>
+    <div class="result-bar" data-result-bar aria-live="polite" hidden></div>
 </article>
 <script type="module" src="/tools/_assets/tools.js"></script>
 <?php toolsEnd(); ?>

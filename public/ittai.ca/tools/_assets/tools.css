@@ -1,142 +1,214 @@
 :root {
     --page:hsl(120 8% 96%);
     --surface:hsl(0 0% 100%);
-    --line:hsl(130 9% 86%);
+    --line:hsl(130 9% 74%);
     --text:hsl(135 21% 9%);
-    --meta:hsl(136 7% 30%);
+    --meta:hsl(136 7% 25%);
     --brand:hsl(216 46% 25%);
     --sage:hsl(120 13% 69%);
     --danger:hsl(0 59% 30%);
-    --on-brand:hsl(0 0% 100%)
+    --on-brand:hsl(0 0% 100%);
+    --radius:10px;
+    --space-1:5px;
+    --space-2:10px;
+    --space-3:16px;
+    --space-4:24px;
+    --space-5:38px;
+    --space-6:52px
 }
-
 
 @media(prefers-color-scheme:dark) {
     :root {
-    --page:hsl(140 17% 7%);
-    --surface:hsl(140 15% 10%);
-    --line:hsl(142 12% 20%);
-    --text:hsl(130 13% 92%);
-    --meta:hsl(140 7% 71%);
-    --brand:hsl(220 30% 76%);
-    --sage:hsl(142 13% 24%);
-    --danger:hsl(0 100% 85%);
-    --on-brand:hsl(140 17% 7%)
-}
-
+        --page:hsl(140 17% 7%);
+        --surface:hsl(140 15% 10%);
+        --line:hsl(142 12% 35%);
+        --text:hsl(130 13% 92%);
+        --meta:hsl(140 7% 76%);
+        --brand:hsl(220 30% 82%);
+        --sage:hsl(142 13% 24%);
+        --danger:hsl(0 100% 85%);
+        --on-brand:hsl(140 17% 7%)
+    }
 }
 
 * {
     box-sizing:border-box
 }
+
 html {
     background:var(--page)
 }
+
 body {
     margin:0;
     background:var(--page);
     color:var(--text);
-    font:17px/1.65 Inter,
-system-ui,-apple-system,"Segoe UI",Roboto,
-sans-serif;
+    font:17px/1.65 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     overflow-wrap:anywhere
 }
+
 .wrap,
 .site-head {
-    width:min(100% - 32px,860px);
+    width:min(100% - 32px,1100px);
     margin-inline:auto
 }
+
 .site-head {
     padding-block:22px;
     border-bottom:1px solid var(--line)
 }
+
 .site-head img {
     display:block;
     width:116px;
     height:auto
 }
+
 h1,
 h2 {
     line-height:1.15;
     letter-spacing:-.02em
 }
+
 h1 {
     font-size:clamp(2.2rem,8vw,4rem);
     max-width:17ch
 }
+
 h2 {
     font-size:1.55rem
 }
+
 a {
     color:var(--brand)
 }
+
 :focus-visible {
     outline:3px solid var(--brand);
     outline-offset:3px
 }
+
 .hero {
-    padding:48px 0 34px
+    padding:var(--space-6) 0 var(--space-5)
 }
+
 .hero p {
     font-size:1.15rem;
     max-width:62ch
 }
+
 .rule-card {
-    display:grid;
-    grid-template-columns:minmax(220px,
-.8fr) minmax(0,1.4fr);
-    gap:28px;
     background:var(--sage);
     color:var(--text);
-    padding:clamp(22px,5vw,42px);
+    padding:clamp(22px,5vw,38px);
     border-radius:18px
 }
+
+.rule-statement {
+    max-width:24ch;
+    margin:0 0 var(--space-4);
+    font-size:clamp(1.55rem,4vw,2.2rem);
+    font-weight:750;
+    line-height:1.18;
+    letter-spacing:-.02em
+}
+
+.mistake-label {
+    margin:0;
+    font-size:.84rem;
+    font-weight:800;
+    letter-spacing:.06em;
+    text-transform:uppercase
+}
+
+.mistake-copy {
+    margin:var(--space-1) 0 var(--space-4)
+}
+
 .drawing {
     display:grid;
-    place-items:center
+    place-items:center;
+    margin-block:var(--space-3) var(--space-4)
 }
+
 .drawing svg {
+    display:block;
     width:100%;
-    max-height:240px;
+    height:auto;
+    max-width:360px;
     fill:none;
     stroke:currentColor;
     stroke-width:3
 }
-.rule-card dl {
-    margin:0
+
+.drawing text {
+    font-size:14px
 }
-.rule-card dt {
-    font-weight:750;
-    margin-top:16px
+
+.rule-card details {
+    border-top:1px solid currentColor;
+    padding-top:var(--space-3)
 }
-.rule-card dd {
-    margin:2px 0
+
+.rule-card summary {
+    cursor:pointer;
+    font-weight:750
 }
+
+.rule-card details p {
+    margin-bottom:0
+}
+
 .calculator,
 .result,
 .next {
-    padding-block:38px;
+    padding-block:var(--space-5);
     border-bottom:1px solid var(--line)
 }
+
 form {
-    max-width:620px
+    max-width:680px
 }
+
 .fields {
     display:grid;
     grid-template-columns:1fr 1fr;
-    gap:18px
+    gap:var(--space-3) var(--space-4)
 }
+
+fieldset {
+    min-width:0;
+    margin:var(--space-4) 0 0;
+    padding:var(--space-4);
+    border:1px solid var(--line);
+    border-radius:var(--radius)
+}
+
+legend {
+    padding-inline:var(--space-2);
+    font-weight:800
+}
+
+.source-line {
+    margin:var(--space-3) 0 0;
+    color:var(--meta);
+    font-size:.88rem;
+    line-height:1.45
+}
+
 .field label {
     display:block;
     font-weight:700;
-    margin-bottom:5px
+    margin-bottom:var(--space-1)
 }
+
 .field small {
     display:block;
     color:var(--meta);
     line-height:1.4;
-    margin-top:5px
+    margin-top:var(--space-1)
 }
+
 .field input,
 .field select {
     width:100%;
@@ -148,69 +220,89 @@ form {
     font:inherit;
     padding:0 12px
 }
+
 .input-prefix,
 .input-suffix {
     display:flex;
     align-items:center;
+    min-height:48px;
     border:1.5px solid var(--line);
     border-radius:8px;
     background:var(--surface);
     overflow:hidden
 }
+
 .input-prefix input,
 .input-suffix input {
+    min-width:0;
     border:0;
     border-radius:0
 }
+
 .input-prefix span,
 .input-suffix span {
+    flex:0 0 auto;
     padding:0 12px;
     color:var(--meta)
 }
+
 .error {
     min-height:1.3em;
     color:var(--danger);
     font-size:.88rem;
     margin:2px 0
 }
+
 .result {
     background:var(--surface);
-    margin-inline:calc(50% - 50vw);
-    padding-inline:max(16px,
-calc((100vw - 860px)/2));
-
+    padding-inline:var(--space-4)
 }
-.result strong {
+
+.result strong,
+.result-bar strong {
     font-size:1.25em
 }
+
 .working {
     color:var(--meta);
     padding-left:22px
 }
+
+.result-bar {
+    display:none
+}
+
 .toggle {
     display:flex;
+    flex-wrap:wrap;
     gap:8px;
     margin-bottom:20px
 }
+
 .toggle label {
+    min-height:48px;
     padding:9px 14px;
     border:1px solid var(--line);
     border-radius:8px
 }
+
 .check {
     display:flex;
     align-items:flex-start;
     gap:10px;
     margin:15px 0
 }
+
 .check input {
     width:22px;
     height:22px;
     flex:0 0 auto
 }
+
 .email-form {
-    margin-top:24px
+    margin-top:var(--space-4)
 }
+
 .email-form button,
 button {
     min-height:48px;
@@ -222,10 +314,12 @@ button {
     padding:0 20px;
     cursor:pointer
 }
+
 .privacy-note,
 .form-status {
     color:var(--meta)
 }
+
 .hp {
     position:absolute;
     left:-10000px;
@@ -233,55 +327,144 @@ button {
     height:1px;
     overflow:hidden
 }
+
 footer {
     padding:32px 0 48px
 }
-footer a+ a {
+
+footer a + a {
     margin-left:20px
 }
-.hub-grid {
+
+.hub-hero {
+    padding-bottom:var(--space-4)
+}
+
+.hub-list {
+    margin:0 0 var(--space-6);
+    padding:0;
+    list-style:none;
+    border-top:1px solid var(--line)
+}
+
+.hub-list li {
+    border-bottom:1px solid var(--line)
+}
+
+.hub-list a {
     display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:18px;
-    padding-bottom:50px
-}
-.hub-card {
-    display:block;
-    background:var(--surface);
-    border:1px solid var(--line);
-    border-radius:12px;
-    padding:24px;
-    text-decoration:none;
-    color:var(--text)
-}
-.hub-card h2 {
-    color:var(--brand)
+    grid-template-columns:minmax(180px,.8fr) minmax(0,1.2fr);
+    gap:var(--space-4);
+    padding:var(--space-4) 0;
+    color:var(--text);
+    text-decoration:none
 }
 
-
-@media(max-width:650px) {
-    .rule-card,
-.fields,
-.hub-grid {
-    grid-template-columns:1fr
-}
-.hero {
-    padding-top:32px
-}
-.rule-card {
-    border-radius:0;
-    margin-inline:-16px
-}
-.drawing svg {
-    max-height:150px
+.hub-list a:hover span {
+    text-decoration:underline
 }
 
+.hub-list span {
+    color:var(--brand);
+    font-size:1.25rem;
+    font-weight:800
 }
 
+.hub-list small {
+    align-self:center;
+    color:var(--text);
+    font-size:1rem
+}
+
+@media(min-width:768px) {
+    .intro-card {
+        display:grid;
+        grid-template-columns:minmax(0,.85fr) minmax(420px,1.15fr);
+        align-items:start;
+        gap:clamp(32px,6vw,72px);
+        padding-block:var(--space-6)
+    }
+
+    .intro-card .hero {
+        padding:var(--space-4) 0 0
+    }
+
+    .intro-card h1 {
+        margin-top:var(--space-3)
+    }
+
+    .calculator-layout {
+        display:grid;
+        grid-template-columns:minmax(0,1.55fr) minmax(280px,.75fr);
+        align-items:start;
+        gap:var(--space-5);
+        border-top:1px solid var(--line)
+    }
+
+    .calculator-layout .calculator {
+        border-bottom:0
+    }
+
+    .calculator-layout .result {
+        position:sticky;
+        top:var(--space-4);
+        margin-top:var(--space-5);
+        border:1px solid var(--line);
+        border-radius:var(--radius)
+    }
+}
+
+@media(max-width:767px) {
+    body {
+        padding-bottom:calc(96px + env(safe-area-inset-bottom))
+    }
+
+    .hero {
+        padding-top:32px
+    }
+
+    .rule-card {
+        border-radius:0;
+        margin-inline:-16px
+    }
+
+    .fields,
+    .hub-list a {
+        grid-template-columns:1fr
+    }
+
+    fieldset {
+        padding:var(--space-3)
+    }
+
+    .result {
+        margin-inline:-16px;
+        padding-inline:16px
+    }
+
+    .result-bar:not([hidden]) {
+        position:fixed;
+        z-index:10;
+        right:0;
+        bottom:0;
+        left:0;
+        display:block;
+        margin:0;
+        padding:12px max(16px,env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+        border-top:1px solid var(--line);
+        background:var(--surface);
+        color:var(--text);
+        font-size:.92rem;
+        line-height:1.35
+    }
+
+    .result-bar strong {
+        font-size:1em
+    }
+}
 
 @media(prefers-reduced-motion:reduce) {
     * {
-    scroll-behavior:auto!important
-}
-
+        scroll-behavior:auto!important
+    }
 }
