@@ -48,6 +48,10 @@ struct MainTabView: View {
     @StateObject private var readyBriefStore = ReadyBriefStore()
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
+    @AppStorage(ItBarLab.scrollTopKey) private var storedScrollTop = false
+    @AppStorage(ItBarLab.keyboardCurveKey) private var storedKeyboardCurve = false
+    @AppStorage(ItBarLab.largeLabelsKey) private var storedLargeLabels = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// The bar (Tim, 2026-11-05): admins Schedule · Search · Kaname · Receipts · Add — Kaname, the chief of staff,
     /// in the centre; Add at the far right, under the thumb. Crew: Schedule · Search · Receipts · Account · Add.
@@ -130,6 +134,13 @@ struct MainTabView: View {
     /// The room the meniscus bar takes at the bottom of every tab screen.
     static let barReserve: CGFloat = ItMeniscusGeometry.rise + ItMeniscusBar.barHeight
 
+    private var scrollTopEnabled: Bool { ItBarLab.isEnabled("scrollTop", stored: storedScrollTop) }
+    private var keyboardCurveEnabled: Bool { ItBarLab.isEnabled("keyboardCurve", stored: storedKeyboardCurve) }
+    private var largeLabelsEnabled: Bool { ItBarLab.isEnabled("largeLabels", stored: storedLargeLabels) }
+    private var barReserve: CGFloat {
+        Self.barReserve + (largeLabelsEnabled ? ItBarLab.barLabelMetrics(contentSize: dynamicTypeSize).extraBarHeight : 0)
+    }
+
     init() {
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
@@ -145,7 +156,7 @@ struct MainTabView: View {
                     .tag(tab)
                     .toolbar(.hidden, for: .tabBar)
                     // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
-                    .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
+                    .environment(\.itBarClearance, keyboardUp ? 0 : barReserve)
                     // Where this tab's bead sits: its screen's centre line runs into it (SPEC §13).
                     .environment(\.itTabSlot, ItTabSlot(
                         index: ItMeniscusGeometry.physicalSlotIndex(
@@ -173,7 +184,7 @@ struct MainTabView: View {
         // The bar's inset does not reach scroll views inside the tabs' navigation stacks, so the last rows of a
         // pushed screen sat under the bar (Tim, 2026-11-05: visit screen, "Move to another date"). Content margins
         // pass down to every scroll view, pushed screens included (proved in the simulator, 2026-11-05).
-        .contentMargins(.bottom, keyboardUp ? 0 : Self.barReserve, for: .scrollContent)
+        .contentMargins(.bottom, keyboardUp ? 0 : barReserve, for: .scrollContent)
         // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
@@ -200,6 +211,12 @@ struct MainTabView: View {
                             UISelectionFeedbackGenerator().selectionChanged()
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { scheduleViews.cycle() }
                         }
+                        else if scrollTopEnabled && tab == .search {
+                            NotificationCenter.default.post(name: .mwSearchTop, object: nil)
+                        }
+                        else if scrollTopEnabled && tab == .account {
+                            NotificationCenter.default.post(name: .mwAccountHome, object: nil)
+                        }
                     },
                     onLongPress: { index in
                         if barTabs.indices.contains(index), barTabs[index] == .add { add(.job) }
@@ -209,8 +226,24 @@ struct MainTabView: View {
                     })
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            if !keyboardCurveEnabled { keyboardUp = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            if !keyboardCurveEnabled { keyboardUp = false }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard keyboardCurveEnabled,
+                  let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+            let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int ?? 0
+            let overlaps = ItBarLab.keyboardOverlapsBar(
+                keyboardFrame: frame, screenBounds: UIScreen.main.bounds, barHeight: barReserve
+            )
+            withAnimation(ItBarLab.keyboardAnimation(duration: duration, curveRaw: curve)) {
+                keyboardUp = overlaps
+            }
+        }
         .tint(appStyle.tenant)
         .itAppScreen()
         .task {
@@ -331,7 +364,11 @@ struct MainTabView: View {
 
     private var accountTab: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             List {
+                if scrollTopEnabled {
+                    Color.clear.frame(height: 0).id("mw-account-top")
+                }
                 if let user = authSession.user {
                     Section {
                         AccountProfileRow(user: user)
@@ -355,6 +392,11 @@ struct MainTabView: View {
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
+            .onReceive(NotificationCenter.default.publisher(for: .mwAccountHome)) { _ in
+                // The crew Account tab has no pushed screens: returning to its top is a scroll.
+                proxy.scrollTo("mw-account-top", anchor: .top)
+            }
+            }
         }
     }
 }

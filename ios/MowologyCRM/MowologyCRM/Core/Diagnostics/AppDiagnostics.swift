@@ -195,3 +195,30 @@ enum RenderRate {
                                      message: "\(screen) redrew more than 40 times in 2 s — a redraw loop")
     }
 }
+
+/// The log as the Diagnostic log screen shows it: one row per entry, newest first, long entries cut.
+/// One Apple crash payload is a single line of up to a megabyte; laid out as one text view it hangs or crashes SwiftUI
+/// (2026-11-11), so only the start of such a line is drawn. The export file keeps everything.
+enum DiagnosticsDisplay {
+    struct Entry: Equatable, Identifiable {
+        /// The entry's line number in the exported text (stable between refreshes of the same log).
+        let id: Int
+        let text: String
+        /// How many characters of the entry are not drawn (0 when it fits).
+        let omittedCharacters: Int
+    }
+
+    /// Rows for the newest `maxEntries` non-empty lines of `text`, newest first, each cut to `maxCharacters`.
+    static func entries(from text: String, maxEntries: Int = 200, maxCharacters: Int = 600) -> [Entry] {
+        var numbered: [(Int, Substring)] = []
+        var number = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            number += 1
+            numbered.append((number, line))
+        }
+        return numbered.suffix(max(0, maxEntries)).reversed().map { number, line in
+            let shown = line.prefix(max(1, maxCharacters))
+            return Entry(id: number, text: String(shown), omittedCharacters: line.count - shown.count)
+        }
+    }
+}

@@ -128,6 +128,9 @@ struct SearchView: View {
     /// The owner's half of the box (OwnerSearchViews.swift): answers, Ask Kaname, every group. Unused for crew.
     @StateObject private var owner: OwnerSearchModel
     @StateObject private var voice = VoiceSearch()
+    @AppStorage(ItBarLab.scrollTopKey) private var storedScrollTop = false
+    /// Presenting the search drawer puts the cursor in the field (iOS 17: `.searchFocused` is iOS 18).
+    @State private var isSearchPresented = false
     /// The "Linda ×" chip: at most one client at a time.
     @State private var scopes: [OwnerSearchScope] = []
     private let authSession: AuthSession
@@ -143,11 +146,16 @@ struct SearchView: View {
     private var scope: OwnerSearchScope? { isOwner ? scopes.first : nil }
     /// With a chip the box may be empty: "Linda ×" alone lists everything about Linda.
     private var showsResults: Bool { vm.trimmedQuery.count >= 2 || scope != nil }
+    private var scrollTopEnabled: Bool { ItBarLab.isEnabled("scrollTop", stored: storedScrollTop) }
 
     var body: some View {
         let _ = RenderRate.tick("SearchView")
         NavigationStack {
+            ScrollViewReader { proxy in
             List {
+                if scrollTopEnabled {
+                    Color.clear.frame(height: 0).id("mw-search-top")
+                }
                 if let e = voice.error {
                     Section {
                         Label(e, systemImage: "mic.slash")
@@ -175,6 +183,7 @@ struct SearchView: View {
             }
             .searchable(text: $vm.query,
                         tokens: $scopes,
+                        isPresented: $isSearchPresented,
                         placement: .navigationBarDrawer(displayMode: .always),
                         prompt: scope != nil ? "Anything about them — “unpaid”, “quotes”…"
                             : (isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")) { token in
@@ -204,6 +213,11 @@ struct SearchView: View {
             }
             .task { await vm.refreshNearby() }
             .refreshable { await vm.refreshNearby() }
+            .onReceive(NotificationCenter.default.publisher(for: .mwSearchTop)) { _ in
+                proxy.scrollTo("mw-search-top", anchor: .top)
+                isSearchPresented = true
+            }
+            }
         }
     }
 

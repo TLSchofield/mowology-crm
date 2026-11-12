@@ -8,6 +8,14 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Plant report for the client (Tim, 2026-11-11) — queued
+
+Tim: the Work Record's plant lines "could become a client report that either sits on the portal or is emailed". Today the crew's Work Record shows
+each plant's own photo and a "now is a good time to divide or move it" note (`PlantLineInfoService`, read-only, from approved care cards). The client
+version reuses it: per plant, its photo, what was done on which visit (`plant_work_log`, already read by the visit report and the portal), and what is in season next.
+Open: portal-only or emailed too (email goes through `sendCrmEmail`, with a PDF if it is the invoice-style send); which notes a client may see (care-card tips are
+internal until Tim approves wording); photos of client properties on the portal need the same token rules as the visit photos. Needs its own plan before code.
+
 ## Subcontracting — what is left after the web version (live 2026-11-10)
 - Native iPhone card (timeline, Accept), schedule card label, Otto line when a job is close and not yet accepted.
 - Their photos onto the visit record on Accept; their invoice attached to the expense in Penny.
@@ -669,3 +677,5 @@ Tim: "can Otto figure out there's an important Thursday job that means the crew 
 
 ## Otto: material ordered but the job was never placed (Tim, 2026-11-11)
 Tim ordered mulch (through the CRM) for a job with the soil days ago; the mulch-install visit was not on the schedule and nobody alerted him. Cause found in code: `MaterialDeliveryService::briefItems()` only looks at visits that are already placed (`jv.status='scheduled' AND jv.stop_id IS NOT NULL`, next 21 days) and tells him to order by a date. It never records that the order was made, and an approved job with no visit at all gives it nothing to start from. So the two halves (order made / job placed) are never compared. Plan to write: an "ordered, nothing scheduled" Otto item (priority 2) keyed on the order record, plus a mark on the delivery item once ordered. Open: what record the CRM keeps when the order is made.
+
+- **Bar lab on the iPhone BUILT 2026-11-11 (Tim: "test enhancements of the meniscus bar on the iPhone"; all five, off by default):** Account → Appearance → "Bar lab (testing)": haptic tick on tab change; tap the selected Search / Account tab = back to top (Search also puts the cursor in the field; Receipts, Schedule, Kaname keep their own reselect); bar follows the keyboard's frame and curve; labels follow Dynamic Type (capped at accessibility 1, bar grows to fit); Add dial scrolls when the screen is too short (a plain column when it fits). Keys `ittai.bar.*` (`ItBarLab.swift`); DEBUG launch argument `-mwBarLab a,b,c`. Codex wrote it; Claude fixed three defects Codex's tests missed (iOS 18-only `.searchFocused`, a pop-to-root that could not work, a dial that floated mid-screen when scrolling was on). **Proved:** all off = pixel-identical to the pre-bar-lab build except a 1-level shadow rounding in the dial column; labels on at default size = identical; dial on = identical when it fits; larger text screenshots look right. **Not provable here:** the haptic and keyboard-curve feel, landscape dial scrolling (the simulator would not rotate). **Tim decides after trying it:** which stay, which go; if any is adopted it moves to the spec (section 14) and the Android side.

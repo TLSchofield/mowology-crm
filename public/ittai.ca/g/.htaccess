@@ -1,0 +1,5 @@
+# ittai.ca/g/ (2026-11-11): private page; only index.php answers, via the rewrites in ../.htaccess.
+Options -Indexes
+<FilesMatch "^(gate|links)\.php$">
+  Require all denied
+</FilesMatch>

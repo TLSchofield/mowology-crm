@@ -4,7 +4,7 @@ import SwiftUI
 struct DiagnosticsView: View {
     @EnvironmentObject private var authSession: AuthSession
     @Environment(\.itAppStyle) private var style
-    @State private var text = ""
+    @State private var rows: [DiagnosticsDisplay.Entry] = []
     @State private var exportURL: URL?
     @State private var error: String?
     @State private var loading = false
@@ -20,10 +20,23 @@ struct DiagnosticsView: View {
                             .textSelection(.enabled)
                     }
                     if loading { ProgressView("Reading diagnostic log") }
-                    ScrollView([.horizontal, .vertical]) {
-                        Text(text.isEmpty ? "No diagnostic entries recorded on this phone." : text)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    // One row per entry: a crash payload is a single line of up to a megabyte, and drawing that as one
+                    // selectable text view crashes the screen. Long rows are cut here; "Export log" has the full text.
+                    ScrollView(.vertical) {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            if rows.isEmpty {
+                                Text("No diagnostic entries recorded on this phone.")
+                                    .font(.system(.caption, design: .monospaced))
+                            }
+                            ForEach(rows) { row in
+                                Text(row.omittedCharacters > 0
+                                     ? row.text + " … [\(row.omittedCharacters) more characters: Export log has them]"
+                                     : row.text)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(.horizontal, 8)
                     }
                     .background(style.sunk)
                 }
@@ -43,7 +56,7 @@ struct DiagnosticsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .itAppScreen()
         .onChange(of: authSession.user?.isAdmin) { _, admin in
-            if admin != true { text = ""; exportURL = nil; error = nil }
+            if admin != true { rows = []; exportURL = nil; error = nil }
         }
     }
 
@@ -54,7 +67,7 @@ struct DiagnosticsView: View {
         do {
             let snapshot = try await AppDiagnostics.shared.snapshot()
             guard authSession.user?.isAdmin == true else { return }
-            text = snapshot.text; exportURL = snapshot.url
+            rows = DiagnosticsDisplay.entries(from: snapshot.text); exportURL = snapshot.url
         } catch { self.error = ErrorDetails.describe(error) }
     }
 }
