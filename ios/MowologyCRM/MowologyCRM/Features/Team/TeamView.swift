@@ -582,6 +582,7 @@ struct TeamView: View {
 
     private func reload() async {
         await loadBrains()   // pull to refresh retries a failed first fetch (cooldown still applies)
+        await phoneContacts.load()   // no-op once loaded; retries a load that was cancelled mid-request
         if ittaiDesignEnabled {
             await readyBriefStore.refresh(authSession: authSession, force: true)
             await loadReadyBrief()
