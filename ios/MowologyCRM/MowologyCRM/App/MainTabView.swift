@@ -70,6 +70,9 @@ struct MainTabView: View {
     @State private var keyboardUp = false
     /// When a push last sent the user somewhere: the driver question doesn't pull them to Time over it.
     @State private var routedAt: Date?
+    #if DEBUG
+    @State private var smokeTourRan = false
+    #endif
 
     /// The bar's slots, left to right.
     private var barTabs: [Tab] {
@@ -300,6 +303,27 @@ struct MainTabView: View {
             if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
             else if notificationRouter.pendingHead != nil { openTeamForHead() }
         }
+        #if DEBUG
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-mwSmokeTour"), !smokeTourRan else { return }
+            smokeTourRan = true
+            // RootView gives this debug-only launch mode a credential-free host. Release authentication is unchanged.
+            for _ in 0..<5 {
+                for tab in tabs {
+                    selectedTab = tab
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+            for _ in 0..<2 {
+                addOpen = true
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                addOpen = false
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            print("SMOKE_TOUR_OK")
+            NSLog("SMOKE_TOUR_OK")
+        }
+        #endif
         // Department-head pushes ("Sam: Linda just opened QUO-…") land on the Kaname tab;
         // TeamView consumes the route and shows that head's card. Only admins have Kaname.
         .onChange(of: notificationRouter.pendingHead) { _, head in

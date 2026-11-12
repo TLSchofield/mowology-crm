@@ -19,7 +19,11 @@ struct RootView: View {
 
     var body: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-mwContactsDemo") {
+        if ProcessInfo.processInfo.arguments.contains("-mwSmokeTour") {
+            MainTabView()
+                .environmentObject(authSession)
+                .itAppTheme(enabled: true, field: false)
+        } else if ProcessInfo.processInfo.arguments.contains("-mwContactsDemo") {
             PhoneContactsDemoHost()
                 .itAppTheme(enabled: true, field: false)
         } else {

@@ -195,6 +195,8 @@
 		BC26C132C58C5C596C428C1C /* PhoneContactsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */; };
 		D248943EED265CB8973697CC /* PhoneContactsLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */; };
 		74E55C91B9A8415C9567531F /* PhoneContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */; };
+		892E18E5008DA3B47DEF4F98 /* HangWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE3B95820B618BC3B1317113 /* HangWatchdog.swift */; };
+		508E6D02304B616CBB09FA10 /* CrashLoopBreaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40719F84FBED7493582D39A4 /* CrashLoopBreaker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -388,6 +390,8 @@
 		B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsModels.swift; sourceTree = "<group>"; };
 		F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsLogic.swift; sourceTree = "<group>"; };
 		64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsViewModel.swift; sourceTree = "<group>"; };
+		AE3B95820B618BC3B1317113 /* HangWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HangWatchdog.swift; sourceTree = "<group>"; };
+		40719F84FBED7493582D39A4 /* CrashLoopBreaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLoopBreaker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -763,6 +767,8 @@
 				D94E862D98908010B52CBA1B /* AppCrashReports.swift */,
 				228A6AD1198D9525E9C288E1 /* ErrorDetails.swift */,
 				C95F2DB5E0EE0C3D1513983D /* DiagnosticsView.swift */,
+				AE3B95820B618BC3B1317113 /* HangWatchdog.swift */,
+				40719F84FBED7493582D39A4 /* CrashLoopBreaker.swift */,
 			);
 			path = Diagnostics;
 			sourceTree = "<group>";
@@ -1048,6 +1054,8 @@
 				BC26C132C58C5C596C428C1C /* PhoneContactsModels.swift in Sources */,
 				D248943EED265CB8973697CC /* PhoneContactsLogic.swift in Sources */,
 				74E55C91B9A8415C9567531F /* PhoneContactsViewModel.swift in Sources */,
+				892E18E5008DA3B47DEF4F98 /* HangWatchdog.swift in Sources */,
+				508E6D02304B616CBB09FA10 /* CrashLoopBreaker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

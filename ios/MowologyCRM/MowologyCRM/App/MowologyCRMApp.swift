@@ -21,6 +21,8 @@ struct MowologyCRMApp: App {
     init() {
         AppCrashReports.shared.start()
         ChangeCapture.shared.start()   // lets a redraw alarm name the property that changed
+        HangWatchdog.shared.start()
+        CrashLoopBreaker.shared.start()
         ItFontRegistry.registerAll()
         registerBackgroundTask()
         requestNotificationPermission()
