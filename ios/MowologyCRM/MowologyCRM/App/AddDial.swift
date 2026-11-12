@@ -48,7 +48,6 @@ struct AddDial: View {
     @Environment(\.itAppStyle) private var style
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @AppStorage(ItBarLab.dialScrollKey) private var storedDialScroll = false
     @AppStorage(ItBarLab.largeLabelsKey) private var storedLargeLabels = false
 
     /// The Add slot and how many slots the bar has, so the column rises straight above the bead.
@@ -60,7 +59,6 @@ struct AddDial: View {
 
     private let disc: CGFloat = 56
 
-    private var dialScrollEnabled: Bool { ItBarLab.isEnabled("dialScroll", stored: storedDialScroll) }
     private var barReserve: CGFloat {
         MainTabView.barReserve + (ItBarLab.isEnabled("largeLabels", stored: storedLargeLabels)
             ? ItBarLab.barLabelMetrics(contentSize: dynamicTypeSize).extraBarHeight : 0)
@@ -72,7 +70,9 @@ struct AddDial: View {
                 slot, count: slotCount, isRightToLeft: layoutDirection == .rightToLeft
             )
             let beadX = ItMeniscusGeometry.beadX(CGFloat(physicalSlot), count: slotCount, width: geo.size.width)
-            ZStack(alignment: .bottomTrailing) {
+            // beadX is a physical position: in right-to-left, `.trailing` is the LEFT edge, so measure from `.leading` there.
+            let rtl = layoutDirection == .rightToLeft
+            ZStack(alignment: rtl ? .bottomLeading : .bottomTrailing) {
                 // A light veil, not a dark scrim: the screen stays readable behind the menu.
                 Rectangle()
                     .fill(.ultraThinMaterial)
@@ -81,38 +81,38 @@ struct AddDial: View {
                     .onTapGesture(perform: onClose)
                     .accessibilityHidden(true)
 
-                Group {
-                    if dialScrollEnabled {
-                        // The plain column when it fits (so it sits exactly where it always did, just above the bead);
-                        // a bottom-anchored scroll view only when the screen is too short for it.
-                        ViewThatFits(in: .vertical) {
-                            choices
-                            ScrollView(.vertical, showsIndicators: false) {
-                                choices
-                            }
-                            .defaultScrollAnchor(.bottom)
-                            .scrollBounceBehavior(.basedOnSize)
-                        }
-                        .frame(maxHeight: ItBarLab.dialMaxHeight(
-                            geometryHeight: geo.size.height,
-                            topSafeArea: geo.safeAreaInsets.top,
-                            barReserve: barReserve
-                        ), alignment: .bottom)   // a max-height frame grows to that height: keep the column at its bottom, above the bead
-                    } else {
-                        choices
-                    }
-                }
-                .padding(.trailing, max(8, geo.size.width - beadX - disc / 2))
-                .padding(.bottom, 14)
+                // The choices stand in one column above the bead; on a short screen (landscape) they wrap into a second
+                // column to its left rather than clipping or scrolling (Tim's screenshot, 2026-11-12: Client and Job were cut off).
+                choicesLayout(availableHeight: ItBarLab.dialMaxHeight(
+                    geometryHeight: geo.size.height,
+                    topSafeArea: geo.safeAreaInsets.top,
+                    barReserve: barReserve
+                ) - 14)
+                    .padding(rtl ? .leading : .trailing, max(8, geo.size.width - beadX - disc / 2))
+                    .padding(.bottom, 14)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityAction(.escape, onClose)
     }
 
-    private var choices: some View {
+    /// Nearest the bead first: the first group is the rightmost column, each group drawn top to bottom in reverse order.
+    private func choicesLayout(availableHeight: CGFloat) -> some View {
+        let items = AddDialItem.column(office: office)
+        let perColumn = ItBarLab.dialItemsPerColumn(itemCount: items.count, availableHeight: availableHeight,
+                                                    itemHeight: disc, spacing: 12)
+        let groups = stride(from: 0, to: items.count, by: perColumn).map { Array(items[$0..<min($0 + perColumn, items.count)]) }
+        return HStack(alignment: .bottom, spacing: 28) {
+            // HStack flips in right-to-left, so the nearest-the-bead group (first) goes first there, last otherwise.
+            ForEach(Array(layoutDirection == .rightToLeft ? Array(groups.enumerated()) : Array(groups.enumerated().reversed())), id: \.offset) { _, group in
+                choices(group)
+            }
+        }
+    }
+
+    private func choices(_ items: [AddDialItem]) -> some View {
         VStack(alignment: .trailing, spacing: 12) {
-            ForEach(AddDialItem.column(office: office).reversed()) { item in
+            ForEach(items.reversed()) { item in
                 Button { onPick(item) } label: {
                     HStack(spacing: 14) {
                         Text(item.title)
