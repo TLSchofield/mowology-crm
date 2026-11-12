@@ -1,1 +1,39 @@
-<?php declare(strict_types=1);$source='Source: CRA / WorkSafeBC / BC Employment Standards, checked 12 Nov 2026';$f=function($n,$l,$v,$note='')use($source){return '<div class="field"><label for="'.$n.'">'.$l.'</label><div class="input-suffix"><input id="'.$n.'" name="'.$n.'" type="number" min="0" max="10000" step="0.001" value="'.$v.'" required><span>'.(in_array($n,['wage','truck','rate'],true)?'$':'%').'</span></div>'.($note?'<small>'.$note.'</small>':'').'<p class="error" data-error="'.$n.'"></p></div>';};$cfg=['slug'=>'labour-cost','title'=>'Labour cost per hour calculator for landscapers (BC 2026) | Ittai','heading'=>'True cost of a labour hour','description'=>"Work out what one billed hour of crew time really costs: wages, CPP, EI, vacation and stat pay, WorkSafeBC and the hours you can't bill.",'rule'=>'Price from the hours you can bill, not the hours you pay.','mistake'=>'Dividing your costs by paid hours. Drive time, loading and dump runs are paid, but nobody pays you for them.','varies'=>"Rates are BC 2026 employer rates: CPP 5.95%, EI 2.282% (1.4 × 1.63%), WorkSafeBC 3.14% for landscaping (unit 764060). CPP stops at $74,600 a year and skips the first $3,500; EI stops at $68,900. Stat pay of 4.4% assumes a full-year worker and BC's 11 holidays; seasonal crews cost less. Other provinces differ: change any rate.",'drawing'=>'<svg viewBox="0 0 360 150" aria-label="Paid time split into billed and unbilled time"><rect x="10" y="45" width="340" height="52"/><path d="M265 45v52"/><text x="85" y="77" fill="currentColor" stroke="none">billed</text><text x="278" y="70" fill="currentColor" stroke="none">drive</text><text x="278" y="89" fill="currentColor" stroke="none">load · dump</text></svg>','form'=>'<div class="fields">'.$f('wage','Wage per paid hour','24.00').$f('vacation','Vacation pay','4',$source).$f('stat','Stat holiday pay','4.4',$source).$f('cpp','CPP employer','5.95',$source).$f('ei','EI employer','2.282',$source).$f('wcb','WorkSafeBC','3.14',$source).$f('billable','Billable share of paid hours','75').$f('truck','Truck, fuel and gear per paid hour','6.00').$f('rate','Your hourly rate (optional)','').'</div><p>Working alone with no employees? Put in what you pay yourself, set CPP to 11.9%, and EI and WorkSafeBC to 0 unless you bought cover.</p>'];require dirname(__DIR__).'/_inc/tool-page.php';
+<?php
+declare(strict_types=1);
+
+$source = 'Source: CRA / WorkSafeBC / BC Employment Standards, checked 12 Nov 2026';
+$field = function (string $name, string $label, string $value, string $note = '') use ($source): string {
+    $money = in_array($name, ['wage', 'truck', 'rate'], true);
+    $required = $name === 'rate' ? '' : ' required';
+    $control = $money
+        ? '<div class="input-prefix"><span>$</span><input id="' . $name . '" name="' . $name . '" type="number" min="0" max="10000" step="0.001" value="' . $value . '"' . $required . '></div>'
+        : '<div class="input-suffix"><input id="' . $name . '" name="' . $name . '" type="number" min="0" max="10000" step="0.001" value="' . $value . '"' . $required . '><span>%</span></div>';
+    return '<div class="field"><label for="' . $name . '">' . $label . '</label>'
+        . $control
+        . ($note !== '' ? '<small>' . $note . '</small>' : '')
+        . '<p class="error" data-error="' . $name . '"></p></div>';
+};
+
+$cfg = [
+    'slug' => 'labour-cost',
+    'title' => 'Labour cost per hour calculator for landscapers (BC 2026) | Ittai',
+    'heading' => 'True cost of a labour hour',
+    'description' => "Work out what one billed hour of crew time really costs: wages, CPP, EI, vacation and stat pay, WorkSafeBC and the hours you can't bill.",
+    'rule' => 'Price from the hours you can bill, not the hours you pay.',
+    'mistake' => 'Dividing your costs by paid hours. Drive time, loading and dump runs are paid, but nobody pays you for them.',
+    'varies' => "Rates are BC 2026 employer rates: CPP 5.95%, EI 2.282% (1.4 × 1.63%), WorkSafeBC 3.14% for landscaping (unit 764060). CPP stops at $74,600 a year and skips the first $3,500; EI stops at $68,900. Stat pay of 4.4% assumes a full-year worker and BC's 11 holidays; seasonal crews cost less. Other provinces differ: change any rate.",
+    'drawing' => '<svg viewBox="0 0 360 150" aria-label="Paid time split into billed and unbilled time"><rect x="10" y="45" width="340" height="52"/><path d="M265 45v52"/><text x="85" y="77" fill="currentColor" stroke="none">billed</text><text x="278" y="70" fill="currentColor" stroke="none">drive</text><text x="278" y="89" fill="currentColor" stroke="none">load · dump</text></svg>',
+    'form' => '<div class="fields">'
+        . $field('wage', 'Wage per paid hour', '24.00')
+        . $field('vacation', 'Vacation pay', '4', $source)
+        . $field('stat', 'Stat holiday pay', '4.4', $source)
+        . $field('cpp', 'CPP employer', '5.95', $source)
+        . $field('ei', 'EI employer', '2.282', $source)
+        . $field('wcb', 'WorkSafeBC', '3.14', $source)
+        . $field('billable', 'Billable share of paid hours', '75')
+        . $field('truck', 'Truck, fuel and gear per paid hour', '6.00')
+        . $field('rate', 'Your hourly rate (optional)', '')
+        . '</div><p>Working alone with no employees? Put in what you pay yourself, set CPP to 11.9%, and EI and WorkSafeBC to 0 unless you bought cover.</p>',
+];
+
+require dirname(__DIR__) . '/_inc/tool-page.php';

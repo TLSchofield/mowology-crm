@@ -1,2 +1,24 @@
 <?php
-declare(strict_types=1);define('ITTAI_DIRECTORY_MODE',true);if(!defined('APP_ROOT')){for($d=__DIR__,$i=0;$i<7;$i++,$d=dirname($d))if(is_file($d.'/app/Core/paths.php')){require_once $d.'/app/Core/paths.php';break;}}require_once APP_ROOT.'/Core/config.php';require_once APP_ROOT.'/Modules/Tools/Services/SavedNumbersService.php';require_once APP_ROOT.'/Modules/Tools/Services/ToolCalculator.php';require_once APP_ROOT.'/Modules/Tools/Services/ToolUsageCounter.php';require_once __DIR__.'/layout.php';if(session_status()!==PHP_SESSION_ACTIVE){session_name('ittai_tools');session_start();}if(empty($_SESSION['tool_csrf']))$_SESSION['tool_csrf']=bin2hex(random_bytes(24));function validPost():bool{return ($_SERVER['REQUEST_METHOD']??'')==='POST'&&isset($_POST['csrf'])&&hash_equals((string)$_SESSION['tool_csrf'],(string)$_POST['csrf']);}
+declare(strict_types=1);
+
+define('ITTAI_DIRECTORY_MODE', true);
+if (!defined('APP_ROOT')) {
+    for ($directory = __DIR__, $index = 0; $index < 7; $index++, $directory = dirname($directory)) {
+        if (is_file($directory . '/app/Core/paths.php')) {
+            require_once $directory . '/app/Core/paths.php';
+            break;
+        }
+    }
+}
+
+require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Modules/Tools/Services/SavedNumbersService.php';
+require_once APP_ROOT . '/Modules/Tools/Services/ToolCalculator.php';
+require_once APP_ROOT . '/Modules/Tools/Services/ToolUsageCounter.php';
+require_once __DIR__ . '/layout.php';
+
+/** Returns whether the current request is a POST action. */
+function validPost(): bool
+{
+    return ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+}
