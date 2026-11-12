@@ -37,6 +37,7 @@ final class ReceiptCameraModel: ObservableObject {
     private var acceleration = 0.0
     private var focusSettled = false
     private var closed = false
+    private var gotFrame = false
     /// While the "Discard?" question is up, nothing shoots behind it.
     var paused = false
 
@@ -51,6 +52,7 @@ final class ReceiptCameraModel: ObservableObject {
             let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.gotFrame = true
                 self.outline = found
                 self.focusSettled = settled
                 if self.frameSize != size { self.frameSize = size }
@@ -61,6 +63,7 @@ final class ReceiptCameraModel: ObservableObject {
         // Closed while the permission question was up: `start` has just queued the session behind the earlier stop.
         if closed { stop(); return }
         camera.setReceiptLight(lightOn)
+        watchForBlackScreen()
         if motion.isDeviceMotionAvailable {
             motion.deviceMotionUpdateInterval = 1.0 / 20
             motion.startDeviceMotionUpdates(to: .main) { [weak self] m, _ in
@@ -68,6 +71,20 @@ final class ReceiptCameraModel: ObservableObject {
                 self.rotationRate = Self.length(m.rotationRate.x, m.rotationRate.y, m.rotationRate.z)
                 self.acceleration = Self.length(m.userAcceleration.x, m.userAcceleration.y, m.userAcceleration.z)
                 self.tick()
+            }
+        }
+    }
+
+    /// 2026-11-12: the first open of the camera showed black until it was closed and opened again. Cause unproven (no device
+    /// log); if no frame has arrived a moment after start, the session is started again, twice at most.
+    private func watchForBlackScreen() {
+        Task { @MainActor [weak self] in
+            for attempt in 1...2 {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard let self, !self.closed, self.camera.access == .granted else { return }
+                if self.gotFrame { return }
+                AppDiagnostics.shared.record(category: "ReceiptCamera", message: "no frames after start, restarting session (try \(attempt))")
+                self.camera.restart()
             }
         }
     }
