@@ -79,4 +79,16 @@ class OttoJobAdapterTest extends TestCase
         $this->assertSame('known', OttoJobAdapter::sure([3, 3]));
         $this->assertSame('mastered', OttoJobAdapter::sure([5, 5]));
     }
+
+    public function test_a_full_day_or_weather_move_in_the_past_is_not_offered_but_past_work_found_is(): void
+    {
+        $items = [
+            $this->item(['id' => null, 'kind' => 'overbooked', 'key' => 'o', 'day' => '2026-11-09']),
+            $this->item(['kind' => 'weather', 'key' => 'w', 'id' => 2, 'day' => '2026-11-09']),
+            $this->item(['kind' => 'visit_date', 'key' => 'v', 'id' => 3, 'day' => '2026-11-09']),
+            $this->item(['id' => null, 'kind' => 'overbooked', 'key' => 'o2', 'day' => '2026-11-11']),
+        ];
+        $jobs = OttoJobAdapter::queue($items, [], [], [0, 0], '2026-11-11');
+        $this->assertSame(['otto:o2', 'otto:v'], array_column($jobs, 'key'));
+    }
 }

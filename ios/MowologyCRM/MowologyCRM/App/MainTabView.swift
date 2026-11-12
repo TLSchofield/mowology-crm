@@ -149,6 +149,7 @@ struct MainTabView: View {
 
     var body: some View {
         let _ = RenderRate.tick("MainTabView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         // TabView keeps each tab's screen and navigation alive while another tab shows; its own bar never shows.
         TabView(selection: $selectedTab) {
             ForEach(tabs, id: \.self) { tab in
@@ -191,12 +192,14 @@ struct MainTabView: View {
                 ItMeniscusBar(items: meniscusItems, selected: barIndex,
                     onSelect: { index in
                         guard barTabs.indices.contains(index) else { return }
+                        AppDiagnostics.shared.crumb("bar select \(barTabs[index]) (was \(selectedTab), dial \(addOpen ? "open" : "closed"))")
                         if barTabs[index] == .add { addOpen = true }
                         else { addOpen = false; selectedTab = barTabs[index] }
                     },
                     onReselect: { index in
                         guard barTabs.indices.contains(index) else { return }
                         let tab = barTabs[index]
+                        AppDiagnostics.shared.crumb("bar reselect \(tab) (dial \(addOpen ? "open" : "closed"))")
                         if tab == .add { addOpen = false }                          // the × on the bead
                         else if selectedTab == .time { selectedTab = tab }          // back from Time Clock
                         else if tab == .receipts {
@@ -278,8 +281,10 @@ struct MainTabView: View {
             if !now.contains(selectedTab) { selectedTab = .schedule }
             if !barTabs.contains(lastBarTab) { lastBarTab = .schedule }
         }
+        .onChange(of: addOpen) { _, now in AppDiagnostics.shared.crumb("add dial \(now ? "opened" : "closed")") }
         .onChange(of: selectedTab) { _, now in
             if barTabs.contains(now) { lastBarTab = now }
+            AppDiagnostics.shared.crumb("page now \(now)")
             // A push, the driver question or a sign-in change moves the page: the dial never stays open over it.
             addOpen = false
         }
