@@ -70,7 +70,15 @@ final class PhoneContactsViewModel: ObservableObject {
                 phase = .hidden
             default: phase = .hidden
             }
-        } catch { fail(ErrorDetails.describe(error)) }
+        } catch {
+            // The screen's task was cancelled mid-request (view refreshed or re-created): that is not a server error, so
+            // show nothing and let the next load try again (seen 2026-11-12: -999 "cancelled" put an error card up).
+            if (error as? URLError)?.code == .cancelled || error is CancellationError {
+                phase = .hidden
+                return
+            }
+            fail(ErrorDetails.describe(error))
+        }
     }
 
     func chooseClients() async {
