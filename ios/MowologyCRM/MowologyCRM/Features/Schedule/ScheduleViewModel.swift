@@ -449,25 +449,18 @@ final class ScheduleViewModel: ObservableObject {
     /// Same month:   "Jun 8–14, 2026"
     /// Cross-month:  "May 28 – Jun 3, 2026"
     var weekRangeLabel: String {
-        let monday = mondayOf(week: selectedDate)
-        let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
-        let year   = calendar.component(.year,  from: sunday)
-        let sMonth = calendar.component(.month, from: monday)
-        let eMonth = calendar.component(.month, from: sunday)
-        if sMonth == eMonth {
-            let endDay = calendar.component(.day, from: sunday)
-            return "\(displayFormatter.string(from: monday))–\(endDay), \(year)"
-        } else {
-            return "\(displayFormatter.string(from: monday)) – \(displayFormatter.string(from: sunday)), \(year)"
-        }
+        ScheduleFilterRules.weekRangeLabel(
+            selectedDate: selectedDate,
+            calendar: calendar,
+            displayFormatter: displayFormatter
+        )
     }
 
     // MARK: - Date Utilities
 
     /// Returns the Monday of the week containing `date`.
     func mondayOf(week date: Date) -> Date {
-        let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
-        return calendar.date(from: comps) ?? date
+        ScheduleFilterRules.mondayOf(week: date, calendar: calendar)
     }
 
     func isoDateString(from date: Date) -> String {
@@ -551,7 +544,12 @@ final class ScheduleViewModel: ObservableObject {
     /// The offline copy is kept per filter (Codex review 2026-10-14): an "All crews" copy must never
     /// be shown as "Mine", or after the company limits crew to their own jobs.
     private func diskKey(_ dateString: String) -> String {
-        "\(dateString)_\(scope)_\(jobType.isEmpty ? "any" : jobType)" + (crewsParam.isEmpty ? "" : "_c\(crewsParam)")
+        ScheduleFilterRules.diskKey(
+            dateString: dateString,
+            scope: scope,
+            jobType: jobType,
+            crewsParam: crewsParam
+        )
     }
 
     /// Mine / All crews.
@@ -564,25 +562,22 @@ final class ScheduleViewModel: ObservableObject {
 
     /// The ticked people on All crews; empty means every crew. Ids no longer offered drop out.
     var selectedCrews: [String] {
-        let raw = crewFilter.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard !crews.isEmpty else { return raw }
-        let live = Set(crews.map(\.value))
-        return raw.filter { live.contains($0) }
+        ScheduleFilterRules.selectedValues(from: crewFilter, liveValues: crews.map(\.value))
     }
 
     /// Sent only on All crews; Mine is the person's own jobs whatever was ticked.
-    private var crewsParam: String { scope == "all" ? selectedCrews.joined(separator: ",") : "" }
+    private var crewsParam: String {
+        ScheduleFilterRules.crewsParam(scope: scope, selectedCrews: selectedCrews)
+    }
 
     /// Tick or untick one person (Tim, 2026-11-08: "same for all crews"). Ticking anyone means All crews.
     func toggleCrew(_ value: String) async {
-        var picked = selectedCrews
-        if scope != "all" { picked = [] }
-        if let i = picked.firstIndex(of: value) { picked.remove(at: i) } else { picked.append(value) }
-        let order = crews.map(\.value)
-        picked.sort { a, b in
-            let ia = order.firstIndex(of: a) ?? .max, ib = order.firstIndex(of: b) ?? .max
-            return ia != ib ? ia < ib : a < b
-        }
+        let picked = ScheduleFilterRules.toggledValues(
+            selectedCrews,
+            value: value,
+            order: crews.map(\.value),
+            startingFromEmpty: scope != "all"
+        )
         await setCrews(picked.joined(separator: ","), scope: "all")
     }
 
@@ -599,24 +594,17 @@ final class ScheduleViewModel: ObservableObject {
     /// The ticked job types. Empty means all. On the wire this is one comma string
     /// (ServiceTypeFilter on the server), so an old single value still reads back.
     var selectedJobTypes: [String] {
-        let raw = jobType.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        // A type that was switched off since it was remembered no longer counts (the server drops it too).
-        guard !jobTypes.isEmpty else { return raw }
-        let live = Set(jobTypes.map(\.value))
-        return raw.filter { live.contains($0) }
+        ScheduleFilterRules.selectedValues(from: jobType, liveValues: jobTypes.map(\.value))
     }
 
     /// Several job types at once (Tim, 2026-11-07: "these need to be selectable filters").
     /// Ticking one adds it, ticking it again takes it off; "" clears back to all.
     func toggleJobType(_ value: String) async {
-        var picked = selectedJobTypes
-        if let i = picked.firstIndex(of: value) { picked.remove(at: i) } else { picked.append(value) }
-        // Keep the server's order so the same set always makes the same cache key.
-        let order = jobTypes.map(\.value)
-        picked.sort { a, b in
-            let ia = order.firstIndex(of: a) ?? .max, ib = order.firstIndex(of: b) ?? .max
-            return ia != ib ? ia < ib : a < b
-        }
+        let picked = ScheduleFilterRules.toggledValues(
+            selectedJobTypes,
+            value: value,
+            order: jobTypes.map(\.value)
+        )
         await setJobType(picked.joined(separator: ","))
     }
 

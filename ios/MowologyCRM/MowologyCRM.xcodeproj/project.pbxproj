@@ -195,6 +195,7 @@
 		BC26C132C58C5C596C428C1C /* PhoneContactsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */; };
 		D248943EED265CB8973697CC /* PhoneContactsLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */; };
 		74E55C91B9A8415C9567531F /* PhoneContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */; };
+		566C776E08938C785A1C921D /* ScheduleFilterRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -388,6 +389,7 @@
 		B16E92EF7DABCE06EA88A2F8 /* PhoneContactsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsModels.swift; sourceTree = "<group>"; };
 		F7775D74EB625A957F5E7D4E /* PhoneContactsLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsLogic.swift; sourceTree = "<group>"; };
 		64D5BB254A22AACD811C87A9 /* PhoneContactsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContactsViewModel.swift; sourceTree = "<group>"; };
+		912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleFilterRules.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -564,6 +566,7 @@
 				8728D480CB2639D001E358D1 /* OutboxStatusLine.swift */,
 				B8F407692A30F808FD0F43EC /* DayCarouselRules.swift */,
 				AFFF3E815832DD170F0527EB /* DayCarouselView.swift */,
+				912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -1048,6 +1051,7 @@
 				BC26C132C58C5C596C428C1C /* PhoneContactsModels.swift in Sources */,
 				D248943EED265CB8973697CC /* PhoneContactsLogic.swift in Sources */,
 				74E55C91B9A8415C9567531F /* PhoneContactsViewModel.swift in Sources */,
+				566C776E08938C785A1C921D /* ScheduleFilterRules.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
