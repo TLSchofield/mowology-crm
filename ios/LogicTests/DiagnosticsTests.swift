@@ -126,6 +126,13 @@ struct DiagnosticsChecks {
         check(next.admitted && next.heldBefore == 747, "The next minute reports how many were held back")
         check(throttle.admit("c", limit: 1, interval: 60, now: t0).firstHeld == false && throttle.admit("c", limit: 1, interval: 60, now: t0).firstHeld && !throttle.admit("c", limit: 1, interval: 60, now: t0).firstHeld, "The first held event is flagged once")
         check(throttle.admit("b", limit: 3, interval: 60, now: t0).admitted, "Another key has its own allowance")
+        check(ChangeCapture.screen(of: "ScheduleView: @self, _viewModel changed.") == "ScheduleView", "A _printChanges line names its screen")
+        check(ChangeCapture.screen(of: "ReceiptsView: unchanged.") == "ReceiptsView", "An unchanged line is kept: a redraw with nothing changed is itself the clue")
+        check(ChangeCapture.screen(of: "Some other log line") == nil && ChangeCapture.screen(of: "has space: x changed.") == nil, "Other output is ignored")
+        let capture = ChangeCapture()
+        for _ in 0..<50 { capture.add("SearchView: _isSearchPresented changed.") }
+        capture.add("SearchView: @self changed."); capture.add("ScheduleView: _x changed.")
+        check(capture.recent(for: "SearchView", limit: 6) == ["SearchView: _isSearchPresented changed.", "SearchView: @self changed."], "Repeats are shown once, newest last")
         print("Diagnostics checks passed")
     }
 }

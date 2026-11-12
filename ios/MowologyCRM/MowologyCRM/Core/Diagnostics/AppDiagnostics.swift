@@ -228,6 +228,7 @@ extension AppDiagnostics {
 enum RenderRate {
     private static var windows: [String: (start: Date, count: Int)] = [:]
     private static var lastReport: [String: Date] = [:]
+    private static let launched = Date()
 
     static func tick(_ screen: String) {
         let now = Date()
@@ -235,10 +236,100 @@ enum RenderRate {
         if now.timeIntervalSince(w.start) > 2 { w = (now, 0) }
         w.count += 1
         windows[screen] = w
+        // The first seconds after launch redraw every screen a dozen times as the data arrives: not a loop (2026-11-12).
+        guard now.timeIntervalSince(launched) > 6 else { return }
         guard w.count == 11, now.timeIntervalSince(lastReport[screen] ?? .distantPast) > 60 else { return }
         lastReport[screen] = now
+        let why = ChangeCapture.shared.recent(for: screen, limit: 6)
         AppDiagnostics.shared.record(category: "RenderRate",
-                                     message: "\(screen) redrew more than 10 times in 2 s — a redraw loop")
+                                     message: "\(screen) redrew more than 10 times in 2 s — a redraw loop. SwiftUI says it changed: "
+                                        + (why.isEmpty ? "(nothing captured)" : why.joined(separator: " | ")))
+    }
+}
+
+/// Catches what `Self._printChanges()` prints from a view body ("ScheduleView: @self, _viewModel changed.") so a redraw
+/// alarm can say WHICH property keeps changing; the log cannot otherwise name it (2026-11-12). Standard output and
+/// standard error are pointed at a pipe that a background thread reads; every line is passed on to the original
+/// descriptors, so the Xcode console still works. Only lines that end in "changed." are kept.
+final class ChangeCapture: @unchecked Sendable {
+    static let shared = ChangeCapture()
+    private let lock = NSLock()
+    private var lines: [String] = []
+    private var started = false
+    private let keep = 200
+
+    /// Pure: whether `line` is a `_printChanges` line, and for which screen.
+    static func screen(of line: String) -> String? {
+        guard line.hasSuffix("changed."), let colon = line.firstIndex(of: ":") else { return nil }
+        let name = String(line[line.startIndex..<colon])
+        return name.isEmpty || name.contains(" ") ? nil : name
+    }
+
+    func add(_ line: String) {
+        guard Self.screen(of: line) != nil else { return }
+        lock.lock(); defer { lock.unlock() }
+        lines.append(line)
+        if lines.count > keep { lines.removeFirst(lines.count - keep) }
+    }
+
+    func recent(for screen: String, limit: Int) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        let mine = lines.filter { Self.screen(of: $0) == screen }
+        // The same sentence over and over is the answer: show each distinct one once, newest last.
+        var seen = Set<String>(), out: [String] = []
+        for l in mine.reversed() where seen.insert(l).inserted { out.append(l); if out.count == limit { break } }
+        return out.reversed()
+    }
+
+    /// Safety first: this exists to find a freeze, so it must never be able to cause one. The pipe's write end is
+    /// non-blocking (a full pipe drops output instead of blocking a thread); if the reader ever stops, standard output
+    /// and error are pointed back at where they were; setup is undone completely if any step fails.
+    func start() {
+        lock.lock()
+        if started { lock.unlock(); return }
+        started = true
+        lock.unlock()
+        var fds: [Int32] = [0, 0]
+        guard pipe(&fds) == 0 else { return }
+        let readFD = fds[0], writeFD = fds[1]
+        let outCopy = dup(STDOUT_FILENO), errCopy = dup(STDERR_FILENO)
+        func undo() {
+            if outCopy >= 0 { dup2(outCopy, STDOUT_FILENO); close(outCopy) }
+            if errCopy >= 0 { dup2(errCopy, STDERR_FILENO); close(errCopy) }
+            close(readFD); close(writeFD)
+        }
+        guard outCopy >= 0, errCopy >= 0 else { undo(); return }
+        let flags = fcntl(writeFD, F_GETFL)
+        guard flags >= 0, fcntl(writeFD, F_SETFL, flags | O_NONBLOCK) == 0 else { undo(); return }
+        guard dup2(writeFD, STDOUT_FILENO) >= 0 else { undo(); return }
+        guard dup2(writeFD, STDERR_FILENO) >= 0 else { undo(); return }
+        setvbuf(stdout, nil, _IOLBF, 0)   // a pipe makes print() block-buffered: lines would arrive minutes late
+        let thread = Thread { [self] in
+            var pending = Data()
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let n = read(readFD, &chunk, chunk.count)
+                if n < 0 && errno == EINTR { continue }
+                if n <= 0 {   // the reader is stopping: give standard output and error back
+                    dup2(outCopy, STDOUT_FILENO); dup2(errCopy, STDERR_FILENO)
+                    return
+                }
+                #if DEBUG
+                // Keep the Xcode console working (a debug run is attached to Xcode; a TestFlight build never is).
+                _ = chunk.withUnsafeBytes { write(outCopy, $0.baseAddress, n) }
+                #endif
+                pending.append(contentsOf: chunk[0..<n])
+                while let nl = pending.firstIndex(of: 10) {
+                    let lineData = pending[pending.startIndex..<nl]
+                    pending.removeSubrange(pending.startIndex...nl)
+                    if let line = String(data: lineData, encoding: .utf8) { add(line) }
+                }
+                if pending.count > 8192 { pending.removeAll() }
+            }
+        }
+        thread.name = "ca.mowology.change-capture"
+        thread.qualityOfService = .utility
+        thread.start()
     }
 }
 

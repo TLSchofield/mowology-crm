@@ -20,6 +20,7 @@ struct MowologyCRMApp: App {
 
     init() {
         AppCrashReports.shared.start()
+        ChangeCapture.shared.start()   // lets a redraw alarm name the property that changed
         ItFontRegistry.registerAll()
         registerBackgroundTask()
         requestNotificationPermission()

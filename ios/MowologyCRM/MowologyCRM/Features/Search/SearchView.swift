@@ -150,6 +150,7 @@ struct SearchView: View {
 
     var body: some View {
         let _ = RenderRate.tick("SearchView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         NavigationStack {
             ScrollViewReader { proxy in
             List {

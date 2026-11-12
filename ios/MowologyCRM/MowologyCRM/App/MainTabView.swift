@@ -149,6 +149,7 @@ struct MainTabView: View {
 
     var body: some View {
         let _ = RenderRate.tick("MainTabView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         // TabView keeps each tab's screen and navigation alive while another tab shows; its own bar never shows.
         TabView(selection: $selectedTab) {
             ForEach(tabs, id: \.self) { tab in
