@@ -188,6 +188,7 @@ struct ItDesignSettingsRows: View {
     @AppStorage(ItBarLab.keyboardCurveKey) private var barKeyboardCurve = false
     @AppStorage(ItBarLab.largeLabelsKey) private var barLargeLabels = false
     @AppStorage(ItBarLab.dialScrollKey) private var barDialScroll = false
+    @AppStorage(ItBarLab.searchDrawerKey) private var barSearchDrawer = false
     @Environment(\.itAppStyle) private var style
 
     var body: some View {
@@ -215,6 +216,7 @@ struct ItDesignSettingsRows: View {
             labToggle("Keyboard curve", caption: "The bar follows the keyboard frame and timing.", isOn: $barKeyboardCurve)
             labToggle("Larger labels", caption: "Tab labels follow capped Dynamic Type.", isOn: $barLargeLabels)
             labToggle("Scrollable Add dial", caption: "The Add choices scroll in short layouts.", isOn: $barDialScroll)
+            labToggle("System search drawer", caption: "Off: Search uses a plain field. On: the old drawer, which may freeze the app.", isOn: $barSearchDrawer)
         }
     }
 

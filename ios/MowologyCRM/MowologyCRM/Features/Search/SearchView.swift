@@ -129,8 +129,11 @@ struct SearchView: View {
     @StateObject private var owner: OwnerSearchModel
     @StateObject private var voice = VoiceSearch()
     @AppStorage(ItBarLab.scrollTopKey) private var storedScrollTop = false
+    @AppStorage(ItBarLab.searchDrawerKey) private var storedSearchDrawer = false
     /// Presenting the search drawer puts the cursor in the field (iOS 17: `.searchFocused` is iOS 18).
     @State private var isSearchPresented = false
+    /// The plain field's cursor (the default; `isSearchPresented` only drives the opt-in system drawer).
+    @FocusState private var plainFieldFocused: Bool
     /// The "Linda ×" chip: at most one client at a time.
     @State private var scopes: [OwnerSearchScope] = []
     private let authSession: AuthSession
@@ -147,6 +150,17 @@ struct SearchView: View {
     /// With a chip the box may be empty: "Linda ×" alone lists everything about Linda.
     private var showsResults: Bool { vm.trimmedQuery.count >= 2 || scope != nil }
     private var scrollTopEnabled: Bool { ItBarLab.isEnabled("scrollTop", stored: storedScrollTop) }
+    /// The system drawer is opt-in: every freeze in the diagnostic log (2026-11-12) followed the first visit to Search.
+    private var usesSearchDrawer: Bool { ItBarLab.isEnabled("searchDrawer", stored: storedSearchDrawer) }
+    private var searchPrompt: String {
+        scope != nil ? "Anything about them — “unpaid”, “quotes”…"
+            : (isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")
+    }
+    private func submitSearch() {
+        if isOwner && OwnerSearchModel.looksLikeQuestion(vm.trimmedQuery) {
+            Task { await owner.ask(askText) }
+        }
+    }
 
     var body: some View {
         let _ = RenderRate.tick("SearchView")
@@ -156,6 +170,31 @@ struct SearchView: View {
             List {
                 if scrollTopEnabled {
                     Color.clear.frame(height: 0).id("mw-search-top")
+                }
+                if !usesSearchDrawer {
+                    Section {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(appStyle.meta)
+                            TextField(searchPrompt, text: $vm.query)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .submitLabel(.search)
+                                .focused($plainFieldFocused)
+                                .onSubmit { submitSearch() }
+                            if !vm.query.isEmpty {
+                                Button { vm.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(appStyle.meta) }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Clear search")
+                            }
+                        }
+                        .frame(minHeight: 44)
+                        if let scope {
+                            Button { scopes = [] } label: {
+                                Label("\(scope.name) ×", systemImage: scope.kind == "company" ? "building.2" : "person.fill")
+                            }
+                        }
+                    }
+                    .listRowBackground(appStyle.surface)
                 }
                 if let e = voice.error {
                     Section {
@@ -182,14 +221,7 @@ struct SearchView: View {
                 ToolbarItem(placement: .navigationBarLeading) { micButton }
                 ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
             }
-            .searchable(text: $vm.query,
-                        tokens: $scopes,
-                        isPresented: $isSearchPresented,
-                        placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: scope != nil ? "Anything about them — “unpaid”, “quotes”…"
-                            : (isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")) { token in
-                Label(token.name, systemImage: token.kind == "company" ? "building.2" : "person.fill")
-            }
+            .searchDrawer(usesSearchDrawer, text: $vm.query, tokens: $scopes, isPresented: $isSearchPresented, prompt: searchPrompt)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
             .onChange(of: vm.query) { _, _ in
@@ -200,11 +232,7 @@ struct SearchView: View {
                 if new.count > 1 { scopes = [new[new.count - 1]] }
                 if isOwner { owner.queryChanged(vm.trimmedQuery, scope: scopes.first) }
             }
-            .onSubmit(of: .search) {
-                if isOwner && OwnerSearchModel.looksLikeQuestion(vm.trimmedQuery) {
-                    Task { await owner.ask(askText) }
-                }
-            }
+            .onSubmit(of: .search) { submitSearch() }
             .onDisappear { voice.stop() }
             .navigationDestination(for: SearchProperty.self) { property in
                 PropertyDetailView(summary: property, searchVM: vm, authSession: authSession)
@@ -216,7 +244,7 @@ struct SearchView: View {
             .refreshable { await vm.refreshNearby() }
             .onReceive(NotificationCenter.default.publisher(for: .mwSearchTop)) { _ in
                 proxy.scrollTo("mw-search-top", anchor: .top)
-                isSearchPresented = true
+                if usesSearchDrawer { isSearchPresented = true } else { plainFieldFocused = true }
             }
             }
         }
@@ -784,5 +812,21 @@ struct PropertyDetailView: View {
         let out = DateFormatter()
         out.dateFormat = "EEE MMM d"
         return out.string(from: date)
+    }
+}
+
+private extension View {
+    /// The system search drawer, applied only when asked for (see `ItBarLab.searchDrawerKey`).
+    @ViewBuilder
+    func searchDrawer(_ on: Bool, text: Binding<String>, tokens: Binding<[OwnerSearchScope]>,
+                      isPresented: Binding<Bool>, prompt: String) -> some View {
+        if on {
+            searchable(text: text, tokens: tokens, isPresented: isPresented,
+                       placement: .navigationBarDrawer(displayMode: .always), prompt: prompt) { token in
+                Label(token.name, systemImage: token.kind == "company" ? "building.2" : "person.fill")
+            }
+        } else {
+            self
+        }
     }
 }

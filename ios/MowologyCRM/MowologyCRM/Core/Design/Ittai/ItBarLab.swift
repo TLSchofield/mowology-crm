@@ -12,6 +12,9 @@ enum ItBarLab {
     static let keyboardCurveKey = "ittai.bar.keyboardCurve"
     static let largeLabelsKey = "ittai.bar.largeLabels"
     static let dialScrollKey = "ittai.bar.dialScroll"
+    /// ON = the system search drawer (`.searchable`); OFF (the default since 2026-11-12) = a plain field in the list.
+    /// Every freeze in the diagnostic log followed the first visit to the Search tab.
+    static let searchDrawerKey = "ittai.bar.searchDrawer"
 
     /// Returns the lab names requested by a `-mwBarLab` comma-separated launch argument.
     static func launchOverrides(arguments: [String]) -> Set<String> {
