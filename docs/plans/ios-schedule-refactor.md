@@ -15,3 +15,16 @@ Scope: iPhone only (`ios/MowologyCRM/.../Features/Schedule`). Behaviour identica
 5. Split `DayListView` and `ScheduleTimelineViews` along their rules files.
 
 Not in scope: Add Job, visit detail, photos, the web schedule, any visual change.
+
+## Step 3 plan (2026-11-12) — split ScheduleViewModel by rate of change
+
+Evidence: the 2026-11-12 phone log shows ScheduleView redrawing 10+ times in 2 s while another tab is showing; captured causes include `_viewModel`, `__ottoSuggestion`, `__lineMonth`, `_scenePhase`. The model has ~16 `@Published` values (lines 66–213) read by one view, so any of them redraws the whole screen.
+
+Unknowns: (1) which published value fires fastest — settle by adding `RenderRate.tick` to `DayCarouselView` and `DayListView` and reading the next export; (2) whether views read model values by name in ways a split would break — settle with `graphify touches ScheduleViewModel` and grep for `viewModel.`/`vm.` (66 uses in ScheduleView).
+
+Split (three observable objects, ScheduleViewModel keeps its public API as a facade so call sites do not change in the first pass):
+- Filters (rarely): scope, jobType, crewFilter, canSwitchScope, jobTypes, crews.
+- Live (every few seconds): userLocation, crewRoutes, crewLive, isOffline, lastFetched, isLoading, errorMessage.
+- Day data (per fetch): selectedDate, weekDays, stops, appointments, timelineInput, quizRequired.
+
+Each step proven by `bash ios/LogicTests/run.sh` + whole-app typecheck; the redraw alarm lines in the next export are the measure. Parts that need no measurement first (the Search nearby cooldown) are done separately.
