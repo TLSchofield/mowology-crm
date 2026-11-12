@@ -183,6 +183,20 @@ final class OnboardingStepServiceTest extends TestCase
         $this->assertSame('name',$s->apply(7,['key'=>'books','do'=>'ack','knows'=>''])['next'],'next is a step the old app knows');
     }
 
+    public function test_contacts_finish_replaces_total_skip_sets_answer_and_old_apps_cannot_reach_it(): void
+    {
+        $db=$this->db();$s=new OnboardingStepService($db,'tenant');
+        $this->assertSame('No such step.',$s->apply(7,['key'=>'contacts','do'=>'finish','count'=>2,'knows'=>''])['message']);
+        $this->assertFalse($s->apply(7,['key'=>'contacts','do'=>'finish','count'=>-1,'knows'=>'contacts'])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'contacts','do'=>'finish','count'=>12,'knows'=>'contacts'])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'contacts','do'=>'finish','count'=>3,'knows'=>'contacts'])['ok']);
+        $this->assertSame('3',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_contacts_count'")->fetchColumn());
+        $this->assertTrue($s->apply(7,['key'=>'contacts','do'=>'skip','knows'=>'contacts'])['ok']);
+        $this->assertSame('skipped',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_contacts_answer'")->fetchColumn());
+        $tooMany=$s->apply(7,['key'=>'contacts','do'=>'import','contacts'=>array_fill(0,201,[]),'knows'=>'contacts']);
+        $this->assertFalse($tooMany['ok']);$this->assertSame('too_many',$tooMany['error']);
+    }
+
     private function snapshot(PDO $db): void
     {
         $db->exec('CREATE TABLE qbo_onboarding_snapshot (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, qbo_id TEXT, data TEXT, pulled_at TEXT)');

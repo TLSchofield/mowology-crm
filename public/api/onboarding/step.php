@@ -55,5 +55,6 @@ $data = OnboardingApiPresenter::data(getDB(), (int)$jwtUser['id'], Tenant::db()[
 if (isset($result['matches'])) { $data[$key]['matches'] = $result['matches']; $data[$key]['registry'] = $result['registry'] ?? ''; }
 if (isset($result['invite'])) $data[$key]['invite'] = $result['invite'];
 $out = ['ok' => true, 'next' => $result['next'], 'data' => $data[$key] ?? []];
+if (isset($result['results'])) $out['results'] = $result['results'];
 if (!empty($result['message'])) $out['message'] = $result['message'];
 echo json_encode($out);

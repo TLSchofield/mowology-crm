@@ -10,6 +10,7 @@ require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboSyncService.php';
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboExpenseSyncService.php';
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboRecurringService.php';
 require_once dirname(__DIR__, 2) . '/Ledger/Services/AccountantInviteService.php';
+require_once dirname(__DIR__, 2) . '/Contacts/Services/ContactImportService.php';
 
 final class OnboardingStepService
 {
@@ -33,7 +34,7 @@ final class OnboardingStepService
         $key = trim((string)($in['key'] ?? ''));
         $do = trim((string)($in['do'] ?? ''));
         if ($onboarding->module($key) === null) return ['ok' => false, 'error' => 'validation', 'message' => 'No such step.'];
-        if ($do === 'skip') {
+        if ($do === 'skip' && $key !== 'contacts') {
             $r = $onboarding->skip($key, true);
             return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null]
                 : ['ok' => false, 'error' => 'refused', 'message' => (string)($r['message'] ?? '')];
@@ -86,6 +87,26 @@ final class OnboardingStepService
                 else return self::badAction();
                 return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null]
                     : ['ok' => false, 'error' => 'refused', 'message' => (string)($r['message'] ?? '')];
+            }
+            if ($key === 'contacts') {
+                $m = new OnboardingContactsModule();
+                if ($do === 'import') {
+                    if (!is_array($in['contacts'] ?? null)) return ['ok' => false, 'error' => 'validation', 'message' => 'Send a list of contacts to import.'];
+                    if (count($in['contacts']) > 200) return ['ok' => false, 'error' => 'too_many', 'message' => 'Send no more than 200 contacts at a time.'];
+                    $results = (new ContactImportService($this->db))->import($in['contacts']);
+                    return ['ok' => true, 'next' => $onboarding->next(), 'message' => 'Contacts checked.', 'results' => $results];
+                }
+                if ($do === 'finish') {
+                    $count = filter_var($in['count'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+                    if ($count === false) return ['ok' => false, 'error' => 'validation', 'message' => 'Send the total number of clients you kept.'];
+                    $m->finish($context, (int)$count);
+                    return ['ok' => true, 'next' => $onboarding->next(), 'message' => 'Your phone clients are ready.'];
+                }
+                if ($do === 'skip') {
+                    $m->skip($context);
+                    return ['ok' => true, 'next' => $onboarding->next(), 'message' => 'Skipped.'];
+                }
+                return self::badAction();
             }
             if ($key === 'terms' && $do === 'accept') {
                 (new OnboardingTermsModule())->accept($context);
