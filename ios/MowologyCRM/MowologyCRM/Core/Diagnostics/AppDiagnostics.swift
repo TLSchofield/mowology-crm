@@ -6,6 +6,16 @@ struct DiagnosticsSnapshot: Sendable {
     let url: URL
 }
 
+struct BreadcrumbBuffer {
+    let limit: Int
+    private(set) var items: [String] = []
+
+    mutating func append(_ item: String) {
+        items.append(item)
+        if items.count > limit { items.removeFirst(items.count - limit) }
+    }
+}
+
 final class AppDiagnostics: @unchecked Sendable {
     static let shared = AppDiagnostics(directory: FileManager.default.urls(for: .applicationSupportDirectory,
                                                                           in: .userDomainMask)[0]
@@ -16,6 +26,8 @@ final class AppDiagnostics: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ca.mowology.diagnostics", qos: .utility)
     // All mutable state and disk access are confined to queue.
     private var lastFailure: NSError?
+    private let crumbLock = NSLock()
+    private var breadcrumbs = BreadcrumbBuffer(limit: 30)
     private let files = FileManager.default
 
     init(directory: URL, maxBytes: Int = 1_048_576) {
@@ -92,6 +104,13 @@ final class AppDiagnostics: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// A small in-memory trail for a hang report. It is independent of the disk queue so the watchdog never waits
+    /// for log I/O, and is bounded because navigation labels may be produced for the lifetime of the process.
+    func recentBreadcrumbs() -> [String] {
+        crumbLock.lock(); defer { crumbLock.unlock() }
+        return breadcrumbs.items
     }
 
     private func logURL(_ index: Int) -> URL {
@@ -214,9 +233,14 @@ extension AppDiagnostics {
 
     /// What the owner just pressed (tab, Add dial), kept in the log so a freeze names its last taps. At most 60 a minute.
     func crumb(_ what: String) {
+        crumbLock.lock()
+        breadcrumbs.append(what)
+        crumbLock.unlock()
+
         let r = LogThrottle.shared.admit("crumb", limit: 60, interval: 60)
         guard r.admitted else { return }
-        record(category: "nav", message: what + (r.heldBefore > 0 ? " (\(r.heldBefore) not logged in the last minute)" : ""))
+        let message = what + (r.heldBefore > 0 ? " (\(r.heldBefore) not logged in the last minute)" : "")
+        record(category: "nav", message: message)
     }
 }
 

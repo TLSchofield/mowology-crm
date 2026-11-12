@@ -16,6 +16,11 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Main-thread stall decisions and same-build crash-loop evaluation.
+cp "$ROOT/ios/LogicTests/CrashGuardTests.swift" "$OUT/main.swift"
+run crashguards -DCRASH_GUARD_LOGIC_ONLY "$SRC/Core/Diagnostics/HangWatchdog.swift" \
+  "$SRC/Core/Diagnostics/CrashLoopBreaker.swift" "$SRC/Core/Diagnostics/AppDiagnostics.swift" "$OUT/main.swift"
+
 # swiftc treats the file named main.swift as the entry point — copy the checks to that name.
 cp "$ROOT/ios/LogicTests/BatchCameraModelsTests.swift" "$OUT/main.swift"
 run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
