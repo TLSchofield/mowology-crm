@@ -51,7 +51,7 @@ struct ItPhoneContacts: View {
                 .tint(it.brand)
             heading("Adding \(min(viewModel.sentCount + 1, viewModel.totalToSend)) of \(viewModel.totalToSend)…")
         case .done:
-            heading("Added \(viewModel.tally.created) clients. \(viewModel.tally.matched) were already in Ittai.")
+            heading("Added \(viewModel.tally.created) \(viewModel.tally.created == 1 ? "client" : "clients"). \(viewModel.tally.matched) \(viewModel.tally.matched == 1 ? "was" : "were") already in Ittai.")
             primary("Continue") { Task { await viewModel.finish() } }
         case .failed:
             heading("I couldn't finish adding these clients.")
