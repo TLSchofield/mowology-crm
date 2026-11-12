@@ -19,6 +19,12 @@ final class ContactImportServiceTest extends TestCase
         $this->assertSame(['Prince', ''], ContactImportService::splitName('Prince'));
     }
 
+    public function test_import_note_names_the_selected_source(): void
+    {
+        $this->assertSame('Imported from Google contacts.', ContactImportService::importNote('google'));
+        $this->assertSame('Imported from phone contacts.', ContactImportService::importNote('phone'));
+    }
+
     public function test_mobile_and_iphone_labels_win_and_other_numbers_fill_phone(): void
     {
         $this->assertSame(['604-111-2222', '604-333-4444'], ContactImportService::labelNumbers([

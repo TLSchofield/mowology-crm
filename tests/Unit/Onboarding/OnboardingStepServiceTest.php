@@ -197,6 +197,39 @@ final class OnboardingStepServiceTest extends TestCase
         $this->assertFalse($tooMany['ok']);$this->assertSame('too_many',$tooMany['error']);
     }
 
+    public function test_google_contacts_start_list_and_import_source_use_injected_services(): void
+    {
+        $db=$this->db();
+        $stage=new class {
+            public ?array $answer=null;
+            public function take(string $nonce,int $userId):?array{return $this->answer;}
+        };
+        $google=static fn(PDO $db)=>['client_id'=>'client-id','state_secret'=>'state-secret','business_key'=>'greenleaf','stage'=>$stage];
+        $importer=new class {
+            public string $source='';
+            public function import(array $contacts,string $source='phone'):array{$this->source=$source;return [['ref'=>'people/1','outcome'=>'created','contact_id'=>9]];}
+        };
+        $service=new OnboardingStepService($db,'tenant',null,null,null,$google,static fn(PDO $db)=>$importer);
+        $start=$service->apply(7,['key'=>'contacts','do'=>'google_start','knows'=>'contacts']);
+        $this->assertTrue($start['ok']);$this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/',$start['nonce']);
+        $this->assertStringStartsWith('https://accounts.google.com/o/oauth2/v2/auth?',$start['url']);
+        $expired=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
+        $this->assertSame('expired',$expired['error']);
+        $stage->answer=[['ref'=>'people/1','first'=>'Ada']];
+        $listed=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
+        $this->assertSame('Ada',$listed['contacts'][0]['first']);
+        $service->apply(7,['key'=>'contacts','do'=>'import','source'=>'google','contacts'=>[['ref'=>'people/1','first'=>'Ada']],'knows'=>'contacts']);
+        $this->assertSame('google',$importer->source);
+    }
+
+    public function test_google_start_reports_not_configured_without_server_constants(): void
+    {
+        if (defined('ITTAI_GOOGLE_WEB_CLIENT_ID') || defined('ITTAI_GOOGLE_WEB_CLIENT_SECRET')) $this->markTestSkipped('Server constants are present.');
+        $result=(new OnboardingStepService($this->db(),'tenant'))->apply(7,['key'=>'contacts','do'=>'google_start','knows'=>'contacts']);
+        $this->assertFalse($result['ok']);$this->assertSame('not_configured',$result['error']);
+        $this->assertSame('Google is not set up on this server yet.',$result['message']);
+    }
+
     private function snapshot(PDO $db): void
     {
         $db->exec('CREATE TABLE qbo_onboarding_snapshot (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, qbo_id TEXT, data TEXT, pulled_at TEXT)');

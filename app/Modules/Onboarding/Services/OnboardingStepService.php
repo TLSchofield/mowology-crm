@@ -11,6 +11,8 @@ require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboExpenseSyncService.p
 require_once dirname(__DIR__, 2) . '/QuickBooks/Services/QboRecurringService.php';
 require_once dirname(__DIR__, 2) . '/Ledger/Services/AccountantInviteService.php';
 require_once dirname(__DIR__, 2) . '/Contacts/Services/ContactImportService.php';
+require_once dirname(__DIR__, 2) . '/Contacts/Services/GoogleContactsOAuth.php';
+require_once dirname(__DIR__, 2) . '/Contacts/Services/GoogleContactsStageService.php';
 
 final class OnboardingStepService
 {
@@ -19,11 +21,13 @@ final class OnboardingStepService
     private $identityFactory;
     private $qboFactory;
     private $accountantFactory;
+    private $googleFactory;
+    private $contactImportFactory;
 
-    public function __construct(PDO $db, string $dbName, ?callable $identityFactory = null, ?callable $qboFactory = null, ?callable $accountantFactory = null)
+    public function __construct(PDO $db, string $dbName, ?callable $identityFactory = null, ?callable $qboFactory = null, ?callable $accountantFactory = null, ?callable $googleFactory = null, ?callable $contactImportFactory = null)
     {
         $this->db = $db; $this->dbName = $dbName;
-        $this->identityFactory = $identityFactory; $this->qboFactory = $qboFactory; $this->accountantFactory = $accountantFactory;
+        $this->identityFactory = $identityFactory; $this->qboFactory = $qboFactory; $this->accountantFactory = $accountantFactory; $this->googleFactory = $googleFactory; $this->contactImportFactory = $contactImportFactory;
     }
 
     public function apply(int $userId, array $in): array
@@ -90,10 +94,31 @@ final class OnboardingStepService
             }
             if ($key === 'contacts') {
                 $m = new OnboardingContactsModule();
+                if ($do === 'google_start') {
+                    $google = $this->google();
+                    if ($google === null) return ['ok' => false, 'error' => 'not_configured', 'message' => 'Google is not set up on this server yet.'];
+                    $secret = (string)($google['state_secret'] ?? '');
+                    if ($secret === '') throw new RuntimeException('Google state signing is not configured.');
+                    $nonce = bin2hex(random_bytes(16));
+                    $businessKey = isset($google['business_key']) ? (string)$google['business_key'] : Tenant::key();
+                    $state = GoogleContactsOAuth::signState(['b' => $businessKey, 'u' => $userId, 'n' => $nonce, 'e' => time() + 300], $secret);
+                    return ['ok' => true, 'next' => $onboarding->next(), 'url' => GoogleContactsOAuth::authUrl((string)$google['client_id'], GoogleContactsOAuth::REDIRECT_URI, $state), 'nonce' => $nonce];
+                }
+                if ($do === 'google_list') {
+                    $nonce = strtolower(trim((string)($in['nonce'] ?? '')));
+                    if (!preg_match('/^[a-f0-9]{32}$/', $nonce)) return ['ok' => false, 'error' => 'expired', 'message' => 'That Google list is no longer available. Start again.'];
+                    $google = $this->googleFactory ? $this->google() : null;
+                    $stage = $google['stage'] ?? new GoogleContactsStageService($this->db);   // reading a staged list needs no Google settings
+                    $contacts = $stage->take($nonce, $userId);
+                    if ($contacts === null) return ['ok' => false, 'error' => 'expired', 'message' => 'That Google list is no longer available. Start again.'];
+                    return ['ok' => true, 'next' => $onboarding->next(), 'contacts' => $contacts];
+                }
                 if ($do === 'import') {
                     if (!is_array($in['contacts'] ?? null)) return ['ok' => false, 'error' => 'validation', 'message' => 'Send a list of contacts to import.'];
                     if (count($in['contacts']) > 200) return ['ok' => false, 'error' => 'too_many', 'message' => 'Send no more than 200 contacts at a time.'];
-                    $results = (new ContactImportService($this->db))->import($in['contacts']);
+                    $source = (string)($in['source'] ?? 'phone') === 'google' ? 'google' : 'phone';
+                    $importer = $this->contactImportFactory ? ($this->contactImportFactory)($this->db) : new ContactImportService($this->db);
+                    $results = $importer->import($in['contacts'], $source);
                     return ['ok' => true, 'next' => $onboarding->next(), 'message' => 'Contacts checked.', 'results' => $results];
                 }
                 if ($do === 'finish') {
@@ -192,6 +217,17 @@ final class OnboardingStepService
         $connected = $conn->tablesReady() && $conn->company() !== null;
         return ['connected' => $connected, 'conn' => $connected ? $conn : null, 'onboarding' => new QboOnboardingService($this->db, $connected ? $conn : null),
                 'sync' => new QboSyncService($conn), 'expenses' => new QboExpenseSyncService($conn)];
+    }
+    private function google(): ?array
+    {
+        if ($this->googleFactory) return ($this->googleFactory)($this->db);
+        $clientId = defined('ITTAI_GOOGLE_WEB_CLIENT_ID') ? trim((string)constant('ITTAI_GOOGLE_WEB_CLIENT_ID')) : '';
+        $clientSecret = defined('ITTAI_GOOGLE_WEB_CLIENT_SECRET') ? trim((string)constant('ITTAI_GOOGLE_WEB_CLIENT_SECRET')) : '';
+        if ($clientId === '' || $clientSecret === '') return null;
+        $stateSecret = GoogleContactsOAuth::stateSecret();
+        if ($stateSecret === null) throw new RuntimeException('Google state signing is not configured.');
+        return ['client_id' => $clientId, 'state_secret' => $stateSecret,
+            'oauth' => new GoogleContactsOAuth($clientId, $clientSecret), 'stage' => new GoogleContactsStageService($this->db)];
     }
     private function finish(array $r, OnboardingService $onboarding): array
     { return !empty($r['ok']) ? ['ok' => true, 'next' => $onboarding->next(), 'message' => $r['message'] ?? null] : ['ok' => false, 'error' => 'validation', 'message' => (string)($r['message'] ?? $r['error'] ?? '')]; }
