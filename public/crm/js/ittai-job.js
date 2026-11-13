@@ -307,26 +307,10 @@
      * Approve button does, on the account the owner picks (no receipt link): a person's pick over Penny's suggestion is a lesson
      * (BankRuleLearning), so she remembers it for this payee. Back puts the two buttons back.
      */
-    /** The chart is sent once, with the first month job; any job's copy will do for the picker. */
-    function chartOf() {
-        for (var i = 0; i < queue.length; i++) if (queue[i].accounts && queue[i].accounts.length) return queue[i].accounts;
-        return [];
-    }
-    /**
-     * "Ask Penny" (the month job, a line she has no account for): the Bank card's own bank_guidance, on this press only. Her answer
-     * (her words, and the account she would pick) opens the picker with that account chosen; nothing is filed until Save.
-     */
-    function guide(job, req) {
-        if (busy) return;
-        setBusy(true);
-        say('Asking Penny…', false);
-        post({ mode: 'bank_guidance', transaction_id: req.transaction_id }, job).then(function (d) {
-            setBusy(false);
-            if (!(d && d.ok)) { say((d && (d.message || d.error)) || 'Could not ask just now — pick the account yourself.', false); return; }
-            say(d.say || '', false);
-            choose(job, { transaction_id: req.transaction_id, suggested_id: 0 }, { account_id: d.account_id, guidance_id: d.guidance_id });
-        }).catch(function () { setBusy(false); say('Could not ask just now — pick the account yourself.', false); });
-    }
+    /** The chart is sent once, with the first month job, and kept here: the first job leaves the queue when it is settled, the picker still needs it. */
+    var chart = [];
+    queue.forEach(function (j) { if (!chart.length && j.accounts && j.accounts.length) chart = j.accounts; });
+    function chartOf() { return chart; }
     function choose(job, req, pre) {
         var acts = root.querySelector('.it-job-rail .it-job-acts');
         if (!acts || root.querySelector('.it-job-choose')) return;
@@ -620,16 +604,16 @@
             wrap.classList.remove('is-solo');
             var tight = rail.scrollWidth > rail.clientWidth + 1;
             if (!tight) {   // the chart icon sits at the rail's height on the graph card
-                var lead = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
                 var viz = wrap.querySelector(':scope > .it-job-viz');
-                if (lead && viz) viz.style.setProperty('--it-rail-y', Math.round(lead.getBoundingClientRect().top + lead.getBoundingClientRect().height / 2 - viz.getBoundingClientRect().top) + 'px');
+                var rr = rail.getBoundingClientRect();   // the rail's own line sits at its vertical centre (ittai-shell.css .it-job-rail::before)
+                if (viz) viz.style.setProperty('--it-rail-y', (rr.top + rr.height / 2 - viz.getBoundingClientRect().top).toFixed(1) + 'px');
             }
             wrap.classList.toggle('is-solo', tight);
             if (tight !== was) window.dispatchEvent(new Event('resize'));   // the head card's line re-finds the strip
         };
         var queueFit = function () { if (!fitQueued) { fitQueued = true; requestAnimationFrame(fit); } };
         window.addEventListener('resize', queueFit);
-        if ('ResizeObserver' in window && wrap.parentNode) new ResizeObserver(queueFit).observe(wrap.parentNode);
+        if ('ResizeObserver' in window && wrap.parentNode) { var ro = new ResizeObserver(queueFit); ro.observe(wrap.parentNode); ro.observe(root); }
         if ('MutationObserver' in window) new MutationObserver(queueFit).observe(root, { childList: true, subtree: true });
         queueFit();
     }

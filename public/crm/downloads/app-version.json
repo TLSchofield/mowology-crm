@@ -11,6 +11,7 @@
     "native_camera": false,
     "native_visit": false,
     "native_receipts": true,
+    "native_receipt_review": true,
     "native_plants": true,
     "native_signup": false,
     "native_day": true,

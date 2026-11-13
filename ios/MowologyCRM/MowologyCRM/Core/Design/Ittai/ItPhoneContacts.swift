@@ -35,9 +35,14 @@ struct ItPhoneContacts: View {
             Text("Only the contacts you choose leave your phone. They arrive with no marketing permission, so Ittai never emails or texts them until they say yes.")
                 .itText(.body14).foregroundStyle(it.meta).fixedSize(horizontal: false, vertical: true)
             primary("Choose clients") { Task { await viewModel.chooseClients() } }
+            ghost("Use Google contacts") { Task { await viewModel.chooseGoogle() } }
             ghost("Not now") { Task { await viewModel.skip() } }
         case .requestingPermission:
             ProgressView("Waiting for Contacts permission").tint(it.brand)
+        case .signingInGoogle:
+            ProgressView("Opening Google contacts").tint(it.brand)
+        case .loadingGoogle:
+            ProgressView("Loading Google contacts").tint(it.brand)
         case .denied:
             heading("Ittai can't see your contacts. You can turn that on in Settings.")
             primary("Open Settings") {
@@ -145,6 +150,8 @@ struct ItPhoneContacts: View {
 
     private var announcement: String {
         switch viewModel.phase {
+        case .signingInGoogle: return "Opening Google contact access."
+        case .loadingGoogle: return "Loading Google contacts."
         case .picking: return "Contacts are ready to choose. Nothing is selected."
         case .sending: return "Adding selected clients."
         case .done: return "Clients added."
@@ -164,7 +171,8 @@ struct ItPhoneContacts: View {
 
 #if DEBUG
 struct PhoneContactsDemoHost: View {
-    @StateObject private var viewModel = PhoneContactsViewModel(api: DemoPhoneContactsAPI(), reader: DemoPhoneContactsReader())
+    @StateObject private var viewModel = PhoneContactsViewModel(api: DemoPhoneContactsAPI(), reader: DemoPhoneContactsReader(),
+                                                                googleSignIn: DemoGoogleContactsSession())
     var body: some View {
         ScrollView { ItPhoneContacts(viewModel: viewModel).padding(ItSpace.s4) }
             .ittaiTheme(field: false)

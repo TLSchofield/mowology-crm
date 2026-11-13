@@ -92,15 +92,16 @@ class BankLineEvidence
         } catch (Throwable $e) { /* no vendors table: none match */ }
         foreach ($lines as $l) {
             $id = (int)$l['id'];
-            $row = ['earlier' => [], 'receipts' => [], 'recurring' => 0, 'vendor' => self::vendorFor((string)($l['description'] ?? ''), $vendors)];
+            $row = ['earlier' => [], 'receipts' => [], 'recurring' => 0, 'unreadable' => false, 'vendor' => self::vendorFor((string)($l['description'] ?? ''), $vendors)];
             try {
                 $stem = self::stem((string)($l['description'] ?? ''));
+                $row['unreadable'] = $stem === '';   // too little text to match on: say nothing about earlier lines
                 if ($stem !== '') {
                     // narrowed in SQL on the stem's start with spaces ignored, then compared exactly in PHP
                     $q = $this->db->prepare("SELECT t.id, t.transaction_date, t.amount, t.description, c.code, c.name
                                              FROM accounting_transactions t LEFT JOIN chart_of_accounts c ON c.id = t.account_id
                                              WHERE t.reference_type = 'bank_import' AND t.id <> ?
-                                               AND REPLACE(UPPER(t.description), ' ', '') LIKE ?
+                                               AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(UPPER(t.description), ' ', ''), '-', ''), '&', ''), '''', ''), '.', ''), ',', '') LIKE ?
                                                AND COALESCE(t.status, '') NOT IN ('void', 'deleted')
                                              ORDER BY t.transaction_date DESC LIMIT " . (self::MAX_EARLIER * 3));
                     $q->execute([$id, '%' . substr($stem, 0, 6) . '%']);
@@ -127,14 +128,16 @@ class BankLineEvidence
 
     /**
      * Pure: the evidence as short sentences, most useful first, at most four. A default account (4900 / 6900) is "not sorted".
-     * @param array{earlier?: list<array>, receipts?: list<array>, recurring?: int, vendor?: ?array} $e
+     * @param array{earlier?: list<array>, receipts?: list<array>, recurring?: int, vendor?: ?array, unreadable?: bool} $e
      * @return list<string>
      */
     public static function summarise(array $e, array $defaultCodes = ['4900', '6900']): array
     {
         $out = [];
         $earlier = (array)($e['earlier'] ?? []);
-        if (!$earlier) {
+        if (!$earlier && !empty($e['unreadable'])) {
+            // not enough text to look for earlier lines: no claim either way
+        } elseif (!$earlier) {
             $out[] = 'First time this payee is on your bank lines';
         } else {
             $by = [];
@@ -150,7 +153,7 @@ class BankLineEvidence
         }
         $rc = (array)($e['receipts'] ?? []);
         if (!$rc) {
-            $out[] = 'No receipt within 14 days';
+            $out[] = 'No unlinked receipt of about this amount within 14 days';
         } else {
             $r = $rc[0];
             $out[] = 'Receipt: ' . ($r['vendor'] !== '' ? $r['vendor'] : 'no name') . ' $' . number_format((float)$r['amount'], 2) . ' · ' . $r['date']
@@ -159,7 +162,7 @@ class BankLineEvidence
         $rec = (int)($e['recurring'] ?? 0);
         if ($rec >= 2) $out[] = 'Same amount ' . ($rec + 1) . ' times — it repeats';
         $v = $e['vendor'] ?? null;
-        $out[] = is_array($v) ? 'Vendor on file: ' . $v['name'] . ($v['category'] !== '' ? ' (usually ' . $v['category'] . ')' : '') : 'No vendor of yours matches';
+        $out[] = is_array($v) ? 'Vendor on file: ' . $v['name'] . ($v['category'] !== '' ? ' (usually ' . $v['category'] . ')' : '') : 'No vendor on file starts this text';
         return array_slice($out, 0, 4);
     }
 }

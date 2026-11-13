@@ -116,6 +116,17 @@ final class CameraController: NSObject, ObservableObject {
         if videoMode { await setVideoMode(true) }
     }
 
+    /// Receipt camera's black-screen watchdog: stop and start the session again. Does nothing if it was closed meanwhile.
+    func restart() {
+        sessionQueue.async { [weak self] in
+            guard let self, self.configured else { return }
+            if self.session.isRunning { self.session.stopRunning() }
+            self.session.startRunning()
+            let running = self.session.isRunning
+            DispatchQueue.main.async { self.isRunning = running }
+        }
+    }
+
     func stop() {
         sessionQueue.async { [weak self] in
             guard let self else { return }

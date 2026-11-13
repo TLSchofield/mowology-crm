@@ -58,17 +58,17 @@ class OttoJobAdapterTest extends TestCase
         $this->assertTrue($j['secondary']['skip']);
     }
 
-    public function test_other_kinds_are_left_to_the_things_strip_and_duplicates_collapse_and_order_is_by_urgency(): void
+    public function test_unknown_kinds_stay_off_the_line_and_duplicates_collapse_and_order_is_by_urgency(): void
     {
         $items = [
-            $this->item(['kind' => 'no_time', 'key' => 'a']),
+            $this->item(['kind' => 'silent', 'key' => 'a']),
             $this->item(['kind' => 'unscheduled', 'key' => 'b', 'id' => 1]),
             $this->item(['kind' => 'unscheduled', 'key' => 'b', 'id' => 1]),
             $this->item(['kind' => 'weather', 'key' => 'c', 'id' => 2]),
         ];
         $jobs = OttoJobAdapter::queue($items, [], [], [0, 0]);
         $this->assertSame(['weather', 'unscheduled'], array_column($jobs, 'kind'));
-        $this->assertCount(OttoJobAdapter::MAX_JOBS, OttoJobAdapter::queue(array_map(fn($i) => $this->item(['key' => 'k' . $i, 'id' => $i + 1]), range(1, 9)), [], [], [0, 0]));
+        $this->assertCount(OttoJobAdapter::MAX_JOBS, OttoJobAdapter::queue(array_map(fn($i) => $this->item(['key' => 'k' . $i, 'id' => $i + 1]), range(1, OttoJobAdapter::MAX_JOBS + 4)), [], [], [0, 0]));
     }
 
     public function test_confidence_is_the_triangle_from_the_record(): void
@@ -90,5 +90,67 @@ class OttoJobAdapterTest extends TestCase
         ];
         $jobs = OttoJobAdapter::queue($items, [], [], [0, 0], '2026-11-11');
         $this->assertSame(['otto:o2', 'otto:v'], array_column($jobs, 'key'));
+    }
+
+    public function test_only_decisions_for_the_days_in_view_are_carried(): void
+    {
+        $items = [
+            $this->item(['kind' => 'visit_date', 'key' => 'in', 'id' => 3, 'day' => '2026-11-10']),
+            $this->item(['kind' => 'visit_date', 'key' => 'out', 'id' => 4, 'day' => '2026-11-20']),
+        ];
+        $jobs = OttoJobAdapter::queue($items, [], [], [0, 0], null, ['2026-11-09', '2026-11-15']);
+        $this->assertSame(['otto:in'], array_column($jobs, 'key'));
+    }
+
+    public function test_a_move_target_outside_the_view_does_not_relabel_the_card_day(): void
+    {
+        $it = $this->item(['kind' => 'visit_date', 'key' => 'v', 'id' => 3, 'day' => '2026-11-10', 'propose' => ['to' => '2026-11-03', 'to_label' => 'Tue Nov 3']]);
+        $j = OttoJobAdapter::queue([$it], [], [], [0, 0], null, ['2026-11-09', '2026-11-15'])[0];
+        $this->assertSame('2026-11-10', $j['day']);
+    }
+
+    public function test_housekeeping_kinds_use_the_cards_decide_buttons_and_do_not_move_the_record(): void
+    {
+        $q = fn(array $o) => OttoJobAdapter::queue([$this->item($o)], [], [], [0, 0])[0];
+        $nt = $q(['kind' => 'no_time', 'propose' => ['minutes' => 45]]);
+        $this->assertSame(['suggestion_id' => 11, 'choice' => 'apply', 'minutes' => 45], $nt['primary']['request']['body']);
+        $this->assertTrue($nt['secondary']['skip']);
+        $this->assertArrayHasKey('href', $q(['kind' => 'no_time'])['primary']);
+        $du = $q(['kind' => 'duration', 'propose' => ['minutes' => 60, 'planned' => 45]]);
+        $this->assertSame('apply', $du['primary']['request']['body']['choice']);
+        $this->assertSame('keep', $du['secondary']['request']['body']['choice']);
+        $this->assertSame('move_pin', $q(['kind' => 'pin_off'])['primary']['request']['body']['choice']);
+        $this->assertSame('dismiss', $q(['kind' => 'pin_off'])['secondary']['request']['body']['choice']);
+        $db = $q(['kind' => 'default_border', 'url' => '/crm/jobs/zone-editor.php?property_id=3']);
+        $this->assertSame('/crm/jobs/zone-editor.php?property_id=3', $db['primary']['href']);
+        $this->assertSame('keep', $db['secondary']['request']['body']['choice']);
+        foreach (['no_pin', 'border_overlap'] as $k) {
+            $j = $q(['kind' => $k]);
+            $this->assertArrayHasKey('href', $j['primary']);
+            $this->assertSame('dismiss', $j['secondary']['request']['body']['choice']);
+        }
+        $this->assertContains('pin_off', OttoJobAdapter::HOUSEKEEPING);
+        $this->assertNotContains('pin_off', OttoJobAdapter::KINDS);
+    }
+
+    public function test_link_only_kinds_and_route_conflicts_open_and_skip(): void
+    {
+        foreach (['empty_stop', 'no_border'] as $k) {
+            $j = OttoJobAdapter::queue([$this->item(['id' => null, 'kind' => $k, 'url' => '/x'])], [], [], [0, 0])[0];
+            $this->assertSame('/x', $j['primary']['href']);
+            $this->assertTrue($j['secondary']['skip']);
+        }
+        $items = OttoJobAdapter::conflictItems([
+            ['type' => 'truck_at_site_no_clockin', 'visit_id' => 5, 'visit_date' => '2026-11-11', 'property_address' => '12 Elm', 'truck_name' => 'Truck 1', 'truck_id' => 9, 'first_seen' => '9:00 am', 'last_seen' => '10:00 am', 'dwell_minutes' => 60, 'crew_name' => 'Sam'],
+            ['type' => 'clockin_no_truck', 'visit_id' => 6, 'visit_date' => '2026-11-12', 'property_address' => '3 Oak'],
+            ['type' => 'x', 'visit_id' => 0, 'visit_date' => ''],
+        ]);
+        $this->assertCount(2, $items);
+        $jobs = OttoJobAdapter::queue($items, [], [], [0, 0], '2026-11-10', ['2026-11-09', '2026-11-15']);
+        $this->assertSame(['route_conflict', 'route_conflict'], array_column($jobs, 'kind'));
+        $this->assertSame('/crm/jobs/conflict-resolution.php?visit_id=5&date=2026-11-11&truck_id=9', $jobs[0]['primary']['href']);
+        $this->assertSame('2026-11-11', $jobs[0]['day']);
+        $this->assertStringContainsString('never clocked in', $jobs[0]['post']['caption']);
+        $this->assertArrayNotHasKey('request', $jobs[1]['primary']);
     }
 }

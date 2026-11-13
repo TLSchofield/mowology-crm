@@ -84,7 +84,7 @@
       if (!c) return;
       (s.visits || []).forEach(function (v) {
         var st = toMin(v.scheduled_time_start) != null ? toMin(v.scheduled_time_start) : toMin(s.estimated_arrival);
-        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.contact_name || s.company_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '', dur: v.estimated_duration || 60 };
+        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.company_name || s.contact_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '', dur: v.estimated_duration || 60 };
         if (st == null) { c.anytime.push(item); return; }
         var en = toMin(v.scheduled_time_end);
         if (en == null || en <= st) en = st + (v.estimated_duration || 60);
@@ -118,7 +118,7 @@
     for (var m = DAY_START; m < DAY_END; m += 60) hours += '<div class="mw-cal-hour" style="height:' + (60 * PX_PER_MIN) + 'px">' + label(m) + '</div>';
     var h = '<div class="mw-cal-head"><div class="mw-cal-gutter"></div>' + crewCols.map(function (c) { return '<div class="mw-cal-colhead">' + esc(c.name) + '</div>'; }).join('') + '</div>';
     h += '<div class="mw-cal-any"><div class="mw-cal-gutter">Anytime</div>' + crewCols.map(function (c) {
-      return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip' + (a.status === 'scheduled' ? ' mw-cal-chip--drag' : '') + '" data-visit="' + a.visitId + '" title="Drag onto the timeline to give it a time">' + esc(a.title) + '</span>'; }).join('') + '</div>';
+      return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip' + (a.status === 'scheduled' ? ' mw-cal-chip--drag' : '') + '" data-visit="' + a.visitId + '" title="Drag onto the timeline to give it a time">' + esc((a.who ? a.who + ' \u00b7 ' : '') + a.title) + '</span>'; }).join('') + '</div>';
     }).join('') + '</div>';
     h += '<div class="mw-cal-body"><div class="mw-cal-gutter">' + hours + '</div>' + crewCols.map(function (c, i) {
       return '<div class="mw-cal-col" data-ci="' + i + '" style="height:' + ((DAY_END - DAY_START) * PX_PER_MIN) + 'px">' + c.blocks.map(blockHtml).join('') + '</div>';
@@ -130,9 +130,9 @@
   function blockHtml(b) {
     var top = (b.start - DAY_START) * PX_PER_MIN, ht = Math.max(MIN_LEN, b.end - b.start) * PX_PER_MIN;
     var live = b.status === 'scheduled';
-    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
+    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" title="' + esc((b.who ? b.who + ' \u2013 ' : '') + b.title + ' \u00b7 ' + label(b.start) + ' \u2013 ' + label(b.end) + (b.addr ? ' \u00b7 ' + b.addr : '')) + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--top"></div>' : '') +
-      '<div class="mw-cal-btitle">' + esc(b.title) + '</div><div class="mw-cal-bmeta">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
+      '<div class="mw-cal-btitle">' + esc(b.who || b.title) + '</div>' + (b.who ? '<div class="mw-cal-bmeta mw-cal-btype">' + esc(b.title) + '</div>' : '') + '<div class="mw-cal-bmeta">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
       '<div class="mw-cal-bmeta">' + esc((weekMode && b.crew ? b.crew + ' \u00b7 ' : '') + (b.addr || '')) + '</div>' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--bottom"></div>' : '') + '</div>';
   }
@@ -443,11 +443,15 @@
   function mountDay() {
     var tog = document.querySelector('.mw-dv-view-toggle');
     panel = document.createElement('div'); panel.className = 'mw-cal-panel'; panel.hidden = true; panel.innerHTML = '<div class="mw-cal-grid"></div>';
-    var seg = document.createElement('div'); seg.className = 'mw-cal-seg'; seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Schedule layout');
-    seg.innerHTML = '<button type="button" data-m="cards" class="on">Cards</button><button type="button" data-m="timeline">Timeline</button>';
+    // The layout group (Cards / Timeline / Map / List) is drawn by the page; build it only when it is missing.
+    var seg = document.querySelector('.mw-cal-seg'), serverSeg = !!seg;
+    if (!seg) {
+      seg = document.createElement('div'); seg.className = 'mw-cal-seg'; seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Schedule layout');
+      seg.innerHTML = '<button type="button" data-m="cards" class="on">Cards</button><button type="button" data-m="timeline">Timeline</button>';
+    }
     var board = null;
     if (tog && tog.parentElement && tog.parentElement.parentElement) {
-      (tog.nextElementSibling || tog).insertAdjacentElement('afterend', seg);
+      if (!serverSeg) (tog.nextElementSibling || tog).insertAdjacentElement('afterend', seg);
       // Week: the timeline sits right under the page's own weekday + weather rows (they become its column heads),
       // below the stats banner, so those feeds are part of it instead of stranded underneath.
       var dh = weekMode && document.querySelector('.mw-calendar-container .mw-calendar-dates-header');
@@ -473,13 +477,17 @@
       if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-header, .mw-calendar-container .mw-calendar-dates-header'), function (r) {
         r.style.gridTemplateColumns = tl ? '64px repeat(7, minmax(0, 1fr))' : '';
       });
+      // The 64px time column needs its (normally hidden) cell, or Monday lands in it and an empty 8th column opens on the right.
+      if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-time-label'), function (l) { l.style.display = tl ? 'block' : ''; });
       [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x.dataset.m === m); });
       try { localStorage.setItem('mw_cal_mode', m); } catch (e) {}
       if (tl) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
     }
     seg.addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
     var saved = null; try { saved = localStorage.getItem('mw_cal_mode'); } catch (e) {}
-    if (saved === 'timeline') setMode('timeline');
+    var asked = new URLSearchParams(window.location.search).get('layout');   // from the List page's Cards / Timeline links
+    if (asked === 'cards' || asked === 'timeline') saved = asked;
+    if (saved === 'timeline') setMode('timeline'); else if (asked === 'cards') setMode('cards');
   }
 
   function mountWeek() {

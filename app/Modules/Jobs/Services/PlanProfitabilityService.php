@@ -159,7 +159,7 @@ class PlanProfitabilityService
                 SELECT COALESCE(SUM(total), 0) AS total_expenses
                 FROM expenses
                 WHERE property_id = ?
-                  AND status IN ('draft', 'approved', 'forwarded')
+                  AND status IN ('draft', 'pending_approval', 'approved', 'forwarded')
             ");
             $expStmt->execute([$propertyId]);
             $expCost = (float)$expStmt->fetchColumn();
@@ -178,6 +178,72 @@ class PlanProfitabilityService
             $revenue, $laborCost, $laborMinutes, $laborEstimated,
             $expCost, $overheadMode, $overheadCost, $completedCount
         );
+    }
+
+    /**
+     * How many people worked the plan's completed visits (the most on any one visit), from the
+     * visit crew assignments, else the people who clocked time, else the plan's crew; never below 1.
+     * The Time factor needs it: labour minutes are person-minutes, the estimate is per visit.
+     */
+    public static function getPlanCrewCount(int $planId): int {
+        $db = getDB();
+        $queries = [
+            "SELECT COALESCE(MAX(c), 0) FROM (SELECT COUNT(DISTINCT vca.user_id) c
+                 FROM visit_crew_assignments vca JOIN job_visits jv ON jv.id = vca.visit_id
+                 WHERE jv.plan_id = ? AND jv.status = 'completed' GROUP BY jv.id) t",
+            "SELECT COALESCE(MAX(c), 0) FROM (SELECT COUNT(DISTINCT jte.user_id) c
+                 FROM job_time_entries jte JOIN job_visits jv ON jv.id = jte.visit_id
+                 WHERE jv.plan_id = ? AND jv.status = 'completed' GROUP BY jv.id) t",
+            "SELECT COUNT(DISTINCT user_id) FROM plan_crew_assignments WHERE plan_id = ?",
+        ];
+        foreach ($queries as $sql) {
+            try {
+                $st = $db->prepare($sql);
+                $st->execute([$planId]);
+                $n = (int)$st->fetchColumn();
+                if ($n > 0) return $n;
+            } catch (Throwable $e) {
+                // table missing on an older schema: try the next source
+            }
+        }
+        return 1;
+    }
+
+    /**
+     * Over-run of the visit estimate, 0..: average person-minutes per visit against
+     * estimate x crew (two people on a 60 minute estimate are expected to log 120 person-minutes).
+     */
+    public static function timeOverRatio(float $avgPersonMinutes, int $estimateMinutes, int $crew): float {
+        $expected = max(1, $estimateMinutes) * max(1, $crew);
+        return max(0.0, $avgPersonMinutes - $expected) / $expected;
+    }
+
+    /**
+     * The job-costing waterfall for the plan page: sales value, then each cost taken off,
+     * ending in profit. Amounts are signed (costs negative); pct is of sales.
+     * materials_missing is true when a completed job has no purchases recorded, so the profit
+     * shown is a ceiling, not a result.
+     *
+     * @param array $p result of buildPlanProfitabilityResult()
+     * @return array{lines: array<int, array{key:string,label:string,amount:float,pct:float,kind:string}>, materials_missing:bool}
+     */
+    public static function jobCostingLines(array $p): array {
+        $sales = (float)($p['revenue'] ?? 0);
+        $pct = fn(float $v): float => $sales > 0 ? round($v / $sales * 100, 1) : 0.0;
+        $lab = (float)($p['labor_cost'] ?? 0);
+        $exp = (float)($p['expense_cost'] ?? 0);
+        $oh  = (float)($p['overhead_cost'] ?? 0);
+        $profit = round($sales - $lab - $exp - $oh, 2);
+        return [
+            'lines' => [
+                ['key' => 'sales',    'label' => 'Sales value',        'amount' => round($sales, 2), 'pct' => $sales > 0 ? 100.0 : 0.0, 'kind' => 'sales'],
+                ['key' => 'labor',    'label' => 'Labour',             'amount' => -round($lab, 2),  'pct' => $pct($lab), 'kind' => 'cost'],
+                ['key' => 'expenses', 'label' => 'Materials & expenses', 'amount' => -round($exp, 2), 'pct' => $pct($exp), 'kind' => 'cost'],
+                ['key' => 'overhead', 'label' => 'Overhead',           'amount' => -round($oh, 2),   'pct' => $pct($oh), 'kind' => 'cost'],
+                ['key' => 'profit',   'label' => 'Profit',             'amount' => $profit,          'pct' => $pct($profit), 'kind' => 'profit'],
+            ],
+            'materials_missing' => !empty($p['has_data']) && $exp <= 0,
+        ];
     }
 
     /**

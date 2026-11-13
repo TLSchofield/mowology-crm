@@ -55,6 +55,11 @@ struct ReceiptSteadyGate {
     /// After a shot, the outline must move this far (or be gone) before the next automatic shot, or it re-shoots the same receipt.
     static let nextReceiptShift = 0.10
     static let nextReceiptGoneSeconds = 0.7
+    /// In a moving car the phone's own sensors never read still, but the receipt sits still IN THE FRAME because both move
+    /// together, and that is what blurs a photo or not (Tim, 2026-11-12: couldn't auto-snap on his knee as a passenger).
+    /// A receipt held in one place in the frame this long, big enough and in focus, shoots whatever the sensors say.
+    /// A soft result still meets the retake rule.
+    static let outlineOnlyHoldSeconds = 1.0
     /// Nobody is ever stuck: in an idling truck the phone may never read as still, so the shutter opens after this long.
     static let unlockAfterSeconds = 10.0
 
@@ -96,6 +101,8 @@ struct ReceiptSteadyGate {
         let bigEnough = s.outline.map { Self.area($0) >= Self.minOutlineArea } ?? false
         let outlineHeld = outlineSince.map { now - $0 >= Self.holdSeconds } ?? false
         let timedOut = now - (waitStart ?? now) >= Self.unlockAfterSeconds
+        let outlineOnlySteady = s.focusSettled && bigEnough
+            && (outlineSince.map { now - $0 >= Self.outlineOnlyHoldSeconds } ?? false)
 
         let hint: ReceiptCameraHint
         if !armed { hint = .moveToNext }
@@ -106,8 +113,8 @@ struct ReceiptSteadyGate {
         else { hint = .holdStill }
 
         return ReceiptSteadyVerdict(hint: hint,
-                                    shutterUnlocked: held || timedOut,
-                                    autoShoot: armed && held && outlineHeld && bigEnough)
+                                    shutterUnlocked: held || timedOut || outlineOnlySteady,
+                                    autoShoot: armed && bigEnough && ((held && outlineHeld) || outlineOnlySteady))
     }
 
     /// A good photo was kept: wait for the next receipt.
