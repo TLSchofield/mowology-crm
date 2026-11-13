@@ -561,6 +561,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-dlg-close { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 2px solid var(--it-brand); border-radius: 10px; background: var(--it-surface); color: var(--it-brand); font: inherit; font-weight: 600; cursor: pointer; }
 .it-job-dlg-close:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 .it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
+.it-job-outer[hidden] { display: none; }
 .it-job-nums-outer { margin-bottom: 24px; }
 .it-job-nums[hidden] { display: none; }
 .it-job-num { display: flex; flex-direction: column; justify-content: center; min-width: 120px; padding: 10px 16px; margin: 0 6px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); z-index: 1; }
