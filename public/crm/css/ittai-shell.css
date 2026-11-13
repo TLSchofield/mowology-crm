@@ -541,6 +541,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
 .it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
 .it-job-anchor:hover { color: var(--it-text); text-decoration: none; }
+span.it-job-anchor:hover { color: var(--it-meta); }   /* an end of line that is not a link (Otto's compass) */
 .it-ad { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: var(--it-radius-full); background: var(--it-sunk); color: var(--it-text); box-shadow: 0 0 0 4px var(--it-surface), 0 0 0 5px var(--it-line); }
 .it-ad-fill { background: var(--it-brand); color: var(--it-on-tenant); }
 .it-ad-sm { width: 36px; height: 36px; }
