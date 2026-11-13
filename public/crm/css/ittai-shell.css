@@ -705,3 +705,6 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 
 /* month job: the bank line's own text (payee, date, amount, age) wraps in its column instead of overflowing under the Approve / Wrong account buttons */
 .it-job-rail[data-kind="month"] .it-job-cols .it-job-top, .it-job-rail[data-kind="month"] .it-job-cols .it-job-bot { white-space: normal; overflow-wrap: anywhere; max-width: 260px; }
+/* the frame takes the spare width right of its content (up to the Ledger), spreading the text, age and buttons instead of leaving the gap there */
+.it-job-rail .it-job-split { flex: 1 0 auto; justify-content: space-between; }
+.it-job-rail .it-job-split > .it-job-sides { max-width: 340px; }

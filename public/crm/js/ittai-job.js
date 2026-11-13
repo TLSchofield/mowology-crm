@@ -620,16 +620,16 @@
             wrap.classList.remove('is-solo');
             var tight = rail.scrollWidth > rail.clientWidth + 1;
             if (!tight) {   // the chart icon sits at the rail's height on the graph card
-                var lead = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
                 var viz = wrap.querySelector(':scope > .it-job-viz');
-                if (lead && viz) viz.style.setProperty('--it-rail-y', Math.round(lead.getBoundingClientRect().top + lead.getBoundingClientRect().height / 2 - viz.getBoundingClientRect().top) + 'px');
+                var rr = rail.getBoundingClientRect();   // the rail's own line sits at its vertical centre (ittai-shell.css .it-job-rail::before)
+                if (viz) viz.style.setProperty('--it-rail-y', (rr.top + rr.height / 2 - viz.getBoundingClientRect().top).toFixed(1) + 'px');
             }
             wrap.classList.toggle('is-solo', tight);
             if (tight !== was) window.dispatchEvent(new Event('resize'));   // the head card's line re-finds the strip
         };
         var queueFit = function () { if (!fitQueued) { fitQueued = true; requestAnimationFrame(fit); } };
         window.addEventListener('resize', queueFit);
-        if ('ResizeObserver' in window && wrap.parentNode) new ResizeObserver(queueFit).observe(wrap.parentNode);
+        if ('ResizeObserver' in window && wrap.parentNode) { var ro = new ResizeObserver(queueFit); ro.observe(wrap.parentNode); ro.observe(root); }
         if ('MutationObserver' in window) new MutationObserver(queueFit).observe(root, { childList: true, subtree: true });
         queueFit();
     }
