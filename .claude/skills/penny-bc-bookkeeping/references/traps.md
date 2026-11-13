@@ -931,3 +931,9 @@ could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, 
 ### Linking a closed-year receipt to a bank line moves the month off the bank (2026-11-10)
 - University Landscapers $157.50: the Jan 20 2026 e-Transfer debit matched receipt #474 dated Dec 30 2025 (FY2025: filed, locked, receipts there are never booked again, so it has NO journal entry). `BankDeskService::decide()` with an `expense_id` calls `move()` with `journal = false`, which reverses the line's own entry on the promise that the receipt's entry stands in for it. Here there is none: January's chequing books went from +$7.01 to +$164.51 over the bank (all later months shifted by the same $157.50).
 - **Rule:** never link a bank line to a receipt dated before the ledger's first month (`PennyMonthJobAdapter::withoutClosedYearReceipts()` keeps such lines off the flow line). The Bank card still offers it: check the receipt date first. The right treatment of a Jan payment for a Dec 30 bill is to settle the payable (Dr 2000 Accounts Payable / Cr 1010), if the bill is in the filed A/P — confirm with the accountant.
+
+### Merchant matching on bank lines (2026-11-10)
+- `BankImportService::descriptionKey()` strips any token with 5+ digits, so `DAIRYQUEEN27339VANCOUVERBCCA` and `SHELLC01018…` both become `pointofsale` and every card purchase matches every other. Use `BankLineEvidence::stem()` for "what has this payee been filed as". Run any new evidence on real lines read-only before it ships (that is how this was found).
+- The `vendors` table holds receipt-OCR fragments as names/aliases ("STORE #: 43016", "SANS", "pnty", "city of"). Match a vendor only at the start of the merchant text, names 4+ letters, aliases 8+ (`BankLineEvidence::vendorFor()`).
+- Bank-line presses must say everything they do: Approve on a found receipt also links it and reverses the line's own entry (`BankDeskService::decide`), so the button reads "+ link receipt".
+
