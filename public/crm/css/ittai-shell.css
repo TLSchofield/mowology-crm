@@ -564,11 +564,12 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-outer[hidden] { display: none; }
 .it-job-nums-outer { margin-bottom: 24px; }
 .it-job-nums[hidden] { display: none; }
-.it-job-num { display: flex; flex-direction: column; justify-content: center; min-width: 120px; padding: 10px 16px; margin: 0 6px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); z-index: 1; }
-.it-job-num b { font-size: 26px; line-height: 30px; font-weight: 600; color: var(--it-text); font-variant-numeric: tabular-nums; }
+.it-job-num { display: block; min-width: 120px; padding: 6px 14px; margin: 0 6px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); z-index: 1; }
+.it-job-num b { display: block; font-size: 26px; line-height: 30px; font-weight: 600; color: var(--it-text); font-variant-numeric: tabular-nums; }
 .it-job-num span { font-size: 13px; line-height: 18px; color: var(--it-meta); }
-.it-job-num i { font-style: normal; font-size: 12px; line-height: 16px; color: var(--it-meta); }
-.it-job-nums .it-job-rail { margin-bottom: 30px; }
+.it-job-num i { font-style: normal; margin-left: 4px; font-size: 12px; line-height: 18px; color: var(--it-meta); }
+/* symmetric padding keeps the rail's line at the frame's centre (level with the head card) and leaves room under the end icons for their labels */
+.it-job-nums .it-job-rail { margin-bottom: 0; padding: 20px 0; }
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
