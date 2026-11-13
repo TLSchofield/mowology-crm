@@ -26,12 +26,12 @@ class CrewViewScope
      * @param string  $role       users.role
      * @param string  $setting    crew_job_visibility ('own' | 'all'; anything else = own)
      * @param ?string $asked      'mine' | 'all' | null (the person's switch, remembered)
-     * @param ?int    $crewPicked the desktop crew dropdown (office, or crew when allowed to see all)
+     * @param int|int[]|null $crewPicked the desktop crew picker: one crew, several (tick-box picker, 2026-11-12) or none (office, or crew when allowed to see all)
      * @param int     $people     active people in the business; with one, Mine and All crews are the same list,
      *                            so there is nothing to switch (Claudia walk 1, 2026-11-03)
-     * @return array{crew: ?int, scope: string, can_switch: bool} crew = the crew filter for getCalendarStops (null = everyone)
+     * @return array{crew: int|int[]|null, scope: string, can_switch: bool} crew = the crew filter for getCalendarStops (null = everyone)
      */
-    public static function decide(string $role, int $userId, string $setting, ?string $asked, ?int $crewPicked = null, int $people = 2): array
+    public static function decide(string $role, int $userId, string $setting, ?string $asked, $crewPicked = null, int $people = 2): array
     {
         if ($people <= 1) return ['crew' => null, 'scope' => 'all', 'can_switch' => false];
         $isCrew = $role === self::CREW_ROLE;
@@ -40,7 +40,21 @@ class CrewViewScope
         }
         $scope = $asked === 'mine' ? 'mine' : 'all';
         if ($scope === 'mine') return ['crew' => $userId, 'scope' => 'mine', 'can_switch' => true];
-        return ['crew' => $crewPicked && $crewPicked > 0 ? $crewPicked : null, 'scope' => 'all', 'can_switch' => true];
+        return ['crew' => self::pick($crewPicked), 'scope' => 'all', 'can_switch' => true];
+    }
+
+    /** One id, a list of ids or nothing -> null (everyone), an int (one crew) or a list of ints (several); junk and duplicates dropped. */
+    public static function pick($ids)
+    {
+        $ids = is_array($ids) ? $ids : [$ids];
+        $keep = [];
+        foreach ($ids as $id) {
+            $id = (int)$id;
+            if ($id > 0 && !in_array($id, $keep, true)) {
+                $keep[] = $id;
+            }
+        }
+        return count($keep) === 0 ? null : (count($keep) === 1 ? $keep[0] : $keep);
     }
 
     /**

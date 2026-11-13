@@ -42109,3 +42109,23 @@ body.mw-books {
   .mw-sl-row { grid-template-columns: 1fr; gap: 6px; }
   .mw-sl-side { text-align: left; }
 }
+
+/* Schedule layout group: Cards | Timeline | Map | List as one segmented control (2026-11-12) */
+.mw-cal-seg { display: inline-flex; border: 1px solid var(--mw-green); border-radius: 6px; overflow: hidden; vertical-align: middle; }
+.mw-cal-seg button, .mw-cal-seg a { border: 0; background: #fff; color: var(--mw-green); padding: 5px 12px; font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: none; line-height: 1.4; }
+.mw-cal-seg > * + * { border-left: 1px solid var(--mw-green); }
+.mw-cal-seg button:hover, .mw-cal-seg a:hover { background: var(--mw-light); text-decoration: none; }
+.mw-cal-seg button.on, .mw-cal-seg a.on { background: var(--mw-green); color: #fff; }
+
+/* ── Job Costing card (plan page): sales less costs in dollars, Ittai v1.2 tokens ── */
+.mw-jc { padding: var(--it-space-2, 8px) var(--it-space-4, 16px); color: var(--it-text, var(--mw-forest)); }
+.mw-jc-head, .mw-jc-row { display: grid; grid-template-columns: 1fr auto 4.5rem; gap: var(--it-space-3, 12px); align-items: baseline; padding: var(--it-space-2, 8px) 0; }
+.mw-jc-head { font-size: .75rem; color: var(--it-meta, var(--mw-dark)); border-bottom: var(--it-stroke-hairline, 1px) solid var(--it-line, var(--mw-light)); }
+.mw-jc-head span:not(:first-child), .mw-jc-amount, .mw-jc-pct { text-align: right; font-variant-numeric: tabular-nums; }
+.mw-jc-row + .mw-jc-row { border-top: var(--it-stroke-hairline, 1px) solid var(--it-line, var(--mw-light)); }
+.mw-jc-pct { color: var(--it-meta, var(--mw-dark)); font-size: .8125rem; }
+.mw-jc-sales .mw-jc-label, .mw-jc-sales .mw-jc-amount, .mw-jc-profit .mw-jc-label, .mw-jc-profit .mw-jc-amount { font-weight: 600; }
+.mw-jc .mw-jc-profit { border-top: var(--it-stroke-centre, 1.5px) solid var(--it-text, var(--mw-forest)); }
+.mw-jc-profit.is-gain .mw-jc-amount { color: var(--it-status-complete, var(--mw-green)); }
+.mw-jc-profit.is-loss .mw-jc-amount { color: var(--it-status-blocked, var(--mw-orange)); }
+.mw-jc-note { margin: 0 var(--it-space-4, 16px) var(--it-space-3, 12px); padding: var(--it-space-2, 8px) var(--it-space-3, 12px); font-size: .8125rem; color: var(--it-status-attention, var(--mw-dark)); background: var(--it-sunk, var(--mw-light)); border-radius: var(--it-radius-sm, 6px); }

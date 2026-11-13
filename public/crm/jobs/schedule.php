@@ -103,7 +103,9 @@ if ($view === 'day') {
 }
 
 // ─── Staff / Crew filter ────────────────────────────────────────────
-$crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+// ?crew=7 or ?crew=7,12 — one crew, several (tick-box picker), or none (everyone): null | int | int[]
+$crewFilter = CrewViewScope::pick(array_filter(array_map('trim', explode(',', (string)($_GET['crew'] ?? ''))), 'strlen'));
 $staff = getStaffMembers();
 
 // Whose jobs this person sees (CrewViewScope, 2026-10-14): crew only their own unless the company
@@ -186,7 +188,7 @@ try {
     $_apDay  = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['date'] ?? '')) ? (string)$_GET['date'] : date('Y-m-d');
     $_apFrom = min($startDate, $_apDay);
     $_apTo   = max($endDate, $_apDay);
-    $appointmentsByDate = (new AppointmentService($db))->forRange($_apFrom, $_apTo, $crewFilter ? (int)$crewFilter : null);
+    $appointmentsByDate = (new AppointmentService($db))->forRange($_apFrom, $_apTo, $crewFilter ?: null);
 } catch (Throwable $e) {
     error_log('[schedule] appointments: ' . $e->getMessage());
 }
@@ -968,9 +970,9 @@ function stopStatusClass(string $status): string {
 }
 
 // ─── Build filter query string (crew + service) ─────────────────────
-function buildFilterQuery(?int $crewId, ?string $serviceType): string {
+function buildFilterQuery($crewId, ?string $serviceType): string {
     $qs = '';
-    if ($crewId !== null) $qs .= '&crew=' . $crewId;
+    if ($crewId !== null) $qs .= '&crew=' . implode(',', (array)$crewId);
     if ($serviceType !== null) $qs .= '&service=' . urlencode($serviceType);
     return $qs;
 }
@@ -978,9 +980,9 @@ function buildFilterQuery(?int $crewId, ?string $serviceType): string {
 $filterQueryStr = buildFilterQuery($crewFilter, $serviceFilter);
 
 /** Tick-box job-type picker (a <details> list). Ticking updates a hidden csv input; $onDone runs after a short pause. */
-function mwTypeMultiHtml(array $types, ?string $selected, string $inputId, string $allLabel, string $onDone, string $dataBase = ''): string {
+function mwTypeMultiHtml(array $types, ?string $selected, string $inputId, string $allLabel, string $onDone, string $dataBase = '', string $plural = 'job types'): string {
     $on = ServiceTypeFilter::slugs($selected);
-    $summary = count($on) === 0 ? $allLabel : (count($on) === 1 ? ($types[$on[0]] ?? $on[0]) : count($on) . ' job types');
+    $summary = count($on) === 0 ? $allLabel : (count($on) === 1 ? ($types[$on[0]] ?? $on[0]) : count($on) . ' ' . $plural);
     $h = '<details class="mw-typemulti"><summary>' . htmlspecialchars($summary) . '</summary><div class="mw-typemulti-list">';
     $h .= '<label class="mw-typemulti-row"><input type="checkbox" class="mw-typemulti-all"' . (count($on) === 0 ? ' checked' : '') . '> ' . htmlspecialchars($allLabel) . '</label>';
     foreach ($types as $slug => $label) {
@@ -1353,12 +1355,15 @@ if ($apiKey) {
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
           <div class="mw-page-header">
+              <?php if (empty($itShell)): // the Ittai shell names the page in its nav; an empty left block would push the date nav right ?>
               <div class="mw-page-header-left">
                   <h1 class="mw-page-title">Schedule</h1>
               </div>
+              <?php endif; ?>
 
               <div class="mw-header-nav">
                   <?php if ($view === 'day'): ?>
+                      <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
                       <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
@@ -1377,8 +1382,8 @@ if ($apiKey) {
                       <a href="?view=day&date=<?php echo htmlspecialchars($nextDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </a>
-                      <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
                   <?php else: ?>
+                      <a href="?<?php echo $listMode ? 'view=list' . $filterQueryStr : ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
                       <a href="?<?php echo $listMode ? 'view=list&' : ''; ?>start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
@@ -1396,34 +1401,50 @@ if ($apiKey) {
                       <a href="?<?php echo $listMode ? 'view=list&' : ''; ?>start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </a>
-                      <a href="?<?php echo $listMode ? 'view=list' . $filterQueryStr : ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
                   <?php endif; ?>
               </div>
 
+              <?php
+              // Calendar editing (Cards / Timeline layouts, drag-resize) is switched on per business and per person.
+              require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
+              $calEditOn = userHasPermission('jobs.edit') && VisitResizeService::enabled($db);
+              ?>
               <div class="mw-schedule-filters">
                   <!-- Service filter -->
                   <?php echo mwTypeMultiHtml($serviceLabels, $serviceFilter, 'serviceFilter', 'All Services', 'applyFilter'); ?>
                   <!-- Crew filter -->
-                  <select id="crewFilter" class="form-control form-control-sm" onchange="applyFilter()">
-                      <option value="">All Crews</option>
-                      <?php foreach ($staff as $member): ?>
-                          <option value="<?php echo (int)$member['id']; ?>"
-                              <?php echo ($crewFilter === (int)$member['id']) ? 'selected' : ''; ?>>
-                              <?php echo htmlspecialchars($member['full_name']); ?>
-                          </option>
-                      <?php endforeach; ?>
-                  </select>
+                  <?php
+                  $crewLabels = [];
+                  foreach ($staff as $member) { $crewLabels[(string)(int)$member['id']] = (string)$member['full_name']; }
+                  echo mwTypeMultiHtml($crewLabels, $crewFilter === null ? null : implode(',', (array)$crewFilter), 'crewFilter', 'All Crews', 'applyFilter', '', 'crews');
+                  ?>
                   <!-- View toggle -->
                   <div class="mw-dv-view-toggle">
                       <a href="?start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
                          class="mw-dv-toggle-btn <?php echo ($view === 'week' && !$listMode) ? 'active' : ''; ?>">Week</a>
                       <a href="?view=day&date=<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')) . $filterQueryStr; ?>"
                          class="mw-dv-toggle-btn <?php echo $view === 'day' ? 'active' : ''; ?>">Day</a>
-                      <a href="?view=list&start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
-                         class="mw-dv-toggle-btn <?php echo $listMode ? 'active' : ''; ?>">List</a>
+                  </div>
+                  <?php
+                  // Layout group: how the days are drawn. Cards / Timeline switch in place (schedule-calendar-edit.js, only when
+                  // calendar editing is on); Map opens the day's map; List is the stop list. From the List page Cards / Timeline
+                  // are links back to the week.
+                  $mwSegWeek = '?start=' . htmlspecialchars($weekStart) . $filterQueryStr;
+                  $mwSegMapDate = htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d'));
+                  ?>
+                  <div class="mw-cal-seg" role="group" aria-label="Schedule layout">
+                      <?php if ($calEditOn && $listMode): ?>
+                      <a href="<?php echo $mwSegWeek; ?>&layout=cards">Cards</a>
+                      <a href="<?php echo $mwSegWeek; ?>&layout=timeline">Timeline</a>
+                      <?php elseif ($calEditOn): ?>
+                      <button type="button" data-m="cards" class="on">Cards</button>
+                      <button type="button" data-m="timeline">Timeline</button>
+                      <?php endif; ?>
+                      <a href="?view=day&date=<?php echo $mwSegMapDate . $filterQueryStr; ?>">Map</a>
+                      <a href="?view=list&start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"<?php echo $listMode ? ' class="on"' : ''; ?>>List</a>
                   </div>
                   <a href="index.php" class="btn btn-secondary btn-sm">Job Plans</a>
-                  <?php if (in_array($user['role'] ?? '', ['admin', 'manager'])): ?>
+                  <?php if (empty($itShell) && in_array($user['role'] ?? '', ['admin', 'manager'])): // Tim 2026-11-12: not on the schedule in the Ittai shell (modal code stays below) ?>
                   <button type="button" class="btn btn-outline-warning btn-sm" onclick="openLogLaborModal()"
                           title="Log a day's clock-in/out for crew members">
                       ⏱ Log Labor
@@ -4024,8 +4045,7 @@ if ($__srOn): ?>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <?php
 // Jobber-style calendar editing (timeline, drag-resize, add-on-calendar). Off unless ops_settings it_calendar_edit = 1.
-require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
-if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db) && !$listMode): ?>
+if ($calEditOn && !$listMode): ?>
 <link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
 <script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?>, crew: <?= json_encode($crewFilter) ?> };</script>
 <script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
@@ -5499,132 +5519,10 @@ if (startBtn) {
 </script>
 <?php endif; ?>
 
-<!-- ── Log Labor Modal ───────────────────────────────────────── -->
-<div class="mw-modal-overlay" id="logLaborModal" style="display:none">
-    <div class="mw-modal" style="max-width:480px">
-        <h3 class="mw-modal-title">Log Day's Labor</h3>
-        <p class="text-muted small mb-3">Manually record clock-in/out for crew members who didn't clock in digitally.</p>
-
-        <div id="logLaborError" class="alert alert-danger d-none mb-3"></div>
-        <div id="logLaborSuccess" class="alert alert-success d-none mb-3"></div>
-
-        <div class="form-group">
-            <label class="form-label">Date</label>
-            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#llDate" aria-haspopup="true" aria-expanded="false">
-                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span class="mw-datepicker-date" data-mw-dp-label></span>
-                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <input type="date" id="llDate" class="form-control" hidden
-                   value="<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')); ?>"
-                   max="<?php echo date('Y-m-d'); ?>">
-        </div>
-        <div class="form-row">
-            <div class="form-group col-6">
-                <label class="form-label">Clock In</label>
-                <input type="time" id="llClockIn" class="form-control" value="08:00">
-            </div>
-            <div class="form-group col-6">
-                <label class="form-label">Clock Out</label>
-                <input type="time" id="llClockOut" class="form-control" value="16:00">
-            </div>
-        </div>
-        <div class="form-group">
-            <label class="form-label">Crew Members</label>
-            <div id="llCrewList" class="border rounded p-2" style="max-height:180px;overflow-y:auto">
-                <?php foreach ($staff as $member): ?>
-                <label class="d-flex align-items-center gap-2 mb-1" style="cursor:pointer;font-weight:normal">
-                    <input type="checkbox" class="ll-crew-checkbox" value="<?php echo (int)$member['id']; ?>"
-                           data-name="<?php echo htmlspecialchars($member['full_name'], ENT_QUOTES); ?>">
-                    <span><?php echo htmlspecialchars($member['full_name']); ?></span>
-                </label>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <div class="form-group">
-            <label class="form-label">Notes (optional)</label>
-            <input type="text" id="llNotes" class="form-control" placeholder="e.g., May 21 route — forgot to clock in">
-        </div>
-
-        <div class="mw-modal-actions">
-            <button type="button" class="btn btn-warning" id="llSubmitBtn" onclick="submitLogLabor()">Log Hours</button>
-            <button type="button" class="btn btn-secondary" onclick="closeLogLaborModal()">Cancel</button>
-        </div>
-    </div>
-</div>
-
-<script>
-function openLogLaborModal() {
-    document.getElementById('logLaborError').classList.add('d-none');
-    document.getElementById('logLaborSuccess').classList.add('d-none');
-    document.getElementById('logLaborModal').style.display = 'flex';
-}
-function closeLogLaborModal() {
-    document.getElementById('logLaborModal').style.display = 'none';
-}
-document.getElementById('logLaborModal').addEventListener('click', function(e) {
-    if (e.target === this) closeLogLaborModal();
-});
-
-function submitLogLabor() {
-    var date      = document.getElementById('llDate').value;
-    var clockIn   = document.getElementById('llClockIn').value;
-    var clockOut  = document.getElementById('llClockOut').value;
-    var notes     = document.getElementById('llNotes').value;
-    var errEl     = document.getElementById('logLaborError');
-    var okEl      = document.getElementById('logLaborSuccess');
-    var btn       = document.getElementById('llSubmitBtn');
-
-    var checked = Array.from(document.querySelectorAll('.ll-crew-checkbox:checked'));
-    if (!date || !clockIn || !clockOut) {
-        errEl.textContent = 'Date, clock-in and clock-out are required.';
-        errEl.classList.remove('d-none'); return;
-    }
-    if (checked.length === 0) {
-        errEl.textContent = 'Select at least one crew member.';
-        errEl.classList.remove('d-none'); return;
-    }
-    errEl.classList.add('d-none');
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
-
-    var names = checked.map(function(cb) { return cb.dataset.name; });
-    var promises = checked.map(function(cb) {
-        return fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || ''},
-            body: JSON.stringify({
-                action: 'admin_add_entry',
-                user_id: parseInt(cb.value),
-                date: date,
-                clock_in_time: clockIn,
-                clock_out_time: clockOut,
-                notes: notes
-            })
-        }).then(function(r) { return r.json(); });
-    });
-
-    Promise.all(promises).then(function(results) {
-        var errors = results.filter(function(r) { return r.error; });
-        btn.disabled = false;
-        btn.textContent = 'Log Hours';
-        if (errors.length) {
-            errEl.textContent = errors.map(function(r) { return r.error; }).join('; ');
-            errEl.classList.remove('d-none');
-        } else {
-            var hrs = ((new Date('1970-01-01T'+clockOut+':00') - new Date('1970-01-01T'+clockIn+':00')) / 3600000).toFixed(1);
-            okEl.textContent = '✓ Logged ' + hrs + 'h for: ' + names.join(', ');
-            okEl.classList.remove('d-none');
-            document.querySelectorAll('.ll-crew-checkbox:checked').forEach(function(cb) { cb.checked = false; });
-            setTimeout(closeLogLaborModal, 2500);
-        }
-    }).catch(function(e) {
-        btn.disabled = false;
-        btn.textContent = 'Log Hours';
-        errEl.textContent = 'Network error. Try again.';
-        errEl.classList.remove('d-none');
-    });
-}
-</script>
+<?php
+$mwLogLaborStaff = $staff;
+$mwLogLaborDate  = $view === 'day' ? $dayDate : date('Y-m-d');
+include dirname(__DIR__) . '/includes/log-labor-modal.php';
+?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

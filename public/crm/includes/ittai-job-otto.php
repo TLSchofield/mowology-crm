@@ -33,6 +33,8 @@ try {
     if (!$__ioDesk->ready() || !$__ioDesk->isOwner($__ioUser)) return;
     require_once APP_ROOT . '/Modules/Operations/Services/OttoJobAdapter.php';
     $__ioJobs = OttoJobAdapter::jobs($__ioDb, $__ioFrom, $__ioTo);
+    // The things card above the calendar (otto-schedule-strip.php) steps aside while this line carries its items.
+    $ittaiOttoLineOn = OttoJobAdapter::enabled($__ioDb);
 } catch (Throwable $__e) {
     error_log('Otto schedule strip unavailable: ' . $__e->getMessage());
     return;
@@ -74,7 +76,7 @@ itIconSprite();
 <section class="it-job it-job-mia it-job-otto" data-head="otto" data-who="Otto" aria-label="Otto's job">
   <h2 class="it-vh it-job-tt"></h2>
   <div class="it-job-body"><div class="it-job-rail">
-    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('eye') ?></span><span>Schedule</span></a>
+    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('calendar') ?></span><span>Schedule</span></a>
     <span class="it-job-conf is-forming" role="img"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval-forming"/></svg></span>
     <div class="it-job-split">
       <div class="it-job-col it-job-left"><div class="it-job-what"><b class="it-job-who"></b><span class="it-job-at"></span><p class="it-job-quote"></p><ul class="it-job-cmp" hidden></ul><a class="it-job-open" href="#" target="_blank" rel="noopener" hidden></a><p class="it-job-why"></p></div></div>
@@ -83,7 +85,7 @@ itIconSprite();
       <div class="it-job-col it-job-right"><form class="it-job-form" novalidate></form></div>
       <div class="it-job-col it-job-acts"><button type="button" class="it-btn it-btn-fill" data-role="primary"><?= $__ioSvg('check') ?><b></b><span></span></button><span class="it-job-m"></span><button type="button" class="it-btn it-btn-line" data-role="secondary"><?= $__ioSvg('arrow') ?><b></b><span></span></button></div>
     </div>
-    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></a>
+    <span class="it-job-anchor it-job-anchor-end"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></span>
   </div></div>
   <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Not yet</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
@@ -92,13 +94,13 @@ itIconSprite();
 </div></div>
 <?php endif; ?>
 <?php if ($__ioNums): ?>
-<div class="it-job-outer it-job-nums-outer"><section class="it-job it-job-nums" aria-label="This <?= !empty($mcIsDay) ? 'day' : 'week' ?> in numbers"<?= $__ioJobs ? ' hidden' : '' ?>>
+<div class="it-job-outer it-job-nums-outer"><section class="it-job it-job-nums" data-head="otto" aria-label="This <?= !empty($mcIsDay) ? 'day' : 'week' ?> in numbers"<?= $__ioJobs ? ' hidden' : '' ?>>
   <div class="it-job-rail">
-    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('eye') ?></span><span>Schedule</span></a>
+    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('calendar') ?></span><span>Schedule</span></a>
     <?php foreach ($__ioNums as $__ioN): ?>
     <div class="it-job-num"><b><?= htmlspecialchars($__ioN[0], ENT_QUOTES) ?></b><span><?= htmlspecialchars($__ioN[1], ENT_QUOTES) ?></span><?php if ($__ioN[2] !== ''): ?><i><?= htmlspecialchars($__ioN[2], ENT_QUOTES) ?></i><?php endif; ?></div>
     <?php endforeach; ?>
-    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></a>
+    <span class="it-job-anchor it-job-anchor-end"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></span>
   </div>
 </section></div>
 <?php endif; ?>

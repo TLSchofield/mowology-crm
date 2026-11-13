@@ -10,6 +10,9 @@
  * Loads from /crm/api/otto-schedule.php after the page renders (never blocks it; cached 5 min server-side).
  * Shown only to users with jobs.edit. Renders nothing on any failure.
  */
+if (!empty($ittaiOttoLineOn)) {   // Ittai shell: Otto's flow line (ittai-job-otto.php) carries these items now
+    return;
+}
 if (!function_exists('userHasPermission') || !userHasPermission('jobs.edit') || empty($ottoStrip) || !is_array($ottoStrip)) {
     return;
 }
