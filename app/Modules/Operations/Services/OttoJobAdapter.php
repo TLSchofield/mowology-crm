@@ -21,7 +21,7 @@ declare(strict_types=1);
 class OttoJobAdapter
 {
     public const SETTING = 'it_otto_job';
-    public const MAX_JOBS = 60;
+    public const MAX_JOBS = 300;
     /** Accepted decisions of these kinds before his confidence reads mastered (the knowledge triangle: gold after five). */
     public const MASTERED_AT = 5;
     public const API = '/crm/api/otto.php?mode=decide';
