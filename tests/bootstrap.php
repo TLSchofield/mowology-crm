@@ -304,6 +304,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/CompanyProfileServic
 require_once __DIR__ . '/../app/Modules/Operations/Services/CompanyDocumentService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierDirectoryService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierFormService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SupplierContactService.php';
 // Supplier price lists + shared catalogue (migration 1331)
 require_once __DIR__ . '/../app/Services/Spreadsheet/XlsxReader.php';
 require_once __DIR__ . '/../app/Services/Spreadsheet/SheetReader.php';   // + XlsReader (old .xls)
