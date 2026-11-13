@@ -37,7 +37,11 @@ class QuoteApprovalServiceTest extends TestCase
         $this->assertStringContainsString('3 of 4 lines', $s['headline']);
         $this->assertStringContainsString('(quoted $1,758.75)', $s['headline']);
         $this->assertStringContainsString('Not included: Extend Sprinkler and convert bed sprinklers to drip lines $550.00', $s['push_body']);
-        $this->assertStringContainsString('Not included', $s['job_note']);
+        $this->assertStringContainsString('Not included (declined): Extend Sprinkler', $s['job_note']);
+        // The note names the approved work first, so the declined line is not what the job reads as.
+        $approvedAt = strpos($s['job_note'], 'approved: ');
+        $this->assertNotFalse($approvedAt);
+        $this->assertLessThan(strpos($s['job_note'], 'Extend Sprinkler'), $approvedAt);
         $this->assertSame([true, true, true, false], array_column($s['lines'], 'approved'));
     }
 
