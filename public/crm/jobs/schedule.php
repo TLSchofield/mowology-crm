@@ -1447,7 +1447,6 @@ if ($apiKey) {
                efficiency score, density, stretch target,
                gamification badges — desktop only
                ═══════════════════════════════════════════════ -->
-          <?php if (empty($itShell)): // in the Ittai shell these numbers sit on Otto's line (ittai-job-otto.php) ?>
           <div class="mw-mission-control d-none d-lg-block">
 
               <!-- Top row: primary KPIs -->
@@ -1579,7 +1578,6 @@ if ($apiKey) {
               </div><!-- /.mw-mc-progress-row -->
 
           </div><!-- /.mw-mission-control -->
-          <?php endif; ?>
 
           <!-- ═══════════════════════════════════════════════
                Route Reconciliation — Truck GPS vs Clock-In
