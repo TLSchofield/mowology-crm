@@ -1090,16 +1090,33 @@ if ($hasPropCoords) {
                  ══════════════════════════════════════════════════════ -->
 
             <?php if ($profitability['has_data']): ?>
-            <div class="card mb-4">
-                <div class="card-header d-flex align-items-center justify-content-between">
-                    <h5 class="card-title mb-0">Risk Analysis</h5>
-                    <span class="text-muted" style="font-size:.75rem;">8-factor profitability risk score</span>
-                </div>
-                <div class="card-body p-0" id="mwInlineRiskBody">
-                    <div class="d-flex align-items-center justify-content-center py-4">
-                        <span class="text-muted small">Analysing&hellip;</span>
+            <div class="row">
+              <div class="col-xl-8">
+                <div class="card mb-4">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <h5 class="card-title mb-0">Risk Analysis</h5>
+                        <span class="text-muted" style="font-size:.75rem;">8-factor profitability risk score</span>
+                    </div>
+                    <div class="card-body p-0" id="mwInlineRiskBody">
+                        <div class="d-flex align-items-center justify-content-center py-4">
+                            <span class="text-muted small">Analysing&hellip;</span>
+                        </div>
                     </div>
                 </div>
+              </div>
+              <div class="col-xl-4">
+                <div class="card mb-4">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <h5 class="card-title mb-0">Job Costing</h5>
+                        <span class="text-muted" style="font-size:.75rem;">Sales less costs, in dollars</span>
+                    </div>
+                    <div class="card-body p-0" id="mwJobCostingBody">
+                        <div class="d-flex align-items-center justify-content-center py-4">
+                            <span class="text-muted small">Calculating&hellip;</span>
+                        </div>
+                    </div>
+                </div>
+              </div>
             </div>
             <?php else: ?>
             <div class="card mb-4">
@@ -4798,6 +4815,23 @@ if ($hasPropCoords) {
                 '<td class="mw-irt-value">' + f.raw_value + '</td>' +
                 '<td class="mw-irt-sev" style="color:' + c + '">' + sev + '</td></tr>';
         }).join('');
+        var costBody = document.getElementById('mwJobCostingBody');
+        if (costBody && d.costing) {
+            var money = function (v) {
+                var a = Math.abs(v).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                return (v < 0 ? '\u2212$' : '$') + a;
+            };
+            var crows = d.costing.lines.map(function (l) {
+                var cls = l.kind === 'profit' ? (l.amount < 0 ? 'text-danger' : 'text-success') : '';
+                var strong = l.kind === 'sales' || l.kind === 'profit';
+                return '<tr' + (l.kind === 'profit' ? ' class="font-weight-bold"' : '') + '>' +
+                    '<td>' + l.label + '</td>' +
+                    '<td class="text-right ' + cls + '">' + (strong ? '<strong>' : '') + money(l.amount) + (strong ? '</strong>' : '') + '</td>' +
+                    '<td class="text-right text-muted">' + l.pct.toFixed(1) + '%</td></tr>';
+            }).join('');
+            costBody.innerHTML = '<table class="table table-sm mb-0"><thead><tr><th></th><th class="text-right">Amount</th><th class="text-right">% of sales</th></tr></thead><tbody>' + crows + '</tbody></table>' +
+                (d.costing.materials_missing ? '<div class="text-warning small px-3 py-2">No materials recorded for this job, so profit is a ceiling until the receipts are added.</div>' : '');
+        }
         var recHtml = '';
         if (d.recommendations && d.recommendations.length) {
             recHtml = '<div class="mw-irt-recs"><div class="mw-irt-recs-title">Recommendations</div>' +
