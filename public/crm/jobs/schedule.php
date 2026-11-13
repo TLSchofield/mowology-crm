@@ -1425,7 +1425,7 @@ if ($apiKey) {
                          class="mw-dv-toggle-btn <?php echo $listMode ? 'active' : ''; ?>">List</a>
                   </div>
                   <a href="index.php" class="btn btn-secondary btn-sm">Job Plans</a>
-                  <?php if (in_array($user['role'] ?? '', ['admin', 'manager'])): ?>
+                  <?php if (empty($itShell) && in_array($user['role'] ?? '', ['admin', 'manager'])): // Tim 2026-11-12: not on the schedule in the Ittai shell (modal code stays below) ?>
                   <button type="button" class="btn btn-outline-warning btn-sm" onclick="openLogLaborModal()"
                           title="Log a day's clock-in/out for crew members">
                       ⏱ Log Labor
