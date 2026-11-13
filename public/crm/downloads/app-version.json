@@ -1,12 +1,12 @@
 {
   "android": {
-    "version": "2.2.13",
-    "build": 45,
+    "version": "2.2.14",
+    "build": 46,
     "min_version": "2.2.10",
     "min_build": 42,
-    "apk_url": "/crm/downloads/mowology-crew-2.2.13-test.apk",
+    "apk_url": "/crm/downloads/mowology-crew-2.2.14-test.apk",
     "released": "2026-11-13",
-    "release_notes": "The receipt details sheet now appears wherever you take a receipt, including from the bar's camera button, so a snapped receipt is never left unsent.",
+    "release_notes": "Receipts now work like the iPhone: snap, the receipt is read, you check the details and any possible duplicate, then it goes for review. Snap another from the same screen.",
     "force_update": false,
     "native_camera": true,
     "native_visit": true,
@@ -16,7 +16,7 @@
     "native_signup": true,
     "native_day": true,
     "native_crew_schedule": true,
-    "apk_sha256": "83369f1a654d77b7105f669ee618b483b6848a1c2b218726a772ffc470515022",
+    "apk_sha256": "923b5c46eb788343703dd0cc932c20e97ff8771e358828135613ac49aa2c5044",
     "native_auth": true,
     "native_queue_safety": true,
     "native_tracking_v3": true,
@@ -37,7 +37,8 @@
     "onboarding_contacts": true,
     "receipt_auto_shoot": true,
     "receipt_doc_scanner": true,
-    "receipt_steady": true
+    "receipt_steady": true,
+    "native_receipt_intake": true
   },
   "ios": {
     "version": "1.0.0",
