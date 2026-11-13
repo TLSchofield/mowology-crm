@@ -1354,7 +1354,7 @@ if ($apiKey) {
 
           <div class="mw-page-header">
               <div class="mw-page-header-left">
-                  <h1 class="mw-page-title">Schedule</h1>
+                  <?php if (empty($itShell)): ?><h1 class="mw-page-title">Schedule</h1><?php endif; // the Ittai shell names the page in its nav ?>
               </div>
 
               <div class="mw-header-nav">
