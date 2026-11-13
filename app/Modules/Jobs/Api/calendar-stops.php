@@ -2,7 +2,7 @@
 /**
  * Calendar Stops API — fetch day's stops for map/sidebar display
  *
- * GET ?date=YYYY-MM-DD&crew=N (optional crew filter)
+ * GET ?date=YYYY-MM-DD&crew=N or crew=N,M (optional crew filter, one or several)
  * Returns: { success: true, date: "...", stops: [...] }
  */
 declare(strict_types=1);
@@ -35,7 +35,8 @@ try {
         throw new Exception('Invalid date format');
     }
 
-    $crewId = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
+    require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+    $crewId = CrewViewScope::pick(array_filter(array_map('trim', explode(',', (string)($_GET['crew'] ?? ''))), 'strlen'));
 
     $calendarData = getCalendarStops($date, $date, $crewId);
     $dayStops = $calendarData[$date] ?? [];

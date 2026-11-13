@@ -179,10 +179,10 @@ class PlanMaterialsService
      * @param PDO    $db
      * @param string $startDate  Y-m-d
      * @param string $endDate    Y-m-d
-     * @param int|null $crewId   Filter by assigned_to, or null for all
+     * @param int|int[]|null $crewId   Filter by assigned_to (one id or several), or null for all
      * @return array  [dateStr => [task, ...], ...]
      */
-    public static function getPurchaseTasksForSchedule(PDO $db, string $startDate, string $endDate, ?int $crewId = null): array
+    public static function getPurchaseTasksForSchedule(PDO $db, string $startDate, string $endDate, $crewId = null): array
     {
         // Check task_type column exists before querying (migration 970 guard)
         try {
@@ -228,9 +228,10 @@ class PlanMaterialsService
             ";
             $params = [$endDate, $endDate];
 
-            if ($crewId !== null) {
-                $sql .= " AND t.assigned_to = ?";
-                $params[] = $crewId;
+            $crewIds = is_array($crewId) ? array_values(array_map('intval', $crewId)) : ($crewId !== null ? [(int)$crewId] : []);
+            if ($crewIds) {
+                $sql .= " AND t.assigned_to IN (" . implode(',', array_fill(0, count($crewIds), '?')) . ")";
+                foreach ($crewIds as $cid) { $params[] = $cid; }
             }
 
             $sql .= " ORDER BY

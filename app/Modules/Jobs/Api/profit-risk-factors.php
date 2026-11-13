@@ -116,20 +116,24 @@ try {
     $laborRatioPct = ($labor / $rev) * 100;
     $laborScore    = $clamp(($labor / $rev) / 0.45);
 
-    // 3. Time accuracy — actual vs estimated per visit
+    // 3. Time accuracy — person-minutes per visit vs estimate x crew (labour minutes are person-minutes)
+    $crew         = PlanProfitabilityService::getPlanCrewCount($planId);
+    $expectedMins = $estDuration * $crew;
+    $expectedTxt  = $fmtMins($expectedMins) . ($crew > 1 ? " ({$crew} crew × " . $fmtMins($estDuration) . ')' : '');
     if ($isEstimated || $completedVisits === 0) {
         $timeScore   = 0.15;
         $timeActual  = '—';
     } else {
         $avgActual   = $laborMins / $completedVisits;
-        $overRatio   = max(0, $avgActual - $estDuration) / $estDuration;
-        $timeScore   = $clamp($overRatio);
+        $timeScore   = $clamp(PlanProfitabilityService::timeOverRatio($avgActual, $estDuration, $crew));
         $timeActual  = $fmtMins((int)round($avgActual)) . '/v';
     }
 
     // 4. Expense (materials) ratio — target ≤ 15 % of revenue
     $expRatioPct = ($expenses / $rev) * 100;
-    $expScore    = $clamp(($expenses / $rev) / 0.15);
+    $materialsMissing = $expenses <= 0;
+    // A finished job with nothing spent is unknown, not safe: score it medium until receipts arrive.
+    $expScore    = $materialsMissing ? 0.3 : $clamp(($expenses / $rev) / 0.15);
 
     // 5. Overhead ratio — target ≤ 25 % of revenue
     $ohRatioPct = ($overhead / $rev) * 100;
@@ -176,23 +180,25 @@ try {
             'key'            => 'time',
             'label'          => 'Time',
             'raw_value'      => $isEstimated ? 'est.' : $timeActual,
-            'expected_value' => $fmtMins($estDuration),
+            'expected_value' => $expectedTxt,
             'unit'           => 'min',
             'score_0_1'      => round($timeScore, 3),
             'severity'       => $severity($timeScore),
             'explanation'    => $isEstimated
                                     ? 'Using estimated duration — log actual time for accuracy'
-                                    : 'Actual ' . $timeActual . ' vs ' . $fmtMins($estDuration) . ' estimate',
+                                    : 'Actual ' . $timeActual . ' vs ' . $expectedTxt . ' expected',
         ],
         [
             'key'            => 'expenses',
             'label'          => 'Expenses',
-            'raw_value'      => $fmtPct($expRatioPct),
+            'raw_value'      => $materialsMissing ? 'none recorded' : $fmtPct($expRatioPct),
             'expected_value' => '≤15%',
             'unit'           => '%',
             'score_0_1'      => round($expScore, 3),
             'severity'       => $severity($expScore),
-            'explanation'    => 'Materials & expenses are ' . $fmtPct($expRatioPct) . ' of revenue',
+            'explanation'    => $materialsMissing
+                                    ? 'No materials or expenses recorded for this job, so margin is overstated'
+                                    : 'Materials & expenses are ' . $fmtPct($expRatioPct) . ' of revenue',
         ],
         [
             'key'            => 'overhead',
@@ -286,14 +292,21 @@ try {
 
     if ($timeScore >= 0.25 && !$isEstimated && $completedVisits > 0) {
         $avgActualMins = (int)round($laborMins / $completedVisits);
-        $overMins      = $avgActualMins - $estDuration;
-        $overPct       = $estDuration > 0 ? round(($overMins / $estDuration) * 100) : 0;
+        $overMins      = $avgActualMins - $expectedMins;
+        $overPct       = $expectedMins > 0 ? round(($overMins / $expectedMins) * 100) : 0;
         $recs[] = [
             'key'  => 'Time',
             'text' => sprintf(
-                'Jobs are averaging %s over estimate (%d%% longer). Either streamline the job or update the plan estimate to %s.',
-                $fmtMins($overMins), $overPct, $fmtMins($avgActualMins)
+                'Jobs are averaging %s over the expected %s (%d%% longer, %d crew). Either streamline the job or update the plan estimate to %s per person.',
+                $fmtMins($overMins), $fmtMins($expectedMins), $overPct, $crew, $fmtMins((int)round($avgActualMins / $crew))
             ),
+        ];
+    }
+
+    if ($materialsMissing) {
+        $recs[] = [
+            'key'  => 'Expenses',
+            'text' => 'No materials or expenses are recorded against this job, so the margin shown is a ceiling. Add the receipts for what was bought for it.',
         ];
     }
 
@@ -325,6 +338,7 @@ try {
             'plan_title'      => $planRow['title'],
             'net_profit'      => round($profit, 2),
             'net_margin'      => round($marginPct, 1),
+            'costing'         => PlanProfitabilityService::jobCostingLines($p),
             'factors'         => $factors,
             'recommendations' => $recs,
             'updated_at'      => date('c'),

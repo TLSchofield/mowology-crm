@@ -960,9 +960,15 @@ if ($hasPropCoords) {
                     </div>
                 </div>
                 <div class="mw-header-actions">
+                    <?php if (VisitLifecycleService::allVisitsInvoiced($visits)): ?>
+                    <span class="btn btn-success disabled" aria-disabled="true" style="opacity:.5;cursor:not-allowed;" title="Every visit on this plan already has an invoice">
+                        <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
+                    </span>
+                    <?php else: ?>
                     <a href="/crm/invoices/create.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-success" title="Raise an invoice for this plan">
                         <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
                     </a>
+                    <?php endif; ?>
                     <?php
                     // The next visit still open, else the latest one (already-done work is subcontracted for its proof and bill).
                     $subVisitId = 0;
@@ -1084,16 +1090,33 @@ if ($hasPropCoords) {
                  ══════════════════════════════════════════════════════ -->
 
             <?php if ($profitability['has_data']): ?>
-            <div class="card mb-4">
-                <div class="card-header d-flex align-items-center justify-content-between">
-                    <h5 class="card-title mb-0">Risk Analysis</h5>
-                    <span class="text-muted" style="font-size:.75rem;">8-factor profitability risk score</span>
-                </div>
-                <div class="card-body p-0" id="mwInlineRiskBody">
-                    <div class="d-flex align-items-center justify-content-center py-4">
-                        <span class="text-muted small">Analysing&hellip;</span>
+            <div class="row">
+              <div class="col-xl-8">
+                <div class="card mb-4">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <h5 class="card-title mb-0">Risk Analysis</h5>
+                        <span class="text-muted" style="font-size:.75rem;">8-factor profitability risk score</span>
+                    </div>
+                    <div class="card-body p-0" id="mwInlineRiskBody">
+                        <div class="d-flex align-items-center justify-content-center py-4">
+                            <span class="text-muted small">Analysing&hellip;</span>
+                        </div>
                     </div>
                 </div>
+              </div>
+              <div class="col-xl-4">
+                <div class="card mb-4">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <h5 class="card-title mb-0">Job Costing</h5>
+                        <span class="text-muted" style="font-size:.75rem;">Sales less costs, in dollars</span>
+                    </div>
+                    <div class="card-body p-0" id="mwJobCostingBody">
+                        <div class="d-flex align-items-center justify-content-center py-4">
+                            <span class="text-muted small">Calculating&hellip;</span>
+                        </div>
+                    </div>
+                </div>
+              </div>
             </div>
             <?php else: ?>
             <div class="card mb-4">
@@ -4792,6 +4815,22 @@ if ($hasPropCoords) {
                 '<td class="mw-irt-value">' + f.raw_value + '</td>' +
                 '<td class="mw-irt-sev" style="color:' + c + '">' + sev + '</td></tr>';
         }).join('');
+        var costBody = document.getElementById('mwJobCostingBody');
+        if (costBody && d.costing) {
+            var money = function (v) {
+                var a = Math.abs(v).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                return (v < 0 ? '\u2212$' : '$') + a;
+            };
+            var crows = d.costing.lines.map(function (l) {
+                var cls = l.kind === 'profit' ? (l.amount < 0 ? ' is-loss' : ' is-gain') : '';
+                return '<div class="mw-jc-row mw-jc-' + l.kind + cls + '">' +
+                    '<span class="mw-jc-label">' + l.label + '</span>' +
+                    '<span class="mw-jc-amount">' + money(l.amount) + '</span>' +
+                    '<span class="mw-jc-pct">' + l.pct.toFixed(1) + '%</span></div>';
+            }).join('');
+            costBody.innerHTML = '<div class="mw-jc"><div class="mw-jc-head"><span></span><span>Amount</span><span>% of sales</span></div>' + crows + '</div>' +
+                (d.costing.materials_missing ? '<div class="mw-jc-note">No materials recorded for this job, so profit is a ceiling until the receipts are added.</div>' : '');
+        }
         var recHtml = '';
         if (d.recommendations && d.recommendations.length) {
             recHtml = '<div class="mw-irt-recs"><div class="mw-irt-recs-title">Recommendations</div>' +

@@ -690,3 +690,7 @@ Tim ordered mulch (through the CRM) for a job with the soil days ago; the mulch-
 
 ## 2026-11-13 — Offline hardening as a selling point (Tim: "it's a feature")
 Copy + proof table: `docs/plans/ittai-offline-selling-point.md`. Publish only after the airplane-mode run on iPhone and Android and a check of how long a phone stays signed in offline; true limits listed there (office side online-only, schedule is today + tomorrow).
+
+- **Plan page: show Total Revenue in red until it is paid (Tim, 2026-11-12, looking at PLN-2026-0145: visit invoiced $1,125 but Total Revenue reads $0.00):** colour the revenue figure red (or "invoiced, unpaid" amber/red with the amount) until the invoice is paid, so invoiced-not-paid work is visible instead of reading as nothing earned, and job costing (margin, labour %, risk score) can run on invoiced revenue before payment lands. Open: does the Risk Analysis "Revenue $1,125" use invoiced or paid? (it showed $1,125 while the tile showed $0.00, so the two already disagree). Not started.
+
+- **Otto flowline: after a job, ask for what the plan page is missing (Tim, 2026-11-12, PLN-2026-0145):** once a visit is completed, the flowline should ask for anything relevant to bring the plan page up to date, e.g. the receipt for the mulch/bulbs/soil bought, the job photos Tim took, the invoice, a payment. Each ask resolves itself when the thing arrives (receipt filed to the job, photos on the visit). Not started; Otto flowline files are being edited by other sessions, so build after they land.

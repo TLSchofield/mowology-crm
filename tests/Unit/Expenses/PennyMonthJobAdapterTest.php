@@ -201,7 +201,7 @@ class PennyMonthJobAdapterTest extends TestCase
         $this->assertFalse(PennyMonthJobAdapter::unplaced($this->line()), 'a proposal is not unplaced');
         $this->assertFalse(PennyMonthJobAdapter::unplaced($this->line(['suggestion' => null, 'stripe' => true])), 'a Stripe payout is split elsewhere');
         $this->assertFalse(PennyMonthJobAdapter::unplaced($this->line(['suggestion' => null, 'client_payment' => true])), 'a client payment needs the invoice');
-        $ev = ['First time this payee is on your bank lines', 'No receipt within 14 days', 'No vendor of yours matches'];
+        $ev = ['First time this payee is on your bank lines', 'No unlinked receipt of about this amount within 14 days', 'No vendor on file starts this text'];
         $j = PennyMonthJobAdapter::fromUnplaced($line, $this->months()[2], [], 1, 1, ['evidence' => $ev, 'guide_left' => 7]);
         $this->assertSame('No proposal', $j['right']['label']);
         $this->assertSame($ev[0], $j['right']['who']);
@@ -218,5 +218,15 @@ class PennyMonthJobAdapterTest extends TestCase
         $j = PennyMonthJobAdapter::fromUnplaced($line, $this->months()[2], [], 1, 1, ['evidence' => ['x'], 'guide_left' => 0]);
         $this->assertSame('Keep it', $j['secondary']['label']);
         $this->assertSame('keep', $j['secondary']['request']['action']);
+    }
+
+    public function testALineWhoseSuggestionKeyIsNullStillBuilds(): void
+    {
+        // BankDeskService::queue always sets 'suggestion' (null when advise() has nothing): the job must not read it as a proposal
+        $line = $this->line(['suggestion' => null]);
+        $j = PennyMonthJobAdapter::fromUnplaced($line, $this->months()[2], [], 1, 1, ['evidence' => ['x'], 'guide_left' => 3, 'accounts' => [[33, '6120 Vehicle Maintenance']]]);
+        $this->assertSame('No proposal', $j['right']['label']);
+        $this->assertSame('Choose account', $j['primary']['label']);
+        $this->assertSame([[33, '6120 Vehicle Maintenance']], $j['accounts']);
     }
 }

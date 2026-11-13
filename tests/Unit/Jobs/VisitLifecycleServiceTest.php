@@ -237,4 +237,19 @@ class VisitLifecycleServiceTest extends TestCase
         $this->assertSame(['3: completed', '5: locked', '6: invoiced'], $desk['refused']);
     }
 
+    public function test_all_visits_invoiced_grays_create_invoice_only_when_nothing_is_left_to_bill(): void
+    {
+        $this->assertFalse(VisitLifecycleService::allVisitsInvoiced([]));
+        $this->assertTrue(VisitLifecycleService::allVisitsInvoiced([['status' => 'completed', 'invoice_id' => 5]]));
+        // a recurring plan with a later, un-invoiced visit still needs the button
+        $this->assertFalse(VisitLifecycleService::allVisitsInvoiced([
+            ['status' => 'completed', 'invoice_id' => 5], ['status' => 'scheduled', 'invoice_id' => null],
+        ]));
+        // skipped / cancelled visits are never billed
+        $this->assertTrue(VisitLifecycleService::allVisitsInvoiced([
+            ['status' => 'completed', 'invoice_id' => 5], ['status' => 'skipped'], ['status' => 'cancelled'],
+        ]));
+        $this->assertFalse(VisitLifecycleService::allVisitsInvoiced([['status' => 'skipped']]));
+    }
+
 }
