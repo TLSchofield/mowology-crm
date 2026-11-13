@@ -564,6 +564,8 @@ span.it-job-anchor:hover { color: var(--it-meta); }   /* an end of line that is 
 .it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
 .it-job-outer[hidden] { display: none; }
 .it-job-nums-outer { margin-bottom: 24px; }
+/* Route Reconciliation bar: its conflicts are decisions on Otto's line now (the panel's script still marks the calendar cards). */
+body.it-shell #mwRrPanel { display: none !important; }
 .it-job-nums[hidden] { display: none; }
 .it-job-num { display: block; min-width: 120px; padding: 6px 14px; margin: 0 6px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); z-index: 1; }
 .it-job-num b { display: block; font-size: 26px; line-height: 30px; font-weight: 600; color: var(--it-text); font-variant-numeric: tabular-nums; }

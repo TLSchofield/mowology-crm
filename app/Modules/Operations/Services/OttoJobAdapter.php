@@ -12,20 +12,28 @@ declare(strict_types=1);
  * A new face on existing logic only. The items come from OttoScheduleService::day() (the same desk, ids and 5-minute cache as
  * the things strip above the calendar); every button posts what Otto's card posts to /crm/api/otto.php?mode=decide
  * (OttoActionService::decide, the one write path). Nothing here writes anything, and no click happens for the owner.
- * The other desk kinds (no_time, duration, pins and borders) stay on the things strip.
+ * Since 2026-11-12 the rest of the old things card rides here too (the card is retired in the Ittai shell): no_time, duration,
+ * pins and borders, empty stops, borders missing, and the Route Reconciliation conflicts (truck GPS vs clock-in). Link-only
+ * kinds open where they are fixed; nothing moves without a click.
  *
  * Off unless ops_settings it_otto_job = '1'. Any failure means no job. No namespace / no autoloader in production.
  */
 class OttoJobAdapter
 {
     public const SETTING = 'it_otto_job';
-    public const MAX_JOBS = 5;
+    public const MAX_JOBS = 60;
     /** Accepted decisions of these kinds before his confidence reads mastered (the knowledge triangle: gold after five). */
     public const MASTERED_AT = 5;
     public const API = '/crm/api/otto.php?mode=decide';
+    /** The decisions his confidence record counts (the housekeeping kinds below do not move it). */
     public const KINDS = ['unscheduled', 'extra_work', 'visit_date', 'weather'];
+    /** Housekeeping the old things card carried: time and plan length, pins and borders. All have a suggestion id. */
+    public const HOUSEKEEPING = ['no_time', 'duration', 'pin_off', 'no_pin', 'default_border', 'border_overlap'];
+    /** Desk items with no suggestion id: they link to where they are fixed. */
+    public const LINK_ONLY = ['overbooked', 'empty_stop', 'no_border'];
     /** Most urgent first. */
-    private const ORDER = ['weather' => 0, 'overbooked' => 1, 'visit_date' => 2, 'unscheduled' => 3, 'extra_work' => 3];
+    private const ORDER = ['weather' => 0, 'overbooked' => 1, 'route_conflict' => 2, 'visit_date' => 3, 'unscheduled' => 4, 'extra_work' => 4,
+        'no_time' => 5, 'duration' => 5, 'empty_stop' => 6, 'pin_off' => 7, 'no_pin' => 7, 'default_border' => 8, 'border_overlap' => 8, 'no_border' => 9];
 
     public static function enabled(PDO $db): bool
     {
@@ -51,18 +59,19 @@ class OttoJobAdapter
             $d = $from;
             for ($i = 0; $i < OttoScheduleService::MAX_DAYS && $d <= $to; $i++) {
                 foreach ($svc->day($d)['items'] as $it) {
-                    if (in_array($it['kind'], self::KINDS, true) || $it['kind'] === 'overbooked') $items[] = $it + ['day' => $d];
+                    if (in_array($it['kind'], array_merge(self::KINDS, self::HOUSEKEEPING, self::LINK_ONLY), true)) $items[] = $it + ['day' => $d];
                 }
                 $d = date('Y-m-d', strtotime($d . ' +1 day'));
             }
-            if (!$items) return [];
+            $conflicts = self::routeConflicts($db, $from, $to);
+            if (!$items && !$conflicts) return [];
             $subjects = self::subjects($db, $items);
             // The day's answer is cached 5 minutes: a suggestion decided since (here or on the card) must not come back.
             $items = array_values(array_filter($items, static function ($it) use ($subjects) {
                 $sid = (int)($it['id'] ?? 0);
                 return !$sid || (($subjects[$sid]['status'] ?? '') === 'open');
             }));
-            if (!$items) return [];
+            if (!$items && !$conflicts) return [];
             $plans = [];
             $slots = [];
             require_once __DIR__ . '/UnscheduledWorkService.php';
@@ -77,11 +86,68 @@ class OttoJobAdapter
                     $slots[$sid] = (new OttoActionService($db))->findSlot((int)$sub['subject_id']);
                 }
             }
-            return self::queue($items, $plans, $slots, self::record($db), $today ?? date('Y-m-d'), [$from, $to]);
+            return self::queue(array_merge($items, $conflicts), $plans, $slots, self::record($db), $today ?? date('Y-m-d'), [$from, $to]);
         } catch (Throwable $e) {
             error_log('OttoJobAdapter::jobs: ' . $e->getMessage());
             return [];
         }
+    }
+
+    /**
+     * Route Reconciliation conflicts for the days in view, shaped like desk items (kind route_conflict, no suggestion id).
+     * Cached 5 minutes per range (the check reads a week of truck pings). [] on any failure.
+     * @return list<array>
+     */
+    public static function routeConflicts(PDO $db, string $from, string $to): array
+    {
+        try {
+            // Keyed by the business's database: one code tree serves every tenant.
+            $dbName = (string)$db->query('SELECT DATABASE()')->fetchColumn();
+            $file = sys_get_temp_dir() . '/mw-rr-' . md5($dbName . '|' . $from . '|' . $to) . '.json';
+            $r = null;
+            if (is_file($file) && filemtime($file) > time() - 300) $r = json_decode((string)@file_get_contents($file), true);
+            if (!is_array($r)) {
+                require_once __DIR__ . '/RouteReconciliationService.php';
+                $r = RouteReconciliationService::conflicts($db, $from, $to);
+                @file_put_contents($file, json_encode($r));
+            }
+            $conflicts = (array)($r['conflicts'] ?? []);
+            // Resolved since the cache was written (conflict-resolution.php): drop them now, not in five minutes.
+            try {
+                $res = $db->prepare("SELECT visit_id, visit_date FROM conflict_resolutions WHERE visit_date BETWEEN ? AND ?");
+                $res->execute([$from, $to]);
+                $done = [];
+                foreach ($res->fetchAll(PDO::FETCH_ASSOC) as $x) $done[$x['visit_id'] . '_' . $x['visit_date']] = true;
+                if ($done) $conflicts = array_values(array_filter($conflicts, fn($c) => !isset($done[($c['visit_id'] ?? '') . '_' . ($c['visit_date'] ?? '')])));
+            } catch (Throwable $e) { /* table not there: nothing resolved */ }
+            return self::conflictItems($conflicts);
+        } catch (Throwable $e) {
+            error_log('OttoJobAdapter::routeConflicts: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Pure: RouteReconciliationService conflicts into desk-shaped items. */
+    public static function conflictItems(array $conflicts): array
+    {
+        $out = [];
+        foreach ($conflicts as $c) {
+            $vid = (int)($c['visit_id'] ?? 0);
+            $day = (string)($c['visit_date'] ?? '');
+            if (!$vid || $day === '') continue;
+            $addr = (string)($c['property_address'] ?? 'a property');
+            $gps = ($c['type'] ?? '') === 'truck_at_site_no_clockin';
+            $url = '/crm/jobs/conflict-resolution.php?visit_id=' . $vid . '&date=' . $day . (!empty($c['truck_id']) ? '&truck_id=' . (int)$c['truck_id'] : '');
+            $out[] = [
+                'id' => null, 'key' => 'otto:rr:' . $vid . ':' . $day, 'kind' => 'route_conflict', 'priority' => $gps ? 2 : 3,
+                'text' => $gps
+                    ? (string)($c['truck_name'] ?? 'The truck') . ' was at ' . $addr . ' ' . (string)($c['first_seen'] ?? '') . '-' . (string)($c['last_seen'] ?? '') . ' (' . (int)($c['dwell_minutes'] ?? 0) . ' min), but the visit was never clocked in.'
+                    : 'The visit at ' . $addr . ' is done, but no truck GPS was seen there.',
+                'detail' => trim((string)($c['crew_name'] ?? '') !== '' ? 'Crew: ' . $c['crew_name'] . '. ' : '') . 'Truck GPS and the clock-in disagree. Open it to sort out which is right.',
+                'url' => $url, 'propose' => [], 'day' => $day,
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -115,6 +181,10 @@ class OttoJobAdapter
                 $job = self::weather($it, $sid, $slots[$sid] ?? null);
             } elseif ($sid && in_array($kind, ['unscheduled', 'extra_work'], true)) {
                 $job = self::unscheduled($it, $sid, (array)($plans[$sid] ?? []));
+            } elseif (in_array($kind, ['route_conflict', 'empty_stop', 'no_border'], true)) {
+                $job = self::linkOnly($it, $kind);
+            } elseif ($sid && in_array($kind, self::HOUSEKEEPING, true)) {
+                $job = self::housekeeping($it, $sid, $kind);
             }
             if ($job) $out[] = $job + ['sure' => self::sure($record), 'confidence' => self::confidenceLine($record)];
         }
@@ -188,6 +258,56 @@ class OttoJobAdapter
             'primary' => ['label' => 'Open the day', 'sub' => 'moves nothing', 'href' => self::dayUrl((string)$it['day'])],
             'secondary' => ['label' => 'Not yet', 'sub' => 'ask again tomorrow', 'skip' => true],
         ];
+    }
+
+    /** Empty stop, no border, route conflict: opens where it is fixed; "Not yet" asks again tomorrow. */
+    private static function linkOnly(array $it, string $kind): array
+    {
+        $titles = ['route_conflict' => 'Do truck GPS and the clock-in disagree?', 'empty_stop' => 'Remove this empty stop?', 'no_border' => 'Draw this property\'s border?'];
+        $url = (string)($it['url'] ?? '') !== '' ? (string)$it['url'] : self::dayUrl((string)$it['day']);
+        return self::base($it, $kind, $titles[$kind]) + [
+            'primary' => ['label' => $kind === 'no_border' ? 'Draw it' : 'Open it', 'sub' => 'moves nothing', 'href' => $url],
+            'secondary' => ['label' => 'Not yet', 'sub' => 'ask again tomorrow', 'skip' => true],
+        ];
+    }
+
+    /** Time, plan length, pins and borders: the card's own buttons, through the same decide. */
+    private static function housekeeping(array $it, int $sid, string $kind): array
+    {
+        $p = (array)($it['propose'] ?? []);
+        $url = (string)($it['url'] ?? '') !== '' ? (string)$it['url'] : self::dayUrl((string)$it['day']);
+        $skip = ['label' => 'Not yet', 'sub' => 'ask again tomorrow', 'skip' => true];
+        $minutes = (int)($p['minutes'] ?? 0);
+        switch ($kind) {
+            case 'no_time':
+                $job = self::base($it, $kind, 'How long did this visit take?');
+                $job['primary'] = $minutes > 0
+                    ? ['label' => 'Save ' . $minutes . ' min', 'sub' => 'on the visit', 'request' => self::decide($sid, ['choice' => 'apply', 'minutes' => $minutes])]
+                    : ['label' => 'Open the day', 'sub' => 'enter the time', 'href' => $url];
+                return $job + ['secondary' => $skip];
+            case 'duration':
+                $job = self::base($it, $kind, 'Change this plan\'s visit length?');
+                $job['primary'] = $minutes > 0
+                    ? ['label' => 'Update the plan', 'sub' => 'to ' . $minutes . ' min', 'request' => self::decide($sid, ['choice' => 'apply', 'minutes' => $minutes])]
+                    : ['label' => 'Open the day', 'sub' => 'set the length', 'href' => $url];
+                return $job + ['secondary' => ['label' => 'Keep it', 'sub' => $p['planned'] ?? null ? $p['planned'] . ' min stays' : 'stays as is', 'request' => self::decide($sid, ['choice' => 'keep'])]];
+            case 'pin_off':
+                return self::base($it, $kind, 'Move this property\'s pin to where the crews work?') + [
+                    'primary' => ['label' => 'Move the pin', 'sub' => 'to where they work', 'request' => self::decide($sid, ['choice' => 'move_pin'])],
+                    'secondary' => ['label' => 'The pin is right', 'sub' => 'leave it', 'request' => self::decide($sid, ['choice' => 'dismiss'])],
+                ];
+            case 'default_border':
+                return self::base($it, $kind, 'Draw this property\'s real border?') + [
+                    'primary' => ['label' => 'Draw it', 'sub' => 'opens the editor', 'href' => $url],
+                    'secondary' => ['label' => 'Fine as it is', 'sub' => 'stops asking', 'request' => self::decide($sid, ['choice' => 'keep'])],
+                ];
+            default:   // no_pin, border_overlap
+                $title = $kind === 'no_pin' ? 'Find this property on the map?' : 'Do these two borders overlap?';
+                return self::base($it, $kind, $title) + [
+                    'primary' => ['label' => $kind === 'no_pin' ? 'Find it' : 'Redraw', 'sub' => 'opens the map', 'href' => $url],
+                    'secondary' => ['label' => 'Not now', 'sub' => 'leave it', 'request' => self::decide($sid, ['choice' => 'dismiss'])],
+                ];
+        }
     }
 
     private static function dayUrl(string $day): string
