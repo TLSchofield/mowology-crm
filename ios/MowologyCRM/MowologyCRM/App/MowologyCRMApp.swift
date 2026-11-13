@@ -107,7 +107,7 @@ struct MowologyCRMApp: App {
         scheduleGPSRefreshIfNeeded()
 
         let jobActive = UserDefaults.standard.bool(forKey: GPSTrackingService.kShiftActive)
-        let lastPing  = UserDefaults.standard.double(forKey: GPSTrackingService.kLastPingAt)
+        let lastPing  = GPSTrackingService.pingDefaults.double(forKey: GPSTrackingService.kLastPingAt)
         let elapsed   = lastPing > 0 ? Date().timeIntervalSince1970 - lastPing : 0
 
         // If a job is active and we haven't pinged in >8 minutes, nudge the crew.

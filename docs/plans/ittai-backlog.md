@@ -24,6 +24,13 @@ Lead the gardener page (ittai.ca/g/…), the calculators' next-step line and the
 app, the crew time app and the books typing all become one Ittai. Honest limits stay: QuickBooks is kept, and "fair price" needs a price before it is
 a claim (today's FAQ says no price is set). Draft in the gardener-page notes (`selling-copy.md`); Tim approves the headline.
 
+## Heritage Tree Service (Sam Chapman, arborist) — willing to sign up for his year end (Tim, 2026-11-13) — queued
+- Sam keeps everything in a spreadsheet, uses no software, hands it to an accountant. First tree-care business, first
+  year-end-only customer: what he needs is books the accountant can use, not the whole field app.
+- Open: import his spreadsheet (income, expenses, receipts) into Penny's ledger; accountant export in the CRA way
+  ([[feedback_standard_bookkeeping_accountant_traceable]]); arborist wording for jobs and services (multi-discipline
+  tenants: [[feedback_design_for_multi_discipline_tenants]]). Needs: his accountant's name, year-end date, a sample sheet.
+
 ## Materials price pool, seeded by Mowology (Tim consented 2026-11-13) — queued
 Tim: "I consent for mowology's product purchases [prices] to be shared in the data pool … that gives seed data to all."
 Turns the "later: anonymised materials price index" line under *Supplier price lists* into a seed: Mowology's own purchase lines (receipts and

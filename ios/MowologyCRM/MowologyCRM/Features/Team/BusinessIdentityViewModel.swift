@@ -43,7 +43,18 @@ final class BusinessIdentityViewModel: ObservableObject {
 
     init(api: BusinessIdentityAPI) { self.api = api }
 
+    private var loadTriedAt: Date?
+
+    /// TeamView's `.task` restarted about 12 times a second and cancelled each fetch (diagnostic log, 2026-11-13: 1,488
+    /// cancelled requests a minute). So: at most one try every 30 s, and the request runs in its own task, which a
+    /// cancelled `.task` cannot cancel.
     func load() async {
+        guard current == nil, !isBusy, Date().timeIntervalSince(loadTriedAt ?? .distantPast) > 30 else { return }
+        loadTriedAt = Date()
+        await Task { await self.performLoad() }.value
+    }
+
+    private func performLoad() async {
         guard current == nil, !isBusy else { return }
         isBusy = true; error = nil
         do {
@@ -61,7 +72,7 @@ final class BusinessIdentityViewModel: ObservableObject {
 
     func retry() async {
         error = nil
-        if current == nil { await load() } else { await searchAgain() }
+        if current == nil { loadTriedAt = nil; await load() } else { await searchAgain() }
     }
 
     func start(_ name: String) async {
