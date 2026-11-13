@@ -73,6 +73,7 @@ class QuoteApprovalService
         $approvedSub = 0.0;
         $quotedSub = 0.0;
         $declined = [];
+        $approvedLabels = [];
         foreach ($lines as $l) {
             if (!empty($l['is_optional'])) continue;   // optional lines were never in the price
             $amount = round((float)($l['line_total'] ?? 0), 2);
@@ -80,7 +81,7 @@ class QuoteApprovalService
             $ok = empty($l['client_declined']);
             $out[] = ['label' => $label, 'amount' => $amount, 'approved' => $ok];
             $quotedSub += $amount;
-            if ($ok) $approvedSub += $amount; else $declined[] = $label . ' $' . number_format($amount, 2);
+            if ($ok) { $approvedSub += $amount; $approvedLabels[] = $label; } else $declined[] = $label . ' $' . number_format($amount, 2);
         }
         $approvedTotal = round($approvedSub * (1 + self::TAX_RATE), 2);
         $quotedTotal = round($quotedSub * (1 + self::TAX_RATE), 2);
@@ -110,7 +111,11 @@ class QuoteApprovalService
             'push_title'     => "Sam: {$number} approved",
             'push_body'      => ($partial ? ucfirst($count) : ucfirst($count) . ' approved') . ', ' . $money($approvedTotal)
                                 . ($partial ? ' (quoted ' . $money($quotedTotal) . ')' : '') . '.' . $notIncl,
-            'job_note'       => "From {$number}: " . ($partial ? $count . ' approved.' . $notIncl : ucfirst($count) . ' approved.') . $who,
+            // The job note names what the job IS (the approved lines) before what it is not, so a
+            // partial approval never reads as if the left-out line were the work (PLN-2026-0145).
+            'job_note'       => "From {$number}: " . ($partial
+                                    ? $count . ' approved: ' . implode(', ', $approvedLabels) . '.' . ' Not included (declined): ' . implode(', ', $declined) . '.'
+                                    : ucfirst($count) . ' approved.') . $who,
             'via'            => $via,
             'approver'       => $approver,
         ];
