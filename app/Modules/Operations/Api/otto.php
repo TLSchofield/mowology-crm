@@ -11,6 +11,7 @@
  *        silent: real | fine · any: dismiss
  * POST {mode: 'answer', question_id, answer, csrf_token}
  *
+ * POST reads mode from the JSON body, else from ?mode= (the Schedule job strip posts to otto.php?mode=decide).
  * ?mode=, never ?action= (see the /api/ router note in the vault). jobs.edit only.
  * Nothing here texts a crew member; every change is the owner's click.
  */
@@ -42,7 +43,7 @@ try {
 
     $method = $_SERVER['REQUEST_METHOD'];
     $input  = $method === 'POST' ? (json_decode((string)file_get_contents('php://input'), true) ?? []) : [];
-    $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'suggestions');
+    $mode   = $method === 'POST' ? (string)($input['mode'] ?? $_GET['mode'] ?? '') : (string)($_GET['mode'] ?? 'suggestions');
 
     if ($method === 'POST' && !verifyCSRFToken((string)($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')))) {
         http_response_code(403);

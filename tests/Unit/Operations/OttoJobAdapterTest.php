@@ -91,4 +91,21 @@ class OttoJobAdapterTest extends TestCase
         $jobs = OttoJobAdapter::queue($items, [], [], [0, 0], '2026-11-11');
         $this->assertSame(['otto:o2', 'otto:v'], array_column($jobs, 'key'));
     }
+
+    public function test_only_decisions_for_the_days_in_view_are_carried(): void
+    {
+        $items = [
+            $this->item(['kind' => 'visit_date', 'key' => 'in', 'id' => 3, 'day' => '2026-11-10']),
+            $this->item(['kind' => 'visit_date', 'key' => 'out', 'id' => 4, 'day' => '2026-11-20']),
+        ];
+        $jobs = OttoJobAdapter::queue($items, [], [], [0, 0], null, ['2026-11-09', '2026-11-15']);
+        $this->assertSame(['otto:in'], array_column($jobs, 'key'));
+    }
+
+    public function test_a_move_target_outside_the_view_does_not_relabel_the_card_day(): void
+    {
+        $it = $this->item(['kind' => 'visit_date', 'key' => 'v', 'id' => 3, 'day' => '2026-11-10', 'propose' => ['to' => '2026-11-03', 'to_label' => 'Tue Nov 3']]);
+        $j = OttoJobAdapter::queue([$it], [], [], [0, 0], null, ['2026-11-09', '2026-11-15'])[0];
+        $this->assertSame('2026-11-10', $j['day']);
+    }
 }
