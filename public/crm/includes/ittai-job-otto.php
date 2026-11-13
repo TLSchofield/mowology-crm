@@ -33,6 +33,8 @@ try {
     if (!$__ioDesk->ready() || !$__ioDesk->isOwner($__ioUser)) return;
     require_once APP_ROOT . '/Modules/Operations/Services/OttoJobAdapter.php';
     $__ioJobs = OttoJobAdapter::jobs($__ioDb, $__ioFrom, $__ioTo);
+    // The things card above the calendar (otto-schedule-strip.php) steps aside while this line carries its items.
+    $ittaiOttoLineOn = OttoJobAdapter::enabled($__ioDb);
 } catch (Throwable $__e) {
     error_log('Otto schedule strip unavailable: ' . $__e->getMessage());
     return;
