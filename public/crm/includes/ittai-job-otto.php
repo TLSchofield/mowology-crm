@@ -74,7 +74,7 @@ itIconSprite();
 <section class="it-job it-job-mia it-job-otto" data-head="otto" data-who="Otto" aria-label="Otto's job">
   <h2 class="it-vh it-job-tt"></h2>
   <div class="it-job-body"><div class="it-job-rail">
-    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('eye') ?></span><span>Schedule</span></a>
+    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('calendar') ?></span><span>Schedule</span></a>
     <span class="it-job-conf is-forming" role="img"><svg class="it-si" width="24" height="24" viewBox="0 0 16 16" aria-hidden="true"><use href="#it-st-approval-forming"/></svg></span>
     <div class="it-job-split">
       <div class="it-job-col it-job-left"><div class="it-job-what"><b class="it-job-who"></b><span class="it-job-at"></span><p class="it-job-quote"></p><ul class="it-job-cmp" hidden></ul><a class="it-job-open" href="#" target="_blank" rel="noopener" hidden></a><p class="it-job-why"></p></div></div>
@@ -94,7 +94,7 @@ itIconSprite();
 <?php if ($__ioNums): ?>
 <div class="it-job-outer it-job-nums-outer"><section class="it-job it-job-nums" data-head="otto" aria-label="This <?= !empty($mcIsDay) ? 'day' : 'week' ?> in numbers"<?= $__ioJobs ? ' hidden' : '' ?>>
   <div class="it-job-rail">
-    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('eye') ?></span><span>Schedule</span></a>
+    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('calendar') ?></span><span>Schedule</span></a>
     <?php foreach ($__ioNums as $__ioN): ?>
     <div class="it-job-num"><b><?= htmlspecialchars($__ioN[0], ENT_QUOTES) ?></b><span><?= htmlspecialchars($__ioN[1], ENT_QUOTES) ?></span><?php if ($__ioN[2] !== ''): ?><i><?= htmlspecialchars($__ioN[2], ENT_QUOTES) ?></i><?php endif; ?></div>
     <?php endforeach; ?>
