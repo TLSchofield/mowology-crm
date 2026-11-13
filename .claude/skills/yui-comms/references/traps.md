@@ -155,3 +155,10 @@ email is evidence of the account, not proof of who wrote it; evidence at two acc
 `$i['number']`, so the desk threw from the moment a placed reply quoted two invoice numbers (06:58 to about 11:30). **Rule:** a
 field shared by several sections takes every shape it can arrive in, and a new kind of stored mail gets a desk load test
 before the switch goes on.
+
+
+## 2026-11-12 — ittai.ca mail must not reach for a business database
+ittai.ca runs in directory mode (`Tenant::db()` throws), and `sendCrmEmail()`'s neighbours log through `getDB()`. Mail sent
+from the marketing address (the calculators' result email, saved-numbers reminders) uses `sendPlatformEmail()`, which uses
+the same SMTP account but no database and Ittai's own sender. **Check before deploy:** sending as an ittai.ca address
+through the Mowology SMTP account can fail DMARC alignment unless that SMTP host is allowed in ittai.ca's SPF/DKIM.
