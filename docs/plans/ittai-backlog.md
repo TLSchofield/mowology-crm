@@ -8,6 +8,46 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Reference: Symphony's agent home (Tim's screenshots, 2026-11-13) — patterns for the AI Office
+Tim shared screenshots of Symphony (an agent app, free plan, "The Maestro" plus agents Taylor, Casey and Jamie on a "Garden services" space). Patterns
+worth weighing for Ittai's AI Office and Charlie's brief (copy the pattern, never their wording or look):
+- One count pill at the top, "4 Waiting on you", that opens a list of only the decisions that need the owner.
+- A morning headline written as an outcome ("No new garden enquiries; two drafts ready") with "Your 3 agents met this morning", a full-briefing link and a read-aloud button.
+- Decision cards with two plain answers ("Go ahead" / "Drop it"), or the real choices as buttons (which Facebook Page, which Instagram account), plus a reply box.
+- Goals ("A steady stream of new garden clients") that break into agent tasks with a status, an owner agent and "Your notes" the agent reads while it works.
+- "While you were away" with "I did it" / "Stop watching", and every draft marked "Draft only. Nothing is printed, posted or sent."
+Ittai already has Charlie's brief, the heads' cards and Yui's send-on-Tim's-click rule; this is a reference for how they read on a phone, not a new feature.
+
+## The promise: one app instead of many, at a fair price (Tim, 2026-11-13) — copy direction
+Tim: "the main selling point for me is that i'm tired paying for so many different apps, ittai's goal is to offer everything, at a fair price, thats our promise."
+Lead the gardener page (ittai.ca/g/…), the calculators' next-step line and the website with it: the scheduling app, the receipts app, the quoting
+app, the crew time app and the books typing all become one Ittai. Honest limits stay: QuickBooks is kept, and "fair price" needs a price before it is
+a claim (today's FAQ says no price is set). Draft in the gardener-page notes (`selling-copy.md`); Tim approves the headline.
+
+## Heritage Tree Service (Sam Chapman, arborist) — willing to sign up for his year end (Tim, 2026-11-13) — queued
+- Sam keeps everything in a spreadsheet, uses no software, hands it to an accountant. First tree-care business, first
+  year-end-only customer: what he needs is books the accountant can use, not the whole field app.
+- Open: import his spreadsheet (income, expenses, receipts) into Penny's ledger; accountant export in the CRA way
+  ([[feedback_standard_bookkeeping_accountant_traceable]]); arborist wording for jobs and services (multi-discipline
+  tenants: [[feedback_design_for_multi_discipline_tenants]]). Needs: his accountant's name, year-end date, a sample sheet.
+
+## Materials price pool, seeded by Mowology (Tim consented 2026-11-13) — queued
+Tim: "I consent for mowology's product purchases [prices] to be shared in the data pool … that gives seed data to all."
+Turns the "later: anonymised materials price index" line under *Supplier price lists* into a seed: Mowology's own purchase lines (receipts and
+supplier invoices: item, size, supplier, date, unit price) feed a shared index every tenant can read. Shared: item, size, supplier, region, date,
+price. Private: who bought it, for which client or job, quantities and margins. Open: per-supplier opt-out if a supplier's terms forbid publishing
+their prices; minimum group size before a price shows as "typical" (the calculators use 10); how other tenants opt in. Needs its own plan; builds on
+`app/Modules/Knowledge/` (vendor knowledge commons) and the supplier price-list import.
+Plan (2026-11-13, waiting for Tim's approval): `docs/plans/2026-11-13-materials-price-pool.md`.
+
+## Quote and availability requests to every supplier (Tim, 2026-11-13) — queued
+Tim: "a quote and availability request service that goes out to all vendors in a well written format that is very human" (e.g. Art's Nursery's
+wholesale address, from their website or Tim's Mac Mail). From a quote's plant list, Ittai drafts one short, human request per supplier (what,
+sizes, quantities, needed-by date, delivery or pick-up), Tim reads and sends; replies are read back into price and stock per line. Rules: Yui's
+send-on-Tim's-click rule and office@ for supplier mail (yui-comms); supplier addresses go into the supplier directory with their source.
+Feeds "Best price, in stock" (tagged Next on the gardener page) and the price pool above. Needs its own plan.
+Plan (2026-11-13, waiting for Tim's approval): `docs/plans/2026-11-13-supplier-quote-requests.md`.
+
 ## Plant report for the client (Tim, 2026-11-11) — queued
 
 Tim: the Work Record's plant lines "could become a client report that either sits on the portal or is emailed". Today the crew's Work Record shows
