@@ -82,6 +82,9 @@ final class GPSTrackingService: ObservableObject {
 
     static let kShiftActive = "mw.shiftActive"
     static let kLastPingAt  = "mw.lastPingAt"
+    /// The ping time lives in its own defaults suite. Written every ~60 s to the standard store it
+    /// woke every @AppStorage view (RootView, MainTabView, Team, Search) and redrew all tabs.
+    static let pingDefaults = UserDefaults(suiteName: "ca.mowology.gps-ping") ?? .standard
     static let kActiveVisit = "mw.tracking.activeVisitId"
     /// Set while a tapped break pauses sharing. Relaunch/foreground must not restart capture.
     static let kOnBreak     = "mw.tracking.onBreak"
@@ -450,7 +453,7 @@ final class GPSTrackingService: ObservableObject {
                 if response.success {
                     uploadsOk += 1
                     lastUploadAt = Date()
-                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.kLastPingAt)
+                    Self.pingDefaults.set(Date().timeIntervalSince1970, forKey: Self.kLastPingAt)
                 }
                 if let payload = response.autoStarted { handleAutoStart(payload) }
                 if let payload = response.autoStopped { handleAutoStop(payload) }
