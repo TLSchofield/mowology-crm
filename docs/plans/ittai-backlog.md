@@ -8,6 +8,16 @@ rule.
 Direction (council, 2026-10-12): keep the data discipline-neutral, and build and sell to field-service
 trades first. The AI back office is the edge.
 
+## Reference: Symphony's agent home (Tim's screenshots, 2026-11-13) — patterns for the AI Office
+Tim shared screenshots of Symphony (an agent app, free plan, "The Maestro" plus agents Taylor, Casey and Jamie on a "Garden services" space). Patterns
+worth weighing for Ittai's AI Office and Charlie's brief (copy the pattern, never their wording or look):
+- One count pill at the top, "4 Waiting on you", that opens a list of only the decisions that need the owner.
+- A morning headline written as an outcome ("No new garden enquiries; two drafts ready") with "Your 3 agents met this morning", a full-briefing link and a read-aloud button.
+- Decision cards with two plain answers ("Go ahead" / "Drop it"), or the real choices as buttons (which Facebook Page, which Instagram account), plus a reply box.
+- Goals ("A steady stream of new garden clients") that break into agent tasks with a status, an owner agent and "Your notes" the agent reads while it works.
+- "While you were away" with "I did it" / "Stop watching", and every draft marked "Draft only. Nothing is printed, posted or sent."
+Ittai already has Charlie's brief, the heads' cards and Yui's send-on-Tim's-click rule; this is a reference for how they read on a phone, not a new feature.
+
 ## The promise: one app instead of many, at a fair price (Tim, 2026-11-13) — copy direction
 Tim: "the main selling point for me is that i'm tired paying for so many different apps, ittai's goal is to offer everything, at a fair price, thats our promise."
 Lead the gardener page (ittai.ca/g/…), the calculators' next-step line and the website with it: the scheduling app, the receipts app, the quoting
