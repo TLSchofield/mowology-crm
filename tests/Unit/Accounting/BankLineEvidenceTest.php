@@ -9,7 +9,7 @@ class BankLineEvidenceTest extends TestCase
     public function testAFirstTimePayeeWithNoReceiptSaysSo(): void
     {
         $s = BankLineEvidence::summarise(['earlier' => [], 'receipts' => [], 'recurring' => 0]);
-        $this->assertSame(['First time this payee is on your bank lines', 'No receipt within 14 days', 'No vendor of yours matches'], $s);
+        $this->assertSame(['First time this payee is on your bank lines', 'No unlinked receipt of about this amount within 14 days', 'No vendor on file starts this text'], $s);
     }
 
     public function testEarlierLinesAreCountedByWhereTheyWereFiled(): void
@@ -66,5 +66,11 @@ class BankLineEvidenceTest extends TestCase
         $this->assertSame('City of Vancouver Landfill', BankLineEvidence::vendorFor('POINTOFSALE(VANCOUVERLANDFILL1VANCOUVERBCCA)', $junk)['name'], 'a long alias counts');
         $s = BankLineEvidence::summarise(['earlier' => [], 'receipts' => [], 'recurring' => 0, 'vendor' => ['name' => 'Shell', 'category' => 'Vehicle']]);
         $this->assertSame('Vendor on file: Shell (usually Vehicle)', $s[2]);
+    }
+
+    public function testNoClaimAboutEarlierLinesWhenThereWasNothingToMatchOn(): void
+    {
+        $s = BankLineEvidence::summarise(['earlier' => [], 'receipts' => [], 'recurring' => 0, 'unreadable' => true]);
+        $this->assertNotContains('First time this payee is on your bank lines', $s);
     }
 }
