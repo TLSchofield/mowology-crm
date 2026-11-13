@@ -31,6 +31,7 @@ supplier invoices: item, size, supplier, date, unit price) feed a shared index e
 price. Private: who bought it, for which client or job, quantities and margins. Open: per-supplier opt-out if a supplier's terms forbid publishing
 their prices; minimum group size before a price shows as "typical" (the calculators use 10); how other tenants opt in. Needs its own plan; builds on
 `app/Modules/Knowledge/` (vendor knowledge commons) and the supplier price-list import.
+Plan (2026-11-13, waiting for Tim's approval): `docs/plans/2026-11-13-materials-price-pool.md`.
 
 ## Quote and availability requests to every supplier (Tim, 2026-11-13) — queued
 Tim: "a quote and availability request service that goes out to all vendors in a well written format that is very human" (e.g. Art's Nursery's
@@ -38,6 +39,7 @@ wholesale address, from their website or Tim's Mac Mail). From a quote's plant l
 sizes, quantities, needed-by date, delivery or pick-up), Tim reads and sends; replies are read back into price and stock per line. Rules: Yui's
 send-on-Tim's-click rule and office@ for supplier mail (yui-comms); supplier addresses go into the supplier directory with their source.
 Feeds "Best price, in stock" (tagged Next on the gardener page) and the price pool above. Needs its own plan.
+Plan (2026-11-13, waiting for Tim's approval): `docs/plans/2026-11-13-supplier-quote-requests.md`.
 
 ## Plant report for the client (Tim, 2026-11-11) — queued
 
