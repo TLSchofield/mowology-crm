@@ -549,6 +549,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetApprovalService.p
 require_once __DIR__ . '/../app/Modules/Schedule/Services/CrewViewScope.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/AppointmentService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/VisitNeedsService.php';
+require_once __DIR__ . '/../app/Modules/Schedule/Services/ScheduleListService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/SnowRunGate.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementBooksCheckService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReceiptBankCheck.php';
