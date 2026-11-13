@@ -124,7 +124,7 @@ $sizeLabel = function (array $r) use ($sizeNotes): string {
 };
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
-<p class="mb-2"><a class="btn btn-outline-primary" href="/crm/suppliers/best-price.php">Best price: who has it cheapest →</a></p>
+<p class="mb-2"><a class="btn btn-outline-primary mr-2" href="/crm/suppliers/best-price.php">Best price: who has it cheapest →</a><a class="btn btn-outline-primary" href="/crm/suppliers/contacts.php">Supplier contacts →</a></p>
 
 <div class="mw-ops-page mw-pl-page">
   <div class="mw-ops-head">

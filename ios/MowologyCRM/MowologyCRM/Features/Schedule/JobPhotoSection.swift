@@ -142,6 +142,13 @@ final class JobPhotoViewModel: ObservableObject {
 
     /// Photos already on the server. Silent on failure — offline just means "nothing to show yet".
     func loadExisting() async {
+        // The screen's `.task` is cancelled whenever the view redraws (diagnostic log 2026-11-13: visit-photos fetches
+        // cancelled over and over), and a cancelled fetch used to leave the card empty although the photos were on the
+        // server. The fetch runs in its own task so a cancelled `.task` cannot cancel it.
+        await Task { await self.fetchExisting() }.value
+    }
+
+    private func fetchExisting() async {
         guard let response: VisitPhotosResponse = try? await apiClient.request(.scheduleVisitPhotos(visitId: visitId)),
               let photos = response.photos else { return }
 
@@ -216,6 +223,8 @@ final class JobPhotoViewModel: ObservableObject {
             case .after:      afterPendingSync  = false
             case .additional, .during: break
             }
+            // Re-read the server's list, so the card shows what was saved (leaving and coming back used to show nothing).
+            await loadExisting()
         } catch let err as APIError {
             if case .networkError = err {
                 // Offline — queue to disk and show a soft indicator instead of an error.
