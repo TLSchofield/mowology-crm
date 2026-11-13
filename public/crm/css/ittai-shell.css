@@ -601,7 +601,8 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
 /* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */
 .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-top, .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-bot, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
-.it-job-side { display: grid; justify-items: start; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: nowrap; }
+.it-job-side { display: grid; justify-items: start; min-width: 0; max-width: 100%; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: normal; overflow-wrap: anywhere; }   /* long lines wrap inside the column, never run on under the buttons */
+.it-job-side > * { min-width: 0; max-width: 100%; }
 .it-job-side b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); }
 .it-job-side-top { align-self: end; }
 .it-job-side-bot { align-self: start; }
@@ -701,3 +702,6 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 .it-job .it-job-candidates .it-btn { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; width: 100%; min-height: 48px; padding: 6px 14px; text-align: left; }
 .it-job .it-job-candidates .it-btn span { grid-column: auto; }
 .it-job-invoice-choose .it-job-choose-btns .it-btn { min-height: 40px; white-space: nowrap; }
+
+/* month job: the bank line's own text (payee, date, amount, age) wraps in its column instead of overflowing under the Approve / Wrong account buttons */
+.it-job-rail[data-kind="month"] .it-job-cols .it-job-top, .it-job-rail[data-kind="month"] .it-job-cols .it-job-bot { white-space: normal; overflow-wrap: anywhere; max-width: 260px; }
