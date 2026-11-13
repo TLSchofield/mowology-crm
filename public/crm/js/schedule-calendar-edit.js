@@ -443,11 +443,15 @@
   function mountDay() {
     var tog = document.querySelector('.mw-dv-view-toggle');
     panel = document.createElement('div'); panel.className = 'mw-cal-panel'; panel.hidden = true; panel.innerHTML = '<div class="mw-cal-grid"></div>';
-    var seg = document.createElement('div'); seg.className = 'mw-cal-seg'; seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Schedule layout');
-    seg.innerHTML = '<button type="button" data-m="cards" class="on">Cards</button><button type="button" data-m="timeline">Timeline</button>';
+    // The layout group (Cards / Timeline / Map / List) is drawn by the page; build it only when it is missing.
+    var seg = document.querySelector('.mw-cal-seg'), serverSeg = !!seg;
+    if (!seg) {
+      seg = document.createElement('div'); seg.className = 'mw-cal-seg'; seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Schedule layout');
+      seg.innerHTML = '<button type="button" data-m="cards" class="on">Cards</button><button type="button" data-m="timeline">Timeline</button>';
+    }
     var board = null;
     if (tog && tog.parentElement && tog.parentElement.parentElement) {
-      (tog.nextElementSibling || tog).insertAdjacentElement('afterend', seg);
+      if (!serverSeg) (tog.nextElementSibling || tog).insertAdjacentElement('afterend', seg);
       // Week: the timeline sits right under the page's own weekday + weather rows (they become its column heads),
       // below the stats banner, so those feeds are part of it instead of stranded underneath.
       var dh = weekMode && document.querySelector('.mw-calendar-container .mw-calendar-dates-header');
@@ -481,7 +485,9 @@
     }
     seg.addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
     var saved = null; try { saved = localStorage.getItem('mw_cal_mode'); } catch (e) {}
-    if (saved === 'timeline') setMode('timeline');
+    var asked = new URLSearchParams(window.location.search).get('layout');   // from the List page's Cards / Timeline links
+    if (asked === 'cards' || asked === 'timeline') saved = asked;
+    if (saved === 'timeline') setMode('timeline'); else if (asked === 'cards') setMode('cards');
   }
 
   function mountWeek() {

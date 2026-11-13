@@ -46,4 +46,23 @@ class CrewViewScopeTest extends TestCase
         $db->exec("INSERT INTO users (full_name, role, is_active) VALUES ('Zoe', 'user', 1), ('Amy', 'admin', 1), ('Ann', 'accountant', 1), ('Old', 'user', 0)");
         $this->assertSame([['value' => '2', 'label' => 'Amy'], ['value' => '1', 'label' => 'Zoe']], CrewViewScope::crewOptions($db));
     }
+
+    public function test_pick_gives_null_one_id_or_a_list_and_drops_junk_and_duplicates(): void
+    {
+        $this->assertNull(CrewViewScope::pick(null));
+        $this->assertNull(CrewViewScope::pick([]));
+        $this->assertNull(CrewViewScope::pick(['', 'x', '0', -3]));
+        $this->assertSame(7, CrewViewScope::pick(7));
+        $this->assertSame(7, CrewViewScope::pick(['7', 7]));
+        $this->assertSame([7, 12], CrewViewScope::pick(['7', '12', '7', 'abc']));
+    }
+
+    public function test_the_office_can_pick_several_crews_and_crew_who_may_not_see_others_cannot(): void
+    {
+        $this->assertSame([3, 9], CrewViewScope::decide('admin', 1, 'own', 'all', [3, 9])['crew']);
+        $this->assertSame(3, CrewViewScope::decide('admin', 1, 'own', 'all', [3])['crew']);
+        $this->assertNull(CrewViewScope::decide('admin', 1, 'own', 'all', [])['crew']);
+        $this->assertSame(1, CrewViewScope::decide('admin', 1, 'own', 'mine', [3, 9])['crew'], '"Mine" wins over the picker');
+        $this->assertSame(7, CrewViewScope::decide('user', 7, 'own', 'all', [3, 9])['crew'], 'own-only crew stay on themselves');
+    }
 }

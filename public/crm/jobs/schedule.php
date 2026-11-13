@@ -103,7 +103,9 @@ if ($view === 'day') {
 }
 
 // ─── Staff / Crew filter ────────────────────────────────────────────
-$crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
+require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+// ?crew=7 or ?crew=7,12 — one crew, several (tick-box picker), or none (everyone): null | int | int[]
+$crewFilter = CrewViewScope::pick(array_filter(array_map('trim', explode(',', (string)($_GET['crew'] ?? ''))), 'strlen'));
 $staff = getStaffMembers();
 
 // Whose jobs this person sees (CrewViewScope, 2026-10-14): crew only their own unless the company
@@ -186,7 +188,7 @@ try {
     $_apDay  = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['date'] ?? '')) ? (string)$_GET['date'] : date('Y-m-d');
     $_apFrom = min($startDate, $_apDay);
     $_apTo   = max($endDate, $_apDay);
-    $appointmentsByDate = (new AppointmentService($db))->forRange($_apFrom, $_apTo, $crewFilter ? (int)$crewFilter : null);
+    $appointmentsByDate = (new AppointmentService($db))->forRange($_apFrom, $_apTo, $crewFilter ?: null);
 } catch (Throwable $e) {
     error_log('[schedule] appointments: ' . $e->getMessage());
 }
@@ -968,9 +970,9 @@ function stopStatusClass(string $status): string {
 }
 
 // ─── Build filter query string (crew + service) ─────────────────────
-function buildFilterQuery(?int $crewId, ?string $serviceType): string {
+function buildFilterQuery($crewId, ?string $serviceType): string {
     $qs = '';
-    if ($crewId !== null) $qs .= '&crew=' . $crewId;
+    if ($crewId !== null) $qs .= '&crew=' . implode(',', (array)$crewId);
     if ($serviceType !== null) $qs .= '&service=' . urlencode($serviceType);
     return $qs;
 }
@@ -978,9 +980,9 @@ function buildFilterQuery(?int $crewId, ?string $serviceType): string {
 $filterQueryStr = buildFilterQuery($crewFilter, $serviceFilter);
 
 /** Tick-box job-type picker (a <details> list). Ticking updates a hidden csv input; $onDone runs after a short pause. */
-function mwTypeMultiHtml(array $types, ?string $selected, string $inputId, string $allLabel, string $onDone, string $dataBase = ''): string {
+function mwTypeMultiHtml(array $types, ?string $selected, string $inputId, string $allLabel, string $onDone, string $dataBase = '', string $plural = 'job types'): string {
     $on = ServiceTypeFilter::slugs($selected);
-    $summary = count($on) === 0 ? $allLabel : (count($on) === 1 ? ($types[$on[0]] ?? $on[0]) : count($on) . ' job types');
+    $summary = count($on) === 0 ? $allLabel : (count($on) === 1 ? ($types[$on[0]] ?? $on[0]) : count($on) . ' ' . $plural);
     $h = '<details class="mw-typemulti"><summary>' . htmlspecialchars($summary) . '</summary><div class="mw-typemulti-list">';
     $h .= '<label class="mw-typemulti-row"><input type="checkbox" class="mw-typemulti-all"' . (count($on) === 0 ? ' checked' : '') . '> ' . htmlspecialchars($allLabel) . '</label>';
     foreach ($types as $slug => $label) {
@@ -1402,27 +1404,44 @@ if ($apiKey) {
                   <?php endif; ?>
               </div>
 
+              <?php
+              // Calendar editing (Cards / Timeline layouts, drag-resize) is switched on per business and per person.
+              require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
+              $calEditOn = userHasPermission('jobs.edit') && VisitResizeService::enabled($db);
+              ?>
               <div class="mw-schedule-filters">
                   <!-- Service filter -->
                   <?php echo mwTypeMultiHtml($serviceLabels, $serviceFilter, 'serviceFilter', 'All Services', 'applyFilter'); ?>
                   <!-- Crew filter -->
-                  <select id="crewFilter" class="form-control form-control-sm" onchange="applyFilter()">
-                      <option value="">All Crews</option>
-                      <?php foreach ($staff as $member): ?>
-                          <option value="<?php echo (int)$member['id']; ?>"
-                              <?php echo ($crewFilter === (int)$member['id']) ? 'selected' : ''; ?>>
-                              <?php echo htmlspecialchars($member['full_name']); ?>
-                          </option>
-                      <?php endforeach; ?>
-                  </select>
+                  <?php
+                  $crewLabels = [];
+                  foreach ($staff as $member) { $crewLabels[(string)(int)$member['id']] = (string)$member['full_name']; }
+                  echo mwTypeMultiHtml($crewLabels, $crewFilter === null ? null : implode(',', (array)$crewFilter), 'crewFilter', 'All Crews', 'applyFilter', '', 'crews');
+                  ?>
                   <!-- View toggle -->
                   <div class="mw-dv-view-toggle">
                       <a href="?start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
                          class="mw-dv-toggle-btn <?php echo ($view === 'week' && !$listMode) ? 'active' : ''; ?>">Week</a>
                       <a href="?view=day&date=<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')) . $filterQueryStr; ?>"
                          class="mw-dv-toggle-btn <?php echo $view === 'day' ? 'active' : ''; ?>">Day</a>
-                      <a href="?view=list&start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
-                         class="mw-dv-toggle-btn <?php echo $listMode ? 'active' : ''; ?>">List</a>
+                  </div>
+                  <?php
+                  // Layout group: how the days are drawn. Cards / Timeline switch in place (schedule-calendar-edit.js, only when
+                  // calendar editing is on); Map opens the day's map; List is the stop list. From the List page Cards / Timeline
+                  // are links back to the week.
+                  $mwSegWeek = '?start=' . htmlspecialchars($weekStart) . $filterQueryStr;
+                  $mwSegMapDate = htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d'));
+                  ?>
+                  <div class="mw-cal-seg" role="group" aria-label="Schedule layout">
+                      <?php if ($calEditOn && $listMode): ?>
+                      <a href="<?php echo $mwSegWeek; ?>&layout=cards">Cards</a>
+                      <a href="<?php echo $mwSegWeek; ?>&layout=timeline">Timeline</a>
+                      <?php elseif ($calEditOn): ?>
+                      <button type="button" data-m="cards" class="on">Cards</button>
+                      <button type="button" data-m="timeline">Timeline</button>
+                      <?php endif; ?>
+                      <a href="?view=day&date=<?php echo $mwSegMapDate . $filterQueryStr; ?>">Map</a>
+                      <a href="?view=list&start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"<?php echo $listMode ? ' class="on"' : ''; ?>>List</a>
                   </div>
                   <a href="index.php" class="btn btn-secondary btn-sm">Job Plans</a>
                   <?php if (empty($itShell) && in_array($user['role'] ?? '', ['admin', 'manager'])): // Tim 2026-11-12: not on the schedule in the Ittai shell (modal code stays below) ?>
@@ -4026,8 +4045,7 @@ if ($__srOn): ?>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <?php
 // Jobber-style calendar editing (timeline, drag-resize, add-on-calendar). Off unless ops_settings it_calendar_edit = 1.
-require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
-if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db) && !$listMode): ?>
+if ($calEditOn && !$listMode): ?>
 <link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
 <script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?>, crew: <?= json_encode($crewFilter) ?> };</script>
 <script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>

@@ -42109,3 +42109,10 @@ body.mw-books {
   .mw-sl-row { grid-template-columns: 1fr; gap: 6px; }
   .mw-sl-side { text-align: left; }
 }
+
+/* Schedule layout group: Cards | Timeline | Map | List as one segmented control (2026-11-12) */
+.mw-cal-seg { display: inline-flex; border: 1px solid var(--mw-green); border-radius: 6px; overflow: hidden; vertical-align: middle; }
+.mw-cal-seg button, .mw-cal-seg a { border: 0; background: #fff; color: var(--mw-green); padding: 5px 12px; font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: none; line-height: 1.4; }
+.mw-cal-seg > * + * { border-left: 1px solid var(--mw-green); }
+.mw-cal-seg button:hover, .mw-cal-seg a:hover { background: var(--mw-light); text-decoration: none; }
+.mw-cal-seg button.on, .mw-cal-seg a.on { background: var(--mw-green); color: #fff; }
