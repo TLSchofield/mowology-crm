@@ -131,6 +131,7 @@ try {
                    AND status IN ('scheduled', 'in_progress')) AS active_jobs
             FROM users u
             WHERE u.is_active = 1
+              AND IFNULL(u.device_type, 'personal') <> 'truck'
             ORDER BY is_clocked_in DESC, u.full_name ASC
         ");
         $crewToday = $crewStmt->fetchAll(PDO::FETCH_ASSOC);

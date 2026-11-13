@@ -38,15 +38,15 @@ class OnboardingServiceTest extends TestCase
 
     public function test_the_default_path(): void
     {
-        $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'], $this->webSvc($this->db())->order());
+        $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'contacts', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'], $this->webSvc($this->db())->order());
         $this->assertSame(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $this->svc($this->db())->order(), 'an old app never sees the new steps');
     }
 
     public function test_a_saved_old_order_gets_terms_right_after_name(): void
     {
-        $all = ['name', 'terms', 'company', 'quickbooks', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'];
+        $all = ['name', 'terms', 'company', 'quickbooks', 'contacts', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'];
         $this->assertSame($all, OnboardingService::normalise(['name', 'company', 'quickbooks', 'books', 'accountant', 'done'], $all, ['done']));
-        $this->assertSame(['company', 'name', 'terms', 'quickbooks', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'],
+        $this->assertSame(['company', 'name', 'terms', 'quickbooks', 'contacts', 'books', 'gst', 'yearend', 'payroll', 'accountant', 'done'],
             OnboardingService::normalise(['company', 'name', 'quickbooks', 'books', 'accountant'], $all, ['done']), 'after wherever name sits');
     }
 
@@ -60,10 +60,11 @@ class OnboardingServiceTest extends TestCase
         $this->assertSame(['gst'], OnboardingService::knowsFrom(['gst']));
         $old = new OnboardingService($ctx, null, OnboardingService::knowsFrom(null));
         $this->assertNull($old->module('terms'));
+        $this->assertNull($old->module('contacts'));
         $this->assertSame('name', $old->next());
         $some = new OnboardingService($ctx, null, ['terms']);
         $this->assertSame(['name', 'terms', 'company', 'quickbooks', 'books', 'accountant', 'done'], $some->order());
-        $all = new OnboardingService($ctx, null, OnboardingService::knowsFrom('terms,gst,yearend,payroll'));
+        $all = new OnboardingService($ctx, null, OnboardingService::knowsFrom('terms,contacts,gst,yearend,payroll'));
         $this->assertSame($this->webSvc($db)->order(), $all->order());
         // readyToFinish ignores the steps the app cannot show, and counts the ones it can.
         $name = $old->module('name');
@@ -114,6 +115,22 @@ class OnboardingServiceTest extends TestCase
         $this->assertSame('Payroll: no staff on payroll.', $pay->summary($ctx));
         foreach ([$gst, $ye, $pay] as $m) $this->assertTrue($m->skippable());
         $this->assertSame([], $gst->needs());
+    }
+
+    public function test_phone_contacts_module_state_summary_and_question(): void
+    {
+        $db = $this->db(); $ctx = new OnboardingContext($db, 1); $module = new OnboardingContactsModule();
+        $this->assertSame('todo', $module->state($ctx));
+        $this->assertSame('', $module->summary($ctx));
+        $this->assertSame('Do you keep clients in your phone? Pick the ones you work for.', $module->question($ctx));
+        $module->finish($ctx, 12);
+        $this->assertSame('done', $module->state($ctx));
+        $this->assertSame('12 clients from your phone', $module->summary($ctx));
+        $module->finish($ctx, 3);
+        $this->assertSame('3 clients from your phone', $module->summary($ctx), 'finish stores the app total rather than adding');
+        $module->skip($ctx);
+        $this->assertSame('Skipped', $module->summary($ctx));
+        $this->assertSame([], $module->needs()); $this->assertTrue($module->skippable()); $this->assertFalse($module->pinned());
     }
 
     /** app/ cannot read public/, so the version lives twice; this fails the day they drift. */

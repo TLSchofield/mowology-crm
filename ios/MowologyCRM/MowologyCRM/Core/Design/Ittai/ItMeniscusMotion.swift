@@ -52,7 +52,7 @@ final class ItMeniscusMotion {
     var position: CGFloat { spring.state(at: CACurrentMediaTime() - began).position }
 
     /// The bead is on its tab, or close enough that a tap on it is meant for that tab.
-    var isLanding: Bool { abs(position - CGFloat(selected)) < 0.25 }
+    var isLanding: Bool { abs(position - CGFloat(selected)) < CGFloat(ItMeniscusToken.landing) }
 
     func attach(_ layer: ItMeniscusLayerView) {
         layers.add(layer)
@@ -197,7 +197,7 @@ final class ItMeniscusLayerView: UIView {
     /// An icon as a layer in the bead's centre, drawn once by SwiftUI exactly as the bead's glyphs were drawn before
     /// (a symbol drawn by UIKit came out a fifth smaller in the same box).
     private func glyph(_ icon: ItMeniscusIcon, scale: CGFloat, colour: UIColor) -> CALayer {
-        let side = 24 * scale
+        let side = ItMeniscusToken.beadGlyph * scale
         let renderer = ImageRenderer(content: icon.image
             .renderingMode(.template)
             .resizable()

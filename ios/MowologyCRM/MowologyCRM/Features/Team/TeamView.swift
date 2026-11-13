@@ -72,6 +72,7 @@ struct TeamView: View {
     /// Penny's missing-receipt chaser — everyone's open items + Reassign (penny-chase-mobile).
     @StateObject private var chase: PennyChaseViewModel
     @StateObject private var businessIdentity: BusinessIdentityViewModel
+    @StateObject private var phoneContacts: PhoneContactsViewModel
     @StateObject private var sam: SamCardViewModel
     @StateObject private var otto: HeadCardViewModel
     @StateObject private var mia: HeadCardViewModel
@@ -88,6 +89,7 @@ struct TeamView: View {
     private static let cardAnchor = "mw-team-head-card"
     /// Every head's brain (team-mobile ?mode=brains): tapping a face flips it to show theirs.
     @State private var brains: [String: HeadBrainSummary] = [:]
+    @State private var brainsTriedAt = Date.distantPast
     @State private var flipped: String?
     /// Charlie's server-cached brief supplies every Ittai row until that head's own card has loaded.
     @State private var readyBrief: HeadCardResponse?
@@ -103,6 +105,7 @@ struct TeamView: View {
 
     init(authSession: AuthSession, readyBriefStore: ReadyBriefStore, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
          teamAPI: TeamHeadAPI? = nil, chaseAPI: PennyChaseAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
+         phoneContactsAPI: PhoneContactsAPI? = nil, phoneContactsReader: PhoneContactsProviding = PhoneContactsReader(),
          showsAccount: Bool = true, selected: String = "penny") {
         self.authSession = authSession
         self.readyBriefStore = readyBriefStore
@@ -112,6 +115,7 @@ struct TeamView: View {
         _penny = StateObject(wrappedValue: PennyCardViewModel(api: deskAPI))
         _chase = StateObject(wrappedValue: PennyChaseViewModel(api: chaseAPI ?? LivePennyChaseAPI(client: client)))
         _businessIdentity = StateObject(wrappedValue: BusinessIdentityViewModel(api: LiveBusinessIdentityAPI(client: client)))
+        _phoneContacts = StateObject(wrappedValue: PhoneContactsViewModel(api: phoneContactsAPI ?? LivePhoneContactsAPI(client: client), reader: phoneContactsReader))
         _sam = StateObject(wrappedValue: SamCardViewModel(api: salesAPI ?? LiveSalesDeskAPI(client: client)))
         let heads = teamAPI ?? LiveTeamHeadAPI(client: client)
         _otto = StateObject(wrappedValue: HeadCardViewModel(head: "otto", api: heads, geocoder: geocoder))
@@ -122,8 +126,15 @@ struct TeamView: View {
         _cachedBrief = State(initialValue: ReadyBriefSnapshot.load())
     }
 
+    private var companyIsConfirmed: Bool {
+        if case .confirmed = businessIdentity.state { return true }
+        guard let current = businessIdentity.current, current.identity != nil else { return false }
+        return current.knowledge.stage != .recognized
+    }
+
     var body: some View {
         let _ = RenderRate.tick("TeamView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
             ScrollView {
@@ -134,6 +145,10 @@ struct TeamView: View {
                             .padding(16)
                             .background(appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
                             .task { if !charlie.hasLoaded && !charlie.isLoading { await charlie.load() } }
+                        if companyIsConfirmed {
+                            ItPhoneContacts(viewModel: phoneContacts)
+                                .ittaiTheme(field: ittaiFieldEnabled)
+                        }
                         ittaiOffice
                             .ittaiTheme(field: ittaiFieldEnabled)
                             .id(Self.cardAnchor)
@@ -192,6 +207,7 @@ struct TeamView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
             .task { await loadBrains() }
+            .task { await businessIdentity.load(); await phoneContacts.load() }
             .task(id: ittaiDesignEnabled) {
                 if ittaiDesignEnabled { await loadReadyBrief() }
             }
@@ -544,6 +560,10 @@ struct TeamView: View {
 
     private func loadBrains() async {
         guard showsAccount else { return }   // the static render has no session
+        // Once loaded, or tried in the last 30 s, never again from a restarted `.task`: that task was restarting about
+        // 12 times a second and cancelling each fetch (diagnostic log, 2026-11-11).
+        guard brains.isEmpty, Date().timeIntervalSince(brainsTriedAt) > 30 else { return }
+        brainsTriedAt = Date()
         if let r: TeamBrainsResponse = try? await APIClient(authSession: authSession).request(.teamBrains), r.ok {
             brains = r.brains
         }
@@ -561,6 +581,8 @@ struct TeamView: View {
     }
 
     private func reload() async {
+        await loadBrains()   // pull to refresh retries a failed first fetch (cooldown still applies)
+        await phoneContacts.load()   // no-op once loaded; retries a load that was cancelled mid-request
         if ittaiDesignEnabled {
             await readyBriefStore.refresh(authSession: authSession, force: true)
             await loadReadyBrief()

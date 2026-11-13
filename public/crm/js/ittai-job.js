@@ -247,8 +247,11 @@
             conf.setAttribute('aria-label', lbl);
             conf.setAttribute('title', lbl);
         }
-        fillButton(rail.querySelector('.it-btn-fill'), job.primary);
-        fillButton(rail.querySelector('.it-btn-line'), job.secondary);
+        var primary = rail.querySelector('.it-btn-fill'), secondary = rail.querySelector('.it-btn-line');
+        if (primary) primary.hidden = !job.primary;
+        if (secondary) secondary.hidden = !job.secondary;
+        fillButton(primary, job.primary);
+        fillButton(secondary, job.secondary);
         var a = rail.querySelector('.it-job-anchor:not(.it-job-anchor-start)');
         if (a && job.anchor) {
             a.setAttribute('href', job.anchor.href);
@@ -272,7 +275,7 @@
         if (tt) { tt.setAttribute('tabindex', '-1'); tt.focus({ preventScroll: true }); }
         setBusy(true);
         clearTimeout(coolTimer);
-        coolTimer = setTimeout(function () { setBusy(false); }, 600);
+        coolTimer = setTimeout(function () { setBusy(false); openDirect(job); }, 600);
     }
 
     /** Nothing left: the line settles back to its resting state ("Nothing to decide"), keeping the Undo for its 6 s. It is never removed. */
@@ -365,6 +368,57 @@
         });
     }
 
+    /** A transfer with no proposed invoice asks "Which invoice is this?" straight away (no Back: there is nothing to go back to). */
+    function openDirect(job) {
+        if (!job || job.mode !== 'choose' || queue[0] !== job || !(job.candidates || []).length) return;
+        chooseInvoice(job, { mode: 'pick', notification_id: Number(String(job.key || '').replace(/[^0-9]/g, '')), href: '/crm/invoices/#etransfers' }, { direct: true });
+    }
+
+    /** Offer Penny's scored invoice candidates; recording still uses the card's existing request and endpoint. */
+    function chooseInvoice(job, req, opts) {
+        var acts = root.querySelector('.it-job-rail .it-job-acts');
+        if (!acts || root.querySelector('.it-job-choose')) return;
+        var box = el('div', 'it-job-col it-job-acts it-job-choose it-job-invoice-choose');
+        box.appendChild(el('span', 'it-job-q', opts && opts.direct ? 'Which invoice is this?' : 'Is it one of these?'));
+        var list = el('div', 'it-job-candidates');
+        (job.candidates || []).forEach(function (candidate) {
+            var pickCandidate = el('button', 'it-btn it-btn-line');
+            pickCandidate.type = 'button';
+            pickCandidate.appendChild(el('b', '', candidate.invoice || ''));
+            pickCandidate.appendChild(el('span', '', [candidate.who, candidate.owing, candidate.issued].filter(Boolean).join(' · ')));
+            pickCandidate.addEventListener('click', function () {
+                var tmp = document.createElement('button');
+                tmp.setAttribute('data-request', JSON.stringify(candidate.request));
+                settle(tmp);
+            });
+            list.appendChild(pickCandidate);
+        });
+        box.appendChild(list);
+        var row = el('div', 'it-job-choose-btns');
+        var none = el('button', 'it-btn it-btn-line');
+        none.type = 'button';
+        none.appendChild(el('b', '', 'None of these'));
+        none.appendChild(el('span', '', 'pick on the card'));
+        none.addEventListener('click', function () { pick(req); });
+        row.appendChild(none);
+        var back = null;
+        if (!(opts && opts.direct)) {
+            back = el('button', 'it-btn it-btn-line');
+            back.type = 'button';
+            back.appendChild(el('b', '', 'Back'));
+            back.appendChild(el('span', '', 'no change'));
+            row.appendChild(back);
+        }
+        box.appendChild(row);
+        acts.hidden = true;
+        acts.parentNode.insertBefore(box, acts.nextSibling);
+        var first = list.querySelector('.it-btn');
+        if (first) first.focus({ preventScroll: true });
+        var leave = function () { box.remove(); acts.hidden = false; var b0 = acts.querySelector('.it-btn:not([hidden])'); if (b0) b0.focus({ preventScroll: true }); };
+        if (back) back.addEventListener('click', leave);
+        box.addEventListener('keydown', function (e) { if (e.key === 'Escape' && back) { e.stopPropagation(); leave(); } });   // direct mode has no Back: Escape stays Skip's
+    }
+
     /** "Not this invoice": the card below (same page) has the form to pick another; elsewhere, go to it. */
     function pick(req) {
         var row = req.notification_id ? document.querySelector('#etransfers .mw-et-row[data-id="' + String(req.notification_id).replace(/[^0-9]/g, '') + '"]') : null;
@@ -447,7 +501,7 @@
         var req;
         try { req = JSON.parse(btn.getAttribute('data-request') || ''); } catch (e) { return; }
         var job = queue[0];
-        if (req.mode === 'pick') { pick(req); return; }
+        if (req.mode === 'pick') { if (job.candidates && job.candidates.length) chooseInvoice(job, req, {}); else pick(req); return; }
         if (req.mode === 'choose') { choose(job, req); return; }
         if (req.mode === 'guide') { guide(job, req); return; }
         if (req.mode === 'edit') { editReceipt(req); return; }
@@ -566,19 +620,21 @@
             wrap.classList.remove('is-solo');
             var tight = rail.scrollWidth > rail.clientWidth + 1;
             if (!tight) {   // the chart icon sits at the rail's height on the graph card
-                var lead = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
                 var viz = wrap.querySelector(':scope > .it-job-viz');
-                if (lead && viz) viz.style.setProperty('--it-rail-y', Math.round(lead.getBoundingClientRect().top + lead.getBoundingClientRect().height / 2 - viz.getBoundingClientRect().top) + 'px');
+                var rr = rail.getBoundingClientRect();   // the rail's own line sits at its vertical centre (ittai-shell.css .it-job-rail::before)
+                if (viz) viz.style.setProperty('--it-rail-y', (rr.top + rr.height / 2 - viz.getBoundingClientRect().top).toFixed(1) + 'px');
             }
             wrap.classList.toggle('is-solo', tight);
             if (tight !== was) window.dispatchEvent(new Event('resize'));   // the head card's line re-finds the strip
         };
         var queueFit = function () { if (!fitQueued) { fitQueued = true; requestAnimationFrame(fit); } };
         window.addEventListener('resize', queueFit);
-        if ('ResizeObserver' in window && wrap.parentNode) new ResizeObserver(queueFit).observe(wrap.parentNode);
+        if ('ResizeObserver' in window && wrap.parentNode) { var ro = new ResizeObserver(queueFit); ro.observe(wrap.parentNode); ro.observe(root); }
         if ('MutationObserver' in window) new MutationObserver(queueFit).observe(root, { childList: true, subtree: true });
         queueFit();
     }
+
+    openDirect(queue[0]);   // the first job is drawn by the server: a 'choose' job asks its question now
 
     window.ItJob = { next: next };
 })();

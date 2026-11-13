@@ -477,6 +477,44 @@ class OnboardingQuickBooksModule extends OnboardingModule
     }
 }
 
+/** The owner chooses which address-book contacts are clients before any contact leaves the phone. */
+class OnboardingContactsModule extends OnboardingModule
+{
+    public function key(): string { return 'contacts'; }
+    public function title(): string { return 'Your clients from your phone'; }
+    public function owner(): string { return 'sam'; }
+    public function skippable(): bool { return true; }
+    public function pinned(): bool { return false; }
+    public function needs(): array { return []; }
+    public function question(OnboardingContext $c): string { return 'Do you keep clients in your phone? Pick the ones you work for.'; }
+
+    public function answer(OnboardingContext $c): ?string
+    {
+        $answer = $c->setting('onboarding_contacts_answer');
+        return in_array($answer, ['imported', 'skipped'], true) ? $answer : null;
+    }
+
+    public function state(OnboardingContext $c): string { return $this->answer($c) !== null ? self::DONE : self::TODO; }
+
+    public function summary(OnboardingContext $c): string
+    {
+        $answer = $this->answer($c);
+        if ($answer === 'skipped') return 'Skipped';
+        return $answer === 'imported' ? (int)$c->setting('onboarding_contacts_count') . ' clients from your phone' : '';
+    }
+
+    public function finish(OnboardingContext $c, int $count): void
+    {
+        $c->saveSetting('onboarding_contacts_count', (string)max(0, $count), 'Onboarding: clients selected from phone contacts (OnboardingContactsModule)');
+        $c->saveSetting('onboarding_contacts_answer', 'imported', 'Onboarding: phone contacts step answer (OnboardingContactsModule)');
+    }
+
+    public function skip(OnboardingContext $c): void
+    {
+        $c->saveSetting('onboarding_contacts_answer', 'skipped', 'Onboarding: phone contacts step answer (OnboardingContactsModule)');
+    }
+}
+
 /** No QuickBooks: "I'll keep your books here, ready for your accountant." */
 class OnboardingBooksModule extends OnboardingModule
 {

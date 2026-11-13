@@ -88,6 +88,7 @@ struct ScheduleView: View {
 
     var body: some View {
         let _ = RenderRate.tick("ScheduleView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
 

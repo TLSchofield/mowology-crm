@@ -16,6 +16,11 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Main-thread stall decisions and same-build crash-loop evaluation.
+cp "$ROOT/ios/LogicTests/CrashGuardTests.swift" "$OUT/main.swift"
+run crashguards -DCRASH_GUARD_LOGIC_ONLY "$SRC/Core/Diagnostics/HangWatchdog.swift" \
+  "$SRC/Core/Diagnostics/CrashLoopBreaker.swift" "$SRC/Core/Diagnostics/AppDiagnostics.swift" "$OUT/main.swift"
+
 # swiftc treats the file named main.swift as the entry point — copy the checks to that name.
 cp "$ROOT/ios/LogicTests/BatchCameraModelsTests.swift" "$OUT/main.swift"
 run batchcamera "$SRC/Features/Camera/BatchCameraModels.swift" "$OUT/main.swift"
@@ -41,7 +46,11 @@ cp "$ROOT/ios/LogicTests/HeadSpineTests.swift" "$OUT/main.swift"
 run headspine "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
 
 cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
-run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$OUT/main.swift"
+run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" "$OUT/main.swift"
+
+# Opt-in Bar lab: launch parsing, keyboard overlap/curve, Dynamic Type metrics and dial height.
+cp "$ROOT/ios/LogicTests/BarLabTests.swift" "$OUT/main.swift"
+run barlab "$SRC/Core/Design/Ittai/ItTokens.swift" "$SRC/Core/Design/Ittai/ItBarLab.swift" "$OUT/main.swift"
 
 # Ittai v1.2 design layer: contrast in light/dark/field, precedence, frozen symbol ladder, hexagon tap areas.
 cp "$ROOT/ios/LogicTests/IttaiDesignTests.swift" "$OUT/main.swift"
@@ -85,6 +94,13 @@ run schedulepresentation "$SRC/Core/Design/MWTheme.swift" "$SRC/Core/Models/Serv
 cp "$ROOT/ios/LogicTests/DayCarouselTests.swift" "$OUT/main.swift"
 run daycarousel "$SRC/Core/Models/ScheduleDay.swift" "$SRC/Features/Schedule/DayCarouselRules.swift" "$OUT/main.swift"
 
+cp "$ROOT/ios/LogicTests/ScheduleFilterTests.swift" "$OUT/main.swift"
+run schedulefilter "$SRC/Features/Schedule/ScheduleFilterRules.swift" "$OUT/main.swift"
+
 # Server address (2026-11-09): the one place the app's server lives; paths become absolute URLs.
 cp "$ROOT/ios/LogicTests/ServerTests.swift" "$OUT/main.swift"
 run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"
+
+# Phone contacts onboarding (2026-11-11): display name, search, select-all-shown, batches of 100, resume point, result tally, wire payload, and the real onboarding map decoding.
+cp "$ROOT/ios/LogicTests/PhoneContactsLogicTests.swift" "$OUT/main.swift"
+run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core/Models/PhoneContactsModels.swift" "$OUT/main.swift"

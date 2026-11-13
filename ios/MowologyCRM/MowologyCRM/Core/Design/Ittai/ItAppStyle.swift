@@ -183,6 +183,11 @@ struct ItDesignSettingsRows: View {
     @AppStorage("ittai.design.field") private var field = false
     @AppStorage(ItIttaiBrandHex.defaultsKey) private var brandIttai = false
     @AppStorage(ScheduleTimelineSwitch.defaultsKey) private var timelineSetting = 0
+    @AppStorage(ItBarLab.hapticsKey) private var barHaptics = false
+    @AppStorage(ItBarLab.scrollTopKey) private var barScrollTop = false
+    @AppStorage(ItBarLab.keyboardCurveKey) private var barKeyboardCurve = false
+    @AppStorage(ItBarLab.largeLabelsKey) private var barLargeLabels = false
+    @AppStorage(ItBarLab.searchDrawerKey) private var barSearchDrawer = false
     @Environment(\.itAppStyle) private var style
 
     var body: some View {
@@ -202,5 +207,25 @@ struct ItDesignSettingsRows: View {
         .pickerStyle(.menu)
         .font(style.font(.body)).tint(style.tenant)
         .frame(minHeight: ItSize.targetPhone)
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            Text("Bar lab (testing)")
+                .font(style.font(.headline))
+            labToggle("Haptic ticks", caption: "Ticks once when you change tabs.", isOn: $barHaptics)
+            labToggle("Selected tab to top", caption: "Search and Account return to their top.", isOn: $barScrollTop)
+            labToggle("Keyboard curve", caption: "The bar follows the keyboard frame and timing.", isOn: $barKeyboardCurve)
+            labToggle("Larger labels", caption: "Tab labels follow capped Dynamic Type.", isOn: $barLargeLabels)
+            labToggle("System search drawer", caption: "Off: Search uses a plain field. On: the old drawer, which may freeze the app.", isOn: $barSearchDrawer)
+        }
+    }
+
+    private func labToggle(_ title: String, caption: String, isOn: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Toggle(title, isOn: isOn)
+                .font(style.font(.body)).tint(style.tenant)
+                .frame(minHeight: ItSize.targetPhone)
+            Text(caption)
+                .font(style.font(.caption))
+                .foregroundStyle(style.meta)
+        }
     }
 }

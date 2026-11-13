@@ -62,12 +62,23 @@ final class InboundQuestionService
         }
         $out = [];
         foreach (array_slice(array_values($byAddr), 0, max(1, min(100, $limit))) as $r) {
-            $cands = $this->candidates($r);
-            $suggest = $r['client_id'] !== null ? (int)$r['client_id'] : (count($cands) === 1 ? $cands[0]['client_id'] : null);
             [$first, $last] = EmailLeadService::splitName((string)($r['from_name'] ?? ''), (string)$r['from_addr']);
+            $evidence = $this->candidates($r);
+            // The same person already on an account under another address (a changed work address).
+            $named = $this->sameNameAccounts($first, $last);
+            $evidenceIds = array_column($evidence, 'client_id');
+            $cands = array_merge(array_values(array_filter($named, fn($x) => !in_array($x['client_id'], $evidenceIds, true))), $evidence);
+            // One account on file for the name leads unless a single evidence-based account says otherwise; ambiguous evidence
+            // (two or more, or none) gives way to it. The owner's tap still decides.
+            if ($r['client_id'] !== null) $suggest = (int)$r['client_id'];
+            elseif (count($named) === 1 && (count($evidence) !== 1 || $evidence[0]['client_id'] === $named[0]['client_id'])) $suggest = $named[0]['client_id'];
+            elseif (count($evidence) === 1) $suggest = $evidence[0]['client_id'];
+            else $suggest = null;
+            $why = self::why((string)$r['evidence']);
+            if ($named) $why = ($why !== '' ? $why . '; ' : '') . 'same name as a contact on ' . implode(', ', array_column($named, 'name'));
             $out[] = ['id' => (int)$r['id'], 'name' => trim((string)($r['from_name'] ?? '')) !== '' ? (string)$r['from_name'] : (string)$r['from_addr'],
                 'addr' => (string)$r['from_addr'], 'subject' => (string)$r['subject'], 'snippet' => (string)($r['snippet'] ?? ''), 'at' => $r['sent_at'],
-                'why' => self::why((string)$r['evidence']), 'suggested_client_id' => $suggest, 'candidates' => $cands,
+                'why' => $why, 'suggested_client_id' => $suggest, 'candidates' => $cands,
                 'first_name' => $first, 'last_name' => $last, 'more' => (int)$r['more']];
         }
         return $out;
@@ -100,18 +111,60 @@ final class InboundQuestionService
             'addr' => (string)$r['from_addr'], 'subject' => (string)$r['subject'], 'at' => $r['sent_at']], $st->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    /** Active accounts whose name contains q (at least 2 characters). @return array<int, array{client_id:int, name:string}> */
+    /**
+     * Active accounts whose name contains q (at least 2 characters), then — from 3 characters — accounts that have a contact whose
+     * email or name contains q, so a manager's short name ("VML") finds the company. Name matches come first.
+     * @return array<int, array{client_id:int, name:string}>
+     */
     public function accounts(string $q, int $limit = 20): array
     {
         $q = trim($q);
         if (mb_strlen($q) < 2) return [];
+        $limit = max(1, min(50, $limit));
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q) . '%';
+        $out = [];
         $st = $this->db->prepare("SELECT id, display_name FROM clients WHERE (status = 'active' OR status IS NULL) AND display_name LIKE ? ESCAPE '!'
-                                  ORDER BY display_name LIMIT " . max(1, min(50, $limit)));
-        $st->execute(['%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q) . '%']);
+                                  ORDER BY display_name LIMIT " . $limit);
+        $st->execute([$like]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(int)$r['id']] = ['client_id' => (int)$r['id'], 'name' => (string)$r['display_name']];
+        if (mb_strlen($q) >= 3 && count($out) < $limit) {
+            $ended = $this->hasEndedOn() ? ' AND cc.ended_on IS NULL' : '';
+            $st = $this->db->prepare("SELECT DISTINCT c.id, c.display_name FROM clients c
+                                      JOIN client_contacts cc ON cc.client_id = c.id{$ended}
+                                      JOIN contacts ct ON ct.id = cc.contact_id
+                                      WHERE (c.status = 'active' OR c.status IS NULL)
+                                        AND (ct.email LIKE ? ESCAPE '!' OR ct.first_name LIKE ? ESCAPE '!' OR ct.last_name LIKE ? ESCAPE '!')
+                                      ORDER BY c.display_name LIMIT " . $limit);
+            $st->execute([$like, $like, $like]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if (count($out) >= $limit) break;
+                $out[(int)$r['id']] ??= ['client_id' => (int)$r['id'], 'name' => (string)$r['display_name']];
+            }
+        }
+        return array_values($out);
+    }
+
+    /**
+     * Active accounts that already hold a contact with exactly this first and last name (any address; the column collation is case-insensitive). At most 3.
+     * @return array<int, array{client_id:int, name:string}>
+     */
+    private function sameNameAccounts(string $first, string $last): array
+    {
+        $first = trim($first);
+        $last = trim($last);
+        if ($first === '' || $last === '') return [];
+        $ended = $this->hasEndedOn() ? ' AND cc.ended_on IS NULL' : '';
+        $st = $this->db->prepare("SELECT DISTINCT c.id, c.display_name FROM clients c
+                                  JOIN client_contacts cc ON cc.client_id = c.id{$ended}
+                                  JOIN contacts ct ON ct.id = cc.contact_id
+                                  WHERE (c.status = 'active' OR c.status IS NULL)
+                                    AND ct.first_name = ? AND ct.last_name = ?
+                                  ORDER BY c.display_name LIMIT 3");
+        $st->execute([$first, $last]);
         return array_map(fn($r) => ['client_id' => (int)$r['id'], 'name' => (string)$r['display_name']], $st->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    /** The accounts this row might be about: its candidates json, else (a reply to our mail) the accounts that contact belongs to. */
+    /** The accounts the evidence points at: its candidates json, else (a reply to our mail) the accounts that contact belongs to. */
     private function candidates(array $r): array
     {
         $out = [];

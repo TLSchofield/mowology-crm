@@ -73,6 +73,8 @@ if (!isVisitHorizonCurrent()) {
 
 // ─── View mode (week or day) ─────────────────────────────────────────
 $view = (isset($_GET['view']) && $_GET['view'] === 'day') ? 'day' : 'week';
+// List view shows the same week as a plain list of stops; everything else treats it as the week view.
+$listMode = isset($_GET['view']) && $_GET['view'] === 'list';
 
 // ─── Date navigation ────────────────────────────────────────────────
 if ($view === 'day') {
@@ -1377,24 +1379,24 @@ if ($apiKey) {
                       </a>
                       <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
                   <?php else: ?>
-                      <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
+                      <a href="?<?php echo $listMode ? 'view=list&' : ''; ?>start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
                       <button type="button" class="mw-datepicker-trigger"
                               data-current="<?php echo htmlspecialchars($startDate); ?>"
                               data-mw-dp-commit="navigate"
                               data-mw-dp-mode="week"
-                              data-mw-dp-nav-set="start={monday}"
-                              data-mw-dp-nav-clear="view,date"
+                              data-mw-dp-nav-set="<?php echo $listMode ? 'view=list,' : ''; ?>start={monday}"
+                              data-mw-dp-nav-clear="<?php echo $listMode ? 'date' : 'view,date'; ?>"
                               aria-haspopup="true" aria-expanded="false">
                           <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                           <span class="mw-datepicker-date"><?php echo date('M j', strtotime($startDate)); ?> – <?php echo date('M j, Y', strtotime($endDate)); ?></span>
                           <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
-                      <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next week">
+                      <a href="?<?php echo $listMode ? 'view=list&' : ''; ?>start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </a>
-                      <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
+                      <a href="?<?php echo $listMode ? 'view=list' . $filterQueryStr : ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
                   <?php endif; ?>
               </div>
 
@@ -1414,11 +1416,13 @@ if ($apiKey) {
                   <!-- View toggle -->
                   <div class="mw-dv-view-toggle">
                       <a href="?start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
-                         class="mw-dv-toggle-btn <?php echo $view === 'week' ? 'active' : ''; ?>">Week</a>
+                         class="mw-dv-toggle-btn <?php echo ($view === 'week' && !$listMode) ? 'active' : ''; ?>">Week</a>
                       <a href="?view=day&date=<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')) . $filterQueryStr; ?>"
                          class="mw-dv-toggle-btn <?php echo $view === 'day' ? 'active' : ''; ?>">Day</a>
+                      <a href="?view=list&start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
+                         class="mw-dv-toggle-btn <?php echo $listMode ? 'active' : ''; ?>">List</a>
                   </div>
-                  <a href="index.php" class="btn btn-secondary btn-sm">List View</a>
+                  <a href="index.php" class="btn btn-secondary btn-sm">Job Plans</a>
                   <?php if (in_array($user['role'] ?? '', ['admin', 'manager'])): ?>
                   <button type="button" class="btn btn-outline-warning btn-sm" onclick="openLogLaborModal()"
                           title="Log a day's clock-in/out for crew members">
@@ -1443,6 +1447,7 @@ if ($apiKey) {
                efficiency score, density, stretch target,
                gamification badges — desktop only
                ═══════════════════════════════════════════════ -->
+          <?php if (empty($itShell)): // in the Ittai shell these numbers sit on Otto's line (ittai-job-otto.php) ?>
           <div class="mw-mission-control d-none d-lg-block">
 
               <!-- Top row: primary KPIs -->
@@ -1574,6 +1579,7 @@ if ($apiKey) {
               </div><!-- /.mw-mc-progress-row -->
 
           </div><!-- /.mw-mission-control -->
+          <?php endif; ?>
 
           <!-- ═══════════════════════════════════════════════
                Route Reconciliation — Truck GPS vs Clock-In
@@ -1598,7 +1604,11 @@ if ($apiKey) {
           </div>
           <?php endif; ?>
 
-          <?php if ($view === 'week'): ?>
+          <?php if ($listMode): ?>
+          <?php include __DIR__ . '/partials/schedule-list.php'; ?>
+          <?php endif; ?>
+
+          <?php if ($view === 'week' && !$listMode): ?>
           <!-- ═══════════════════════════════════════════════
                DESKTOP: Calendar container (hidden on mobile)
                ═══════════════════════════════════════════════ -->
@@ -4015,9 +4025,9 @@ if ($__srOn): ?>
 <?php
 // Jobber-style calendar editing (timeline, drag-resize, add-on-calendar). Off unless ops_settings it_calendar_edit = 1.
 require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
-if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db)): ?>
+if (userHasPermission('jobs.edit') && VisitResizeService::enabled($db) && !$listMode): ?>
 <link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
-<script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?> };</script>
+<script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?>, crew: <?= json_encode($crewFilter) ?> };</script>
 <script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
 <?php endif; ?>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
@@ -4033,7 +4043,7 @@ var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 <script src="<?= _av('/crm/js/schedule-day-map.js') ?>" defer></script>
 <script src="../js/schedule-team-layer.js?v=20260418b" defer></script>
 <?php endif; ?>
-<?php if ($view === 'week'): ?>
+<?php if ($view === 'week' && !$listMode): ?>
 <script>
 // Day header click → navigate to day view
 document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {

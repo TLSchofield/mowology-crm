@@ -193,10 +193,29 @@ class VisitWorkService
         return [
             'visit_id'  => (int)$visit['id'],
             'locked'    => $visit['locked_at'] !== null,
-            'checklist' => self::resolveChecklist($visit['checklist_json'] ?? null, $visit['checklist_template'] ?? null, $this->plantLinesFor($visit)),
+            'checklist' => $this->withPlantInfo($visit, self::resolveChecklist($visit['checklist_json'] ?? null, $visit['checklist_template'] ?? null, $this->plantLinesFor($visit))),
             'materials' => self::sanitizeMaterials(is_array($materials) ? $materials : []),
             'notes'     => $notes,
         ];
+    }
+
+    /**
+     * Read-only plant info (name, the crew's own photo, a "now is a good time to ..." note) beside each plant line, for the
+     * visit's month. Output only: sanitizeChecklist drops it on save. Never throws.
+     */
+    private function withPlantInfo(array $visit, array $items): array
+    {
+        try {
+            $file = __DIR__ . '/../../Plants/Services/PlantLineInfoService.php';
+            if (!class_exists('PlantLineInfoService')) {
+                if (!is_file($file)) return $items;
+                require_once $file;
+            }
+            $ts = strtotime((string)($visit['scheduled_date'] ?? '')) ?: time();
+            return (new PlantLineInfoService($this->db))->decorate($items, (int)date('n', $ts), (int)($visit['property_id'] ?? 0));
+        } catch (Throwable $e) {
+            return $items;
+        }
     }
 
     /**

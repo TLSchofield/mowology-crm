@@ -19,16 +19,37 @@ enum ItMeniscusIcon: Equatable {
     case system(String)
     case image(UIImage)
 
+    /// Resolves the icon to a template image, using a drawn glyph when a system symbol is unavailable.
     var image: Image {
         switch self {
-        case .system(let name): return Image(systemName: name)
+        // The vector symbol whenever it exists (pixel-identical to before); the drawn fallback only when it does not.
+        case .system(let name):
+            return UIImage(systemName: name) == nil ? Image(uiImage: Self.systemImage(named: name)) : Image(systemName: name)
         case .image(let image): return Image(uiImage: image)
         }
     }
+
+    /// Returns a non-empty template glyph for a system symbol that is unavailable (renamed or missing in this OS).
+    private static func systemImage(named name: String) -> UIImage {
+        if let image = UIImage(systemName: name) { return image }
+        let configuration = UIGraphicsImageRendererFormat()
+        configuration.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24), format: configuration).image { context in
+            let glyphColour = UIColor(ItPalette(.light).text)
+            glyphColour.setStroke()
+            glyphColour.setFill()
+            let path = UIBezierPath(ovalIn: CGRect(x: 3, y: 3, width: 18, height: 18))
+            path.lineWidth = 2
+            path.stroke()
+            context.cgContext.fillEllipse(in: CGRect(x: 11, y: 16, width: 2, height: 2))
+        }
+        return image.withRenderingMode(.alwaysTemplate)
+    }
 }
 
+/// Describes one stable tab identity and the glyphs and actions shown in its current slot.
 struct ItMeniscusItem: Identifiable, Equatable {
-    /// The tab's slot in the bar, counted from the left: 0, 1, 2…
+    /// The tab's stable identity; its array position determines its logical slot.
     let id: Int
     let title: String
     let icon: ItMeniscusIcon
@@ -47,9 +68,14 @@ struct ItMeniscusItem: Identifiable, Equatable {
     var longPressLabel: String? = nil
 }
 
+/// Presents stable tab identities while Core Animation moves the meniscus between their physical slots.
 struct ItMeniscusBar: View {
     @Environment(\.itAppStyle) private var style
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @AppStorage(ItBarLab.hapticsKey) private var storedHaptics = false
+    @AppStorage(ItBarLab.largeLabelsKey) private var storedLargeLabels = false
 
     let items: [ItMeniscusItem]
     /// The slot the screen is on. When it changes from outside (a push, the Add dial closing) the bead follows.
@@ -68,17 +94,39 @@ struct ItMeniscusBar: View {
     @State private var shown: Int?
     /// The slot a long press just fired on: that slot's own tap, which follows the release, is dropped.
     @State private var longPressed: Int?
+    @State private var selectionFeedback = UISelectionFeedbackGenerator()
 
     /// Bar height below its top edge (labels sit here); the bead rises `rise` above it.
-    static let barHeight: CGFloat = 58
+    static let barHeight = ItMeniscusToken.barHeight
     /// Icons start this far below the bar's edge, so labels start at iconTop + 25 (39 pt): 5 pt clear of the bead's
     /// collar, which ends at ItMeniscusGeometry.depth (34 pt). At 1.3.82 the collar touched the label (Tim's iPhone).
-    static let iconTop: CGFloat = 14
+    static let iconTop = ItMeniscusToken.iconTop
 
+    /// The identity currently presented as selected.
     private var on: Int { shown ?? selected }
 
+    /// Whether logical leading-to-trailing slots are physically mirrored.
+    private var isRightToLeft: Bool { layoutDirection == .rightToLeft }
+    private var hapticsEnabled: Bool { ItBarLab.isEnabled("haptics", stored: storedHaptics) }
+    private var largeLabelsEnabled: Bool { ItBarLab.isEnabled("largeLabels", stored: storedLargeLabels) }
+    private var labelMetrics: (fontSize: CGFloat, extraBarHeight: CGFloat) {
+        largeLabelsEnabled ? ItBarLab.barLabelMetrics(contentSize: dynamicTypeSize) : (ItMeniscusToken.labelSize, 0)
+    }
+
+    /// Returns the logical array slot for a stable item identity.
+    private func logicalSlot(forID id: Int) -> Int? {
+        ItMeniscusGeometry.slotIndex(forID: id, in: items.map(\.id))
+    }
+
+    /// Returns the physical left-to-right slot for a stable item identity.
+    private func physicalSlot(forID id: Int) -> Int? {
+        logicalSlot(forID: id).map {
+            ItMeniscusGeometry.physicalSlotIndex($0, count: items.count, isRightToLeft: isRightToLeft)
+        }
+    }
+
     private var look: ItMeniscusLook {
-        ItMeniscusLook(items: items, surface: UIColor(style.surface), line: UIColor(style.line),
+        ItMeniscusLook(items: isRightToLeft ? Array(items.reversed()) : items, surface: UIColor(style.surface), line: UIColor(style.line),
                        tenant: UIColor(style.tenant), onTenant: UIColor(style.onTenant))
     }
 
@@ -92,7 +140,7 @@ struct ItMeniscusBar: View {
                 HStack(spacing: 0) {
                     ForEach(items) { item in slot(item) }
                 }
-                .frame(height: Self.barHeight)
+                .frame(height: Self.barHeight + labelMetrics.extraBarHeight)
                 .offset(y: ItMeniscusGeometry.rise)
 
                 // Above the buttons: the collar covers the icon of a slot the bead is passing over.
@@ -107,12 +155,13 @@ struct ItMeniscusBar: View {
                     .frame(width: ItMeniscusGeometry.bead, height: ItMeniscusGeometry.bead)
                     .contentShape(Circle())
                     .onTapGesture { tap(on) }
-                    .offset(x: ItMeniscusGeometry.slotCentre(on, count: max(items.count, 1), width: geo.size.width)
+                    .offset(x: ItMeniscusGeometry.slotCentre(physicalSlot(forID: on) ?? motion.selected,
+                                                             count: max(items.count, 1), width: geo.size.width)
                                 - ItMeniscusGeometry.bead / 2)
                     .accessibilityHidden(true)
             }
         }
-        .frame(height: ItMeniscusGeometry.rise + Self.barHeight)
+        .frame(height: ItMeniscusGeometry.rise + Self.barHeight + labelMetrics.extraBarHeight)
         // The surface carries on under the home indicator. A fixed-height fill cannot grow into the safe area
         // (1.3.67 on Tim's iPhone showed the page through the home-indicator strip), so the fill is flexible:
         // clear above the bar's edge, surface below it, and the stack itself ignores the bottom safe area.
@@ -123,19 +172,28 @@ struct ItMeniscusBar: View {
             }
             .ignoresSafeArea(.container, edges: .bottom)
         }
-        .onAppear { motion.jump(to: selected) }
+        .onAppear {
+            if let slot = physicalSlot(forID: selected) { motion.jump(to: slot) }
+        }
         // The bead follows the owner: a change from outside slides it there; after our own tap it is there already.
         .onChange(of: selected) { _, new in
             shown = nil
-            motion.slide(to: new, reduceMotion: reduceMotion)
+            if let slot = physicalSlot(forID: new) { motion.slide(to: slot, reduceMotion: reduceMotion) }
         }
         .onChange(of: shown) { _, now in
-            if now == nil { motion.slide(to: selected, reduceMotion: reduceMotion) }
+            if now == nil, let slot = physicalSlot(forID: selected) {
+                motion.slide(to: slot, reduceMotion: reduceMotion)
+            }
         }
-        // Another sign-in (admin or crew) changes the slots: the bead is put on its slot in the new row, no slide.
-        .onChange(of: items.count) { _, _ in
+        // Another sign-in (admin or crew) changes the slot identities: put the bead in the new row without a slide.
+        .onChange(of: items.map(\.id)) { _, _ in
             shown = nil
-            motion.jump(to: selected)
+            if let slot = physicalSlot(forID: selected) { motion.jump(to: slot) }
+        }
+        // A live direction change mirrors every physical slot without treating it as a user selection.
+        .onChange(of: layoutDirection) { _, _ in
+            shown = nil
+            if let slot = physicalSlot(forID: selected) { motion.jump(to: slot) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tab bar")
@@ -150,8 +208,14 @@ struct ItMeniscusBar: View {
         } else if index == on {
             if motion.isLanding { onReselect?(index) }
         } else {
+            // An identity with no slot is ignored before it can leave the highlight on nothing.
+            guard let slot = physicalSlot(forID: index) else { return }
             shown = index
-            motion.slide(to: index, reduceMotion: reduceMotion)
+            if hapticsEnabled {
+                selectionFeedback.selectionChanged()
+                selectionFeedback.prepare()
+            }
+            motion.slide(to: slot, reduceMotion: reduceMotion)
             CATransaction.flush()
             DispatchQueue.main.async {
                 onSelect(index)
@@ -163,25 +227,27 @@ struct ItMeniscusBar: View {
     private func slot(_ item: ItMeniscusItem) -> some View {
         let active = item.id == on
         let longPress = onLongPress != nil && item.longPressLabel != nil
+        // Reading order, which in right-to-left is the logical order (the first tab sits at the right and is read first).
+        let position = (logicalSlot(forID: item.id) ?? 0) + 1
         return Button {
             tap(item.id)
         } label: {
             // Every label on one line: the icon has a fixed 22 pt box and a larger one (Kaname's hexagon) grows
             // upwards out of it, and the stack sits at a fixed top instead of being centred — centred, the taller
             // Kaname stack pushed its label 4 pt lower (Tim, 1.3.82).
-            VStack(spacing: 3) {
+            VStack(spacing: ItMeniscusToken.iconLabelGap) {
                 item.icon.image
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 22 * item.iconScale, height: 22 * item.iconScale)
-                    .frame(width: 22, height: 22, alignment: .bottom)
+                    .frame(width: ItMeniscusToken.icon * item.iconScale, height: ItMeniscusToken.icon * item.iconScale)
+                    .frame(width: ItMeniscusToken.icon, height: ItMeniscusToken.icon, alignment: .bottom)
                     .foregroundStyle(style.meta)
                     // The selected tab's icon lives in the bead. A slot the bead passes over is covered by the collar.
                     .opacity(active ? 0 : 1)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: active)
+                    .animation(reduceMotion ? nil : .easeOut(duration: ItMeniscusToken.iconFade), value: active)
                 Text(item.title)
-                    .font(.system(size: 11, weight: active ? .semibold : .medium))
+                    .font(.system(size: labelMetrics.fontSize, weight: active ? .semibold : .medium))
                     .foregroundStyle(active ? style.tenant : style.meta)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -197,13 +263,16 @@ struct ItMeniscusBar: View {
                 if longPressed == item.id { longPressed = nil }
             }
         })
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+        .simultaneousGesture(LongPressGesture(minimumDuration: ItMeniscusToken.longPress).onEnded { _ in
             longPressed = item.id
             onLongPress?(item.id)
         }, including: longPress ? .all : .subviews)
+        .modifier(ItMeniscusHapticPreparation(enabled: hapticsEnabled) {
+            selectionFeedback.prepare()
+        })
         .accessibilityLabel(item.title)
         // "Receipts, selected, tab 4 of 5", as the system's tab bar reads (SwiftUI has no tab-bar trait in this SDK).
-        .accessibilityValue("Tab \(item.id + 1) of \(items.count)")
+        .accessibilityValue("Tab \(position) of \(items.count)")
         .accessibilityHint(active ? item.beadLabel.map { "Tap again: \($0)" } ?? "" : "")
         .accessibilityAddTraits(active ? [.isSelected] : [])
         .accessibilityActions {
@@ -219,13 +288,28 @@ struct ItMeniscusBar: View {
     }
 }
 
+/// Prepares selection feedback at touch-down only while the haptics experiment is enabled.
+private struct ItMeniscusHapticPreparation: ViewModifier {
+    let enabled: Bool
+    let prepare: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in prepare() })
+        } else {
+            content
+        }
+    }
+}
+
 /// A slot's press: the label dims under the finger, and `onRelease` runs when the finger lifts or slides off.
 private struct ItMeniscusSlotStyle: ButtonStyle {
     let onRelease: () -> Void
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.55 : 1)
+            .opacity(configuration.isPressed ? ItMeniscusToken.pressedOpacity : 1)
             .onChange(of: configuration.isPressed) { _, pressed in
                 if !pressed { onRelease() }
             }

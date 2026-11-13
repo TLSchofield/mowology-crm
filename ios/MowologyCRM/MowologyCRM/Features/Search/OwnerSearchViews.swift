@@ -671,6 +671,7 @@ final class VoiceSearch: ObservableObject {
     private var stopTimer: Task<Void, Never>?
     /// True from the tap until listening starts or fails: a second tap meanwhile cancels instead of starting twice.
     private var isStarting = false
+    private var audioSessionTouched = false
     /// Each listening session's number; callbacks from an older session are ignored.
     private var session = 0
 
@@ -705,6 +706,7 @@ final class VoiceSearch: ObservableObject {
         }
         do {
             let session = AVAudioSession.sharedInstance()
+            audioSessionTouched = true
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
 
@@ -752,6 +754,10 @@ final class VoiceSearch: ObservableObject {
     }
 
     func stop() {
+        // The Search screen calls this on EVERY disappear. With nothing running it must change nothing: assigning
+        // `isListening = false` publishes even when it was already false, which redraws the screen (the diagnostic log
+        // named `_voice changed` on SearchView in each freeze, 2026-11-12), and `engine.inputNode` waits on the audio server.
+        guard isListening || isStarting || request != nil || task != nil || stopTimer != nil || engine.isRunning else { return }
         session += 1          // anything still in flight from the old session is ignored
         isStarting = false
         stopTimer?.cancel(); stopTimer = nil
@@ -759,7 +765,11 @@ final class VoiceSearch: ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         request?.endAudio(); request = nil
         task?.finish(); task = nil
-        isListening = false
+        if isListening { isListening = false }
+        // Both calls wait on the audio server from the main thread: never make them when voice search never took the
+        // session (the Search screen calls stop() on every disappear; a slow audio server killed the app, 2026-11-11).
+        guard audioSessionTouched else { return }
+        audioSessionTouched = false
         let audio = AVAudioSession.sharedInstance()
         try? audio.setActive(false, options: .notifyOthersOnDeactivation)
         try? audio.setCategory(.soloAmbient)   // the app's default again, so later sounds play normally

@@ -183,6 +183,56 @@ final class OnboardingStepServiceTest extends TestCase
         $this->assertSame('name',$s->apply(7,['key'=>'books','do'=>'ack','knows'=>''])['next'],'next is a step the old app knows');
     }
 
+    public function test_contacts_finish_replaces_total_skip_sets_answer_and_old_apps_cannot_reach_it(): void
+    {
+        $db=$this->db();$s=new OnboardingStepService($db,'tenant');
+        $this->assertSame('No such step.',$s->apply(7,['key'=>'contacts','do'=>'finish','count'=>2,'knows'=>''])['message']);
+        $this->assertFalse($s->apply(7,['key'=>'contacts','do'=>'finish','count'=>-1,'knows'=>'contacts'])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'contacts','do'=>'finish','count'=>12,'knows'=>'contacts'])['ok']);
+        $this->assertTrue($s->apply(7,['key'=>'contacts','do'=>'finish','count'=>3,'knows'=>'contacts'])['ok']);
+        $this->assertSame('3',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_contacts_count'")->fetchColumn());
+        $this->assertTrue($s->apply(7,['key'=>'contacts','do'=>'skip','knows'=>'contacts'])['ok']);
+        $this->assertSame('skipped',$db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_contacts_answer'")->fetchColumn());
+        $tooMany=$s->apply(7,['key'=>'contacts','do'=>'import','contacts'=>array_fill(0,201,[]),'knows'=>'contacts']);
+        $this->assertFalse($tooMany['ok']);$this->assertSame('too_many',$tooMany['error']);
+    }
+
+    public function test_google_contacts_start_list_and_import_source_use_injected_services(): void
+    {
+        $db=$this->db();
+        $stage=new class {
+            public ?array $answer=null;
+            public function take(string $nonce,int $userId,string $grant):?array{return $this->answer;}
+        };
+        $google=static fn(PDO $db)=>['client_id'=>'client-id','state_secret'=>'state-secret','business_key'=>'greenleaf','stage'=>$stage];
+        $importer=new class {
+            public string $source='';
+            public function import(array $contacts,string $source='phone'):array{$this->source=$source;return [['ref'=>'people/1','outcome'=>'created','contact_id'=>9]];}
+        };
+        $service=new OnboardingStepService($db,'tenant',null,null,null,$google,static fn(PDO $db)=>$importer);
+        $start=$service->apply(7,['key'=>'contacts','do'=>'google_start','knows'=>'contacts']);
+        $this->assertTrue($start['ok']);$this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/',$start['nonce']);
+        $this->assertStringStartsWith('https://accounts.google.com/o/oauth2/v2/auth?',$start['url']);
+        $expired=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
+        $this->assertSame('expired',$expired['error']);
+        $stage->answer=[['ref'=>'people/1','first'=>'Ada']];
+        // No grant (the secret that only the browser redirect carries) = no list, whatever the stage holds.
+        $noGrant=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'knows'=>'contacts']);
+        $this->assertSame('expired',$noGrant['error']);
+        $listed=$service->apply(7,['key'=>'contacts','do'=>'google_list','nonce'=>$start['nonce'],'grant'=>str_repeat('a',32),'knows'=>'contacts']);
+        $this->assertSame('Ada',$listed['contacts'][0]['first']);
+        $service->apply(7,['key'=>'contacts','do'=>'import','source'=>'google','contacts'=>[['ref'=>'people/1','first'=>'Ada']],'knows'=>'contacts']);
+        $this->assertSame('google',$importer->source);
+    }
+
+    public function test_google_start_reports_not_configured_without_server_constants(): void
+    {
+        if (defined('ITTAI_GOOGLE_WEB_CLIENT_ID') || defined('ITTAI_GOOGLE_WEB_CLIENT_SECRET')) $this->markTestSkipped('Server constants are present.');
+        $result=(new OnboardingStepService($this->db(),'tenant'))->apply(7,['key'=>'contacts','do'=>'google_start','knows'=>'contacts']);
+        $this->assertFalse($result['ok']);$this->assertSame('not_configured',$result['error']);
+        $this->assertSame('Google is not set up on this server yet.',$result['message']);
+    }
+
     private function snapshot(PDO $db): void
     {
         $db->exec('CREATE TABLE qbo_onboarding_snapshot (id INTEGER PRIMARY KEY, site_id INT, kind TEXT, qbo_id TEXT, data TEXT, pulled_at TEXT)');

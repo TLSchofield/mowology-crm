@@ -37,6 +37,7 @@ final class ReadyBriefStore: ObservableObject {
 
 struct MainTabView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.layoutDirection) private var layoutDirection
 
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
@@ -47,6 +48,10 @@ struct MainTabView: View {
     @StateObject private var readyBriefStore = ReadyBriefStore()
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
+    @AppStorage(ItBarLab.scrollTopKey) private var storedScrollTop = false
+    @AppStorage(ItBarLab.keyboardCurveKey) private var storedKeyboardCurve = false
+    @AppStorage(ItBarLab.largeLabelsKey) private var storedLargeLabels = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// The bar (Tim, 2026-11-05): admins Schedule · Search · Kaname · Receipts · Add — Kaname, the chief of staff,
     /// in the centre; Add at the far right, under the thumb. Crew: Schedule · Search · Receipts · Account · Add.
@@ -65,6 +70,9 @@ struct MainTabView: View {
     @State private var keyboardUp = false
     /// When a push last sent the user somewhere: the driver question doesn't pull them to Time over it.
     @State private var routedAt: Date?
+    #if DEBUG
+    @State private var smokeTourRan = false
+    #endif
 
     /// The bar's slots, left to right.
     private var barTabs: [Tab] {
@@ -129,6 +137,13 @@ struct MainTabView: View {
     /// The room the meniscus bar takes at the bottom of every tab screen.
     static let barReserve: CGFloat = ItMeniscusGeometry.rise + ItMeniscusBar.barHeight
 
+    private var scrollTopEnabled: Bool { ItBarLab.isEnabled("scrollTop", stored: storedScrollTop) }
+    private var keyboardCurveEnabled: Bool { ItBarLab.isEnabled("keyboardCurve", stored: storedKeyboardCurve) }
+    private var largeLabelsEnabled: Bool { ItBarLab.isEnabled("largeLabels", stored: storedLargeLabels) }
+    private var barReserve: CGFloat {
+        Self.barReserve + (largeLabelsEnabled ? ItBarLab.barLabelMetrics(contentSize: dynamicTypeSize).extraBarHeight : 0)
+    }
+
     init() {
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
@@ -137,6 +152,7 @@ struct MainTabView: View {
 
     var body: some View {
         let _ = RenderRate.tick("MainTabView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         // TabView keeps each tab's screen and navigation alive while another tab shows; its own bar never shows.
         TabView(selection: $selectedTab) {
             ForEach(tabs, id: \.self) { tab in
@@ -144,9 +160,16 @@ struct MainTabView: View {
                     .tag(tab)
                     .toolbar(.hidden, for: .tabBar)
                     // Pinned bottom controls inside a tab (Receipts' Snap button, the map's cards, a toast) lift by this.
-                    .environment(\.itBarClearance, keyboardUp ? 0 : Self.barReserve)
+                    .environment(\.itBarClearance, keyboardUp ? 0 : barReserve)
                     // Where this tab's bead sits: its screen's centre line runs into it (SPEC §13).
-                    .environment(\.itTabSlot, ItTabSlot(index: barTabs.firstIndex(of: tab) ?? 0, count: barTabs.count))
+                    .environment(\.itTabSlot, ItTabSlot(
+                        index: ItMeniscusGeometry.physicalSlotIndex(
+                            barTabs.firstIndex(of: tab) ?? 0,
+                            count: barTabs.count,
+                            isRightToLeft: layoutDirection == .rightToLeft
+                        ),
+                        count: barTabs.count
+                    ))
                     .environment(\.openTimeClock, { addOpen = false; selectedTab = .time })
                     // The veil blocks touches; this keeps VoiceOver out of the screen behind the Add dial too.
                     .accessibilityHidden(addOpen)
@@ -165,19 +188,21 @@ struct MainTabView: View {
         // The bar's inset does not reach scroll views inside the tabs' navigation stacks, so the last rows of a
         // pushed screen sat under the bar (Tim, 2026-11-05: visit screen, "Move to another date"). Content margins
         // pass down to every scroll view, pushed screens included (proved in the simulator, 2026-11-05).
-        .contentMargins(.bottom, keyboardUp ? 0 : Self.barReserve, for: .scrollContent)
+        .contentMargins(.bottom, keyboardUp ? 0 : barReserve, for: .scrollContent)
         // The meniscus bar replaces the system tab bar (Tim, 2026-11-04). It steps aside while the keyboard is up.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !keyboardUp {
                 ItMeniscusBar(items: meniscusItems, selected: barIndex,
                     onSelect: { index in
                         guard barTabs.indices.contains(index) else { return }
+                        AppDiagnostics.shared.crumb("bar select \(barTabs[index]) (was \(selectedTab), dial \(addOpen ? "open" : "closed"))")
                         if barTabs[index] == .add { addOpen = true }
                         else { addOpen = false; selectedTab = barTabs[index] }
                     },
                     onReselect: { index in
                         guard barTabs.indices.contains(index) else { return }
                         let tab = barTabs[index]
+                        AppDiagnostics.shared.crumb("bar reselect \(tab) (dial \(addOpen ? "open" : "closed"))")
                         if tab == .add { addOpen = false }                          // the × on the bead
                         else if selectedTab == .time { selectedTab = tab }          // back from Time Clock
                         else if tab == .receipts {
@@ -192,6 +217,12 @@ struct MainTabView: View {
                             UISelectionFeedbackGenerator().selectionChanged()
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { scheduleViews.cycle() }
                         }
+                        else if scrollTopEnabled && tab == .search {
+                            NotificationCenter.default.post(name: .mwSearchTop, object: nil)
+                        }
+                        else if scrollTopEnabled && tab == .account {
+                            NotificationCenter.default.post(name: .mwAccountHome, object: nil)
+                        }
                     },
                     onLongPress: { index in
                         if barTabs.indices.contains(index), barTabs[index] == .add { add(.job) }
@@ -201,8 +232,24 @@ struct MainTabView: View {
                     })
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            if !keyboardCurveEnabled { keyboardUp = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            if !keyboardCurveEnabled { keyboardUp = false }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard keyboardCurveEnabled,
+                  let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+            let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int ?? 0
+            let overlaps = ItBarLab.keyboardOverlapsBar(
+                keyboardFrame: frame, screenBounds: UIScreen.main.bounds, barHeight: barReserve
+            )
+            withAnimation(ItBarLab.keyboardAnimation(duration: duration, curveRaw: curve)) {
+                keyboardUp = overlaps
+            }
+        }
         .tint(appStyle.tenant)
         .itAppScreen()
         .task {
@@ -237,8 +284,10 @@ struct MainTabView: View {
             if !now.contains(selectedTab) { selectedTab = .schedule }
             if !barTabs.contains(lastBarTab) { lastBarTab = .schedule }
         }
+        .onChange(of: addOpen) { _, now in AppDiagnostics.shared.crumb("add dial \(now ? "opened" : "closed")") }
         .onChange(of: selectedTab) { _, now in
             if barTabs.contains(now) { lastBarTab = now }
+            AppDiagnostics.shared.crumb("page now \(now)")
             // A push, the driver question or a sign-in change moves the page: the dial never stays open over it.
             addOpen = false
         }
@@ -254,6 +303,27 @@ struct MainTabView: View {
             if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
             else if notificationRouter.pendingHead != nil { openTeamForHead() }
         }
+        #if DEBUG
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-mwSmokeTour"), !smokeTourRan else { return }
+            smokeTourRan = true
+            // RootView gives this debug-only launch mode a credential-free host. Release authentication is unchanged.
+            for _ in 0..<5 {
+                for tab in tabs {
+                    selectedTab = tab
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+            for _ in 0..<2 {
+                addOpen = true
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                addOpen = false
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            print("SMOKE_TOUR_OK")
+            NSLog("SMOKE_TOUR_OK")
+        }
+        #endif
         // Department-head pushes ("Sam: Linda just opened QUO-…") land on the Kaname tab;
         // TeamView consumes the route and shows that head's card. Only admins have Kaname.
         .onChange(of: notificationRouter.pendingHead) { _, head in
@@ -323,7 +393,11 @@ struct MainTabView: View {
 
     private var accountTab: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             List {
+                if scrollTopEnabled {
+                    Color.clear.frame(height: 0).id("mw-account-top")
+                }
                 if let user = authSession.user {
                     Section {
                         AccountProfileRow(user: user)
@@ -347,6 +421,11 @@ struct MainTabView: View {
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { TimeChip() } }
+            .onReceive(NotificationCenter.default.publisher(for: .mwAccountHome)) { _ in
+                // The crew Account tab has no pushed screens: returning to its top is a scroll.
+                proxy.scrollTo("mw-account-top", anchor: .top)
+            }
+            }
         }
     }
 }
@@ -357,8 +436,18 @@ private enum KanameTabIcon {
     static let image: UIImage = {
         let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
         renderer.scale = UIScreen.main.scale
-        return (renderer.uiImage ?? UIImage(systemName: "hexagon")!)
-            .withRenderingMode(.alwaysTemplate)
+        if let image = renderer.uiImage ?? UIImage(systemName: "hexagon") {
+            return image.withRenderingMode(.alwaysTemplate)
+        }
+        return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28)).image { context in
+            let glyphColour = UIColor(ItPalette(.light).text)
+            glyphColour.setStroke()
+            glyphColour.setFill()
+            let path = UIBezierPath(ovalIn: CGRect(x: 3, y: 3, width: 22, height: 22))
+            path.lineWidth = 2
+            path.stroke()
+            context.cgContext.fillEllipse(in: CGRect(x: 13, y: 13, width: 2, height: 2))
+        }.withRenderingMode(.alwaysTemplate)
     }()
 }
 

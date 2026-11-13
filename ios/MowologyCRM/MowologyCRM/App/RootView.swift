@@ -18,6 +18,23 @@ struct RootView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-mwSmokeTour") {
+            MainTabView()
+                .environmentObject(authSession)
+                .itAppTheme(enabled: true, field: false)
+        } else if ProcessInfo.processInfo.arguments.contains("-mwContactsDemo") {
+            PhoneContactsDemoHost()
+                .itAppTheme(enabled: true, field: false)
+        } else {
+            authenticatedContent
+        }
+        #else
+        authenticatedContent
+        #endif
+    }
+
+    private var authenticatedContent: some View {
         ZStack {
         Group {
             if let result = updateResult, result.mustUpdate {

@@ -96,6 +96,9 @@ require_once __DIR__ . '/../app/Core/CronSchedule.php';
 require_once __DIR__ . '/../app/Core/BusinessCrons.php';
 require_once __DIR__ . '/../app/Core/CronLock.php';
 require_once __DIR__ . '/../app/Core/Auth/JwtService.php';
+// One phone sign-in for every business (2026-11-11): token.php's check + token, and the ittai.ca directory
+require_once __DIR__ . '/../app/Core/Auth/PhoneSignIn.php';
+require_once __DIR__ . '/../app/Modules/Auth/Services/BusinessDirectory.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
@@ -546,6 +549,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetApprovalService.p
 require_once __DIR__ . '/../app/Modules/Schedule/Services/CrewViewScope.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/AppointmentService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/VisitNeedsService.php';
+require_once __DIR__ . '/../app/Modules/Schedule/Services/ScheduleListService.php';
 require_once __DIR__ . '/../app/Modules/Schedule/Services/SnowRunGate.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StatementBooksCheckService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReceiptBankCheck.php';
@@ -663,6 +667,7 @@ require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboClientPayService.
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingApiPresenter.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingStepService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactImportService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/SignUpService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/SignUpRequestThrottle.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboOnboardingService.php';
@@ -673,6 +678,7 @@ require_once __DIR__ . '/../app/Modules/Payroll/Services/PayHours.php';
 require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoPositionService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PruningPlanService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantWorkService.php';
+require_once __DIR__ . '/../app/Modules/Plants/Services/PlantLineInfoService.php';
 
 // Live code brought back into git 2026-11-09 (security audit fix 3 B1)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferNudgeService.php';

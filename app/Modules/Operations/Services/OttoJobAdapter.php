@@ -77,7 +77,7 @@ class OttoJobAdapter
                     $slots[$sid] = (new OttoActionService($db))->findSlot((int)$sub['subject_id']);
                 }
             }
-            return self::queue($items, $plans, $slots, self::record($db));
+            return self::queue($items, $plans, $slots, self::record($db), $today ?? date('Y-m-d'), [$from, $to]);
         } catch (Throwable $e) {
             error_log('OttoJobAdapter::jobs: ' . $e->getMessage());
             return [];
@@ -90,8 +90,10 @@ class OttoJobAdapter
      * @param array $plans  active plans by suggestion id (UnscheduledWorkService::plans)
      * @param array $slots  the weather guard's next good slot by suggestion id ({date, time_start} or null)
      * @param array $record [decided from the flow line or the card, of those followed]
+     * @param ?string $today Y-m-d: a full day or a weather move only means something from today on; null = no cut-off
+     * @param ?array $range [from, to] the days in view: the strip only carries decisions for those days; null = no limit
      */
-    public static function queue(array $items, array $plans, array $slots, array $record): array
+    public static function queue(array $items, array $plans, array $slots, array $record, ?string $today = null, ?array $range = null): array
     {
         $seen = [];
         $out = [];
@@ -101,11 +103,14 @@ class OttoJobAdapter
             if ($key === '' || isset($seen[$key])) continue;
             $seen[$key] = true;
             $sid = (int)($it['id'] ?? 0);
+            $day = (string)($it['day'] ?? '');
+            if ($range && $day !== '' && ($day < $range[0] || $day > $range[1])) continue;   // not one of the days on screen
+            if ($today !== null && in_array($kind, ['overbooked', 'weather'], true) && (string)($it['day'] ?? '') < $today) continue;   // nothing to fix on a day that is gone
             $job = null;
             if ($kind === 'overbooked') {
                 $job = self::overbooked($it);
             } elseif ($sid && $kind === 'visit_date') {
-                $job = self::visitDate($it, $sid);
+                $job = self::visitDate($it, $sid, $range);
             } elseif ($sid && $kind === 'weather') {
                 $job = self::weather($it, $sid, $slots[$sid] ?? null);
             } elseif ($sid && in_array($kind, ['unscheduled', 'extra_work'], true)) {
@@ -134,11 +139,12 @@ class OttoJobAdapter
         return ['url' => self::API, 'body' => ['suggestion_id' => $sid] + $body];
     }
 
-    private static function visitDate(array $it, int $sid): array
+    private static function visitDate(array $it, int $sid, ?array $range = null): array
     {
         $p = (array)($it['propose'] ?? []);
         $to = (string)($p['to_label'] ?? $p['to'] ?? 'the day it was done');
-        if (!empty($p['to']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$p['to'])) $it['day'] = (string)$p['to'];   // the day it moves to, whichever day was in view first
+        if (!empty($p['to']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$p['to'])
+            && (!$range || ((string)$p['to'] >= $range[0] && (string)$p['to'] <= $range[1]))) $it['day'] = (string)$p['to'];   // the day it moves to, whichever day was in view first
         return self::base($it, 'visit_date', 'Move this booking to the day it was done?') + [
             'primary' => ['label' => 'Move it', 'sub' => 'to ' . $to, 'request' => self::decide($sid, ['choice' => 'move'])],
             'secondary' => ['label' => 'Leave it', 'sub' => 'stays booked', 'request' => self::decide($sid, ['choice' => 'dismiss'])],

@@ -16,6 +16,10 @@
  *     "Order Lawnboy delivery by …", top priority once the order-by day has come. On a building
  *     with a property manager it adds "agree the drop spot with <PM>". "Handled" = Charlie's
  *     dismiss on the item's key, like every brief item.
+ *   - unplacedItems(): the other half (Tim, 2026-11-11). A receipt for material on a job (expenses.job_id
+ *     = the plan, even while still pending approval) with no visit booked: "bought, nothing scheduled —
+ *     what date is the install?". It stays until a visit is placed; a job with a receipt is also no longer
+ *     told to "order" (it was ordered). Otto's brief and card get both through briefItems().
  * Sam's side: TripLineSuggester suggests a "Delivery $150" line on a quote with more than a
  * trailer load of bulk material (we charge it because doing it ourselves costs crew time).
  *
@@ -115,6 +119,46 @@ class MaterialDeliveryService
         }, $bulk));
     }
 
+    /** Is this receipt the bulk-material order? The material vendor's (Lawnboy); the Materials category alone is too loose (fasteners, lumber). */
+    public static function isMaterialReceipt(string $vendor, string $materialVendor): bool
+    {
+        return $materialVendor !== '' && stripos($vendor, $materialVendor) !== false;
+    }
+
+    /**
+     * Pure: "bought, nothing scheduled" items, one per job.
+     * @param array $rows receipts on open one-off jobs with no booked visit: eid, expense_date, total, status, vendor, accounting_category, plan_id, address
+     */
+    public static function unplacedItems(array $rows, string $materialVendor, string $today): array
+    {
+        $by = [];
+        foreach ($rows as $r) {
+            if (!self::isMaterialReceipt((string)($r['vendor'] ?? ''), $materialVendor)) continue;
+            $id = (int)$r['plan_id'];
+            if (!isset($by[$id])) $by[$id] = ['plan_id' => $id, 'address' => (string)($r['address'] ?? ''), 'date' => (string)$r['expense_date'], 'total' => 0.0, 'pending' => false, 'vendor' => (string)($r['vendor'] ?? '')];
+            $by[$id]['total'] += (float)($r['total'] ?? 0);
+            $by[$id]['pending'] = $by[$id]['pending'] || (string)($r['status'] ?? '') === 'pending_approval';
+            if ((string)$r['expense_date'] < $by[$id]['date']) $by[$id]['date'] = (string)$r['expense_date'];
+        }
+        $out = [];
+        foreach ($by as $b) {
+            $days = (int)floor((strtotime($today) - strtotime($b['date'])) / 86400);
+            $out[] = [
+                'key'      => 'otto:ordered_unplaced:' . $b['plan_id'],
+                'kind'     => 'ordered_unplaced',
+                'text'     => ($b['vendor'] !== '' ? $b['vendor'] : 'Material') . ' material was bought ' . date('D M j', strtotime($b['date']))
+                            . ' ($' . number_format($b['total'], 2) . ($b['pending'] ? ', receipt not approved yet' : '') . ')'
+                            . ' for ' . $b['address'] . ', but no visit is booked. What date is the install?'
+                            . ($days >= 3 ? ' It has been ' . $days . ' days.' : ''),
+                'url'      => '/crm/jobs/view.php?id=' . $b['plan_id'],
+                'priority' => $days >= 3 ? 1 : 2,   // top priority (the card's alert style) once it has sat 3 days
+                'value'    => $b['total'],
+                'since'    => $b['date'],
+            ];
+        }
+        return $out;
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // DB
     // ══════════════════════════════════════════════════════════════════════
@@ -162,6 +206,58 @@ class MaterialDeliveryService
      */
     public function briefItems(string $today): array
     {
+        return array_merge($this->deliveryItems($today), $this->unplacedBrief($today));
+    }
+
+    /** Receipts for material on open one-off jobs that have no visit booked (placed from today on, or done). Never rejected ones. */
+    private function unplacedBrief(string $today): array
+    {
+        try {
+            $st = $this->db->prepare("
+                SELECT e.id AS eid, e.expense_date, e.total, e.status, e.accounting_category, COALESCE(v.name, e.vendor_name_raw) AS vendor,
+                       jp.id AS plan_id, p.address
+                FROM expenses e
+                JOIN job_plans jp ON jp.id = e.job_id
+                JOIN properties p ON p.id = jp.property_id
+                LEFT JOIN vendors v ON v.id = e.vendor_id
+                WHERE e.status <> 'rejected' AND e.expense_date >= DATE_SUB(?, INTERVAL 30 DAY)
+                  AND jp.status = 'active' AND jp.is_recurring = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status NOT IN ('cancelled', 'skipped')
+                        AND (jv.status NOT IN ('scheduled', 'weather') OR (jv.stop_id IS NOT NULL AND jv.scheduled_date >= ?)))
+                ORDER BY e.expense_date
+            ");
+            $st->execute([$today, $today]);
+            return self::unplacedItems($st->fetchAll(PDO::FETCH_ASSOC) ?: [], $this->setting('material_delivery_vendor'), $today);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Plans that already have a material receipt: the order was made, so no "order by" for them. @return array<int,true> */
+    private function orderedPlans(array $planIds): array
+    {
+        $planIds = array_values(array_unique(array_filter(array_map('intval', $planIds))));
+        if (!$planIds) return [];
+        try {
+            $st = $this->db->query("
+                SELECT e.job_id, e.accounting_category, COALESCE(v.name, e.vendor_name_raw) AS vendor
+                FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
+                WHERE e.status <> 'rejected' AND e.job_id IN (" . implode(',', $planIds) . ")");
+            $out = [];
+            $mv = $this->setting('material_delivery_vendor');
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                // the vendor only: a small Materials receipt (fasteners, edging) must not hide a delivery still to order
+                if (self::isMaterialReceipt((string)$r['vendor'], $mv)) $out[(int)$r['job_id']] = true;
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    private function deliveryItems(string $today): array
+    {
         try {
             $rows = $this->db->prepare("
                 SELECT jv.id AS visit_id, jv.scheduled_date, jp.id AS plan_id, jp.plan_number, jp.property_id, p.address
@@ -177,10 +273,12 @@ class MaterialDeliveryService
         } catch (Throwable $e) {
             return [];
         }
+        $ordered = $this->orderedPlans(array_column($visits, 'plan_id'));
         $notice = (int)$this->setting('material_delivery_notice_days');
         $vendor = $this->setting('material_delivery_vendor');
         $out = [];
         foreach ($visits as $v) {
+            if (isset($ordered[(int)$v['plan_id']])) continue;   // already ordered: a material receipt is on the job
             $lines = $this->db->prepare("SELECT service_type, description, quantity, unit_type FROM plan_line_items WHERE plan_id = ?");
             $lines->execute([(int)$v['plan_id']]);
             $d = $this->forLines($lines->fetchAll(PDO::FETCH_ASSOC) ?: []);

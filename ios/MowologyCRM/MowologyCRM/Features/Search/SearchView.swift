@@ -31,6 +31,7 @@ final class SearchViewModel: ObservableObject {
     let apiClient: APIClient
     private let locationManager: LocationManager
     private var searchTask: Task<Void, Never>?
+    private var nearbyTriedAt = Date.distantPast
 
     private static let recentsKey = "mw.search.recents.v1"
     private static let maxRecents = 8
@@ -46,8 +47,11 @@ final class SearchViewModel: ObservableObject {
 
     // MARK: Empty state
 
-    /// Fix + "Near you". Cheap to call on every appearance; silent when location isn't available.
-    func refreshNearby() async {
+    /// Fix + "Near you". Silent when location isn't available. Looked up at most once every 30 s unless `force`
+    /// (pull to refresh): the unkeyed `.task` restarted ~50 times a minute and cancelled each request (2026-11-12 log).
+    func refreshNearby(force: Bool = false) async {
+        guard force || Date().timeIntervalSince(nearbyTriedAt) > 30 else { return }
+        nearbyTriedAt = Date()
         if let location = try? await locationManager.currentLocation() {
             fix = location
         }
@@ -128,6 +132,12 @@ struct SearchView: View {
     /// The owner's half of the box (OwnerSearchViews.swift): answers, Ask Kaname, every group. Unused for crew.
     @StateObject private var owner: OwnerSearchModel
     @StateObject private var voice = VoiceSearch()
+    @AppStorage(ItBarLab.scrollTopKey) private var storedScrollTop = false
+    @AppStorage(ItBarLab.searchDrawerKey) private var storedSearchDrawer = false
+    /// Presenting the search drawer puts the cursor in the field (iOS 17: `.searchFocused` is iOS 18).
+    @State private var isSearchPresented = false
+    /// The plain field's cursor (the default; `isSearchPresented` only drives the opt-in system drawer).
+    @FocusState private var plainFieldFocused: Bool
     /// The "Linda ×" chip: at most one client at a time.
     @State private var scopes: [OwnerSearchScope] = []
     private let authSession: AuthSession
@@ -143,11 +153,53 @@ struct SearchView: View {
     private var scope: OwnerSearchScope? { isOwner ? scopes.first : nil }
     /// With a chip the box may be empty: "Linda ×" alone lists everything about Linda.
     private var showsResults: Bool { vm.trimmedQuery.count >= 2 || scope != nil }
+    private var scrollTopEnabled: Bool { ItBarLab.isEnabled("scrollTop", stored: storedScrollTop) }
+    /// The system drawer is opt-in: every freeze in the diagnostic log (2026-11-12) followed the first visit to Search.
+    private var usesSearchDrawer: Bool { ItBarLab.isEnabled("searchDrawer", stored: storedSearchDrawer) }
+    private var searchPrompt: String {
+        scope != nil ? "Anything about them — “unpaid”, “quotes”…"
+            : (isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")
+    }
+    private func submitSearch() {
+        if isOwner && OwnerSearchModel.looksLikeQuestion(vm.trimmedQuery) {
+            Task { await owner.ask(askText) }
+        }
+    }
 
     var body: some View {
         let _ = RenderRate.tick("SearchView")
+        let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         NavigationStack {
+            ScrollViewReader { proxy in
             List {
+                if scrollTopEnabled {
+                    Color.clear.frame(height: 0).id("mw-search-top")
+                }
+                if !usesSearchDrawer {
+                    Section {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(appStyle.meta)
+                            TextField(searchPrompt, text: $vm.query)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .submitLabel(.search)
+                                .focused($plainFieldFocused)
+                                .onSubmit { submitSearch() }
+                            if !vm.query.isEmpty {
+                                Button { vm.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(appStyle.meta) }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Clear search")
+                            }
+                        }
+                        .frame(minHeight: 44)
+                        if let scope {
+                            Button { scopes = [] } label: {
+                                Label("\(scope.name) ×", systemImage: scope.kind == "company" ? "building.2" : "person.fill")
+                            }
+                        }
+                    }
+                    .listRowBackground(appStyle.surface)
+                }
                 if let e = voice.error {
                     Section {
                         Label(e, systemImage: "mic.slash")
@@ -173,13 +225,7 @@ struct SearchView: View {
                 ToolbarItem(placement: .navigationBarLeading) { micButton }
                 ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
             }
-            .searchable(text: $vm.query,
-                        tokens: $scopes,
-                        placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: scope != nil ? "Anything about them — “unpaid”, “quotes”…"
-                            : (isOwner ? "Search or ask — “has Linda's quote been sent?”" : "Client, address, building, phone…")) { token in
-                Label(token.name, systemImage: token.kind == "company" ? "building.2" : "person.fill")
-            }
+            .searchDrawer(usesSearchDrawer, text: $vm.query, tokens: $scopes, isPresented: $isSearchPresented, prompt: searchPrompt)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
             .onChange(of: vm.query) { _, _ in
@@ -190,11 +236,7 @@ struct SearchView: View {
                 if new.count > 1 { scopes = [new[new.count - 1]] }
                 if isOwner { owner.queryChanged(vm.trimmedQuery, scope: scopes.first) }
             }
-            .onSubmit(of: .search) {
-                if isOwner && OwnerSearchModel.looksLikeQuestion(vm.trimmedQuery) {
-                    Task { await owner.ask(askText) }
-                }
-            }
+            .onSubmit(of: .search) { submitSearch() }
             .onDisappear { voice.stop() }
             .navigationDestination(for: SearchProperty.self) { property in
                 PropertyDetailView(summary: property, searchVM: vm, authSession: authSession)
@@ -203,7 +245,12 @@ struct SearchView: View {
                 OwnerContactView(route: route, apiClient: owner.apiClient, searchVM: vm, authSession: authSession)
             }
             .task { await vm.refreshNearby() }
-            .refreshable { await vm.refreshNearby() }
+            .refreshable { await vm.refreshNearby(force: true) }
+            .onReceive(NotificationCenter.default.publisher(for: .mwSearchTop)) { _ in
+                proxy.scrollTo("mw-search-top", anchor: .top)
+                if usesSearchDrawer { isSearchPresented = true } else { plainFieldFocused = true }
+            }
+            }
         }
     }
 
@@ -769,5 +816,21 @@ struct PropertyDetailView: View {
         let out = DateFormatter()
         out.dateFormat = "EEE MMM d"
         return out.string(from: date)
+    }
+}
+
+private extension View {
+    /// The system search drawer, applied only when asked for (see `ItBarLab.searchDrawerKey`).
+    @ViewBuilder
+    func searchDrawer(_ on: Bool, text: Binding<String>, tokens: Binding<[OwnerSearchScope]>,
+                      isPresented: Binding<Bool>, prompt: String) -> some View {
+        if on {
+            searchable(text: text, tokens: tokens, isPresented: isPresented,
+                       placement: .navigationBarDrawer(displayMode: .always), prompt: prompt) { token in
+                Label(token.name, systemImage: token.kind == "company" ? "building.2" : "person.fill")
+            }
+        } else {
+            self
+        }
     }
 }

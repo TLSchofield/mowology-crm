@@ -48,7 +48,19 @@ if (($_GET['it_job_demo'] ?? '') === '1'
         ['id' => null, 'key' => 'k:o', 'kind' => 'overbooked', 'text' => 'Crew 1 day is 9 stops and 11h of plan lengths: 9h fits.', 'detail' => 'Plan lengths, not drive time.', 'propose' => [], 'day' => '2026-11-11'],
     ], [12 => [['id' => 7, 'number' => 'PLN-2026-0007']]], [11 => ['date' => '2026-11-13', 'time_start' => '08:00:00']], [0, 0]);
 }
-if (!$__ioJobs) return;
+// The numbers for the days in view (the old green panel, retired in the shell): they sit on the line when no decision does.
+$__ioNums = [];
+if (isset($mcDisplayRev, $mcDisplayTarget, $mcDisplayLabor, $mcDisplayMargin, $mcEfficiency, $mcCompletedStops, $mcWeekStops)) {
+    $__ioDay = !empty($mcIsDay);
+    $__ioNums = [
+        ['$' . number_format((float)$mcDisplayRev, 0), $__ioDay ? 'Day revenue' : 'Revenue', 'of $' . number_format((float)$mcDisplayTarget, 0)],
+        [(int)$mcCompletedStops . '/' . (int)$mcWeekStops, 'Stops done', ''],
+        ['$' . number_format((float)$mcDisplayLabor, 0), 'Labor', !empty($mcDisplayLaborIsActual) ? 'actual' : 'estimated'],
+        [(int)$mcDisplayMargin . '%', 'Margin', ''],
+        [(string)(int)$mcEfficiency, 'Route efficiency', 'of 100'],
+    ];
+}
+if (!$__ioJobs && !$__ioNums) return;
 
 require_once __DIR__ . '/ittai-icons.php';
 $__ioFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
@@ -57,6 +69,7 @@ $__ioSvg = static function (string $id): string {
 };
 itIconSprite();
 ?>
+<?php if ($__ioJobs): ?>
 <div class="it-job-outer"><div class="it-job-wrap is-solo">
 <section class="it-job it-job-mia it-job-otto" data-head="otto" data-who="Otto" aria-label="Otto's job">
   <h2 class="it-vh it-job-tt"></h2>
@@ -70,11 +83,25 @@ itIconSprite();
       <div class="it-job-col it-job-right"><form class="it-job-form" novalidate></form></div>
       <div class="it-job-col it-job-acts"><button type="button" class="it-btn it-btn-fill" data-role="primary"><?= $__ioSvg('check') ?><b></b><span></span></button><span class="it-job-m"></span><button type="button" class="it-btn it-btn-line" data-role="secondary"><?= $__ioSvg('arrow') ?><b></b><span></span></button></div>
     </div>
-    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('chart') ?></span><span>Day view</span></a>
+    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></a>
   </div></div>
   <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Not yet</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
   <script type="application/json" class="it-job-data"><?= json_encode($__ioJobs, $__ioFlags) ?></script>
 </section>
 </div></div>
+<?php endif; ?>
+<?php if ($__ioNums): ?>
+<div class="it-job-outer it-job-nums-outer"><section class="it-job it-job-nums" aria-label="This <?= !empty($mcIsDay) ? 'day' : 'week' ?> in numbers"<?= $__ioJobs ? ' hidden' : '' ?>>
+  <div class="it-job-rail">
+    <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('eye') ?></span><span>Schedule</span></a>
+    <?php foreach ($__ioNums as $__ioN): ?>
+    <div class="it-job-num"><b><?= htmlspecialchars($__ioN[0], ENT_QUOTES) ?></b><span><?= htmlspecialchars($__ioN[1], ENT_QUOTES) ?></span><?php if ($__ioN[2] !== ''): ?><i><?= htmlspecialchars($__ioN[2], ENT_QUOTES) ?></i><?php endif; ?></div>
+    <?php endforeach; ?>
+    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></a>
+  </div>
+</section></div>
+<?php endif; ?>
+<?php if ($__ioJobs): ?>
 <script src="<?= function_exists('_av') ? _av('/crm/js/ittai-job-mia.js') : '/crm/js/ittai-job-mia.js' ?>" defer></script>
+<?php endif; ?>

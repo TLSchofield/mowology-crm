@@ -64,3 +64,9 @@
 .mw-cal-seg { display: inline-flex; border: 1px solid var(--mw-green); border-radius: 6px; overflow: hidden; margin-left: 8px; vertical-align: middle; }
 .mw-cal-seg button { border: 0; background: white; color: var(--mw-green); padding: 5px 12px; font-weight: 600; font-size: 13px; cursor: pointer; }
 .mw-cal-seg button.on { background: var(--mw-green); color: white; }
+
+/* Week timeline: weekday + weather rows above it are the column heads */
+.mw-cal-panel--week { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -1px; scrollbar-gutter: stable; }
+.mw-cal-panel--week .mw-cal-head { display: none; }
+
+.mw-cal-btype { font-weight: 600; opacity: 1; }

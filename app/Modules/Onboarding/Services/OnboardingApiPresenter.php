@@ -29,6 +29,7 @@ final class OnboardingApiPresenter
             'company' => self::companyData($identity->current()),
             'quickbooks' => self::quickBooksData($qmod->answer($ctx), (bool)$connected, $qbo->hasSnapshot(), $qbo->partSummaries(), $qbo->canWrite(),
                                                   $qbo->partPreviews(), $connected ? (new QboSyncService($conn))->auto() : ['on' => false, 'from' => null]),
+            'contacts' => ['answer' => (new OnboardingContactsModule())->answer($ctx), 'count' => max(0, (int)$ctx->setting('onboarding_contacts_count'))],
             'terms' => ['accepted' => $ctx->setting(OnboardingTermsModule::SETTING) === OnboardingTermsModule::TERMS_VERSION, 'version' => OnboardingTermsModule::TERMS_VERSION,
                         'terms_url' => OnboardingTermsModule::TERMS_URL, 'privacy_url' => OnboardingTermsModule::PRIVACY_URL],
             'gst' => ['qbo' => $qf, 'answer' => (new OnboardingGstModule())->answer($ctx), 'number' => (string)$ctx->one('SELECT gst_registration FROM business_settings WHERE id = 1'), 'filing' => (string)$ctx->setting('gst_filing')],
