@@ -4822,15 +4822,14 @@ if ($hasPropCoords) {
                 return (v < 0 ? '\u2212$' : '$') + a;
             };
             var crows = d.costing.lines.map(function (l) {
-                var cls = l.kind === 'profit' ? (l.amount < 0 ? 'text-danger' : 'text-success') : '';
-                var strong = l.kind === 'sales' || l.kind === 'profit';
-                return '<tr' + (l.kind === 'profit' ? ' class="font-weight-bold"' : '') + '>' +
-                    '<td>' + l.label + '</td>' +
-                    '<td class="text-right ' + cls + '">' + (strong ? '<strong>' : '') + money(l.amount) + (strong ? '</strong>' : '') + '</td>' +
-                    '<td class="text-right text-muted">' + l.pct.toFixed(1) + '%</td></tr>';
+                var cls = l.kind === 'profit' ? (l.amount < 0 ? ' is-loss' : ' is-gain') : '';
+                return '<div class="mw-jc-row mw-jc-' + l.kind + cls + '">' +
+                    '<span class="mw-jc-label">' + l.label + '</span>' +
+                    '<span class="mw-jc-amount">' + money(l.amount) + '</span>' +
+                    '<span class="mw-jc-pct">' + l.pct.toFixed(1) + '%</span></div>';
             }).join('');
-            costBody.innerHTML = '<table class="table table-sm mb-0"><thead><tr><th></th><th class="text-right">Amount</th><th class="text-right">% of sales</th></tr></thead><tbody>' + crows + '</tbody></table>' +
-                (d.costing.materials_missing ? '<div class="text-warning small px-3 py-2">No materials recorded for this job, so profit is a ceiling until the receipts are added.</div>' : '');
+            costBody.innerHTML = '<div class="mw-jc"><div class="mw-jc-head"><span></span><span>Amount</span><span>% of sales</span></div>' + crows + '</div>' +
+                (d.costing.materials_missing ? '<div class="mw-jc-note">No materials recorded for this job, so profit is a ceiling until the receipts are added.</div>' : '');
         }
         var recHtml = '';
         if (d.recommendations && d.recommendations.length) {
