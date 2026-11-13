@@ -70,7 +70,7 @@ itIconSprite();
       <div class="it-job-col it-job-right"><form class="it-job-form" novalidate></form></div>
       <div class="it-job-col it-job-acts"><button type="button" class="it-btn it-btn-fill" data-role="primary"><?= $__ioSvg('check') ?><b></b><span></span></button><span class="it-job-m"></span><button type="button" class="it-btn it-btn-line" data-role="secondary"><?= $__ioSvg('arrow') ?><b></b><span></span></button></div>
     </div>
-    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('chart') ?></span><span>Day view</span></a>
+    <a class="it-job-anchor it-job-anchor-end" href="/crm/jobs/schedule.php?view=day"><span class="it-ad"><?= $__ioSvg('compass') ?></span><span>Day view</span></a>
   </div></div>
   <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Not yet</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
