@@ -58,10 +58,24 @@ body {
     border-bottom:1px solid var(--line)
 }
 
-.site-head img {
-    display:block;
-    width:116px;
-    height:auto
+.site-head .brand {
+    display:inline-flex;
+    align-items:center;
+    gap:10px;
+    min-height:48px;
+    color:var(--brand);
+    text-decoration:none
+}
+
+.site-head .symbol {
+    width:36px;
+    height:36px
+}
+
+.site-head .brand span {
+    color:var(--text);
+    font-size:1.375rem;
+    font-weight:650
 }
 
 h1,
