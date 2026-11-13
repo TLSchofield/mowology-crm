@@ -279,6 +279,12 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .mwShiftMayHaveStarted)) { _ in
             checkDriverQuestion()
         }
+        // Measurement (2026-11-13): every ~60 s all five tabs redraw together; these name which shared object invalidated this view.
+        .onReceive(notificationRouter.objectWillChange) { _ in InvalidationLog.note("notificationRouter") }
+        .onReceive(pullForward.objectWillChange) { _ in InvalidationLog.note("pullForward") }
+        .onReceive(scheduleViews.objectWillChange) { _ in InvalidationLog.note("scheduleViews") }
+        .onReceive(readyBriefStore.objectWillChange) { _ in InvalidationLog.note("readyBriefStore") }
+        .onReceive(authSession.objectWillChange) { _ in InvalidationLog.note("authSession") }
         // A sign-in as someone else (admin vs crew) changes the tab list; never leave a tab selected that isn't in it.
         .onChange(of: tabs) { _, now in
             if !now.contains(selectedTab) { selectedTab = .schedule }
@@ -574,4 +580,17 @@ extension Notification.Name {
     static let mwKanameHome = Notification.Name("ca.mowology.kanameHome")
     /// Job or Client was picked from the bar's Add dial: Schedule opens "Add a job" (userInfo `startWithNewClient`).
     static let mwAddFromBar = Notification.Name("ca.mowology.addFromBar")
+}
+
+/// Breadcrumb "mainTab invalidated by <object>", at most 3 per object per minute, so the diagnostics log can show what drives the tab redraw bursts.
+enum InvalidationLog {
+    private static var seen: [String: (start: Date, count: Int)] = [:]
+    @MainActor static func note(_ name: String) {
+        let now = Date()
+        var e = seen[name] ?? (now, 0)
+        if now.timeIntervalSince(e.start) > 60 { e = (now, 0) }
+        e.count += 1
+        seen[name] = e
+        if e.count <= 3 { AppDiagnostics.shared.crumb("mainTab invalidated by \(name)") }
+    }
 }
