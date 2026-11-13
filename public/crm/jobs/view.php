@@ -4197,20 +4197,25 @@ if ($hasPropCoords) {
 
                         var rows = data.expenses.map(function(e) {
                             var vendor = esc(e.vendor_name || e.vendor_name_raw || '—');
-                            var statusCls = { draft:'badge-secondary', approved:'badge-primary', forwarded:'badge-success', rejected:'badge-danger' }[e.status] || 'badge-secondary';
+                            var statusCls = { draft:'badge-secondary', pending_approval:'badge-warning', approved:'badge-primary', forwarded:'badge-success', rejected:'badge-danger' }[e.status] || 'badge-secondary';
+                            var statusTxt = e.status === 'pending_approval' ? 'pending approval' : e.status;
+                            var reviewUrl = '/crm/expenses_appstack.php?edit=' + parseInt(e.id, 10);
                             var receiptHtml = e.receipt_path
                                 ? '<a href="' + esc(e.receipt_path) + '" target="_blank" title="View receipt"><i data-feather="image" style="width:13px;height:13px;"></i></a>'
                                 : '<span class="text-muted" title="No receipt"><i data-feather="image" style="width:13px;height:13px;opacity:0.25;"></i></span>';
-                            var actions = CAN_EDIT
-                                ? '<button class="btn btn-sm btn-link p-0 text-muted ml-2" onclick="openReassignModal(' + e.id + ')" title="Move to a different job"><i data-feather="move" style="width:13px;height:13px;"></i></button>'
-                                + '<button class="btn btn-sm btn-link p-0 text-danger ml-1" onclick="deleteJobExpense(' + e.id + ')" title="Delete"><i data-feather="trash-2" style="width:13px;height:13px;"></i></button>'
+                            var reviewBtn = e.status === 'pending_approval'
+                                ? '<a class="btn btn-sm btn-outline-primary py-0 mr-2" href="' + reviewUrl + '" title="Open this receipt to check it and approve it">Review &amp; approve</a>'
                                 : '';
+                            var actions = CAN_EDIT
+                                ? reviewBtn + '<button class="btn btn-sm btn-link p-0 text-muted ml-2" onclick="openReassignModal(' + e.id + ')" title="Move to a different job"><i data-feather="move" style="width:13px;height:13px;"></i></button>'
+                                + '<button class="btn btn-sm btn-link p-0 text-danger ml-1" onclick="deleteJobExpense(' + e.id + ')" title="Delete"><i data-feather="trash-2" style="width:13px;height:13px;"></i></button>'
+                                : reviewBtn;
                             return '<tr>' +
                                 '<td>' + esc(e.expense_date) + '</td>' +
-                                '<td>' + vendor + '</td>' +
+                                '<td><a href="' + reviewUrl + '" title="Open this expense">' + vendor + '</a></td>' +
                                 '<td><small class="text-muted">' + esc(e.accounting_category || '—') + '</small></td>' +
                                 '<td class="text-right font-weight-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
-                                '<td><span class="badge ' + statusCls + '">' + esc(e.status) + '</span></td>' +
+                                '<td><span class="badge ' + statusCls + '">' + esc(statusTxt) + '</span></td>' +
                                 '<td class="text-center">' + receiptHtml + '</td>' +
                                 '<td class="text-right text-nowrap">' + actions + '</td>' +
                                 '</tr>';
