@@ -1353,12 +1353,15 @@ if ($apiKey) {
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
           <div class="mw-page-header">
+              <?php if (empty($itShell)): // the Ittai shell names the page in its nav; an empty left block would push the date nav right ?>
               <div class="mw-page-header-left">
-                  <?php if (empty($itShell)): ?><h1 class="mw-page-title">Schedule</h1><?php endif; // the Ittai shell names the page in its nav ?>
+                  <h1 class="mw-page-title">Schedule</h1>
               </div>
+              <?php endif; ?>
 
               <div class="mw-header-nav">
                   <?php if ($view === 'day'): ?>
+                      <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
                       <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
@@ -1377,8 +1380,8 @@ if ($apiKey) {
                       <a href="?view=day&date=<?php echo htmlspecialchars($nextDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </a>
-                      <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
                   <?php else: ?>
+                      <a href="?<?php echo $listMode ? 'view=list' . $filterQueryStr : ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
                       <a href="?<?php echo $listMode ? 'view=list&' : ''; ?>start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
@@ -1396,7 +1399,6 @@ if ($apiKey) {
                       <a href="?<?php echo $listMode ? 'view=list&' : ''; ?>start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </a>
-                      <a href="?<?php echo $listMode ? 'view=list' . $filterQueryStr : ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
                   <?php endif; ?>
               </div>
 
