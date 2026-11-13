@@ -30,6 +30,20 @@ a claim (today's FAQ says no price is set). Draft in the gardener-page notes (`s
 - Open: import his spreadsheet (income, expenses, receipts) into Penny's ledger; accountant export in the CRA way
   ([[feedback_standard_bookkeeping_accountant_traceable]]); arborist wording for jobs and services (multi-discipline
   tenants: [[feedback_design_for_multi_discipline_tenants]]). Needs: his accountant's name, year-end date, a sample sheet.
+- **Update 2026-11-13:** the open list above is superseded by `2026-11-13-heritage-trees-year-end-plan.md` (approved; Stage 1, the locked-PDF fix, is building).
+
+## Penny's bank-match card: a "Wrong" button that teaches (Tim, 2026-11-13, iPhone screenshot) — queued
+- Seen on the iPhone card: a $0.01 bank line "CREDITINTEREST / INTEREST CREDITED TO ACCOUNT" proposed against a $0.01 invoice (INV-2026-0485), buttons Record / Not now.
+  It is interest, not a payment. `IncomeCleanupService` already knows INTEREST = bank interest (other income), but the invoice matcher proposed it anyway on the exact amount.
+- Wanted: (1) a deterministic rule first: a line whose memo says interest is never proposed against an invoice; it goes to bank interest income. (2) A **Wrong** button beside Record / Not now:
+  one question, "What is this?" (Interest / Fee / Transfer / Refund / Other), Penny files it and **teaches a rule for that memo text** (`BankRuleLearning` exists), per business. (3) For unknown memos, the AI reads the line and
+  proposes the class and the rule; Tim's tap confirms. The AI adjusts learned rules (data), never the parser code itself. Same card serves Sam's "one question" flow ([[project_heritage_tree_year_end]]).
+
+## One "What Penny knows" shape instead of two (Tim, 2026-11-13, two iPhone screenshots) — queued
+- The head card shows two shapes: "What Penny knows" (blue facets, 47 vendors, Recognized / Identified / Understood / Mastered) and "What Penny has learned" (gold-bronze blob, 513 things, White / Gold / Silver / Bronze / Black / Obsidian). Two counts answer one question and disagree in the eye.
+- Tim prefers the gold one's look (materials, lighting) with correct colours, but its form is a lumpy rock, not an impressive geometric shape.
+- The flow is already decided (Tim, 2026-11-13: "it starts with one triangle"): the brain ladder, shape N has exactly N triangles, 1 to 500, recipes from the Shape Lab (`scripts/brain/brain-ladder.sh`, `head-brain.js`, test `tests/js/brain-ladder-test.js`; see [[project_ios_brain_ladder_held]]). The gold card is that ladder at shape 500; do NOT replace it with a fixed base of empty facets.
+- Direction: keep the ladder as the one card and drop the blue one (the vendor knowledge triangles can live in "Show as list" or on the vendor). Two real jobs: (1) correct colours: the tier materials (White / Gold / Silver / Bronze / Black / Obsidian) from the Ittai v1.2 tokens, not the current brown; (2) better form at high N: the recipes for large shapes grow into a lump, so change the growth rule in the Shape Lab so big shapes keep a clear geometric silhouette (symmetry, convexity) while every shape still has exactly N triangles. Check first: which tier is highest, why 52 are Obsidian. The frozen symbol must not be echoed. Build with the design studio (Claude directs, Codex designs).
 
 ## Materials price pool, seeded by Mowology (Tim consented 2026-11-13) — queued
 Tim: "I consent for mowology's product purchases [prices] to be shared in the data pool … that gives seed data to all."

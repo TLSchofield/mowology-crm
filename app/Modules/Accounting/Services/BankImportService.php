@@ -34,6 +34,9 @@ class BankImportService
     /** Per-page raw OCR text captured during extractTextViaImagickOcr(). */
     private array $rawPageTexts = [];
 
+    /** True while parsing a TD credit-card statement: the amount's sign, not a description keyword, sets the type. */
+    private bool $tdCardSigned = false;
+
     /**
      * One preview run's bookkeeping (reset by preview()/enrichRows()), 2026-10-13:
      *   dupUsed     — existing lines already counted as "this row is a duplicate". A file with TWO
@@ -1468,10 +1471,7 @@ class BankImportService
             throw new RuntimeException('smalot/pdfparser is not installed. Run: composer require smalot/pdfparser');
         }
 
-        $parser = new \Smalot\PdfParser\Parser();
-        $pdf    = $parser->parseFile($filePath);
-        $text   = $pdf->getText();
-
+        $text = $this->readPdfText($filePath);
         // Some bank PDFs (e.g. Vancity) use custom font encodings without a
         // ToUnicode map. Two variants:
         //   A) Non-ASCII garbling: smalot returns high-byte characters (caught by isGarbledText).
@@ -1537,10 +1537,7 @@ class BankImportService
             throw new RuntimeException('smalot/pdfparser is not installed.');
         }
 
-        $parser = new \Smalot\PdfParser\Parser();
-        $pdf    = $parser->parseFile($filePath);
-        $text   = $pdf->getText();
-
+        $text = $this->readPdfText($filePath);
         if ($this->isGarbledText($text) || $this->isSpacePaddedText($text)) {
             $text = $this->extractTextFallback($filePath);
         }
@@ -1667,8 +1664,65 @@ class BankImportService
      *     Lines have either a debit amount or a credit amount, never both.
      *     When both appear it means (debit=0, credit>0) — use the non-zero one.
      */
+    /**
+     * The text of a PDF. A statement locked with an empty user password (the Standard Security Handler: it opens
+     * for anyone, copying is restricted, and smalot refuses it) is decrypted first; any other locked-PDF failure
+     * is turned into a message that tells the person what to do instead.
+     */
+    private function readPdfText(string $filePath): string
+    {
+        $parser = new \Smalot\PdfParser\Parser();
+        require_once __DIR__ . '/PdfSecurityHandler.php';
+        $pdfBytes = file_get_contents($filePath);
+        $locked = is_string($pdfBytes) && PdfSecurityHandler::isEncrypted($pdfBytes);
+        try {
+            $pdf = $locked
+                ? $parser->parseContent(PdfSecurityHandler::decrypt($pdfBytes))
+                : $parser->parseFile($filePath);
+            return $pdf->getText();
+        } catch (\Throwable $e) {
+            if (!$locked) throw $e;
+            $needsPassword = stripos($e->getMessage(), 'user password') !== false;
+            throw new RuntimeException(
+                ($needsPassword ? 'This PDF needs a password to open. ' : 'This PDF is locked and could not be opened. ')
+                . 'Download the CSV from your online banking instead, or upload photos of the pages.',
+                0,
+                $e
+            );
+        }
+    }
+
+    /**
+     * TD credit-card statements print a row as "OCT16 OCT17<TAB>$12.34DESCRIPTION": transaction date, posting
+     * date (the statement header reads TRANSACTION / POSTING; month and day with no space, no year), the amount (a credit is "-$"), then the description glued to
+     * the amount. Every other layout here reads "date description amount", so rewrite those rows into that order
+     * (transaction date first) and let the normal parser, year logic and balance check take over. Text with fewer
+     * than three such rows is returned unchanged.
+     */
+    private function normalizeTdCardRows(string $text): string
+    {
+        $mon = '(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)';
+        $rowPat = '/^(' . $mon . ')\s?(\d{1,2})\s+' . $mon . '\s?\d{1,2}\s*(-?\$[\d,]+\.\d{2})\s*(.*)$/i';
+        $this->tdCardSigned = false;
+        $lines = preg_split('/\r?\n/', $text);
+        $hits = 0;
+        foreach ($lines as $l) {
+            if (preg_match($rowPat, trim($l))) $hits++;
+        }
+        if ($hits < 3) return $text;
+        $this->tdCardSigned = true;
+        foreach ($lines as $i => $l) {
+            if (preg_match($rowPat, trim($l), $m)) {
+                $desc = trim($m[4]) !== '' ? trim($m[4]) : 'TD credit card transaction';
+                $lines[$i] = $m[1] . ' ' . $m[2] . ' ' . $desc . ' ' . $m[3];
+            }
+        }
+        return implode("\n", $lines);
+    }
+
     private function parsePdfText(string $text, bool $debug = false): array
     {
+        $text     = $this->normalizeTdCardRows($text);
         $rows     = [];
         $rejectLog = [];  // populated when $debug === true
         $lines    = preg_split('/\r?\n|\x0c/', $text);
@@ -1987,7 +2041,11 @@ class BankImportService
                     if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'zero_or_null_amount', 'amt_raw' => $amt1Raw];
                     continue;
                 }
-                if ($raw < 0) {
+                if ($this->tdCardSigned) {
+                    // TD card: "-$" is a payment or refund, a plain amount is a purchase, whatever the description says.
+                    $type   = $raw < 0 ? 'income' : 'expense';
+                    $amount = abs($raw);
+                } elseif ($raw < 0) {
                     $type   = 'expense';
                     $amount = abs($raw);
                 } elseif ($isCredit) {
