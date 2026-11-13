@@ -48,7 +48,7 @@ enum PhoneContactsLogicTests {
     }
 }
 
-let phoneContactFailures = PhoneContactsLogicTests.run()
+let phoneContactFailures = PhoneContactsLogicTests.run() + googleContactsLogicChecks()
 for failure in phoneContactFailures { print("FAIL: \(failure)") }
 if !phoneContactFailures.isEmpty { print("PhoneContactsLogic: \(phoneContactFailures.count) failed"); exit(1) }
 print("PhoneContactsLogic: all passed")

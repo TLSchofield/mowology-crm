@@ -198,6 +198,7 @@
 		892E18E5008DA3B47DEF4F98 /* HangWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE3B95820B618BC3B1317113 /* HangWatchdog.swift */; };
 		508E6D02304B616CBB09FA10 /* CrashLoopBreaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40719F84FBED7493582D39A4 /* CrashLoopBreaker.swift */; };
 		566C776E08938C785A1C921D /* ScheduleFilterRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */; };
+		5284984004F20A82DE95B6EF /* GoogleContactsSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C584111CA23D8D4C688C7FB4 /* GoogleContactsSession.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -394,6 +395,7 @@
 		AE3B95820B618BC3B1317113 /* HangWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HangWatchdog.swift; sourceTree = "<group>"; };
 		40719F84FBED7493582D39A4 /* CrashLoopBreaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLoopBreaker.swift; sourceTree = "<group>"; };
 		912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleFilterRules.swift; sourceTree = "<group>"; };
+		C584111CA23D8D4C688C7FB4 /* GoogleContactsSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleContactsSession.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -791,6 +793,7 @@
 			isa = PBXGroup;
 			children = (
 				A0D141875CFE460AD58CF043 /* PhoneContactsReader.swift */,
+				C584111CA23D8D4C688C7FB4 /* GoogleContactsSession.swift */,
 			);
 			path = Contacts;
 			sourceTree = "<group>";
@@ -1060,6 +1063,7 @@
 				892E18E5008DA3B47DEF4F98 /* HangWatchdog.swift in Sources */,
 				508E6D02304B616CBB09FA10 /* CrashLoopBreaker.swift in Sources */,
 				566C776E08938C785A1C921D /* ScheduleFilterRules.swift in Sources */,
+				5284984004F20A82DE95B6EF /* GoogleContactsSession.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

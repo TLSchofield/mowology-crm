@@ -1,5 +1,13 @@
 import Foundation
 
+enum GoogleSessionResult: Equatable {
+    case ok(nonce: String, grant: String)
+    case denied
+    case expired
+    case failed
+    case unrecognised
+}
+
 struct PhoneContact: Equatable, Identifiable {
     struct Phone: Equatable { let label: String; let number: String }
     struct Address: Equatable { let street: String; let city: String; let province: String; let postal: String }
@@ -52,7 +60,7 @@ enum PhoneContactsLogic {
         }
     }
 
-    static func wire(_ contact: PhoneContact) -> [String: Any] {
+    static func wire(_ contact: PhoneContact, source: String = "phone") -> [String: Any] {
         let address: Any = contact.address.map {
             ["street": $0.street, "city": $0.city, "province": $0.province, "postal": $0.postal]
         } ?? NSNull()
@@ -60,8 +68,32 @@ enum PhoneContactsLogic {
             "ref": contact.id, "first": contact.first, "last": contact.last, "company": contact.company,
             "emails": contact.emails,
             "phones": contact.phones.map { ["label": $0.label, "number": $0.number] },
-            "address": address
+            "address": address,
+            "source": source
         ]
+    }
+
+    static func googleResult(from url: URL) -> GoogleSessionResult {
+        guard url.scheme?.lowercased() == "ittai-google", url.host?.lowercased() == "done",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return .unrecognised }
+        var values: [String: String] = [:]
+        for item in components.queryItems ?? [] where values[item.name] == nil {
+            values[item.name] = item.value ?? ""
+        }
+        switch values["ok"] {
+        case "1":
+            guard let nonce = values["nonce"], !nonce.isEmpty,
+                  let grant = values["grant"], !grant.isEmpty else { return .unrecognised }
+            return .ok(nonce: nonce, grant: grant)
+        case "0":
+            switch values["reason"] {
+            case "denied": return .denied
+            case "expired": return .expired
+            case "failed": return .failed
+            default: return .unrecognised
+            }
+        default: return .unrecognised
+        }
     }
 
     static func tally(_ results: [PhoneContactResult]) -> PhoneContactTally {

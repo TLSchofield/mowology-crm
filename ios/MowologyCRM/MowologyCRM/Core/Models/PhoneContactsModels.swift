@@ -70,6 +70,9 @@ struct OnboardingStepResponse: Decodable {
     let message: String?
     let error: String?
     let results: [PhoneContactResult]
+    let url: String?
+    let nonce: String?
+    let contacts: [PhoneContactWire]
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         ok = try c.decode(Bool.self, forKey: .ok)
@@ -78,9 +81,78 @@ struct OnboardingStepResponse: Decodable {
         message = try c.decodeIfPresent(String.self, forKey: .message)
         error = try c.decodeIfPresent(String.self, forKey: .error)
         results = try c.decodeIfPresent([PhoneContactResult].self, forKey: .results) ?? []
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
+        nonce = try? c.decodeIfPresent(String.self, forKey: .nonce)
+        contacts = (try? c.decodeIfPresent([PhoneContactWire].self, forKey: .contacts)) ?? []
     }
-    private enum CodingKeys: String, CodingKey { case ok, next, data, message, error, results }
-    init(ok: Bool, next: String?, data: OnboardingStepData?, message: String?, error: String?, results: [PhoneContactResult]) {
+    private enum CodingKeys: String, CodingKey { case ok, next, data, message, error, results, url, nonce, contacts }
+    init(ok: Bool, next: String?, data: OnboardingStepData?, message: String?, error: String?, results: [PhoneContactResult],
+         url: String? = nil, nonce: String? = nil, contacts: [PhoneContactWire] = []) {
         self.ok = ok; self.next = next; self.data = data; self.message = message; self.error = error; self.results = results
+        self.url = url; self.nonce = nonce; self.contacts = contacts
+    }
+}
+
+struct PhoneContactWire: Decodable, Equatable {
+    struct Phone: Decodable, Equatable {
+        let label: String
+        let number: String
+
+        private enum CodingKeys: String, CodingKey { case label, number }
+        init(label: String, number: String) { self.label = label; self.number = number }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            label = (try? container.decode(String.self, forKey: .label)) ?? ""
+            number = (try? container.decode(String.self, forKey: .number)) ?? ""
+        }
+    }
+
+    struct Address: Decodable, Equatable {
+        let street: String
+        let city: String
+        let province: String
+        let postal: String
+
+        private enum CodingKeys: String, CodingKey { case street, city, province, postal }
+        init(street: String, city: String, province: String, postal: String) {
+            self.street = street; self.city = city; self.province = province; self.postal = postal
+        }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            street = (try? container.decode(String.self, forKey: .street)) ?? ""
+            city = (try? container.decode(String.self, forKey: .city)) ?? ""
+            province = (try? container.decode(String.self, forKey: .province)) ?? ""
+            postal = (try? container.decode(String.self, forKey: .postal)) ?? ""
+        }
+    }
+
+    let ref: String
+    let first: String
+    let last: String
+    let company: String
+    let emails: [String]
+    let phones: [Phone]
+    let address: Address?
+
+    private enum CodingKeys: String, CodingKey { case ref, first, last, company, emails, phones, address }
+    init(ref: String, first: String, last: String, company: String, emails: [String], phones: [Phone], address: Address?) {
+        self.ref = ref; self.first = first; self.last = last; self.company = company
+        self.emails = emails; self.phones = phones; self.address = address
+    }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = (try? container.decode(String.self, forKey: .ref)) ?? ""
+        first = (try? container.decode(String.self, forKey: .first)) ?? ""
+        last = (try? container.decode(String.self, forKey: .last)) ?? ""
+        company = (try? container.decode(String.self, forKey: .company)) ?? ""
+        emails = (try? container.decode([String].self, forKey: .emails)) ?? []
+        phones = (try? container.decode([Phone].self, forKey: .phones)) ?? []
+        address = try? container.decodeIfPresent(Address.self, forKey: .address)
+    }
+
+    var phoneContact: PhoneContact {
+        PhoneContact(id: ref, first: first, last: last, company: company, emails: emails,
+                     phones: phones.map { .init(label: $0.label, number: $0.number) },
+                     address: address.map { .init(street: $0.street, city: $0.city, province: $0.province, postal: $0.postal) })
     }
 }

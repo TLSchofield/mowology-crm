@@ -103,4 +103,4 @@ run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"
 
 # Phone contacts onboarding (2026-11-11): display name, search, select-all-shown, batches of 100, resume point, result tally, wire payload, and the real onboarding map decoding.
 cp "$ROOT/ios/LogicTests/PhoneContactsLogicTests.swift" "$OUT/main.swift"
-run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core/Models/PhoneContactsModels.swift" "$OUT/main.swift"
+run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core/Models/PhoneContactsModels.swift" "$ROOT/ios/LogicTests/GoogleContactsLogicChecks.swift" "$OUT/main.swift"
