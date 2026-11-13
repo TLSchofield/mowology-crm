@@ -236,7 +236,7 @@
             if (rr.bottom < 0 || rr.top > window.innerHeight) { link.hidden = stub.hidden = true; if (conf) conf.hidden = true; return; }
             // The feeder meets the first icon on the rail (the Duplicate / Inbox anchor), not the strip's edge.
             var firstIcon = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
-            var endX = firstIcon ? firstIcon.getBoundingClientRect().left - 5 : strip.getBoundingClientRect().left;
+            var endX = firstIcon ? firstIcon.getBoundingClientRect().left - 7 : strip.getBoundingClientRect().left;
             if (conf) {
                 var gap = endX - cr.right;
                 conf.hidden = gap < 44;
