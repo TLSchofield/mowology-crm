@@ -2,8 +2,8 @@
   "android": {
     "version": "2.2.12",
     "build": 44,
-    "min_version": "2.2.12",
-    "min_build": 44,
+    "min_version": "2.2.10",
+    "min_build": 42,
     "apk_url": "/crm/downloads/mowology-crew-2.2.12-test.apk",
     "released": "2026-11-13",
     "release_notes": "Every native screen is switched on for testing: new Office carousels, phone-contacts onboarding, last-price offer, receipt edge detection and the bar lab.",
