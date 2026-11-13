@@ -16,7 +16,7 @@ final class ContactImportService
     }
 
     /** @return list<array{ref:string,outcome:string,contact_id:?int}> */
-    public function import(array $rows): array
+    public function import(array $rows, string $source = 'phone'): array
     {
         $seen = [];
         $results = [];
@@ -41,7 +41,7 @@ final class ContactImportService
             // One bad card must not fail the batch: contacts already made are committed one by one, so a whole-request
             // error would tell the phone nothing changed and a retry would make them twice (Codex review 2026-11-11).
             try {
-                [$outcome, $id] = $this->importRow($row);
+                [$outcome, $id] = $this->importRow($row, $source);
             } catch (Throwable $e) {
                 error_log('Contact import row failed: ' . get_class($e));
                 $results[] = ['ref' => $ref, 'outcome' => 'skipped', 'contact_id' => null];
@@ -54,7 +54,7 @@ final class ContactImportService
     }
 
     /** @return array{0:string,1:int} outcome ('matched'|'created') and the contact id */
-    private function importRow(array $row): array
+    private function importRow(array $row, string $source): array
     {
         $id = $this->match($row);
         if ($id !== null) return ['matched', $id];
@@ -67,7 +67,7 @@ final class ContactImportService
         $address = $row['address'];
         $id = $this->contacts->createContact([
             'first_name' => $first, 'last_name' => $last, 'email' => $row['emails'][0] ?? '',
-            'mobile' => $mobile, 'phone' => $phone, 'notes' => 'Imported from phone contacts.',
+            'mobile' => $mobile, 'phone' => $phone, 'notes' => self::importNote($source),
             'receive_marketing' => 0, 'receive_sms' => 0, 'consent_quote_followup' => 0,
             'property_address' => '', 'property_city' => '', 'property_postal_code' => '',
             'property_latitude' => null, 'property_longitude' => null,
@@ -139,6 +139,11 @@ final class ContactImportService
         $digits = preg_replace('/\D+/', '', trim($raw));
         if (strlen($digits) === 11 && $digits[0] === '1') $digits = substr($digits, 1);
         return strlen($digits) === 10 ? $digits : null;
+    }
+
+    public static function importNote(string $source): string
+    {
+        return $source === 'google' ? 'Imported from Google contacts.' : 'Imported from phone contacts.';
     }
 
     /** @return array{0:string,1:string} */

@@ -561,6 +561,13 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-dlg-close { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 2px solid var(--it-brand); border-radius: 10px; background: var(--it-surface); color: var(--it-brand); font: inherit; font-weight: 600; cursor: pointer; }
 .it-job-dlg-close:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 .it-job-anchor > span:last-child { position: absolute; top: calc(100% + 6px); white-space: nowrap; }
+.it-job-nums-outer { margin-bottom: 24px; }
+.it-job-nums[hidden] { display: none; }
+.it-job-num { display: flex; flex-direction: column; justify-content: center; min-width: 120px; padding: 10px 16px; margin: 0 6px; border-radius: 10px; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); z-index: 1; }
+.it-job-num b { font-size: 26px; line-height: 30px; font-weight: 600; color: var(--it-text); font-variant-numeric: tabular-nums; }
+.it-job-num span { font-size: 13px; line-height: 18px; color: var(--it-meta); }
+.it-job-num i { font-style: normal; font-size: 12px; line-height: 16px; color: var(--it-meta); }
+.it-job-nums .it-job-rail { margin-bottom: 30px; }
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
@@ -601,7 +608,8 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-sides { min-width: 180px; max-width: 260px; row-gap: 10px; }
 /* a long payer name or memo is clipped on the rail (the full text is in the title); the sides carry the names in full */
 .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-top, .it-job-rail[data-kind="receipt"] .it-job-cols .it-job-bot, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-top, .it-job-rail[data-kind="etransfer"] .it-job-cols .it-job-bot { max-width: 148px; overflow: hidden; text-overflow: ellipsis; }
-.it-job-side { display: grid; justify-items: start; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: nowrap; }
+.it-job-side { display: grid; justify-items: start; min-width: 0; max-width: 100%; font-size: 13px; line-height: 18px; color: var(--it-meta); white-space: normal; overflow-wrap: anywhere; }   /* long lines wrap inside the column, never run on under the buttons */
+.it-job-side > * { min-width: 0; max-width: 100%; }
 .it-job-side b { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--it-text); }
 .it-job-side-top { align-self: end; }
 .it-job-side-bot { align-self: start; }
@@ -701,3 +709,9 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 .it-job .it-job-candidates .it-btn { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; width: 100%; min-height: 48px; padding: 6px 14px; text-align: left; }
 .it-job .it-job-candidates .it-btn span { grid-column: auto; }
 .it-job-invoice-choose .it-job-choose-btns .it-btn { min-height: 40px; white-space: nowrap; }
+
+/* month job: the bank line's own text (payee, date, amount, age) wraps in its column instead of overflowing under the Approve / Wrong account buttons */
+.it-job-rail[data-kind="month"] .it-job-cols .it-job-top, .it-job-rail[data-kind="month"] .it-job-cols .it-job-bot { white-space: normal; overflow-wrap: anywhere; max-width: 260px; }
+/* the frame takes the spare width right of its content (up to the Ledger), spreading the text, age and buttons instead of leaving the gap there */
+.it-job-rail .it-job-split { flex: 1 0 auto; justify-content: space-between; }
+.it-job-rail .it-job-split > .it-job-sides { max-width: 340px; }

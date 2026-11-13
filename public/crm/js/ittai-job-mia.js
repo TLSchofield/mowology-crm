@@ -22,7 +22,9 @@
     }
     function snooze(card) { try { window.localStorage.setItem(snoozeKey(card), String(Date.now() + 86400000)); } catch (e) { /* no storage: it comes back on reload */ } }
     queue = queue.filter(function (c) { return !snoozed(c); });
-    if (!queue.length) return;
+    // Nothing left to decide: the page's numbers (Otto's schedule line) take the strip's place.
+    function showNums() { var n = document.querySelector('.it-job-nums'); if (n) n.hidden = false; }
+    if (!queue.length) { root.hidden = true; showNums(); return; }
 
     var msgBox = root.querySelector('.it-job-msg');
     var msgText = root.querySelector('.it-job-msgt');
@@ -170,7 +172,7 @@
         root.classList.add('is-done');
         Array.prototype.forEach.call(root.querySelectorAll('.it-job-body, .it-job-foot'), function (n) { n.hidden = true; });
         say((text ? text + ' ' : '') + WHO + ' has nothing else for you.');
-        setTimeout(function () { root.hidden = true; }, 3000);
+        setTimeout(function () { root.hidden = true; showNums(); }, 3000);
     }
 
     /** One button: a link is followed; a request is sent, plus the form values the card names in `fields`. */

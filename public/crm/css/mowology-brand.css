@@ -42082,3 +42082,30 @@ body.mw-books {
   .mw-qv-actions > form, .mw-qv-actions > .btn { flex: 1; }
   .mw-qv-actions > form .btn { width: 100%; }
 }
+
+/* Schedule → List view (2026-11-12): stops for the week as rows, iPhone-list shape */
+.mw-sl { margin-top: 12px; }
+.mw-sl-empty { padding: 32px; text-align: center; color: var(--mw-forest); opacity: .7; }
+.mw-sl-day { margin-bottom: 20px; }
+.mw-sl-dayhead { display: flex; align-items: baseline; gap: 10px; font-size: 15px; font-weight: 700; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--mw-light); }
+.mw-sl-dayhead a { color: var(--mw-forest); }
+.mw-sl-today { background: var(--mw-green); color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+.mw-sl-count { margin-left: auto; font-size: 12px; font-weight: 500; opacity: .6; }
+.mw-sl-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) minmax(140px, 220px); gap: 14px; padding: 12px 14px; background: #fff; border: 1px solid var(--mw-light); border-radius: 8px; margin-bottom: 8px; }
+.mw-sl-row--attn { border-left: 4px solid var(--mw-orange); }
+.mw-sl-row--done { opacity: .65; }
+.mw-sl-time { font-weight: 600; font-size: 13px; color: var(--mw-dark); }
+.mw-sl-name { font-weight: 700; font-size: 15px; }
+.mw-sl-addr { font-size: 13px; opacity: .75; }
+.mw-sl-services { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-sl-svc { background: var(--mw-light); color: var(--mw-forest); border-radius: 12px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+.mw-sl-history { margin-top: 6px; font-size: 12px; opacity: .75; }
+.mw-sl-row--attn .mw-sl-history { color: var(--mw-orange); opacity: 1; }
+.mw-sl-side { text-align: right; font-size: 13px; }
+.mw-sl-badge { display: inline-block; background: var(--mw-orange); color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.mw-sl-badge--done { background: var(--mw-green); }
+.mw-sl-visits { opacity: .65; }
+@media (max-width: 720px) {
+  .mw-sl-row { grid-template-columns: 1fr; gap: 6px; }
+  .mw-sl-side { text-align: left; }
+}
