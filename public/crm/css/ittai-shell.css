@@ -569,7 +569,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job-num span { font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-num i { font-style: normal; margin-left: 4px; font-size: 12px; line-height: 18px; color: var(--it-meta); }
 /* symmetric padding keeps the rail's line at the frame's centre (level with the head card) and leaves room under the end icons for their labels */
-.it-job-nums .it-job-rail { margin-bottom: 0; padding: 20px 0; }
+.it-job-nums .it-job-rail { margin-bottom: 0; padding: 20px 0; justify-content: space-between; }   /* the numbers spread to fill the frame so the line ends at the compass, as the decision strip's frame does */
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
