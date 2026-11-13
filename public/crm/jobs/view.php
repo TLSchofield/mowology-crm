@@ -960,9 +960,15 @@ if ($hasPropCoords) {
                     </div>
                 </div>
                 <div class="mw-header-actions">
+                    <?php if (VisitLifecycleService::allVisitsInvoiced($visits)): ?>
+                    <span class="btn btn-success disabled" aria-disabled="true" style="opacity:.5;cursor:not-allowed;" title="Every visit on this plan already has an invoice">
+                        <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
+                    </span>
+                    <?php else: ?>
                     <a href="/crm/invoices/create.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-success" title="Raise an invoice for this plan">
                         <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
                     </a>
+                    <?php endif; ?>
                     <?php
                     // The next visit still open, else the latest one (already-done work is subcontracted for its proof and bill).
                     $subVisitId = 0;
