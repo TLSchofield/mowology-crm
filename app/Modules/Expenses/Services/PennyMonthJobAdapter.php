@@ -80,7 +80,7 @@ class PennyMonthJobAdapter
                 $facts = self::factsFor($db, $lines);
                 $accounts = self::accountChoices($desk->accounts());
                 $bare = array_values(array_filter($lines, static fn($l) => self::unplaced($l)));
-                $evidence = $bare ? (new BankLineEvidence($db))->forLines($bare, MonthCloseService::FIRST) : [];
+                $evidence = $bare ? self::cachedEvidence($db, $bare) : [];
                 $guideLeft = self::guideLeft($db);
                 // the chart rides on the first job only (the picker reads whichever job holds it)
                 foreach ($lines as $i => $l) {
@@ -457,6 +457,35 @@ class PennyMonthJobAdapter
         return mb_strlen($s) > $n ? mb_substr($s, 0, $n - 1) . '…' : $s;
     }
 
+    /**
+     * The evidence for the lines about to be offered, kept EVIDENCE_CACHE_SECONDS per line id (each line costs a scan of the bank lines
+     * for its merchant and a receipt search, and this runs on every Penny page load). Lines not in the cache are read together.
+     * @return array<int, array> by line id
+     */
+    public const EVIDENCE_CACHE_SECONDS = 600;
+    public static function cachedEvidence(PDO $db, array $lines): array
+    {
+        $key = 'it_month_job_evidence_cache';
+        $have = [];
+        try {
+            $q = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ?");
+            $q->execute([$key]);
+            $c = json_decode((string)$q->fetchColumn(), true);
+            if (is_array($c) && time() - (int)($c['at'] ?? 0) < self::EVIDENCE_CACHE_SECONDS && is_array($c['by'] ?? null)) $have = $c['by'];
+        } catch (Throwable $e) { /* read fresh */ }
+        $missing = array_values(array_filter($lines, static fn($l) => !isset($have[(int)$l['id']])));
+        if ($missing) {
+            foreach ((new BankLineEvidence($db))->forLines($missing, MonthCloseService::FIRST) as $id => $row) $have[(int)$id] = $row;
+            try {
+                $db->prepare("INSERT INTO ops_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)")
+                   ->execute([$key, json_encode(['at' => time(), 'by' => $have])]);
+            } catch (Throwable $e) { /* a miss next time is fine */ }
+        }
+        $out = [];
+        foreach ($lines as $l) if (isset($have[(int)$l['id']])) $out[(int)$l['id']] = $have[(int)$l['id']];
+        return $out;
+    }
+
     /** Pure: a line Penny has no account for, that the strip can still help with (not a Stripe payout, not a client's payment). */
     public static function unplaced(array $line): bool
     {
@@ -484,7 +513,8 @@ class PennyMonthJobAdapter
      */
     public static function fromUnplaced(array $line, array $month, array $discs, int $index, int $total, array $facts = []): array
     {
-        $j = self::fromLine($line + ['suggestion' => ['account_id' => 0, 'code' => '', 'name' => '', 'reason' => '']], $month, $discs, $index, $total, $facts);
+        // the line's own 'suggestion' key exists (null) and a union would keep it: replace it
+        $j = self::fromLine(array_merge($line, ['suggestion' => ['account_id' => 0, 'code' => '', 'name' => '', 'reason' => '']]), $month, $discs, $index, $total, $facts);
         $id = (int)$line['id'];
         $ev = array_values((array)($facts['evidence'] ?? []));
         $left = (int)($facts['guide_left'] ?? 0);
