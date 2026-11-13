@@ -71,6 +71,7 @@ struct DayCarouselView: View, Equatable {
     private let tick = UISelectionFeedbackGenerator()
 
     var body: some View {
+        let _ = RenderRate.tick("DayCarouselView")
         let axis = tabSlot?.axis(width: width) ?? width / 10
         let lead = max(0, axis - Self.chipWidth / 2)
         VStack(spacing: 0) {

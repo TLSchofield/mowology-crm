@@ -34,7 +34,7 @@ class WeekStripService
      * theirs when they are its crew or listed in calendar_stop_crew. [] on any error (no dots, never a
      * broken page).
      */
-    public function dots(string $monday, ?int $crewId = null): array
+    public function dots(string $monday, $crewId = null): array
     {
         try {
             $end = date('Y-m-d', strtotime($monday . ' +6 days'));
@@ -50,10 +50,12 @@ class WeekStripService
                     LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status <> 'cancelled' AND {$gate['sql']}
                     WHERE cs.stop_date BETWEEN ? AND ?";
             $args = array_merge($gate['params'], [$monday, $end]);
-            if ($crewId) {
-                $sql .= " AND (cs.crew_id = ? OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?))";
-                $args[] = $crewId;
-                $args[] = $crewId;
+            $crewIds = is_array($crewId) ? array_values(array_filter(array_map('intval', $crewId))) : ($crewId ? [(int)$crewId] : []);
+            if ($crewIds) {
+                $in = implode(',', array_fill(0, count($crewIds), '?'));
+                $sql .= " AND (cs.crew_id IN ({$in}) OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id IN ({$in})))";
+                foreach ($crewIds as $cid) { $args[] = $cid; }
+                foreach ($crewIds as $cid) { $args[] = $cid; }
             }
             $sql .= " GROUP BY cs.stop_date";
             $s = $this->db->prepare($sql);

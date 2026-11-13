@@ -32,11 +32,25 @@ do { // Steady over a receipt: fires only after the hold.
     let v = run(&g, from: 0.45, seconds: 0.2, still(receipt))
     check(v.1, "shoots after the hold"); check(v.0.shutterUnlocked, "shutter open when steady")
 }
-do { // Shaking: never fires, shutter locked, says hold still.
+do { // Shaking by hand (the receipt jumps about the frame): never fires, shutter locked, says hold still.
     var g = ReceiptSteadyGate()
-    let v = run(&g, from: 0, seconds: 5, shaky(receipt))
-    check(!v.1, "never shoots while shaking"); check(!v.0.shutterUnlocked, "shutter locked while shaking")
-    check(v.0.hint == .holdStill, "says hold still")
+    var fired = false, last = ReceiptSteadyVerdict(hint: .holdStill, shutterUnlocked: false, autoShoot: false)
+    var t = 0.0, flip = false
+    while t <= 5 { flip.toggle(); last = g.tick(now: t, shaky(flip ? receipt : next)); fired = fired || last.autoShoot; t += 0.05 }
+    check(!fired, "never shoots while shaking"); check(!last.shutterUnlocked, "shutter locked while shaking")
+    check(last.hint == .holdStill, "says hold still")
+}
+do { // In a moving car: sensors shake but the receipt holds its place in the frame, so it shoots after a second.
+    var g = ReceiptSteadyGate()
+    check(!run(&g, from: 0, seconds: 0.9, shaky(receipt)).1, "not before a second in a car")
+    let v = run(&g, from: 0.95, seconds: 0.3, shaky(receipt))
+    check(v.1, "shoots in a car once the receipt holds still in the frame"); check(v.0.shutterUnlocked, "shutter opens in a car")
+}
+do { // In a car but out of focus or too small: still no shot.
+    var g = ReceiptSteadyGate()
+    check(!run(&g, from: 0, seconds: 3, ReceiptSteadySample(rotationRate: 0.6, acceleration: 0.2, focusSettled: false, outline: receipt)).1, "no shot unfocused in a car")
+    var h = ReceiptSteadyGate()
+    check(!run(&h, from: 0, seconds: 3, ReceiptSteadySample(rotationRate: 0.6, acceleration: 0.2, focusSettled: true, outline: tiny)).1, "no shot too small in a car")
 }
 do { // One jolt restarts the hold.
     var g = ReceiptSteadyGate()

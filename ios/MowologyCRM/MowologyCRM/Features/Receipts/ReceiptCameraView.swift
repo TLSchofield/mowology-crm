@@ -25,6 +25,8 @@ final class ReceiptCameraModel: ObservableObject {
     @Published fileprivate(set) var isChecking = false
     @Published fileprivate(set) var taken: [UIImage] = []
     @Published fileprivate(set) var notice: String?
+    /// The receipt just kept, held on screen for a moment so the shot is plainly seen to have happened.
+    @Published fileprivate(set) var justSaved: UIImage?
 
     /// The sharpest try at the receipt being retaken. Counted as taken, so Done or Close can't lose it.
     private var bestTry: (image: UIImage, sharpness: Double)?
@@ -35,6 +37,7 @@ final class ReceiptCameraModel: ObservableObject {
     private var acceleration = 0.0
     private var focusSettled = false
     private var closed = false
+    private var gotFrame = false
     /// While the "Discard?" question is up, nothing shoots behind it.
     var paused = false
 
@@ -49,6 +52,7 @@ final class ReceiptCameraModel: ObservableObject {
             let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.gotFrame = true
                 self.outline = found
                 self.focusSettled = settled
                 if self.frameSize != size { self.frameSize = size }
@@ -59,6 +63,7 @@ final class ReceiptCameraModel: ObservableObject {
         // Closed while the permission question was up: `start` has just queued the session behind the earlier stop.
         if closed { stop(); return }
         camera.setReceiptLight(lightOn)
+        watchForBlackScreen()
         if motion.isDeviceMotionAvailable {
             motion.deviceMotionUpdateInterval = 1.0 / 20
             motion.startDeviceMotionUpdates(to: .main) { [weak self] m, _ in
@@ -66,6 +71,20 @@ final class ReceiptCameraModel: ObservableObject {
                 self.rotationRate = Self.length(m.rotationRate.x, m.rotationRate.y, m.rotationRate.z)
                 self.acceleration = Self.length(m.userAcceleration.x, m.userAcceleration.y, m.userAcceleration.z)
                 self.tick()
+            }
+        }
+    }
+
+    /// 2026-11-12: the first open of the camera showed black until it was closed and opened again. Cause unproven (no device
+    /// log); if no frame has arrived a moment after start, the session is started again, twice at most.
+    private func watchForBlackScreen() {
+        Task { @MainActor [weak self] in
+            for attempt in 1...2 {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard let self, !self.closed, self.camera.access == .granted else { return }
+                if self.gotFrame { return }
+                AppDiagnostics.shared.record(category: "ReceiptCamera", message: "no frames after start, restarting session (try \(attempt))")
+                self.camera.restart()
             }
         }
     }
@@ -143,7 +162,10 @@ final class ReceiptCameraModel: ObservableObject {
             gate.retry(now: CACurrentMediaTime())
             return
         }
-        if let best = bestTry { taken.append(best.image) }
+        if let best = bestTry {
+            taken.append(best.image)
+            showSaved(best.image)
+        }
         bestTry = nil
         retakes = 0
         notice = nil
@@ -153,6 +175,16 @@ final class ReceiptCameraModel: ObservableObject {
             verdict.shutterUnlocked = false
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// Freezes the kept photo over the preview for a beat. The live view going straight back to "ready" read as no shot taken.
+    private func showSaved(_ image: UIImage) {
+        justSaved = image
+        let count = taken.count
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            if self?.taken.count == count { self?.justSaved = nil }
+        }
     }
 
     private nonisolated static func findOutline(_ buffer: CVPixelBuffer) -> [CGPoint]? {
@@ -204,6 +236,7 @@ struct ReceiptCameraView: View {
         }
         .onDisappear { model.stop() }
         .onChange(of: confirmDiscard) { _, open in model.paused = open }
+        .animation(.easeOut(duration: 0.2), value: model.justSaved != nil)
         .onReceive(model.camera.$access) { access = $0 }
         .onReceive(model.camera.$shutterBlink.dropFirst()) { _ in
             blink = true
@@ -226,9 +259,10 @@ struct ReceiptCameraView: View {
                 CameraPreview(camera: model.camera)
                     .overlay(Color.black.opacity(blink ? 0.7 : 0).allowsHitTesting(false))
                 outlineOverlay
+                savedOverlay
                 VStack {
                     Spacer()
-                    Text(model.notice ?? model.verdict.hint.text)
+                    Text(model.notice ?? (model.justSaved != nil ? "Saved. Line up the next one, or tap Done" : model.verdict.hint.text))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
@@ -239,6 +273,26 @@ struct ReceiptCameraView: View {
                 }
             }
             bottomControls
+        }
+    }
+
+    @ViewBuilder
+    private var savedOverlay: some View {
+        if let image = model.justSaved {
+            ZStack {
+                Color.black
+                Image(uiImage: image).resizable().scaledToFit()
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 64)).foregroundStyle(Color.MW.green)
+                    Text("Receipt \(model.photoCount) saved").font(.headline).foregroundStyle(.white)
+                }
+                .padding(20)
+                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 16))
+            }
+            .transition(.opacity)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Receipt \(model.photoCount) saved")
         }
     }
 
@@ -284,11 +338,20 @@ struct ReceiptCameraView: View {
 
     private var bottomControls: some View {
         HStack {
-            Text(model.photoCount == 0 ? "" : "\(model.photoCount)")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(width: 80, alignment: .leading)
-                .accessibilityLabel("\(model.photoCount) taken")
+            HStack(spacing: 8) {
+                if let last = model.taken.last {
+                    Image(uiImage: last).resizable().scaledToFill()
+                        .frame(width: 40, height: 52)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white, lineWidth: 1.5))
+                }
+                Text(model.photoCount == 0 ? "" : "\(model.photoCount)")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 80, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(model.photoCount) taken")
 
             Spacer()
 
@@ -307,8 +370,10 @@ struct ReceiptCameraView: View {
 
             Button { onCapture(model.allPhotos()) } label: {
                 Text("Done").font(.headline).foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(Color.MW.green, in: Capsule())
             }
-            .frame(width: 80, alignment: .trailing)
+            .frame(width: 90, alignment: .trailing)
             .disabled(model.photoCount == 0 || model.isChecking)
             .opacity(model.photoCount == 0 ? 0 : 1)
         }

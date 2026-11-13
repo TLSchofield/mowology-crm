@@ -418,6 +418,20 @@ class VisitLifecycleService
     }
 
     /**
+     * True when the plan has visits to bill and every one already has an invoice — the plan
+     * page then grays "Create Invoice" (Tim, 2026-11-12). Cancelled and skipped visits are never
+     * billed, so they do not count; a plan with no billable visit is not "all invoiced".
+     */
+    public static function allVisitsInvoiced(array $visits): bool {
+        $billable = array_filter($visits, fn($v) => !in_array($v['status'] ?? '', ['cancelled', 'skipped'], true));
+        if (!$billable) return false;
+        foreach ($billable as $v) {
+            if (empty($v['invoice_id'])) return false;
+        }
+        return true;
+    }
+
+    /**
      * Get visits for a plan (paginated, ordered).
      */
     public static function getPlanVisits(int $planId, ?string $status = null, int $limit = 50, int $offset = 0): array {

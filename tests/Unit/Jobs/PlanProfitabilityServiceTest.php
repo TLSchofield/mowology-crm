@@ -136,4 +136,31 @@ class PlanProfitabilityServiceTest extends TestCase
         $this->assertNull($m['margin_pct']);
         $this->assertFalse($m['has_data']);
     }
+
+    public function test_time_over_ratio_expects_estimate_times_crew(): void
+    {
+        // PLN-2026-0145: 257 person-minutes, 60 minute estimate, 2 crew
+        $this->assertEqualsWithDelta(0.0, PlanProfitabilityService::timeOverRatio(120, 60, 2), 0.0001);
+        $this->assertEqualsWithDelta(1.1417, PlanProfitabilityService::timeOverRatio(257, 60, 2), 0.001);   // 2 crew: 137 over 120
+        $this->assertEqualsWithDelta(3.2833, PlanProfitabilityService::timeOverRatio(257, 60, 1), 0.001);   // as if one person
+        $this->assertEqualsWithDelta(0.1417, PlanProfitabilityService::timeOverRatio(137, 60, 2), 0.001);
+        $this->assertSame(0.0, PlanProfitabilityService::timeOverRatio(30, 60, 0));
+    }
+
+    public function test_job_costing_lines_take_costs_off_sales(): void
+    {
+        $p = PlanProfitabilityService::buildPlanProfitabilityResult(1125.0, 158.48, 257, false, 0.0, 0, 110.0, 1);
+        $c = PlanProfitabilityService::jobCostingLines($p);
+        $by = array_column($c['lines'], null, 'key');
+        $this->assertSame(1125.0, $by['sales']['amount']);
+        $this->assertSame(-158.48, $by['labor']['amount']);
+        $this->assertSame(-110.0, $by['overhead']['amount']);
+        $this->assertSame(856.52, $by['profit']['amount']);
+        $this->assertSame(['sales', 'labor', 'expenses', 'overhead', 'profit'], array_column($c['lines'], 'key'));
+        $this->assertTrue($c['materials_missing'], 'a completed job with no purchases is flagged');
+
+        $p2 = PlanProfitabilityService::buildPlanProfitabilityResult(1125.0, 158.48, 257, false, 295.05, 0, 110.0, 1);
+        $this->assertFalse(PlanProfitabilityService::jobCostingLines($p2)['materials_missing']);
+    }
+
 }

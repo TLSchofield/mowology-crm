@@ -209,7 +209,9 @@
             kanLink.style.top = Math.round(y) + 'px';
         }
         function placeLink() {
-            var rail = document.querySelector('.it-job:not(.is-done) .it-job-rail');
+            // The first strip that is showing (a decision strip hidden by "Not yet" gives way to the head's numbers line).
+            var rail = null;
+            Array.prototype.some.call(document.querySelectorAll('.it-job:not(.is-done) .it-job-rail'), function (r) { if (r.offsetParent !== null) { rail = r; return true; } return false; });
             var strip = rail ? rail.closest('.it-job') : null;
             var card = strip ? cards[strip.getAttribute('data-head')] : null;
             if (!rail || !card || !card.classList.contains('is-open') || isRail()) {
@@ -236,7 +238,7 @@
             if (rr.bottom < 0 || rr.top > window.innerHeight) { link.hidden = stub.hidden = true; if (conf) conf.hidden = true; return; }
             // The feeder meets the first icon on the rail (the Duplicate / Inbox anchor), not the strip's edge.
             var firstIcon = rail.querySelector('.it-job-anchor-start .it-ad') || rail.querySelector('.it-job-conf');
-            var endX = firstIcon ? firstIcon.getBoundingClientRect().left - 5 : strip.getBoundingClientRect().left;
+            var endX = firstIcon ? firstIcon.getBoundingClientRect().left - 7 : strip.getBoundingClientRect().left;
             if (conf) {
                 var gap = endX - cr.right;
                 conf.hidden = gap < 44;

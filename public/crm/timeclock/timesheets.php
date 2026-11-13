@@ -70,6 +70,10 @@ $activePage = 'timesheets';
         <h1 class="mw-page-title">Timesheets</h1>
     </div>
     <div class="mw-page-actions">
+        <button type="button" class="btn btn-sm btn-outline-warning" onclick="openLogLaborModal()"
+                title="Log a day's clock-in/out for crew members who didn't clock in">
+            ⏱ Log Labor
+        </button>
         <a href="/crm/timeclock/timesheet-week.php" class="btn btn-sm btn-primary">Week view</a>
         <a href="/crm/timeclock/my-schedule.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="arrow-left"></i> My Schedule
@@ -166,5 +170,11 @@ $activePage = 'timesheets';
     </table>
 </div>
 <?php endif; ?>
+
+<?php
+$mwLogLaborStaff = $staff;   // already without the trucks
+$mwLogLaborDate  = date('Y-m-d');
+include dirname(__DIR__) . '/includes/log-labor-modal.php';
+?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
