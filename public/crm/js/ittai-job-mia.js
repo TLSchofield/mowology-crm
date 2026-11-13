@@ -24,7 +24,7 @@
     queue = queue.filter(function (c) { return !snoozed(c); });
     // Nothing left to decide: the page's numbers (Otto's schedule line) take the strip's place.
     function gone() { root.hidden = true; var o = root.closest('.it-job-outer'); if (o && !o.classList.contains('it-job-nums-outer')) o.hidden = true; }
-    function showNums() { var n = document.querySelector('.it-job-nums'); if (n) n.hidden = false; }
+    function showNums() { var n = document.querySelector('.it-job-nums'); if (n) n.hidden = false; window.dispatchEvent(new Event('resize')); }   // the head card's line re-finds the strip
     if (!queue.length) { gone(); showNums(); return; }
 
     var msgBox = root.querySelector('.it-job-msg');

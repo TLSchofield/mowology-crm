@@ -92,7 +92,7 @@ itIconSprite();
 </div></div>
 <?php endif; ?>
 <?php if ($__ioNums): ?>
-<div class="it-job-outer it-job-nums-outer"><section class="it-job it-job-nums" aria-label="This <?= !empty($mcIsDay) ? 'day' : 'week' ?> in numbers"<?= $__ioJobs ? ' hidden' : '' ?>>
+<div class="it-job-outer it-job-nums-outer"><section class="it-job it-job-nums" data-head="otto" aria-label="This <?= !empty($mcIsDay) ? 'day' : 'week' ?> in numbers"<?= $__ioJobs ? ' hidden' : '' ?>>
   <div class="it-job-rail">
     <a class="it-job-anchor it-job-anchor-start" href="/crm/jobs/schedule.php"><span class="it-ad it-ad-fill"><?= $__ioSvg('eye') ?></span><span>Schedule</span></a>
     <?php foreach ($__ioNums as $__ioN): ?>
