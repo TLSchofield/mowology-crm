@@ -473,6 +473,8 @@
       if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-header, .mw-calendar-container .mw-calendar-dates-header'), function (r) {
         r.style.gridTemplateColumns = tl ? '64px repeat(7, minmax(0, 1fr))' : '';
       });
+      // The 64px time column needs its (normally hidden) cell, or Monday lands in it and an empty 8th column opens on the right.
+      if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-time-label'), function (l) { l.style.display = tl ? 'block' : ''; });
       [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x.dataset.m === m); });
       try { localStorage.setItem('mw_cal_mode', m); } catch (e) {}
       if (tl) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
