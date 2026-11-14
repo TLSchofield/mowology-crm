@@ -151,7 +151,9 @@ struct MainTabView: View {
         let d = UserDefaults.standard
         let landing = OnboardingBarLogic.landing(stored: d.string(forKey: OnboardingBarLogic.landingKey),
                                                  isAdmin: AuthSession.shared.user?.isAdmin == true, hasReceipts: true)
-        d.removeObject(forKey: OnboardingBarLogic.landingKey)
+        // Read only: a write here ran on every re-creation of this view and, because removeObject posts the
+        // defaults-changed notification even for an absent key, kept every @AppStorage view invalidating in a loop
+        // (build 627 black screen, 0x8BADF00D at launch). The key is cleared once, in onAppear.
         _selectedTab = State(initialValue: landing == .receipts ? .receipts : (landing == .kaname ? .kaname : .schedule))
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
@@ -288,6 +290,11 @@ struct MainTabView: View {
             checkDriverQuestion()
         }
         // Measurement (2026-11-13): every ~60 s all five tabs redraw together; these name which shared object invalidated this view.
+        .onAppear {
+            if UserDefaults.standard.object(forKey: OnboardingBarLogic.landingKey) != nil {
+                UserDefaults.standard.removeObject(forKey: OnboardingBarLogic.landingKey)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .mwSnapLabel)) { _ in
             addOpen = false
             selectedTab = .receipts
