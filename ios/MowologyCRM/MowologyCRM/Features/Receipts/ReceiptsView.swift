@@ -11,6 +11,7 @@ import PhotosUI
 struct ReceiptsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
     /// Room for the meniscus bar under pinned bottom controls (Tim, 2026-11-05).
     @Environment(\.itBarClearance) private var barClearance
 
@@ -96,7 +97,21 @@ struct ReceiptsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .itAppForm()
             .itAppScreen()
-            .toolbar { toolbarContent }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ScreenHeader(
+                    slug: "penny",
+                    isSelecting: isSelectMode,
+                    isRefreshing: viewModel.isLoadingList,
+                    onRefresh: { Task { await viewModel.loadExpenses() } }
+                ) {
+                    Text("Receipts")
+                        .font(appStyle.font(.headline, weight: .semibold))
+                        .foregroundStyle(appStyle.text)
+                } secondaryActions: {
+                    receiptsMenu
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 // The Snap bar is gone: the Receipts bead in the tab bar is the camera (Tim, 2026-11-05).
                 // Label photos and the photo library are in the ⋯ menu.
@@ -712,72 +727,49 @@ struct ReceiptsView: View {
         _ = await viewModel.archiveExport()
     }
 
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // Penny owns Receipts (Kaname spec §2). Her "needs receipts" card is already on this screen, so no line.
-        ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "penny") }
-        ToolbarItem(placement: .principal) {
-            HStack(spacing: 6) {
-                Text("Receipts").font(appStyle.font(.headline, weight: .semibold))
-                if receiptQueue.pendingCount + actionQueue.pendingCount > 0 {
-                    Button { showWaiting = true } label: {
-                        Text("\(receiptQueue.pendingCount + actionQueue.pendingCount) pending")
-                            .font(appStyle.font(.caption2, weight: .semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(appStyle.attention.opacity(0.15))
-                            .foregroundStyle(appStyle.attention)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        // The shift, as on every tab (Time left the bar, 2026-11-05). Selecting needs the room, so it steps aside.
-        if !isSelectMode {
-            ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
-        }
-        ToolbarItem(placement: .navigationBarTrailing) {
+    private var receiptsMenu: some View {
+        let pendingCount = receiptQueue.pendingCount + actionQueue.pendingCount
+        return Menu {
             Button {
                 isSelectMode.toggle()
                 if !isSelectMode { selectedIds.removeAll() }
             } label: {
-                Text(isSelectMode ? "Cancel" : "Select")
-                    .foregroundStyle(appStyle.tenant)
+                Label(isSelectMode ? "Cancel Selection" : "Select Receipts", systemImage: isSelectMode ? "xmark" : "checkmark.circle")
             }
-        }
-        if !isSelectMode {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Not role-gated client-side, same rationale as ReceiptDetailView's action
-                // bar — the server enforces expenses.send via jwtUserHasPermission().
-                Menu {
-                    Button { snap(label: true) } label: {
-                        Label("Snap a label", systemImage: "tag.fill")
-                    }
-                    Button {
-                        labelMode = false
-                        pickerItem = nil
-                        showLibrary = true
-                    } label: {
-                        Label("Choose from Library", systemImage: "photo.on.rectangle")
-                    }
-                    Button {
-                        Task { await performArchiveExport() }
-                    } label: {
-                        Label("Archive & Export Old Receipts", systemImage: "archivebox")
-                    }
+            if pendingCount > 0 {
+                Button { showWaiting = true } label: {
+                    Label("Pending Queue (\(pendingCount))", systemImage: "tray.full")
+                }
+            }
+            if !isSelectMode {
+                Button { snap(label: true) } label: {
+                    Label("Snap a label", systemImage: "tag.fill")
+                }
+                Button {
+                    labelMode = false
+                    pickerItem = nil
+                    showLibrary = true
                 } label: {
-                    Image(systemName: "ellipsis.circle").foregroundStyle(appStyle.tenant)
+                    Label("Choose from Library", systemImage: "photo.on.rectangle")
+                }
+                Button { Task { await performArchiveExport() } } label: {
+                    Label("Archive & Export Old Receipts", systemImage: "archivebox")
                 }
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button { Task { await viewModel.loadExpenses() } } label: {
-                    Image(systemName: "arrow.clockwise").foregroundStyle(appStyle.tenant)
+        } label: {
+            HStack(spacing: ItSpace.s1) {
+                Image(systemName: "ellipsis.circle")
+                if pendingCount > 0 {
+                    Text("\(pendingCount)")
+                        .font(appStyle.font(.caption2, weight: .semibold))
+                        .padding(.horizontal, ItSpace.s1)
+                        .overlay { Capsule().stroke(it.color(.brand), lineWidth: ItStroke.hairline) }
                 }
-                .disabled(viewModel.isLoadingList)
             }
+            .foregroundStyle(it.color(.brand))
+            .frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone)
         }
+        .accessibilityLabel(pendingCount > 0 ? "More actions, \(pendingCount) pending" : "More actions")
     }
 
     // MARK: - Image resize + compress

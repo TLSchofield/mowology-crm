@@ -16,6 +16,10 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Shared two-line work-screen header: admin visibility, state copy, dismissal, and selection controls.
+cp "$ROOT/ios/LogicTests/ScreenHeaderTests.swift" "$OUT/main.swift"
+run screenheader -DSCREEN_HEADER_LOGIC_ONLY "$SRC/Features/Team/ScreenHead.swift" "$OUT/main.swift"
+
 # Main-thread stall decisions and same-build crash-loop evaluation.
 cp "$ROOT/ios/LogicTests/CrashGuardTests.swift" "$OUT/main.swift"
 run crashguards -DCRASH_GUARD_LOGIC_ONLY "$SRC/Core/Diagnostics/HangWatchdog.swift" \

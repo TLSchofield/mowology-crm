@@ -100,9 +100,21 @@ struct TimeClockView: View {
             .itAppScreen()
             .navigationTitle("Time Clock")
             .navigationBarTitleDisplayMode(.inline)
-            // Otto owns Time (Kaname spec §2): his face, and his line when he needs you.
-            .toolbar { ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "otto") } }
-            .safeAreaInset(edge: .top, spacing: 0) { ScreenHeadLine(slug: "otto") }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ScreenHeader(slug: "otto", onRefresh: {
+                    Task {
+                        await viewModel.loadStatus()
+                        await driver.refresh()
+                    }
+                }) {
+                    Text(Self.headerTitle)
+                        .font(appStyle.font(.headline, weight: .semibold))
+                        .foregroundStyle(appStyle.text)
+                } secondaryActions: {
+                    EmptyView()
+                }
+            }
             .task { await viewModel.loadStatus() }
             .refreshable { await viewModel.loadStatus(); await driver.refresh() }
             // Clocked in (just now, or already when the app opened): if this shift hasn't
@@ -136,6 +148,15 @@ struct TimeClockView: View {
                 }
             }
         }
+    }
+
+    private static var headerTitle: String {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-mwScreenHeaderDemo") {
+            return "Time Clock — Extra Long Header Demo"
+        }
+        #endif
+        return "Time Clock"
     }
 
     // MARK: - Clock Card
