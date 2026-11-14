@@ -146,7 +146,7 @@ class OnboardingNameModule extends OnboardingModule
  */
 class OnboardingTermsModule extends OnboardingModule
 {
-    public const TERMS_VERSION = '2026-11-06';
+    public const TERMS_VERSION = '2026-11-14';
     public const TERMS_URL = 'https://ittai.ca/terms/';
     public const PRIVACY_URL = 'https://ittai.ca/privacy/';
     public const SETTING = 'onboarding_terms_accepted';
