@@ -22,6 +22,8 @@ struct ReceiptsView: View {
 
     // Camera as fullScreenCover — must be on the root view, not inside a sheet.
     @State private var showCamera   = false
+    /// The first list load has finished (the empty-screen hint never shows while loading).
+    @State private var listLoadedOnce = false
     @State private var showLibrary  = false
     @State private var showReview   = false
     @State private var pickerItem: PhotosPickerItem?
@@ -108,9 +110,12 @@ struct ReceiptsView: View {
         }
         // The Receipts bead in the tab bar, tapped while Receipts shows: the receipt camera.
         .onReceive(NotificationCenter.default.publisher(for: .mwSnapReceipt)) { _ in snap(label: false) }
+        // Otto's "Snap a product label" (MainTabView brings Receipts forward first): the same label capture as the ⋯ menu.
+        .onReceive(NotificationCenter.default.publisher(for: .mwSnapLabelOnReceipts)) { _ in snap(label: true) }
         .task {
             Task { await chase.loadMine() }   // alongside the list, never in front of it
             await viewModel.loadExpenses()
+            listLoadedOnce = true
             // Wire up auto-drain for receipts that were queued while offline.
             viewModel.startReceiptQueueMonitor()
             viewModel.startActionQueueMonitor()
@@ -558,16 +563,32 @@ struct ReceiptsView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        let showsHint = ReceiptsEmptyWording.showsHint(hasLoaded: listLoadedOnce, isLoading: viewModel.isLoadingList,
+                                                       isEmpty: viewModel.expenses.isEmpty, hasError: viewModel.listError != nil)
+        let ownCamera = ReceiptCameraSwitch.isOn() && UIImagePickerController.isSourceTypeAvailable(.camera)
+        return VStack(spacing: 16) {
             Image(systemName: "doc.text.image")
                 .font(appStyle.font(size: 48))
                 .foregroundStyle(appStyle.meta)
             Text("No receipts yet")
                 .font(appStyle.font(.title2, weight: .bold))
-            Text("Tap the camera in the Receipts tab to snap a receipt")
-                .font(appStyle.font(.subheadline))
-                .foregroundStyle(appStyle.meta)
+            if let error = viewModel.listError {
+                Text(error)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center)
+            } else if showsHint {
+                Text(ReceiptsEmptyWording.subtitle(isAdmin: authSession.user?.isAdmin == true, autoShoots: ownCamera))
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center)
+                Image(systemName: "arrow.down")
+                    .font(appStyle.font(.title3, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
+                    .accessibilityHidden(true)
+            }
         }
+        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(appStyle.page)
     }

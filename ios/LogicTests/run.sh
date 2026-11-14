@@ -109,3 +109,7 @@ run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core
 cp "$ROOT/ios/LogicTests/MetricKitSummaryTests.swift" "$OUT/main.swift"
 swiftc -suppress-warnings -o "$OUT/metrickit" "$SRC/Core/Diagnostics/MetricKitSummary.swift" "$OUT/main.swift"
 "$OUT/metrickit" "$ROOT/ios/LogicTests/Fixtures"
+
+# Receipts empty-screen wording and the one-time Kaname welcome (2026-11-13).
+cp "$ROOT/ios/LogicTests/KanameWelcomeTests.swift" "$OUT/main.swift"
+run kanamewelcome "$SRC/Features/Receipts/ReceiptsEmptyWording.swift" "$SRC/Features/Splash/KanameWelcome.swift" "$OUT/main.swift"

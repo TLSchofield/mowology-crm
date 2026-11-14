@@ -17,6 +17,17 @@ struct RootView: View {
         return user.isAdmin && !MorningBriefStore.shownToday
     }
 
+    /// The one-time welcome for this person in this business. The iPhone has no per-business module flags yet (one server,
+    /// Server.base): the Add dial offers a job to every role and the Receipts tab is always there, so both are on.
+    private func welcomeCard() -> KanameWelcomeCard? {
+        guard authSession.isAuthenticated, let user = authSession.user else { return nil }
+        let host = Server.base.host ?? Server.base.absoluteString
+        let entry = KanameWelcome.entry(canAddJobs: true, receiptsOn: true)
+        guard KanameWelcome.shouldShowWelcome(seen: KanameWelcome.isSeen(host: host, userId: user.id), entry: entry),
+              let entry else { return nil }
+        return KanameWelcomeCard(entry: entry, firstName: KanameWelcome.firstName(fromFullName: user.name), host: host, userId: user.id)
+    }
+
     var body: some View {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-mwSmokeTour") {
@@ -50,7 +61,12 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
 
             if showSplash {
-                OpeningOverlay(wantsBrief: { showBrief }, loader: briefLoader) {
+                OpeningOverlay(wantsBrief: { showBrief }, loader: briefLoader,
+                               welcome: { welcomeCard() },
+                               onWelcomeAction: { entry in
+                                   NotificationCenter.default.post(name: .mwKanameWelcomeAction, object: nil,
+                                                                   userInfo: ["entry": entry.rawValue])
+                               }) {
                     showSplash = false
                 }
                 .zIndex(1)

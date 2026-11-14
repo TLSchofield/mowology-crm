@@ -280,6 +280,24 @@ struct MainTabView: View {
             checkDriverQuestion()
         }
         // Measurement (2026-11-13): every ~60 s all five tabs redraw together; these name which shared object invalidated this view.
+        .onReceive(NotificationCenter.default.publisher(for: .mwSnapLabel)) { _ in
+            addOpen = false
+            selectedTab = .receipts
+            // After the switch lands, so the camera presents from a Receipts that is on screen.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                NotificationCenter.default.post(name: .mwSnapLabelOnReceipts, object: nil)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .mwKanameWelcomeAction)) { note in
+            if (note.userInfo?["entry"] as? String) == KanameWelcome.Entry.books.rawValue {
+                selectedTab = .receipts
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
+                }
+            } else {
+                add(.job)
+            }
+        }
         .onReceive(notificationRouter.objectWillChange) { _ in InvalidationLog.note("notificationRouter") }
         .onReceive(pullForward.objectWillChange) { _ in InvalidationLog.note("pullForward") }
         .onReceive(scheduleViews.objectWillChange) { _ in InvalidationLog.note("scheduleViews") }
@@ -577,6 +595,11 @@ extension EnvironmentValues {
 extension Notification.Name {
     /// The Receipts bead was tapped while Receipts is showing: open the receipt camera (ReceiptsView).
     static let mwSnapReceipt = Notification.Name("ca.mowology.snapReceipt")
+    /// Otto's "Snap a product label": MainTabView brings Receipts forward, then posts `mwSnapLabelOnReceipts`.
+    static let mwSnapLabel = Notification.Name("ca.mowology.snapLabel")
+    static let mwSnapLabelOnReceipts = Notification.Name("ca.mowology.snapLabelOnReceipts")
+    /// The welcome card's button (userInfo `entry`: "books" or "work"): the receipt camera, or Add a job.
+    static let mwKanameWelcomeAction = Notification.Name("ca.mowology.kanameWelcomeAction")
     static let mwKanameHome = Notification.Name("ca.mowology.kanameHome")
     /// Job or Client was picked from the bar's Add dial: Schedule opens "Add a job" (userInfo `startWithNewClient`).
     static let mwAddFromBar = Notification.Name("ca.mowology.addFromBar")

@@ -86,7 +86,8 @@ struct HeadFaceView: View {
         .accessibilityLabel(Text(name))
         .task(id: slug) {
             image = HeadFaceCache.shared.cached(slug)
-            if let fresh = await HeadFaceCache.shared.load(slug) { image = fresh }
+            // A cancelled load (the slug changed) still returns the OLD slug's cached picture: never let it land.
+            if let fresh = await HeadFaceCache.shared.load(slug), !Task.isCancelled { image = fresh }
         }
     }
 }
