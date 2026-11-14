@@ -409,6 +409,10 @@ function handleDeleteLocation(PDO $db, ?array $input): void
 
 function handleVendorDelete(PDO $db, array $input): void
 {
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Vendor ID is required');
 

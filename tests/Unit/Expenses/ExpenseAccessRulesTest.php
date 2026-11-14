@@ -52,4 +52,25 @@ class ExpenseAccessRulesTest extends TestCase
         $intake = file_get_contents($root . 'receipt-intake.php');
         $this->assertStringContainsString('ExpenseService::currentUserCanSeeReceiptMedia($db, $rescanMediaId', $intake, 'a rescan only reads a photo you may open');
     }
+
+    public function test_crew_cannot_delete_an_approved_receipt_but_can_delete_a_draft(): void
+    {
+        $crew = ['id' => 8, 'is_admin' => false];
+        $this->assertNull(ExpenseService::deleteBlockReason(['created_by' => 8, 'status' => 'draft'], $crew));
+        $this->assertStringContainsString('approved', (string)ExpenseService::deleteBlockReason(['created_by' => 8, 'status' => 'approved'], $crew));
+        $this->assertNotNull(ExpenseService::deleteBlockReason(['created_by' => 1, 'status' => 'draft'], $crew));
+        $office = ['id' => 1, 'is_admin' => true];
+        $this->assertNull(ExpenseService::deleteBlockReason(['created_by' => 8, 'status' => 'approved'], $office));
+        $this->assertNotNull(ExpenseService::deleteBlockReason(['created_by' => 8, 'status' => 'forwarded'], $office));
+    }
+
+    public function test_a_supplied_date_that_is_not_a_real_day_is_refused(): void
+    {
+        $this->assertNull(ExpenseService::suppliedDateProblem(null));
+        $this->assertNull(ExpenseService::suppliedDateProblem(''));
+        $this->assertNull(ExpenseService::suppliedDateProblem('2026-02-28'));
+        $this->assertNull(ExpenseService::suppliedDateProblem('2026-02-28T10:00:00'));
+        $this->assertNotNull(ExpenseService::suppliedDateProblem('2026-02-30'));
+        $this->assertNotNull(ExpenseService::suppliedDateProblem('2026-1'));
+    }
 }
