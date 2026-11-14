@@ -37,6 +37,7 @@ final class ReadyBriefStore: ObservableObject {
 
 struct MainTabView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
     @Environment(\.layoutDirection) private var layoutDirection
 
     @EnvironmentObject private var authSession: AuthSession
@@ -59,7 +60,7 @@ struct MainTabView: View {
     /// every tab (TimeChip); its screen is still a page of the TabView, so it keeps its state and the driver
     /// question can still open it. Add is not a page: it opens the AddDial over the current screen.
     private enum Tab: Hashable { case schedule, time, kaname, search, receipts, account, add }
-    @State private var selectedTab = Tab.schedule
+    @State private var selectedTab: Tab
     /// The AddDial is open: the bead sits on Add (showing ×) while the screen underneath stays as it was.
     @State private var addOpen = false
     /// The Schedule bead's view, and its long-press picker (Tim, 2026-11-07).
@@ -102,7 +103,8 @@ struct MainTabView: View {
                                      beadIcon: .system(scheduleViews.kind.icon),
                                      beadLabel: "Show \(scheduleViews.kind.next.title.lowercased()) view",
                                      longPressLabel: "Choose a view")
-            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35)
+            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35,
+                                                  beadColor: UIColor(it.color(.brand)))
             case .search:   return ItMeniscusItem(id: index, title: "Search", icon: .system("magnifyingglass"))
             // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05). Not while Time Clock
             // is showing: the bead is resting there and a tap only goes back (Codex 2026-11-05).
@@ -145,6 +147,12 @@ struct MainTabView: View {
     }
 
     init() {
+        // A new owner leaving onboarding lands on Receipts, once (OnboardingBarLogic.landing); everyone else on Schedule.
+        let d = UserDefaults.standard
+        let landing = OnboardingBarLogic.landing(stored: d.string(forKey: OnboardingBarLogic.landingKey),
+                                                 isAdmin: AuthSession.shared.user?.isAdmin == true, hasReceipts: true)
+        d.removeObject(forKey: OnboardingBarLogic.landingKey)
+        _selectedTab = State(initialValue: landing == .receipts ? .receipts : (landing == .kaname ? .kaname : .schedule))
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
         UITabBar.appearance().isHidden = true
@@ -455,7 +463,7 @@ struct MainTabView: View {
 }
 
 @MainActor
-private enum KanameTabIcon {
+enum KanameTabIcon {
     /// The Ittai hexagon, rendered once; the bar tints it.
     static let image: UIImage = {
         let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))

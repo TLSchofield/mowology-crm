@@ -106,18 +106,28 @@ final class AuthSession: ObservableObject {
             throw APIError.decodingError(error)
         }
 
+        adopt(token: authResponse.token, user: authResponse.user)
+    }
+
+    /// A token handed back by another auth endpoint (the phone sign-up's signup-confirm.php) goes through the very
+    /// same persistence and published state as `login`: one auth path, not two.
+    func acceptSignUp(token: String, user: User) {
+        adopt(token: token, user: user)
+    }
+
+    private func adopt(token newToken: String, user newUser: User) {
         // Persist to Keychain.
-        KeychainStore.save(key: KeychainKey.jwt, value: authResponse.token)
-        if let userData = try? JSONEncoder().encode(authResponse.user),
+        KeychainStore.save(key: KeychainKey.jwt, value: newToken)
+        if let userData = try? JSONEncoder().encode(newUser),
            let userJSON = String(data: userData, encoding: .utf8) {
             KeychainStore.save(key: KeychainKey.user, value: userJSON)
         }
 
         // Update published state.
-        token           = authResponse.token
-        user            = authResponse.user
+        token           = newToken
+        user            = newUser
         isAuthenticated = true
-        FixStore.shared.claim(for: authResponse.user.id)   // someone else's unsent GPS is dropped first
+        FixStore.shared.claim(for: newUser.id)   // someone else's unsent GPS is dropped first
     }
 
     // MARK: - Logout

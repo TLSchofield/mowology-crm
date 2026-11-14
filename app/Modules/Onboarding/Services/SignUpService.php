@@ -50,6 +50,12 @@ final class SignUpService
         return self::splitName((string)($in['full_name'] ?? ''));
     }
 
+    /** The Create-your-login checkbox: only an explicit yes counts (true, "true", 1), never a missing or false value. */
+    public static function termsAccepted(array $in): bool
+    {
+        return filter_var($in['terms_accepted'] ?? false, FILTER_VALIDATE_BOOLEAN) === true;
+    }
+
     public static function validate(array $in, bool $withCode = false): array
     {
         $errors = [];
@@ -65,6 +71,7 @@ final class SignUpService
         if (self::mobile((string)($in['mobile'] ?? '')) === null) $errors['mobile'] = 'Enter your mobile number (10 digits).';
         if (filter_var(trim((string)($in['email'] ?? '')), FILTER_VALIDATE_EMAIL) === false) $errors['email'] = 'Enter a valid email address.';
         if (strlen((string)($in['password'] ?? '')) < 10) $errors['password'] = 'Use at least 10 characters.';
+        if (!self::termsAccepted($in)) $errors['terms'] = 'Accept the terms and privacy policy to continue.';
         if ($withCode && !preg_match('/^\d{6}$/', (string)($in['code'] ?? ''))) $errors['code'] = 'Enter the 6-digit code.';
         return $errors;
     }
@@ -126,6 +133,8 @@ final class SignUpService
 
     private function claim(array $in, string $ip, ?callable $issueToken, ?int $now): array
     {
+        // The endpoint validates first; the service refuses too, so no caller can claim a business without the terms (Codex 2026-11-14).
+        if (!self::termsAccepted($in)) return ['ok' => false, 'status' => 400, 'error' => 'validation', 'fields' => ['terms' => 'Accept the terms and privacy policy to continue.']];
         $this->db->beginTransaction();
         try {
             $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
@@ -164,6 +173,9 @@ final class SignUpService
             if (!$reach['ok']) throw new RuntimeException($reach['message']);
             $context->saveSetting('owner_user_id', (string)$ownerId, 'Business: owner user id (mobile sign-up)');
             $context->saveSetting('tenant_claimed_at', date('Y-m-d H:i:s', $now), 'Business: tenant claimed at (mobile sign-up)');
+            // The terms and privacy policy were accepted on the Create-your-login screen (validate() refuses without it): keep the same record the onboarding Terms step writes.
+            (new OnboardingTermsModule())->accept($context);
+            OnboardingTermsModule::recordAcceptance($this->db, $ownerId, $ip, '');
             $this->clearCode();
 
             $owner['password_hash'] = $hash;

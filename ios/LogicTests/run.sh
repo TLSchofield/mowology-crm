@@ -113,3 +113,15 @@ swiftc -suppress-warnings -o "$OUT/metrickit" "$SRC/Core/Diagnostics/MetricKitSu
 # Receipts empty-screen wording and the one-time Kaname welcome (2026-11-13).
 cp "$ROOT/ios/LogicTests/KanameWelcomeTests.swift" "$OUT/main.swift"
 run kanamewelcome "$SRC/Features/Receipts/ReceiptsEmptyWording.swift" "$SRC/Features/Splash/KanameWelcome.swift" "$OUT/main.swift"
+
+# Ittai opening motion (2026-11-13): the Android ItOpeningMotionTest sample times, ported — Swift frames equal Android's.
+cp "$ROOT/ios/LogicTests/OpeningMotionTests.swift" "$OUT/main.swift"
+run openingmotion "$SRC/Core/Design/Ittai/ItOpeningMotion.swift" "$OUT/main.swift"
+
+# Phone sign-up + new-business onboarding (2026-11-13): validation, bodies, code rules, step order, what each step posts.
+cp "$ROOT/ios/LogicTests/SignUpLogicTests.swift" "$OUT/main.swift"
+run signuplogic "$SRC/Features/Onboarding/SignUpLogic.swift" "$SRC/Features/Onboarding/BusinessOnboardingLogic.swift" "$OUT/main.swift"
+
+# Onboarding bottom bar (2026-11-13): Kaname alone, no bar before the account exists, open on Kaname afterwards.
+cp "$ROOT/ios/LogicTests/OnboardingBarTests.swift" "$OUT/main.swift"
+run onboardingbar "$SRC/Features/Onboarding/OnboardingBarLogic.swift" "$OUT/main.swift"

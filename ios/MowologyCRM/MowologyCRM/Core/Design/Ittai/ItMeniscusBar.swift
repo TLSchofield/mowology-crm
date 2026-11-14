@@ -66,6 +66,9 @@ struct ItMeniscusItem: Identifiable, Equatable {
     var beadLabel: String? = nil
     /// What a long press does, spoken as a VoiceOver action ("Add a job"). nil = no long press.
     var longPressLabel: String? = nil
+    /// The bead's fill (and the label under it) while this tab is selected, when it is not the tenant colour (Kaname is
+    /// always the Ittai brand indigo, owner 2026-11-13). nil = the tenant colour.
+    var beadColor: UIColor? = nil
 }
 
 /// Presents stable tab identities while Core Animation moves the meniscus between their physical slots.
@@ -248,7 +251,7 @@ struct ItMeniscusBar: View {
                     .animation(reduceMotion ? nil : .easeOut(duration: ItMeniscusToken.iconFade), value: active)
                 Text(item.title)
                     .font(.system(size: labelMetrics.fontSize, weight: active ? .semibold : .medium))
-                    .foregroundStyle(active ? style.tenant : style.meta)
+                    .foregroundStyle(active ? (item.beadColor.map { Color($0) } ?? style.tenant) : style.meta)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }

@@ -192,21 +192,7 @@ final class OnboardingStepService
      */
     private function recordTerms(int $userId, string $ip, string $ua): void
     {
-        if (class_exists('Tenant') && Tenant::isDefault()) return;
-        try {
-            require_once dirname(__DIR__, 2) . '/Legal/Services/TermsService.php';
-            // Only when no platform row exists at all: a version someone set non-current must stay off.
-            $has = $this->db->prepare('SELECT COUNT(*) FROM terms_versions WHERE doc_key = ?');
-            $has->execute([TermsService::DOC_KEY]);
-            if ((int)$has->fetchColumn() === 0) {
-                $v = OnboardingTermsModule::TERMS_VERSION;
-                $this->db->prepare(($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE') . ' INTO terms_versions (doc_key, version, is_current, activated_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)')
-                    ->execute([TermsService::DOC_KEY, $v]);
-            }
-            (new TermsService($this->db))->recordAcceptance($userId, $ip !== '' ? $ip : null, $ua !== '' ? $ua : null);
-        } catch (Throwable $e) {
-            error_log('Onboarding terms record: ' . get_class($e));
-        }
+        OnboardingTermsModule::recordAcceptance($this->db, $userId, $ip, $ua);
     }
 
     private function identity(int $userId)

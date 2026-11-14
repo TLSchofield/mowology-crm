@@ -12,7 +12,7 @@ struct ItAppStyle {
     var line: Color { isEnabled ? palette.line : Color.secondary.opacity(0.2) }
     var text: Color { isEnabled ? palette.text : .primary }
     var meta: Color { isEnabled ? palette.meta : .secondary }
-    var tenant: Color { isEnabled ? palette.tenant : Color.MW.green }
+    var tenant: Color { isEnabled ? palette.tenant : (ItTenantColours.enabled ? Color.MW.green : Color(itHex: ItTokenHex.light[.brand] ?? 0x233A5E)) }
     var onTenant: Color { isEnabled ? palette.onTenant : .white }
     var attention: Color { isEnabled ? palette.color(.statusAttention) : Color.MW.orange }
     var blocked: Color { isEnabled ? palette.color(.statusBlocked) : .red }

@@ -19,7 +19,7 @@ class OnboardingNameModule extends OnboardingModule
     public const CHANNELS = ['text' => 'Text message', 'email' => 'Email', 'app' => 'App notification'];
 
     public function key(): string { return 'name'; }
-    public function title(): string { return 'About you'; }
+    public function title(): string { return 'The next parts are all about you.'; }
     public function owner(): string { return 'penny'; }
     public function skippable(): bool { return false; }
     public function question(OnboardingContext $c): string { return "Hi, I'm Penny. What's your name, and what should I call you?"; }
@@ -170,6 +170,29 @@ class OnboardingTermsModule extends OnboardingModule
     public function accept(OnboardingContext $c): void
     {
         $c->saveSetting(self::SETTING, self::TERMS_VERSION, 'Onboarding: the terms version the owner accepted (OnboardingTermsModule)');
+    }
+
+    /**
+     * The legal ledger entry for an acceptance (who, which version, when, from where). Used by the onboarding Terms step and by
+     * sign-up, which takes the same acceptance on the Create-your-login screen. Never throws: a ledger failure must not block the person.
+     */
+    public static function recordAcceptance(PDO $db, int $userId, string $ip, string $ua): void
+    {
+        if (class_exists('Tenant') && Tenant::isDefault()) return;
+        try {
+            require_once dirname(__DIR__, 2) . '/Legal/Services/TermsService.php';
+            // Only when no platform row exists at all: a version someone set non-current must stay off.
+            $has = $db->prepare('SELECT COUNT(*) FROM terms_versions WHERE doc_key = ?');
+            $has->execute([TermsService::DOC_KEY]);
+            if ((int)$has->fetchColumn() === 0) {
+                $v = self::TERMS_VERSION;
+                $db->prepare(($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE') . ' INTO terms_versions (doc_key, version, is_current, activated_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)')
+                    ->execute([TermsService::DOC_KEY, $v]);
+            }
+            (new TermsService($db))->recordAcceptance($userId, $ip !== '' ? $ip : null, $ua !== '' ? $ua : null);
+        } catch (Throwable $e) {
+            error_log('Onboarding terms record: ' . get_class($e));
+        }
     }
 }
 

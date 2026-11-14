@@ -103,3 +103,14 @@ Commands: `up` (all of it, re-runnable), `build`, `install`, `logins`, `status`,
 Driving the emulator by hand is slow (about two frames a second on the iMac): `adb shell input text` drops
 characters unless typed in short chunks, Back with no keyboard up quits the app, and taps must be aimed after a
 fresh screenshot because the layout shifts with the keyboard and with error banners.
+
+## Sign-up rehearsal — an unclaimed business, as often as you like
+
+`scripts/local-signup.sh reset` drops and re-creates the test business on `claudia.ittai.ca` (the host the Android
+tenanttest build and the emulator already trust) as an **unclaimed** "Heritage Tree Service (LOCAL TEST)": the owner
+`owner@heritage.test` has no password and has never signed in, and there is no fake data, so the phone sign-up and
+onboarding start from nothing. Sign up in the app with that owner email (mobile must be 10 digits, password 10+
+characters), then read the 6-digit code with `scripts/local-signup.sh code` (it comes from the local mail log; nothing
+is emailed). `scripts/local-signup.sh status` shows whether it is claimed. Change the business with `TENANT_NAME` and
+`OWNER_EMAIL`. A reset replaces the fake data `local-android.sh up` seeds; run that again to get it back. The default
+business (`mowology_local`) is never touched.

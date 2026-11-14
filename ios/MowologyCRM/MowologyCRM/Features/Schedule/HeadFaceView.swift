@@ -82,7 +82,7 @@ struct HeadFaceView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(ring ?? appStyle.attention, lineWidth: size > 60 ? 4 : 2))
+        .overlay(Circle().strokeBorder(ring ?? (slug == "charlie" && appStyle.isEnabled ? appStyle.palette.color(.brand) : appStyle.attention), lineWidth: size > 60 ? 4 : 2))
         .accessibilityLabel(Text(name))
         .task(id: slug) {
             image = HeadFaceCache.shared.cached(slug)

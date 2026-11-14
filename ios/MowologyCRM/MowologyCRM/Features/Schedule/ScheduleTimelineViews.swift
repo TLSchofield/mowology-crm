@@ -485,6 +485,18 @@ struct ScheduleTimelineDemoOverlay: View {
                 .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwReceiptZoomDemo") {
             ReceiptZoomDemo().itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwWelcomeDemo") {
+            KanameWelcomeDemo(entry: (i + 1 < args.count && args[i + 1] == "books") ? .books : .work)
+                .itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwReceiptsEmptyDemo") {
+            let v = i + 1 < args.count ? args[i + 1] : "admin"
+            ReceiptsEmptyStateView(subtitle: ReceiptsEmptyWording.subtitle(isAdmin: v != "crew", autoShoots: v != "manual"), error: nil)
+                .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
+        } else if args.contains("-mwOttoButtonsDemo") {
+            OttoAddEquipmentButton(api: LiveEquipmentAPI(client: APIClient(authSession: AuthSession())))
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwTimelineDemo") {
             let mode = i + 1 < args.count ? args[i + 1] : "day"
             let field = args.contains("-mwTimelineField")
@@ -718,6 +730,19 @@ private struct MeniscusBarDemo: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Thread.sleep(forTimeInterval: 0.15) }
             }
         }
+    }
+}
+#endif
+
+#if DEBUG
+/// `-mwWelcomeDemo work|books`: the real opening overlay (splash, then Kaname's one-time welcome) with an invented person; no sign-in.
+struct KanameWelcomeDemo: View {
+    let entry: KanameWelcome.Entry
+    @StateObject private var loader = MorningBriefLoader()
+    var body: some View {
+        OpeningOverlay(wantsBrief: { false }, loader: loader,
+                       welcome: { KanameWelcomeCard(entry: entry, firstName: "Sam", host: "demo", userId: 0) },
+                       onWelcomeAction: { _ in }) { }
     }
 }
 #endif

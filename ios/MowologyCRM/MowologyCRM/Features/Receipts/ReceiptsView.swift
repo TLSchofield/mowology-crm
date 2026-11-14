@@ -566,31 +566,9 @@ struct ReceiptsView: View {
         let showsHint = ReceiptsEmptyWording.showsHint(hasLoaded: listLoadedOnce, isLoading: viewModel.isLoadingList,
                                                        isEmpty: viewModel.expenses.isEmpty, hasError: viewModel.listError != nil)
         let ownCamera = ReceiptCameraSwitch.isOn() && UIImagePickerController.isSourceTypeAvailable(.camera)
-        return VStack(spacing: 16) {
-            Image(systemName: "doc.text.image")
-                .font(appStyle.font(size: 48))
-                .foregroundStyle(appStyle.meta)
-            Text("No receipts yet")
-                .font(appStyle.font(.title2, weight: .bold))
-            if let error = viewModel.listError {
-                Text(error)
-                    .font(appStyle.font(.subheadline))
-                    .foregroundStyle(appStyle.meta)
-                    .multilineTextAlignment(.center)
-            } else if showsHint {
-                Text(ReceiptsEmptyWording.subtitle(isAdmin: authSession.user?.isAdmin == true, autoShoots: ownCamera))
-                    .font(appStyle.font(.subheadline))
-                    .foregroundStyle(appStyle.meta)
-                    .multilineTextAlignment(.center)
-                Image(systemName: "arrow.down")
-                    .font(appStyle.font(.title3, weight: .semibold))
-                    .foregroundStyle(appStyle.meta)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(appStyle.page)
+        return ReceiptsEmptyStateView(
+            subtitle: showsHint ? ReceiptsEmptyWording.subtitle(isAdmin: authSession.user?.isAdmin == true, autoShoots: ownCamera) : nil,
+            error: viewModel.listError)
     }
 
     // MARK: - Snap (the Receipts bead in the tab bar, or "Snap a label" in the ⋯ menu)
@@ -1015,4 +993,40 @@ private struct ExpenseRow: View {
 
 #Preview {
     ReceiptsView().environmentObject(AuthSession()).environmentObject(ReadyBriefStore())
+}
+
+/// The empty Receipts screen: the title always, then either the load error or the camera explanation with an arrow down to the
+/// bar's camera. A view of its own so the debug demo `-mwReceiptsEmptyDemo` draws the same thing the screen does.
+struct ReceiptsEmptyStateView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let subtitle: String?
+    let error: String?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text.image")
+                .font(appStyle.font(size: 48))
+                .foregroundStyle(appStyle.meta)
+            Text("No receipts yet")
+                .font(appStyle.font(.title2, weight: .bold))
+            if let error {
+                Text(error)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center)
+            } else if let subtitle {
+                Text(subtitle)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .multilineTextAlignment(.center)
+                Image(systemName: "arrow.down")
+                    .font(appStyle.font(.title3, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(appStyle.page)
+    }
 }

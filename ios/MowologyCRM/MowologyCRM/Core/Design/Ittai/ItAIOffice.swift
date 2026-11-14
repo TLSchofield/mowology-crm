@@ -291,10 +291,12 @@ struct ItPortrait: View {
     let url: URL?
     var state: ItEmployeeState? = nil
     var size: CGFloat = 40
+    /// Kaname, the one head whose ring is the brand indigo (owner 2026-11-13).
+    var brandRing = false
     @Environment(\.it) private var it
 
     var body: some View {
-        let ring = state.map { it.color($0.token) } ?? it.line
+        let ring = brandRing ? it.color(.brand) : (state.map { it.color($0.token) } ?? it.line)
         ZStack {
             Circle().fill(it.sunk)
             Text(String(name.prefix(1))).itText(.body14, weight: 600).foregroundStyle(it.meta)

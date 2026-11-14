@@ -8,13 +8,21 @@ struct RootView: View {
     @State private var updateResult: VersionCheckResult? = nil
     /// Charlie's brain on the opening screen, then (admins, first open of the day) his morning
     /// brief landing in the app — OpeningOverlay / CharlieMorningBrief.swift.
-    @State private var showSplash = true
+    @State private var showSplash = AuthSession.shared.isAuthenticated   // signed-out launches open on the Ittai wordmark instead (SignedOutFlow)
+    @State private var onboardingTick = 0
     @StateObject private var briefLoader = MorningBriefLoader()
     /// An admin who hasn't had today's brief yet. nil = signed in but the user isn't loaded yet.
     private var showBrief: Bool? {
         guard authSession.isAuthenticated else { return false }
         guard let user = authSession.user else { return nil }
         return user.isAdmin && !MorningBriefStore.shownToday
+    }
+
+    /// A person who signed up on this phone owes the onboarding until they tap "Open my day". Existing logins have none.
+    private var onboardingPending: Bool {
+        _ = onboardingTick
+        guard authSession.isAuthenticated, let user = authSession.user else { return false }
+        return OnboardingProgress.pending(userId: user.id)
     }
 
     /// The one-time welcome for this person in this business. The iPhone has no per-business module flags yet (one server,
@@ -51,11 +59,21 @@ struct RootView: View {
             if let result = updateResult, result.mustUpdate {
                 AppUpdateView(result: result)
             } else if authSession.isAuthenticated {
-                MainTabView()
-                    .environmentObject(authSession)
-                    .itAppTheme(enabled: ittaiDesignEnabled, field: ittaiFieldEnabled)
+                if onboardingPending, let user = authSession.user {
+                    BusinessOnboardingHost(authSession: authSession, userId: user.id) {
+                        UserDefaults.standard.set(OnboardingBarLogic.Landing.receipts.rawValue, forKey: OnboardingBarLogic.landingKey)   // main app opens on Receipts
+                        OnboardingProgress.finish(userId: user.id)
+                        onboardingTick += 1
+                        showSplash = true   // then the app's normal opening (Kaname's welcome)
+                    }
+                    .itAppTheme(enabled: ittaiDesignEnabled, field: false)
+                } else {
+                    MainTabView()
+                        .environmentObject(authSession)
+                        .itAppTheme(enabled: ittaiDesignEnabled, field: ittaiFieldEnabled)
+                }
             } else {
-                LoginView(authSession: authSession)
+                SignedOutFlow(authSession: authSession)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)

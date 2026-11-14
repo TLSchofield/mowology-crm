@@ -14,14 +14,14 @@
 
 import SwiftUI
 
-private enum SpineMetrics {
+enum SpineMetrics {
     static let ring: CGFloat = 44
     /// The circle's frame (ring + page gap); the line runs down its middle in the large-text layout.
     static let slot: CGFloat = ring + 6
 }
 
 /// The line's position across the screen: centred, or down the circles' middle at the leading edge (large text).
-private struct SpineLine: View {
+struct SpineLine: View {
     let large: Bool
     @Environment(\.itAppStyle) private var appStyle
 
@@ -73,7 +73,7 @@ struct SpineHead: View {
     }
 
     private var face: some View {
-        ItPortrait(name: name, url: TeamHead.all.first { $0.slug == slug }?.faceURL, state: state, size: 56)
+        ItPortrait(name: name, url: TeamHead.all.first { $0.slug == slug }?.faceURL, state: state, size: 56, brandRing: slug == "charlie")
             .frame(width: SpineMetrics.slot)
     }
 
@@ -219,5 +219,82 @@ struct SpineTail: View {
                     .frame(height: ItSpace.s6, alignment: .top)
             }
             .accessibilityHidden(true)
+    }
+}
+
+/// One step of a checklist on the same centre line as SpineNode (onboarding): the 44 pt circle ON the line, the title to
+/// its left, a short detail to its right. The number inside turns into a white tick on a filled brand circle when done.
+/// The open step's card hangs below the circle. SpineNode itself is untouched, so the Team screens look as before.
+struct SpineStepNode<Content: View>: View {
+    let number: String
+    let title: String
+    var detail: String = ""
+    let done: Bool
+    let current: Bool
+    @ViewBuilder var content: () -> Content
+    @Environment(\.it) private var it
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let large = dynamicTypeSize.isAccessibilitySize
+        VStack(spacing: 0) {
+            Group {
+                if large {
+                    HStack(spacing: ItSpace.s3) {
+                        circle
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title).itText(.body16, weight: 600).foregroundStyle(it.text).fixedSize(horizontal: false, vertical: true)
+                            if !detail.isEmpty { Text(detail).itText(.meta13).foregroundStyle(it.meta) }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    HStack(spacing: ItSpace.s3) {
+                        Text(title).itText(.body16, weight: 600).foregroundStyle(current || done ? it.text : it.meta)
+                            .multilineTextAlignment(.trailing).padding(.horizontal, current ? 6 : 0)
+                            .background(current ? appStyle.page : Color.clear)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        circle
+                        Text(detail).itText(.meta13).foregroundStyle(it.meta).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .frame(minHeight: ItSize.targetPhone + 8)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Step \(number), \(title)\(done ? ", done" : "")")
+            .zIndex(1)
+            if current {
+                // The card hangs from the circle: its top edge runs through the circle's middle, the line enters its top
+                // and leaves its bottom, and the opaque fill keeps the line off the text.
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, ItSpace.s4)
+                    .padding(.bottom, ItSpace.s4)
+                    .padding(.top, SpineMetrics.slot / 2 + ItSpace.s3)
+                    .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
+                    .padding(.top, -SpineMetrics.slot / 2)
+            }
+        }
+        .padding(.vertical, ItSpace.s2)
+        .background(SpineLine(large: large))
+    }
+
+    private var circle: some View {
+        let brand = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
+        let ring = SpineMetrics.ring
+        return ZStack {
+            Circle().fill(appStyle.page).frame(width: ring + 6, height: ring + 6)
+            Circle().stroke(done ? brand : (current ? brand : appStyle.line), lineWidth: current ? 2 : 1).frame(width: ring, height: ring)
+            if done {
+                Circle().fill(brand).frame(width: ring - 6, height: ring - 6)
+                Image(systemName: "checkmark").font(.system(size: ring * 0.36, weight: .bold)).foregroundStyle(Color.white)
+            } else {
+                Text(number).itText(.body14, weight: 600).foregroundStyle(it.text)
+            }
+        }
+        .frame(width: SpineMetrics.slot, height: SpineMetrics.slot)
+        .accessibilityHidden(true)
     }
 }
