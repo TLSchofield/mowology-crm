@@ -140,6 +140,11 @@ on his own screen; the other heads leave the top bar until the owner turns their
   not in the bar. Today the web strips show only on each head's own pages and the Kaname page has none (table above), so hosting them
   on Kaname's screen is Heritage-plan work, not built here. Unknown, for the Heritage session: whether Kaname's "one decision at a time"
   design (backlog 2026-11-11) is the same flow line.
+- **"Books-only" is a starting point, not a business type (Tim, 2026-11-13: he may start using invoicing, for example).** Nothing in this
+  plan may key off a `books_only` label. The top bar follows which features the owner has turned on; turning on invoicing adds the
+  heads that feature needs (Sam, Yui) and their lines, flow-line items and cards start appearing on Kaname's screen and in his
+  brief with no change to the opening rule. Proof to add: PHPUnit for the rule with the same business before and after a head's lines
+  appear (empty brief → not shown; the next day with invoicing lines → shown once).
 - The sign-in brief card is the one Kaname element a books-only business loses, and only through this plan's rule (mostly empty brief → not shown).
 
 ## Decisions I need from Tim
