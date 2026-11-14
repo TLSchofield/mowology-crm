@@ -245,6 +245,7 @@ struct SpineInfoNode<Content: View>: View {
                     .frame(maxWidth: .infinity, alignment: large ? .leading : .center)
             }
             .buttonStyle(.plain)
+            .zIndex(1)   // above the card that hangs under it: the card's solid fill must not cover the icon
             .accessibilityLabel("How this works")
             .accessibilityValue(isOpen ? "Open" : "Closed")
             if isOpen {
