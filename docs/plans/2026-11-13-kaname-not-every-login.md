@@ -4,7 +4,7 @@ Status: **plan only, awaiting Tim's approval. No code written, nothing deployed.
 
 Tim, 2026-11-13: "he no longer needs to be displayed every log in" — asked "for everyone?" → **"for everyone"**
 (every business, Mowology included). Separate decision, not built here: for books-only businesses (Heritage Tree Service,
-`docs/plans/2026-11-13-heritage-trees-year-end-plan.md`) Kaname is OFF entirely (no card, no tab).
+`docs/plans/2026-11-13-heritage-trees-year-end-plan.md`) Kaname is NOT off (Tim's correction, 2026-11-13): he stays as the single visible head, with the flow line and Penny's question cards on his screen; what goes for that business is the sign-in brief card (covered by the rule below, for everyone) and the other heads in the top bar. A per-business setting chooses which heads the top bar shows (default all, so Mowology is unchanged); the Heritage plan, findings 12 and 13, builds it.
 
 Note on sources: this worktree's branch is an old base. Everything below was read from `origin/feature/language` (what
 production tracks) and, for Android, `~/Projects/mowology-android-codex` (branch `codex/native`). Vault/skill path names
@@ -33,12 +33,13 @@ trap this project keeps hitting).
 
 > The opening brief plays **at most once per business-local day, on the first open that has something worth saying**, and
 > **again later the same day only when something new and urgent has appeared**. Everything else is one tap away on the
-> Kaname tab. If Kaname is switched off for the business, nothing plays at all.
+> Kaname tab. The rule is the same for every business; which heads the top bar shows does not change it.
 
 Precisely:
 
-1. **Off switch first.** `kaname_enabled` (per business, default **on**) false → no overlay, no card, no tab, no cron work for
-   that business. Heritage's off-switch plan reads/writes this same flag; this plan only *reads* it in the rule.
+1. **No per-business "off" in this rule.** Kaname stays on for every business. A separate per-business setting chooses which
+   heads the top bar shows (default all; a books-only business shows only Kaname). This rule does not read it: the brief's
+   lines come from Kaname's own column and the Kaname tab is always there. (Compatibility: see §6.)
 2. **First open of the day** (business timezone, per user per device — the existing `lastShownDay` stores): play the brief
    *only if it has content* (today's lines or a deadline). An empty "nothing needs you" brief is **not** shown — Tim
    found that card pointless; it stays on the Kaname tab.
@@ -64,7 +65,7 @@ cannot know a phone actually rendered it; not worth it for one owner. Recommenda
 |---|---|
 | What counts as "urgent enough to interrupt" for Mowology specifically | Read `CharlieUrgentService::find()`, `DeadlineService::brief()` and `CharlieInboxService` on the **local site** (`docs/LOCAL_SITE.md`) with seeded data; list what each would trigger today. Tim confirms the list (one question in chat). |
 | Does the splash (brain/ITTAI/strapline) stay on every launch? | Ask Tim — it is a brand decision (Ittai v1.2, `project_ittai_visual_direction_kanso`). Plan assumes the short-mark recommendation above. |
-| Does the web dashboard Kaname card / Action Board stay? | Recommend yes (content, not interruption; Heritage's off-switch hides it for books-only). Ask Tim in the same message. |
+| Does the web dashboard Kaname card / Action Board stay? | Recommend yes (content, not interruption; the books-only top bar setting does not hide it, since Kaname stays on). Ask Tim in the same message. |
 | Can the iPhone/Android compare `urgent_key` reliably? | Add `open_now/reason/urgent_key` to **both** `HeadBriefReadyService::buildCharlie()` and team-mobile's live reply in the same commit (trap 2026-10-11 "ready copy and live reply drift"); PHPUnit proves they match. |
 | Android overlay with `wantsBrief = { true }` — does anything else depend on it (e.g. routing to the Kaname tab via `pendingHead`)? | Read `OfficeViewModel` and `DayScreens.kt` around :355–380 before editing; unit-test `OfficeLogic` rule; run on the emulator via `scripts/local-signup.sh` (resets an unclaimed local business). |
 | Timezone of "first open of the day" | Business timezone is already used for the 07:00 email; reuse its source (`business_settings`), not device time. Settled by reading, tested with a fixed clock. |
@@ -80,7 +81,7 @@ cannot know a phone actually rendered it; not worth it for one owner. Recommenda
 2. **Android** (Codex builds per `scripts/codex-build.sh` in the Android repo; Claude reviews): drop `wantsBrief = { true }`
    for a function of the server verdict + stored last-shown; flip `BRIEF_ONCE_PER_DAY` semantic to the new rule; shorten splash
    when no brief. Proof: unit tests on `OfficeLogic`, then the local emulator walk — first open shows the brief once, second open goes
-   straight to Schedule, seeded urgent item brings it back, `kaname_enabled = 0` shows nothing.
+   straight to Schedule, seeded urgent item brings it back, a business whose top bar shows only Kaname gets the same behaviour.
 3. **iPhone**: same change in `MorningBriefStore` / `RootView.showBrief`; keep `markShown()`. Proof: LogicTests (`ios/LogicTests`),
    whole-app `swiftc -typecheck` and the iPhone 15 simulator with a synthetic flag, as in the directions. **iPhone is a TestFlight
    build on every push — I will not push iOS without asking Tim first.**
@@ -102,10 +103,9 @@ cannot know a phone actually rendered it; not worth it for one owner. Recommenda
 - **Rule drift between phones** (the project's recurring trap). Mitigation: verdict is computed once on the server.
 - **Empty or failed server reply** → client must fail *quiet*: no brief rather than a stuck overlay (the 2026-10-10 silent-skip trap
   in the other direction); the Kaname tab still works.
-- **Heritage/books-only compatibility:** `enabled=false` is checked before everything, so the other session's off-switch only
-  has to set one flag; no change to this rule is needed when it lands.
-- **Ready copy built every 15 min by cron for businesses with Kaname off** is wasted work — handled by the same flag, but that
-  cron skip belongs to the Heritage off-switch work, not here.
+- **Heritage/books-only compatibility:** the rule has no per-business off, so the top-bar setting needs no change here. Risk to check: a
+  books-only business has few or no other heads' lines, so the brief is often empty and therefore not shown on first open
+  (intended; the flow line and questions on the Kaname tab carry the work).
 - Android and iPhone code live outside this worktree's base; changes there need their own branches (Android repo `mowology-android`,
   iOS on `feature/language`), so this plan's branch carries documents only.
 
@@ -130,18 +130,17 @@ Two couplings the rule **must not break** (both from reading the code):
    "N in flow".
 2. Tapping a line in the brief routes to a head (`pendingHead`) — unaffected when the card is absent.
 
-**Books-only businesses (Heritage; Kaname off).** The flow line must then be hosted by Penny's own tab (Heritage plan finding 11).
-Design so the two flags stay independent:
-- `kaname_enabled` = the brief card, the Kaname tab, the Kaname dashboard card and his cron. Nothing more.
-- The flow line's **items** belong to the heads (adapters), and the line is only *hosted* somewhere. Web already hosts each head's items
-  on that head's pages, so Penny's strip is already on Penny's pages whether Kaname is on or off. On the phones, Penny's tab would
-  host it when Kaname is off.
-- The ready reply therefore carries a host hint, `flow_host` (default `"charlie"`; `"penny"` for books-only), next to
-  `open_now/reason`. The opening rule ignores it; the phones read it to decide which tab shows the line. The Heritage work implements the
-  hosting; this plan only reserves the field so the two do not collide. Unknown: where Penny's question cards live on iPhone/Android today
-  — Heritage session to confirm; not settled here.
-- Kaname's own questions ("which first?", `CharlieDeskService::questions()`) have no meaning without Kaname and disappear with him;
-  Penny's questions (her adapters) do not depend on Kaname and must keep working.
+**Books-only businesses (Heritage) — corrected 2026-11-13.** Kaname stays on and *hosts* the flow line and Penny's question cards
+on his own screen; the other heads leave the top bar until the owner turns their features on. So:
+- There is no `kaname_enabled` flag and no `flow_host` field in this plan (both dropped). Nothing moves the flow line to another head.
+- A per-business **top-bar heads setting** (default all heads, so Mowology is unchanged) is owned by the Heritage plan (findings 12 and 13).
+  This plan's only dependency on it: the Kaname tab and the flow line must keep working when the bar shows Kaname alone, and the
+  opening rule must not read the setting.
+- Kaname's flow line must therefore carry Penny's items (her adapters) on the Kaname screen on web/iPhone/Android when Penny's head is
+  not in the bar. Today the web strips show only on each head's own pages and the Kaname page has none (table above), so hosting them
+  on Kaname's screen is Heritage-plan work, not built here. Unknown, for the Heritage session: whether Kaname's "one decision at a time"
+  design (backlog 2026-11-11) is the same flow line.
+- The sign-in brief card is the one Kaname element a books-only business loses, and only through this plan's rule (mostly empty brief → not shown).
 
 ## Decisions I need from Tim
 
