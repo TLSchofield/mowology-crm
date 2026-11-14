@@ -46,7 +46,7 @@ Precisely:
    (`CharlieUrgentService`: failed payment ≥ the configured minimum, same-day weather), an overdue or ≤2-day legal/statutory
    deadline (`DeadlineService`), a held conflict or a decision waiting (`CharlieInboxService`). Not "any priority-1 line" —
    58 of 200 lines are priority 1 (traps 2026-11-03), so that would be every open again.
-4. **Never on a cold start from a notification tap, or for crew** (admin/owner only, as today).
+4. **The rule governs only the sign-in brief card (see §6): never the Kaname tab, the flow line or Penny's questions. Never on a cold start from a notification tap, or for crew** (admin/owner only, as today).
 5. The server returns the verdict inside the ready reply: `open_now: true|false`, `reason: "first_open|urgent|none|off"`, and
    `urgent_key` (a stable id of the newest urgent item). The client sends back nothing new: it keeps `lastShownDay` plus
    the `urgent_key` it last showed (two small stored values per device), and compares.
@@ -108,6 +108,40 @@ cannot know a phone actually rendered it; not worth it for one owner. Recommenda
   cron skip belongs to the Heritage off-switch work, not here.
 - Android and iPhone code live outside this worktree's base; changes there need their own branches (Android repo `mowology-android`,
   iOS on `feature/language`), so this plan's branch carries documents only.
+
+## 6. The flow line and the Kaname tab (added 2026-11-13, from Tim via the Heritage session)
+
+Tim: "kaname has the questions flowliner on it." **Constraint: the new rule governs only the brief card that opens on
+sign-in (`OpeningOverlay` / `wantsBrief`). It must never hide the Kaname tab, the flow line, or Penny's question cards
+(Record / Not now, etc.).** Read from `origin/feature/language` and the Android `codex/native` branch:
+
+| Surface | How the flow line is attached today | What happens when the brief card is not shown |
+|---|---|---|
+| **Web** | The flow line is the "job strip": `includes/ittai-job.php` (Penny), `-yui`, `-mia`, `-mia-ba`, `-sam`, `-otto`, included from `appstack_head.php` when the Ittai shell is on. Each shows **only on its own head's pages** (nav block `here`), owner only, fed by that head's `*JobAdapter` (Penny: `PennyJobAdapter`, `PennyMonthJobAdapter`, `PennyReceiptJobAdapter`). **`kaname_appstack.php` includes no strip.** Kaname's own "questions" (`CharlieDeskService::questions()` / `answer()`, "which first?", mute) render in the dashboard Kaname card (`charlie-card.js` `renderQuestions`). A Kaname flow line that offers decisions one at a time (~6 items) is in `ittai-backlog.md` (2026-11-11), **not started**. | Nothing changes: the web has no sign-in brief, and none of these read the rule. |
+| **iPhone** | Kaname tab = Team tab (`HeadCardView`): face, brief column, **Ask Kaname** box (`HeadCardView.swift:428`). The only job carousel found in the Team card is Yui's (`YuiJobsNode`); no Penny or Kaname flow line was found there (not verified further). | Tab, Ask box and any card are separate views from `OpeningOverlay`; unaffected, provided the rule gates *presentation* only. |
+| **Android** | Kaname tab (`OfficeScreens.kt`: hexagon centre "N in flow" from `ItOffice.kt:299`, Ask box). No job strip found. | Same: separate from `OpeningOverlay.kt`. |
+
+Two couplings the rule **must not break** (both from reading the code):
+1. The loader that fills the ready brief, brain cache and the Kaname tab's state (`MorningBriefLoader.load` on iPhone via
+   `RootView`; `vm.startBriefLoader()` inside `OpeningOverlay` on Android) also feeds the Kaname tab and the hexagon. So when
+   the verdict is "don't show", **skip only the card, not the load**. On Android the loader starts inside the overlay and the
+   day screen waits for `overlayDone` (`DayScreens.kt:366-372`), so the not-shown path must start the loader itself and mark
+   `overlayDone` at once. Proof: Android emulator walk — with the card suppressed, the Kaname tab still shows its brief and
+   "N in flow".
+2. Tapping a line in the brief routes to a head (`pendingHead`) — unaffected when the card is absent.
+
+**Books-only businesses (Heritage; Kaname off).** The flow line must then be hosted by Penny's own tab (Heritage plan finding 11).
+Design so the two flags stay independent:
+- `kaname_enabled` = the brief card, the Kaname tab, the Kaname dashboard card and his cron. Nothing more.
+- The flow line's **items** belong to the heads (adapters), and the line is only *hosted* somewhere. Web already hosts each head's items
+  on that head's pages, so Penny's strip is already on Penny's pages whether Kaname is on or off. On the phones, Penny's tab would
+  host it when Kaname is off.
+- The ready reply therefore carries a host hint, `flow_host` (default `"charlie"`; `"penny"` for books-only), next to
+  `open_now/reason`. The opening rule ignores it; the phones read it to decide which tab shows the line. The Heritage work implements the
+  hosting; this plan only reserves the field so the two do not collide. Unknown: where Penny's question cards live on iPhone/Android today
+  — Heritage session to confirm; not settled here.
+- Kaname's own questions ("which first?", `CharlieDeskService::questions()`) have no meaning without Kaname and disappear with him;
+  Penny's questions (her adapters) do not depend on Kaname and must keep working.
 
 ## Decisions I need from Tim
 
