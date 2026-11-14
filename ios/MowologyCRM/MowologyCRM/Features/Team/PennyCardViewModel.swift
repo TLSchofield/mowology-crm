@@ -189,7 +189,9 @@ final class PennyCardViewModel: ObservableObject {
     private func apply(_ r: BookkeeperQueueResponse) {
         messages = r.messages
         lines = r.lines
-        queue = r.queue
+        queue = PennyDecisionLogic.ordered(r.queue.map(Self.receiptDecision)).compactMap { decision in
+            r.queue.first { String($0.expenseId) == decision.id }
+        }
         payments = r.payments
         trackPayments()
         cheques = []   // one matcher: the payments cards cover cheques (r.cheques is for builds ≤ 1.3.107)
@@ -201,6 +203,28 @@ final class PennyCardViewModel: ObservableObject {
         fillForm()
         photoLinks = [:]
         linksLoadedAt = Date()
+        focusNextDecision()
+    }
+
+    /// The one source for Penny's page, its waiting count, and Kaname's row.
+    var decisions: [PennyDecision] {
+        queue.map(Self.receiptDecision)
+            + openPayments.compactMap { id in
+                paySnapshots[id].map { PennyDecision(kind: .depositMatch, id: String(id), name: $0.label) }
+            }
+            + openCheques.map { PennyDecision(kind: .cheque, id: String($0.txId), name: $0.label) }
+            + dupes.map { PennyDecision(kind: .duplicate, id: $0.id, name: "") }
+    }
+
+    var nextDecision: PennyDecision? { PennyDecisionLogic.nextDecision(decisions) }
+    var waitingCount: Int { decisions.count }
+
+    private static func receiptDecision(_ item: BookkeeperItem) -> PennyDecision {
+        let category = item.current("accounting_category")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let job = item.savedDraft?["job"]?.int ?? item.suggestion["job"]?.value.int ?? 0
+        let material = category.localizedCaseInsensitiveCompare("Materials") == .orderedSame || job > 0
+        return PennyDecision(kind: material ? .materialsReceipt : .receipt,
+                             id: String(item.expenseId), name: item.vendor ?? "Receipt")
     }
 
     // MARK: - Photo links
@@ -280,7 +304,9 @@ final class PennyCardViewModel: ObservableObject {
 
     func skip() {
         guard !queue.isEmpty else { return }
-        index = (index + 1) % queue.count
+        let skipped = queue.remove(at: index)
+        queue.append(skipped)
+        index = 0
         message = nil
         fillForm()
     }
@@ -363,6 +389,13 @@ final class PennyCardViewModel: ObservableObject {
     }
     /// Still waiting on Penny's card (not answered this sitting).
     var openPayments: [Int] { paySession.filter { payOutcomes[$0] == nil } }
+
+    /// Reopening Penny starts the payment carousel on the same decision Kaname names.
+    func focusNextDecision() {
+        let ids = paySession.map(String.init)
+        guard let position = PennyDecisionLogic.position(of: nextDecision, in: ids) else { return }
+        payPos = position
+    }
 
     func showPayment(at i: Int) { if paySession.indices.contains(i) { payPos = i } }
     /// After an answer: the next unanswered one (right to left), else the section is done and the duplicates come up.

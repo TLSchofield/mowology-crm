@@ -31,6 +31,8 @@ struct ReceiptsView: View {
     @State private var showErrorAlert = false
     @State private var showActionErrorAlert = false
     @State private var selectedExpense: Expense?
+    @State private var attentionExpense: Expense?
+    @State private var attentionExpenseToOpen: Expense?
 
     // The just-captured photo + fix, handed to the review sheet so it can show the
     // real image (the old sheet built its preview URL from the vendor name and never
@@ -128,6 +130,12 @@ struct ReceiptsView: View {
         // Otto's "Snap a product label" (MainTabView brings Receipts forward first): the same label capture as the ⋯ menu.
         .onReceive(NotificationCenter.default.publisher(for: .mwSnapLabelOnReceipts)) { _ in snap(label: true) }
         .task {
+#if DEBUG
+            if Self.receiptsListDemoEnabled {
+                listLoadedOnce = true
+                return
+            }
+#endif
             Task { await chase.loadMine() }   // alongside the list, never in front of it
             await viewModel.loadExpenses()
             listLoadedOnce = true
@@ -222,6 +230,17 @@ struct ReceiptsView: View {
         // saved receipt, closing the gap where iOS could only ever create drafts.
         .sheet(item: $selectedExpense) { expense in
             ReceiptDetailView(viewModel: viewModel, expense: expense, isAdmin: authSession.user?.isAdmin == true)
+        }
+        .sheet(item: $attentionExpense, onDismiss: {
+            if let expense = attentionExpenseToOpen {
+                attentionExpenseToOpen = nil
+                selectedExpense = expense
+            }
+        }) { expense in
+            ReceiptAttentionSheet(expense: expense) {
+                attentionExpenseToOpen = expense
+                attentionExpense = nil
+            }
         }
         // Upload spinner overlay
         .overlay {
@@ -514,10 +533,10 @@ struct ReceiptsView: View {
 
     private var expenseList: some View {
         Group {
-            if viewModel.isLoadingList && viewModel.expenses.isEmpty {
+            if viewModel.isLoadingList && displayedExpenses.isEmpty {
                 ProgressView("Loading…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.expenses.isEmpty {
+            } else if displayedExpenses.isEmpty {
                 VStack(spacing: 0) {
                     if !chase.items.isEmpty {
                         PennyCrewChaseCard(vm: chase, onSnap: snapForPenny)
@@ -535,19 +554,23 @@ struct ReceiptsView: View {
                         }
                         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                     }
-                    ForEach(viewModel.expenses) { expense in
-                        Button {
+                    ForEach(displayedExpenses) { expense in
+                        ExpenseRow(
+                            expense: expense,
+                            isSelectMode: isSelectMode,
+                            isSelected: selectedIds.contains(expense.id),
+                            onOpen: {
                             if isSelectMode {
                                 if selectedIds.contains(expense.id) { selectedIds.remove(expense.id) }
                                 else { selectedIds.insert(expense.id) }
                             } else {
                                 selectedExpense = expense
                             }
-                        } label: {
-                            ExpenseRow(expense: expense, isSelectMode: isSelectMode, isSelected: selectedIds.contains(expense.id))
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            },
+                            onAttention: { attentionExpense = expense }
+                        )
+                        .listRowInsets(EdgeInsets(top: ItSpace.s3, leading: ItSpace.s4,
+                                                  bottom: ItSpace.s3, trailing: ItSpace.s4))
                         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
                         // Swipe-to-delete — Android's mobile card has the same gesture.
                         // Forwarded receipts are part of the books; the server refuses
@@ -567,7 +590,7 @@ struct ReceiptsView: View {
                             .onAppear { Task { await viewModel.loadNextPage() } }
                     }
                 }
-                .listStyle(.insetGrouped)
+                .listStyle(.plain)
                 .itAppForm()
                 .refreshable {
                     await chase.loadMine()
@@ -576,6 +599,34 @@ struct ReceiptsView: View {
             }
         }
     }
+
+    private var displayedExpenses: [Expense] {
+#if DEBUG
+        if Self.receiptsListDemoEnabled { return Self.receiptsListDemoExpenses }
+#endif
+        return viewModel.expenses
+    }
+
+#if DEBUG
+    private static var receiptsListDemoEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-mwReceiptsListDemo")
+    }
+
+    private static let receiptsListDemoExpenses: [Expense] = {
+        let json = #"""
+        [
+          {"id":-1,"expense_date":"2026-11-14","vendor_name":"North Shore Landscape Supply and Equipment Services Limited.","total":1234.56,"accounting_category":"Office/Admin","status":"pending_approval","receipt_url":"https://example.invalid/receipt.jpg","created_at":"2026-11-14"},
+          {"id":-2,"expense_date":"2026-11-13","vendor_name":"Page 1 of 1","vendor_name_raw":"Page 1 of 1","total":8.25,"accounting_category":"Materials and supplies for seasonal equipment maintenance","status":"draft","created_at":"2026-11-13"},
+          {"id":-3,"expense_date":"2026-11-12","vendor_name":"Approved Merchant","total":42.00,"status":"approved","created_at":"2026-11-12"},
+          {"id":-4,"expense_date":"2026-11-11","vendor_name":"Rejected Merchant","total":19.99,"status":"rejected","rejection_reason":"Duplicate receipt","created_at":"2026-11-11"},
+          {"id":-5,"expense_date":"2026-11-10","vendor_name":"Sent Merchant","total":77.40,"status":"forwarded","forwarded_to_accounting":1,"created_at":"2026-11-10"},
+          {"id":-6,"expense_date":"2026-11-09","vendor_name":"High Anomaly Merchant","total":501.00,"status":"pending_approval","anomaly_score":31,"created_at":"2026-11-09"},
+          {"id":-7,"expense_date":"2026-11-08","vendor_name":"Medium Anomaly Merchant","total":87.65,"status":"draft","anomaly_score":16,"archived_at":"2026-11-14","created_at":"2026-11-08"}
+        ]
+        """#
+        return (try? JSONDecoder().decode([Expense].self, from: Data(json.utf8))) ?? []
+    }()
+#endif
 
     private var emptyState: some View {
         let showsHint = ReceiptsEmptyWording.showsHint(hasLoaded: listLoadedOnce, isLoading: viewModel.isLoadingList,
@@ -865,74 +916,87 @@ private struct WaitingReceiptsView: View {
 private struct ExpenseRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
     let expense: Expense
     var isSelectMode: Bool = false
     var isSelected: Bool = false
+    let onOpen: () -> Void
+    let onAttention: () -> Void
 
     var body: some View {
-        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
+        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: ItSpace.s3)) : AnyLayout(HStackLayout(spacing: ItSpace.s3))) {
             if isSelectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(appStyle.font(.title3))
-                    .foregroundStyle(isSelected ? appStyle.tenant : appStyle.meta)
+                    .foregroundStyle(isSelected ? it.color(.brand) : appStyle.meta)
             }
             receiptThumb
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(expense.displayVendor)
+            VStack(alignment: .leading, spacing: ItSpace.s1) {
+                (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: ItSpace.s1)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: ItSpace.s2))) {
+                    Text(merchantIsDoubtful ? "Check merchant" : expense.displayVendor)
                         .font(appStyle.font(.subheadline, weight: .semibold))
-                        .lineLimit(appStyle.isEnabled ? nil : 1)
+                        .foregroundStyle(merchantIsDoubtful ? it.color(.brand) : appStyle.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if expense.isArchived {
                         Image(systemName: "archivebox.fill")
                             .font(appStyle.font(.caption2))
                             .foregroundStyle(appStyle.meta)
+                            .accessibilityLabel("Archived")
                     }
-                    anomalyIcon
-                }
-                HStack(spacing: 6) {
-                    Text(formattedDate)
-                        .font(appStyle.font(.caption))
-                        .foregroundStyle(appStyle.meta)
-                    if let cat = expense.accountingCategory {
-                        Text(cat)
-                            .font(appStyle.font(.caption2, weight: .medium))
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(appStyle.tenant.opacity(0.1))
-                            .foregroundStyle(appStyle.tenant)
-                            .clipShape(Capsule())
-                    }
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                HStack(spacing: 4) {
-                    confidenceDot
+                    Spacer(minLength: 0)
                     Text("$\(expense.total, specifier: "%.2f")")
                         .font(appStyle.font(.subheadline, weight: .semibold))
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
-                statusBadge
+                if merchantIsDoubtful {
+                    Text(expense.displayVendor)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityLabel("Stored merchant text: \(expense.displayVendor)")
+                }
+                Text(formattedDate)
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
+                    .lineLimit(1)
+                if let category = expense.accountingCategory, !category.isEmpty {
+                    Text(category)
+                        .font(appStyle.font(.caption, weight: .medium))
+                        .foregroundStyle(it.color(.brand))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .truncationMode(.tail)
+                }
+                HStack(spacing: ItSpace.s2) {
+                    statusBadge
+                    if expense.anomalyTier != nil, !isSelectMode {
+                        Text("Check")
+                            .font(appStyle.font(.caption, weight: .semibold))
+                            .foregroundStyle(it.color(.brand))
+                            .frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone)
+                            .contentShape(Rectangle())
+                            .highPriorityGesture(TapGesture().onEnded(onAttention))
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { onAttention() }
+                            .accessibilityHint("Shows why this receipt needs attention")
+                    }
+                }
+                if expense.status == "rejected" {
+                    Text(rejectionDetail)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
         }
-        .padding(.vertical, 2)
-    }
-
-    /// OCR extraction trust signal — matches Android's mw-mc-conf-dot thresholds.
-    @ViewBuilder
-    private var confidenceDot: some View {
-        if let tier = expense.confidenceTier {
-            let color: Color = tier == "high" ? appStyle.tenant : (tier == "medium" ? appStyle.attention : appStyle.blocked)
-            Circle().fill(color).frame(width: 6, height: 6)
-        }
-    }
-
-    /// Anomaly risk signal — matches the desktop/Android alert-triangle / alert-circle icons.
-    @ViewBuilder
-    private var anomalyIcon: some View {
-        if let tier = expense.anomalyTier {
-            Image(systemName: tier == "high" ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
-                .font(appStyle.font(.caption2))
-                .foregroundStyle(tier == "high" ? appStyle.blocked : appStyle.attention)
-        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
     }
 
     private var receiptThumb: some View {
@@ -941,23 +1005,28 @@ private struct ExpenseRow: View {
                 AsyncImage(url: url) { img in
                     img.resizable().scaledToFill()
                 } placeholder: {
-                    appStyle.sunk
+                    receiptPlaceholder
                 }
-                .frame(width: 44, height: 44)
+                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
                 .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             } else {
-                RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
-                    .fill(appStyle.sunk)
-                    .frame(width: 44, height: 44)
-                    .overlay { Image(systemName: "doc.text").foregroundStyle(appStyle.meta) }
+                receiptPlaceholder
             }
         }
+        .accessibilityHidden(true)
+    }
+
+    private var receiptPlaceholder: some View {
+        RoundedRectangle(cornerRadius: appStyle.cornerRadius(8))
+            .fill(appStyle.sunk)
+            .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+            .overlay { Image(systemName: "doc.text").foregroundStyle(appStyle.meta) }
     }
 
     private var statusBadge: some View {
         let (label, color): (String, Color) = switch expense.status {
         case "forwarded":        ("Sent", appStyle.progress)
-        case "approved":         ("Approved", appStyle.tenant)
+        case "approved":         ("Approved", it.color(.brand))
         case "rejected":         ("Rejected", appStyle.blocked)
         case "pending_approval": ("Pending", appStyle.attention)
         default:                 ("Draft", appStyle.attention)
@@ -970,6 +1039,16 @@ private struct ExpenseRow: View {
             .clipShape(Capsule())
     }
 
+    private var merchantIsDoubtful: Bool {
+        ReceiptRowRules.isMerchantDoubtful(expense.displayVendor)
+    }
+
+    private var rejectionDetail: String {
+        guard let reason = expense.rejectionReason?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reason.isEmpty else { return "Open to see details" }
+        return reason
+    }
+
     private var formattedDate: String {
         // A receipt's date is a Vancouver calendar day; read and shown in that zone (GMT showed it a day early).
         guard let date = VancouverDay.date(from: expense.expenseDate) else { return expense.expenseDate }
@@ -980,6 +1059,55 @@ private struct ExpenseRow: View {
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; f.timeZone = VancouverDay.zone
         return f
+    }()
+}
+
+private struct ReceiptAttentionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
+    let expense: Expense
+    let onOpen: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: ItSpace.s3) {
+                Text("Penny flagged this as unusual")
+                    .font(appStyle.font(.headline, weight: .semibold))
+                LabeledContent("Amount") {
+                    Text("$\(expense.total, specifier: "%.2f")")
+                }
+                LabeledContent("Date", value: formattedDate)
+                Spacer()
+                Button("Open receipt", action: onOpen)
+                    .font(appStyle.font(.headline, weight: .semibold))
+                    .foregroundStyle(it.color(.brand))
+                    .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+                    .contentShape(Rectangle())
+            }
+            .padding(ItSpace.s4)
+            .navigationTitle("Check receipt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private var formattedDate: String {
+        guard let date = VancouverDay.date(from: expense.expenseDate) else { return expense.expenseDate }
+        return Self.dateFormatter.string(from: date)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.timeZone = VancouverDay.zone
+        return formatter
     }()
 }
 

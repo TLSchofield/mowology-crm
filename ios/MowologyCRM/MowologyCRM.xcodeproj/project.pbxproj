@@ -214,6 +214,8 @@
 		791F6B967EC0BB6352EA1946 /* SignedOutFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B3CD314C11FBA1227CAC15 /* SignedOutFlow.swift */; };
 		E60568D4925CB6D3710879D6 /* SignUpDemos.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E3A00E1E63819CF01E1AA0 /* SignUpDemos.swift */; };
 		A2A2175BB0710F6B63E8E386 /* OnboardingBarLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58374817D2C8AA812F4FFA3A /* OnboardingBarLogic.swift */; };
+		CA01607D79E0D6D19C56BE7C /* VendorItemCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */; };
+		C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -426,6 +428,8 @@
 		C8B3CD314C11FBA1227CAC15 /* SignedOutFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignedOutFlow.swift; sourceTree = "<group>"; };
 		F8E3A00E1E63819CF01E1AA0 /* SignUpDemos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpDemos.swift; sourceTree = "<group>"; };
 		58374817D2C8AA812F4FFA3A /* OnboardingBarLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingBarLogic.swift; sourceTree = "<group>"; };
+		5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendorItemCache.swift; sourceTree = "<group>"; };
+		FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptRowRules.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -448,6 +452,7 @@
 				39CF703CAC977B35CD57A3F5 /* CreateOutbox.swift */,
 				75EED827CE0FAB32D41D7584 /* CreateOutboxLogic.swift */,
 				AAFBF79F68E73643CD620F5B /* OfflineDirectory.swift */,
+				5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -707,6 +712,7 @@
 				DF5ECFE56CA829F4EC0E4908 /* ReceiptZoomView.swift */,
 				C1E7CEBFCF8EA9921483CEA4 /* ReceiptCameraView.swift */,
 				80A3D02400267F862033A33A /* ReceiptsEmptyWording.swift */,
+				FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
@@ -1124,6 +1130,8 @@
 				791F6B967EC0BB6352EA1946 /* SignedOutFlow.swift in Sources */,
 				E60568D4925CB6D3710879D6 /* SignUpDemos.swift in Sources */,
 				A2A2175BB0710F6B63E8E386 /* OnboardingBarLogic.swift in Sources */,
+				CA01607D79E0D6D19C56BE7C /* VendorItemCache.swift in Sources */,
+				C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

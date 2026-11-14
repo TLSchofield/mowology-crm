@@ -16,6 +16,9 @@ import SwiftUI
 
 enum SpineMetrics {
     static let ring: CGFloat = 44
+    static let compactRing: CGFloat = 28
+    static let lineWidth: CGFloat = 1
+    static let nodeHalo: CGFloat = 6
     /// The circle's frame (ring + page gap); the line runs down its middle in the large-text layout.
     static let slot: CGFloat = ring + 6
 }
@@ -26,7 +29,7 @@ struct SpineLine: View {
     @Environment(\.itAppStyle) private var appStyle
 
     var body: some View {
-        Rectangle().fill(appStyle.line).frame(width: 1)
+        Rectangle().fill(appStyle.line).frame(width: SpineMetrics.lineWidth)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: large ? .leading : .center)
             .padding(.leading, large ? SpineMetrics.slot / 2 : 0)
             .accessibilityHidden(true)
@@ -181,7 +184,7 @@ struct SpineNode<Content: View>: View {
         let brand = appStyle.isEnabled ? appStyle.palette.color(.brand) : Color.indigo
         let ring = SpineMetrics.ring
         return ZStack {
-            Circle().fill(appStyle.page).frame(width: ring + 6, height: ring + 6)
+            Circle().fill(appStyle.page).frame(width: ring + SpineMetrics.nodeHalo, height: ring + SpineMetrics.nodeHalo)
             Circle().stroke(isOpen ? appStyle.line : brand, lineWidth: isOpen ? 1 : 1.5).frame(width: ring, height: ring)
             if isOpen { Circle().fill(brand).frame(width: ring - 10, height: ring - 10) }
             Image(systemName: symbol).font(.system(size: ring * 0.36, weight: .semibold))
@@ -203,6 +206,67 @@ struct SpineNode<Content: View>: View {
             inner
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(appStyle.page)
+        }
+    }
+}
+
+/// The first node on every head. It opens in place once, then remembers its compact circled-i form per head.
+struct SpineInfoNode<Content: View>: View {
+    let slug: String
+    @ViewBuilder let content: () -> Content
+    @AppStorage private var read: Bool
+    @State private var reopened = false
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(slug: String, @ViewBuilder content: @escaping () -> Content) {
+        self.slug = slug
+        self.content = content
+        _read = AppStorage(wrappedValue: false, "spine.infoRead.\(slug)")
+    }
+
+    private var isOpen: Bool { !read || reopened }
+
+    var body: some View {
+        let large = dynamicTypeSize.isAccessibilitySize
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                    if isOpen { read = true; reopened = false } else { reopened = true }
+                }
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: SpineMetrics.compactRing * 0.62, weight: .semibold))
+                    .foregroundStyle(appStyle.palette.color(.brand))
+                    .frame(width: SpineMetrics.compactRing, height: SpineMetrics.compactRing)
+                    .background(appStyle.page, in: Circle())
+                    .frame(width: SpineMetrics.slot, height: SpineMetrics.slot)
+                    .frame(maxWidth: .infinity, alignment: large ? .leading : .center)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("How this works")
+            .accessibilityValue(isOpen ? "Open" : "Closed")
+            if isOpen {
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, ItSpace.s4)
+                    .padding(.bottom, ItSpace.s4)
+                    .padding(.top, SpineMetrics.slot / 2 + ItSpace.s2)
+                    .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: SpineMetrics.lineWidth))
+                    .padding(.top, -SpineMetrics.slot / 2)
+            }
+        }
+        .padding(.vertical, ItSpace.s2)
+        .background(SpineLine(large: large))
+        .background {
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.frame(in: .global).maxY) { _, maxY in
+                    // Reading is complete when the open card has passed above the viewport. Reopening remains explicit.
+                    if isOpen, maxY < 0 { read = true; reopened = false }
+                }
+            }
         }
     }
 }

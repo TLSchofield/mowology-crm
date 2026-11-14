@@ -139,30 +139,25 @@ struct ReceiptDetailView: View {
             ZoomableReceiptView(url: t.url)
         }
         .task(id: expense.id) { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) }
-        .alert("Rename item", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
-            TextField("Item name", text: $renameText)
-            Button("Save") {
-                if let item = renameItem {
-                    let v = renameText.trimmingCharacters(in: .whitespaces)
-                    if !v.isEmpty {
-                        Task {
-                            if let updated = await viewModel.updateLineItem(id: item.id, name: v, quantity: nil, unitPrice: nil, lineTotal: nil) {
-                                replaceLineItem(updated)
-                            }
+        .sheet(item: $renameItem) { item in
+            VendorItemPickerSheet(title: "Rename item", vendorId: expense.vendorId, viewModel: viewModel,
+                                  name: $renameText, amount: .constant(""), showsAmount: false) {
+                let v = renameText.trimmingCharacters(in: .whitespaces)
+                if !v.isEmpty {
+                    Task {
+                        if let updated = await viewModel.updateLineItem(id: item.id, name: v, quantity: nil, unitPrice: nil, lineTotal: nil) {
+                            replaceLineItem(updated)
                         }
                     }
                 }
                 renameItem = nil
+            } onCancel: {
+                renameItem = nil
             }
-            Button("Cancel", role: .cancel) { renameItem = nil }
-        } message: {
-            Text("Corrections teach the parser what this line really says for this vendor.")
         }
-        .alert("Add missed item", isPresented: $showAddItem) {
-            TextField("Item name (as printed)", text: $addItemName)
-            TextField("Line total ($)", text: $addItemAmount)
-                .keyboardType(.decimalPad)
-            Button("Add") {
+        .sheet(isPresented: $showAddItem) {
+            VendorItemPickerSheet(title: "Add missed item", vendorId: expense.vendorId, viewModel: viewModel,
+                                  name: $addItemName, amount: $addItemAmount, showsAmount: true) {
                 let n = addItemName.trimmingCharacters(in: .whitespaces)
                 let amt = ReceiptNumber.parse(addItemAmount) ?? 0
                 addItemName = ""; addItemAmount = ""
@@ -172,8 +167,10 @@ struct ReceiptDetailView: View {
                         lineItems.append(added)
                     }
                 }
+                showAddItem = false
+            } onCancel: {
+                addItemName = ""; addItemAmount = ""; showAddItem = false
             }
-            Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
         }
     }
 
@@ -1046,6 +1043,107 @@ struct ZoomableReceiptView: View {
             failed = ErrorDetails.describe(error)
             AppDiagnostics.shared.record(category: "ReceiptImage", message: failed ?? "")
         }
+    }
+}
+
+/// Shared by pre-save review and saved-receipt detail. Suggestions are always filtered on-device,
+/// so an expired copy remains useful while a refresh is unavailable.
+struct VendorItemPickerSheet: View {
+    @Environment(\.itAppStyle) private var appStyle
+    let title: String
+    let vendorId: Int?
+    @ObservedObject var viewModel: ReceiptsViewModel
+    @Binding var name: String
+    @Binding var amount: String
+    let showsAmount: Bool
+    let onSubmit: () -> Void
+    let onCancel: () -> Void
+
+    @State private var suggestions: [VendorItemSuggestion] = []
+    @State private var hasEditedName = false
+    @FocusState private var nameFocused: Bool
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var matches: [VendorItemSuggestion] {
+        VendorItemRules.filter(
+            suggestions,
+            query: VendorItemRules.pickerQuery(name: name, hasEditedName: hasEditedName)
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Item name (as printed)", text: $name)
+                        .focused($nameFocused)
+                        .textInputAutocapitalization(.words)
+                        .onChange(of: name) { _, _ in hasEditedName = true }
+                    if showsAmount {
+                        TextField("Line total ($)", text: $amount)
+                            .keyboardType(.decimalPad)
+                    }
+                }
+                .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+
+                if vendorId != nil && !matches.isEmpty {
+                    Section("Supplier items") {
+                        ForEach(matches) { item in
+                            Button {
+                                name = item.name
+                                if showsAmount, let total = item.suggestedTotal {
+                                    amount = String(format: "%.2f", total)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(item.name)
+                                        .foregroundStyle(appStyle.text)
+                                        .multilineTextAlignment(.leading)
+                                    Spacer()
+                                    if let total = item.suggestedTotal {
+                                        Text(total, format: .currency(code: "CAD"))
+                                            .foregroundStyle(appStyle.meta)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(item.suggestedTotal.map {
+                                "\(item.name), \($0.formatted(.currency(code: "CAD")))"
+                            } ?? item.name)
+                        }
+                    }
+                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+                }
+            }
+            .itAppForm()
+            .itAppScreen()
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                        .foregroundStyle(appStyle.tenant)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(submitLabel, action: onSubmit)
+                        .foregroundStyle(appStyle.tenant)
+                        .disabled(trimmedName.isEmpty)
+                }
+            }
+            .task(id: vendorId) {
+                guard let vendorId else { nameFocused = true; return }
+                suggestions = VendorItemCache.shared.items(vendorId: vendorId)
+                suggestions = await viewModel.vendorItems(vendorId: vendorId)
+                nameFocused = true
+            }
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private var submitLabel: String {
+        if title == "Rename item" { return "Save" }
+        return trimmedName.isEmpty ? "Add" : "Add ‘\(trimmedName)’"
     }
 }
 

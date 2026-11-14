@@ -12,6 +12,7 @@ import UIKit
 
 struct PennyCardView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @ObservedObject var vm: PennyCardViewModel
     /// Opens the "Waiting now" section on Penny's spine (the workspace's guide and her lines).
@@ -30,7 +31,7 @@ struct PennyCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SpineNode(slug: "penny", id: "now", title: "Waiting now", symbol: "tray.full.fill",
-                      waiting: HeadSpineLogic.count(vm.payments.count + vm.cheques.count + vm.dupes.count + vm.queue.count, "waiting"),
+                      waiting: HeadSpineLogic.count(vm.waitingCount, "waiting"),
                       defaultOpen: true, framed: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     lead
@@ -55,7 +56,10 @@ struct PennyCardView: View {
         .fullScreenCover(item: $pagerTarget) { t in
             DupePhotoPager(urls: t.urls, labels: t.labels, reads: t.reads, start: t.start)
         }
-        .onAppear { refreshLinks() }
+        .onAppear {
+            vm.focusNextDecision()
+            refreshLinks()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshLinks() }
         }
@@ -73,31 +77,22 @@ struct PennyCardView: View {
                 .padding(.vertical, 40)
         } else if let err = vm.loadError, vm.queue.isEmpty && vm.dupes.isEmpty && vm.cheques.isEmpty && vm.paySession.isEmpty {
             errorState(err)
-        } else if vm.showsPayments, vm.currentPayment != nil {
+        } else if vm.nextDecision?.kind == .materialsReceipt, let item = vm.current {
+            receiptCard(item)
+        } else if vm.nextDecision?.kind == .depositMatch, vm.showsPayments, vm.currentPayment != nil {
             // Every deposit the payments matcher proposes, first (the same list as "N deposits matched"); answered
             // ones keep their number in the row and open in their answered state. Swiped, the next one peeking.
             PennyPaymentCarousel(vm: vm, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-            if vm.showsDupes, let group = vm.currentDupe {
-                dupeCard(group).id(group.id).padding(.top, 18)
-            }
         } else if let done = vm.chequeDone {
             // Recorded: the cheque and its invoice are one (Tim, 2026-11-06), duplicates under it as before.
             PennyChequeDoneCard(vm: vm, done: done, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
-            if vm.showsDupes, let group = vm.currentDupe {
-                dupeCard(group).id(group.id).padding(.top, 18)
-            }
-        } else if let cheque = vm.currentCheque {
+        } else if vm.nextDecision?.kind == .cheque, let cheque = vm.currentCheque {
             // Likely cheques first (Tim, 2026-11-06), with the duplicates still under them on the same line
             // ("duplicates have vanished" — one-at-a-time hid them until every cheque was answered); receipts after.
             PennyChequeCard(vm: vm, cheque: cheque, extendsLine: !(vm.showsDupes && vm.currentDupe != nil))
                 .id(cheque.id)
                 .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
-            if vm.showsDupes, let group = vm.currentDupe {
-                dupeCard(group)
-                    .id(group.id)
-                    .padding(.top, 18)
-            }
-        } else if vm.showsDupes, let group = vm.currentDupe {
+        } else if vm.nextDecision?.kind == .duplicate, vm.showsDupes, let group = vm.currentDupe {
             dupeCard(group)
                 .id(group.id)
                 .transition(.asymmetric(insertion: .move(edge: vm.dupeSwipeForward ? .leading : .trailing).combined(with: .opacity),
@@ -556,12 +551,10 @@ struct PennyCardView: View {
             .modifier(PaymentConfidenceTriangle.Seat(level: level))
         }
         .background(alignment: .top) {
-                Rectangle().fill(appStyle.line)
-                    .frame(width: 1)
+                SpineLine(large: dynamicTypeSize.isAccessibilitySize)
                     .frame(maxHeight: .infinity)
                     .padding(.top, 31)                // from the icon's centre
                     .padding(.bottom, -400)          // runs on past the card toward the Kaname button
-                    .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
         }
     }

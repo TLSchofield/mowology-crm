@@ -22,6 +22,7 @@ struct BusinessOnboardingView: View {
     @State private var keyboardUp = false
     @State private var rolling = false      // the lone bead is rolling to Receipts
     @State private var rolled = false
+    @State private var afterRollTab: Int?   // a tab pressed after the roll and before the app takes over (the demo bar has no app behind it)
     @State private var glowHigh = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.itAppStyle) private var appStyle
@@ -50,9 +51,15 @@ struct BusinessOnboardingView: View {
                 ItMeniscusItem(id: i, title: t, icon: rollIcon(i), iconScale: i == OnboardingBarLogic.rollFromSlot ? 1.35 : 1,
                 beadColor: i == OnboardingBarLogic.rollFromSlot ? UIColor(it.color(.brand)) : nil) }
             : OnboardingBarLogic.tabs().map { _ in bar }
-        let selected = rolling ? (rolled ? OnboardingBarLogic.rollToSlot : OnboardingBarLogic.rollFromSlot) : OnboardingBarLogic.selectedIndex
-        return ItMeniscusBar(items: items, selected: selected, onSelect: { _ in },
+        let selected = rolling ? (rolled ? (afterRollTab ?? OnboardingBarLogic.rollToSlot) : OnboardingBarLogic.rollFromSlot) : OnboardingBarLogic.selectedIndex
+        return ItMeniscusBar(items: items, selected: selected, onSelect: { i in if rolled { afterRollTab = i } },
                              onReselect: { _ in if donePulses { startRoll() } })
+            // DEBUG demo only: -mwAutoRollDemo taps the pulsing bead by itself, so the roll can be screenshotted.
+            .task {
+                guard ProcessInfo.processInfo.arguments.contains("-mwAutoRollDemo") else { return }
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                if donePulses { startRoll() }
+            }
             .overlay(alignment: .top) {
                 if donePulses {
                     ZStack {

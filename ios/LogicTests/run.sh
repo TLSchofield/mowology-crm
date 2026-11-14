@@ -16,9 +16,17 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Receipts list: conservative detection of OCR text that is not a merchant name.
+cp "$ROOT/ios/LogicTests/ReceiptRowTests.swift" "$OUT/main.swift"
+run receiptrow "$SRC/Features/Receipts/ReceiptRowRules.swift" "$OUT/main.swift"
+
 # Shared two-line work-screen header: admin visibility, state copy, dismissal, and selection controls.
 cp "$ROOT/ios/LogicTests/ScreenHeaderTests.swift" "$OUT/main.swift"
 run screenheader -DSCREEN_HEADER_LOGIC_ONLY "$SRC/Features/Team/ScreenHead.swift" "$OUT/main.swift"
+
+# Supplier item lookup: 24-hour expiry, local filtering/ranking, merge and 60-row cap.
+cp "$ROOT/ios/LogicTests/VendorItemRulesTests.swift" "$OUT/main.swift"
+run vendoritems -DVENDOR_ITEM_RULES_ONLY "$SRC/Core/Offline/VendorItemCache.swift" "$OUT/main.swift"
 
 # Main-thread stall decisions and same-build crash-loop evaluation.
 cp "$ROOT/ios/LogicTests/CrashGuardTests.swift" "$OUT/main.swift"
@@ -48,6 +56,10 @@ run createoutbox "$SRC/Core/Offline/CreateOutboxLogic.swift" "$OUT/main.swift"
 # The head's spine (2026-11-07): right-hand counts, open state, role lines.
 cp "$ROOT/ios/LogicTests/HeadSpineTests.swift" "$OUT/main.swift"
 run headspine "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
+
+# Penny's one next-decision rule: materials/job receipts first, then deposits, cheques, duplicates, receipts.
+cp "$ROOT/ios/LogicTests/PennyDecisionTests.swift" "$OUT/main.swift"
+run pennydecision "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
 
 cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
 run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" "$OUT/main.swift"

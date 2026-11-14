@@ -217,6 +217,10 @@ enum APIEndpoint {
     /// because the /api/ router's rewrite appends its own `action` param.
     case expenseLookup(query: [URLQueryItem])
 
+    /// GET /api/expenses/expense-lookup?type=vendor_items&vendor_id=N — a supplier's
+    /// learned receipt lines and active catalogue, for the offline item picker.
+    case vendorItems(vendorId: Int)
+
     /// POST /api/expenses/expense-delete — delete an own draft expense (JWT). Body: { id }
     case expenseDelete
 
@@ -567,6 +571,14 @@ enum APIEndpoint {
             components?.queryItems = query
             return components?.url
 
+        case .vendorItems(let vendorId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
+            components?.queryItems = [
+                URLQueryItem(name: "type", value: "vendor_items"),
+                URLQueryItem(name: "vendor_id", value: "\(vendorId)"),
+            ]
+            return components?.url
+
         case .expenseDelete:
             return URL(string: "\(baseURLString)/expenses/expense-delete")
 
@@ -799,6 +811,7 @@ enum APIEndpoint {
              .ottoMissedReview,
              .ottoMissedReviewAction,
              .expenseLookup,
+             .vendorItems,
              .expenseDelete,
              .expenseLineItems,
              .expenseLineItemAction,
@@ -905,6 +918,7 @@ enum APIEndpoint {
              .pennyKnowledgeItems,
              .ottoMissedReview,
              .expenseLookup,
+             .vendorItems,
              .expenseLineItems,
              .scheduleJobs,
              .scheduleInvoices,
