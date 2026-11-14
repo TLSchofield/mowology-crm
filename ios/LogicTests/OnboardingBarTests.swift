@@ -18,6 +18,9 @@ check(OnboardingBarLogic.rollTitles[OnboardingBarLogic.rollFromSlot] == "Kaname"
 check(OnboardingBarLogic.pulses(screenKey: "done", rolling: false), "pulses on Done")
 check(!OnboardingBarLogic.pulses(screenKey: "company", rolling: false), "not on other steps")
 check(!OnboardingBarLogic.pulses(screenKey: "done", rolling: true), "not while rolling")
+check(OnboardingBarLogic.beadColorKind(screenKey: "done") == .gold, "Done bead is gold")
+check(OnboardingBarLogic.beadColorKind(screenKey: "company") == .brand, "earlier-step bead stays brand")
+check(OnboardingBarLogic.beadColorKind(screenKey: "") == .brand, "unknown-step bead stays brand")
 check(OnboardingBarLogic.pulseScale(reduceMotion: true, high: true) == 1.0, "Reduce Motion: no pulse")
 check(OnboardingBarLogic.pulseScale(reduceMotion: false, high: true) == 1.07, "pulse peak")
 

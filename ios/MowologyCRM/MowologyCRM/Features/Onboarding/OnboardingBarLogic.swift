@@ -11,6 +11,7 @@ import Foundation
 
 enum OnboardingBarLogic {
     enum Tab: Equatable { case kaname }
+    enum BeadColorKind: Equatable { case brand, gold }
 
     /// The bar's tabs while the account is being set up: Kaname alone.
     static func tabs() -> [Tab] { [.kaname] }
@@ -31,6 +32,8 @@ enum OnboardingBarLogic {
 
     /// The lone bead pulses and glows only on the Done step, until it is tapped.
     static func pulses(screenKey: String, rolling: Bool) -> Bool { screenKey == "done" && !rolling }
+    /// Completion is the one onboarding state that uses the antique-gold Kaname bead.
+    static func beadColorKind(screenKey: String) -> BeadColorKind { screenKey == "done" ? .gold : .brand }
     /// Reduce Motion: a static glow, no pulse.
     static func pulseScale(reduceMotion: Bool, high: Bool) -> Double { reduceMotion ? 1.0 : (high ? 1.07 : 1.0) }
     static let pulseSeconds = 1.6

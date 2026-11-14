@@ -28,15 +28,32 @@ struct BusinessOnboardingView: View {
     @Environment(\.itAppStyle) private var appStyle
     var showsBar = true
 
-    private var bar: ItMeniscusItem { ItMeniscusItem(id: 0, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35,
-                                                      beadLabel: donePulses ? "Double tap to begin" : nil,
-                                                      beadColor: UIColor(it.color(.brand))) }
+    private var screenKey: String? {
+        vm.map.map { BusinessOnboardingLogic.screenKey(current: vm.current, map: $0) }
+    }
+
+    private var beadColorKind: OnboardingBarLogic.BeadColorKind {
+        OnboardingBarLogic.beadColorKind(screenKey: screenKey ?? "")
+    }
+
+    private var beadColor: Color {
+        beadColorKind == .gold ? ItOpeningColors.gold : it.color(.brand)
+    }
+
+    private var beadContentColor: Color? {
+        beadColorKind == .gold ? ItOpeningColors.navy : nil
+    }
+
+    private var bar: ItMeniscusItem {
+        ItMeniscusItem(id: 0, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35,
+                       beadLabel: donePulses ? "Double tap to begin" : nil,
+                       beadColor: UIColor(beadColor),
+                       beadContentColor: beadContentColor.map { UIColor($0) })
+    }
     private var barReserve: CGFloat { showsBar && !keyboardUp ? MainTabView.barReserve : 0 }
 
     private var donePulses: Bool {
-        guard let map = vm.map else { return false }
-        let key = BusinessOnboardingLogic.screenKey(current: vm.current, map: map)
-        return OnboardingBarLogic.pulses(screenKey: key, rolling: rolling)
+        OnboardingBarLogic.pulses(screenKey: screenKey ?? "", rolling: rolling)
     }
 
     private func rollIcon(_ i: Int) -> ItMeniscusIcon {
@@ -63,12 +80,13 @@ struct BusinessOnboardingView: View {
             .overlay(alignment: .top) {
                 if donePulses {
                     ZStack {
-                        Circle().fill(it.color(.brand).opacity(glowHigh ? 0.38 : 0.1)).frame(width: ItMeniscusGeometry.bead + 26, height: ItMeniscusGeometry.bead + 26)
+                        Circle().fill(beadColor.opacity(glowHigh ? 0.38 : 0.1)).frame(width: ItMeniscusGeometry.bead + 26, height: ItMeniscusGeometry.bead + 26)
                             .blur(radius: 9)
-                        Circle().stroke(it.color(.brand).opacity(glowHigh ? 0.7 : 0.25), lineWidth: 3).frame(width: ItMeniscusGeometry.bead + 6, height: ItMeniscusGeometry.bead + 6)
-                        Circle().fill(it.color(.brand)).frame(width: ItMeniscusGeometry.bead, height: ItMeniscusGeometry.bead)
+                        Circle().stroke(beadColor.opacity(glowHigh ? 0.7 : 0.25), lineWidth: 3).frame(width: ItMeniscusGeometry.bead + 6, height: ItMeniscusGeometry.bead + 6)
+                        Circle().fill(beadColor).frame(width: ItMeniscusGeometry.bead, height: ItMeniscusGeometry.bead)
                             .overlay(Image(uiImage: KanameTabIcon.image).renderingMode(.template).resizable().scaledToFit()
-                                .frame(width: ItMeniscusToken.icon * 1.35, height: ItMeniscusToken.icon * 1.35).foregroundStyle(Color.white))
+                                .frame(width: ItMeniscusToken.icon * 1.35, height: ItMeniscusToken.icon * 1.35)
+                                .foregroundStyle(beadContentColor ?? Color.white))
                             .scaleEffect(OnboardingBarLogic.pulseScale(reduceMotion: reduceMotion, high: glowHigh))
                     }
                     .frame(width: ItMeniscusGeometry.bead + 40, height: ItMeniscusGeometry.bead + 40)
@@ -434,4 +452,3 @@ private struct AccountantStep: View {
         }
     }
 }
-
