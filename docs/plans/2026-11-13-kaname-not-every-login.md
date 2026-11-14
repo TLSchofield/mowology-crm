@@ -147,6 +147,39 @@ on his own screen; the other heads leave the top bar until the owner turns their
   appear (empty brief → not shown; the next day with invoicing lines → shown once).
 - The sign-in brief card is the one Kaname element a books-only business loses, and only through this plan's rule (mostly empty brief → not shown).
 
+## 7. The heads strip goes for everyone (added 2026-11-13, from Tim via the Heritage session, finding 17)
+
+Tim's decision: the row of faces under "Kaname" goes for **everyone**. A head's page opens by tapping that head's name or face inside a
+card or flow-line item; every head stays reachable under More; the top bar carries no faces.
+
+**How it is built today** (read from `origin/feature/language` and Android `codex/native`; two surfaces not fully verified):
+- **Android:** `ItOfficeBar` (`ui/ittai/ItOffice.kt:324`) draws a face per head in `OfficeLogic.barOrder` (ada, mia, otto, charlie, penny, sam, yui);
+  its members come from the brief's `heads` (`officeBarMembers`, `DayScreens.kt:350/374`), and tapping one calls `officeVm.routeToHead(slug)`
+  (`DayScreens.kt:472`). The same `routeToHead`/`pendingHead` path is what the brief card's lines use. The hexagon (six heads around Kaname) is
+  drawn in the same file.
+- **iPhone:** the old `ItOfficeBar` is no longer referenced anywhere in `ios/` on this branch, so the strip appears already removed there (the
+  2026-11-04 spec section 3 says it goes). Whether the hexagon exists on the iPhone Kaname screen was not verified.
+- **Web:** no face strip found on the Kaname page; it shows a 28 px face per *line* (`kaname_appstack.php`, `it-kb-face`). The Action Board
+  ("Today with the office", `action-board.js`) draws the hexagon, and as a list on a phone. Heads are reached from the sidebar
+  (`HeadNavService::forShell`). Needs a check by whoever builds this.
+- The 2026-11-04 spec already put a small face on each work screen and said "tapping a head opens their workspace". This decision extends
+  it: faces live only in context (cards, flow-line items), not in a bar.
+
+**What replaces it:** a head's name or face, wherever it appears in a card or flow-line item, opens that head's page; More lists every head.
+That is Heritage-plan work (finding 17), not built here.
+
+**Interaction with this plan's rule: none, by design, with one dependency to keep:**
+1. The opening rule decides only the sign-in brief card; it never reads which faces or heads are shown. Removing the strip changes no input to it.
+2. The brief card's lines already route through `routeToHead`/`pendingHead`. When the strip goes, **that function must stay** (it is also the
+   tap target for faces in cards and flow-line items). Do not delete it with `ItOfficeBar`. Proof: Android emulator — tap a brief line and a
+   card's head name; both land on the head's page.
+3. Android still feeds `officeBarMembers` from the ready brief. When the bar goes, the head states (ring colours, waiting counts) that fed
+   the bar must still reach cards, or they go blank. Settled by reading `OfficeLogic.barMember` use before removal.
+4. **Per-business heads setting** (default all, features turn heads on): it decides which heads exist, appear in cards and flow lines and sit
+   under More. With the strip gone it no longer has a top-bar job on the phones, only these. A head switched off is absent from More and
+   from tap targets; a tap on a line from a head that is off must fall back to Kaname's screen, not an empty page (add a test).
+5. Each head still lists in the ready brief's `heads`, so the setting must filter there too, or a hidden head's face appears in a card.
+
 ## Decisions I need from Tim
 
 1. Approve the rule in §2 (once a day on first open *with content* + urgent re-show only).
