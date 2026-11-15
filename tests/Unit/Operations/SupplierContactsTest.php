@@ -113,6 +113,36 @@ HTML;
         $this->assertSame('', SupplierContactService::siteOf(['website' => '', 'domain' => null, 'email' => null]));
     }
 
+    public function testObviousPickNeedsARealDeskThatWroteToUsAndClearlyAhead(): void
+    {
+        $c = fn(int $id, string $role, string $sources, string $status = 'suggested', int $def = 0) =>
+            ['id' => $id, 'role' => $role, 'sources' => $sources, 'status' => $status, 'is_default' => $def];
+        // wholesale, in their mail and on the site, ahead of info@ → picked
+        $this->assertSame(1, SupplierContactService::obviousPick([$c(2, 'general', 'mail|website'), $c(1, 'wholesale', 'mail|website')])['id']);
+        // only on the website (never wrote to us) → not obvious
+        $this->assertNull(SupplierContactService::obviousPick([$c(1, 'wholesale', 'website'), $c(2, 'general', 'mail')]));
+        // general address on top → not obvious
+        $this->assertNull(SupplierContactService::obviousPick([$c(1, 'general', 'mail|website')]));
+        // two equal desks → a tie is not obvious
+        $this->assertNull(SupplierContactService::obviousPick([$c(1, 'sales', 'mail'), $c(2, 'sales', 'mail')]));
+        // Tim already chose (kept or default) → never replaced
+        $this->assertNull(SupplierContactService::obviousPick([$c(1, 'wholesale', 'mail|website'), $c(2, 'general', 'manual', 'kept')]));
+        $this->assertNull(SupplierContactService::obviousPick([$c(1, 'wholesale', 'mail|website'), $c(2, 'general', 'mail', 'suggested', 1)]));
+        // Tim said "not this one" → it ranks last, and the next one must qualify on its own
+        $this->assertNull(SupplierContactService::obviousPick([$c(1, 'wholesale', 'mail|website', 'dropped'), $c(2, 'general', 'mail')]));
+        $this->assertNull(SupplierContactService::obviousPick([]));
+    }
+
+    public function testRobotMailboxesAreNotContacts(): void
+    {
+        foreach (['noreply@greenleaf-wholesale.example', 'no-reply@x.example', 'do-not-reply@x.example', 'newsletter@x.example', 'mailer-daemon@x.example', 'news@x.example'] as $e) {
+            $this->assertTrue(SupplierContactService::isRobot($e), $e);
+        }
+        foreach (['orders@greenleaf-wholesale.example', 'jdoe@x.example', 'sales@x.example', 'andrews@x.example', 'bouncer.joe@x.example'] as $e) {
+            $this->assertFalse(SupplierContactService::isRobot($e), $e);
+        }
+    }
+
     public function testMergeSourcesUsesStableOrderAndNoDuplicates(): void
     {
         $this->assertSame('mail|website|manual', SupplierContactService::mergeSources('manual|mail', 'website|mail'));

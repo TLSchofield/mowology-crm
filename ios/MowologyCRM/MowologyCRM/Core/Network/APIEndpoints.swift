@@ -513,7 +513,7 @@ enum APIEndpoint {
         case .teamHeadBriefReady(let head):
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head),
-                                      URLQueryItem(name: "ready", value: "1")]
+                                      URLQueryItem(name: "ready", value: "1")] + MorningBriefStore.shownQueryItems
             return components?.url
 
         case .teamHeadAction:

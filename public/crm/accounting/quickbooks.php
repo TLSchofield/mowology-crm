@@ -11,6 +11,7 @@ $user = getCurrentUser();
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboExpenseSyncService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboAutoSetupService.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboRecurringService.php';
 
 $db  = getDB();
@@ -103,6 +104,7 @@ $sync = ($status['connected'] && $svc->tablesReady()) ? new QboSyncService($svc)
 $canSend = $sync !== null && $sync->guard() === null;
 $sent = []; $problems = []; $auto = ['on' => false, 'from' => null]; $receiptsOn = false;
 $pausePrompt = null;
+$setupNeeds = []; $autoKeys = [];
 try {
     $sent = $sync ? $sync->recent(15) : [];
     $problems = $sync ? $sync->problems() : [];
@@ -112,15 +114,20 @@ try {
         $receiptsOn = $xsync->receiptsOn();
         $problems = array_merge($problems, $xsync->expenseProblems());
         $pausePrompt = (new QboRecurringService($db, $svc))->pausePrompt();
+        $setup = new QboAutoSetupService($svc);
+        $setupNeeds = $setup->needs();
+        $autoKeys = array_fill_keys($setup->autoKeys(), true);
+        $maps = $svc->mappings();
     }
 } catch (Throwable $e) { /* migration 1383 not run yet */ }
 // What receipts are paid from in Ittai (1010 chequing, 2400 card; 1300 = paid personally, held).
-$payCodes = [];
+$payCodes = ['1010' => 'Bank', '2400' => 'Credit Card'];
 try {
-    $payCodes = $db->query("SELECT DISTINCT c.code, c.name FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id
+    $usedPayCodes = $db->query("SELECT DISTINCT c.code, c.name FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id
                             JOIN chart_of_accounts c ON c.id = jl.account_id
-                            WHERE je.source_type = 'expense' AND je.status = 'posted' AND jl.credit > 0 AND c.code NOT LIKE '130%'
+                            WHERE je.source_type = 'expense' AND je.status = 'posted' AND jl.credit > 0 AND c.code IN ('1010', '2400')
                             ORDER BY c.code")->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+    $payCodes = array_replace($payCodes, $usedPayCodes);
 } catch (Throwable $e) { /* no ledger */ }
 
 $pageTitle  = 'QuickBooks';
@@ -192,7 +199,7 @@ $activePage = 'accounting';
             <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
             <input type="hidden" name="action" value="auto">
             <?php if ($auto['on']): ?>
-                <p class="mb-0 me-2"><strong>On</strong> — invoices issued from <?= h(date('M j, Y', strtotime((string)$auto['from']))) ?>.</p>
+                <p class="mb-0 me-2"><strong>On from <?= h(date('M j, Y', strtotime((string)$auto['from']))) ?></strong>.</p>
                 <button class="btn btn-outline-secondary" name="auto" value="0">Turn off</button>
             <?php else: ?>
                 <div>
@@ -268,6 +275,14 @@ $activePage = 'accounting';
     <div class="card-body">
         <input type="hidden" name="csrf_token" value="<?= h($csrf) ?>">
         <input type="hidden" name="action" value="save_map">
+        <?php if ($setupNeeds): ?>
+        <div class="alert alert-warning small" role="status">
+            <strong>Needs you</strong>
+            <ul class="mb-0 mt-1">
+                <?php foreach ($setupNeeds as $need): ?><li><?= h($need['label']) ?></li><?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
         <h2 class="h5">Tax codes</h2>
         <p class="small text-muted">QuickBooks Canada needs a tax code on every line. Pick the one for each case once.</p>
         <div class="table-responsive">
@@ -282,7 +297,7 @@ $activePage = 'accounting';
                         <select class="form-select form-select-sm" id="tax-<?= h($key) ?>" name="map[tax_code][<?= h($key) ?>]">
                             <option value="">— choose —</option>
                             <?php foreach ($qTax as $t): $sel = ($cur ?? $guess) === $t['qbo_id']; ?>
-                                <option value="<?= h($t['qbo_id']) ?>"<?= $sel ? ' selected' : '' ?>><?= h($t['name'] . ($t['detail'] ? ' — ' . $t['detail'] : '')) ?><?= ($sel && $cur === null) ? ' (suggested)' : '' ?></option>
+                                <option value="<?= h($t['qbo_id']) ?>"<?= $sel ? ' selected' : '' ?>><?= h($t['name'] . ($t['detail'] ? ' — ' . $t['detail'] : '')) ?><?= ($sel && isset($autoKeys['tax_code:' . $key])) ? ' (set automatically — check)' : (($sel && $cur === null) ? ' (suggested)' : '') ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>
@@ -306,7 +321,7 @@ $activePage = 'accounting';
                         <select class="form-select form-select-sm" id="pay-<?= h($code) ?>" name="map[pay_account][<?= h($code) ?>]">
                             <option value="">— choose —</option>
                             <?php foreach ($qPay as $q): ?>
-                                <option value="<?= h($q['qbo_id']) ?>"<?= $cur === $q['qbo_id'] ? ' selected' : '' ?>><?= h($q['name'] . ($q['detail'] ? ' (' . $q['detail'] . ')' : '')) ?></option>
+                                <option value="<?= h($q['qbo_id']) ?>"<?= $cur === $q['qbo_id'] ? ' selected' : '' ?>><?= h($q['name'] . ($q['detail'] ? ' (' . $q['detail'] . ')' : '')) ?><?= ($cur === $q['qbo_id'] && isset($autoKeys['pay_account:' . $code])) ? ' (set automatically — check)' : '' ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>
@@ -318,7 +333,7 @@ $activePage = 'accounting';
         <?php endif; ?>
 
         <h2 class="h5 mt-3">Accounts</h2>
-        <p class="small text-muted">Each Ittai account → the QuickBooks account its amounts go to. "(suggested)" is a guess by name — check it.</p>
+        <p class="small text-muted">Each Ittai account → the QuickBooks account its amounts go to. Check choices marked as set automatically; an unsaved suggestion is only a guess by name.</p>
         <div class="table-responsive">
         <table class="table table-sm align-middle">
             <thead><tr><th scope="col">Ittai account</th><th scope="col">QuickBooks account</th></tr></thead>
@@ -334,7 +349,7 @@ $activePage = 'accounting';
                         <select class="form-select form-select-sm" id="acct-<?= h($a['code']) ?>" name="map[account][<?= h($a['code']) ?>]">
                             <option value="">— choose —</option>
                             <?php foreach ($fit as $q): $sel = ($cur ?? $guess) === $q['qbo_id']; ?>
-                                <option value="<?= h($q['qbo_id']) ?>"<?= $sel ? ' selected' : '' ?>><?= h($q['name'] . ($q['detail'] ? ' (' . $q['detail'] . ')' : '')) ?><?= ($sel && $cur === null) ? ' (suggested)' : '' ?></option>
+                                <option value="<?= h($q['qbo_id']) ?>"<?= $sel ? ' selected' : '' ?>><?= h($q['name'] . ($q['detail'] ? ' (' . $q['detail'] . ')' : '')) ?><?= ($sel && isset($autoKeys['account:' . $a['code']])) ? ' (set automatically — check)' : (($sel && $cur === null) ? ' (suggested)' : '') ?></option>
                             <?php endforeach; ?>
                         </select>
                     </td>

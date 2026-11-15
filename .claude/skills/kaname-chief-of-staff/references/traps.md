@@ -39,6 +39,10 @@ function, not by `CharlieRankService`. **Open** (owner wants cost-of-waiting ord
 Tim couldn't see the brief after installing a build because that day's had already played.
 `MorningBriefStore.oncePerDay` set to false (1.3.23). **Rule:** don't turn it back on without
 Tim's go-ahead.
+**Superseded 2026-11-13:** Tim: not on every login, for everyone. The server now decides (`KanameOpenRule`), so a new build
+does not hide the brief by accident: use the DEBUG launch flag `-mwAlwaysBrief` to see it after installing. The phone must
+send `shown_day` / `shown_urgent` or the server treats it as never shown (older apps replay every open — harmless). The urgent
+list is capped (`MAX_URGENT` 20 < phone memory 50) or an over-long list would replay forever (Codex review, same day).
 
 ## Building a brief writes
 `CharlieForemanService::card()` is not read-only: it syncs `charlie_items`, freezes the day's

@@ -293,6 +293,7 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefServic
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadStateService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameOpenRule.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadNavService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameWorkspaceService.php';
@@ -436,6 +437,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/OwnerApprovalDefaultService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ClosedYearReceiptTrace.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
@@ -665,6 +667,7 @@ require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboConnectionService
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboPhoneCallbackService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboSyncService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboExpenseSyncService.php';
+require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboAutoSetupService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboClientPayService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingApiPresenter.php';

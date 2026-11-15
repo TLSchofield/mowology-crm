@@ -291,12 +291,14 @@ class SupplierContactService
     public function fromWebsite(array $supplier, ?callable $fetch = null, float $budgetSeconds = 20): array
     {
         $customFetch = $fetch !== null;
-        $fetch = $fetch ?? fn($u) => HttpFetch::get($u, 10, ['User-Agent: Mowology supplier contacts (office@mowology.ca)']);
         $started = microtime(true);
+        // Each request is capped to the time left, so a slow site cannot run past the budget.
+        $fetch = $fetch ?? fn($u) => HttpFetch::get($u, max(2, min(10, (int)floor($budgetSeconds - (microtime(true) - $started)))),
+                                                    ['User-Agent: Mowology supplier contacts (office@mowology.ca)']);
         $site = self::siteOf($supplier);
         if ($site === '') return ['pages' => 0, 'found' => 0, 'note' => 'No website or own mail domain on file.'];
         $website = self::normalUrl($site);
-        $domain = (string)($supplier['domain'] ?: SupplierDirectoryService::domainOf($website));
+        $domain = (string)(($supplier['domain'] ?? '') ?: SupplierDirectoryService::domainOf($website));
         $known = (string)($supplier['email'] ?? '');
         $queue = [$website];
         $pages = 0;
@@ -348,9 +350,8 @@ class SupplierContactService
         $counts = ['rows' => count($rows), 'matched' => 0, 'skipped' => 0];
         foreach ($rows as $row) {
             $email = strtolower(trim((string)($row['email'] ?? '')));
-            $local = (string)strstr($email, '@', true);
             $supplier = $directory->forAddress($email);
-            if (!$supplier || !SupplierDirectoryService::senderMatches($email, $supplier) || preg_match('/(?:no-?reply|bounce|mailer-daemon|notifications?|newsletter|marketing|mailchimp)/i', $local)) {
+            if (!$supplier || !SupplierDirectoryService::senderMatches($email, $supplier) || self::isRobot($email)) {
                 $counts['skipped']++;
                 continue;
             }
@@ -362,5 +363,100 @@ class SupplierContactService
             $counts['matched']++;
         }
         return $counts;
+    }
+
+    /** A mailbox no person answers: no-reply, bounces, newsletters. */
+    public static function isRobot(string $email): bool
+    {
+        $local = (string)strstr(strtolower($email), '@', true);
+        // Whole words of the local part only: "andrews@" is a person, "news@" is not.
+        return (bool)preg_match('/(?:^|[._+-])(?:no-?reply|do-?not-?reply|bounces?|mailer-daemon|postmaster|notifications?|newsletters?|marketing|mailchimp|news)(?:$|[._+-])/i', $local);
+    }
+
+    /**
+     * The supplier mail reader saw a message from this supplier (Tim, 2026-11-15: "Automatically"): keep the sender
+     * as a suggested contact with where and when, then pick the obvious address if none is chosen yet.
+     * $sid is already verified as the sender (`SupplierInboxService::fromIs()`). Headers only; never throws.
+     */
+    public function sawInMail(int $supplierId, string $fromHeader, string $when, string $mailbox): void
+    {
+        try {
+            if (!$this->ready()) return;
+            $email = strtolower(SupplierDirectoryService::addressOf($fromHeader));
+            if ($email === '' || self::isRobot($email)) return;
+            $person = '';
+            if (preg_match('/^\s*"?([^"<]+?)"?\s*</', $fromHeader, $m)) $person = trim($m[1]);
+            if (!self::looksLikePerson($person)) $person = '';
+            $label = stripos($mailbox, 'icloud') !== false ? 'icloud' : (stripos($mailbox, 'office') !== false ? 'office@' : $mailbox);
+            $this->suggest($supplierId, $email, 'mail', ['person' => $person, 'role' => self::roleOf($email, $person),
+                           'mail_ref' => $label . ' · ' . substr($when, 0, 10), 'seen_at' => $when]);
+            $this->autoPick($supplierId);
+        } catch (Throwable $e) {
+            error_log('[supplier contacts] mail ' . $supplierId . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * The obvious address, chosen by Otto when Tim has not chosen (Tim, 2026-11-15: auto-pick): the top-ranked
+     * contact must be a wholesale, orders or sales address that has written to us, and clearly ahead of the next
+     * one. Never replaces a choice: nothing happens once any contact is kept or default, and an address Tim
+     * marked "not this one" ranks last. Marked decided_by = 0 so the page says it was picked automatically.
+     */
+    public static function obviousPick(array $contacts): ?array
+    {
+        foreach ($contacts as $c) {
+            if (!empty($c['is_default']) || ($c['status'] ?? '') === 'kept') return null;
+        }
+        usort($contacts, fn($a, $b) => self::rank($b) <=> self::rank($a));
+        $top = $contacts[0] ?? null;
+        if (!$top || ($top['status'] ?? '') !== 'suggested') return null;
+        if (!in_array($top['role'] ?? '', ['wholesale', 'orders', 'sales'], true)) return null;
+        if (!in_array('mail', explode('|', (string)($top['sources'] ?? '')), true)) return null;
+        $next = $contacts[1] ?? null;
+        if ($next && self::rank($next) >= self::rank($top)) return null;
+        return $top;
+    }
+
+    public function autoPick(int $supplierId): ?int
+    {
+        $pick = self::obviousPick($this->forSupplier($supplierId));
+        if (!$pick) return null;
+        try {
+            $this->keep((int)$pick['id'], 0);
+            return (int)$pick['id'];
+        } catch (InvalidArgumentException $e) {
+            return null;   // not on the supplier's domain / a free-mail swap: leave it to Tim
+        }
+    }
+
+    /**
+     * Nightly (ridden by trip_runs_daily): look at up to $max suppliers' websites — never looked at first, then
+     * anything not looked at for 30 days — and pick obvious addresses for every supplier with none chosen.
+     */
+    public function nightly(int $max = 3, float $budgetSeconds = 40): array
+    {
+        $res = ['looked' => 0, 'found' => 0, 'picked' => 0, 'note' => ''];
+        if (!$this->ready()) { $res['note'] = 'supplier contacts need migration 1454'; return $res; }
+        try {
+            $rows = $this->db->query("SELECT * FROM supplier_accounts WHERE contacts_checked_at IS NULL OR contacts_checked_at < NOW() - INTERVAL 30 DAY
+                                      ORDER BY contacts_checked_at IS NULL DESC, contacts_checked_at, id")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            $res['note'] = 'supplier contacts need migration 1457';
+            return $res;
+        }
+        $started = microtime(true);
+        foreach ($rows as $sup) {
+            $left = $budgetSeconds - (microtime(true) - $started);
+            if ($res['looked'] >= $max || $left < 10) break;   // not enough time for one more site: tomorrow
+            if (self::siteOf($sup) === '') continue;
+            $r = $this->fromWebsite($sup, null, $left);
+            $this->db->prepare('UPDATE supplier_accounts SET contacts_checked_at = NOW() WHERE id = ?')->execute([(int)$sup['id']]);
+            $res['looked']++;
+            $res['found'] += $r['found'];
+        }
+        foreach ($this->db->query('SELECT id FROM supplier_accounts')->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if ($this->autoPick((int)$id)) $res['picked']++;
+        }
+        return $res;
     }
 }

@@ -61,7 +61,8 @@ wholesale address, from their website or Tim's Mac Mail). From a quote's plant l
 sizes, quantities, needed-by date, delivery or pick-up), Tim reads and sends; replies are read back into price and stock per line. Rules: Yui's
 send-on-Tim's-click rule and office@ for supplier mail (yui-comms); supplier addresses go into the supplier directory with their source.
 Feeds "Best price, in stock" (tagged Next on the gardener page) and the price pool above. Needs its own plan.
-Plan (2026-11-13, waiting for Tim's approval): `docs/plans/2026-11-13-supplier-quote-requests.md`.
+Plan approved 2026-11-13: `docs/plans/2026-11-13-supplier-quote-requests.md`. Step 1 (supplier contacts) live 2026-11-14.
+Related (2026-11-15, waiting for Tim's approval): Kaname's ask box looks in the supplier lists — `docs/plans/2026-11-15-kaname-supplier-search.md`.
 
 ## Plant report for the client (Tim, 2026-11-11) — queued
 

@@ -223,6 +223,12 @@ final class TenantProvisioner
                 $last = trim((string)($b['owner_last'] ?? ''));
                 $this->db->prepare('INSERT INTO ' . $q($dbName) . '.`users` (email, username, password_hash, role, is_active, first_name, last_name, full_name, created_at) VALUES (?, ?, ?, \'admin\', 1, ?, ?, ?, NOW())')
                     ->execute([$email, $key . '-owner', $hash, $first, $last, trim($first . ' ' . $last)]);
+                // The owner can approve their own receipts (solo operators); best effort if the column is absent.
+                try {
+                    $this->db->prepare('UPDATE ' . $q($dbName) . '.`users` SET can_approve_own_expenses = 1 WHERE email = ?')->execute([$email]);
+                } catch (Throwable $e) {
+                    $this->log[] = 'Owner self-approval flag not set: ' . $e->getMessage();
+                }
                 $this->log[] = "Owner login created for {$email}.";
             } else {
                 $this->db->prepare('UPDATE ' . $q($dbName) . '.`users` SET password_hash = ? WHERE id = ?')->execute([$hash, $ownerId]);

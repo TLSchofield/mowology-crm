@@ -57,7 +57,7 @@ $suppliers = $ready ? $svc->all() : [];
   <div class="d-flex flex-wrap justify-content-between align-items-start mb-3">
     <div>
       <h1 class="h3 mb-1">Supplier contacts</h1>
-      <p class="text-muted mb-2">Quote requests go to the address marked ✓. Addresses come from mail they sent us and from their own website; nothing here sends anything.</p>
+      <p class="text-muted mb-2">Quote requests go to the address marked ✓. Addresses come from mail they send us and from their own website, by themselves (a few websites each night); where the choice is obvious Otto picks it, and yours always wins. Nothing here sends anything.</p>
     </div>
     <?php if ($ready && $canEdit): ?>
     <form method="post">
@@ -91,7 +91,7 @@ $suppliers = $ready ? $svc->all() : [];
           <tbody>
           <?php foreach ($supplier['contacts'] as $contact): ?>
             <tr>
-              <td><strong><?= h($contact['email']) ?></strong><?php if (!empty($contact['is_default'])): ?><div class="text-success">✓ quote requests go here</div><?php endif; ?></td>
+              <td><strong><?= h($contact['email']) ?></strong><?php if (!empty($contact['is_default'])): ?><div class="text-success">✓ quote requests go here<?= (string)$contact['decided_by'] === '0' ? ' (picked by Otto — change it if it is wrong)' : '' ?></div><?php endif; ?></td>
               <td><?= h((string)$contact['person']) ?></td>
               <td><span class="badge badge-light"><?= h($contact['role']) ?></span></td>
               <td>

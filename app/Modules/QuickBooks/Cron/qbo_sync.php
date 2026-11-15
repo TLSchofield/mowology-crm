@@ -15,6 +15,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Core/CronLock.php';
 require_once APP_ROOT . '/Modules/QuickBooks/Services/QboSyncService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboAutoSetupService.php';
 
 \App\Core\CronLock::acquire('qbo_sync_' . Tenant::key());
 $started = microtime(true);
