@@ -318,18 +318,22 @@ struct DayListView: View {
     // MARK: - Loading Skeleton
 
     private var loadingSkeleton: some View {
-        VStack(spacing: 12) {
-            ForEach(0..<4, id: \.self) { _ in
-                SkeletonCard()
-                    .padding(.horizontal, 16)
+        // Four cards are taller than the space under the day strip. A plain stack reports that height to the screen's own
+        // stack, which then overflows and slides the whole screen up under the status bar while a day loads (Tim's
+        // screenshots, 2026-10-20 and again 2026-11-15: `.clipped()` only trimmed the drawing, not the layout). A scroll
+        // view reports no minimum height, so the skeleton fills what is left and the rest is cut off; it never scrolls.
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    SkeletonCard()
+                        .padding(.horizontal, 16)
+                }
             }
-            Spacer()
+            .padding(.top, 8)
         }
-        .padding(.top, 8)
-        // Four cards are taller than the space under the week strip: an overflowing stack stays CENTRED and pushed the
-        // strip up under the navigation bar while loading (Tim's screenshot, 2026-10-20). Pinned to the top, the rest trimmed.
+        .scrollDisabled(true)
+        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .clipped()
         .background(appStyle.page)
     }
 
