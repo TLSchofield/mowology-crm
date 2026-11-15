@@ -14,6 +14,7 @@ import SwiftUI
 
 struct ReceiptDetailView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @ObservedObject var viewModel: ReceiptsViewModel
     let expense: Expense
@@ -29,6 +30,8 @@ struct ReceiptDetailView: View {
     // from the receipt — the reader may have missed items she read (Chevron #424, 2026-10-13).
     @State private var pennyRead: PennyRead?
     @State private var pennyNote: String?
+    @State private var showsReceiptSupport = false
+    @State private var showsLearningDetails = false
 
     @State private var showRejectSheet = false
     @State private var rejectReason = ""
@@ -59,12 +62,14 @@ struct ReceiptDetailView: View {
     var body: some View {
         NavigationStack {
             Form {
-                imageSection
-                statusSection
-                if let read = pennyRead, read.differs || read.appliedDraft {
+                if let read = pennyRead {
+                    statusSection
                     pennyReadSection(read)
+                } else {
+                    imageSection
+                    statusSection
+                    detailsSection
                 }
-                detailsSection
                 if isAdmin && !mergedCopies.isEmpty { mergedSection }
                 lineItemsSection
 
@@ -183,88 +188,271 @@ struct ReceiptDetailView: View {
     }
 
     private func pennyReadSection(_ read: PennyRead) -> some View {
-        Section {
-            if !read.differs {
-                Label("Using Penny's version — waiting for the office to approve.", systemImage: "checkmark.circle")
-                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-            } else {
-                ForEach(read.fields) { f in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(f.label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
-                            Spacer()
-                            Text(f.penny ?? "—").font(appStyle.font(.subheadline, weight: .semibold)).foregroundStyle(appStyle.tenant)
-                                .multilineTextAlignment(.trailing)
-                        }
-                        Text("Receipt says: \(f.receipt ?? "—")").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-                        if !f.reason.isEmpty {
-                            Text(f.reason + (f.confidence == "low" ? " (she's unsure)" : ""))
-                                .font(appStyle.font(.caption)).foregroundStyle(f.confidence == "low" ? appStyle.attention : appStyle.meta)
-                        }
-                    }
-                }
-                if let items = read.items {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Penny's items").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
-                            Spacer()
-                            Text(String(format: "$%.2f", items.pennySum)).font(appStyle.font(.caption, weight: .semibold))
-                        }
-                        ForEach(Array(items.penny.enumerated()), id: \.offset) { _, i in
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(i.name).font(appStyle.font(.subheadline))
-                                Spacer()
-                                Text(String(format: "$%.2f", i.amount)).font(appStyle.font(.subheadline))
-                            }
-                        }
-                        Text(items.receipt.isEmpty
-                             ? "The receipt has no items."
-                             : "The receipt has \(items.receipt.count) item\(items.receipt.count == 1 ? "" : "s") for " + String(format: "$%.2f", items.receiptSum) + ": "
-                               + items.receipt.map { $0.name }.joined(separator: ", "))
-                            .font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-                    }
-                }
-                if !read.notes.isEmpty {
-                    Text(read.notes).font(appStyle.font(.caption)).italic().foregroundStyle(appStyle.meta)
-                }
-                if read.canApply || read.canKeep {
-                    HStack(spacing: 10) {
-                        if read.canApply {
-                            Button { Task { await decidePenny(useHers: true) } } label: {
-                                Text("Use Penny's version").font(appStyle.font(.subheadline, weight: .semibold))
-                                    .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 40)
-                                    .background(appStyle.tenant).foregroundStyle(appStyle.onTenant)
-                                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                        if read.canKeep {
-                            Button { Task { await decidePenny(useHers: false) } } label: {
-                                Text("Keep mine").font(appStyle.font(.subheadline, weight: .semibold))
-                                    .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 40)
-                                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)).stroke(appStyle.meta.opacity(0.4)))
-                                    .foregroundStyle(appStyle.text)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                    .disabled(viewModel.isPerformingAction)
-                    if read.canApply {
-                        Text(read.applyNote).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-                    }
-                }
+        let fieldRows = ReceiptCompareRules.fields(read.fields)
+        let itemRows = read.items.map(ReceiptCompareRules.items) ?? []
+        let selection = ReceiptCompareRules.selection(differs: read.differs, fieldRows: fieldRows, itemRows: itemRows)
+
+        return Section {
+            receiptSummary
+            pennyRecommendation(read)
+            VStack(spacing: 0) {
+                comparisonHeadings
+                ForEach(fieldRows) { comparisonField($0) }
+                if let items = read.items { comparisonItems(itemRows, items: items) }
             }
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
+            .overlay { RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)).stroke(appStyle.meta.opacity(0.25)) }
+
+            versionActions(read, selection: selection)
             if let note = pennyNote {
-                Text(note).font(appStyle.font(.caption)).foregroundStyle(appStyle.tenant)
+                Label(note, systemImage: "checkmark.circle.fill")
+                    .font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(pennyBrand)
+            }
+            DisclosureGroup("Receipt photo and details", isExpanded: $showsReceiptSupport) {
+                receiptSupport
+            }
+            .tint(pennyBrand)
+            if read.canApply {
+                DisclosureGroup("What applying does", isExpanded: $showsLearningDetails) {
+                    Text("Applying saves Penny's fields and replaces the receipt items. The receipt reader uses that correction for this store's layout.")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                }
+                .tint(pennyBrand)
             }
         } header: {
             Label("Penny's read", systemImage: "sparkles")
-        } footer: {
-            if read.differs {
-                Text("Penny read this receipt differently. Using her version replaces the items and teaches the receipt reader this store's layout.")
-            }
         }
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    private var receiptSummary: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: ItSpace.s2) { summaryContent }
+            VStack(alignment: .leading, spacing: ItSpace.s2) { summaryContent }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var summaryContent: some View {
+        summaryValue("Merchant", expense.displayVendor)
+        summaryValue("Date", expense.expenseDate)
+        summaryValue("Total", String(format: "$%.2f", expense.total))
+        summaryValue("Status", receiptStatusLabel)
+    }
+
+    private func summaryValue(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text(label).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            Text(value).font(appStyle.font(.caption, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func pennyRecommendation(_ read: PennyRead) -> some View {
+        let reasons = read.fields.map(\.reason).filter { !$0.isEmpty }
+        let explanation = read.notes.isEmpty ? reasons.first : read.notes
+        HStack(alignment: .top, spacing: ItSpace.s3) {
+            Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                .font(appStyle.font(size: SpineMetrics.compactRing)).foregroundStyle(pennyBrand)
+                .accessibilityLabel("Penny")
+            if let explanation {
+                VStack(alignment: .leading, spacing: ItSpace.s1) {
+                    Text(explanation)
+                        .font(appStyle.font(.subheadline))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var comparisonHeadings: some View {
+        HStack(spacing: 0) {
+            Text("Current receipt").frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            Text("Penny's suggestion").frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
+        .padding(ItSpace.s3).background(appStyle.sunk)
+        .accessibilityHidden(dynamicTypeSize.isAccessibilitySize)
+    }
+
+    private func comparisonField(_ row: ReceiptCompareRow) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            Text(row.label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: ItSpace.s2) {
+                    stackedValue("Current receipt", row.current, fallback: "Missing", state: row.state, proposed: false)
+                    stackedValue("Penny's suggestion", row.proposed, fallback: "Not proposed", state: row.state, proposed: true)
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    compareValue(row.current, fallback: "Missing", state: row.state, proposed: false)
+                    Divider()
+                    compareValue(row.proposed, fallback: "Not proposed", state: row.state, proposed: true)
+                }
+                VStack(alignment: .leading, spacing: ItSpace.s2) {
+                    stackedValue("Current receipt", row.current, fallback: "Missing", state: row.state, proposed: false)
+                    stackedValue("Penny's suggestion", row.proposed, fallback: "Not proposed", state: row.state, proposed: true)
+                }
+                }
+            }
+            reasonView(row)
+        }
+        .padding(ItSpace.s3).overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func compareValue(_ value: String?, fallback: String, state: ReceiptCompareValueState, proposed: Bool) -> some View {
+        Text(value ?? fallback)
+            .font(appStyle.font(.subheadline, weight: state == .unchanged ? .regular : .semibold))
+            .foregroundStyle(value == nil ? appStyle.meta : appStyle.text)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, ItSpace.s2)
+            .background(compareHighlight(state, proposed: proposed))
+    }
+
+    private func stackedValue(_ heading: String, _ value: String?, fallback: String, state: ReceiptCompareValueState, proposed: Bool) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text(heading).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            compareValue(value, fallback: fallback, state: state, proposed: proposed)
+        }
+    }
+
+    private func compareHighlight(_ state: ReceiptCompareValueState, proposed: Bool) -> Color {
+        guard state != .unchanged else { return .clear }
+        return (proposed ? pennyBrand : appStyle.attention).opacity(0.08)
+    }
+
+    @ViewBuilder private func reasonView(_ row: ReceiptCompareRow) -> some View {
+        if !row.reason.isEmpty {
+            Text(row.reason).font(appStyle.font(.caption))
+                .foregroundStyle(row.confidence == "low" ? appStyle.attention : appStyle.meta)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func comparisonItems(_ rows: [ReceiptCompareItemRow], items: PennyReadItems) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Items").font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta).padding(ItSpace.s3)
+            ForEach(rows) { row in
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        stackedItem(row)
+                    } else {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 0) {
+                                itemValue(row.currentName, row.currentAmount, fallback: "Missing", state: row.state, proposed: false)
+                                Divider()
+                                itemValue(row.proposedName, row.proposedAmount, fallback: "Not proposed", state: row.state, proposed: true)
+                            }
+                            stackedItem(row)
+                        }
+                    }
+                }
+                .padding(ItSpace.s3).overlay(alignment: .bottom) { Divider() }
+            }
+            HStack(spacing: 0) {
+                itemValue("Sum", items.receiptSum, fallback: "Missing", state: items.receiptSum == items.pennySum ? .unchanged : .changed, proposed: false)
+                Divider()
+                itemValue("Sum", items.pennySum, fallback: "Not proposed", state: items.receiptSum == items.pennySum ? .unchanged : .changed, proposed: true)
+            }
+            .padding(ItSpace.s3)
+        }
+    }
+
+    private func stackedItem(_ row: ReceiptCompareItemRow) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            Text("Current receipt").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            itemValue(row.currentName, row.currentAmount, fallback: "Missing", state: row.state, proposed: false)
+            Text("Penny's suggestion").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            itemValue(row.proposedName, row.proposedAmount, fallback: "Not proposed", state: row.state, proposed: true)
+        }
+    }
+
+    private func itemValue(_ name: String?, _ amount: Double?, fallback: String, state: ReceiptCompareValueState, proposed: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(name ?? fallback).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: ItSpace.s2)
+            if let amount { Text(String(format: "$%.2f", amount)).lineLimit(1).minimumScaleFactor(0.8) }
+        }
+        .font(appStyle.font(.subheadline, weight: state == .unchanged ? .regular : .semibold))
+        .foregroundStyle(name == nil ? appStyle.meta : appStyle.text)
+        .frame(maxWidth: .infinity, alignment: .leading).background(compareHighlight(state, proposed: proposed))
+    }
+
+    private func versionActions(_ read: PennyRead, selection: ReceiptCompareSelection) -> some View {
+        VStack(spacing: ItSpace.s2) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: ItSpace.s3) { versionButtons(read, selection: selection) }
+                VStack(spacing: ItSpace.s3) { versionButtons(read, selection: selection) }
+            }
+            if read.canApply && !read.applyNote.isEmpty {
+                Text(read.applyNote).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            }
+        }
+        .disabled(viewModel.isPerformingAction)
+    }
+
+    @ViewBuilder private func versionButtons(_ read: PennyRead, selection: ReceiptCompareSelection) -> some View {
+        if read.canKeep || selection == .current {
+            versionButton("Keep current", selectedText: "Current version selected", selected: selection == .current, filled: false) {
+                Task { await decidePenny(useHers: false) }
+            }
+            .disabled(!read.canKeep)
+        }
+        if read.canApply || selection == .penny {
+            versionButton("Apply Penny's changes", selectedText: "Penny's changes applied", selected: selection == .penny, filled: true) {
+                Task { await decidePenny(useHers: true) }
+            }
+            .disabled(!read.canApply)
+        }
+    }
+
+    private func versionButton(_ title: String, selectedText: String, selected: Bool, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: ItSpace.s1) {
+                Text(title).font(appStyle.font(.subheadline, weight: .semibold))
+                if selected { Label(selectedText, systemImage: "checkmark.circle.fill").font(appStyle.font(.caption2)) }
+            }
+            .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+            .background(filled ? pennyBrand : Color.clear)
+            .foregroundStyle(filled ? appStyle.surface : appStyle.text)
+            .overlay { RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)).stroke(appStyle.meta.opacity(filled ? 0 : 0.4)) }
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
+        }
+        .buttonStyle(.borderless).accessibilityValue(selected ? selectedText : "Not selected")
+    }
+
+    private var receiptSupport: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s2) {
+            if let url = receiptURL {
+                Button { showFullImage = true } label: {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() }
+                        .frame(maxHeight: ItSize.hexFullWidth).clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
+                }
+                .buttonStyle(.plain).accessibilityLabel("Open receipt photo")
+                .accessibilityShowsLargeContentViewer { Label("Receipt photo", systemImage: "doc.text.image") }
+            }
+            detailRow("Vendor", expense.displayVendor)
+            detailRow("Date", expense.expenseDate)
+            detailRow("Total", String(format: "$%.2f", expense.total))
+            if let category = expense.accountingCategory, !category.isEmpty { detailRow("Category", category) }
+            if let payment = expense.paymentMethod, !payment.isEmpty { detailRow("Payment", payment) }
+            if let description = expense.description, !description.isEmpty { detailRow("Description", description) }
+        }
+        .padding(.top, ItSpace.s2)
+    }
+
+    private var pennyBrand: Color { appStyle.palette.color(.brand) }
+
+    private var receiptStatusLabel: String {
+        switch expense.status {
+        case "forwarded": "Sent"
+        case "approved": "Approved"
+        case "rejected": "Rejected"
+        case "pending_approval": "Pending approval"
+        default: "Draft"
+        }
     }
 
     private func decidePenny(useHers: Bool) async {
@@ -273,7 +461,7 @@ struct ReceiptDetailView: View {
             dismiss()
             return
         }
-        pennyNote = r.message
+        pennyNote = useHers ? "Penny's changes applied · Awaiting approval" : (r.message ?? "Current version selected")
         await loadLineItems()
         pennyRead = await viewModel.loadPennyRead(expenseId: expense.id)
     }
@@ -610,7 +798,7 @@ struct ReceiptDetailView: View {
                     rejectReason = ""
                     showRejectSheet = true
                 }
-                actionButton(title: "Approve", systemImage: "checkmark", color: appStyle.tenant) {
+                actionButton(title: "Approve receipt", systemImage: "checkmark", color: appStyle.tenant) {
                     Task { await performApprove() }
                 }
             }
@@ -1162,6 +1350,69 @@ struct VendorItemPickerSheet: View {
         }
     }
 }
+
+#if DEBUG
+/// Synthetic comparison states for checking long receipts, missing values, no differences,
+/// accessibility text, and selection changes without a server or client data.
+private struct ReceiptCompareDebugDemo: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @State private var caseName = "Many items"
+    @State private var usesLargeText = false
+    @State private var selection = ReceiptCompareSelection.current
+
+    private var rows: [ReceiptCompareRow] {
+        switch caseName {
+        case "Missing values":
+            return [
+                ReceiptCompareRow(id: "merchant", label: "Merchant", current: nil, proposed: "Garden Supply"),
+                ReceiptCompareRow(id: "tax", label: "Tax", current: "$4.20", proposed: nil),
+            ]
+        case "No differences":
+            return [ReceiptCompareRow(id: "total", label: "Total", current: "$42.00", proposed: "$42.00")]
+        default:
+            return (1...18).map {
+                ReceiptCompareRow(id: "item-\($0)", label: "Item \($0)", current: "$\($0).00", proposed: "$\($0 + 1).00",
+                                  reason: $0 == 1 ? String(repeating: "Penny's supplied reason. ", count: 10) : "")
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: ItSpace.s3) {
+                    Picker("Case", selection: $caseName) {
+                        ForEach(["Many items", "Missing values", "No differences"], id: \.self) { Text($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("Accessibility text", isOn: $usesLargeText)
+                    ForEach(rows) { row in
+                        VStack(alignment: .leading) {
+                            Text(row.label).font(appStyle.font(.caption, weight: .semibold))
+                            Text("Current: \(row.current ?? "Missing")")
+                            Text("Penny: \(row.proposed ?? "Not proposed")")
+                            if !row.reason.isEmpty { Text(row.reason).font(appStyle.font(.caption)) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding().background(appStyle.surface)
+                    }
+                    Button(selection == .current ? "Current version selected" : "Penny's changes applied") {
+                        selection = selection == .current ? .penny : .current
+                    }
+                    .buttonStyle(.borderedProminent).tint(appStyle.palette.color(.brand))
+                }
+                .padding()
+            }
+            .environment(\.dynamicTypeSize, usesLargeText ? .accessibility3 : .large)
+            .navigationTitle("Receipt compare demo")
+        }
+    }
+}
+
+#Preview("Receipt compare — synthetic") {
+    ReceiptCompareDebugDemo()
+}
+#endif
 
 /// A URL that can drive .fullScreenCover(item:).
 private struct IdentURL: Identifiable {

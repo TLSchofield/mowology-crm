@@ -302,6 +302,12 @@ final class PennyCardViewModel: ObservableObject {
     func approve() async { await decide(saveDraft: false) }
     func saveDraft() async { await decide(saveDraft: true) }
 
+    /// Answers the server's single question through the same decision action as approval. The server can therefore
+    /// queue it exactly as it queues today's card actions when connectivity is unavailable.
+    func answer(_ option: BKReceiptQuestion.Option) async {
+        await decide(saveDraft: false, questionAnswer: option.key)
+    }
+
     func skip() {
         guard !queue.isEmpty else { return }
         let skipped = queue.remove(at: index)
@@ -562,11 +568,13 @@ final class PennyCardViewModel: ObservableObject {
         return o
     }
 
-    private func decide(saveDraft: Bool) async {
+    private func decide(saveDraft: Bool, questionAnswer: String? = nil) async {
         guard let it = current, !isBusy else { return }
         let values = overrides()
-        guard let r = await perform(["mode": "decide", "suggestion_id": it.suggestionId,
-                                     "overrides": values, "save_draft": saveDraft]) else { return }
+        var body: [String: Any] = ["mode": "decide", "suggestion_id": it.suggestionId,
+                                   "overrides": values, "save_draft": saveDraft]
+        if let questionAnswer { body["question_answer"] = questionAnswer }
+        guard let r = await perform(body) else { return }
         // The current receipt may have moved while the request was out; find it again.
         guard let i = queue.firstIndex(where: { $0.suggestionId == it.suggestionId }) else { return }
         let draft = values.reduce(into: [String: BKValue]()) { acc, kv in

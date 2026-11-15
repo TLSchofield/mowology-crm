@@ -16,9 +16,17 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Receipt review: aligned values, missing/not-proposed states, and derived selection.
+cp "$ROOT/ios/LogicTests/ReceiptCompareTests.swift" "$OUT/main.swift"
+run receiptcompare "$SRC/Core/Models/BookkeeperModels.swift" "$OUT/main.swift"
+
 # Receipts list: conservative detection of OCR text that is not a merchant name.
 cp "$ROOT/ios/LogicTests/ReceiptRowTests.swift" "$OUT/main.swift"
 run receiptrow "$SRC/Features/Receipts/ReceiptRowRules.swift" "$OUT/main.swift"
+
+# Penny receipt card: optional one-question contract, floating-photo corner snap, zoom clamps and session memory.
+cp "$ROOT/ios/LogicTests/ReceiptCardTests.swift" "$OUT/main.swift"
+run receiptcard "$SRC/Core/Models/BookkeeperModels.swift" "$OUT/main.swift"
 
 # Shared two-line work-screen header: admin visibility, state copy, dismissal, and selection controls.
 cp "$ROOT/ios/LogicTests/ScreenHeaderTests.swift" "$OUT/main.swift"
@@ -141,3 +149,7 @@ run signuplogic "$SRC/Features/Onboarding/SignUpLogic.swift" "$SRC/Features/Onbo
 # Onboarding bottom bar (2026-11-13): Kaname alone, no bar before the account exists, open on Kaname afterwards.
 cp "$ROOT/ios/LogicTests/OnboardingBarTests.swift" "$OUT/main.swift"
 run onboardingbar "$SRC/Features/Onboarding/OnboardingBarLogic.swift" "$OUT/main.swift"
+
+# Kaname's onboarding-spine brain: persisted done count, completion face, motion phases and screenshot demo states.
+cp "$ROOT/ios/LogicTests/BrainOnSpineTests.swift" "$OUT/main.swift"
+run brainonspine "$SRC/Features/Onboarding/BusinessOnboardingLogic.swift" "$OUT/main.swift"

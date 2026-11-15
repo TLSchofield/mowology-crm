@@ -149,10 +149,17 @@ struct BusinessOnboardingView: View {
         let key = BusinessOnboardingLogic.screenKey(current: vm.current, map: map)
         let step = map.steps.first { $0.key == key }
         let marks = BusinessOnboardingLogic.axisMarks(map)
+        let liveBrainUnits = BrainOnSpineLogic.units(for: map)
+        let brainUnits: Int? = switch BrainOnSpineLogic.demoState(arguments: ProcessInfo.processInfo.arguments) {
+        case let .some(.brain(units)): units
+        case .some(.face): nil
+        case .none: liveBrainUnits
+        }
         return ScrollView {
             VStack(spacing: 0) {
                 // Kaname at the top of the centre line, exactly as on the Team screen (name left, face, role right).
-                SpineHead(slug: "charlie", name: chiefName.isEmpty ? "Kaname" : chiefName)
+                SpineHead(slug: "charlie", name: chiefName.isEmpty ? "Kaname" : chiefName,
+                          brainUnits: brainUnits, showsBrainProgress: true)
                 ForEach(marks, id: \.key) { m in
                     // The Done step shows no card: its node is ticked and the pulsing Kaname bead is the way forward.
                     let atDone = key == "done" && m.key == "done"

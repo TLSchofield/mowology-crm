@@ -22,6 +22,16 @@ struct PennyCardView: View {
     @State private var showReject = false
     @State private var rejectReason = ""
     @State private var pagerTarget: PagerTarget?
+    @State private var detailsOpen = false
+    @State private var photoExpanded = false
+    @State private var photoMemory = ReceiptPhotoPanelLogic.Memory(
+        corner: .topTrailing,
+        size: .init(width: Double(ItSize.targetPhone * 4), height: Double(ItSize.targetPhone * 5))
+    )
+    @State private var photoDrag = CGSize.zero
+    @State private var resizeStart: ReceiptPhotoPanelLogic.Size?
+    @State private var receiptImage: UIImage?
+    @State private var retakeOption: BKReceiptQuestion.Option?
 
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -56,6 +66,17 @@ struct PennyCardView: View {
         .fullScreenCover(item: $pagerTarget) { t in
             DupePhotoPager(urls: t.urls, labels: t.labels, reads: t.reads, start: t.start)
         }
+        .fullScreenCover(item: $retakeOption) { option in
+            CameraPicker(
+                onCapture: { image in
+                    receiptImage = image
+                    retakeOption = nil
+                    Task { await vm.answer(option) }
+                },
+                onCancel: { retakeOption = nil }
+            )
+            .ignoresSafeArea()
+        }
         .onAppear {
             vm.focusNextDecision()
             refreshLinks()
@@ -65,6 +86,7 @@ struct PennyCardView: View {
         }
         .onChange(of: vm.dupePos) { _, _ in refreshLinks() }
         .onChange(of: vm.index) { _, _ in refreshLinks() }
+        .overlay { floatingPhoto }
     }
 
     private func refreshLinks() {
@@ -144,77 +166,95 @@ struct PennyCardView: View {
     // MARK: - Receipt
 
     private func receiptCard(_ item: BookkeeperItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header(item)
-            photo(vm.photoLink(expenseId: item.expenseId, arrivedWith: item.imageURL))
+        ZStack(alignment: .topLeading) {
+            SpineLine(large: dynamicTypeSize.isAccessibilitySize).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: ItSpace.s4) {
+                header(item)
+                summary(item)
+                question(item)
+                DisclosureGroup("Details", isExpanded: $detailsOpen) { details(item) }
+                    .tint(appStyle.tenant)
+                    .accessibilityHint(detailsOpen ? "Hides editable receipt details" : "Shows editable receipt details")
+                messageLine
+            }
+            .padding(ItSpace.s4)
+            .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: SpineMetrics.lineWidth))
+        }
+        .task(id: vm.photoLink(expenseId: item.expenseId, arrivedWith: item.imageURL)) {
+            await loadReceiptImage(vm.photoLink(expenseId: item.expenseId, arrivedWith: item.imageURL))
+        }
+        .onChange(of: item.expenseId) { _, _ in detailsOpen = false }
+        .onChange(of: dynamicTypeSize) { _, size in if size.isAccessibilitySize { photoExpanded = false } }
+    }
 
-            if let who = item.submittedBy, !who.isEmpty {
-                Text("from \(who)")
-                    .font(appStyle.font(.footnote))
-                    .foregroundStyle(appStyle.meta)
-            }
-
-            field("Vendor", key: "vendor") {
-                TextField("Who sold it?", text: $vm.vendor)
-                    .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.words)
-            }
-            field("Receipt date", key: nil) {
-                DatePicker("Receipt date", selection: $vm.date, in: PennyCardViewModel.dateRange, displayedComponents: .date)
-                    .labelsHidden()
-            }
-            field("Category", key: "accounting_category") {
-                Picker("Category", selection: $vm.category) {
-                    if vm.category.isEmpty { Text("Choose…").tag("") }
-                    ForEach(vm.categoryChoices, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.menu)
-                .tint(appStyle.tenant)
-            }
-            field("For", key: "asset_tag") {
-                Picker("For", selection: $vm.assetTag) {
-                    ForEach(vm.tagOptions, id: \.value) { Text($0.label).tag($0.value) }
-                }
-                .pickerStyle(.segmented)
-            }
-            field("Job", key: "job") {
-                Text(vm.jobLabel)
-                    .font(appStyle.font(.subheadline))
-                    .foregroundStyle(vm.jobLabel == "None" ? appStyle.meta : appStyle.text)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 10) {
-                    amount("Subtotal", key: "subtotal", text: $vm.subtotal)
-                    amount("Total", key: "total", text: $vm.total)
-                }
-                HStack(alignment: .top, spacing: 10) {
-                    amount("GST", key: "gst", text: $vm.gst)
-                    amount("PST", key: "pst", text: $vm.pst)
-                }
-            }
-
-            if !item.checks.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(item.checks) { c in
-                        Label(c.message, systemImage: c.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(c.ok ? appStyle.tenant : appStyle.attention)
+    @ViewBuilder private var floatingPhoto: some View {
+        if photoExpanded, !dynamicTypeSize.isAccessibilitySize, let image = receiptImage {
+            GeometryReader { proxy in
+                let panel = photoMemory.size
+                let safeWidth = max(0, proxy.size.width - proxy.safeAreaInsets.leading - proxy.safeAreaInsets.trailing)
+                let safeHeight = max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom)
+                let container = ReceiptPhotoPanelLogic.Size(width: Double(safeWidth), height: Double(safeHeight))
+                let inset = Double(ItSpace.s2)
+                let base = ReceiptPhotoPanelLogic.origin(for: photoMemory.corner, panel: panel, container: container, inset: inset)
+                ReceiptZoomView(image: image)
+                    .frame(width: CGFloat(panel.width), height: CGFloat(panel.height))
+                    .background(appStyle.page)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
+                    .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)).stroke(appStyle.line, lineWidth: SpineMetrics.lineWidth))
+                    .overlay(alignment: .topTrailing) {
+                        Button { photoExpanded = false } label: {
+                            Image(systemName: "xmark.circle.fill").frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }.buttonStyle(.plain).accessibilityLabel("Dock receipt photo")
                     }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                    .overlay(alignment: .topLeading) {
+                        Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                            .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .accessibilityLabel("Move receipt photo")
+                            .gesture(DragGesture().onChanged { photoDrag = $0.translation }.onEnded { value in
+                                let end = ReceiptPhotoPanelLogic.Point(x: base.x + Double(value.translation.width),
+                                                                      y: base.y + Double(value.translation.height))
+                                photoMemory.corner = ReceiptPhotoPanelLogic.nearestCorner(
+                                    to: end, panel: panel, container: container, inset: inset
+                                )
+                                photoDrag = .zero
+                            })
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .accessibilityLabel("Resize receipt photo")
+                            .gesture(DragGesture().onChanged { value in
+                                let initial = resizeStart ?? photoMemory.size
+                                resizeStart = initial
+                                photoMemory.size = ReceiptPhotoPanelLogic.resized(
+                                    initial,
+                                    by: .init(x: Double(value.translation.width), y: Double(value.translation.height)),
+                                    minimum: .init(width: Double(ItSize.targetPhone * 3), height: Double(ItSize.targetPhone * 4)),
+                                    maximum: container
+                                )
+                            }.onEnded { _ in resizeStart = nil })
+                    }
+                    .offset(x: proxy.safeAreaInsets.leading + CGFloat(base.x) + photoDrag.width,
+                            y: proxy.safeAreaInsets.top + CGFloat(base.y) + photoDrag.height)
+                    .shadow(color: appStyle.text.opacity(0.18), radius: ItSpace.s2)
+                    .zIndex(10)
             }
+        }
+    }
 
-            if let notes = vm.notes {
-                Label(notes, systemImage: "note.text")
-                    .font(appStyle.font(.caption))
-                    .foregroundStyle(appStyle.meta)
-            }
-
-            actions
-            messageLine
+    private func loadReceiptImage(_ urlString: String?) async {
+        guard let urlString, let url = URL(string: urlString) else { receiptImage = nil; return }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard !Task.isCancelled else { return }
+            receiptImage = UIImage(data: data)
+        } catch {
+            guard !Task.isCancelled else { return }
+            receiptImage = nil
         }
     }
 
@@ -231,50 +271,107 @@ struct PennyCardView: View {
         }
     }
 
-    @ViewBuilder
-    private func photo(_ urlString: String?) -> some View {
-        if let s = urlString, let url = URL(string: s) {
-            Button { zoomTarget = ZoomTarget(url: url) } label: {
-                AsyncImage(url: url) { phase in
-                    if let img = phase.image {
-                        img.resizable().scaledToFit()
-                    } else if phase.error != nil {
-                        Label("Couldn't load the photo", systemImage: "photo")
-                            .font(appStyle.font(.footnote)).foregroundStyle(appStyle.meta)
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .id(url)   // a re-issued link starts over, whatever the last one did
-                .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 260)
-                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
-                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(appStyle.font(.caption, weight: .bold))
-                        .padding(6)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .padding(8)
+    private func summary(_ item: BookkeeperItem) -> some View {
+        HStack(alignment: .top, spacing: ItSpace.s3) {
+            dockedPhoto(item)
+            VStack(alignment: .leading, spacing: ItSpace.s1) {
+                Text(summaryLine(item)).font(appStyle.font(.subheadline, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let memo = item.question?.memo, !memo.isEmpty {
+                    Text(memo).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Receipt photo — tap to zoom")
-        } else {
-            Label("No photo", systemImage: "photo")
-                .font(appStyle.font(.footnote))
-                .foregroundStyle(appStyle.meta)
-                .frame(maxWidth: .infinity, minHeight: 80)
-                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
         }
     }
 
-    /// A field with Penny's confidence chip beside the label and her reason under it.
+    private func summaryLine(_ item: BookkeeperItem) -> String {
+        let readVendor = vm.vendor.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vendor = readVendor.isEmpty || vm.confidence("vendor") == "low" ? "Check merchant" : readVendor
+        let date = PennyCardViewModel.dayFormatter.string(from: vm.date)
+        let total = vm.total.isEmpty ? "—" : "$\(vm.total)"
+        return "\(vendor) · \(date) · \(total)"
+    }
+
+    @ViewBuilder private func dockedPhoto(_ item: BookkeeperItem) -> some View {
+        if let image = receiptImage {
+            Button { photoExpanded = !dynamicTypeSize.isAccessibilitySize } label: {
+                Image(uiImage: image).resizable().scaledToFill()
+                    .frame(width: ItSize.targetPhone * 1.5, height: ItSize.targetPhone * 1.5).clipped()
+                    .background(appStyle.sunk)
+            }
+            .buttonStyle(.plain).accessibilityLabel("Receipt photo")
+            .accessibilityHint(dynamicTypeSize.isAccessibilitySize ? "Open full screen is in Details" : "Expands a movable photo")
+        } else {
+            Image(systemName: "photo").foregroundStyle(appStyle.meta)
+                .frame(width: ItSize.targetPhone * 1.5, height: ItSize.targetPhone * 1.5).background(appStyle.sunk)
+                .accessibilityLabel("Receipt photo unavailable")
+        }
+    }
+
+    @ViewBuilder private func question(_ item: BookkeeperItem) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s3) {
+            if let q = item.question {
+                Text(q.prompt).font(appStyle.font(.headline)).fixedSize(horizontal: false, vertical: true)
+                if q.kind == .retake, let option = q.options.first {
+                    Button { retakeOption = option } label: {
+                        Label("Retake this photo", systemImage: "camera.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).tint(appStyle.tenant).controlSize(.large)
+                } else if q.kind == .confirm, let option = q.options.first {
+                    Button { Task { await vm.answer(option) } } label: {
+                        Text("Looks right").bold().frame(maxWidth: .infinity).frame(minHeight: ItSize.targetPhone)
+                    }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: ItSize.targetPhone * 3), spacing: ItSpace.s2)], spacing: ItSpace.s2) {
+                        ForEach(q.options.prefix(5)) { option in
+                            Button { Task { await vm.answer(option) } } label: {
+                                Text(option.label).frame(maxWidth: .infinity).frame(minHeight: ItSize.targetPhone)
+                            }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
+                        }
+                    }
+                }
+            } else {
+                Button { Task { await vm.approve() } } label: {
+                    Text("Looks right").bold().frame(maxWidth: .infinity).frame(minHeight: ItSize.targetPhone)
+                }.buttonStyle(.borderedProminent).tint(appStyle.tenant)
+            }
+        }.disabled(vm.isBusy)
+    }
+
+    private func details(_ item: BookkeeperItem) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s3) {
+            field("Vendor", key: "vendor") { TextField("Who sold it?", text: $vm.vendor).textFieldStyle(.roundedBorder) }
+            field("Receipt date", key: nil) {
+                DatePicker("Receipt date", selection: $vm.date, in: PennyCardViewModel.dateRange, displayedComponents: .date).labelsHidden()
+            }
+            field("Category", key: "accounting_category") {
+                Picker("Category", selection: $vm.category) {
+                    if vm.category.isEmpty { Text("Choose…").tag("") }
+                    ForEach(vm.categoryChoices, id: \.self) { Text($0).tag($0) }
+                }.pickerStyle(.menu).tint(appStyle.tenant)
+            }
+            field("For", key: "asset_tag") {
+                Picker("For", selection: $vm.assetTag) { ForEach(vm.tagOptions, id: \.value) { Text($0.label).tag($0.value) } }.pickerStyle(.segmented)
+            }
+            field("Job", key: "job") { Text(vm.jobLabel).foregroundStyle(vm.jobLabel == "None" ? appStyle.meta : appStyle.text) }
+            HStack(alignment: .top, spacing: ItSpace.s3) { amount("Subtotal", key: "subtotal", text: $vm.subtotal); amount("Total", key: "total", text: $vm.total) }
+            HStack(alignment: .top, spacing: ItSpace.s3) { amount("GST", key: "gst", text: $vm.gst); amount("PST", key: "pst", text: $vm.pst) }
+            ForEach(item.checks) { check in
+                Label(check.message, systemImage: check.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(appStyle.font(.caption)).foregroundStyle(check.ok ? appStyle.tenant : appStyle.attention)
+            }
+            if let notes = vm.notes { Label(notes, systemImage: "note.text").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta) }
+            if let urlString = vm.photoLink(expenseId: item.expenseId, arrivedWith: item.imageURL), let url = URL(string: urlString) {
+                Button("Open full screen") { zoomTarget = ZoomTarget(url: url) }.tint(appStyle.tenant)
+            }
+            actions
+        }.padding(.top, ItSpace.s3)
+    }
+
+    /// Editable fields keep Penny's full reason in Details; confidence labels are intentionally absent from the compact card.
     private func field<Content: View>(_ label: String, key: String?, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text(label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
-                if let key, let c = vm.confidence(key) { ConfidenceChip(level: c) }
-            }
+            Text(label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
             content()
             if let key, let why = vm.reason(key), !why.isEmpty {
                 Text(why).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
@@ -284,10 +381,7 @@ struct PennyCardView: View {
 
     private func amount(_ label: String, key: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                Text(label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
-                if let c = vm.confidence(key) { ConfidenceChip(level: c) }
-            }
+            Text(label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
             TextField("0.00", text: text)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
@@ -306,7 +400,7 @@ struct PennyCardView: View {
             } label: {
                 HStack {
                     if vm.isBusy { ProgressView().tint(appStyle.onTenant) }
-                    Text("Approve").bold()
+                    Text("Looks right").bold()
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -982,8 +1076,8 @@ private struct ZoomTarget: Identifiable {
 }
 
 #if DEBUG
-/// `-mwDupeDemo two|three|first|done` (add `-mwTimelineField` for field mode): Penny's duplicate card with invented
-/// receipts — no sign-in, no client data. Merge answers as the server does (undo available).
+/// `-mwDupeDemo receipt-purpose|receipt-twin|receipt-retake|receipt-confirm|receipt-none|receipt-long|receipt-unreadable|receipt-large`
+/// renders the compact receipt cases with invented data. The existing duplicate variants remain available.
 struct PennyDupeDemo: View {
     let variant: String
 
@@ -992,6 +1086,24 @@ struct PennyDupeDemo: View {
         var answered = 0          // groups merged / said different: the server drops them from the list
         init(variant: String) { self.variant = variant }
         func loadQueue() async throws -> BookkeeperQueueResponse {
+            if variant.hasPrefix("receipt-") {
+                let question: String
+                switch variant {
+                case "receipt-purpose":
+                    question = #", "question":{"kind":"purpose","prompt":"What was this for?","options":[{"key":"materials","label":"Materials"},{"key":"equipment","label":"Equipment"}],"memo":"Filed to the job shown on the receipt."}"#
+                case "receipt-twin":
+                    question = #", "question":{"kind":"twin","prompt":"Same purchase or two?","options":[{"key":"same","label":"Same purchase"},{"key":"two","label":"Two purchases"}],"memo":"The totals and times match another receipt."}"#
+                case "receipt-retake", "receipt-unreadable":
+                    question = #", "question":{"kind":"retake","prompt":"Retake this photo","options":[{"key":"retake","label":"Open camera"}],"memo":"The printed total cannot be read."}"#
+                case "receipt-confirm":
+                    question = #", "question":{"kind":"confirm","prompt":"Does this look right?","options":[{"key":"confirm","label":"Looks right"}],"memo":"Vendor, date and total match the receipt."}"#
+                default: question = ""
+                }
+                let vendor = variant == "receipt-long" ? "A Very Long Synthetic Garden Equipment Supplier Name" : "Sample Garden Supply"
+                let item = #"{"suggestion_id":701,"expense_id":702,"status":"pending_approval","vendor":"\#(vendor)","date":"2026-11-14","suggestion":{"vendor":{"value":"\#(vendor)","confidence":"high","reason":"Printed at the top."},"accounting_category":{"value":"Materials"},"subtotal":{"value":"100.00"},"gst":{"value":"5.00"},"pst":{"value":"7.00"},"total":{"value":"112.00","reason":"Printed beside Total."}}\#(question)}"#
+                let json = #"{"ok":true,"queue":[\#(item)],"categories":["Materials","Fuel"],"asset_tags":[],"payments":[],"cheques":[],"dupes":[]}"#
+                return try JSONDecoder().decode(BookkeeperQueueResponse.self, from: Data(json.utf8))
+            }
             let shell = #"{"pairs":[[126,254]],"members":[{"id":126,"expense_date":"2026-10-03","total":20,"status":"draft","vendor_name":"Shell","submitted_by":"Trevor"},{"id":254,"expense_date":"2026-10-03","total":20,"status":"approved","vendor_name":"Shell","submitted_by":"Tim"}],"verdict":"Same receipt: auth 433970 is on both.","evidence":"number","confidence":"With Shell I've been right 14 of 14 times.","keep_id":254,"keep_reason":"already in the books","copy_ids":[126],"can_swap":[],"facts":[{"label":"Vendor","values":["Southlands Nursery","Southlands Nursery"],"state":"same"},{"label":"Date","values":["Oct 3, 2026","Oct 3, 2026"],"state":"same"},{"label":"Time","values":["12:04","12:04"],"state":"same"},{"label":"Total","values":["$20.00","$20.00"],"state":"same"},{"label":"Number","values":["Auth 433970","Auth 433970"],"state":"same"},{"label":"Card","values":["••7640",null],"state":"missing"},{"label":"Status","values":["waiting","in the books"],"state":"info"},{"label":"Sent in by","values":["Trevor","Tim"],"state":"info"}]}"#
             let champ = #"{"pairs":[[486,488],[488,490]],"members":[{"id":486,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion Lawn Mower Sales"},{"id":488,"expense_date":"2026-10-22","total":147.84,"status":"pending_approval","vendor_name":"Champion"},{"id":490,"expense_date":"2026-10-23","total":147.84,"status":"draft","vendor_name":"Champion"}],"verdict":"Same total, dates a few days apart. Nothing printed proves it either way.","evidence":"total_date","confidence":"","keep_id":486,"keep_reason":"sent in first","copy_ids":[488,490],"can_swap":[488,490],"facts":[{"label":"Vendor","values":["Champion Lawn Mower Sales","Champion","Champion"],"state":"differs"},{"label":"Date","values":["Oct 22, 2026","Oct 22, 2026","Oct 23, 2026"],"state":"differs"},{"label":"Time","values":["09:24",null,null],"state":"missing"},{"label":"Total","values":["$147.84","$147.84","$147.84"],"state":"same"},{"label":"Status","values":["waiting","waiting","waiting"],"state":"info"}]}"#
             // `cheque`: a likely cheque with a three-receipt group under it (the line must stop at the group).
@@ -1047,6 +1159,7 @@ struct PennyDupeDemo: View {
                 .navigationTitle("Penny")
                 .itAppScreen()
         }
+        .dynamicTypeSize(variant == "receipt-large" ? .accessibility3 : .large)
         .task {
             await vm.load()
             if variant == "chequedone", let c = vm.currentCheque { await vm.recordCheque(c) }

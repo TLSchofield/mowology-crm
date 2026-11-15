@@ -42,8 +42,28 @@ struct SpineHead: View {
     let slug: String
     let name: String
     var state: ItEmployeeState? = nil
+    var brainUnits: Int? = nil
+    var showsBrainProgress = false
     @Environment(\.it) private var it
+    @Environment(\.itAppStyle) private var appStyle
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var displayedBrainUnits: Int?
+    @State private var triangleReveal = 1.0
+    @State private var brainYaw = ItKnowledgeGeometry.restingYaw
+    @State private var brainOpacity = 1.0
+    @State private var faceOpacity = 0.0
+
+    init(slug: String, name: String, state: ItEmployeeState? = nil, brainUnits: Int? = nil,
+         showsBrainProgress: Bool = false) {
+        self.slug = slug
+        self.name = name
+        self.state = state
+        self.brainUnits = brainUnits
+        self.showsBrainProgress = showsBrainProgress
+        _displayedBrainUnits = State(initialValue: brainUnits)
+        _faceOpacity = State(initialValue: brainUnits == nil ? 1 : 0)
+    }
 
     var body: some View {
         let large = dynamicTypeSize.isAccessibilitySize
@@ -71,13 +91,30 @@ struct SpineHead: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(role.isEmpty ? name : "\(name), \(role)")
+        .accessibilityLabel(accessibilityLabel(role: role))
         .accessibilityAddTraits(.isHeader)
+        .onChange(of: brainUnits) { oldUnits, newUnits in
+            apply(BrainOnSpineLogic.phase(from: oldUnits, to: newUnits, reduceMotion: reduceMotion))
+        }
+        .onChange(of: reduceMotion) { _, isReduced in
+            guard isReduced else { return }
+            apply(BrainOnSpineLogic.phase(from: displayedBrainUnits, to: brainUnits, reduceMotion: true))
+        }
     }
 
     private var face: some View {
-        ItPortrait(name: name, url: TeamHead.all.first { $0.slug == slug }?.faceURL, state: state, size: 56, brandRing: slug == "charlie")
+        ZStack {
+            if let units = displayedBrainUnits {
+                SpineBrain(units: units, newestTriangleOpacity: triangleReveal, yaw: brainYaw)
+                    .opacity(brainOpacity)
+            }
+            ItPortrait(name: name, url: TeamHead.all.first { $0.slug == slug }?.faceURL, state: state,
+                       size: 56, brandRing: slug == "charlie")
+                .opacity(faceOpacity)
+        }
+            .frame(width: 56, height: 56)
             .frame(width: SpineMetrics.slot)
+            .accessibilityHidden(true)
     }
 
     private var nameRow: some View {
@@ -90,6 +127,78 @@ struct SpineHead: View {
     private func roleText(_ role: String) -> some View {
         Text(role).itText(.meta13).foregroundStyle(it.meta)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func accessibilityLabel(role: String) -> String {
+        let identity = role.isEmpty ? name : "\(name), \(role)"
+        guard showsBrainProgress else { return identity }
+        return "\(identity), \(BrainOnSpineLogic.accessibilityValue(units: brainUnits))"
+    }
+
+    private func apply(_ phase: BrainOnSpineLogic.Phase) {
+        switch phase {
+        case let .brain(units):
+            displayedBrainUnits = units
+            triangleReveal = 1
+            brainYaw = ItKnowledgeGeometry.restingYaw
+            brainOpacity = 1
+            faceOpacity = 0
+        case let .build(_, units):
+            displayedBrainUnits = units
+            triangleReveal = 0
+            brainOpacity = 1
+            faceOpacity = 0
+            withAnimation(.easeOut(duration: 0.5)) { triangleReveal = 1 }
+        case let .turnToFace(units):
+            displayedBrainUnits = units
+            withAnimation(.easeInOut(duration: 1)) {
+                brainYaw = ItKnowledgeGeometry.restingYaw + .pi
+                brainOpacity = 0
+                faceOpacity = 1
+            }
+        case .face:
+            displayedBrainUnits = nil
+            brainOpacity = 0
+            faceOpacity = 1
+        }
+    }
+}
+
+private struct SpineBrain: View, Animatable {
+    let units: Int
+    var newestTriangleOpacity: Double
+    var yaw: Double
+    @Environment(\.itAppStyle) private var appStyle
+
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(newestTriangleOpacity, yaw) }
+        set {
+            newestTriangleOpacity = newValue.first
+            yaw = newValue.second
+        }
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let brand = appStyle.palette.color(.brand)
+            let faces = ItKnowledgeGeometry.projectedFaces(count: max(1, units), in: size, yaw: yaw)
+            for face in faces {
+                let isPlaceholder = units == 0
+                let opacity = isPlaceholder ? 0.18 : (face.slot == units - 1 ? newestTriangleOpacity : 1)
+                var path = Path()
+                for (index, point) in face.points.enumerated() {
+                    index == 0 ? path.move(to: point) : path.addLine(to: point)
+                }
+                path.closeSubpath()
+                if isPlaceholder {
+                    context.stroke(path, with: .color(brand.opacity(opacity)), lineWidth: SpineMetrics.lineWidth)
+                } else {
+                    context.fill(path, with: .color(brand.opacity(face.front ? opacity : opacity * 0.28)))
+                }
+            }
+        }
+        .overlay(Circle().stroke(appStyle.palette.color(.brand), lineWidth: SpineMetrics.lineWidth))
+        .accessibilityHidden(true)
     }
 }
 

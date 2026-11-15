@@ -200,3 +200,55 @@ enum BusinessOnboardingLogic {
         return ("Terms", termsData(s.data).accepted || s.state == .done ? "Accepted" : "Not yet")
     }
 }
+
+/// Pure presentation rules for Kaname's onboarding portrait. A unit is earned only from a
+/// server-persisted `.done` step; UI position and optimistic replies never create units.
+enum BrainOnSpineLogic {
+    enum Phase: Equatable {
+        case brain(units: Int)
+        case build(from: Int, to: Int)
+        case turnToFace(units: Int)
+        case face
+    }
+    enum DemoState: Equatable { case brain(units: Int), face }
+
+    static let demoCompletionUnits = 6
+
+    static func units(for map: BusinessOnboardingLogic.MapState) -> Int? {
+        let applicable = map.steps.filter { $0.key != "done" && $0.state != .notNeeded }
+        let doneCount = applicable.filter { $0.state == .done }.count
+        return !applicable.isEmpty && doneCount == applicable.count ? nil : doneCount
+    }
+
+    static func phase(from oldUnits: Int?, to newUnits: Int?, reduceMotion: Bool) -> Phase {
+        guard !reduceMotion else { return newUnits.map { .brain(units: $0) } ?? .face }
+        switch (oldUnits, newUnits) {
+        case let (.some(old), .some(new)) where new > old:
+            return .build(from: old, to: new)
+        case let (.some(old), .none):
+            return .turnToFace(units: old)
+        case let (_, .some(new)):
+            return .brain(units: new)
+        case (.none, .none):
+            return .face
+        }
+    }
+
+    static func accessibilityValue(units: Int?) -> String {
+        guard let units else { return "Onboarding complete" }
+        return units == 1 ? "1 brain unit" : "\(units) brain units"
+    }
+
+    /// `-mwOnboardBarDemo N` freezes the head at N completed steps for screenshots.
+    /// Six is the all-complete face; zero through five are brain states.
+    static func demoState(arguments: [String]) -> DemoState? {
+        let separatedValue = arguments.firstIndex(of: "-mwOnboardBarDemo").flatMap { index in
+            arguments.indices.contains(index + 1) ? Int(arguments[index + 1]) : nil
+        }
+        let joinedValue = arguments.first(where: { $0.hasPrefix("-mwOnboardBarDemo=") })
+            .flatMap { Int($0.dropFirst("-mwOnboardBarDemo=".count)) }
+        guard let value = separatedValue ?? joinedValue,
+              (0...demoCompletionUnits).contains(value) else { return nil }
+        return value == demoCompletionUnits ? .face : .brain(units: value)
+    }
+}
