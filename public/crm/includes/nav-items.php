@@ -149,7 +149,7 @@ if (!function_exists('mwIttaiNavBlocks')) {
             ['audit-trail', 'Audit Trail', 'shield', '/crm/audit-trail_appstack.php', $can('settings.edit')],
             ['import', 'Import Data', 'upload', '/crm/import_appstack.php', $can('settings.edit')],
             ['privacy', 'Privacy & Data', 'lock', '/crm/privacy_appstack.php', $can('settings.edit')],
-            ['sites', 'Tenant Sites', 'globe', '/crm/sites_appstack.php', $can('database.manage')],
+            ['sites', 'Tenant Sites', 'globe', '/crm/sites_appstack.php', $can('database.manage') && class_exists('Tenant') && Tenant::isDefault()],
             ['users', 'Users & Roles', 'user-plus', '/crm/users_appstack.php', $can('users.manage')],
             ['settings', 'Settings', 'settings', '/crm/settings.php', $can('settings.edit')],
             ['system-health', 'System Health', 'activity', '/crm/ada_appstack.php', $admin],
