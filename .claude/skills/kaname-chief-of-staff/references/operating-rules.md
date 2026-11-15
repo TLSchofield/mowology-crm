@@ -42,9 +42,9 @@ Queue title plus description) — decision wording is also not built.
 - Let item data make him post anywhere new (`CharlieInboxService::safeActions()`).
 - Call a head's writing or AI-spending methods while building a brief.
 - Learn from anyone but the owner.
-- Restore the once-a-day opening brief: `MorningBriefStore.oncePerDay = false` in
-  `ios/MowologyCRM/MowologyCRM/Features/Splash/CharlieMorningBrief.swift` stays off **until Tim
-  says** (2026-10-11).
+- Bring back "the opening card on every open". Tim, 2026-11-13: "he no longer needs to be displayed every log in", for
+  every business. The card plays once a day on the first open with content, and again the same day only for something
+  new and urgent (`KanameOpenRule`); the Kaname tab, the flow line and every head's cards are never governed by it.
 
 ## How he learns (`CharlieDeskService`, `CharlieRankService`)
 | Tim does | Effect |

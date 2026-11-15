@@ -293,6 +293,7 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefServic
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadStateService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameOpenRule.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadNavService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameWorkspaceService.php';

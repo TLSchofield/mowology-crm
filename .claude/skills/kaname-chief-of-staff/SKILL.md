@@ -15,7 +15,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Splash/*
   - ios/MowologyCRM/MowologyCRM/Features/Team/*
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -90,6 +90,7 @@ the deadlines calendar, and interrupts only for urgent things. Read the referenc
 | Today's view (one thing, rest, heads, bad news) | `CharlieDeskService::today()` | cron, charlie.php, team-mobile, Foreman calendar, Action Board |
 | Card = urgent + inbox + today | `CharlieForemanService::card()` | cron, charlie.php, team-mobile, sales-head-mobile, ready brief |
 | One head's column (who owns a line) | `TeamCardService::column()` + `TeamCardService::headKey()` | team-mobile, ready brief |
+| Whether the opening card plays now (once a day + new urgent) | `KanameOpenRule::verdict()` (urgent list: `KanameOpenRule::urgent()`), added by team-mobile `ready=1` | iPhone (Android owed) |
 | Ready brief for the opening screen | `HeadBriefReadyService::rebuildCharlie()` / `HeadBriefReadyService::get()` | cron (every run), team-mobile `ready=1` |
 | Remove an acted-on item from the ready copy | `HeadBriefReadyService::drop()` via `tmDropReady()` | team-mobile act / move / done |
 | Deadlines calendar and its brief lines | `DeadlineService` (+ `DeadlineRules` for dates) | brief (head 'charlie'), inbox, Foreman calendar |
