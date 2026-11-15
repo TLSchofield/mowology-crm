@@ -4426,7 +4426,7 @@ window.localDateYmd = function (date) {
                 body: JSON.stringify({ csrf_token: CSRF, expense_id: parseInt(id) }),
             });
             var d = await r.json();
-            if (!d.success) throw new Error(d.error || 'Send failed');
+            if (!d.success) throw new Error(d.error || d.message || 'Send failed');
             $('#expenseModal').modal('hide');
             loadExpenses(currentPage);
             loadStats();
