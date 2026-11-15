@@ -219,7 +219,8 @@ if (!empty($itShell)):
             </li>
             <?php endif; ?>
 
-            <?php if (!function_exists('userHasPermission') || userHasPermission('database.manage')): ?>
+            <?php /* Platform-operator tool: only on the original business, never in a tenant's menu. */ ?>
+            <?php if (class_exists('Tenant') && Tenant::isDefault() && (!function_exists('userHasPermission') || userHasPermission('database.manage'))): ?>
             <li class="sidebar-item<?php echo ($activePage === 'sites') ? ' active' : ''; ?>">
                 <a class="sidebar-link" href="/crm/sites_appstack.php">
                     <i class="align-middle" data-feather="globe"></i>

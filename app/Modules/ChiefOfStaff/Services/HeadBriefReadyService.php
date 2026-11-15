@@ -154,6 +154,9 @@ class HeadBriefReadyService
         $out['heads'] = HeadStateService::fromBrief((array)($view['state_items'] ?? []), (array)($view['failed'] ?? []));
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
         $out['ask'] = (new CharlieAskService($db))->status();
+        // What may bring the opening card back the same day (KanameOpenRule); the verdict itself is added per phone by team-mobile.
+        require_once __DIR__ . '/KanameOpenRule.php';
+        $out['urgent'] = KanameOpenRule::urgent($view, date('Y-m-d'));
         // A line for the foot of the brief (owner, 2026-10-11) — the same for everyone today.
         require_once __DIR__ . '/DailyQuote.php';
         $out['quote'] = DailyQuote::forDate(date('Y-m-d'));

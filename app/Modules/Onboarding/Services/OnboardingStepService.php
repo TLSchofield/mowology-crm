@@ -175,14 +175,7 @@ final class OnboardingStepService
 
     public static function businessToday(PDO $db, ?DateTimeImmutable $now = null): string
     {
-        try {
-            $s = $db->query('SELECT timezone FROM business_settings ORDER BY id LIMIT 1');
-            $timezone = trim((string)($s->fetchColumn() ?: ''));
-            if ($timezone !== '') {
-                return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone($timezone))->format('Y-m-d');
-            }
-        } catch (Throwable $e) { /* installations without the column use PHP's configured timezone */ }
-        return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
+        return QboSyncService::businessToday($db, $now);
     }
 
     /**

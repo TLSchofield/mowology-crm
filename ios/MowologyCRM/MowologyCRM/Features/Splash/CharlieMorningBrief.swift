@@ -54,11 +54,30 @@ enum MorningBriefStore {
         return f.string(from: d)
     }
 
-    /// Owner, 2026-10-11: the brief plays on EVERY open until he says to go back to once a day.
-    /// Set to true to restore the once-a-day rule.
-    static let oncePerDay = false
-    static var shownToday: Bool { oncePerDay && UserDefaults.standard.string(forKey: shownKey) == dayString() }
-    static func markShown() { UserDefaults.standard.set(dayString(), forKey: shownKey) }
+    // Owner, 2026-11-13: not on every open. The SERVER decides (KanameOpenRule: once a day on the first open with something
+    // to say, again the same day only for something new and urgent); this phone only remembers what it last showed and
+    // sends it back with the next request (shown_day, shown_urgent).
+    private static let shownUrgentKey = "mw.morningBrief.shownUrgent.v1"
+    static let maxShownUrgent = 50
+
+    static var shownDay: String? { UserDefaults.standard.string(forKey: shownKey) }
+    static var shownUrgent: [String] { UserDefaults.standard.stringArray(forKey: shownUrgentKey) ?? [] }
+
+    /// What the next ready-brief request tells the server this phone has already shown.
+    static var shownQueryItems: [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let d = shownDay { items.append(URLQueryItem(name: "shown_day", value: d)) }
+        let u = shownUrgent
+        if !u.isEmpty { items.append(URLQueryItem(name: "shown_urgent", value: u.joined(separator: ","))) }
+        return items
+    }
+
+    /// Called when the card actually plays: the server's day and the urgent ids it carried.
+    static func markShown(day: String?, urgentIds: [String]) {
+        UserDefaults.standard.set(day ?? dayString(), forKey: shownKey)
+        let all = Array((shownUrgent + urgentIds.filter { !shownUrgent.contains($0) }).suffix(maxShownUrgent))
+        UserDefaults.standard.set(all, forKey: shownUrgentKey)
+    }
 
     static func load() -> MorningBriefSnapshot? {
         guard let d = UserDefaults.standard.data(forKey: snapshotKey) else { return nil }
@@ -107,6 +126,10 @@ final class MorningBriefLoader: ObservableObject {
 
     @Published private(set) var finished = false
 
+    /// The server's answer to "play the card now?" (nil: older server, or no answer — then it stays quiet).
+    struct OpenVerdict: Equatable { var openNow: Bool; var reason: String; var day: String?; var urgentIds: [String] }
+    @Published private(set) var verdict: OpenVerdict?
+
     /// Today's brief, with the saved one meanwhile. Never cancelled: a live build reads every head's
     /// desk (~7 s, measured 2026-10-10) — the old 2.5 s cut-off meant the brief never arrived.
     /// The server now keeps it ready (?ready=1, HeadBriefReadyService), so it is normally instant.
@@ -114,6 +137,7 @@ final class MorningBriefLoader: ObservableObject {
     func load(authSession: AuthSession) async {
         snapshot = MorningBriefStore.load()
         isFresh = false
+        verdict = nil
         finished = false
         defer { finished = true }
         let client = APIClient(authSession: authSession)
@@ -124,6 +148,13 @@ final class MorningBriefLoader: ObservableObject {
             let s = MorningBriefStore.build(headline: r.headline, items: r.items, quote: r.quote)
             MorningBriefStore.save(s)
             snapshot = s
+            verdict = r.openNow.map { OpenVerdict(openNow: $0, reason: r.openReason ?? "", day: r.openDay, urgentIds: r.urgentIds) }
+            #if DEBUG
+            // Developer override: see the card after every new build (the 2026-10-11 reason for the old every-open rule).
+            if ProcessInfo.processInfo.arguments.contains("-mwAlwaysBrief") {
+                verdict = OpenVerdict(openNow: true, reason: "debug", day: r.openDay, urgentIds: r.urgentIds)
+            }
+            #endif
             isFresh = true
         }
     }
@@ -137,7 +168,7 @@ struct OpeningOverlay: View {
     enum Phase { case splash, waiting, brief, welcome, done }
 
     /// Asked when the spin ends (not at launch: the login may still be loading then).
-    let wantsBrief: () -> Bool?         // admin + first open today; nil = login still loading
+    let wantsBrief: () -> Bool?         // admin + the server says play it now (KanameOpenRule); nil = login or verdict still loading
     @ObservedObject var loader: MorningBriefLoader
     /// The one-time welcome for a person who has never seen it for this business; nil = none (the usual brief rules apply).
     var welcome: () -> KanameWelcomeCard? = { nil }
@@ -316,7 +347,7 @@ struct OpeningOverlay: View {
             }
         }
         if showBrief, let s = loader.snapshot, !s.headline.isEmpty || !s.lines.isEmpty {
-            MorningBriefStore.markShown()
+            MorningBriefStore.markShown(day: loader.verdict?.day, urgentIds: loader.verdict?.urgentIds ?? [])
             withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .brief }
             // Landed: the brain turns over to show who is talking.
             Task { @MainActor in

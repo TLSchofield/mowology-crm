@@ -644,6 +644,17 @@ class QboSyncService
         return true;
     }
 
+    /** Today's date in the business timezone (shared with onboarding and automatic setup). */
+    public static function businessToday(PDO $db, ?DateTimeImmutable $now = null): string
+    {
+        try {
+            $s = $db->query('SELECT timezone FROM business_settings ORDER BY id LIMIT 1');
+            $timezone = trim((string)($s->fetchColumn() ?: ''));
+            if ($timezone !== '') return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone($timezone))->format('Y-m-d');
+        } catch (Throwable $e) { /* installations without the column use PHP's configured timezone */ }
+        return ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d');
+    }
+
     /**
      * What the next run sends: issued invoices on/after the start date not yet in QuickBooks (a held
      * one only once it has changed since), and invoices already there with a payment not yet sent.
@@ -732,6 +743,14 @@ class QboSyncService
         if (!$conn->tablesReady() || $conn->company() === null) {
             return ['status' => 'success', 'summary' => 'QuickBooks: not connected — nothing to send.', 'notes' => [], 'notes_text' => null,
                     'sent' => 0, 'held' => 0, 'failed' => 0, 'stopped' => null];
+        }
+        try {
+            require_once __DIR__ . '/QboAutoSetupService.php';
+            $setup = new QboAutoSetupService($conn);
+            $setupSync = new self($conn);
+            if ($setup->eligible() && $setupSync->settingValue('qbo_autosetup_done') === null) $setup->run();
+        } catch (Throwable $e) {
+            error_log('QuickBooks automatic setup in cron failed: ' . $e->getMessage());
         }
         $sync = $syncFactory ? $syncFactory($conn) : new self($conn);
         if (!$sync->auto()['on']) {
@@ -830,6 +849,13 @@ class QboSyncService
         if ($u->rowCount() === 0 && $this->setting($key) === null) {
             $this->db->prepare('INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, ?)')->execute([$key, $value, $desc]);
         }
+    }
+
+    public function settingValue(string $key): ?string { return $this->setting($key); }
+
+    public function setOperationalSetting(string $key, ?string $value, string $description): void
+    {
+        $this->saveSetting($key, $value, $description);
     }
 
     /** What was sent, newest first (for the page). */

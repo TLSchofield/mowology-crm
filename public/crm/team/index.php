@@ -732,6 +732,11 @@ $activePage = 'team';
             .catch(function() { showAlert('Network error loading employee', 'danger'); });
     };
 
+    // Admin is admin: choosing the admin role ticks "approve own expenses" (still untickable before saving).
+    document.getElementById('empRole').addEventListener('change', function() {
+        if (this.value === 'admin') document.getElementById('empCanApproveOwn').checked = true;
+    });
+
     // Form submission
     form.addEventListener('submit', function(e) {
         e.preventDefault();
