@@ -146,6 +146,10 @@ run openingmotion "$SRC/Core/Design/Ittai/ItOpeningMotion.swift" "$OUT/main.swif
 cp "$ROOT/ios/LogicTests/SignUpLogicTests.swift" "$OUT/main.swift"
 run signuplogic "$SRC/Features/Onboarding/SignUpLogic.swift" "$SRC/Features/Onboarding/BusinessOnboardingLogic.swift" "$OUT/main.swift"
 
+# Sign-up directory host: strict tenant URLs, lookup response mapping, and owner-facing messages.
+run signuphost -parse-as-library "$SRC/Features/Onboarding/SignUpTransport.swift" \
+  "$SRC/Features/Onboarding/SignUpLogic.swift" "$ROOT/ios/LogicTests/SignUpHostTests.swift"
+
 # Onboarding bottom bar (2026-11-13): Kaname alone, no bar before the account exists, open on Kaname afterwards.
 cp "$ROOT/ios/LogicTests/OnboardingBarTests.swift" "$OUT/main.swift"
 run onboardingbar "$SRC/Features/Onboarding/OnboardingBarLogic.swift" "$OUT/main.swift"

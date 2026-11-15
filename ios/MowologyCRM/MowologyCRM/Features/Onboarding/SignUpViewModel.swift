@@ -26,9 +26,11 @@ final class SignUpViewModel: ObservableObject {
 
     private let transport: OnboardingTransport
     private let authSession: AuthSession
-    private let chooseHost: (String) async -> Void
+    private let chooseHost: (String) async -> Result<URL, SignUpHostError>
+    private var chosenEmail: String?
 
-    init(transport: OnboardingTransport, authSession: AuthSession, chooseHost: @escaping (String) async -> Void = { _ in }) {
+    init(transport: OnboardingTransport, authSession: AuthSession,
+         chooseHost: @escaping (String) async -> Result<URL, SignUpHostError> = { _ in .success(Server.base) }) {
         self.transport = transport; self.authSession = authSession; self.chooseHost = chooseHost
     }
 
@@ -52,7 +54,21 @@ final class SignUpViewModel: ObservableObject {
         if !v.isEmpty { errors = v; return }
         if loading { return }
         loading = true; error = nil; notice = nil
-        await chooseHost(input.email)
+        let email = SignUpLogic.normalisedEmail(input.email)
+        if chosenEmail != email {
+            switch await chooseHost(email) {
+            case .success:
+                chosenEmail = email
+            case .failure(let hostError):
+                loading = false
+                switch hostError {
+                case .notAvailable: error = SignUpLogic.businessNotAvailable
+                case .rateLimited: error = SignUpLogic.rateLimited
+                case .network: error = SignUpLogic.network
+                }
+                return
+            }
+        }
         let res = await transport.send(method: "POST", path: "/api/auth/signup.php", query: nil, body: SignUpLogic.body(input), authorised: false)
         let fields = SignUpLogic.fieldErrors(res.json)
         if res.status == 404 { unavailable = true; loading = false; error = SignUpLogic.serverMessage(404) }

@@ -21,6 +21,7 @@ enum SignUpLogic {
     /// The same wording sign-in uses for a 429 (Android NativeAuthLogic.SignInError.RATE_LIMITED / NETWORK).
     static let rateLimited = "Too many attempts. Try again in 10 minutes."
     static let network = "Could not reach the server. Check your connection and try again."
+    static let businessNotAvailable = "We couldn't find a business set up for this email. Use the email your invitation went to."
 
     /// 10 digits, a leading country 1 on 11 digits dropped; nil when it is not a 10-digit number.
     static func normaliseMobile(_ raw: String) -> String? {

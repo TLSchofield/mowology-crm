@@ -18,12 +18,11 @@ struct SignedOutFlow: View {
     init(authSession: AuthSession, start: Screen = .welcome, transport: OnboardingTransport? = nil) {
         self.authSession = authSession
         _screen = State(initialValue: start)
-        let live = LiveOnboardingTransport(authSession: authSession)
+        let live = LiveOnboardingTransport(authSession: authSession, resolver: DirectorySignUpHost())
         let t: OnboardingTransport = transport ?? live
         _signUp = StateObject(wrappedValue: SignUpViewModel(transport: t, authSession: authSession, chooseHost: { email in
-            guard transport == nil else { return }
-            await live.choose(forEmail: email)
-            SignUpHostStore.base = live.chosenBase
+            guard transport == nil else { return .success(Server.base) }
+            return await live.choose(forEmail: email)
         }))
     }
 

@@ -22,19 +22,92 @@ protocol OnboardingTransport: AnyObject {
     func send(method: String, path: String, query: String?, body: [String: Any]?, authorised: Bool) async -> OnboardingReply
 }
 
-/// Which business a brand-new person's sign-up goes to. The sign-up email is the owner email the business was
-/// provisioned with, but there is NO email -> business lookup for someone who has no password yet
-/// (ittai.ca/api/sign-in.php needs one). Until the owner decides how to find it (see SIGNUP_BUILD_NOTES.md), the
-/// phone uses the one server it already knows, `Server.base`. Replace this one type when the lookup exists.
+enum SignUpHostError: Error, Equatable {
+    case notAvailable
+    case rateLimited
+    case network
+}
+
+/// Which business a brand-new person's sign-up goes to. The directory only returns unclaimed businesses and gives
+/// the same not-available answer when there is no unique match.
 protocol SignUpHostResolving {
-    func baseURL(forEmail email: String) async -> URL
+    func baseURL(forEmail email: String) async -> Result<URL, SignUpHostError>
 }
 struct SameServerSignUpHost: SignUpHostResolving {
-    func baseURL(forEmail email: String) async -> URL { Server.base }
+    func baseURL(forEmail email: String) async -> Result<URL, SignUpHostError> { .success(Server.base) }
+}
+
+struct DirectorySignUpHost: SignUpHostResolving {
+    typealias Fetcher = (URLRequest) async throws -> (Data, Int)
+
+    private let fetch: Fetcher
+
+    init(fetch: @escaping Fetcher = DirectorySignUpHost.liveFetch) {
+        self.fetch = fetch
+    }
+
+    func baseURL(forEmail email: String) async -> Result<URL, SignUpHostError> {
+        guard let lookupURL = URL(string: "https://ittai.ca/api/signup-lookup.php"),
+              let body = try? JSONSerialization.data(withJSONObject: ["email": email]) else {
+            return .failure(.network)
+        }
+        var request = URLRequest(url: lookupURL, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = body
+
+        do {
+            let (data, status) = try await fetch(request)
+            switch status {
+            case 200:
+                guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let business = object["business"] as? [String: Any],
+                      let appURL = business["app_url"] as? String,
+                      let base = Self.validatedBaseURL(appURL) else {
+                    AppDiagnostics.shared.record(category: "signup.lookup", message: "HTTP 200 response did not contain a valid business app_url")
+                    return .failure(.network)
+                }
+                await MainActor.run { SignUpHostStore.base = base }
+                return .success(base)
+            case 404:
+                return .failure(.notAvailable)
+            case 429:
+                return .failure(.rateLimited)
+            default:
+                AppDiagnostics.shared.record(category: "signup.lookup", message: "Unexpected HTTP status \(status)")
+                return .failure(.network)
+            }
+        } catch {
+            AppDiagnostics.shared.record(category: "signup.lookup", message: ErrorDetails.describe(error))
+            return .failure(.network)
+        }
+    }
+
+    static func validatedBaseURL(_ value: String) -> URL? {
+        guard !value.isEmpty, let components = URLComponents(string: value),
+              components.scheme == "https", let host = components.host?.lowercased(),
+              host == "ittai.ca" || (host.hasSuffix(".ittai.ca") && host.count > ".ittai.ca".count),
+              components.port == nil, components.user == nil, components.password == nil,
+              components.path.isEmpty, components.query == nil, components.fragment == nil else { return nil }
+        return components.url
+    }
+
+    static func liveFetch(_ request: URLRequest) async throws -> (Data, Int) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 15
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        let (data, response) = try await URLSession(configuration: configuration).data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
 }
 
 /// The address the new person signed up at; onboarding calls go there. In memory only: the rest of the app still
 /// talks to `Server.base` (the one-app-per-platform step 7 has not landed).
+@MainActor
 enum SignUpHostStore {
     static var base: URL?
 }
@@ -46,9 +119,9 @@ final class LiveOnboardingTransport: OnboardingTransport {
     private let session: URLSession
     private var base: URL
 
-    init(authSession: AuthSession, resolver: SignUpHostResolving = SameServerSignUpHost()) {
+    init(authSession: AuthSession, resolver: SignUpHostResolving? = nil) {
         self.authSession = authSession
-        self.resolver = resolver
+        self.resolver = resolver ?? SameServerSignUpHost()
         self.base = SignUpHostStore.base ?? Server.base
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 30
@@ -56,7 +129,11 @@ final class LiveOnboardingTransport: OnboardingTransport {
     }
 
     /// Sign-up only: pick the host from the email before the first call.
-    func choose(forEmail email: String) async { base = await resolver.baseURL(forEmail: email) }
+    func choose(forEmail email: String) async -> Result<URL, SignUpHostError> {
+        let result = await resolver.baseURL(forEmail: email)
+        if case .success(let chosen) = result { base = chosen }
+        return result
+    }
     var chosenBase: URL { base }
 
     func send(method: String, path: String, query: String?, body: [String: Any]?, authorised: Bool) async -> OnboardingReply {
