@@ -77,13 +77,19 @@ A vendor is `candidate` → `shared` at two tenants; `curated` / `blocked` are o
 - Only layout/SKU facts are shared at one tenant and nothing reads them yet; category/tax facts reach other
   businesses only once two tenants confirm or the hub owner curates the vendor (`curateVendor`).
 
+Trust boundary: `KB_HUB_SECRET` lives in the one secrets.php shared by every business on this install, so derived keys prove
+"a business on this install", not control of one business; that is by design. A business on a *different* install must use an
+issued `KB_API_KEY` row, not the derived key.
+
 ## Connecting a new tenant
 
 1. secrets.php (Tim only): `define('KB_HUB_URL', 'https://mowology.ca/api/knowledge/vendor.php');` and
    `define('KB_HUB_SECRET', '<openssl rand -base64 32>');`. The URL must be the default business's host: the endpoint
    reads whichever database the host belongs to.
-2. Register businesses on the hub: `scripts/prod-run.sh scripts/kb-register-tenants.php` (preview), then `--commit`.
-   Idempotent; prints no keys or hashes. Re-run when a business is added.
+2. Nothing to register: a business's first call carries `X-KB-Tenant` plus its derived key; the hub
+   (`public/api/knowledge/vendor.php`, `mayAutoRegister`) checks the business is in the registry and the key matches the
+   HMAC, then adds its `kb_tenants` row. Deactivating a row (`is_active = 0`) blocks that business.
+   `scripts/kb-register-tenants.php` (prod-run) can still pre-register every business.
 3. The tenant needs migration 1330 tables `kb_cache` and `kb_category_map` (cache is optional in code).
 4. Run `/crm/api/kb-backfill.php` once if it already has vendors.
 

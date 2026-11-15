@@ -63,6 +63,14 @@ final class VendorKnowledgeService
         return rtrim(base64_encode(hash_hmac('sha256', $tenantKey, $secret, true)), '=');
     }
 
+    /** Pure: may the hub self-register this caller? A registered business key plus the key derived from the secret. */
+    public static function mayAutoRegister(string $claimed, string $key, string $secret, array $registeredKeys): bool
+    {
+        return $secret !== '' && $claimed !== '' && preg_match('/^[a-z0-9._-]{1,60}$/', $claimed) === 1
+            && in_array($claimed, $registeredKeys, true)
+            && hash_equals(self::clientKey($claimed, $secret), $key);
+    }
+
     public static function tenantKey(): string
     {
         if (defined('KB_TENANT_KEY') && KB_TENANT_KEY !== '') return (string)KB_TENANT_KEY;
@@ -77,10 +85,11 @@ final class VendorKnowledgeService
         if ($this->mode === 'off') return null;
         if ($this->mode === 'client' && defined('KB_HUB_URL')) {
             // Derived per-business key first (the registered one); a lone KB_API_KEY is only a fallback.
-            $key = defined('KB_HUB_SECRET') && (string)KB_HUB_SECRET !== ''
-                ? self::clientKey(class_exists('Tenant') ? Tenant::key() : self::tenantKey(), (string)KB_HUB_SECRET)
-                : (defined('KB_API_KEY') ? (string)KB_API_KEY : '');
-            $this->store = new RemoteVendorKnowledgeStore($this->db, (string)KB_HUB_URL, $key);
+            $tk = class_exists('Tenant') ? Tenant::key() : self::tenantKey();
+            $derived = defined('KB_HUB_SECRET') && (string)KB_HUB_SECRET !== '';
+            $key = $derived ? self::clientKey($tk, (string)KB_HUB_SECRET) : (defined('KB_API_KEY') ? (string)KB_API_KEY : '');
+            // X-KB-Tenant lets the hub verify the derived key and register the business on its first call.
+            $this->store = new RemoteVendorKnowledgeStore($this->db, (string)KB_HUB_URL, $key, $derived ? $tk : '');
         } else {
             $this->store = new LocalVendorKnowledgeStore($this->db, true);
         }

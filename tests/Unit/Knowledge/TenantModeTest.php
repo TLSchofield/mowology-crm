@@ -46,4 +46,15 @@ final class TenantModeTest extends TestCase
         $this->assertGreaterThanOrEqual(20, strlen($first));
         $this->assertStringNotContainsString('=', $first);
     }
+
+    public function testAutoRegisterNeedsRegisteredBusinessAndMatchingDerivedKey(): void
+    {
+        $k = VendorKnowledgeService::clientKey('acme', 'sec');
+        $this->assertTrue(VendorKnowledgeService::mayAutoRegister('acme', $k, 'sec', ['acme']));
+        $this->assertFalse(VendorKnowledgeService::mayAutoRegister('acme', $k, 'sec', ['other']));
+        $this->assertFalse(VendorKnowledgeService::mayAutoRegister('acme', $k, 'wrong', ['acme']));
+        $this->assertFalse(VendorKnowledgeService::mayAutoRegister('acme', 'x' . $k, 'sec', ['acme']));
+        $this->assertFalse(VendorKnowledgeService::mayAutoRegister('acme', $k, '', ['acme']));
+        $this->assertFalse(VendorKnowledgeService::mayAutoRegister('', $k, 'sec', ['']));
+    }
 }
