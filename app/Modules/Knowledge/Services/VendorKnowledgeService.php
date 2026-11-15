@@ -9,8 +9,9 @@
  *   vendorStreak(vendorId)    how many suggestions in a row the owner accepted unchanged
  *   codeSuggestion(ctx)       the gate + builder for a code-made suggestion (no API call)
  *
- * Mode (secrets.php): KB_MODE = 'hub' (default — this install holds the tables),
- *   'client' (KB_HUB_URL + KB_API_KEY), or 'off'. Everything fails soft: the receipt pipeline
+ * Mode (secrets.php): KB_MODE may explicitly select 'hub', 'client', or 'off'. Otherwise the
+ *   default business is the hub and other businesses become clients when KB_HUB_URL and
+ *   KB_HUB_SECRET are configured. Everything fails soft: the receipt pipeline
  *   never waits on, or breaks because of, the commons.
  *
  * Privacy whitelist (what ever leaves a tenant): identity fields, tax labels/positions/date
@@ -39,7 +40,27 @@ final class VendorKnowledgeService
     {
         $this->db = $db;
         $this->taxonomy = new CategoryTaxonomy($db);
-        $this->mode = defined('KB_MODE') ? (string)KB_MODE : 'hub';
+        $hasTenant = class_exists('Tenant');
+        $this->mode = self::resolveMode(
+            defined('KB_MODE') ? (string)KB_MODE : null,
+            $hasTenant ? Tenant::isDefault() : true,
+            $hasTenant ? Tenant::isTest() : false,
+            defined('KB_HUB_URL') && (string)KB_HUB_URL !== '',
+            defined('KB_HUB_SECRET') && (string)KB_HUB_SECRET !== ''
+        );
+    }
+
+    public static function resolveMode(?string $explicit, bool $isDefault, bool $isTest, bool $hasHubUrl, bool $hasSecret): string
+    {
+        // The default business holds the tables: it is never a client, whatever is configured (no HTTP self-call).
+        if ($isDefault) return $explicit === 'off' ? 'off' : 'hub';
+        if ($explicit !== null) return $explicit;
+        return $hasHubUrl && $hasSecret ? 'client' : 'hub';
+    }
+
+    public static function clientKey(string $tenantKey, string $secret): string
+    {
+        return rtrim(base64_encode(hash_hmac('sha256', $tenantKey, $secret, true)), '=');
     }
 
     public static function tenantKey(): string
@@ -54,8 +75,12 @@ final class VendorKnowledgeService
     {
         if ($this->store !== null) return $this->store;
         if ($this->mode === 'off') return null;
-        if ($this->mode === 'client' && defined('KB_HUB_URL') && defined('KB_API_KEY')) {
-            $this->store = new RemoteVendorKnowledgeStore($this->db, (string)KB_HUB_URL, (string)KB_API_KEY);
+        if ($this->mode === 'client' && defined('KB_HUB_URL')) {
+            // Derived per-business key first (the registered one); a lone KB_API_KEY is only a fallback.
+            $key = defined('KB_HUB_SECRET') && (string)KB_HUB_SECRET !== ''
+                ? self::clientKey(class_exists('Tenant') ? Tenant::key() : self::tenantKey(), (string)KB_HUB_SECRET)
+                : (defined('KB_API_KEY') ? (string)KB_API_KEY : '');
+            $this->store = new RemoteVendorKnowledgeStore($this->db, (string)KB_HUB_URL, $key);
         } else {
             $this->store = new LocalVendorKnowledgeStore($this->db, true);
         }
@@ -142,6 +167,7 @@ final class VendorKnowledgeService
     public function publishLesson(int $expenseId): bool
     {
         try {
+            if ($this->mode === 'client' && class_exists('Tenant') && Tenant::isTest()) return false;
             $store = $this->store();
             if (!$store) return false;
             $s = $this->db->prepare("SELECT e.vendor_id, e.vendor_name_raw, e.accounting_category, e.gst_amount, e.amount, e.raw_ocr_json,
@@ -261,7 +287,7 @@ final class VendorKnowledgeService
     /** For Penny's card: commons size and the shadow agreement rate (code vs model, this month). */
     public function cardStats(): array
     {
-        $out = ['commons_vendors' => 0, 'commons_shared' => 0, 'shadow_n' => 0, 'shadow_agree_pct' => null, 'code_mode' => $this->codeMode()];
+        $out = ['commons_vendors' => 0, 'commons_shared' => 0, 'shadow_n' => 0, 'shadow_agree_pct' => null, 'code_mode' => $this->codeMode(), 'commons_mode' => $this->mode];
         try {
             if ($this->store() instanceof LocalVendorKnowledgeStore) {
                 $st = $this->store()->stats();
