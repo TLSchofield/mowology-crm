@@ -386,6 +386,64 @@ function kbResolveVendorFromOcr(string $ocrLower, array $ocrPhones, PDO $db): ?a
 }
 
 /**
+ * A trusted commons identity that may name a newly-created local vendor.
+ * Creation deliberately uses GST alone: phone, domain, and OCR names are not
+ * strong enough to turn a receipt header into a new local vendor.
+ */
+function kbCommonsVendorForCreation(string $ocrText, PDO $db): ?array
+{
+    try {
+        $gst = VendorIdentity::gstNumber(strtolower($ocrText));
+        if ($gst === null) return null;
+
+        $kbFile = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+        if (!is_file($kbFile)) return null;
+        require_once $kbFile;
+
+        // Same business number whether printed as 123456789 or 123456789RT0001: compare the 9-digit BN.
+        $bn = substr($gst, 0, 9);
+        $service = new VendorKnowledgeService($db);
+        $vendor = $service->resolve(['gst_number' => $bn]) ?: ($bn !== $gst ? $service->resolve(['gst_number' => $gst]) : null);
+        if (!$vendor || substr((string)($vendor['gst_number'] ?? ''), 0, 9) !== $bn) return null;
+        if (!in_array($vendor['status'] ?? '', ['shared', 'curated'], true)) return null;
+
+        $name = trim((string)($vendor['display_name'] ?? ''));
+        if (strlen($name) < 3 || ctype_digit($name) || !VendorIdentity::usableAlias($name)) return null;
+
+        $s = $db->prepare("SELECT id FROM vendors WHERE gst_number LIKE ? AND is_active = 1 LIMIT 1");
+        $s->execute([$bn . '%']);
+        if ($s->fetchColumn()) return null;
+
+        $hasKbVendorId = $db->query("SHOW COLUMNS FROM vendors LIKE 'kb_vendor_id'")->fetchColumn();
+        if ($hasKbVendorId) {
+            $s = $db->prepare("SELECT id FROM vendors WHERE kb_vendor_id = ? AND is_active = 1 LIMIT 1");
+            $s->execute([(int)$vendor['id']]);
+            if ($s->fetchColumn()) return null;
+        }
+
+        return [
+            'name' => strtoupper($name),
+            'kb_vendor_id' => (int)$vendor['id'],
+            'identity' => [
+                'gst_number' => $gst,
+                'phone_digits' => $vendor['phone_digits'] ?? null,
+                'domain' => $vendor['domain'] ?? null,
+                'name_key' => $vendor['name_key'] ?? VendorIdentity::nameKey($name),
+            ],
+        ];
+    } catch (Throwable $e) {
+        error_log('kbCommonsVendorForCreation: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/** Pick the trusted commons name when present, otherwise retain the OCR fallback. */
+function kbPickCreationName(?string $hint, ?array $commons): string
+{
+    return LocalVendorKnowledgeStore::creationName($hint, $commons);
+}
+
+/**
  * Check if GPS coordinates are within range of a vendor's known locations.
  *
  * @return int Confidence boost (0 if no match, 30 if within 500m)
