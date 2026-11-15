@@ -24,33 +24,27 @@ class OwnerApprovalDefaultServiceTest extends TestCase
         return (int)$this->db->query("SELECT can_approve_own_expenses FROM users WHERE id = $id")->fetchColumn();
     }
 
-    public function test_grants_only_lowest_active_admin(): void
+    public function test_grants_every_active_admin_only(): void
     {
         $this->user(1, 'admin', 0);
         $this->user(2, 'admin');
         $this->user(3, 'admin');
         $this->user(4, 'user');
+        $this->user(5, 'manager');
+        $this->user(6, 'accountant');
         $svc = new OwnerApprovalDefaultService($this->db);
-        $this->assertSame(2, $svc->grantToOwner());
-        $this->assertSame([0, 1, 0, 0], [$this->flag(1), $this->flag(2), $this->flag(3), $this->flag(4)]);
-        $this->assertSame(2, $svc->grantToOwner()); // idempotent
-        $this->assertSame(1, $this->flag(2));
-    }
-
-    public function test_no_admin_changes_nothing(): void
-    {
-        $this->user(1, 'user');
-        $this->assertSame(0, (new OwnerApprovalDefaultService($this->db))->grantToOwner());
-        $this->assertSame(0, $this->flag(1));
+        $svc->grantToAdmins();
+        $this->assertSame([0, 1, 1, 0, 0, 0], array_map([$this, 'flag'], [1, 2, 3, 4, 5, 6]));
+        $svc->grantToAdmins(); // idempotent
+        $this->assertSame([0, 1, 1, 0, 0, 0], array_map([$this, 'flag'], [1, 2, 3, 4, 5, 6]));
     }
 
     public function test_new_user_default(): void
     {
         $svc = new OwnerApprovalDefaultService($this->db);
-        $this->assertSame(1, $svc->defaultForNewUser('admin'));   // first admin
-        $this->assertSame(0, $svc->defaultForNewUser('user'));
-        $this->user(1, 'admin');
-        $this->assertSame(0, $svc->defaultForNewUser('admin'));   // second admin stays off
-        $this->assertSame(0, $svc->defaultForNewUser('manager'));
+        $this->assertSame(1, $svc->defaultForNewUser('admin'));
+        foreach (['manager', 'user', 'accountant'] as $r) {
+            $this->assertSame(0, $svc->defaultForNewUser($r));
+        }
     }
 }

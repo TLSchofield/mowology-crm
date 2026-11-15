@@ -321,6 +321,9 @@ try {
             }
             if (isset($input['can_approve_own_expenses'])) {
                 $updates[] = 'can_approve_own_expenses = ?'; $params[] = $input['can_approve_own_expenses'] ? 1 : 0;
+            } elseif (isset($input['role']) && $input['role'] === 'admin') {
+                // Promoted to admin without an explicit choice: admins may approve their own receipts.
+                $updates[] = 'can_approve_own_expenses = ?'; $params[] = 1;
             }
             if (isset($input['pesticide_training_required'])) {
                 $updates[] = 'pesticide_training_required = ?'; $params[] = $input['pesticide_training_required'] ? 1 : 0;
