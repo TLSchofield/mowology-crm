@@ -68,7 +68,9 @@ struct RootView: View {
                         UserDefaults.standard.set(OnboardingBarLogic.Landing.receipts.rawValue, forKey: OnboardingBarLogic.landingKey)   // main app opens on Receipts
                         OnboardingProgress.finish(userId: user.id)
                         onboardingTick += 1
-                        showSplash = true   // then the app's normal opening (Kaname's welcome)
+                        // No opening animation and no Kaname welcome card on this first landing (Tim, 2026-11-15):
+                        // the app opens straight on Receipts with Penny's introduction. The welcome stays unseen, so it
+                        // appears with the app's normal opening the next time the app is opened.
                     }
                     .itAppTheme(enabled: ittaiDesignEnabled, field: false)
                 } else {

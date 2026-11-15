@@ -91,7 +91,7 @@ run businessidentity -O -parse-as-library "$SRC/Core/Models/KnowledgeModels.swif
   "$SRC/Core/Models/BusinessIdentityModels.swift" "$SRC/Core/Network/APIEndpoints.swift" "$SRC/Core/Network/Server.swift" \
   "$SRC/Core/Network/APIError.swift" "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
   "$SRC/Core/Diagnostics/ErrorDetails.swift" "$SRC/Core/Network/KnowledgeAPI.swift" \
-  "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"
+  "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/MorningBriefStoreStub.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"
 
 # Persisted diagnostics, rotation/redaction and exact HTTP/transport/decoding errors.
 run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \

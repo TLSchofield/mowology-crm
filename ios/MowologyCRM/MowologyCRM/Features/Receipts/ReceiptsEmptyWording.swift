@@ -14,11 +14,13 @@ enum ReceiptsEmptyWording {
     static let manualLine = "Tap the camera below, point it at the receipt and tap the button."
     static let adminTail = "Penny reads it and files it; she asks you only if she is not sure."
     static let crewTail = "The office reviews it."
+    /// Who Penny is, said once above the instructions (Tim, 2026-11-15: "a brief explanation of who Penny is (AI)").
+    static let pennyIntro = "Penny is your AI bookkeeper."
 
     /// `autoShoots` false: the switch is off or there is no camera, so the person presses the button; the line about who reads
     /// the receipt stays either way (it is what introduces Penny), the same as the Android app.
     static func subtitle(isAdmin: Bool, autoShoots: Bool) -> String {
-        (autoShoots ? autoLine : manualLine) + "\n" + (isAdmin ? adminTail : crewTail)
+        (isAdmin ? pennyIntro + "\n" : "") + (autoShoots ? autoLine : manualLine) + "\n" + (isAdmin ? adminTail : crewTail)
     }
 
     /// The hint and arrow show only once the list has loaded, is empty and has no error: never while loading.

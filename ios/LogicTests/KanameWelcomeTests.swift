@@ -7,10 +7,10 @@ func check<T: Equatable>(_ got: T, _ want: T, _ label: String) {
 
 // Receipts empty screen wording
 check(ReceiptsEmptyWording.subtitle(isAdmin: true, autoShoots: true),
-      "Tap the camera below. Hold your phone over the receipt, and it takes the photo by itself when it is steady.\nPenny reads it and files it; she asks you only if she is not sure.", "admin auto")
+      "Penny is your AI bookkeeper.\nTap the camera below. Hold your phone over the receipt, and it takes the photo by itself when it is steady.\nPenny reads it and files it; she asks you only if she is not sure.", "admin auto")
 check(ReceiptsEmptyWording.subtitle(isAdmin: false, autoShoots: true),
       "Tap the camera below. Hold your phone over the receipt, and it takes the photo by itself when it is steady.\nThe office reviews it.", "crew auto")
-check(ReceiptsEmptyWording.subtitle(isAdmin: true, autoShoots: false), "Tap the camera below, point it at the receipt and tap the button.\nPenny reads it and files it; she asks you only if she is not sure.", "admin manual")
+check(ReceiptsEmptyWording.subtitle(isAdmin: true, autoShoots: false), "Penny is your AI bookkeeper.\nTap the camera below, point it at the receipt and tap the button.\nPenny reads it and files it; she asks you only if she is not sure.", "admin manual")
 check(ReceiptsEmptyWording.subtitle(isAdmin: false, autoShoots: false), "Tap the camera below, point it at the receipt and tap the button.\nThe office reviews it.", "crew manual")
 check(ReceiptsEmptyWording.showsHint(hasLoaded: true, isLoading: false, isEmpty: true, hasError: false), true, "hint when loaded, empty")
 check(ReceiptsEmptyWording.showsHint(hasLoaded: false, isLoading: false, isEmpty: true, hasError: false), false, "no hint before first load")
