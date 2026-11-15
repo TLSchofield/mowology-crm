@@ -76,6 +76,7 @@ try {
                 'source'       => $_GET['source']       ?? '',
                 'needs_review' => $_GET['needs_review'] ?? '',
                 'job_id'       => $_GET['job_id']       ?? '',
+                'expense_id'   => $_GET['expense_id']   ?? '',
                 'search'       => $_GET['search']       ?? '',
             ];
             $page    = max(1, (int)($_GET['page'] ?? 1));

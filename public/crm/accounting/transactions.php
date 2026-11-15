@@ -8,6 +8,11 @@ requirePermission('expenses.view');
 
 $canEdit = userHasPermission('expenses.edit');
 
+$expenseId = null;
+if (isset($_GET['expense']) && is_numeric($_GET['expense']) && (int)$_GET['expense'] > 0) {
+    $expenseId = (int)$_GET['expense'];
+}
+
 $pageTitle  = 'Transaction Ledger';
 $activePage = 'accounting';
 $csrfToken  = generateCSRFToken();
@@ -62,7 +67,7 @@ $csrfToken  = generateCSRFToken();
                     <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <input type="date" id="f-date-from" class="form-control form-control-sm" hidden
-                       value="<?= date('Y-m-01') ?>" onchange="loadTransactions()">
+                       value="<?= $expenseId === null ? date('Y-m-01') : '' ?>" onchange="loadTransactions()">
             </div>
             <div class="col-6 col-md-2">
                 <label class="form-label small mb-1">To</label>
@@ -73,7 +78,7 @@ $csrfToken  = generateCSRFToken();
                     <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <input type="date" id="f-date-to" class="form-control form-control-sm" hidden
-                       value="<?= date('Y-m-d') ?>" onchange="loadTransactions()">
+                       value="<?= $expenseId === null ? date('Y-m-d') : '' ?>" onchange="loadTransactions()">
             </div>
             <div class="col-6 col-md-2">
                 <label class="form-label small mb-1">Account</label>
@@ -109,6 +114,15 @@ $csrfToken  = generateCSRFToken();
 </div>
 
 <!-- ── Summary Bar ─────────────────────────────────────────────────────────── -->
+<?php if ($expenseId !== null): ?>
+<div id="mw-expense-filter-chip" class="mb-3">
+    <span class="badge rounded-pill bg-light text-dark border">
+        Showing receipt #<?= h((string)$expenseId) ?> —
+        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="clearExpenseFilter()">Show all</button>
+    </span>
+</div>
+<?php endif; ?>
+
 <div class="row g-2 mb-3" id="mw-tx-summary-row">
     <div class="col-4">
         <div class="mw-acct-mini-stat mw-acct-color-income">
@@ -278,6 +292,8 @@ let currentPage = 1;
 let lastTotal   = 0;
 const PER_PAGE  = 50;
 let searchTimer;
+let receiptExpenseId = <?= json_encode($expenseId) ?>;
+let receiptRowPending = receiptExpenseId !== null;
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -359,6 +375,7 @@ async function loadTransactions(page) {
         source:      document.getElementById('f-source').value,
         search:      document.getElementById('f-search').value,
         needs_review:document.getElementById('f-review').checked ? '1' : '',
+        expense_id:  receiptExpenseId || '',
     });
 
     document.getElementById('tx-tbody').innerHTML =
@@ -374,12 +391,14 @@ async function loadTransactions(page) {
     renderTable(res.data);
     updateSummary(res.data);
     updatePagination(res);
+    focusReceiptRow();
 }
 
 function renderTable(rows) {
     const tbody = document.getElementById('tx-tbody');
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No transactions found for this filter.</td></tr>';
+        const receiptMessage = receiptExpenseId !== null ? '<div class="mt-1">This receipt isn\'t in the books yet.</div>' : '';
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">No transactions found for this filter.${receiptMessage}</td></tr>`;
         return;
     }
 
@@ -463,7 +482,7 @@ function renderTable(rows) {
 
         const clickAttr = isExpandable ? `onclick="toggleTxDetail(${tx.id})"` : '';
 
-        const html = [`<tr class="${rowClass}" ${clickAttr}>
+        const html = [`<tr class="${rowClass}" ${clickAttr} data-reference-type="${esc(tx.reference_type || '')}" data-reference-id="${esc(tx.reference_id || '')}">
             <td class="text-nowrap small ${stripeClass}">${tx.transaction_date}</td>
             <td><span class="badge ${typeClass}">${typeLabel}</span></td>
             <td>
@@ -544,6 +563,28 @@ function renderTable(rows) {
 
         return html.join('');
     }).join('');
+}
+
+function focusReceiptRow() {
+    if (!receiptRowPending || receiptExpenseId === null) return;
+    receiptRowPending = false;
+    const row = document.querySelector(`#tx-tbody tr[data-reference-type="expense"][data-reference-id="${receiptExpenseId}"]`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('mw-acct-row-highlight');
+}
+
+function clearExpenseFilter() {
+    receiptExpenseId = null;
+    receiptRowPending = false;
+    document.getElementById('mw-expense-filter-chip')?.remove();
+    const url = new URL(window.location.href);
+    url.searchParams.delete('expense');
+    history.replaceState({}, '', url.pathname + url.search + url.hash);
+    document.getElementById('f-date-from').value = '<?= date('Y-m-01') ?>';
+    document.getElementById('f-date-to').value = '<?= date('Y-m-d') ?>';
+    currentPage = 1;
+    loadTransactions(1);
 }
 
 function updateSummary(rows) {
