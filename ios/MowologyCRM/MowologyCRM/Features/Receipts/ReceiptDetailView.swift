@@ -64,36 +64,51 @@ struct ReceiptDetailView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if let receiptImage {
-                    pinnedReceipt(receiptImage)
-                }
-                Form {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    SpineHead(slug: "penny", name: "Penny")
+                    SpineStepNode(number: "1", title: "Receipt", detail: statusLabel, detailIsChip: true,
+                                  detailStatus: expense.status,
+                                  contentHorizontalPadding: 0, showsContent: receiptImage != nil,
+                                  done: false, current: true) {
+                        receiptNodeContent
+                    }
                     if let read = pennyRead {
-                        pennyReadSection(read)
-                        if hasVisibleRisk { riskSection }
-                    } else {
-                        statusSection
-                        detailsSection
-                    }
-                    if isAdmin && !mergedCopies.isEmpty { mergedSection }
-                    lineItemsSection
-
-                    if expense.isArchived {
-                        Section {
-                            Label("Archived — original photo removed from the server; a thumbnail is shown here. The full-size image was emailed before removal.", systemImage: "archivebox")
-                                .font(appStyle.font(.caption))
-                                .foregroundStyle(appStyle.meta)
+                        SpineStepNode(number: "2", title: "Read | Penny", done: false, current: true) {
+                            comparisonCard(read)
                         }
-                        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+                        SpineStepNode(number: "3", title: "Your call", done: false, current: true) {
+                            decisionContent(read)
+                        }
+                    } else if canActOn(expense) {
+                        SpineStepNode(number: "2", title: "Your call", done: false, current: true) {
+                            approvalActions
+                        }
                     }
+                    SpineNode(slug: receiptSpineSlug, id: "details", title: "Details", symbol: "doc.text.magnifyingglass") {
+                        detailsContent
+                    }
+                    if hasVisibleRisk {
+                        SpineNode(slug: receiptSpineSlug, id: "risk", title: "Risk", symbol: "gauge.with.dots.needle.33percent") {
+                            riskContent
+                        }
+                    }
+                    if isAdmin && !mergedCopies.isEmpty {
+                        SpineNode(slug: receiptSpineSlug, id: "merged", title: "Also on this purchase", symbol: "square.stack.3d.up") {
+                            mergedContent
+                        }
+                    }
+                    SpineNode(slug: receiptSpineSlug, id: "items", title: "Line items", symbol: "list.bullet.rectangle") {
+                        lineItemsContent
+                    }
+                    SpineTail()
                 }
+                .padding(.horizontal, ItSpace.s4)
             }
             // Pull to refresh: a suggestion Penny made after the screen opened shows up here.
             .refreshable { await refreshAll() }
             .navigationTitle("Receipt")
             .navigationBarTitleDisplayMode(.inline)
-            .itAppForm()
             .itAppScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -105,11 +120,6 @@ struct ReceiptDetailView: View {
                         Button("Edit") { showEditSheet = true }
                             .foregroundStyle(appStyle.tenant)
                     }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                if canActOn(expense) {
-                    actionBar
                 }
             }
         }
@@ -195,28 +205,25 @@ struct ReceiptDetailView: View {
         if isAdmin, risk == nil { riskFailed = false; await loadRisk() }
     }
 
-    private func pennyReadSection(_ read: PennyRead) -> some View {
-        let fieldRows = ReceiptCompareRules.fields(read.fields, status: expense.status)
+    private func comparisonCard(_ read: PennyRead) -> some View {
+        let fieldRows = ReceiptCompareRules.fields(read.fields)
+        let itemRows = read.items.map(ReceiptCompareRules.items) ?? []
+
+        return VStack(spacing: 0) {
+            comparisonHeadings
+            ForEach(fieldRows) { comparisonField($0) }
+            if let items = read.items { comparisonItems(itemRows, items: items) }
+        }
+    }
+
+    private func decisionContent(_ read: PennyRead) -> some View {
+        let fieldRows = ReceiptCompareRules.fields(read.fields)
         let itemRows = read.items.map(ReceiptCompareRules.items) ?? []
         let selection = ReceiptCompareRules.selection(differs: read.differs, fieldRows: fieldRows, itemRows: itemRows)
-
-        return Section {
-            VStack(spacing: 0) {
-                comparisonHeadings
-                ForEach(fieldRows) { comparisonField($0) }
-                if let items = read.items { comparisonItems(itemRows, items: items) }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
-            .overlay { RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)).stroke(appStyle.meta.opacity(0.25)) }
-
+        return VStack(spacing: ItSpace.s3) {
             versionActions(read, selection: selection)
-            if hasMoreDetails {
-                DisclosureGroup("More details", isExpanded: $showsMoreDetails) {
-                    moreDetails
-                }
-            }
+            if canActOn(expense) { approvalActions }
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var comparisonHeadings: some View {
@@ -326,8 +333,12 @@ struct ReceiptDetailView: View {
     }
 
     private func versionActions(_ read: PennyRead, selection: ReceiptCompareSelection) -> some View {
-        HStack(spacing: ItSpace.s3) {
-            versionButtons(read, selection: selection)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: ItSpace.s3) { versionButtons(read, selection: selection) }
+            } else {
+                HStack(spacing: ItSpace.s3) { versionButtons(read, selection: selection) }
+            }
         }
         .disabled(viewModel.isPerformingAction)
     }
@@ -411,8 +422,8 @@ struct ReceiptDetailView: View {
         }
     }
 
-    private var lineItemsSection: some View {
-        Section {
+    private var lineItemsContent: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s3) {
             if !lineItemsLoaded {
                 HStack { Spacer(); ProgressView(); Spacer() }
             } else if let err = lineItemsError {
@@ -454,6 +465,39 @@ struct ReceiptDetailView: View {
                     Text(String(format: "$%.2f", item.lineTotal))
                         .font(appStyle.font(.subheadline))
                         .foregroundStyle(item.lineTotal < 0 ? appStyle.blocked : appStyle.text)
+                    if isEditable {
+                        Menu {
+                            Button("Rename", systemImage: "pencil") {
+                                renameText = item.name
+                                renameItem = item
+                            }
+                            if !item.isAdjustment {
+                                Button(item.productId == nil ? "Link product" : "Change product", systemImage: "link") {
+                                    linkItem = item
+                                }
+                            }
+                            if item.productId != nil {
+                                Button("Unlink product", systemImage: "link.badge.minus") {
+                                    Task {
+                                        if let updated = await viewModel.linkLineItem(id: item.id, productId: nil) {
+                                            replaceLineItem(updated)
+                                        }
+                                    }
+                                }
+                            }
+                            Button("Not an item", systemImage: "xmark", role: .destructive) {
+                                Task {
+                                    if await viewModel.deleteLineItem(id: item.id) {
+                                        lineItems.removeAll { $0.id == item.id }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                        }
+                        .accessibilityLabel("Actions for \(item.name)")
+                    }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -509,14 +553,13 @@ struct ReceiptDetailView: View {
                     }
                 }
             }
-        } header: {
-            Text("Line items")
-        } footer: {
             if isEditable {
-                Text("Tap to rename, swipe left to remove or unlink. Linking an item to a CRM product teaches the vendor catalog and SKU memory for next time.")
+                Divider()
+                Text("Tap to rename, or use the item actions to remove or unlink. Linking an item to a CRM product teaches the vendor catalog and SKU memory for next time.")
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
             }
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private var receiptURL: URL? {
@@ -539,8 +582,8 @@ struct ReceiptDetailView: View {
 
     /// Copies merged into this receipt as duplicates. Split off brings one back as its own receipt
     /// (a wrong merge can be undone at any time — plan 2026-11-05).
-    private var mergedSection: some View {
-        Section {
+    private var mergedContent: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s3) {
             ForEach(mergedCopies) { c in
                 HStack(spacing: 12) {
                     if let s = c.receiptPath, let url = URL(string: s) {
@@ -580,12 +623,11 @@ struct ReceiptDetailView: View {
             if let n = mergedNote {
                 Text(n).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
             }
-        } header: {
-            Text("Also on this purchase")
-        } footer: {
+            Divider()
             Text("Copies merged into this receipt as duplicates. They're kept on record, not deleted.")
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     // MARK: - Sections
@@ -596,7 +638,23 @@ struct ReceiptDetailView: View {
             .frame(maxWidth: .infinity)
             .frame(height: UIScreen.main.bounds.height * (dynamicTypeSize.isAccessibilitySize ? 0.28 : 0.42))
             .background(appStyle.sunk)
-            .overlay(alignment: .bottom) { Divider() }
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.sm)))   // the spine card is the only border
+    }
+
+    @ViewBuilder private var receiptNodeContent: some View {
+        if let receiptImage { pinnedReceipt(receiptImage) }
+    }
+
+    private var receiptSpineSlug: String { "receipt-\(expense.id)" }
+
+    private var statusLabel: String {
+        switch expense.status {
+        case "forwarded": "Sent"
+        case "approved": "Approved"
+        case "rejected": "Rejected"
+        case "pending_approval": "Pending approval"
+        default: "Draft"
+        }
     }
 
     private func loadReceiptImage() async {
@@ -704,6 +762,21 @@ struct ReceiptDetailView: View {
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
+    @ViewBuilder private var detailsContent: some View {
+        detailRow("Vendor", expense.displayVendor)
+        detailRow("Date", expense.expenseDate)
+        detailRow("Total", String(format: "$%.2f", expense.total))
+        if let category = expense.accountingCategory, !category.isEmpty { detailRow("Category", category) }
+        if let payment = expense.paymentMethod, !payment.isEmpty { detailRow("Payment", payment) }
+        if let description = expense.description, !description.isEmpty { detailRow("Description", description) }
+        if expense.isArchived {
+            Divider()
+            Label("Archived — original photo removed from the server; a thumbnail is shown here. The full-size image was emailed before removal.", systemImage: "archivebox")
+                .font(appStyle.font(.caption))
+                .foregroundStyle(appStyle.meta)
+        }
+    }
+
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label).foregroundStyle(appStyle.meta)
@@ -717,33 +790,38 @@ struct ReceiptDetailView: View {
     // Mobile is capture-only: sending to accounting happens on the desktop after the
     // admin has corrected the expense (those corrections are the learning signal), so
     // there is deliberately no "Send to Accounting" here — only review-queue triage.
-    private var actionBar: some View {
-        HStack(spacing: 10) {
-            if viewModel.isPerformingAction {
-                ProgressView().frame(maxWidth: .infinity)
+    private var approvalActions: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: ItSpace.s3) { approvalButtons }
             } else {
-                actionButton(title: "Reject", systemImage: "xmark", color: appStyle.blocked) {
-                    rejectReason = ""
-                    showRejectSheet = true
-                }
-                actionButton(title: "Approve receipt", systemImage: "checkmark", color: appStyle.tenant) {
-                    Task { await performApprove() }
-                }
+                HStack(spacing: ItSpace.s3) { approvalButtons }
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
-        .background(.bar)
+    }
+
+    @ViewBuilder private var approvalButtons: some View {
+        if viewModel.isPerformingAction {
+            ProgressView().frame(maxWidth: .infinity)
+        } else {
+            actionButton(title: "Reject", systemImage: "xmark", color: appStyle.blocked) {
+                rejectReason = ""
+                showRejectSheet = true
+            }
+            actionButton(title: "Approve receipt", systemImage: "checkmark", color: appStyle.tenant) {
+                Task { await performApprove() }
+            }
+        }
     }
 
     private func actionButton(title: String, systemImage: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(appStyle.font(.subheadline, weight: .semibold))
-                .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 44)
+                .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
                 .background(color)
                 .foregroundStyle(appStyle.isEnabled && color == appStyle.tenant ? appStyle.onTenant : .white)
-                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
         }
     }
 
