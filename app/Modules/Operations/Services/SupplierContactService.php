@@ -291,12 +291,14 @@ class SupplierContactService
     public function fromWebsite(array $supplier, ?callable $fetch = null, float $budgetSeconds = 20): array
     {
         $customFetch = $fetch !== null;
-        $fetch = $fetch ?? fn($u) => HttpFetch::get($u, 10, ['User-Agent: Mowology supplier contacts (office@mowology.ca)']);
         $started = microtime(true);
+        // Each request is capped to the time left, so a slow site cannot run past the budget.
+        $fetch = $fetch ?? fn($u) => HttpFetch::get($u, max(2, min(10, (int)floor($budgetSeconds - (microtime(true) - $started)))),
+                                                    ['User-Agent: Mowology supplier contacts (office@mowology.ca)']);
         $site = self::siteOf($supplier);
         if ($site === '') return ['pages' => 0, 'found' => 0, 'note' => 'No website or own mail domain on file.'];
         $website = self::normalUrl($site);
-        $domain = (string)($supplier['domain'] ?: SupplierDirectoryService::domainOf($website));
+        $domain = (string)(($supplier['domain'] ?? '') ?: SupplierDirectoryService::domainOf($website));
         $known = (string)($supplier['email'] ?? '');
         $queue = [$website];
         $pages = 0;
@@ -444,9 +446,10 @@ class SupplierContactService
         }
         $started = microtime(true);
         foreach ($rows as $sup) {
-            if ($res['looked'] >= $max || microtime(true) - $started >= $budgetSeconds) break;
+            $left = $budgetSeconds - (microtime(true) - $started);
+            if ($res['looked'] >= $max || $left < 10) break;   // not enough time for one more site: tomorrow
             if (self::siteOf($sup) === '') continue;
-            $r = $this->fromWebsite($sup, null, max(5.0, $budgetSeconds - (microtime(true) - $started)));
+            $r = $this->fromWebsite($sup, null, $left);
             $this->db->prepare('UPDATE supplier_accounts SET contacts_checked_at = NOW() WHERE id = ?')->execute([(int)$sup['id']]);
             $res['looked']++;
             $res['found'] += $r['found'];
