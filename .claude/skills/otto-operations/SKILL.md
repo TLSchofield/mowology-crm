@@ -36,7 +36,7 @@ covers:
   - ios/MowologyCRM/MowologyCRM/Features/Schedule/*
   - ios/MowologyCRM/MowologyCRM/Features/TimeClock/*
 metadata:
-  version: 1.2.2
+  version: 1.2.3
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -135,7 +135,7 @@ reference that matches the task:
 | GPS breaks (backup) + BC flag | `BreakService::run()` / `BreakService::refreshFlag()` / `BreakService::complianceGap()` | trip cron, clock-out, Otto's brief (`BreakService::briefItems()`) |
 | Bulk material delivery vs trailer | `MaterialDeliveryService::forLines()` / `MaterialDeliveryService::briefItems()` | brief |
 | Supplier directory (geocode, map, vendors) | `SupplierDirectoryService::placeAll()` | Otto's map, Penny's vendors |
-| Who at a supplier we write to, and where each address came from (their mail to us, their site, typed); the default sets `supplier_accounts.email` but never moves its domain or free-mail identity (migration 1454) | `SupplierContactService::keep()` / `SupplierContactService::fromWebsite()` (falls back to the supplier's own mail domain, `SupplierContactService::siteOf()`) / `SupplierContactService::importMailSightings()` (from `scripts/supplier-contacts-mail.py`, Mac Mail headers only) | `/crm/suppliers/contacts.php`; next: supplier quote requests (`docs/plans/2026-11-13-supplier-quote-requests.md`) |
+| Who at a supplier we write to, and where each address came from (their mail to us, their site, typed); the default sets `supplier_accounts.email` but never moves its domain or free-mail identity (migration 1454) | `SupplierContactService::keep()` / `SupplierContactService::fromWebsite()` (falls back to the supplier's own mail domain, `SupplierContactService::siteOf()`) / `SupplierContactService::importMailSightings()` (from `scripts/supplier-contacts-mail.py`, Mac Mail headers only) | `/crm/suppliers/contacts.php`; new mail via `SupplierContactService::sawInMail()`; 3 sites a night via `SupplierContactService::nightly()` (trip cron, migration 1457); Otto's pick only when obvious, `SupplierContactService::obviousPick()` (decided_by 0, never over Tim's choice); next: supplier quote requests (`docs/plans/2026-11-13-supplier-quote-requests.md`) |
 | Supplier / fuel stops on the crew's GPS (≥ 3 min within 80 m; phones + truck; parking dropped) and the receipt each belongs to (migration 1359) | `SupplierStopService::findStops()` / `SupplierStopService::merge()` / `SupplierStopService::assignReceipts()`; stored per day by `SupplierStopService::run()` (trip cron) | receipt editor, Otto's card |
 | Geocoding supplier store addresses (once, by the trip cron; buildings only; never at page load) | `SupplierStopService::geocodePending()` (Google needs `GOOGLE_GEOCODING_KEY`; Nominatim answers today) | supplier stops, Penny's vendor spots |
 | "No receipt yet" for a supplier stop (6 pm next day; "Nothing was bought" closes it) | `SupplierStopService::ottoItems()` (kind `supplier_receipt`, server-sent buttons) / `SupplierStopService::markNone()` | Otto's card (web + iPhone) |
