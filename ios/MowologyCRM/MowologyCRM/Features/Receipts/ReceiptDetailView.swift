@@ -20,6 +20,11 @@ struct ReceiptDetailView: View {
     let expense: Expense
     /// Admins see Penny's explanation of the risk score; crew see the bare ring (above 15 only).
     var isAdmin: Bool = false
+    #if DEBUG
+    /// `-mwReceiptSheetDemo`: invented Penny read and photo, so the layout can be seen without sign-in or client data.
+    var seededRead: PennyRead? = nil
+    var seededImage: UIImage? = nil
+    #endif
     @Environment(\.dismiss) private var dismiss
 
     // Penny's reasons for the risk score (bookkeeper-mobile ?mode=risk), loaded lazily.
@@ -29,14 +34,12 @@ struct ReceiptDetailView: View {
     // Penny's read (bookkeeper-mobile ?mode=suggestion): her pending suggestion where it differs
     // from the receipt — the reader may have missed items she read (Chevron #424, 2026-10-13).
     @State private var pennyRead: PennyRead?
-    @State private var pennyNote: String?
-    @State private var showsReceiptSupport = false
-    @State private var showsLearningDetails = false
+    @State private var receiptImage: UIImage?
+    @State private var showsMoreDetails = false
 
     @State private var showRejectSheet = false
     @State private var rejectReason = ""
     @State private var showErrorAlert = false
-    @State private var showFullImage = false
     @State private var showEditSheet = false
 
     // Line items — editable post-save (rename / delete / link to a CRM product / add).
@@ -61,25 +64,29 @@ struct ReceiptDetailView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let read = pennyRead {
-                    statusSection
-                    pennyReadSection(read)
-                } else {
-                    imageSection
-                    statusSection
-                    detailsSection
+            VStack(spacing: 0) {
+                if let receiptImage {
+                    pinnedReceipt(receiptImage)
                 }
-                if isAdmin && !mergedCopies.isEmpty { mergedSection }
-                lineItemsSection
-
-                if expense.isArchived {
-                    Section {
-                        Label("Archived — original photo removed from the server; a thumbnail is shown here. The full-size image was emailed before removal.", systemImage: "archivebox")
-                            .font(appStyle.font(.caption))
-                            .foregroundStyle(appStyle.meta)
+                Form {
+                    if let read = pennyRead {
+                        pennyReadSection(read)
+                        if hasVisibleRisk { riskSection }
+                    } else {
+                        statusSection
+                        detailsSection
                     }
-                    .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+                    if isAdmin && !mergedCopies.isEmpty { mergedSection }
+                    lineItemsSection
+
+                    if expense.isArchived {
+                        Section {
+                            Label("Archived — original photo removed from the server; a thumbnail is shown here. The full-size image was emailed before removal.", systemImage: "archivebox")
+                                .font(appStyle.font(.caption))
+                                .foregroundStyle(appStyle.meta)
+                        }
+                        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+                    }
                 }
             }
             // Pull to refresh: a suggestion Penny made after the screen opened shows up here.
@@ -118,11 +125,6 @@ struct ReceiptDetailView: View {
         } message: {
             Text(viewModel.actionError ?? "")
         }
-        .fullScreenCover(isPresented: $showFullImage) {
-            if let url = receiptURL {
-                ZoomableReceiptView(url: url)
-            }
-        }
         .sheet(isPresented: $showEditSheet) {
             EditExpenseView(viewModel: viewModel, expense: expense, isPresented: $showEditSheet) {
                 dismiss()   // pop back to the (now refreshed) list so edits are reflected
@@ -143,7 +145,13 @@ struct ReceiptDetailView: View {
         .fullScreenCover(item: Binding(get: { mergedPhoto.map { IdentURL(url: $0) } }, set: { mergedPhoto = $0?.url })) { t in
             ZoomableReceiptView(url: t.url)
         }
+        #if DEBUG
+        .onAppear { if let r = seededRead { pennyRead = r }; if let i = seededImage { receiptImage = i } }
+        .task(id: expense.id) { if seededRead == nil { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) } }
+        #else
         .task(id: expense.id) { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) }
+        #endif
+        .task(id: receiptURL) { await loadReceiptImage() }
         .sheet(item: $renameItem) { item in
             VendorItemPickerSheet(title: "Rename item", vendorId: expense.vendorId, viewModel: viewModel,
                                   name: $renameText, amount: .constant(""), showsAmount: false) {
@@ -188,13 +196,11 @@ struct ReceiptDetailView: View {
     }
 
     private func pennyReadSection(_ read: PennyRead) -> some View {
-        let fieldRows = ReceiptCompareRules.fields(read.fields)
+        let fieldRows = ReceiptCompareRules.fields(read.fields, status: expense.status)
         let itemRows = read.items.map(ReceiptCompareRules.items) ?? []
         let selection = ReceiptCompareRules.selection(differs: read.differs, fieldRows: fieldRows, itemRows: itemRows)
 
         return Section {
-            receiptSummary
-            pennyRecommendation(read)
             VStack(spacing: 0) {
                 comparisonHeadings
                 ForEach(fieldRows) { comparisonField($0) }
@@ -204,72 +210,20 @@ struct ReceiptDetailView: View {
             .overlay { RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)).stroke(appStyle.meta.opacity(0.25)) }
 
             versionActions(read, selection: selection)
-            if let note = pennyNote {
-                Label(note, systemImage: "checkmark.circle.fill")
-                    .font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(pennyBrand)
-            }
-            DisclosureGroup("Receipt photo and details", isExpanded: $showsReceiptSupport) {
-                receiptSupport
-            }
-            .tint(pennyBrand)
-            if read.canApply {
-                DisclosureGroup("What applying does", isExpanded: $showsLearningDetails) {
-                    Text("Applying saves Penny's fields and replaces the receipt items. The receipt reader uses that correction for this store's layout.")
-                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            if hasMoreDetails {
+                DisclosureGroup("More details", isExpanded: $showsMoreDetails) {
+                    moreDetails
                 }
-                .tint(pennyBrand)
             }
-        } header: {
-            Label("Penny's read", systemImage: "sparkles")
         }
         .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
-    private var receiptSummary: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: ItSpace.s2) { summaryContent }
-            VStack(alignment: .leading, spacing: ItSpace.s2) { summaryContent }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder private var summaryContent: some View {
-        summaryValue("Merchant", expense.displayVendor)
-        summaryValue("Date", expense.expenseDate)
-        summaryValue("Total", String(format: "$%.2f", expense.total))
-        summaryValue("Status", receiptStatusLabel)
-    }
-
-    private func summaryValue(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: ItSpace.s1) {
-            Text(label).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-            Text(value).font(appStyle.font(.caption, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder private func pennyRecommendation(_ read: PennyRead) -> some View {
-        let reasons = read.fields.map(\.reason).filter { !$0.isEmpty }
-        let explanation = read.notes.isEmpty ? reasons.first : read.notes
-        HStack(alignment: .top, spacing: ItSpace.s3) {
-            Image(systemName: "person.crop.circle.fill.badge.checkmark")
-                .font(appStyle.font(size: SpineMetrics.compactRing)).foregroundStyle(pennyBrand)
-                .accessibilityLabel("Penny")
-            if let explanation {
-                VStack(alignment: .leading, spacing: ItSpace.s1) {
-                    Text(explanation)
-                        .font(appStyle.font(.subheadline))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
     private var comparisonHeadings: some View {
         HStack(spacing: 0) {
-            Text("Current receipt").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Read").frame(maxWidth: .infinity, alignment: .leading)
             Divider()
-            Text("Penny's suggestion").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Penny").frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
         .padding(ItSpace.s3).background(appStyle.sunk)
@@ -281,30 +235,29 @@ struct ReceiptDetailView: View {
             Text(row.label).font(appStyle.font(.caption, weight: .semibold)).foregroundStyle(appStyle.meta)
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: ItSpace.s2) {
-                    stackedValue("Current receipt", row.current, fallback: "Missing", state: row.state, proposed: false)
-                    stackedValue("Penny's suggestion", row.proposed, fallback: "Not proposed", state: row.state, proposed: true)
+                    stackedValue("Read", row.current, fallback: "Missing", state: row.state, proposed: false)
+                    stackedValue("Penny", row.proposed, fallback: "Missing", state: row.state, proposed: true)
                 }
             } else {
                 ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 0) {
                     compareValue(row.current, fallback: "Missing", state: row.state, proposed: false)
                     Divider()
-                    compareValue(row.proposed, fallback: "Not proposed", state: row.state, proposed: true)
+                    compareValue(row.proposed, fallback: "Missing", state: row.state, proposed: true)
                 }
                 VStack(alignment: .leading, spacing: ItSpace.s2) {
-                    stackedValue("Current receipt", row.current, fallback: "Missing", state: row.state, proposed: false)
-                    stackedValue("Penny's suggestion", row.proposed, fallback: "Not proposed", state: row.state, proposed: true)
+                    stackedValue("Read", row.current, fallback: "Missing", state: row.state, proposed: false)
+                    stackedValue("Penny", row.proposed, fallback: "Missing", state: row.state, proposed: true)
                 }
                 }
             }
-            reasonView(row)
         }
         .padding(ItSpace.s3).overlay(alignment: .bottom) { Divider() }
     }
 
     private func compareValue(_ value: String?, fallback: String, state: ReceiptCompareValueState, proposed: Bool) -> some View {
         Text(value ?? fallback)
-            .font(appStyle.font(.subheadline, weight: state == .unchanged ? .regular : .semibold))
+            .font(appStyle.font(.subheadline, weight: proposed && state != .unchanged ? .semibold : .regular))
             .foregroundStyle(value == nil ? appStyle.meta : appStyle.text)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, ItSpace.s2)
@@ -320,15 +273,7 @@ struct ReceiptDetailView: View {
 
     private func compareHighlight(_ state: ReceiptCompareValueState, proposed: Bool) -> Color {
         guard state != .unchanged else { return .clear }
-        return (proposed ? pennyBrand : appStyle.attention).opacity(0.08)
-    }
-
-    @ViewBuilder private func reasonView(_ row: ReceiptCompareRow) -> some View {
-        if !row.reason.isEmpty {
-            Text(row.reason).font(appStyle.font(.caption))
-                .foregroundStyle(row.confidence == "low" ? appStyle.attention : appStyle.meta)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        return proposed ? pennyBrand.opacity(0.08) : .clear
     }
 
     private func comparisonItems(_ rows: [ReceiptCompareItemRow], items: PennyReadItems) -> some View {
@@ -343,7 +288,7 @@ struct ReceiptDetailView: View {
                             HStack(alignment: .top, spacing: 0) {
                                 itemValue(row.currentName, row.currentAmount, fallback: "Missing", state: row.state, proposed: false)
                                 Divider()
-                                itemValue(row.proposedName, row.proposedAmount, fallback: "Not proposed", state: row.state, proposed: true)
+                                itemValue(row.proposedName, row.proposedAmount, fallback: "Missing", state: row.state, proposed: true)
                             }
                             stackedItem(row)
                         }
@@ -354,7 +299,7 @@ struct ReceiptDetailView: View {
             HStack(spacing: 0) {
                 itemValue("Sum", items.receiptSum, fallback: "Missing", state: items.receiptSum == items.pennySum ? .unchanged : .changed, proposed: false)
                 Divider()
-                itemValue("Sum", items.pennySum, fallback: "Not proposed", state: items.receiptSum == items.pennySum ? .unchanged : .changed, proposed: true)
+                itemValue("Sum", items.pennySum, fallback: "Missing", state: items.receiptSum == items.pennySum ? .unchanged : .changed, proposed: true)
             }
             .padding(ItSpace.s3)
         }
@@ -362,10 +307,10 @@ struct ReceiptDetailView: View {
 
     private func stackedItem(_ row: ReceiptCompareItemRow) -> some View {
         VStack(alignment: .leading, spacing: ItSpace.s2) {
-            Text("Current receipt").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            Text("Read").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
             itemValue(row.currentName, row.currentAmount, fallback: "Missing", state: row.state, proposed: false)
-            Text("Penny's suggestion").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-            itemValue(row.proposedName, row.proposedAmount, fallback: "Not proposed", state: row.state, proposed: true)
+            Text("Penny").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+            itemValue(row.proposedName, row.proposedAmount, fallback: "Missing", state: row.state, proposed: true)
         }
     }
 
@@ -375,44 +320,38 @@ struct ReceiptDetailView: View {
             Spacer(minLength: ItSpace.s2)
             if let amount { Text(String(format: "$%.2f", amount)).lineLimit(1).minimumScaleFactor(0.8) }
         }
-        .font(appStyle.font(.subheadline, weight: state == .unchanged ? .regular : .semibold))
+        .font(appStyle.font(.subheadline, weight: proposed && state != .unchanged ? .semibold : .regular))
         .foregroundStyle(name == nil ? appStyle.meta : appStyle.text)
         .frame(maxWidth: .infinity, alignment: .leading).background(compareHighlight(state, proposed: proposed))
     }
 
     private func versionActions(_ read: PennyRead, selection: ReceiptCompareSelection) -> some View {
-        VStack(spacing: ItSpace.s2) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: ItSpace.s3) { versionButtons(read, selection: selection) }
-                VStack(spacing: ItSpace.s3) { versionButtons(read, selection: selection) }
-            }
-            if read.canApply && !read.applyNote.isEmpty {
-                Text(read.applyNote).font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-            }
+        HStack(spacing: ItSpace.s3) {
+            versionButtons(read, selection: selection)
         }
         .disabled(viewModel.isPerformingAction)
     }
 
     @ViewBuilder private func versionButtons(_ read: PennyRead, selection: ReceiptCompareSelection) -> some View {
         if read.canKeep || selection == .current {
-            versionButton("Keep current", selectedText: "Current version selected", selected: selection == .current, filled: false) {
+            versionButton("Keep", accessibilityLabel: "Keep the current version", selected: selection == .current, filled: false) {
                 Task { await decidePenny(useHers: false) }
             }
             .disabled(!read.canKeep)
         }
         if read.canApply || selection == .penny {
-            versionButton("Apply Penny's changes", selectedText: "Penny's changes applied", selected: selection == .penny, filled: true) {
+            versionButton("Use Penny's", accessibilityLabel: "Use Penny's changes", selected: selection == .penny, filled: true) {
                 Task { await decidePenny(useHers: true) }
             }
             .disabled(!read.canApply)
         }
     }
 
-    private func versionButton(_ title: String, selectedText: String, selected: Bool, filled: Bool, action: @escaping () -> Void) -> some View {
+    private func versionButton(_ title: String, accessibilityLabel: String, selected: Bool, filled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: ItSpace.s1) {
+            HStack(spacing: ItSpace.s2) {
                 Text(title).font(appStyle.font(.subheadline, weight: .semibold))
-                if selected { Label(selectedText, systemImage: "checkmark.circle.fill").font(appStyle.font(.caption2)) }
+                if selected { Image(systemName: "checkmark").font(appStyle.font(.caption, weight: .bold)) }
             }
             .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
             .background(filled ? pennyBrand : Color.clear)
@@ -420,40 +359,12 @@ struct ReceiptDetailView: View {
             .overlay { RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)).stroke(appStyle.meta.opacity(filled ? 0 : 0.4)) }
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
         }
-        .buttonStyle(.borderless).accessibilityValue(selected ? selectedText : "Not selected")
-    }
-
-    private var receiptSupport: some View {
-        VStack(alignment: .leading, spacing: ItSpace.s2) {
-            if let url = receiptURL {
-                Button { showFullImage = true } label: {
-                    AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() }
-                        .frame(maxHeight: ItSize.hexFullWidth).clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
-                }
-                .buttonStyle(.plain).accessibilityLabel("Open receipt photo")
-                .accessibilityShowsLargeContentViewer { Label("Receipt photo", systemImage: "doc.text.image") }
-            }
-            detailRow("Vendor", expense.displayVendor)
-            detailRow("Date", expense.expenseDate)
-            detailRow("Total", String(format: "$%.2f", expense.total))
-            if let category = expense.accountingCategory, !category.isEmpty { detailRow("Category", category) }
-            if let payment = expense.paymentMethod, !payment.isEmpty { detailRow("Payment", payment) }
-            if let description = expense.description, !description.isEmpty { detailRow("Description", description) }
-        }
-        .padding(.top, ItSpace.s2)
+        .buttonStyle(.borderless)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
     }
 
     private var pennyBrand: Color { appStyle.palette.color(.brand) }
-
-    private var receiptStatusLabel: String {
-        switch expense.status {
-        case "forwarded": "Sent"
-        case "approved": "Approved"
-        case "rejected": "Rejected"
-        case "pending_approval": "Pending approval"
-        default: "Draft"
-        }
-    }
 
     private func decidePenny(useHers: Bool) async {
         guard let r = await viewModel.decidePennyRead(expenseId: expense.id, useHers: useHers), r.ok else { return }
@@ -461,7 +372,6 @@ struct ReceiptDetailView: View {
             dismiss()
             return
         }
-        pennyNote = useHers ? "Penny's changes applied · Awaiting approval" : (r.message ?? "Current version selected")
         await loadLineItems()
         pennyRead = await viewModel.loadPennyRead(expenseId: expense.id)
     }
@@ -680,38 +590,40 @@ struct ReceiptDetailView: View {
 
     // MARK: - Sections
 
-    private var imageSection: some View {
-        Section {
-            HStack {
-                Spacer()
-                if let url = receiptURL {
-                    AsyncImage(url: url) { img in
-                        img.resizable().scaledToFit()
-                            .frame(maxHeight: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
-                            .overlay(alignment: .bottomTrailing) {
-                                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(appStyle.font(.caption, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(6)
-                                    .background(.black.opacity(0.55), in: Circle())
-                                    .padding(8)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture { showFullImage = true }
-                    } placeholder: {
-                        ProgressView().frame(height: 160)
-                    }
-                } else {
-                    RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
-                        .fill(appStyle.sunk)
-                        .frame(height: 120)
-                        .overlay { Image(systemName: "doc.text.image").font(appStyle.font(.largeTitle)).foregroundStyle(appStyle.meta) }
-                }
-                Spacer()
-            }
+    private func pinnedReceipt(_ image: UIImage) -> some View {
+        ReceiptZoomView(image: image)
+            .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
+            .frame(maxWidth: .infinity)
+            .frame(height: UIScreen.main.bounds.height * (dynamicTypeSize.isAccessibilitySize ? 0.28 : 0.42))
+            .background(appStyle.sunk)
+            .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func loadReceiptImage() async {
+        #if DEBUG
+        if seededImage != nil { return }
+        #endif
+        receiptImage = nil
+        guard let receiptURL else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: receiptURL)
+            guard !(response is HTTPURLResponse) || (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
+                  let image = UIImage(data: data) else { return }
+            receiptImage = image
+        } catch {
+            // The photo is optional in this sheet; a failed load deliberately leaves no placeholder behind.
         }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    private var hasMoreDetails: Bool {
+        [expense.accountingCategory, expense.paymentMethod, expense.description]
+            .contains { !($0?.isEmpty ?? true) }
+    }
+
+    @ViewBuilder private var moreDetails: some View {
+        if let category = expense.accountingCategory, !category.isEmpty { detailRow("Category", category) }
+        if let payment = expense.paymentMethod, !payment.isEmpty { detailRow("Payment", payment) }
+        if let description = expense.description, !description.isEmpty { detailRow("Description", description) }
     }
 
     private var statusSection: some View {
@@ -721,6 +633,24 @@ struct ReceiptDetailView: View {
                 Spacer()
                 statusBadge
             }
+            riskContent
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    private var riskSection: some View {
+        Section {
+            riskContent
+        }
+        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
+    }
+
+    private var hasVisibleRisk: Bool {
+        guard let score = expense.anomalyScore else { return false }
+        return isAdmin ? score > 0 : score > 15
+    }
+
+    @ViewBuilder private var riskContent: some View {
             if let score = expense.anomalyScore, score > 0 {
                 if isAdmin, let risk, !risk.summary.isEmpty {
                     PennyRiskRow(risk: risk, score: score, status: expense.status)
@@ -729,8 +659,6 @@ struct ReceiptDetailView: View {
                     RiskRingView(score: score, status: expense.status)
                 }
             }
-        }
-        .listRowBackground(appStyle.isEnabled ? appStyle.surface : nil)
     }
 
     private func loadRisk() async {
@@ -1371,8 +1299,7 @@ private struct ReceiptCompareDebugDemo: View {
             return [ReceiptCompareRow(id: "total", label: "Total", current: "$42.00", proposed: "$42.00")]
         default:
             return (1...18).map {
-                ReceiptCompareRow(id: "item-\($0)", label: "Item \($0)", current: "$\($0).00", proposed: "$\($0 + 1).00",
-                                  reason: $0 == 1 ? String(repeating: "Penny's supplied reason. ", count: 10) : "")
+                ReceiptCompareRow(id: "item-\($0)", label: "Item \($0)", current: "$\($0).00", proposed: "$\($0 + 1).00")
             }
         }
     }
@@ -1386,26 +1313,58 @@ private struct ReceiptCompareDebugDemo: View {
                     }
                     .pickerStyle(.segmented)
                     Toggle("Accessibility text", isOn: $usesLargeText)
+                    HStack {
+                        Text("Read").frame(maxWidth: .infinity, alignment: .leading)
+                        Divider()
+                        Text("Penny").frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(appStyle.font(.caption, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
                     ForEach(rows) { row in
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: ItSpace.s2) {
                             Text(row.label).font(appStyle.font(.caption, weight: .semibold))
-                            Text("Current: \(row.current ?? "Missing")")
-                            Text("Penny: \(row.proposed ?? "Not proposed")")
-                            if !row.reason.isEmpty { Text(row.reason).font(appStyle.font(.caption)) }
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 0) {
+                                    Text(row.current ?? "Missing").frame(maxWidth: .infinity, alignment: .leading)
+                                    Divider()
+                                    Text(row.proposed ?? "Missing")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(row.state == .unchanged ? Color.clear : appStyle.palette.color(.brand).opacity(0.08))
+                                }
+                                VStack(alignment: .leading, spacing: ItSpace.s2) {
+                                    Text("Read").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                                    Text(row.current ?? "Missing")
+                                    Text("Penny").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                                    Text(row.proposed ?? "Missing")
+                                        .background(row.state == .unchanged ? Color.clear : appStyle.palette.color(.brand).opacity(0.08))
+                                }
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding().background(appStyle.surface)
+                        .padding(ItSpace.s3).background(appStyle.surface)
                     }
-                    Button(selection == .current ? "Current version selected" : "Penny's changes applied") {
-                        selection = selection == .current ? .penny : .current
+                    HStack(spacing: ItSpace.s3) {
+                        demoButton("Keep", selected: selection == .current) { selection = .current }
+                        demoButton("Use Penny's", selected: selection == .penny) { selection = .penny }
                     }
-                    .buttonStyle(.borderedProminent).tint(appStyle.palette.color(.brand))
                 }
-                .padding()
+                .padding(ItSpace.s3)
             }
             .environment(\.dynamicTypeSize, usesLargeText ? .accessibility3 : .large)
             .navigationTitle("Receipt compare demo")
         }
+    }
+
+    private func demoButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: ItSpace.s2) {
+                Text(title)
+                if selected { Image(systemName: "checkmark") }
+            }
+            .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+        }
+        .buttonStyle(.bordered)
+        .tint(appStyle.palette.color(.brand))
     }
 }
 
