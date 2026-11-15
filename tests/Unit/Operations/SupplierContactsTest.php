@@ -104,6 +104,15 @@ HTML;
         $this->assertFalse(SupplierContactService::looksLikePerson(''));
     }
 
+    public function testSiteFallsBackToOwnMailDomainButNeverFreeMail(): void
+    {
+        $this->assertSame('https://www.greenleaf-wholesale.example', SupplierContactService::siteOf(['website' => 'https://www.greenleaf-wholesale.example', 'domain' => 'greenleaf-wholesale.example']));
+        $this->assertSame('greenleaf-wholesale.example', SupplierContactService::siteOf(['website' => null, 'domain' => 'greenleaf-wholesale.example']));
+        $this->assertSame('bark-and-stone.example', SupplierContactService::siteOf(['website' => '', 'domain' => null, 'email' => 'yard@bark-and-stone.example']));
+        $this->assertSame('', SupplierContactService::siteOf(['website' => '', 'domain' => null, 'email' => 'yard@telus.net']));
+        $this->assertSame('', SupplierContactService::siteOf(['website' => '', 'domain' => null, 'email' => null]));
+    }
+
     public function testMergeSourcesUsesStableOrderAndNoDuplicates(): void
     {
         $this->assertSame('mail|website|manual', SupplierContactService::mergeSources('manual|mail', 'website|mail'));
