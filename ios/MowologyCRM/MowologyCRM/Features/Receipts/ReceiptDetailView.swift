@@ -22,6 +22,7 @@ struct ReceiptDetailView: View {
     var isAdmin: Bool = false
     #if DEBUG
     /// `-mwReceiptSheetDemo`: invented Penny read and photo, so the layout can be seen without sign-in or client data.
+    /// Add `-mwReceiptSheetMismatch` for a cents mismatch and one newly added item.
     var seededRead: PennyRead? = nil
     var seededImage: UIImage? = nil
     #endif
@@ -54,54 +55,46 @@ struct ReceiptDetailView: View {
     @State private var renameItem: StoredLineItem?
     @State private var renameText = ""
     @State private var linkItem: StoredLineItem?
-    @State private var showAddItem = false
-    @State private var addItemName = ""
-    @State private var addItemAmount = ""
     @State private var mergedCopies: [BKMergedCopy] = []
     @State private var splitting: Int?
     @State private var mergedNote: String?
     @State private var mergedPhoto: URL?
 
+    // The grid edits one complete expense snapshot. A generation counter debounces saves
+    // without keeping an unstructured Task alive beyond this view.
+    @State private var draft: ReceiptSaveRecord?
+    @State private var editedFields = Set<String>()
+    @State private var readerChoices = Set<String>()
+    @State private var recordWasEdited = false
+    @State private var saveGeneration = 0
+    @State private var itemSaveGenerations: [Int: Int] = [:]
+    @State private var itemWasEdited = false
+    @State private var alreadySent = false
+    @State private var gridItems: [ReceiptGridItemDraft] = []
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    SpineHead(slug: "penny", name: "Penny")
-                    SpineStepNode(number: "1", title: "Receipt", detail: statusLabel, detailIsChip: true,
-                                  detailStatus: expense.status,
-                                  contentHorizontalPadding: 0, showsContent: receiptImage != nil,
-                                  done: false, current: true) {
-                        receiptNodeContent
+                LazyVStack(spacing: ItSpace.s4) {
+                    if let receiptImage {
+                        pinnedReceipt(receiptImage)
+                            .padding(.horizontal, -ItSpace.s4)
+                            .overlay(alignment: .topLeading) { statusBadge.padding(ItSpace.s2) }
+                    } else {
+                        statusBadge.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    if let read = pennyRead {
-                        SpineStepNode(number: "2", title: "Read | Penny", done: false, current: true) {
-                            comparisonCard(read)
+                    receiptGrid
+                    DisclosureGroup("More", isExpanded: $showsMoreDetails) {
+                        VStack(alignment: .leading, spacing: ItSpace.s4) {
+                            Button("Edit all fields") { showEditSheet = true }.disabled(!isEditable)
+                            detailsContent
+                            if hasVisibleRisk { riskContent }
+                            if isAdmin && !mergedCopies.isEmpty { mergedContent }
+                            lineItemsContent
                         }
-                        SpineStepNode(number: "3", title: "Your call", done: false, current: true) {
-                            decisionContent(read)
-                        }
-                    } else if canActOn(expense) {
-                        SpineStepNode(number: "2", title: "Your call", done: false, current: true) {
-                            approvalActions
-                        }
+                        .padding(.top, ItSpace.s3)
                     }
-                    SpineNode(slug: receiptSpineSlug, id: "details", title: "Details", symbol: "doc.text.magnifyingglass") {
-                        detailsContent
-                    }
-                    if hasVisibleRisk {
-                        SpineNode(slug: receiptSpineSlug, id: "risk", title: "Risk", symbol: "gauge.with.dots.needle.33percent") {
-                            riskContent
-                        }
-                    }
-                    if isAdmin && !mergedCopies.isEmpty {
-                        SpineNode(slug: receiptSpineSlug, id: "merged", title: "Also on this purchase", symbol: "square.stack.3d.up") {
-                            mergedContent
-                        }
-                    }
-                    SpineNode(slug: receiptSpineSlug, id: "items", title: "Line items", symbol: "list.bullet.rectangle") {
-                        lineItemsContent
-                    }
-                    SpineTail()
+                    .tint(appStyle.palette.color(.brand))
                 }
                 .padding(.horizontal, ItSpace.s4)
             }
@@ -113,13 +106,7 @@ struct ReceiptDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
-                        .foregroundStyle(appStyle.tenant)
-                }
-                if isEditable {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Edit") { showEditSheet = true }
-                            .foregroundStyle(appStyle.tenant)
-                    }
+                        .foregroundStyle(appStyle.palette.color(.brand))
                 }
             }
         }
@@ -156,10 +143,13 @@ struct ReceiptDetailView: View {
             ZoomableReceiptView(url: t.url)
         }
         #if DEBUG
-        .onAppear { if let r = seededRead { pennyRead = r }; if let i = seededImage { receiptImage = i } }
-        .task(id: expense.id) { if seededRead == nil { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) } }
+        .onAppear {
+            if let r = seededRead { pennyRead = r; prepareDraft(read: r); applyDebugMismatchSeed() }
+            if let i = seededImage { receiptImage = i }
+        }
+        .task(id: expense.id) { if seededRead == nil { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id); prepareDraft(read: pennyRead) } }
         #else
-        .task(id: expense.id) { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id) }
+        .task(id: expense.id) { pennyRead = await viewModel.loadPennyRead(expenseId: expense.id); prepareDraft(read: pennyRead) }
         #endif
         .task(id: receiptURL) { await loadReceiptImage() }
         .sheet(item: $renameItem) { item in
@@ -178,30 +168,428 @@ struct ReceiptDetailView: View {
                 renameItem = nil
             }
         }
-        .sheet(isPresented: $showAddItem) {
-            VendorItemPickerSheet(title: "Add missed item", vendorId: expense.vendorId, viewModel: viewModel,
-                                  name: $addItemName, amount: $addItemAmount, showsAmount: true) {
-                let n = addItemName.trimmingCharacters(in: .whitespaces)
-                let amt = ReceiptNumber.parse(addItemAmount) ?? 0
-                addItemName = ""; addItemAmount = ""
-                guard !n.isEmpty else { return }
-                Task {
-                    if let added = await viewModel.addLineItem(expenseId: expense.id, name: n, lineTotal: amt, productId: nil) {
-                        lineItems.append(added)
-                    }
-                }
-                showAddItem = false
-            } onCancel: {
-                addItemName = ""; addItemAmount = ""; showAddItem = false
-            }
-        }
     }
 
     // MARK: - Penny's read
 
+    private var receiptGrid: some View {
+        VStack(spacing: 0) {
+            gridHeadings
+            if alreadySent {
+                Text("Already sent to accounting")
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, ItSpace.s3)
+            }
+            if let draft {
+                gridField("Vendor", key: "vendor", reader: readerValue("vendor"), value: binding(\.vendor, field: "vendor"))
+                gridField("Date", key: "date", reader: readerValue("date"), value: binding(\.date, field: "date"))
+                gridField("For", key: "accounting_category", reader: readerValue("accounting_category"), value: binding(\.category, field: "accounting_category"))
+                ForEach(Array(gridItems.indices), id: \.self) { itemIndex in
+                    gridItem(index: itemIndex)
+                }
+                addItemOnSpine
+                gridAmount("Sub total", key: "subtotal", reader: readerValue("subtotal"), amount: binding(\.subtotal, field: "subtotal"))
+                gridAmount("GST", key: "gst", reader: readerValue("gst"), amount: binding(\.gst, field: "gst"))
+                gridAmount("PST", key: "pst", reader: readerValue("pst"), amount: binding(\.pst, field: "pst"))
+                gridAmount("Total", key: "total", reader: readerValue("total"), amount: binding(\.total, field: "total"),
+                           mismatch: !ReceiptCompareRules.totalsAddUp(subtotal: draft.subtotal, gst: draft.gst, pst: draft.pst, total: draft.total))
+                actionRow
+            }
+        }
+        .overlay { SpineLine(large: false).allowsHitTesting(false) }
+        .disabled(alreadySent)
+    }
+
+    private var gridHeadings: some View {
+        HStack(spacing: SpineMetrics.slot) {
+            Text("Reader").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("Penny").frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(appStyle.font(.caption, weight: .semibold))
+        .foregroundStyle(appStyle.meta)
+        .padding(.vertical, ItSpace.s2)
+    }
+
+    private func gridField(_ label: String, key: String, reader: String?, value: Binding<String>) -> some View {
+        gridRow(label: label) {
+            readerButton(reader, key: key)
+        } right: {
+            HStack(spacing: ItSpace.s1) {
+                if !readerChoices.contains(key) { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
+                TextField("-", text: value, axis: .vertical)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(rightColor(key: key, reader: reader, penny: value.wrappedValue))
+                    .accessibilityLabel("Penny \(label)")
+                    .disabled(!canEditGrid)
+            }
+        }
+    }
+
+    private func gridAmount(_ label: String, key: String, reader: String?, amount: Binding<Double>, mismatch: Bool = false) -> some View {
+        let text = Binding(
+            get: { String(format: "%.2f", amount.wrappedValue) },
+            set: { amount.wrappedValue = ReceiptNumber.parse($0) ?? 0 }
+        )
+        return gridRow(label: label) {
+            readerButton(reader.map(currencyText) ?? "-", key: key)
+        } right: {
+            HStack(spacing: ItSpace.s1) {
+                if !readerChoices.contains(key) { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
+                TextField("0.00", text: text)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(mismatch ? appStyle.attention : rightColor(key: key, reader: reader, penny: text.wrappedValue))
+                    .accessibilityLabel("Penny \(label)")
+                    .accessibilityValue(mismatch ? "\(text.wrappedValue), does not add up" : text.wrappedValue)
+                    .disabled(!canEditGrid)
+            }
+        }
+    }
+
+    private func gridRow<Left: View, Right: View>(label: String,
+                                                   @ViewBuilder left: () -> Left,
+                                                   @ViewBuilder right: () -> Right) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                left().frame(maxWidth: .infinity, alignment: .trailing)
+                Text(label)
+                    .font(appStyle.font(.caption2, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
+                    .frame(width: SpineMetrics.slot)
+                    .background(appStyle.page)
+                    .accessibilityHidden(true)
+                right().frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: ItSpace.s2) {
+                Text(label).font(appStyle.font(.caption2, weight: .semibold)).foregroundStyle(appStyle.meta)
+                    .frame(maxWidth: .infinity).background(appStyle.page)
+                HStack(alignment: .top, spacing: SpineMetrics.slot) {
+                    VStack(alignment: .trailing, spacing: ItSpace.s1) {
+                        Text("Reader").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                        left()
+                    }.frame(maxWidth: .infinity, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: ItSpace.s1) {
+                        Text("Penny").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                        right()
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .font(appStyle.font(.subheadline))
+        .padding(.vertical, ItSpace.s3)
+        .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth) }
+    }
+
+    private func readerButton(_ value: String?, key: String) -> some View {
+        Button {
+            guard canEditGrid, let value else { return }
+            chooseReader(value, field: key)
+        } label: {
+            HStack(spacing: ItSpace.s1) {
+                if readerChoices.contains(key) { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
+                Text(value ?? "-").fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(valuesAgree(key: key, reader: readerValue(key), penny: pennyText(key)) ? appStyle.meta : appStyle.text)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Uses the reader value")
+    }
+
+    private func gridItem(index: Int) -> some View {
+        gridRow(label: "Item") {
+            Button {
+                guard canEditGrid else { return }
+                gridItems[index].name = gridItems[index].readerName ?? ""
+                gridItems[index].amount = gridItems[index].readerAmount ?? 0
+                gridItems[index].readerChosen = true
+                gridItems[index].dirty = true
+                itemWasEdited = true
+                Task { await saveGridItem(index) }
+            } label: {
+                itemText(name: gridItems[index].readerName, amount: gridItems[index].readerAmount,
+                         checked: gridItems[index].readerChosen)
+            }.buttonStyle(.plain)
+                .disabled(!canEditGrid)
+        } right: {
+            VStack(alignment: .leading, spacing: ItSpace.s1) {
+                TextField("Item name", text: $gridItems[index].name, axis: .vertical)
+                    .onSubmit { Task { await saveGridItem(index) } }
+                    .onChange(of: gridItems[index].name) { _, _ in scheduleItemSave(index) }
+                    .disabled(!canEditGrid)
+                TextField("0.00", value: $gridItems[index].amount, format: .number.precision(.fractionLength(2)))
+                    .keyboardType(.decimalPad)
+                    .onSubmit { Task { await saveGridItem(index) } }
+                    .onChange(of: gridItems[index].amount) { _, _ in scheduleItemSave(index) }
+                    .disabled(!canEditGrid)
+            }
+            .padding(ItSpace.s1)
+            .background(gridItems[index].differs ? pennyBrand.opacity(0.08) : Color.clear)
+        }
+    }
+
+    private func itemText(name: String?, amount: Double?, checked: Bool) -> some View {
+        VStack(alignment: .trailing, spacing: ItSpace.s1) {
+            HStack(spacing: ItSpace.s1) {
+                if checked { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
+                Text(amount.map { String(format: "$%.2f", $0) } ?? "-")
+            }
+            if let name, !name.isEmpty { Text(name).fixedSize(horizontal: false, vertical: true) }
+        }
+    }
+
+    private var addItemOnSpine: some View {
+        Button {
+            gridItems.append(ReceiptGridItemDraft(readerName: nil, readerAmount: nil, name: "", amount: 0, storedID: nil))
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(appStyle.font(.title3))
+                .foregroundStyle(pennyBrand)
+                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                .background(appStyle.page, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add item")
+        .frame(maxWidth: .infinity)
+        .disabled(!canEditGrid)
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 0) {
+            Button("Reject") { rejectReason = ""; showRejectSheet = true }
+                .foregroundStyle(appStyle.meta)
+                .frame(maxWidth: .infinity)
+                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
+            ItPortrait(name: "Penny", url: TeamHead.all.first { $0.slug == "penny" }?.faceURL,
+                       size: SpineMetrics.compactRing, brandRing: false)
+                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                .background(appStyle.page, in: Circle())
+                .accessibilityHidden(true)
+            Button("Approve") { Task { await approveGrid() } }
+                .font(appStyle.font(.subheadline, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+                .foregroundStyle(appStyle.surface)
+                .background(pennyBrand)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
+                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
+        }
+        .padding(.vertical, ItSpace.s3)
+    }
+
+    private func prepareDraft(read: PennyRead?) {
+        guard draft == nil else { return }
+        let base = ReceiptSaveRecord(
+            vendor: expense.displayVendor,
+            date: expense.expenseDate,
+            category: expense.accountingCategory ?? "",
+            subtotal: expense.amount ?? 0,
+            gst: expense.gstAmount ?? 0,
+            pst: expense.pstAmount ?? 0,
+            total: expense.total,
+            paymentMethod: expense.paymentMethod ?? "credit_card",
+            description: expense.description ?? ""
+        )
+        let proposed = (read?.fields ?? []).reduce(into: [String: String]()) { values, field in
+            if let value = field.penny { values[field.field] = value }
+        }
+        draft = ReceiptCompareRules.applying(proposed, to: base)
+        editedFields = ReceiptCompareRules.pendingPennyFieldKeys(read?.fields ?? [])
+        if let items = read?.items {
+            gridItems = ReceiptCompareRules.items(items).map {
+                ReceiptGridItemDraft(readerName: $0.currentName, readerAmount: $0.currentAmount,
+                                     name: $0.proposedName ?? "", amount: $0.proposedAmount ?? 0,
+                                     storedID: lineItems.indices.contains($0.index) ? lineItems[$0.index].id : nil,
+                                     dirty: ReceiptCompareRules.pennyItemNeedsSave($0))
+            }
+        } else {
+            gridItems = lineItems.map {
+                ReceiptGridItemDraft(readerName: $0.name, readerAmount: $0.lineTotal,
+                                     name: $0.name, amount: $0.lineTotal, storedID: $0.id)
+            }
+        }
+    }
+
+    #if DEBUG
+    private func applyDebugMismatchSeed() {
+        guard ProcessInfo.processInfo.arguments.contains("-mwReceiptSheetMismatch"), var value = draft else { return }
+        value.total += 0.01
+        draft = value
+        gridItems.append(ReceiptGridItemDraft(readerName: nil, readerAmount: nil,
+                                              name: "Added item", amount: 12.34, storedID: nil))
+    }
+    #endif
+
+    private func readerValue(_ key: String) -> String? {
+        if let value = pennyRead?.fields.first(where: { $0.field == key })?.receipt { return value }
+        switch key {
+        case "vendor": return expense.displayVendor
+        case "date": return expense.expenseDate
+        case "accounting_category": return expense.accountingCategory
+        case "subtotal": return expense.amount.map { String(format: "%.2f", $0) }
+        case "gst": return expense.gstAmount.map { String(format: "%.2f", $0) }
+        case "pst": return expense.pstAmount.map { String(format: "%.2f", $0) }
+        case "total": return String(format: "%.2f", expense.total)
+        default: return nil
+        }
+    }
+
+    private func pennyText(_ key: String) -> String? {
+        guard let draft else { return nil }
+        switch key {
+        case "vendor": return draft.vendor
+        case "date": return draft.date
+        case "accounting_category": return draft.category
+        case "subtotal": return String(format: "%.2f", draft.subtotal)
+        case "gst": return String(format: "%.2f", draft.gst)
+        case "pst": return String(format: "%.2f", draft.pst)
+        case "total": return String(format: "%.2f", draft.total)
+        default: return nil
+        }
+    }
+
+    private func binding<Value>(_ keyPath: WritableKeyPath<ReceiptSaveRecord, Value>, field: String) -> Binding<Value> {
+        Binding(
+            get: { draft?[keyPath: keyPath] ?? expenseFallback(keyPath) },
+            set: { newValue in
+                guard canEditGrid, var value = draft else { return }
+                value[keyPath: keyPath] = newValue
+                draft = value
+                editedFields.insert(field)
+                readerChoices.remove(field)
+                recordWasEdited = true
+                scheduleSave()
+            }
+        )
+    }
+
+    private func expenseFallback<Value>(_ keyPath: WritableKeyPath<ReceiptSaveRecord, Value>) -> Value {
+        // `prepareDraft` runs before the grid is rendered; this branch only satisfies Binding's
+        // non-optional contract during teardown.
+        let record = ReceiptSaveRecord(vendor: expense.displayVendor, date: expense.expenseDate,
+                                       category: expense.accountingCategory ?? "", subtotal: expense.amount ?? 0,
+                                       gst: expense.gstAmount ?? 0, pst: expense.pstAmount ?? 0, total: expense.total,
+                                       paymentMethod: expense.paymentMethod ?? "credit_card", description: expense.description ?? "")
+        return record[keyPath: keyPath]
+    }
+
+    private func chooseReader(_ value: String, field: String) {
+        guard canEditGrid, let draft else { return }
+        self.draft = ReceiptCompareRules.choosingReader(value, in: draft, field: field)
+        editedFields.insert(field)
+        readerChoices.insert(field)
+        recordWasEdited = true
+        scheduleSave()
+    }
+
+    private func scheduleSave() {
+        saveGeneration += 1
+        let generation = saveGeneration
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard generation == saveGeneration else { return }
+            await saveDraft()
+        }
+    }
+
+    private func saveDraft() async {
+        guard let record = draft, !editedFields.isEmpty, !alreadySent else { return }
+        let saved = await viewModel.updateExpense(expenseId: expense.id, vendorName: record.vendor, date: record.date,
+                                                  amount: record.subtotal, gst: record.gst, pst: record.pst, total: record.total,
+                                                  category: record.category, paymentMethod: record.paymentMethod,
+                                                  description: record.description)
+        if saved {
+            if draft == record {
+                editedFields.removeAll()
+            } else {
+                scheduleSave()
+            }
+        } else if isAlreadySentError(viewModel.saveError) {
+            alreadySent = true
+        }
+    }
+
+    private func saveGridItem(_ index: Int) async {
+        guard gridItems.indices.contains(index), canEditGrid else { return }
+        let item = gridItems[index]
+        var saved = false
+        if item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let id = item.storedID {
+            saved = await viewModel.deleteLineItem(id: id)
+        } else if let id = item.storedID {
+            if let updated = await viewModel.updateLineItem(id: id, name: item.name, quantity: nil,
+                                                            unitPrice: nil, lineTotal: item.amount) {
+                gridItems[index].storedID = updated.id
+                saved = true
+            }
+        } else if !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let added = await viewModel.addLineItem(expenseId: expense.id, name: item.name,
+                                                          lineTotal: item.amount, productId: nil) {
+            gridItems[index].storedID = added.id
+            lineItems.append(added)
+            saved = true
+        }
+        if saved, gridItems.indices.contains(index), gridItems[index].name == item.name,
+           gridItems[index].amount == item.amount {
+            gridItems[index].dirty = false
+        }
+        if isAlreadySentError(viewModel.actionError) { alreadySent = true }
+    }
+
+    private func scheduleItemSave(_ index: Int) {
+        guard gridItems.indices.contains(index), canEditGrid else { return }
+        gridItems[index].dirty = true
+        itemWasEdited = true
+        let generation = (itemSaveGenerations[index] ?? 0) + 1
+        itemSaveGenerations[index] = generation
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard generation == itemSaveGenerations[index] else { return }
+            await saveGridItem(index)
+        }
+    }
+
+    private func approveGrid() async {
+        saveGeneration += 1
+        for index in gridItems.indices {
+            itemSaveGenerations[index, default: 0] += 1
+        }
+        if !recordWasEdited, !itemWasEdited, let read = pennyRead, read.canApply {
+            await decidePenny(useHers: true)
+            return
+        }
+        for index in gridItems.indices where gridItems[index].dirty { await saveGridItem(index) }
+        guard !alreadySent, !gridItems.contains(where: \.dirty) else { return }
+        if !editedFields.isEmpty {
+            await saveDraft()
+            guard !alreadySent, editedFields.isEmpty else { return }
+        }
+        await performApprove()
+    }
+
+    private func rightColor(key: String, reader: String?, penny: String?) -> Color {
+        valuesAgree(key: key, reader: reader, penny: penny) ? appStyle.text : appStyle.attention
+    }
+
+    private func valuesAgree(key: String, reader: String?, penny: String?) -> Bool {
+        if ["subtotal", "gst", "pst", "total"].contains(key) {
+            return ReceiptNumber.parse(reader ?? "") == ReceiptNumber.parse(penny ?? "")
+        }
+        return ReceiptCompareRules.chosenSide(reader: reader, penny: penny) == .reader
+    }
+
+    private func isAlreadySentError(_ message: String?) -> Bool {
+        guard let message = message?.lowercased() else { return false }
+        return message.contains("accounting") || message.contains("forwarded") || message.contains("already sent")
+    }
+
+    private func currencyText(_ value: String) -> String {
+        ReceiptNumber.parse(value).map { String(format: "$%.2f", $0) } ?? value
+    }
+
     private func refreshAll() async {
         await loadLineItems()
         pennyRead = await viewModel.loadPennyRead(expenseId: expense.id)
+        if editedFields.isEmpty { draft = nil; prepareDraft(read: pennyRead) }
         if isAdmin, risk == nil { riskFailed = false; await loadRisk() }
     }
 
@@ -393,6 +781,16 @@ struct ReceiptDetailView: View {
         switch await viewModel.loadLineItems(expenseId: expense.id) {
         case .success(let r):
             lineItems = r.lineItems
+            if gridItems.isEmpty, pennyRead?.items == nil {
+                gridItems = r.lineItems.map {
+                    ReceiptGridItemDraft(readerName: $0.name, readerAmount: $0.lineTotal,
+                                         name: $0.name, amount: $0.lineTotal, storedID: $0.id)
+                }
+            } else {
+                for index in gridItems.indices where r.lineItems.indices.contains(index) && gridItems[index].storedID == nil {
+                    gridItems[index].storedID = r.lineItems[index].id
+                }
+            }
             lineItemsSource = r.lineItemsSource
             lineItemsError = nil
         case .failure(let e):
@@ -528,13 +926,6 @@ struct ReceiptDetailView: View {
                 }
             }
             if isEditable && lineItemsLoaded {
-                Button {
-                    showAddItem = true
-                } label: {
-                    Label("Add missed item", systemImage: "plus.circle")
-                        .font(appStyle.font(.subheadline))
-                        .foregroundStyle(appStyle.tenant)
-                }
                 if receiptURL != nil {
                     Button {
                         Task { await rescan() }
@@ -570,6 +961,10 @@ struct ReceiptDetailView: View {
     /// Editable in any status except sent (forwarded to accounting) — matches the server guard.
     private var isEditable: Bool {
         expense.status != "forwarded" && !expense.isForwarded
+    }
+
+    private var canEditGrid: Bool {
+        isEditable && canActOn(expense) && !alreadySent && !viewModel.isPerformingAction
     }
 
     /// Draft/pending expenses can be approved or rejected from the phone. Sending to
@@ -1455,4 +1850,20 @@ private struct ReceiptCompareDebugDemo: View {
 private struct IdentURL: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
+}
+
+private struct ReceiptGridItemDraft: Equatable {
+    let readerName: String?
+    let readerAmount: Double?
+    var name: String
+    var amount: Double
+    var storedID: Int?
+    var readerChosen = false
+    var dirty = false
+
+    var differs: Bool {
+        readerName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            != name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            || readerAmount != amount
+    }
 }

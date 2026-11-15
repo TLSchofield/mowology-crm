@@ -877,7 +877,77 @@ enum ReceiptCompareSelection: Equatable {
     case penny
 }
 
+/// The complete editable part of an expense. Keeping this as a value makes a delayed save
+/// deterministic: every request is assembled from one snapshot, never a mixture of old and
+/// newly edited fields.
+struct ReceiptSaveRecord: Equatable {
+    var vendor: String
+    var date: String
+    var category: String
+    var subtotal: Double
+    var gst: Double
+    var pst: Double
+    var total: Double
+    var paymentMethod: String
+    var description: String
+}
+
+enum ReceiptCompareSide: Equatable {
+    case reader
+    case penny
+}
+
 enum ReceiptCompareRules {
+    static func pendingPennyFieldKeys(_ fields: [PennyReadField]) -> Set<String> {
+        Set(fields.compactMap { field in
+            guard field.penny != nil, chosenSide(reader: field.receipt, penny: field.penny) == .penny else { return nil }
+            return field.field
+        })
+    }
+
+    static func pennyItemNeedsSave(_ row: ReceiptCompareItemRow) -> Bool {
+        row.state != .unchanged
+    }
+
+    static func totalsAddUp(subtotal: Double, gst: Double, pst: Double, total: Double) -> Bool {
+        // Compare cents so display rounding and binary floating-point do not create false alarms.
+        let parts = [subtotal, gst, pst].map { Int(($0 * 100).rounded()) }.reduce(0, +)
+        return parts == Int((total * 100).rounded())
+    }
+
+    static func chosenSide(reader: String?, penny: String?) -> ReceiptCompareSide {
+        normalized(reader) == normalized(penny) ? .reader : .penny
+    }
+
+    static func choosingReader(_ reader: String?, in record: ReceiptSaveRecord, field: String) -> ReceiptSaveRecord {
+        var result = record
+        let text = reader?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch field {
+        case "vendor": result.vendor = text
+        case "date": result.date = text
+        case "accounting_category", "category": result.category = text
+        case "subtotal", "amount": result.subtotal = receiptNumber(text)
+        case "gst": result.gst = receiptNumber(text)
+        case "pst": result.pst = receiptNumber(text)
+        case "total": result.total = receiptNumber(text)
+        default: break
+        }
+        return result
+    }
+
+    static func applying(_ values: [String: String], to base: ReceiptSaveRecord) -> ReceiptSaveRecord {
+        values.reduce(base) { choosingReader($1.value, in: $0, field: $1.key) }
+    }
+
+    private static func normalized(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    }
+
+    private static func receiptNumber(_ value: String) -> Double {
+        let allowed = value.filter { "0123456789.-".contains($0) }
+        return Double(allowed) ?? 0
+    }
+
     static func fields(_ fields: [PennyReadField], status: String? = nil) -> [ReceiptCompareRow] {
         let serverRows = fields.filter { $0.field.caseInsensitiveCompare("status") != .orderedSame }.map {
             ReceiptCompareRow(

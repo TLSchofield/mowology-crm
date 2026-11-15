@@ -39,6 +39,14 @@ private func decodedItems(receipt: [(String, Double)], penny: [(String, Double)]
     return try! JSONDecoder().decode(PennyReadItems.self, from: data)
 }
 
+private func decodedFields(_ values: [(String, String, String, String)]) -> [PennyReadField] {
+    let object = values.map {
+        ["field": $0.0, "label": $0.1, "receipt": $0.2, "penny": $0.3]
+    }
+    let data = try! JSONSerialization.data(withJSONObject: object)
+    return try! JSONDecoder().decode([PennyReadField].self, from: data)
+}
+
 let reordered = ReceiptCompareRules.items(decodedItems(
     receipt: [("Rake", 10), ("Soil", 20)],
     penny: [("Soil", 20), ("Rake", 10)]
@@ -75,5 +83,35 @@ expect(ReceiptCompareRules.selection(differs: true, fieldRows: [changed], itemRo
        "a later mismatch selects the current receipt")
 expect(ReceiptCompareRules.selection(differs: false, fieldRows: [], itemRows: []) == .current,
        "an empty suggestion never claims to be applied")
+
+expect(ReceiptCompareRules.totalsAddUp(subtotal: 100, gst: 5, pst: 7, total: 112),
+       "totals add in cents")
+expect(!ReceiptCompareRules.totalsAddUp(subtotal: 100, gst: 5, pst: 7, total: 111.99),
+       "a one-cent mismatch is reported")
+
+let baseRecord = ReceiptSaveRecord(vendor: "Penny Vendor", date: "2026-11-15", category: "Materials",
+                                   subtotal: 100, gst: 5, pst: 7, total: 112,
+                                   paymentMethod: "credit_card", description: "kept")
+let readerRecord = ReceiptCompareRules.choosingReader(" Reader Vendor ", in: baseRecord, field: "vendor")
+expect(readerRecord.vendor == "Reader Vendor" && readerRecord.total == 112 && readerRecord.description == "kept",
+       "choosing one reader value preserves the complete record")
+let editedRecord = ReceiptCompareRules.applying(["gst": "$4.25", "total": "111.25"], to: readerRecord)
+expect(editedRecord.gst == 4.25 && editedRecord.total == 111.25 && editedRecord.vendor == "Reader Vendor",
+       "edited values produce one full save record")
+expect(ReceiptCompareRules.chosenSide(reader: "Same", penny: " same ") == .reader,
+       "matching values mark the reader side")
+expect(ReceiptCompareRules.chosenSide(reader: "Old", penny: "New") == .penny,
+       "different values mark Penny's side")
+
+let pendingFields = decodedFields([
+    ("vendor", "Vendor", "Old", "New"),
+    ("date", "Date", "2026-11-15", "2026-11-15")
+])
+expect(ReceiptCompareRules.pendingPennyFieldKeys(pendingFields) == Set(["vendor"]),
+       "only changed Penny fields are pending persistence")
+expect(ReceiptCompareRules.pennyItemNeedsSave(amountChange[0]),
+       "a changed Penny item remains pending until it is persisted")
+expect(!ReceiptCompareRules.pennyItemNeedsSave(currentItem),
+       "an unchanged Penny item does not trigger a write")
 
 print("ReceiptCompareTests passed")
