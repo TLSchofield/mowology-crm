@@ -134,12 +134,18 @@ final class MorningBriefLoader: ObservableObject {
 struct OpeningOverlay: View {
     /// waiting = the splash has gone and the app is usable; Charlie's small brain sits top left
     /// with the dots until his brief arrives, then the card lands.
-    enum Phase { case splash, waiting, brief, done }
+    enum Phase { case splash, waiting, brief, welcome, done }
 
     /// Asked when the spin ends (not at launch: the login may still be loading then).
     let wantsBrief: () -> Bool?         // admin + first open today; nil = login still loading
     @ObservedObject var loader: MorningBriefLoader
+    /// The one-time welcome for a person who has never seen it for this business; nil = none (the usual brief rules apply).
+    var welcome: () -> KanameWelcomeCard? = { nil }
+    /// The welcome's primary button, called once the overlay has gone.
+    var onWelcomeAction: (KanameWelcome.Entry) -> Void = { _ in }
     var onFinish: () -> Void
+
+    @State private var welcomeCard: KanameWelcomeCard?
 
     @AppStorage("mw.opening.lightBackground") private var light = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -191,6 +197,12 @@ struct OpeningOverlay: View {
                         .padding(.top, top + 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                if phase == .welcome, let card = welcomeCard {
+                    welcomeView(card, brainSlot: small)
+                        .padding(.horizontal, 16)
+                        .padding(.top, top + 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 if !showingAssembly && (phase == .splash || phase == .waiting) {
                     let big = phase == .splash
                     OrbitDots(color: light ? Color.MW.green : Color.MW.lime, radius: (big ? bigSize : small) * 0.62)
@@ -234,10 +246,10 @@ struct OpeningOverlay: View {
                     // view fills the screen and could swallow taps meant for the brief.
                     .contentShape(Circle())
                     .onTapGesture {
-                        guard phase == .brief else { return }
+                        guard phase == .brief || phase == .welcome else { return }
                         withAnimation(.easeInOut(duration: 0.45)) { showFace.toggle() }
                     }
-                    .allowsHitTesting(phase == .brief)
+                    .allowsHitTesting(phase == .brief || phase == .welcome)
                     .accessibilityLabel(showFace ? "Kaname" : "Kaname's brain")
                     .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
                     .position(phase == .splash ? center : corner)
@@ -283,6 +295,16 @@ struct OpeningOverlay: View {
             if want == false || (want == true && loader.isFresh) { break }
             try? await Task.sleep(nanoseconds: 200_000_000); waited += 0.2
         }
+        // The first time this person opens the app for this business: the welcome, instead of the brief.
+        if let card = welcome() {
+            welcomeCard = card
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .welcome }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation(.easeInOut(duration: 0.5)) { showFace = true }
+            }
+            return
+        }
         let showBrief = wantsBrief() == true
         if showBrief && !loader.isFresh {
             // Not here yet: open the app and keep Charlie thinking in the corner (up to 20 s more).
@@ -315,6 +337,57 @@ struct OpeningOverlay: View {
     private func close() {
         withAnimation(.easeInOut(duration: 0.35)) { phase = .done }
         onFinish()
+    }
+
+    /// Marked seen on the button or Later, never on display.
+    private func finishWelcome(_ card: KanameWelcomeCard, action: Bool) {
+        KanameWelcome.markSeen(host: card.host, userId: card.userId)
+        close()
+        if action {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { onWelcomeAction(card.entry) }
+        }
+    }
+
+    @ViewBuilder
+    private func welcomeView(_ card: KanameWelcomeCard, brainSlot: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Color.clear.frame(width: brainSlot, height: brainSlot)   // the brain lands here
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Kaname").font(.headline).foregroundStyle(ink)
+                    Text("Chief of Staff").font(.caption).foregroundStyle(ink.opacity(0.65))
+                }
+                Spacer(minLength: 0)
+            }
+            Text(KanameWelcome.headline(firstName: card.firstName))
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(KanameWelcome.body)
+                .font(.subheadline).foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(KanameWelcome.entryLine(card.entry))
+                .font(.subheadline).foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button(KanameWelcome.laterButton) { finishWelcome(card, action: false) }
+                    .font(.subheadline)
+                    .foregroundStyle(ink.opacity(0.7))
+                Spacer()
+                Button(KanameWelcome.primaryButton(card.entry)) { finishWelcome(card, action: true) }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Color.MW.green, in: Capsule())
+                    .foregroundStyle(.white)
+            }
+            .padding(.top, 4)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(background)
+                .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+        )
     }
 
     @ViewBuilder

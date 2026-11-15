@@ -38,6 +38,9 @@ struct MowologyCRMApp: App {
                 .environmentObject(authSession)
                 .overlay { ScheduleTimelineDemoOverlay() }   // Debug builds only, behind a launch flag
                 .overlay { ReceiptCameraDemoOverlay() }      // Debug builds only, behind a launch flag
+                #if DEBUG
+                .overlay { SignUpDemoOverlay() }             // Debug builds only: sign-in / welcome / sign-up / onboarding demos
+                #endif
                 // Wire the global transition drain once the crew is authenticated.
                 // The drain fires on reconnect (mwPingQueueOnline) to retry any
                 // persisted stop/start calls that failed when offline — regardless
@@ -107,7 +110,7 @@ struct MowologyCRMApp: App {
         scheduleGPSRefreshIfNeeded()
 
         let jobActive = UserDefaults.standard.bool(forKey: GPSTrackingService.kShiftActive)
-        let lastPing  = UserDefaults.standard.double(forKey: GPSTrackingService.kLastPingAt)
+        let lastPing  = GPSTrackingService.pingDefaults.double(forKey: GPSTrackingService.kLastPingAt)
         let elapsed   = lastPing > 0 ? Date().timeIntervalSince1970 - lastPing : 0
 
         // If a job is active and we haven't pinged in >8 minutes, nudge the crew.

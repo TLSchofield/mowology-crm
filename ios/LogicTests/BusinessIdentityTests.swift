@@ -126,6 +126,8 @@ struct BusinessIdentityChecks {
         check(failed.current == nil && failed.error != nil && !failed.isBusy && failedAPI.sends == 0,
               "unavailable identity setup fails closed and can be retried")
         failedAPI.failRead = false; await failed.load()
+        check(failed.current == nil, "a failed load is not retried by a restarting task within 30 s")
+        await failed.retry()
         check(failed.current?.ok == true && failed.error == nil, "retry recovers from a failed initial load")
 
         client.payload = Data(#"{"ok":false}"#.utf8)

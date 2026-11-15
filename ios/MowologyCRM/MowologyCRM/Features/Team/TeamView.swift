@@ -305,10 +305,7 @@ struct TeamView: View {
                     if penny.isLoading && penny.hasLoaded { ProgressView() }
                 }
             }
-            PennyCardView(vm: penny, lead: AnyView(VStack(alignment: .leading, spacing: 14) {
-                lead
-                PennyLinesView(lines: penny.lines, hideMissing: !chase.adminItems.isEmpty)
-            }))
+            PennyCardView(vm: penny, lead: lead)
             if !chase.adminItems.isEmpty {
                 SpineNode(slug: "penny", id: "missing", title: "Missing receipts", symbol: "doc.badge.clock",
                           waiting: HeadSpineLogic.count(chase.adminItems.count, "to chase")) {
@@ -331,8 +328,8 @@ struct TeamView: View {
                 officeMember("mia", name: "Mia", department: "Marketing", vm: mia),
                 penny.hasLoaded
                     ? deskMember("penny", name: "Penny", department: "Bookkeeper",
-                                 ownItem: penny.queue.first.map { "\($0.vendor ?? "Receipt") to review" },
-                                 ownCount: penny.queue.count, ownProduced: penny.loadError == nil || !penny.queue.isEmpty,
+                                 ownItem: penny.nextDecision?.rowText,
+                                 ownCount: penny.waitingCount, ownProduced: penny.loadError == nil || penny.waitingCount > 0,
                                  loadFailed: penny.loadError != nil)
                     : briefMember("penny", name: "Penny", department: "Bookkeeper"),
                 sam.hasLoaded
@@ -671,6 +668,14 @@ private struct ItWorkspaceView<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 SpineHead(slug: member.id, name: member.name, state: member.state)
+                SpineInfoNode(slug: member.id) {
+                    if member.id == "sam" {
+                        Text(intro).itText(.body14).foregroundStyle(it.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        guide
+                    }
+                }
                 if let loadState {
                     SpineNode(slug: member.id, id: "now", title: "Waiting now", symbol: "tray.full.fill", defaultOpen: true) {
                         ItLoadStateLine(state: loadState).padding(.vertical, ItSpace.s3)
@@ -678,7 +683,7 @@ private struct ItWorkspaceView<Content: View>: View {
                 } else {
                     // Sam leads with his own sentence and one Next row (SamCardView), so the numbered
                     // guide would only repeat the first customer (Tim, 2026-11-04: too wordy).
-                    content(member.id == "sam" ? AnyView(EmptyView()) : AnyView(GuideFold(slug: member.id) { guide }))
+                    content(AnyView(EmptyView()))
                     if member.id == "penny" { pennySections }
                 }
                 learning

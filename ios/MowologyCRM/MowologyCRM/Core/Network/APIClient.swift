@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 // MARK: - Decodable Envelope
 
@@ -33,10 +34,16 @@ final class APIClient: ObservableObject {
 
     // Weak reference avoids a retain cycle (AuthSession -> APIClient -> AuthSession).
     private weak var authSession: AuthSession?
+    private var authChangeObservation: AnyCancellable?
 
     /// Who is signed in — the offline queues send only this person's queued actions.
     var currentUserId: Int? { authSession?.user?.id }
     var currentUserIsAdmin: Bool { authSession?.user?.isAdmin ?? false }
+
+    private func logout() {
+        VendorItemCache.shared.clear()
+        authSession?.logout()
+    }
 
     private let session: URLSession
     private let decoder: JSONDecoder
@@ -54,6 +61,17 @@ final class APIClient: ObservableObject {
         self.decoder = JSONDecoder()
         // Models define explicit CodingKeys for snake_case mapping —
         // do NOT also set .convertFromSnakeCase (they conflict).
+
+        // AuthSession owns user-initiated sign-out. Observe that boundary as well as HTTP 401s
+        // so supplier data never survives after its credentials have been removed.
+        authChangeObservation = authSession.objectWillChange.sink { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [self] in
+                await Task.yield()
+                guard self.authSession?.token == nil else { return }
+                VendorItemCache.shared.clear()
+            }
+        }
     }
 
     // MARK: - Generic Request
@@ -121,7 +139,7 @@ final class APIClient: ObservableObject {
         if let httpResponse = response as? HTTPURLResponse {
             if httpResponse.statusCode == 401 {
                 // Token is invalid or expired — sign out immediately.
-                authSession?.logout()
+                logout()
                 throw APIError.unauthorized
             }
 
@@ -197,7 +215,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = ErrorDetails.response(data, status: http.statusCode)
                 // Only the app's own "this photo can't be taken" is the server's answer about the photo. A 403 or 404 can
@@ -244,7 +262,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 throw APIError.serverError(ErrorDetails.response(data, status: http.statusCode))
             }
@@ -286,7 +304,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 throw APIError.serverError(ErrorDetails.response(data, status: http.statusCode))
             }
@@ -343,7 +361,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = ErrorDetails.response(data, status: http.statusCode)
                 // 5xx / timeout / rate limit: the server did not say no — keep the photo and retry.

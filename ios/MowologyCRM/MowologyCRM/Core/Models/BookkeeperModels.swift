@@ -125,6 +125,79 @@ struct BKCheck: Decodable, Identifiable, Equatable {
     static func == (a: BKCheck, b: BKCheck) -> Bool { a.ok == b.ok && a.message == b.message }
 }
 
+struct BKReceiptQuestion: Decodable, Equatable {
+    enum Kind: String, Decodable, Equatable { case purpose, twin, retake, confirm }
+
+    struct Option: Decodable, Equatable, Identifiable {
+        let key: String
+        let label: String
+        var id: String { key }
+    }
+
+    let kind: Kind
+    let prompt: String
+    let options: [Option]
+    let memo: String?
+
+    private enum CodingKeys: String, CodingKey { case kind, prompt, options, memo }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        options = try container.decode([Option].self, forKey: .options)
+        memo = try container.decodeIfPresent(String.self, forKey: .memo)
+        guard !options.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .options,
+                in: container,
+                debugDescription: "Receipt question requires at least one action option."
+            )
+        }
+    }
+}
+
+/// Platform-neutral geometry for the movable receipt panel. Keeping this free of SwiftUI/CoreGraphics lets the
+/// corner choice and clamping rules run in the Mac logic suite.
+struct ReceiptPhotoPanelLogic {
+    struct Point: Equatable { var x: Double; var y: Double }
+    struct Size: Equatable { var width: Double; var height: Double }
+    struct Memory: Equatable { var corner: Corner; var size: Size }
+    enum Corner: CaseIterable, Equatable { case topLeading, topTrailing, bottomLeading, bottomTrailing }
+
+    static func clampedZoom(_ value: Double, minimum: Double = 1, maximum: Double = 6) -> Double {
+        min(maximum, max(minimum, value))
+    }
+
+    static func resized(_ initial: Size, by translation: Point, minimum: Size, maximum: Size) -> Size {
+        Size(width: min(maximum.width, max(minimum.width, initial.width + translation.x)),
+             height: min(maximum.height, max(minimum.height, initial.height + translation.y)))
+    }
+
+    static func origin(for corner: Corner, panel: Size, container: Size, inset: Double) -> Point {
+        let maxX = max(inset, container.width - panel.width - inset)
+        let maxY = max(inset, container.height - panel.height - inset)
+        switch corner {
+        case .topLeading: return Point(x: inset, y: inset)
+        case .topTrailing: return Point(x: maxX, y: inset)
+        case .bottomLeading: return Point(x: inset, y: maxY)
+        case .bottomTrailing: return Point(x: maxX, y: maxY)
+        }
+    }
+
+    static func nearestCorner(to point: Point, panel: Size, container: Size, inset: Double) -> Corner {
+        Corner.allCases.min { lhs, rhs in
+            distance(point, origin(for: lhs, panel: panel, container: container, inset: inset))
+                < distance(point, origin(for: rhs, panel: panel, container: container, inset: inset))
+        } ?? .topTrailing
+    }
+
+    private static func distance(_ lhs: Point, _ rhs: Point) -> Double {
+        let dx = lhs.x - rhs.x, dy = lhs.y - rhs.y
+        return dx * dx + dy * dy
+    }
+}
+
 struct BookkeeperItem: Decodable, Identifiable, Equatable {
     var id: Int { suggestionId }
 
@@ -140,13 +213,14 @@ struct BookkeeperItem: Decodable, Identifiable, Equatable {
     let suggestion: [String: BKSuggestedField]
     let jobTitle: String?
     let checks: [BKCheck]
+    let question: BKReceiptQuestion?
     /// The owner's saved-but-not-approved values, if any — the form reopens with them.
     var savedDraft: [String: BKValue]?
 
     private enum CodingKeys: String, CodingKey {
         case suggestionId = "suggestion_id", expenseId = "expense_id", status, vendor
         case vendorId = "vendor_id", date, submittedBy = "submitted_by", imageURL = "image_url"
-        case suggestion, jobTitle = "job_title", checks, savedDraft = "saved_draft"
+        case suggestion, jobTitle = "job_title", checks, question, savedDraft = "saved_draft"
     }
 
     init(from decoder: Decoder) throws {
@@ -172,6 +246,7 @@ struct BookkeeperItem: Decodable, Identifiable, Equatable {
         suggestion = fields
         jobTitle = c.bkString(.jobTitle)
         checks = (try? c.decodeIfPresent([BKCheck].self, forKey: .checks)) ?? []
+        question = try c.decodeIfPresent(BKReceiptQuestion.self, forKey: .question)
         if let d = try? c.decodeIfPresent([String: BKValue].self, forKey: .savedDraft) {
             savedDraft = d
         } else {
@@ -181,11 +256,11 @@ struct BookkeeperItem: Decodable, Identifiable, Equatable {
 
     init(suggestionId: Int, expenseId: Int, status: String, vendor: String?, vendorId: Int?, date: String?,
          submittedBy: String?, imageURL: String?, suggestion: [String: BKSuggestedField], jobTitle: String?,
-         checks: [BKCheck], savedDraft: [String: BKValue]?) {
+         checks: [BKCheck], question: BKReceiptQuestion? = nil, savedDraft: [String: BKValue]?) {
         self.suggestionId = suggestionId; self.expenseId = expenseId; self.status = status
         self.vendor = vendor; self.vendorId = vendorId; self.date = date; self.submittedBy = submittedBy
         self.imageURL = imageURL; self.suggestion = suggestion; self.jobTitle = jobTitle
-        self.checks = checks; self.savedDraft = savedDraft
+        self.checks = checks; self.question = question; self.savedDraft = savedDraft
     }
 
     /// Penny's value for a field, as text.
@@ -744,6 +819,139 @@ struct PennyReadItems: Decodable, Equatable {
         receipt = (try? c.decodeIfPresent([PennyReadItem].self, forKey: .receipt)) ?? []
         pennySum = c.bkDouble(.pennySum) ?? 0
         receiptSum = c.bkDouble(.receiptSum) ?? 0
+    }
+}
+
+// MARK: - Receipt comparison presentation
+
+/// Pure presentation rules for the receipt review sheet. The server remains the source of
+/// truth; these values only align and describe the two versions already in `PennyRead`.
+enum ReceiptCompareValueState: Equatable {
+    case changed
+    case unchanged
+    case missingCurrent
+    case notProposed
+}
+
+struct ReceiptCompareRow: Equatable, Identifiable {
+    let id: String
+    let label: String
+    let current: String?
+    let proposed: String?
+    let state: ReceiptCompareValueState
+
+    init(id: String, label: String, current: String?, proposed: String?) {
+        self.id = id
+        self.label = label
+        self.current = Self.nonempty(current)
+        self.proposed = Self.nonempty(proposed)
+
+        switch (self.current, self.proposed) {
+        case (nil, .some): state = .missingCurrent
+        case (.some, nil): state = .notProposed
+        case (nil, nil): state = .unchanged
+        case let (.some(current), .some(proposed)):
+            state = current == proposed ? .unchanged : .changed
+        }
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+}
+
+struct ReceiptCompareItemRow: Equatable, Identifiable {
+    let index: Int
+    let currentName: String?
+    let currentAmount: Double?
+    let proposedName: String?
+    let proposedAmount: Double?
+    let state: ReceiptCompareValueState
+
+    var id: Int { index }
+}
+
+enum ReceiptCompareSelection: Equatable {
+    case current
+    case penny
+}
+
+enum ReceiptCompareRules {
+    static func fields(_ fields: [PennyReadField], status: String? = nil) -> [ReceiptCompareRow] {
+        let serverRows = fields.filter { $0.field.caseInsensitiveCompare("status") != .orderedSame }.map {
+            ReceiptCompareRow(
+                id: $0.field,
+                label: $0.label,
+                current: $0.receipt,
+                proposed: $0.penny
+            )
+        }
+        guard let status else { return serverRows }
+        let label = statusLabel(status)
+        return [ReceiptCompareRow(id: "status", label: "Status", current: label, proposed: label)] + serverRows
+    }
+
+    static func statusLabel(_ status: String) -> String {
+        switch status {
+        case "forwarded": "Sent"
+        case "approved": "Approved"
+        case "rejected": "Rejected"
+        case "pending_approval": "Pending Approval"
+        default: "Draft"
+        }
+    }
+
+    static func items(_ items: PennyReadItems) -> [ReceiptCompareItemRow] {
+        var unmatchedProposed = Set(items.penny.indices)
+        var pairs: [(PennyReadItem?, PennyReadItem?)] = []
+
+        for current in items.receipt {
+            // A receipt item has no server identity. Match an exact item first so insertions,
+            // deletions, and reorderings do not shift every row. If only the amount changed,
+            // the normalized name is the safest available identity.
+            let currentName = normalizedName(current.name)
+            let proposedIndex = unmatchedProposed.sorted().first {
+                items.penny[$0] == current
+            } ?? unmatchedProposed.sorted().first {
+                !currentName.isEmpty && normalizedName(items.penny[$0].name) == currentName
+            }
+            let proposed = proposedIndex.map { items.penny[$0] }
+            if let proposedIndex { unmatchedProposed.remove(proposedIndex) }
+            pairs.append((current, proposed))
+        }
+        pairs.append(contentsOf: unmatchedProposed.sorted().map { (nil, items.penny[$0]) })
+
+        return pairs.enumerated().map { index, pair in
+            let (current, proposed) = pair
+            let state: ReceiptCompareValueState
+            switch pair {
+            case (nil, .some): state = .missingCurrent
+            case (.some, nil): state = .notProposed
+            case (nil, nil): state = .unchanged
+            case let (.some(current), .some(proposed)):
+                state = current == proposed ? .unchanged : .changed
+            }
+            return ReceiptCompareItemRow(
+                index: index,
+                currentName: current?.name,
+                currentAmount: current?.amount,
+                proposedName: proposed?.name,
+                proposedAmount: proposed?.amount,
+                state: state
+            )
+        }
+    }
+
+    private static func normalizedName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// `differs` is refreshed from the saved receipt, so a later manual edit selects Current again.
+    /// Empty suggestions never claim that Penny's version was applied.
+    static func selection(differs: Bool, fieldRows: [ReceiptCompareRow], itemRows: [ReceiptCompareItemRow]) -> ReceiptCompareSelection {
+        let hasComparableProposal = fieldRows.contains { $0.proposed != nil } || itemRows.contains { $0.proposedName != nil }
+        return !differs && hasComparableProposal ? .penny : .current
     }
 }
 

@@ -5,8 +5,8 @@ declare(strict_types=1);
 // draft's own suggestions (Tim: Mowology Lawns & Landscapes Ltd is the party for now) for the Intuit app listing.
 // The sign-in gate stays off until a terms_versions row is activated (migration 1381); TERMS_VERSION must match it.
 if (!defined('TERMS_VERSION')) {
-    define('TERMS_VERSION', '2026-11-06');
-    define('TERMS_EFFECTIVE', 'November 6, 2026');
-    define('ITTAI_PRIVACY_EFFECTIVE', 'November 6, 2026');
+    define('TERMS_VERSION', '2026-11-14');
+    define('TERMS_EFFECTIVE', 'November 14, 2026');
+    define('ITTAI_PRIVACY_EFFECTIVE', 'November 14, 2026');
     define('ITTAI_LEGAL_ENTITY', 'Mowology Lawns &amp; Landscapes Ltd');
 }

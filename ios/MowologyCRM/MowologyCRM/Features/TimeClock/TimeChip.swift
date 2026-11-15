@@ -51,6 +51,7 @@ final class ClockChipStore: ObservableObject {
 
 struct TimeChip: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
     @Environment(\.openTimeClock) private var openTimeClock
     @ObservedObject private var store = ClockChipStore.shared
     @ObservedObject private var breaks = BreakController.shared
@@ -90,12 +91,12 @@ struct TimeChip: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .foregroundStyle(store.clockedIn ? appStyle.text : appStyle.tenant)
+        .foregroundStyle(store.clockedIn ? appStyle.text : it.color(.brand))
         .background {
-            Capsule().fill(store.clockedIn ? (breaks.isOnBreak ? appStyle.sunk : appStyle.color(.tenantSoft, legacy: Color.MW.green.opacity(0.12))) : .clear)
+            Capsule().fill(store.clockedIn ? (breaks.isOnBreak ? appStyle.sunk : it.color(.brand).opacity(0.12)) : .clear)
         }
         .overlay {
-            if !store.clockedIn { Capsule().stroke(appStyle.tenant, lineWidth: 1.5) }
+            if !store.clockedIn { Capsule().stroke(it.color(.brand), lineWidth: 1.5) }
         }
         // The pill is drawn smaller than the bar; the target stays 48 tall (v1.2 design rules).
         .frame(minHeight: 48)

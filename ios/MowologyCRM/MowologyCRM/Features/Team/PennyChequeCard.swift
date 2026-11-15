@@ -12,6 +12,7 @@ import SwiftUI
 
 struct PennyChequeCard: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var vm: PennyCardViewModel
     let cheque: BKChequeMatch
     /// Run the line on past the card toward the Kaname button. Off when another panel follows (the duplicates): the line
@@ -23,15 +24,10 @@ struct PennyChequeCard: View {
         let targets = vm.chequeTargets(cheque)
         let picked = (vm.chequePick[cheque.txId] ?? 0) > 0
         let count = vm.openCheques.count
-        // The section starts with its icon on the axis (a bank, Tim 2026-11-06: "similar to the copies icon"); the axis
-        // runs from it down through the panel. Words that span the width sit on page colour so the line breaks round them.
+        // One compact decision: the invoice sits left of the spine and every candidate sits on the right.
         VStack(alignment: .leading, spacing: 10) {
             VStack(spacing: 6) {
                 PennyCardView.sectionIcon("building.columns.fill", style: appStyle)
-                if count > 1 {
-                    Text("1 of \(count)").font(appStyle.font(.footnote, weight: .semibold)).foregroundStyle(appStyle.meta)
-                        .padding(.horizontal, 6).background(appStyle.page)
-                }
             }
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
@@ -53,7 +49,7 @@ struct PennyChequeCard: View {
             .accessibilityElement(children: .combine)
 
             VStack(alignment: .leading, spacing: 10) {
-                factsTable
+                candidatePicker(targets: targets, selected: target)
                 // The memo is the cheque's, so it sits in the cheque's column; another invoice to pick sits in the
                 // invoice's. Nothing crosses the axis (Tim, 2026-11-06: "bank memo text should not cross the vertical axis").
                 HStack(alignment: .top, spacing: PennyCardView.columnGap) {
@@ -61,18 +57,7 @@ struct PennyChequeCard: View {
                         .multilineTextAlignment(.trailing)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(targets.enumerated()), id: \.offset) { i, t in
-                            if t != target {
-                                Button("Or \(t.number) (\(Self.money(t.balanceDue)))") { vm.pickCheque(cheque, index: i) }
-                                    .font(appStyle.font(.footnote))
-                                    .foregroundStyle(appStyle.tenant)
-                                    .multilineTextAlignment(.leading)
-                                    .disabled(vm.isBusy)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(maxWidth: .infinity)
                 }
 
                 HStack(spacing: PennyCardView.columnGap) {
@@ -93,14 +78,32 @@ struct PennyChequeCard: View {
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
         }
         .background(alignment: .top) {
-            Rectangle().fill(appStyle.line)
-                .frame(width: 1)
+            SpineLine(large: dynamicTypeSize.isAccessibilitySize)
                 .frame(maxHeight: .infinity)
                 .padding(.top, 31)                                 // from the icon's centre
                 .padding(.bottom, extendsLine ? -400 : -32)        // toward Kaname, or down to the duplicates' icon
-                .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
         }
+    }
+
+    private func candidatePicker(targets: [PennyCardViewModel.ChequeTarget], selected: PennyCardViewModel.ChequeTarget) -> some View {
+        HStack(alignment: .top, spacing: PennyCardView.columnGap) {
+            Text(selected.number).font(appStyle.font(.headline, weight: .semibold))
+                .multilineTextAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .leading, spacing: ItSpace.s2) {
+                ForEach(Array(targets.prefix(3).enumerated()), id: \.offset) { index, candidate in
+                    Button { vm.pickCheque(cheque, index: index) } label: {
+                        Text("\(candidate.number) · \(Self.money(candidate.balanceDue))")
+                            .font(appStyle.font(.footnote, weight: candidate == selected ? .semibold : .regular))
+                            .foregroundStyle(candidate == selected ? appStyle.palette.color(.brand) : appStyle.meta.opacity(0.55))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain).disabled(vm.isBusy || candidate == selected)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
     }
 
     /// The cheque (left) and the invoice (right), a ringed tick between them where they agree.
@@ -184,6 +187,7 @@ struct PennyChequeCard: View {
 /// it, and one way on — centred, like a merged duplicate.
 struct PennyChequeDoneCard: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var vm: PennyCardViewModel
     let done: PennyCardViewModel.ChequeDone
     var extendsLine = true
@@ -221,12 +225,10 @@ struct PennyChequeDoneCard: View {
             .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)).stroke(appStyle.line, lineWidth: 1).allowsHitTesting(false))
         }
         .background(alignment: .top) {
-            Rectangle().fill(appStyle.line)
-                .frame(width: 1)
+            SpineLine(large: dynamicTypeSize.isAccessibilitySize)
                 .frame(maxHeight: .infinity)
                 .padding(.top, 31)
                 .padding(.bottom, extendsLine ? -400 : -32)
-                .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
         }
     }
@@ -381,6 +383,7 @@ private struct FractionStroke: Shape {
 /// side by side, Link / Record and Not now, and the ledger at the bottom, which fills once it is in the books.
 struct PennyPaymentCard: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var vm: PennyCardViewModel
     let payment: BKPaymentMatch
     /// Set when this card was linked / recorded this sitting: the two are one now — one filled block, the ledger unlinks.
@@ -408,21 +411,16 @@ struct PennyPaymentCard: View {
             if let done { doneBody(done) } else { openBody }
         }
         .background(alignment: .top) {
-            Rectangle().fill(appStyle.line)
-                .frame(width: 1).frame(maxHeight: .infinity)
+            SpineLine(large: dynamicTypeSize.isAccessibilitySize)
+                .frame(maxHeight: .infinity)
                 .padding(.top, 31)                              // from the bank icon's centre
                 .padding(.bottom, extendsLine ? -400 : -32)
-                .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
         }
     }
 
     @ViewBuilder private var openBody: some View {
-        // Penny's sentence is now the triangle (Tim, 2026-11-07, his sketch): how sure (its colour), how much of the
-        // money's path is already joined (2 of 3 when the payment is on the invoice; 1 of 3 when only the invoice is),
-        // and what that is, beside it. The name and its source are in the table below.
-        PaymentFraction(joined: joinedCount, label: joinedLabel,
-                        spoken: ([payment.verdict] + payment.evidence).joined(separator: ". "))
+        allocationSummary
 
         VStack(alignment: .leading, spacing: 10) {
             factsTable
@@ -444,18 +442,23 @@ struct PennyPaymentCard: View {
                 Label(f, systemImage: "exclamationmark.triangle").font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
                     .padding(.horizontal, 6).background(appStyle.page).frame(maxWidth: .infinity)
             }
-            HStack(spacing: PennyCardView.columnGap) {
-                chequeSquareButton(style: appStyle, busy: vm.isBusy, icon: linking ? "link" : "checkmark",
-                                   title: payment.button?.title ?? "Record",
-                                   detail: payment.button?.detail ?? "\(PennyChequeCard.money(payment.amount)) on \(payment.targetLine)", filled: true) {
+            HStack(spacing: ItSpace.s2) {
+                Button {
                     Task { await vm.recordPayment(payment) }
+                } label: {
+                    Label(payment.button?.title ?? "Record", systemImage: linking ? "link" : "checkmark")
+                        .font(appStyle.font(.headline)).frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
                 }
+                .buttonStyle(.borderedProminent).tint(appStyle.palette.color(.brand))
                 .accessibilityHint(linking
                     ? "The payment is already on \(payment.targetLine). This ties the bank line to it, so it counts once. You can undo it."
                     : "Records the deposit on \(payment.targetLine). It then counts once, on the invoice. You can undo it.")
-                chequeSquareButton(style: appStyle, busy: false, icon: "arrow.right", title: "Not now", detail: "leave it in the bank", filled: false) {
+                Button("Not now") {
                     withAnimation(.easeOut(duration: 0.22)) { vm.skipPayment(payment) }
                 }
+                .font(appStyle.font(.headline)).frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+                .buttonStyle(.bordered).tint(appStyle.palette.color(.brand))
+                .accessibilityHint("Leaves this deposit in the bank for later.")
             }
             .disabled(vm.isBusy)
             .frame(maxWidth: .infinity)
@@ -474,10 +477,32 @@ struct PennyPaymentCard: View {
     }
 
     private var linking: Bool { payment.button?.title == "Link" }
-    /// Invoice, payment, bank line: the payment already on the invoice makes 2; an invoice alone makes 1.
-    private var joinedCount: Int { linking ? 2 : 1 }
-    private var joinedLabel: String {
-        linking ? payment.targetLine + " + payment" : payment.targetLine
+
+    /// The targets are one signed server proposal, not alternatives. Record submits that complete proposal by signature.
+    private var allocationSummary: some View {
+        let matches = Array(payment.targets.prefix(3))
+        return HStack(alignment: .top, spacing: PennyCardView.columnGap) {
+            Text(payment.targetLine)
+                .font(appStyle.font(.headline, weight: .semibold))
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .leading, spacing: ItSpace.s2) {
+                ForEach(matches, id: \.self) { match in
+                    Text("\(match.number) · \(PennyChequeCard.money(match.amount))")
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(appStyle.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if payment.targets.count > matches.count {
+                    Text("and \(payment.targets.count - matches.count) more")
+                        .font(appStyle.font(.footnote))
+                        .foregroundStyle(appStyle.meta)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(([payment.verdict] + payment.evidence).joined(separator: ". "))
     }
 
     /// Linked / recorded: the deposit and its invoice(s) are one now — one filled block, the ledger filled: counted once, in

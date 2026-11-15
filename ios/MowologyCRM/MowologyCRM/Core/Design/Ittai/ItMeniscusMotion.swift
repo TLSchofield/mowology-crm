@@ -235,6 +235,23 @@ final class ItMeniscusLayerView: UIView {
         animate(carriage, "position.x", run?.positions.map { g.beadX($0, count: count, width: width) }, run)
         guard kind == .bead else { return }
 
+        // The bead's fill: the selected tab's own colour (Kaname's indigo) or the tenant's, changing along the slide.
+        func fillAt(_ slot: Int) -> CGColor {
+            (look.items.indices.contains(slot) ? look.items[slot].beadColor : nil).map { $0.cgColor } ?? look.tenant.cgColor
+        }
+        bead.backgroundColor = fillAt(motion.selected)
+        bead.removeAnimation(forKey: "meniscus.fill")
+        if let run, run.positions.count > 1 {
+            let colours = run.positions.map { fillAt(g.nearest($0, count: count)) }
+            let frames = CAKeyframeAnimation(keyPath: "backgroundColor")
+            frames.values = colours
+            frames.calculationMode = .discrete
+            frames.duration = run.duration
+            frames.beginTime = bead.convertTime(run.began, from: nil)
+            frames.fillMode = .backwards
+            bead.add(frames, forKey: "meniscus.fill")
+        }
+
         let actionSlots = Set(look.items.indices.filter { look.items[$0].beadIcon != nil })
         let rollAt = look.items.firstIndex { $0.beadTurn != nil }
         let turn = rollAt.flatMap { look.items[$0].beadTurn } ?? 0

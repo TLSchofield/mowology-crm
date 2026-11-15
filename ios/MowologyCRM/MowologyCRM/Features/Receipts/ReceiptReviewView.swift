@@ -246,29 +246,28 @@ struct ReceiptReviewView: View {
             Button("Snap Another") { finish(.snapAnother) }
             Button("Done") { finish(.done) }
         }
-        .alert("Rename item", isPresented: Binding(get: { renameIndex != nil }, set: { if !$0 { renameIndex = nil } })) {
-            TextField("Item name", text: $renameText)
-            Button("Save") {
+        .sheet(isPresented: Binding(get: { renameIndex != nil }, set: { if !$0 { renameIndex = nil } })) {
+            VendorItemPickerSheet(title: "Rename item", vendorId: vendorId, viewModel: viewModel,
+                                  name: $renameText, amount: .constant(""), showsAmount: false) {
                 if let i = renameIndex, items.indices.contains(i) {
                     let v = renameText.trimmingCharacters(in: .whitespaces)
                     if !v.isEmpty { items[i].name = v }
                 }
                 renameIndex = nil
+            } onCancel: {
+                renameIndex = nil
             }
-            Button("Cancel", role: .cancel) { renameIndex = nil }
-        } message: {
-            Text("Corrections teach the parser what this line really says for this vendor.")
         }
-        .alert("Add missed item", isPresented: $showAddItem) {
-            TextField("Item name (as printed)", text: $addItemName)
-            TextField("Line total ($)", text: $addItemAmount)
-                .keyboardType(.decimalPad)
-            Button("Add") {
+        .sheet(isPresented: $showAddItem) {
+            VendorItemPickerSheet(title: "Add missed item", vendorId: vendorId, viewModel: viewModel,
+                                  name: $addItemName, amount: $addItemAmount, showsAmount: true) {
                 let n = addItemName.trimmingCharacters(in: .whitespaces)
                 if !n.isEmpty { items.append(ReceiptLineItem(name: n, amount: ReceiptNumber.parse(addItemAmount) ?? 0, manual: true)) }
                 addItemName = ""; addItemAmount = ""
+                showAddItem = false
+            } onCancel: {
+                addItemName = ""; addItemAmount = ""; showAddItem = false
             }
-            Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
         }
     }
 

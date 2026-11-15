@@ -9,6 +9,9 @@ import SwiftUI
 
 struct LoginView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
+    /// When the person arrived from the Welcome screen, a Back button returns there.
+    var onBack: (() -> Void)?
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: LoginViewModel
@@ -32,7 +35,8 @@ struct LoginView: View {
     }
 
     // Designated initialiser used by RootView which supplies the real session.
-    init(authSession: AuthSession) {
+    init(authSession: AuthSession, onBack: (() -> Void)? = nil) {
+        self.onBack = onBack
         _viewModel = StateObject(wrappedValue: LoginViewModel(authSession: authSession))
     }
 
@@ -57,39 +61,27 @@ struct LoginView: View {
         .ignoresSafeArea(edges: .top)
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture { focusedField = nil }
+        .solidStatusBar(ItOpeningColors.navy)
     }
 
     // MARK: - Brand Header
 
+    /// The Ittai look: navy ground and the wordmark (gold dots on the i's, gold bar across the t's), drawn by the
+    /// same frozen geometry as the opening's end state. No business name: the phone does not know it before sign-in.
     private var brandHeader: some View {
-        VStack(spacing: 8) {
-            // Leaf icon as a system symbol stand-in for the Mowology logo.
-            Image(systemName: "leaf.fill")
-                .font(appStyle.font(size: 48, weight: .medium))
-                .foregroundStyle(.white.opacity(0.95))
-                .padding(.top, 72)
-                .padding(.bottom, 4)
-
-            Text("Ittai")
-                .font(appStyle.font(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("Field Manager")
-                .font(appStyle.font(size: 15, weight: .medium))
-                .foregroundStyle(.white.opacity(0.80))
-                .padding(.bottom, 40)
+        ZStack(alignment: .topLeading) {
+            ItOpeningColors.navy
+            ItOpeningMark(frame: ItOpeningMotion.frame(ItOpeningMotion.T), zoom: 0.78)
+                .frame(height: 150)
+                .padding(.top, 76).padding(.bottom, 24)
+            if let onBack {
+                Button(action: onBack) { Label("Back", systemImage: "chevron.left").foregroundStyle(ItOpeningColors.letters) }
+                    .padding(.top, 60).padding(.leading, 20)
+            }
         }
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [
-                    appStyle.tenant,  // #2D8659
-                    Color.MW.dark   // #1A5F4A
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ittai")
     }
 
     // MARK: - Login Card
@@ -163,7 +155,7 @@ struct LoginView: View {
                 HStack(spacing: 8) {
                     if viewModel.isLoading {
                         ProgressView()
-                            .tint(appStyle.onTenant)
+                            .tint(it.mode == .dark ? it.page : Color.white)
                             .scaleEffect(0.9)
                     }
                     Text(viewModel.isLoading ? "Signing In…" : "Sign In")
@@ -173,17 +165,16 @@ struct LoginView: View {
                 .padding(.vertical, 14)
                 .background(
                     viewModel.isLoading
-                        ? appStyle.tenant.opacity(0.7)
-                        : appStyle.tenant
+                        ? it.brand.opacity(0.7)
+                        : it.brand
                 )
-                .foregroundStyle(appStyle.onTenant)
+                .foregroundStyle(it.mode == .dark ? it.page : Color.white)
                 .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .disabled(viewModel.isLoading)
             .padding(.top, 4)
 
-            // Footer note — no signup link by design.
-            Text("Access is restricted to Mowology staff.")
+            Text("Sign in with the login your business gave you.")
                 .font(appStyle.font(.caption))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)

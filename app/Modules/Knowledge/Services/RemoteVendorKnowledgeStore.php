@@ -20,9 +20,11 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
     private PDO $db;
     private string $url;
     private string $key;
+    private string $tenantKey;
 
-    public function __construct(PDO $db, string $hubUrl, string $apiKey)
+    public function __construct(PDO $db, string $hubUrl, string $apiKey, string $tenantKey = '')
     {
+        $this->tenantKey = $tenantKey;
         $this->db = $db;
         $this->url = rtrim($hubUrl, '/');
         $this->key = $apiKey;
@@ -71,7 +73,7 @@ final class RemoteVendorKnowledgeStore implements VendorKnowledgeStore
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 2,
             CURLOPT_TIMEOUT        => 3,
-            CURLOPT_HTTPHEADER     => ['X-KB-Key: ' . $this->key, 'Accept: application/json', 'Content-Type: application/json'],
+            CURLOPT_HTTPHEADER     => array_merge(['X-KB-Key: ' . $this->key, 'Accept: application/json', 'Content-Type: application/json'], $this->tenantKey !== '' ? ['X-KB-Tenant: ' . $this->tenantKey] : []),
             CURLOPT_CUSTOMREQUEST  => $method,
         ]);
         if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_UNICODE));

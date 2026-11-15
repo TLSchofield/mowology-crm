@@ -53,7 +53,16 @@ final class PhoneContactsViewModel: ObservableObject {
 
     var shownContacts: [PhoneContact] { contacts.filter { PhoneContactsLogic.matches($0, search: search) } }
 
+    private var loadTriedAt: Date?
+
+    /// Same loop as BusinessIdentityViewModel.load: a restarting `.task` cancelled every map request (2026-11-13 log).
     func load() async {
+        guard !mapLoaded, phase == .hidden || phase == .failed, Date().timeIntervalSince(loadTriedAt ?? .distantPast) > 30 else { return }
+        loadTriedAt = Date()
+        await Task { await self.performLoad() }.value
+    }
+
+    private func performLoad() async {
         guard !mapLoaded, phase == .hidden || phase == .failed else { return }
         retryOperation = .load
         phase = .loading
@@ -173,6 +182,7 @@ final class PhoneContactsViewModel: ObservableObject {
         guard phase == .failed else { return }
         switch retryOperation {
         case .load:
+            loadTriedAt = nil
             await load()
         case .chooseClients:
             phase = .intro
