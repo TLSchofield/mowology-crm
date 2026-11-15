@@ -248,11 +248,18 @@ try {
                 // The iPhone's opening screen: the copy kept ready (HeadBriefReadyService), served
                 // at once, then rebuilt behind the reply when it is more than two minutes old.
                 require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+                require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/KanameOpenRule.php';
                 $ready = new HeadBriefReadyService($db);
+                // Whether the phone should play the opening card now (KanameOpenRule): it sends back what it last showed.
+                $openVerdict = static fn(array $b): array => KanameOpenRule::verdict(
+                    $b, date('Y-m-d'),
+                    isset($_GET['shown_day']) ? substr((string)$_GET['shown_day'], 0, 10) : null,
+                    KanameOpenRule::parseShown($_GET['shown_urgent'] ?? null)
+                );
                 $kept = $ready->get('charlie');
                 $state = HeadBriefReadyService::state($kept['built_at'] ?? null, time());
                 if ($kept && $state !== 'stale') {
-                    echo json_encode($kept['brief'] + ['built_at' => $kept['built_at']]);
+                    echo json_encode($kept['brief'] + ['built_at' => $kept['built_at']] + $openVerdict($kept['brief']));
                     if ($state === 'refresh') {
                         ignore_user_abort(true);
                         if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
@@ -262,7 +269,7 @@ try {
                     }
                 } else {
                     $brief = $ready->rebuildCharlie($f, $name);
-                    echo json_encode($brief + ['built_at' => date('Y-m-d H:i:s')]);
+                    echo json_encode($brief + ['built_at' => date('Y-m-d H:i:s')] + $openVerdict($brief));
                 }
                 break;
             }
