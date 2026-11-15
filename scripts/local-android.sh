@@ -71,9 +71,9 @@ tls_up() {
   fi
   # One certificate for every local business: the wildcard covers a second tenant (e.g. an unclaimed one for
   # testing sign-up) without re-issuing and re-pushing the CA (2026-10-26).
-  if [ ! -f "$TLS/site.pem" ] || ! openssl x509 -in "$TLS/site.pem" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:\*\.ittai\.ca'; then
+  if [ ! -f "$TLS/site.pem" ] || ! openssl x509 -in "$TLS/site.pem" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:\*\.ittai\.ca' || ! openssl x509 -in "$TLS/site.pem" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:ittai\.ca'; then
     openssl req -newkey rsa:2048 -nodes -keyout "$TLS/site.key" -out "$TLS/site.csr" -subj "/CN=$HOST" 2>/dev/null
-    printf 'subjectAltName=DNS:%s,DNS:*.ittai.ca,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' "$HOST" > "$TLS/ext.cnf"
+    printf 'subjectAltName=DNS:%s,DNS:ittai.ca,DNS:*.ittai.ca,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' "$HOST" > "$TLS/ext.cnf"
     openssl x509 -req -in "$TLS/site.csr" -CA "$TLS/ca.pem" -CAkey "$TLS/ca.key" -CAcreateserial -out "$TLS/site.pem" -days 825 -extfile "$TLS/ext.cnf" 2>/dev/null
     chmod 600 "$TLS"/*.key
     proxy_stop
@@ -109,13 +109,13 @@ emu_up() {
   [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] || { echo "Emulator did not finish booting"; exit 1; }
   "$ADB" root >/dev/null 2>&1 || true; sleep 2; "$ADB" wait-for-device
   # Hosts entry: the app only speaks https to a plain hostname, and Tenant.php needs <key>.ittai.ca as the Host.
-  if ! "$ADB" shell cat /system/etc/hosts 2>/dev/null | grep -q "$HOST"; then
+  if ! "$ADB" shell cat /system/etc/hosts 2>/dev/null | grep -q "$HOST" || ! "$ADB" shell cat /system/etc/hosts 2>/dev/null | grep -qE '[[:space:]]ittai\.ca$'; then
     if ! "$ADB" remount >/dev/null 2>&1; then
       "$ADB" disable-verity >/dev/null 2>&1 || true; "$ADB" reboot; "$ADB" wait-for-device
       for _ in $(seq 1 200); do [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break; sleep 3; done
       "$ADB" root >/dev/null 2>&1 || true; sleep 2; "$ADB" wait-for-device; "$ADB" remount >/dev/null
     fi
-    printf '127.0.0.1       localhost\n::1             ip6-localhost\n127.0.0.1       %s\n' "$HOST" > "$STATE/hosts"
+    printf '127.0.0.1       localhost\n::1             ip6-localhost\n127.0.0.1       %s\n127.0.0.1       ittai.ca\n' "$HOST" > "$STATE/hosts"
     "$ADB" push "$STATE/hosts" /system/etc/hosts >/dev/null
     say "Emulator hosts: $HOST -> 127.0.0.1"
   fi
