@@ -7,7 +7,7 @@
 
 import Foundation
 
-private let baseURLString = Server.api.absoluteString
+private var baseURLString: String { Server.api.absoluteString }
 
 /// Enumeration of every API endpoint the app communicates with.
 /// Each case resolves to a `URL` and declares whether it requires an

@@ -62,6 +62,35 @@ struct LoginView: View {
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture { focusedField = nil }
         .solidStatusBar(ItOpeningColors.navy)
+        .sheet(isPresented: businessPickerPresented, onDismiss: authSession.dismissBusinessChoices) {
+            NavigationStack {
+                List(authSession.businessChoices) { business in
+                    Button {
+                        Task { await viewModel.login(business: business.key) }
+                    } label: {
+                        Text(business.name).font(appStyle.font(.body)).foregroundStyle(appStyle.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .disabled(viewModel.isLoading)
+                    .accessibilityHint("Signs in to this business")
+                }
+                .navigationTitle("Choose your business")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { authSession.dismissBusinessChoices() }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var businessPickerPresented: Binding<Bool> {
+        Binding(
+            get: { !authSession.businessChoices.isEmpty },
+            set: { if !$0 { authSession.dismissBusinessChoices() } }
+        )
     }
 
     // MARK: - Brand Header

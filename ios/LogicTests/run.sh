@@ -125,6 +125,9 @@ run schedulefilter "$SRC/Features/Schedule/ScheduleFilterRules.swift" "$OUT/main
 cp "$ROOT/ios/LogicTests/ServerTests.swift" "$OUT/main.swift"
 run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"
 
+# Runtime business host, directory routing and tenant separation (one-app step 7).
+run serverhost -parse-as-library "$SRC/Core/Network/Server.swift" "$ROOT/ios/LogicTests/ServerHostTests.swift"
+
 # Phone contacts onboarding (2026-11-11): display name, search, select-all-shown, batches of 100, resume point, result tally, wire payload, and the real onboarding map decoding.
 cp "$ROOT/ios/LogicTests/PhoneContactsLogicTests.swift" "$OUT/main.swift"
 run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core/Models/PhoneContactsModels.swift" "$ROOT/ios/LogicTests/GoogleContactsLogicChecks.swift" "$OUT/main.swift"

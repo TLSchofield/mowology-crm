@@ -111,6 +111,23 @@ final class SignUpViewModel: ObservableObject {
         code = ""
         input.password = ""; input.confirm = ""
         loading = false
+        guard let signUpBase = SignUpHostStore.base else {
+            error = "Your login was created, but sign-in did not finish. Go back and sign in."
+            return
+        }
+        let oldBase = Server.base
+        if TenantDataDecision.shouldClear(storedHost: oldBase, newHost: signUpBase) {
+            do {
+                try TenantDataReset.clear(forNewHost: signUpBase, previousHost: oldBase)
+            } catch let resetError {
+                error = "Your login was created, but this phone could not safely store work from the previous business: \(ErrorDetails.describe(resetError))"
+                return
+            }
+        }
+        guard Server.use(signUpBase) else {
+            error = "Your login was created, but sign-in did not finish. Go back and sign in."
+            return
+        }
         authSession.acceptSignUp(token: token, user: user)
     }
 }
