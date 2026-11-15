@@ -403,6 +403,10 @@ struct SpineStepNode<Content: View>: View {
     let number: String
     let title: String
     var detail: String = ""
+    var detailIsChip = false
+    var detailStatus: String? = nil
+    var contentHorizontalPadding = ItSpace.s4
+    var showsContent = true
     let done: Bool
     let current: Bool
     @ViewBuilder var content: () -> Content
@@ -419,7 +423,7 @@ struct SpineStepNode<Content: View>: View {
                         circle
                         VStack(alignment: .leading, spacing: 2) {
                             Text(title).itText(.body16, weight: 600).foregroundStyle(it.text).fixedSize(horizontal: false, vertical: true)
-                            if !detail.isEmpty { Text(detail).itText(.meta13).foregroundStyle(it.meta) }
+                            if !detail.isEmpty { detailView }
                         }
                         Spacer(minLength: 0)
                     }
@@ -430,20 +434,22 @@ struct SpineStepNode<Content: View>: View {
                             .background(current ? appStyle.page : Color.clear)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                         circle
-                        Text(detail).itText(.meta13).foregroundStyle(it.meta).frame(maxWidth: .infinity, alignment: .leading)
+                        detailView.frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
             .frame(minHeight: ItSize.targetPhone + 8)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Step \(number), \(title)\(done ? ", done" : "")")
+            .accessibilityLabel(
+                "Step \(number), \(title)\(detail.isEmpty ? "" : ", \(detail)")\(done ? ", done" : "")"
+            )
             .zIndex(1)
-            if current {
+            if current && showsContent {
                 // The card hangs from the circle: its top edge runs through the circle's middle, the line enters its top
                 // and leaves its bottom, and the opaque fill keeps the line off the text.
                 content()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, ItSpace.s4)
+                    .padding(.horizontal, contentHorizontalPadding)
                     .padding(.bottom, ItSpace.s4)
                     .padding(.top, SpineMetrics.slot / 2 + ItSpace.s3)
                     .background(appStyle.page, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
@@ -453,6 +459,20 @@ struct SpineStepNode<Content: View>: View {
         }
         .padding(.vertical, ItSpace.s2)
         .background(SpineLine(large: large))
+    }
+
+    private var detailView: some View {
+        let legacyChipColor = appStyle.palette.color(.brand)
+        let chipColor = detailStatus.map {
+            appStyle.statusColor($0, legacy: legacyChipColor)
+        } ?? legacyChipColor
+        return Text(detail)
+            .itText(.meta13, weight: detailIsChip ? 600 : 400)
+            .foregroundStyle(detailIsChip ? chipColor : it.meta)
+            .padding(.horizontal, detailIsChip ? ItSpace.s2 : 0)
+            .padding(.vertical, detailIsChip ? ItSpace.s1 : 0)
+            .background(detailIsChip ? chipColor.opacity(0.12) : Color.clear, in: Capsule())
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var circle: some View {

@@ -549,7 +549,7 @@ private struct ReceiptSheetDemo: View {
         return try! JSONDecoder().decode(PennyRead.self, from: Data(json.utf8))
     }()
     var body: some View {
-        ReceiptDetailView(viewModel: model, expense: expense, isAdmin: true, seededRead: read, seededImage: ReceiptZoomDemo.receipt)
+        ReceiptDetailView(viewModel: model, expense: expense, isAdmin: true, seededRead: read, seededImage: ProcessInfo.processInfo.arguments.contains("-mwNoPhoto") ? nil : ReceiptZoomDemo.receipt)
     }
 }
 
