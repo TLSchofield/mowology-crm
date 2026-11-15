@@ -460,7 +460,8 @@ class ReceiptIntakeService
 
             // Gated vendor auto-creation — fuzzy match first to avoid OCR-typo pollution
             if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
-                $vendorName = strtoupper(trim($parsed['vendor_hint']));
+                $kb = kbCommonsVendorForCreation($ocrText, $this->db);
+                $vendorName = kbPickCreationName($parsed['vendor_hint'] ?? null, $kb);
                 if (strlen($vendorName) >= 3) {
                     try {
                         $gateResult = gateVendorAutoCreation($vendorName, $this->db);
@@ -493,6 +494,14 @@ class ReceiptIntakeService
                                 ");
                                 $insertStmt->execute([$vendorName, strtolower($vendorName)]);
                                 $newVendorId = (int)$this->db->lastInsertId();
+
+                                if ($kb !== null) {
+                                    try {
+                                        (new VendorKnowledgeService($this->db))->linkLocalVendor($newVendorId, $kb['kb_vendor_id'], $kb['identity']);
+                                    } catch (Throwable $ke) {
+                                        error_log('Commons vendor link failed: ' . $ke->getMessage());
+                                    }
+                                }
 
                                 $suggestions['vendor_id'] = $newVendorId;
                                 $suggestions['vendor_name'] = $vendorName;
