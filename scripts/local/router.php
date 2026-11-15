@@ -69,6 +69,15 @@ if (preg_match('#\.(md|log|sql|bak|orig|swp)$#i', $__path) || preg_match('#\.git
 if (preg_match('#^/(_media|uploads)/#', $__path) && preg_match('#\.(ph(p\d*|t|tml|ar|ps)|inc|cgi|pl|py|sh|asp|aspx|jsp)$#i', $__path)) { return __mw_local_deny(); }
 if (preg_match('#^/site-admin/css/.*\.php$#', $__path)) { return __mw_local_deny(); }
 
+// ── The Ittai directory (https://ittai.ca, local test only) ──
+// One phone app for every business asks the directory first (sign-in, sign-up lookup). On production ittai.ca is its own
+// docroot (public/ittai.ca); here the emulator maps ittai.ca to this server, so its /api/*.php pages run from there.
+$__hostOnly = strtolower(preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? '')));
+if ($__hostOnly === 'ittai.ca' && preg_match('#^/api/[a-z0-9._-]+\.php$#i', $__path) && is_file($__docroot . '/ittai.ca' . $__path)) {
+    require __mw_local_target($__docroot . '/ittai.ca', $__path, $__query);
+    return true;
+}
+
 // ── Crew-app feed override (local only) ──
 // The Android app reads its remote switches (android.native_* …) from this feed. Production edits the JSON on the
 // server; here scripts/local-android.sh writes scripts/local/app-version.local.json (gitignored) with every switch on,
