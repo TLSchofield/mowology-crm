@@ -213,13 +213,18 @@ class InvoiceRefundService
         // ── 3. Finalise ─────────────────────────────────────────────────
         try {
             $this->db->beginTransaction();
-            $this->db->prepare("
-                UPDATE invoice_refunds SET stripe_refund_id = ?, status = 'succeeded' WHERE id = ?
-            ")->execute([$stripeRefundId !== '' ? $stripeRefundId : null, $refundRowId]);
-            $this->db->prepare("
-                UPDATE invoices SET amount_refunded = amount_refunded + ? WHERE id = ?
-            ")->execute([$cents / 100, $invoiceId]);
-            $this->syncIncomeRow($invoiceId, $cents / 100);
+            $mark = $this->db->prepare("
+                UPDATE invoice_refunds SET stripe_refund_id = ?, status = 'succeeded' WHERE id = ? AND status = 'pending'
+            ");
+            $mark->execute([$stripeRefundId !== '' ? $stripeRefundId : null, $refundRowId]);
+            // A concurrent retry of the same stale row may already have finalised it (Stripe returned the same refund by
+            // idempotency key): count it once (Codex 2026-11-15).
+            if ($mark->rowCount() >= 1) {
+                $this->db->prepare("
+                    UPDATE invoices SET amount_refunded = amount_refunded + ? WHERE id = ?
+                ")->execute([$cents / 100, $invoiceId]);
+                $this->syncIncomeRow($invoiceId, $cents / 100);
+            }
             $this->db->commit();
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();

@@ -107,6 +107,7 @@ class InvoiceRefundServiceTest extends TestCase
         $pdo->method('prepare')->willReturnCallback(
             function (string $sql) use ($invoice, $inFlight, $charged, $refundedAfter, $log) {
                 $stmt = $this->createMock(PDOStatement::class);
+                $stmt->method('rowCount')->willReturn(1);   // the 'pending' row is claimed by this call
                 $stmt->method('execute')->willReturnCallback(function ($params = null) use ($sql, $log) {
                     $log->append([$sql, $params]);
                     return true;
@@ -186,6 +187,13 @@ class InvoiceRefundServiceTest extends TestCase
         $this->assertStringContainsString('amount_refunded = amount_refunded +', $sql);
         // Full refund: the cash-basis income row is removed.
         $this->assertStringContainsString('DELETE FROM accounting_transactions', $sql);
+    }
+
+    public function testFinaliseIsGuardedSoAConcurrentRetryCountsTheRefundOnce(): void
+    {
+        [$pdo, $log] = $this->fakeDb();
+        $this->service($pdo, $this->fakeStripe())->refund(420, 78.70, 'Billed twice', 7);
+        $this->assertStringContainsString("WHERE id = ? AND status = 'pending'", $this->sqlLog($log));
     }
 
     public function testPartialRefundUpdatesIncomeRowInsteadOfDeleting(): void

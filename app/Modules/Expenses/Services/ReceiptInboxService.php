@@ -517,7 +517,17 @@ class ReceiptInboxService
         //    BookkeeperDeskService::afterInboxApproval).
         $outcome = 'pending';
         $logNote = $ocr['readable'] ? ($clean ? self::HIGH_CONFIDENCE_NOTE : null) : $unreadableNote;
-        $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
+        try {
+            $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
+        } catch (\Throwable $e) {
+            // The expense already exists. Throwing here would release the claim and the next poll would create it again
+            // (Codex 2026-11-15): record what we can and report the receipt as created.
+            error_log('[ReceiptInboxService] finalizeClaim failed after expense #' . $expenseId . ': ' . $e->getMessage());
+            try {
+                $this->db->prepare("UPDATE receipt_inbox_messages SET expense_id = ?, media_id = ? WHERE dedup_key = ?")
+                         ->execute([$expenseId, $mediaId, $dedup]);
+            } catch (\Throwable $e2) { /* the claim row stays 'processing' and is never released: a duplicate is worse than a stuck row */ }
+        }
 
         return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote, 'high_confidence' => $clean];
     }

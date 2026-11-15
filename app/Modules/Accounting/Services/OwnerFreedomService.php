@@ -1006,8 +1006,8 @@ class OwnerFreedomService
             } catch (Throwable $e) { /* leave zeros */ }
         };
 
-        $fill("SELECT DATE_FORMAT(issue_date,'%Y-%m') m, SUM(total) v FROM invoices
-               WHERE issue_date BETWEEN ? AND ? AND status NOT IN ('draft','cancelled') GROUP BY m", [$start, $end], 'revenue');
+        $fill("SELECT DATE_FORMAT(issue_date,'%Y-%m') m, SUM(COALESCE(subtotal, total - COALESCE(tax_amount,0))) v FROM invoices
+               WHERE issue_date BETWEEN ? AND ? AND status NOT IN ('draft','cancelled','void') GROUP BY m", [$start, $end], 'revenue');
         $fill("SELECT DATE_FORMAT(jte.start_time,'%Y-%m') m, SUM(jte.duration_minutes * COALESCE(NULLIF(u.hourly_rate,0),25)/60) v
                FROM job_time_entries jte JOIN users u ON u.id = jte.user_id
                WHERE jte.status IN ('completed','edited') AND jte.user_id <> ? AND DATE(jte.start_time) BETWEEN ? AND ? GROUP BY m", [$owner, $start, $end], 'crew_labour_cost');
@@ -1015,8 +1015,8 @@ class OwnerFreedomService
                WHERE status IN ('completed','edited') AND user_id = ? AND DATE(start_time) BETWEEN ? AND ? GROUP BY m", [$owner, $start, $end], 'owner_field_minutes');
         $fill("SELECT DATE_FORMAT(clock_in,'%Y-%m') m, SUM(COALESCE(total_minutes, TIMESTAMPDIFF(MINUTE, clock_in, clock_out))) v FROM time_clock_entries
                WHERE status IN ('completed','edited') AND user_id = ? AND DATE(clock_in) BETWEEN ? AND ? GROUP BY m", [$owner, $start, $end], 'owner_clock_minutes');
-        $fill("SELECT DATE_FORMAT(expense_date,'%Y-%m') m, SUM(total) v FROM expenses
-               WHERE status IN ('draft','approved','forwarded') AND expense_date BETWEEN ? AND ? AND " . $this->labourCategoryNotIn() . " GROUP BY m", [$start, $end], 'expenses');
+        $fill("SELECT DATE_FORMAT(expense_date,'%Y-%m') m, SUM(total - COALESCE(gst_amount,0)) v FROM expenses
+               WHERE status IN ('draft','pending_approval','approved','forwarded') AND expense_date BETWEEN ? AND ? AND " . $this->labourCategoryNotIn() . " GROUP BY m", [$start, $end], 'expenses');
 
         $amt = "COALESCE(jv.actual_amount, jp.price_per_visit, CASE WHEN jp.pricing_model = 'monthly_flat' THEN jp.monthly_flat_price / 4.345 END, 0)";
         try {
