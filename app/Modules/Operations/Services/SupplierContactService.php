@@ -153,6 +153,19 @@ class SupplierContactService
         return !preg_match('/\b(?:email|e-mail|phone|fax|contact|general|inquir(?:y|ies)|enquir(?:y|ies)|info|office|store|hours|customer|service|us|team|sales|orders?|accounts?|ltd|inc|corp|llc|limited|co)\b\.?/i', $name);
     }
 
+    /**
+     * Where to look: the website on file, else the supplier's own mail domain (a supplier writing from
+     * greenleaf.example has its site there). A free-mail domain (gmail, telus…) is never a website.
+     */
+    public static function siteOf(array $supplier): string
+    {
+        $site = trim((string)($supplier['website'] ?? ''));
+        if ($site !== '') return $site;
+        $domain = strtolower(trim((string)($supplier['domain'] ?? '')));
+        if ($domain === '') $domain = SupplierDirectoryService::domainOf((string)($supplier['email'] ?? ''));
+        return ($domain === '' || SupplierDirectoryService::isSharedDomain($domain)) ? '' : $domain;
+    }
+
     private static function normalUrl(string $url): string
     {
         return preg_match('#^https?://#i', $url) ? $url : 'https://' . ltrim($url, '/');
@@ -280,7 +293,9 @@ class SupplierContactService
         $customFetch = $fetch !== null;
         $fetch = $fetch ?? fn($u) => HttpFetch::get($u, 10, ['User-Agent: Mowology supplier contacts (office@mowology.ca)']);
         $started = microtime(true);
-        $website = self::normalUrl((string)($supplier['website'] ?? ''));
+        $site = self::siteOf($supplier);
+        if ($site === '') return ['pages' => 0, 'found' => 0, 'note' => 'No website or own mail domain on file.'];
+        $website = self::normalUrl($site);
         $domain = (string)($supplier['domain'] ?: SupplierDirectoryService::domainOf($website));
         $known = (string)($supplier['email'] ?? '');
         $queue = [$website];
@@ -300,12 +315,17 @@ class SupplierContactService
                 $found[$contact['email']] = true;
             }
         }
+        // The supplier's own domain answered: keep it as their website (most records only had the mail domain).
+        if ($pages > 0 && trim((string)($supplier['website'] ?? '')) === '' && !empty($supplier['id'])) {
+            $this->db->prepare("UPDATE supplier_accounts SET website = ? WHERE id = ? AND (website IS NULL OR website = '')")
+                ->execute([$website, (int)$supplier['id']]);
+        }
         return ['pages' => $pages, 'found' => count($found), 'note' => $note];
     }
 
     public function fromWebsites(int $limit = 10, float $budgetSeconds = 50): array
     {
-        $s = $this->db->prepare("SELECT a.* FROM supplier_accounts a WHERE a.website IS NOT NULL AND a.website <> '' ORDER BY EXISTS (SELECT 1 FROM supplier_contacts c WHERE c.supplier_account_id = a.id AND c.status = 'kept'), a.name LIMIT ?");
+        $s = $this->db->prepare("SELECT a.* FROM supplier_accounts a WHERE (a.website IS NOT NULL AND a.website <> '') OR (a.domain IS NOT NULL AND a.domain <> '') ORDER BY EXISTS (SELECT 1 FROM supplier_contacts c WHERE c.supplier_account_id = a.id AND c.status = 'kept'), a.name LIMIT ?");
         $s->bindValue(1, $limit, PDO::PARAM_INT);
         $s->execute();
         $started = microtime(true);
