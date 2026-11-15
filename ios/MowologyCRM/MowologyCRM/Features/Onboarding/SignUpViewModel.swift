@@ -102,12 +102,6 @@ final class SignUpViewModel: ObservableObject {
             error = "Your login was created, but sign-in did not finish. Go back and sign in."
             return
         }
-        // Onboarding is owed from the next step the server named; recorded BEFORE the session flips so RootView
-        // never shows the day first.
-        if let next = SignUpLogic.nextStep(json) {
-            OnboardingProgress.begin(userId: user.id, next: next, chiefName: (userObj["chief_name"] as? String) ?? "",
-                                     businessName: (userObj["business_name"] as? String) ?? "")
-        }
         code = ""
         input.password = ""; input.confirm = ""
         loading = false
@@ -127,6 +121,13 @@ final class SignUpViewModel: ObservableObject {
         guard Server.use(signUpBase) else {
             error = "Your login was created, but sign-in did not finish. Go back and sign in."
             return
+        }
+        // Onboarding is owed from the next step the server named. Recorded AFTER the business switch above (the
+        // switch clears every `ittai.onboarding.*` key, so recording it first made the app skip onboarding,
+        // 2026-11-15) and BEFORE the session flips, so RootView never shows the day first.
+        if let next = SignUpLogic.nextStep(json) {
+            OnboardingProgress.begin(userId: user.id, next: next, chiefName: (userObj["chief_name"] as? String) ?? "",
+                                     businessName: (userObj["business_name"] as? String) ?? "")
         }
         authSession.acceptSignUp(token: token, user: user)
     }
