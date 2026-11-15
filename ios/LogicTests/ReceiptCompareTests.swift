@@ -22,6 +22,12 @@ expect(notProposed.state == .notProposed, "an absent suggestion is not proposed"
 let empty = ReceiptCompareRow(id: "note", label: "Note", current: "  ", proposed: nil)
 expect(empty.state == .unchanged, "two absent values are quiet")
 
+let fieldsWithStatus = ReceiptCompareRules.fields([], status: "pending_approval")
+expect(fieldsWithStatus == [ReceiptCompareRow(id: "status", label: "Status", current: "Pending Approval", proposed: "Pending Approval")],
+       "status remains in the comparison table even when the server returns no status field")
+expect(ReceiptCompareRules.statusLabel("forwarded") == "Sent", "forwarded uses the user-facing status label")
+expect(ReceiptCompareRules.statusLabel("unexpected") == "Draft", "unknown statuses retain the existing draft fallback")
+
 private func decodedItems(receipt: [(String, Double)], penny: [(String, Double)]) -> PennyReadItems {
     let object: [String: Any] = [
         "receipt": receipt.map { ["name": $0.0, "amount": $0.1] },

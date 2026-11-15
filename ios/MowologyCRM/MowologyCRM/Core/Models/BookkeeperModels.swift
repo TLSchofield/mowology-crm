@@ -838,17 +838,13 @@ struct ReceiptCompareRow: Equatable, Identifiable {
     let label: String
     let current: String?
     let proposed: String?
-    let reason: String
-    let confidence: String
     let state: ReceiptCompareValueState
 
-    init(id: String, label: String, current: String?, proposed: String?, reason: String = "", confidence: String = "") {
+    init(id: String, label: String, current: String?, proposed: String?) {
         self.id = id
         self.label = label
         self.current = Self.nonempty(current)
         self.proposed = Self.nonempty(proposed)
-        self.reason = reason
-        self.confidence = confidence
 
         switch (self.current, self.proposed) {
         case (nil, .some): state = .missingCurrent
@@ -882,16 +878,27 @@ enum ReceiptCompareSelection: Equatable {
 }
 
 enum ReceiptCompareRules {
-    static func fields(_ fields: [PennyReadField]) -> [ReceiptCompareRow] {
-        fields.map {
+    static func fields(_ fields: [PennyReadField], status: String? = nil) -> [ReceiptCompareRow] {
+        let serverRows = fields.filter { $0.field.caseInsensitiveCompare("status") != .orderedSame }.map {
             ReceiptCompareRow(
                 id: $0.field,
                 label: $0.label,
                 current: $0.receipt,
-                proposed: $0.penny,
-                reason: $0.reason,
-                confidence: $0.confidence
+                proposed: $0.penny
             )
+        }
+        guard let status else { return serverRows }
+        let label = statusLabel(status)
+        return [ReceiptCompareRow(id: "status", label: "Status", current: label, proposed: label)] + serverRows
+    }
+
+    static func statusLabel(_ status: String) -> String {
+        switch status {
+        case "forwarded": "Sent"
+        case "approved": "Approved"
+        case "rejected": "Rejected"
+        case "pending_approval": "Pending Approval"
+        default: "Draft"
         }
     }
 

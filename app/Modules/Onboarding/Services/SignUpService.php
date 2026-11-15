@@ -217,6 +217,13 @@ final class SignUpService
         return null;
     }
 
+    /** Directory-safe check: true only for the provisioned, still-unclaimed owner and their exact email. */
+    public function isUnclaimedOwnerEmail(string $email): bool
+    {
+        $owner = $this->owner(false);
+        return $owner !== null && $this->claimCheck($owner, $email) === null;
+    }
+
     private function setting(string $key, string $value, string $description): void
     {
         $u = $this->db->prepare('UPDATE ops_settings SET setting_value = ?, description = ? WHERE setting_key = ?');

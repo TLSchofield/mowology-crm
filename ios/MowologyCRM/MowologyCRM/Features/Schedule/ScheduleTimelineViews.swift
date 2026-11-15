@@ -483,6 +483,8 @@ struct ScheduleTimelineDemoOverlay: View {
         } else if let i = args.firstIndex(of: "-mwDupeDemo") {
             PennyDupeDemo(variant: i + 1 < args.count ? args[i + 1] : "two")
                 .itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
+        } else if args.contains("-mwReceiptSheetDemo") {
+            ReceiptSheetDemo().itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwReceiptZoomDemo") {
             ReceiptZoomDemo().itAppTheme(enabled: true, field: false)
         } else if let i = args.firstIndex(of: "-mwWelcomeDemo") {
@@ -535,9 +537,25 @@ private struct PennyChaseDemo: View {
 #endif
 
 #if DEBUG
+/// `-mwReceiptSheetDemo`: the saved-receipt review sheet over an invented Penny read and photo (no sign-in, no client data).
+private struct ReceiptSheetDemo: View {
+    @StateObject private var model = ReceiptsViewModel(apiClient: APIClient(authSession: AuthSession()))
+    private let expense: Expense = {
+        let json = #"{"id":9,"expense_date":"2026-11-09","vendor_name":"CHEVRON","total":18.38,"status":"pending","created_at":"2026-11-09 08:06:00"}"#
+        return try! JSONDecoder().decode(Expense.self, from: Data(json.utf8))
+    }()
+    private let read: PennyRead = {
+        let json = #"{"suggestion_id":1,"differs":true,"fields":[{"field":"vendor","label":"Merchant","penny":"CHEVRON","receipt":"CHEVRON","reason":"x","confidence":"high"},{"field":"category","label":"For","penny":"Equipment","receipt":null,"reason":"A long reason that must not be shown.","confidence":"high"},{"field":"subtotal","label":"Subtotal","penny":"$18.38","receipt":"$17.50","reason":"Another long reason that must not be shown.","confidence":"medium"}],"items":{"penny":[{"name":"Supreme (91) fuel","amount":18.38}],"receipt":[{"name":"Supreme fuel","amount":17.5}],"penny_sum":18.38,"receipt_sum":17.5},"notes":"A long note that must not be shown.","applied_draft":false,"can_apply":true,"apply_approves":false,"can_keep":true,"apply_note":""}"#
+        return try! JSONDecoder().decode(PennyRead.self, from: Data(json.utf8))
+    }()
+    var body: some View {
+        ReceiptDetailView(viewModel: model, expense: expense, isAdmin: true, seededRead: read, seededImage: ProcessInfo.processInfo.arguments.contains("-mwNoPhoto") ? nil : ReceiptZoomDemo.receipt)
+    }
+}
+
 /// `-mwReceiptZoomDemo`: an invented receipt pinned as on the review sheet, over sample fields (no sign-in, no client data).
 private struct ReceiptZoomDemo: View {
-    private static let receipt: UIImage = {
+    fileprivate static let receipt: UIImage = {
         let size = CGSize(width: 900, height: 2400)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1

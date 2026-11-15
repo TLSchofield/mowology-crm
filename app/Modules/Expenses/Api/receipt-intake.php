@@ -183,7 +183,8 @@ try {
             }
             // Gated vendor auto-creation (same logic as main upload path)
             if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
-                $rescanVendorName = strtoupper(trim($parsed['vendor_hint']));
+                $rescanKb = kbCommonsVendorForCreation($ocrText, getDB());
+                $rescanVendorName = kbPickCreationName($parsed['vendor_hint'] ?? null, $rescanKb);
                 if (strlen($rescanVendorName) >= 3) {
                     try {
                         $rescanDb = getDB();
@@ -209,6 +210,13 @@ try {
                                 $ins = $rescanDb->prepare("INSERT INTO vendors (name, aliases, is_active) VALUES (?, ?, 1)");
                                 $ins->execute([$rescanVendorName, strtolower($rescanVendorName)]);
                                 $newRescanVendorId = (int)$rescanDb->lastInsertId();
+                                if ($rescanKb !== null) {
+                                    try {
+                                        (new VendorKnowledgeService($rescanDb))->linkLocalVendor($newRescanVendorId, $rescanKb['kb_vendor_id'], $rescanKb['identity']);
+                                    } catch (Throwable $ke) {
+                                        error_log('Rescan commons vendor link failed: ' . $ke->getMessage());
+                                    }
+                                }
                                 $suggestions['vendor_id']         = $newRescanVendorId;
                                 $suggestions['vendor_name']       = $rescanVendorName;
                                 $suggestions['vendor_confidence']  = 70;

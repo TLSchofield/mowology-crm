@@ -31,6 +31,7 @@ try {
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Team/Services/EmployeeAccountService.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/OwnerApprovalDefaultService.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -192,8 +193,11 @@ try {
             $emergencyContact = trim($input['emergency_contact'] ?? '') ?: null;
             $notes          = trim($input['notes'] ?? '') ?: null;
             $receiveWeatherSms = isset($input['receive_weather_sms']) ? ($input['receive_weather_sms'] ? 1 : 0) : 1;
-            // Off by default — the self-approval exemption is a deliberate, per-person grant.
-            $canApproveOwn  = isset($input['can_approve_own_expenses']) ? ($input['can_approve_own_expenses'] ? 1 : 0) : 0;
+            // Off by default for staff — the exemption is a deliberate, per-person grant. The
+            // business's first admin (the owner) defaults on so a solo operator isn't stuck.
+            $canApproveOwn  = isset($input['can_approve_own_expenses'])
+                ? ($input['can_approve_own_expenses'] ? 1 : 0)
+                : (new OwnerApprovalDefaultService($db))->defaultForNewUser((string)$role);
 
             $stmt = $db->prepare("
                 INSERT INTO users (email, password_hash, full_name, first_name, last_name, phone, role,
@@ -317,6 +321,9 @@ try {
             }
             if (isset($input['can_approve_own_expenses'])) {
                 $updates[] = 'can_approve_own_expenses = ?'; $params[] = $input['can_approve_own_expenses'] ? 1 : 0;
+            } elseif (isset($input['role']) && $input['role'] === 'admin') {
+                // Promoted to admin without an explicit choice: admins may approve their own receipts.
+                $updates[] = 'can_approve_own_expenses = ?'; $params[] = 1;
             }
             if (isset($input['pesticide_training_required'])) {
                 $updates[] = 'pesticide_training_required = ?'; $params[] = $input['pesticide_training_required'] ? 1 : 0;
