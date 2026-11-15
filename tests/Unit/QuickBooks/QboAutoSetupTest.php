@@ -117,4 +117,12 @@ final class QboAutoSetupTest extends TestCase
         $this->assertSame('0', $db2->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'qbo_auto_send'")->fetchColumn());
         $this->assertSame(0, (int)$db2->query("SELECT COUNT(*) FROM ops_settings WHERE setting_key = 'qbo_live_sends'")->fetchColumn());
     }
+
+    public function test_a_generic_name_inside_a_longer_one_is_not_saved_only_an_equal_name_is(): void
+    {
+        $remote = [['qbo_id' => 'x1', 'name' => 'Services'], ['qbo_id' => 'x2', 'name' => 'Lawn Care Services'], ['qbo_id' => 'x3', 'name' => 'Lawn Care Services']];
+        $this->assertNull(QboAutoSetupService::exactAccount('Irrigation Services', $remote));
+        $this->assertNull(QboAutoSetupService::exactAccount('Lawn Care Services', $remote), 'two equal names: no answer');
+        $this->assertSame('x1', QboAutoSetupService::exactAccount('services', $remote));
+    }
 }

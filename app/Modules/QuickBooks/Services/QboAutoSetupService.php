@@ -43,7 +43,7 @@ class QboAutoSetupService
             $label = 'Pick the QuickBooks account for ' . (string)$account['name'] . '.';
             if (!empty($maps['account'][$key]['qbo_id'])) continue;
             $fit = QboConnectionService::fitting((string)$account['type'], $remoteAccounts);
-            $id = QboConnectionService::suggestAccount((string)$account['name'], $fit);
+            $id = self::exactAccount((string)$account['name'], $fit);
             if ($id !== null && empty($claimed[$id]) && $this->conn->setMapping('account', $key, $id, 0)) {
                 $saved[] = 'account:' . $key;
                 $claimed[$id] = true;
@@ -76,6 +76,21 @@ class QboAutoSetupService
             }
         }
         return ['saved' => $saved, 'needs' => $needs];
+    }
+
+    /**
+     * Pure: the one QuickBooks account whose normalised name EQUALS the Ittai name. A name that merely
+     * contains the other (a generic "Services" inside "Lawn Care Services") is only a page suggestion,
+     * never saved on its own. Two equal names = no answer.
+     * @param list<array{qbo_id:string,name:string}> $remote
+     */
+    public static function exactAccount(string $ittaiName, array $remote): ?string
+    {
+        $norm = fn(string $s) => trim((string)preg_replace('/[^a-z0-9]+/', ' ', strtolower(preg_replace('/^.*:/', '', $s))));
+        $want = $norm($ittaiName);
+        if ($want === '') return null;
+        $hits = array_values(array_filter($remote, fn($r) => $norm((string)$r['name']) === $want));
+        return count($hits) === 1 ? (string)$hits[0]['qbo_id'] : null;
     }
 
     /** Mapping keys written automatically, as kind:key. @return list<string> */
