@@ -769,6 +769,82 @@ class FieldRecommendationService
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
+    /**
+     * H5 (Fable audit 2026-11): what stops a crew login recording a recommendation against a property,
+     * contact or photo that is not on the visit it stands on. Null when the request is in scope.
+     * Pure: the caller gathers the facts (see crewVisitProblem) and this decides.
+     *
+     * @param int[] $allowedContactIds contacts tied to the visit's property (site, on-site, manager/quote)
+     * @param int[] $mediaIds          photos the request names
+     * @param int[] $visitMediaIds     those of $mediaIds that are linked to this visit
+     */
+    public static function crewScopeProblem(
+        int $visitId,
+        int $visitPropertyId,
+        int $payloadPropertyId,
+        int $payloadContactId,
+        array $allowedContactIds,
+        array $mediaIds,
+        array $visitMediaIds
+    ): ?string {
+        if ($visitId <= 0) {
+            return 'Pick the visit this is for before you record it';
+        }
+        if ($visitPropertyId <= 0) {
+            return 'This visit has no property on file';
+        }
+        if ($payloadPropertyId > 0 && $payloadPropertyId !== $visitPropertyId) {
+            return 'That property is not on this visit';
+        }
+        if ($payloadContactId > 0 && !in_array($payloadContactId, $allowedContactIds, true)) {
+            return 'That contact is not at this property';
+        }
+        if (array_diff($mediaIds, $visitMediaIds)) {
+            return 'Those photos are not from this visit';
+        }
+        return null;
+    }
+
+    /** Gathers the visit's facts and applies crewScopeProblem(). Used for every non-office create. */
+    public function crewVisitProblem(int $visitId, array $input): ?string
+    {
+        $propertyId = $visitId > 0 ? $this->resolvePropertyId($visitId, []) : 0;
+
+        $allowed = [];
+        if ($propertyId > 0) {
+            $allowed[] = $this->siteContactId($propertyId);
+            require_once __DIR__ . '/FieldAskService.php';
+            $r = (new FieldAskService($this->db))->recipients($propertyId);
+            foreach ([$r['ask'] ?? null, $r['quote'] ?? null] as $person) {
+                if (!empty($person['contact_id'])) {
+                    $allowed[] = (int)$person['contact_id'];
+                }
+            }
+        }
+
+        $mediaIds   = $this->normaliseMediaIds($input['media_ids'] ?? []);
+        $visitMedia = [];
+        if ($visitId > 0 && $mediaIds) {
+            $in   = implode(',', array_fill(0, count($mediaIds), '?'));
+            $stmt = $this->db->prepare(
+                "SELECT media_id FROM media_links
+                 WHERE context_type = 'job_visit' AND context_id = ? AND media_id IN ({$in})"
+            );
+            $stmt->execute(array_merge([$visitId], $mediaIds));
+            $visitMedia = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        return self::crewScopeProblem(
+            $visitId,
+            $propertyId,
+            isset($input['property_id']) ? (int)$input['property_id'] : 0,
+            isset($input['contact_id']) ? (int)$input['contact_id'] : 0,
+            $allowed,
+            $mediaIds,
+            $visitMedia
+        );
+    }
+
     /** The property a visit (or the payload) points at, 0 if none. */
     public function resolvePropertyId(int $visitId, array $input): int
     {

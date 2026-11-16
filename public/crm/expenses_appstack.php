@@ -4662,7 +4662,7 @@ window.localDateYmd = function (date) {
                 ? '<button class="btn btn-sm btn-outline-primary" onclick="editVendor(' + v.id + ')" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>'
                 : '';
             var deleteBtn = CAN_EDIT
-                ? ' <button class="btn btn-sm btn-outline-danger" onclick="deleteVendor(' + v.id + ', \'' + esc(v.name).replace(/'/g, "\\'") + '\')" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>'
+                ? ' <button class="btn btn-sm btn-outline-danger" data-vendor-name="' + escHtml(v.name) + '" onclick="deleteVendor(' + v.id + ', this.dataset.vendorName)" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>'
                 : '';
 
             var productBadge = (v.product_count > 0)

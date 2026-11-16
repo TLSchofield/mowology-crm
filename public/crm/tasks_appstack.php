@@ -770,16 +770,26 @@ $modeLabels = [
                               dd.style.display = 'none';
                               return;
                           }
+                          // Vendor names are user data: escaped into attributes, never spliced into a JS string.
                           dd.innerHTML = data.vendors.map(function(v) {
-                              return '<div class="mw-vendor-option" onclick="mwSelectVendor(' + v.id + ',\'' +
-                                  v.name.replace(/'/g, "\\'") + '\')">' +
-                                  '<strong>' + v.name + '</strong>' +
-                                  (v.default_accounting_category ? ' <small class="text-muted">' + v.default_accounting_category + '</small>' : '') +
+                              return '<div class="mw-vendor-option" data-vendor-id="' + mwEscHtml(v.id) + '" data-vendor-name="' + mwEscHtml(v.name) + '">' +
+                                  '<strong>' + mwEscHtml(v.name) + '</strong>' +
+                                  (v.default_accounting_category ? ' <small class="text-muted">' + mwEscHtml(v.default_accounting_category) + '</small>' : '') +
                                   '</div>';
                           }).join('');
+                          dd.querySelectorAll('.mw-vendor-option').forEach(function(el) {
+                              el.addEventListener('click', function() {
+                                  mwSelectVendor(parseInt(el.getAttribute('data-vendor-id'), 10), el.getAttribute('data-vendor-name'));
+                              });
+                          });
                           dd.style.display = 'block';
                       });
               }, 250);
+          }
+
+          function mwEscHtml(s) {
+              return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
           }
 
           function mwSelectVendor(vendorId, vendorName) {
@@ -880,16 +890,24 @@ $modeLabels = [
                           body.innerHTML = '<p class="text-muted">No products in catalog for this vendor.</p>';
                       } else {
                           body.innerHTML = cats.map(function(cat) {
-                              return '<h6 class="mt-2">' + cat + '</h6>' +
+                              return '<h6 class="mt-2">' + mwEscHtml(cat) + '</h6>' +
                                   grouped[cat].map(function(p) {
-                                      var priceStr = p.price_per_unit ? ' — $' + parseFloat(p.price_per_unit).toFixed(2) + '/' + (p.unit || 'unit') : '';
+                                      var priceStr = p.price_per_unit ? ' — $' + parseFloat(p.price_per_unit).toFixed(2) + '/' + mwEscHtml(p.unit || 'unit') : '';
                                       return '<div class="d-flex justify-content-between align-items-center py-1 border-bottom">' +
-                                          '<span>' + p.name + '<small class="text-muted">' + priceStr + '</small></span>' +
-                                          '<button class="btn btn-sm btn-outline-primary" onclick="mwAddFromCatalog(' + p.id + ',\'' +
-                                          p.name.replace(/'/g, "\\'") + '\',' + (parseFloat(p.price_per_unit) || 0) + ',\'' + (p.unit || 'each') + '\')">Add</button>' +
+                                          '<span>' + mwEscHtml(p.name) + '<small class="text-muted">' + priceStr + '</small></span>' +
+                                          '<button class="btn btn-sm btn-outline-primary" data-vp-id="' + mwEscHtml(p.id) + '"' +
+                                          ' data-name="' + mwEscHtml(p.name) + '"' +
+                                          ' data-price="' + mwEscHtml(parseFloat(p.price_per_unit) || 0) + '"' +
+                                          ' data-unit="' + mwEscHtml(p.unit || 'each') + '">Add</button>' +
                                           '</div>';
                                   }).join('');
                           }).join('');
+                          body.querySelectorAll('button[data-vp-id]').forEach(function(btn) {
+                              btn.addEventListener('click', function() {
+                                  mwAddFromCatalog(parseInt(btn.getAttribute('data-vp-id'), 10), btn.getAttribute('data-name'),
+                                      parseFloat(btn.getAttribute('data-price')) || 0, btn.getAttribute('data-unit'));
+                              });
+                          });
                       }
                       $('#mwCatalogModalEl').modal('show');
                   });

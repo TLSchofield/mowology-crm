@@ -667,6 +667,12 @@ var MwDayViewMap = (function() {
 
         window._mwPurchaseMarkers = window._mwPurchaseMarkers || [];
 
+        // Purchase-task text is user data: escape it before it goes into the InfoWindow HTML (H7).
+        var infoEsc = function(s) {
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        };
+
         var statusLabels = { requested: 'Requested', assigned: 'Assigned', en_route: 'En Route', at_vendor: 'At Vendor', purchased: 'Purchased', delivered: 'Delivered', verified: 'Verified' };
 
         MW_SCHEDULE_STATE.purchaseTasks.forEach(function(task) {
@@ -682,13 +688,13 @@ var MwDayViewMap = (function() {
             var statusLabel = statusLabels[task.purchase_status] || task.purchase_status || '';
             var infoContent =
                 '<div style="font-family:sans-serif;font-size:13px;max-width:200px;line-height:1.5">' +
-                '<strong style="color:#e85d04">' + (task.task_number || 'Purchase Task') + '</strong><br>' +
-                '<strong>' + (task.vendor_name || '') + '</strong>' +
-                (task.location_label ? '<br><span style="color:#666">' + task.location_label + '</span>' : '') +
-                '<br><span style="background:#e85d04;color:#fff;padding:1px 6px;border-radius:10px;font-size:11px">' + statusLabel + '</span>' +
-                (task.items_count ? '<br>' + task.items_count + ' item' + (task.items_count !== 1 ? 's' : '') : '') +
-                (task.estimated_total ? ' &mdash; $' + parseFloat(task.estimated_total).toFixed(2) + ' est.' : '') +
-                (task.assigned_to_name ? '<br><span style="color:#555">👤 ' + task.assigned_to_name + '</span>' : '') +
+                '<strong style="color:#e85d04">' + infoEsc(task.task_number || 'Purchase Task') + '</strong><br>' +
+                '<strong>' + infoEsc(task.vendor_name || '') + '</strong>' +
+                (task.location_label ? '<br><span style="color:#666">' + infoEsc(task.location_label) + '</span>' : '') +
+                '<br><span style="background:#e85d04;color:#fff;padding:1px 6px;border-radius:10px;font-size:11px">' + infoEsc(statusLabel) + '</span>' +
+                (task.items_count ? '<br>' + infoEsc(task.items_count) + ' item' + (task.items_count !== 1 ? 's' : '') : '') +
+                (task.estimated_total ? ' &mdash; $' + infoEsc(parseFloat(task.estimated_total).toFixed(2)) + ' est.' : '') +
+                (task.assigned_to_name ? '<br><span style="color:#555">👤 ' + infoEsc(task.assigned_to_name) + '</span>' : '') +
                 '</div>';
 
             var infoWindow = new google.maps.InfoWindow({ content: infoContent });

@@ -82,7 +82,12 @@ try {
             break;
 
         case 'send':
-            echo json_encode($service->send((int)($input['invoice_id'] ?? 0), $userId));
+            // H4: a crew login may email only invoices made from its own visits; a visitless draft needs billing.edit.
+            echo json_encode($service->send(
+                (int)($input['invoice_id'] ?? 0),
+                $userId,
+                jwtUserHasPermission($jwtUser, 'billing.edit')
+            ));
             break;
 
         default:

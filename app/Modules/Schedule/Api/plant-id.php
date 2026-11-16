@@ -29,13 +29,14 @@ header('X-Content-Type-Options: nosniff');
 try {
     require_once APP_ROOT . '/Core/config.php';
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/Auth/RoleRules.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Plants/Services/PlantIdService.php';
     require_once APP_ROOT . '/Modules/Plants/Services/PlantCareService.php';
 
     $jwtUser = requireJwt();
     $userId = (int)$jwtUser['id'];
-    $isAdmin = in_array($jwtUser['role'] ?? 'crew', ['admin', 'manager', 'staff'], true);
+    $isAdmin = RoleRules::isOffice($jwtUser['role'] ?? 'crew'); // M2: 'staff' is crew, not office
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
         echo json_encode(['ok' => false, 'message' => 'POST required']);

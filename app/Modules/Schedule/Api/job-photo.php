@@ -36,6 +36,7 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Media/MediaUploadService.php';
     require_once APP_ROOT . '/Services/Media/MediaVariantGenerator.php';
+    require_once APP_ROOT . '/Core/Auth/RoleRules.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -74,7 +75,7 @@ try {
         exit;
     }
 
-    $isAdmin = in_array($role, ['admin', 'manager', 'staff']);
+    $isAdmin = RoleRules::isOffice($role); // M2: 'staff' is crew, not office
     // Anyone on the stop's crew may add photos, not only the lead the visit is
     // assigned to — same rule as the Work Record and the photo list.
     require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';

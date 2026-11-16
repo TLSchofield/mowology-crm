@@ -623,7 +623,22 @@ class InvoiceFromVisitService
     // SEND
     // ══════════════════════════════════════════════════════════════════════════
 
-    public function send(int $invoiceId, int $userId): array
+    /**
+     * H4 (Fable audit 2026-11): an invoice with no visit (a draft the office made by hand) is office
+     * work. A crew login may send only invoices that came from a visit it is assigned to. Returns the
+     * refusal message, or null when the send may go ahead. Pure, so it is tested without a database.
+     */
+    public static function visitlessSendRefusal($visitId, bool $maySendVisitless): ?string
+    {
+        if (!empty($visitId) || $maySendVisitless) return null;
+        return 'Only the office can send this invoice: it was not created from a visit.';
+    }
+
+    /**
+     * @param bool $maySendVisitless false for a crew login (no billing.edit): a visitless invoice is
+     *                               refused. Web callers keep the default.
+     */
+    public function send(int $invoiceId, int $userId, bool $maySendVisitless = true): array
     {
         if (!$invoiceId) return ['success' => false, 'error' => 'invoice_id required'];
         // One send per invoice at a time (Codex review 2026-10-16): a phone retry overlapping a desktop click
@@ -634,13 +649,13 @@ class InvoiceFromVisitService
             return ['success' => false, 'error' => 'This invoice is being sent right now.', 'busy' => true];
         }
         try {
-            return $this->sendLocked($invoiceId, $userId);
+            return $this->sendLocked($invoiceId, $userId, $maySendVisitless);
         } finally {
             if ($named) { try { $this->db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '." . $lock . "'))"); } catch (Throwable $e) { /* ends with the connection */ } }
         }
     }
 
-    private function sendLocked(int $invoiceId, int $userId): array
+    private function sendLocked(int $invoiceId, int $userId, bool $maySendVisitless = true): array
     {
 
         require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
@@ -660,6 +675,10 @@ class InvoiceFromVisitService
         $invoice = $invStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$invoice) return ['success' => false, 'error' => 'Invoice not found or already sent'];
+
+        if ($refusal = self::visitlessSendRefusal($invoice['visit_id'], $maySendVisitless)) {
+            return ['success' => false, 'error' => $refusal];
+        }
 
         // Invoices not created from a visit (visit_id NULL) have no per-visit owner —
         // only invoices created via createFromVisit() are subject to this check.

@@ -79,7 +79,8 @@ try {
     $user   = requireLoginOrJwt();
     $userId = (int)$user['id'];
     $role   = strtolower((string)($user['role'] ?? 'crew'));
-    $isAdmin = in_array($role, ['admin', 'manager', 'staff'], true);
+    // M2: office is admin/manager only (RoleRules). The legacy 'staff' role is crew.
+    $isAdmin = RoleRules::isOffice($role);
 
     $db  = getDB();
     $svc = new FieldRecommendationService($db);
@@ -181,7 +182,14 @@ try {
                 exit;
             }
 
-            $checkVisit(isset($body['visit_id']) ? (int)$body['visit_id'] : 0);
+            $visitIdIn = isset($body['visit_id']) ? (int)$body['visit_id'] : 0;
+            $checkVisit($visitIdIn);
+            // H5: crew record only against their own visit, with the property, contact and photos on it.
+            if (!$isAdmin && ($scopeProblem = $svc->crewVisitProblem($visitIdIn, $body)) !== null) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => $scopeProblem]);
+                exit;
+            }
 
             $result = $svc->create($userId, $body);
 

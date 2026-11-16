@@ -537,6 +537,11 @@ $weekHasAnomalies = !empty(array_filter($days, fn($d) => !empty($d['has_anomaly'
             .then(function(data) {
                 var conflicts = data.conflicts || [];
                 var html = '';
+                // Conflict fields come from GPS and job data: escape before they reach innerHTML (M6).
+                var reconEsc = function(s) {
+                    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                };
 
                 if (conflicts.length === 0) {
                     html = '<div class="alert alert-success mb-0">' +
@@ -553,11 +558,11 @@ $weekHasAnomalies = !empty(array_filter($days, fn($d) => !empty($d['has_anomaly'
                         var icon = c.type === 'truck_at_site_no_clockin' ? 'alert-triangle' : 'info';
                         html += '<div class="list-group-item list-group-item-action py-2 px-3" style="font-size:0.83rem;">' +
                                 '<div class="d-flex justify-content-between align-items-start">' +
-                                '<strong>' + (c.visit_number || '') + '</strong>' +
-                                '<span class="badge ' + badgeClass + ' ml-2">' + c.type.replace(/_/g,' ') + '</span>' +
+                                '<strong>' + reconEsc(c.visit_number || '') + '</strong>' +
+                                '<span class="badge ' + badgeClass + ' ml-2">' + reconEsc(String(c.type || '').replace(/_/g,' ')) + '</span>' +
                                 '</div>' +
-                                '<div class="text-muted">' + (c.property_address || '') + (c.property_city ? ', ' + c.property_city : '') + '</div>' +
-                                '<div>' + (c.message || '') + '</div>' +
+                                '<div class="text-muted">' + reconEsc(c.property_address || '') + (c.property_city ? ', ' + reconEsc(c.property_city) : '') + '</div>' +
+                                '<div>' + reconEsc(c.message || '') + '</div>' +
                                 '</div>';
                     });
                     html += '</div>';

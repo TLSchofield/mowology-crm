@@ -2896,12 +2896,12 @@ $unconvertedRequests = $db->query("
                                 </span>
                               <?php endif; ?>
                               <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mw-property-edit-btn"
-                                      onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
+                                      data-address="<?php echo h($prop['address'] ?? ''); ?>" data-city="<?php echo h($prop['city'] ?? ''); ?>" data-province="<?php echo h($prop['province'] ?? ''); ?>" data-postal="<?php echo h($prop['postal_code'] ?? ''); ?>" data-prop-name="<?php echo h($prop['property_name'] ?? ''); ?>" onclick="showEditProperty(<?php echo $propId; ?>, this.dataset.address, this.dataset.city, this.dataset.province, this.dataset.postal, this.dataset.propName)"
                                       title="Edit property">
                                 <i data-feather="edit-2" class="mw-icon-sm"></i>
                                 <span class="mw-prop-btn-label">Edit</span>
                               </button>
-                              <button type="button" class="mw-prop-hdr-btn mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign">
+                              <button type="button" class="mw-prop-hdr-btn mw-property-unlink-btn" data-address="<?php echo h($prop['address'] ?? ''); ?>" onclick="showUnlinkProperty(<?php echo $propId; ?>, this.dataset.address)" title="Remove or reassign">
                                 <i data-feather="x-circle" class="mw-icon-sm"></i>
                                 <span class="mw-prop-btn-label">Remove</span>
                               </button>
@@ -3062,12 +3062,12 @@ $unconvertedRequests = $db->query("
                                 </span>
                               <?php endif; ?>
                               <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mw-property-edit-btn"
-                                      onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
+                                      data-address="<?php echo h($prop['address'] ?? ''); ?>" data-city="<?php echo h($prop['city'] ?? ''); ?>" data-province="<?php echo h($prop['province'] ?? ''); ?>" data-postal="<?php echo h($prop['postal_code'] ?? ''); ?>" data-prop-name="<?php echo h($prop['property_name'] ?? ''); ?>" onclick="showEditProperty(<?php echo $propId; ?>, this.dataset.address, this.dataset.city, this.dataset.province, this.dataset.postal, this.dataset.propName)"
                                       title="Edit property">
                                 <i data-feather="edit-2" class="mw-icon-sm"></i>
                                 <span class="mw-prop-btn-label">Edit</span>
                               </button>
-                              <button type="button" class="mw-prop-hdr-btn mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove">
+                              <button type="button" class="mw-prop-hdr-btn mw-property-unlink-btn" data-address="<?php echo h($prop['address'] ?? ''); ?>" onclick="showUnlinkProperty(<?php echo $propId; ?>, this.dataset.address)" title="Remove">
                                 <i data-feather="x-circle" class="mw-icon-sm"></i>
                                 <span class="mw-prop-btn-label">Remove</span>
                               </button>
@@ -3271,7 +3271,7 @@ $unconvertedRequests = $db->query("
                                     <span class="mw-prop-btn-label">Zone</span>
                                   </button>
                                   <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mw-property-edit-btn" title="Edit property"
-                                          onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')">
+                                          data-address="<?php echo h($prop['address'] ?? ''); ?>" data-city="<?php echo h($prop['city'] ?? ''); ?>" data-province="<?php echo h($prop['province'] ?? ''); ?>" data-postal="<?php echo h($prop['postal_code'] ?? ''); ?>" data-prop-name="<?php echo h($prop['property_name'] ?? ''); ?>" onclick="showEditProperty(<?php echo $propId; ?>, this.dataset.address, this.dataset.city, this.dataset.province, this.dataset.postal, this.dataset.propName)">
                                     <i data-feather="edit-2" class="mw-icon-sm"></i>
                                     <span class="mw-prop-btn-label">Edit</span>
                                   </button>
@@ -5401,7 +5401,7 @@ $unconvertedRequests = $db->query("
                             <?php else: ?>
                               <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width: 14px; height: 14px;"></i></span>
                             <?php endif; ?>
-                            <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkCompanyProperty(<?php echo (int)$prop['id']; ?>, '<?php echo addslashes(h($prop['address'])); ?>', <?php echo (int)($prop['site_contact_id'] ?? 0); ?>)" title="Remove or reassign this property">
+                            <button type="button" class="mw-property-unlink-btn" data-address="<?php echo h($prop['address'] ?? ''); ?>" onclick="showUnlinkCompanyProperty(<?php echo (int)$prop['id']; ?>, this.dataset.address, <?php echo (int)($prop['site_contact_id'] ?? 0); ?>)" title="Remove or reassign this property">
                               <i data-feather="x-circle" style="width: 14px; height: 14px;"></i>
                             </button>
                           </div>
