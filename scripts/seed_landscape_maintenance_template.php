@@ -25,7 +25,8 @@ require_once PUBLIC_ROOT . '/app_config/config.php';
 $dryRun = in_array('--dry-run', $argv ?? [], true);
 
 $productName  = 'Landscape Maintenance Program — March to December (14 visits)';
-$categoryName = 'Maintenance';
+$categoryName = 'Maintenance Services'; // existing category on production (id 2)
+$unitName     = 'Per Job';              // unit_types row, required by products.unit_type_id
 $annualPrice  = 2160.00;   // 12 payments x $180.00, before GST
 $description  = implode("\n", [
     'Landscape maintenance, March to December: 14 visits per property.',
@@ -49,9 +50,23 @@ $catStmt = $db->prepare("SELECT id FROM product_categories WHERE name = ? LIMIT 
 $catStmt->execute([$categoryName]);
 $categoryId = $catStmt->fetchColumn();
 
+$unitStmt = $db->prepare("SELECT id FROM unit_types WHERE name = ? LIMIT 1");
+$unitStmt->execute([$unitName]);
+$unitTypeId = $unitStmt->fetchColumn();
+if (!$unitTypeId) {
+    fwrite(STDERR, "unit_types row '{$unitName}' not found; nothing written.\n");
+    exit(1);
+}
+
 echo ($dryRun ? "[dry run] " : '') . "Product: {$productName}\n";
+echo "Unit: {$unitName} (id {$unitTypeId})\n";
 echo "Price: \${$annualPrice} before GST (12 x \$180.00)\n";
-echo "Category: {$categoryName}" . ($categoryId ? " (id {$categoryId})" : " (will be created)") . "\n";
+echo "Category: {$categoryName}" . ($categoryId ? " (id {$categoryId})" : " (NOT FOUND)") . "\n";
+
+if (!$categoryId) {
+    fwrite(STDERR, "Category '{$categoryName}' not found; nothing written.\n");
+    exit(1);
+}
 
 if ($dryRun) {
     echo "Dry run: no rows written.\n";
@@ -61,14 +76,13 @@ if ($dryRun) {
 $db->beginTransaction();
 try {
     if (!$categoryId) {
-        $db->prepare("INSERT INTO product_categories (name) VALUES (?)")->execute([$categoryName]);
-        $categoryId = $db->lastInsertId();
+        throw new RuntimeException("Category '{$categoryName}' not found; nothing written.");
     }
 
     $db->prepare("
-        INSERT INTO products (name, description, base_price, category_id, active, is_archived, display_order)
-        VALUES (?, ?, ?, ?, 1, 0, 0)
-    ")->execute([$productName, $description, $annualPrice, $categoryId]);
+        INSERT INTO products (name, description, base_price, category_id, unit_type_id, active, is_archived, display_order)
+        VALUES (?, ?, ?, ?, ?, 1, 0, 0)
+    ")->execute([$productName, $description, $annualPrice, $categoryId, $unitTypeId]);
 
     $productId = $db->lastInsertId();
     $db->commit();
