@@ -145,6 +145,17 @@ try {
         error_log('[trip_runs_daily] contract visits: ' . $e->getMessage());
         $__facts .= '; contract visits failed: ' . $e->getMessage();
     }
+    // Supplier contacts (migrations 1454 + 1457): a few suppliers' websites a night, new ones first, then every
+    // 30 days; Otto picks the obvious address where Tim has not chosen. Additive: a failure never loses the runs above.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/SupplierContactService.php';
+        $sc = (new SupplierContactService(getDB()))->nightly(3, 40);
+        $__facts .= $sc['note'] !== '' ? "; supplier contacts: {$sc['note']}"
+            : "; supplier contacts: {$sc['looked']} site(s) read, {$sc['found']} address(es), {$sc['picked']} picked";
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] supplier contacts: ' . $e->getMessage());
+        $__facts .= '; supplier contacts failed: ' . $e->getMessage();
+    }
     // Supplier stops (migration 1359): geocode new supplier addresses once, find the crew's supplier /
     // fuel stops (phones + truck), match their receipts and leave Otto's job pick on material receipts
     // with no job (shadow — shown on the receipt editor only). The two days before are re-matched:

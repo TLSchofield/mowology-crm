@@ -38,6 +38,9 @@ struct MowologyCRMApp: App {
                 .environmentObject(authSession)
                 .overlay { ScheduleTimelineDemoOverlay() }   // Debug builds only, behind a launch flag
                 .overlay { ReceiptCameraDemoOverlay() }      // Debug builds only, behind a launch flag
+                #if DEBUG
+                .overlay { SignUpDemoOverlay() }             // Debug builds only: sign-in / welcome / sign-up / onboarding demos
+                #endif
                 // Wire the global transition drain once the crew is authenticated.
                 // The drain fires on reconnect (mwPingQueueOnline) to retry any
                 // persisted stop/start calls that failed when offline — regardless

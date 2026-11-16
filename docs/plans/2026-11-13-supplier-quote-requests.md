@@ -1,4 +1,4 @@
-# Supplier quote and availability requests — plan (2026-11-13, awaiting Tim's approval)
+# Supplier quote and availability requests — plan (2026-11-13, approved by Tim 2026-11-13)
 
 Tim, 2026-11-13: "a quote and availability request service that goes out to all vendors in a well written format that is
 very human. arts nursery for example will do this." Backlog entry: `docs/plans/ittai-backlog.md` → *Quote and availability
@@ -46,7 +46,7 @@ Order of trust, best first. Each address is stored with its source and the date 
 - Tim's Mac Mail: the same address answered "RE: Wholesale account – Mowology (Vancouver)" to office@ on 11 Oct 2026
   (the account application from the supplier-forms work). So source = **mail + website, agree**.
 
-**Storage (smallest change):** a new table `supplier_contacts` (supplier_account_id, email, role `wholesale|orders|general`,
+**Storage (smallest change):** a new table `supplier_contacts` (supplier_account_id, email, role `wholesale|orders|sales|accounts|general`,
 person name, `source` `mail|website|manual`, `source_ref` (URL, or the mail's date + mailbox — never the body),
 `seen_at`, `is_default`). `supplier_accounts.email` stays as "who we write to" and is set from the default contact, so
 nothing that reads it today changes. Why a table and not more columns: a nursery has a wholesale person and an orders
@@ -56,8 +56,12 @@ address; the source has to sit with each address.
 - **Mail side:** reads Tim's Mac Mail store (`~/Library/Mail/V10`, header lines only) for each supplier's domain and
   lists addresses that wrote *to* office@/Tim about wholesale, accounts, availability or orders.
 - **Website side:** fetches each supplier's website once, finds the wholesale/trade/contact page, pulls the addresses on it.
-- Output is a **review list for Tim** (supplier, address, role, source, where seen). Nothing is written until Tim ticks
-  them on a small "Supplier contacts" panel on the supplier page. Suppliers with no address found are listed as "phone only".
+- Output is a **review list for Tim** (supplier, address, role, source, where seen) on `/crm/suppliers/contacts.php`
+  (linked from Supplier Price Lists). Found addresses are *suggested*; only Tim's "Write to this one" makes one the
+  address quote requests use. Suppliers with no address found are listed as "phone only".
+- As built (step 1): the mail side is `scripts/supplier-contacts-mail.py` on the Mac (headers only), imported with
+  `scripts/prod-run.sh` into `SupplierContactService::importMailSightings()`; the website side is a button on that page.
+  Migration 1454 (1453 is taken by another branch).
 
 ## The email: tone and two examples
 Write it the way Tim would to someone at the yard he has met once: first name, one line of context, a short numbered list,

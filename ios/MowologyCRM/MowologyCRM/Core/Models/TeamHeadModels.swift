@@ -43,10 +43,19 @@ struct HeadCardResponse: Decodable {
     let suggestions: [MiaSuggestion]
     /// Optional future office roster. A malformed or unknown entry must never break the brief.
     let heads: [String: HeadOfficeState]?
+    /// Charlie's ready brief only (KanameOpenRule, 2026-11-13): whether to play the opening card now. nil from an older server.
+    let openNow: Bool?
+    /// first_open | urgent | already_shown | empty.
+    let openReason: String?
+    /// The server's day for this verdict; sent back next time as `shown_day`.
+    let openDay: String?
+    /// Urgent item ids in the brief; remembered once the card has played, sent back as `shown_urgent`.
+    let urgentIds: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads, suggestions, subcontracts
+        case ok, error, message, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto, quote, heads, suggestions, subcontracts, reason, day
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
+        case openNow = "open_now", urgentIds = "urgent_ids"
     }
 
     init(from decoder: Decoder) throws {
@@ -72,6 +81,10 @@ struct HeadCardResponse: Decodable {
         canApprove = c.bkBool(.canApprove) ?? false
         suggestions = (try? c.decodeIfPresent([MiaSuggestion].self, forKey: .suggestions)) ?? []
         heads = try? c.decodeIfPresent([String: HeadOfficeState].self, forKey: .heads)
+        openNow = c.bkBool(.openNow)
+        openReason = c.bkString(.reason)
+        openDay = c.bkString(.day)
+        urgentIds = (try? c.decodeIfPresent([String].self, forKey: .urgentIds)) ?? []
     }
 }
 

@@ -6,15 +6,38 @@ struct RootView: View {
     private let ittaiDesignEnabled = true   // Ittai for everyone from 1.3.56 (Tim, 2026-10-19); the classic look is retired
     @AppStorage("ittai.design.field") private var ittaiFieldEnabled = false
     @State private var updateResult: VersionCheckResult? = nil
-    /// Charlie's brain on the opening screen, then (admins, first open of the day) his morning
+    /// Charlie's brain on the opening screen, then (admins, when the server says so) his morning
     /// brief landing in the app — OpeningOverlay / CharlieMorningBrief.swift.
-    @State private var showSplash = true
+    @State private var showSplash = AuthSession.shared.isAuthenticated   // signed-out launches open on the Ittai wordmark instead (SignedOutFlow)
+    @State private var onboardingTick = 0
     @StateObject private var briefLoader = MorningBriefLoader()
-    /// An admin who hasn't had today's brief yet. nil = signed in but the user isn't loaded yet.
+    /// An admin whose server says to play the card now (once a day on the first open with something to say, and again only for
+    /// something new and urgent — KanameOpenRule, 2026-11-13). nil = the user or the server's answer hasn't arrived yet;
+    /// no answer at all (offline, older server) means no card, never a stuck screen.
     private var showBrief: Bool? {
         guard authSession.isAuthenticated else { return false }
         guard let user = authSession.user else { return nil }
-        return user.isAdmin && !MorningBriefStore.shownToday
+        guard user.isAdmin else { return false }
+        guard briefLoader.finished else { return nil }
+        return briefLoader.verdict?.openNow ?? false
+    }
+
+    /// A person who signed up on this phone owes the onboarding until they tap "Open my day". Existing logins have none.
+    private var onboardingPending: Bool {
+        _ = onboardingTick
+        guard authSession.isAuthenticated, let user = authSession.user else { return false }
+        return OnboardingProgress.pending(userId: user.id)
+    }
+
+    /// The one-time welcome for this person in this business. The iPhone has no per-business module flags yet (one server,
+    /// Server.base): the Add dial offers a job to every role and the Receipts tab is always there, so both are on.
+    private func welcomeCard() -> KanameWelcomeCard? {
+        guard authSession.isAuthenticated, let user = authSession.user else { return nil }
+        let host = Server.base.host ?? Server.base.absoluteString
+        let entry = KanameWelcome.entry(canAddJobs: true, receiptsOn: true)
+        guard KanameWelcome.shouldShowWelcome(seen: KanameWelcome.isSeen(host: host, userId: user.id), entry: entry),
+              let entry else { return nil }
+        return KanameWelcomeCard(entry: entry, firstName: KanameWelcome.firstName(fromFullName: user.name), host: host, userId: user.id)
     }
 
     var body: some View {
@@ -40,17 +63,34 @@ struct RootView: View {
             if let result = updateResult, result.mustUpdate {
                 AppUpdateView(result: result)
             } else if authSession.isAuthenticated {
-                MainTabView()
-                    .environmentObject(authSession)
-                    .itAppTheme(enabled: ittaiDesignEnabled, field: ittaiFieldEnabled)
+                if onboardingPending, let user = authSession.user {
+                    BusinessOnboardingHost(authSession: authSession, userId: user.id) {
+                        UserDefaults.standard.set(OnboardingBarLogic.Landing.receipts.rawValue, forKey: OnboardingBarLogic.landingKey)   // main app opens on Receipts
+                        OnboardingProgress.finish(userId: user.id)
+                        onboardingTick += 1
+                        // No opening animation and no Kaname welcome card on this first landing (Tim, 2026-11-15):
+                        // the app opens straight on Receipts with Penny's introduction. The welcome stays unseen, so it
+                        // appears with the app's normal opening the next time the app is opened.
+                    }
+                    .itAppTheme(enabled: ittaiDesignEnabled, field: false)
+                } else {
+                    MainTabView()
+                        .environmentObject(authSession)
+                        .itAppTheme(enabled: ittaiDesignEnabled, field: ittaiFieldEnabled)
+                }
             } else {
-                LoginView(authSession: authSession)
+                SignedOutFlow(authSession: authSession)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
 
             if showSplash {
-                OpeningOverlay(wantsBrief: { showBrief }, loader: briefLoader) {
+                OpeningOverlay(wantsBrief: { showBrief }, loader: briefLoader,
+                               welcome: { welcomeCard() },
+                               onWelcomeAction: { entry in
+                                   NotificationCenter.default.post(name: .mwKanameWelcomeAction, object: nil,
+                                                                   userInfo: ["entry": entry.rawValue])
+                               }) {
                     showSplash = false
                 }
                 .zIndex(1)

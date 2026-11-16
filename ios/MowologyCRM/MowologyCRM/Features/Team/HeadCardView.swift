@@ -434,12 +434,8 @@ struct KanameAskBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ask Kaname").font(appStyle.font(.headline))
-                Text("about a customer, a quote, an invoice or a visit").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-            }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Has Linda's quote been sent?", text: $vm.question, axis: .vertical)
+                TextField("How can I help?", text: $vm.question, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)

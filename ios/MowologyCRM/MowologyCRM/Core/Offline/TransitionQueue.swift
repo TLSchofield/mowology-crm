@@ -100,6 +100,16 @@ final class TransitionQueue {
         return ((try? ctx.fetch(FetchDescriptor<PendingTransition>())) ?? []).count
     }
 
+    func clearForTenantSwitch() {
+        let ctx = ModelContext(container)
+        let all = (try? ctx.fetch(FetchDescriptor<PendingTransition>())) ?? []
+        for transition in all {
+            Self.forgetOwner(of: transition.idempotencyKey)
+            ctx.delete(transition)
+        }
+        try? ctx.save()
+    }
+
     // MARK: - Private
 
     private func pendingTransition(visitId: Int, action: String, ctx: ModelContext) -> PendingTransition? {

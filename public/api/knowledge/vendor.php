@@ -5,6 +5,7 @@
  *   GET  /api/knowledge/vendor.php?mode=resolve&gst_number=…&phone_digits=…&domain=…&name_key=…
  *   POST /api/knowledge/vendor.php?mode=contribute      body: {identity:{…}, display_name, facts:[{fact,value}]}
  *   Header: X-KB-Key: <tenant key>   (kb_tenants.api_key_hash = sha256(key))
+ *   Header: X-KB-Tenant: <business key>  (optional: with KB_HUB_SECRET the hub verifies the derived key and self-registers)
  *
  * Returns ONLY commons fields (identity, kind, shared facts). Never a tenant's data.
  * `?mode=` not `?action=` — the /api/ rewrite appends a duplicate `action` (see memory).
@@ -23,6 +24,7 @@ unset($__dir, $__i);
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Modules/Knowledge/Services/VendorIdentity.php';
 require_once APP_ROOT . '/Modules/Knowledge/Services/LocalVendorKnowledgeStore.php';
+require_once APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
 
 function kb_out(int $code, array $body): void { http_response_code($code); echo json_encode($body, JSON_UNESCAPED_UNICODE); exit; }
 
@@ -31,6 +33,17 @@ if ($key === '' || strlen($key) < 20) kb_out(401, ['ok' => false, 'error' => 'mi
 
 try {
     $db = Database::pdo();
+    // Self-registration: a registered business proves itself with the key derived from KB_HUB_SECRET
+    // (HMAC of its business key), so a new business works on its first call with nothing to run by hand.
+    $claimed = (string)($_SERVER['HTTP_X_KB_TENANT'] ?? '');
+    if (VendorKnowledgeService::mayAutoRegister($claimed, $key, defined('KB_HUB_SECRET') ? (string)KB_HUB_SECRET : '', Tenant::registeredKeys())) {
+        $known = $db->prepare("SELECT id FROM kb_tenants WHERE api_key_hash = ? LIMIT 1");
+        $known->execute([hash('sha256', $key)]);
+        if (!$known->fetchColumn()) {
+            $db->prepare("INSERT IGNORE INTO kb_tenants (name, api_key_hash, tenant_hash, is_active) VALUES (?, ?, ?, 1)")
+                ->execute([$claimed, hash('sha256', $key), VendorIdentity::tenantHash($claimed)]);
+        }
+    }
     $t = $db->prepare("SELECT id, name, tenant_hash, calls_today, calls_day, is_active FROM kb_tenants WHERE api_key_hash = ?");
     $t->execute([hash('sha256', $key)]);
     $tenant = $t->fetch(PDO::FETCH_ASSOC);

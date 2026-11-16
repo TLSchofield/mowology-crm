@@ -66,15 +66,32 @@ A vendor is `candidate` → `shared` at two tenants; `curated` / `blocked` are o
 
 - `ops_settings.penny_code_suggestions`: `off` | `shadow` (default — stored as `source = 'shadow'`, never
   shown; Penny's card reports agreement with the model) | `on` (replaces the API call).
-- `KB_MODE` (secrets.php): `hub` (default; this install holds the tables) | `client` (`KB_HUB_URL`,
-  `KB_API_KEY`; 24 h `kb_cache`, 2 s timeout, fail-soft) | `off`.
+- Mode is per business (2026-11-14), because every business shares one secrets.php:
+  an explicit `KB_MODE` (`hub` | `client` | `off`) wins; otherwise the default business (`Tenant::isDefault()`) is
+  always `hub` (never calls itself over HTTP); any other business is `client` when `KB_HUB_URL` and
+  `KB_HUB_SECRET` are both defined, else `hub` (own tables, as before). Client: 24 h `kb_cache`, 2 s timeout, fail-soft.
+- Per-business key is derived, not stored: `VendorKnowledgeService::clientKey(Tenant::key(), KB_HUB_SECRET)` =
+  base64(HMAC-SHA256), unpadded. A single shared key would make every business the same `kb_tenants` row and the
+  two-tenant promotion rule could never fire. An explicit `KB_API_KEY` still wins.
+- Test businesses (`Tenant::isTest()`) read the commons but never contribute (`publishLesson` returns false).
+- Only layout/SKU facts are shared at one tenant and nothing reads them yet; category/tax facts reach other
+  businesses only once two tenants confirm or the hub owner curates the vendor (`curateVendor`).
+
+Trust boundary: `KB_HUB_SECRET` lives in the one secrets.php shared by every business on this install, so derived keys prove
+"a business on this install", not control of one business; that is by design. A business on a *different* install must use an
+issued `KB_API_KEY` row, not the derived key.
 
 ## Connecting a new tenant
 
-1. On the hub: insert a `kb_tenants` row (name, discipline, `api_key_hash = sha256(key)`, `tenant_hash`).
-2. On the tenant: run migration 1330 (its own `kb_*` tables are used only for `kb_category_map` and
-   `kb_cache`), set `KB_MODE`, `KB_HUB_URL`, `KB_API_KEY`, map its categories in `kb_category_map`.
-3. Run `/crm/api/kb-backfill.php` once if it already has vendors.
+1. secrets.php (Tim only): `define('KB_HUB_URL', 'https://mowology.ca/api/knowledge/vendor.php');` and
+   `define('KB_HUB_SECRET', '<openssl rand -base64 32>');`. The URL must be the default business's host: the endpoint
+   reads whichever database the host belongs to.
+2. Nothing to register: a business's first call carries `X-KB-Tenant` plus its derived key; the hub
+   (`public/api/knowledge/vendor.php`, `mayAutoRegister`) checks the business is in the registry and the key matches the
+   HMAC, then adds its `kb_tenants` row. Deactivating a row (`is_active = 0`) blocks that business.
+   `scripts/kb-register-tenants.php` (prod-run) can still pre-register every business.
+3. The tenant needs migration 1330 tables `kb_cache` and `kb_category_map` (cache is optional in code).
+4. Run `/crm/api/kb-backfill.php` once if it already has vendors.
 
 ## Operating notes
 

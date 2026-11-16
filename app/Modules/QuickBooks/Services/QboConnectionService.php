@@ -205,7 +205,17 @@ class QboConnectionService
                  ->execute([mb_substr((string)($ci['CompanyName'] ?? ''), 0, 255) ?: null, mb_substr((string)($ci['Country'] ?? ''), 0, 8) ?: null, $this->siteId]);
         $pull = $this->pull();
         $name = (string)($ci['CompanyName'] ?? 'your QuickBooks company');
-        return ['ok' => true, 'message' => 'Connected to ' . $name . '.' . ($pull['ok'] ? ' ' . $pull['message'] : ' ' . $pull['message'])];
+        $message = 'Connected to ' . $name . '. ' . $pull['message'];
+        if ($pull['ok']) {
+            try {
+                require_once __DIR__ . '/QboAutoSetupService.php';
+                $auto = (new QboAutoSetupService($this))->run();
+                if ($auto['message'] !== '') $message .= ' ' . $auto['message'];
+            } catch (Throwable $e) {
+                error_log('QuickBooks automatic setup after connect failed: ' . $e->getMessage());
+            }
+        }
+        return ['ok' => true, 'message' => $message];
     }
 
     /** Disconnect: revoke at Intuit (best effort) and forget the tokens. Mappings are kept for a reconnect. */
@@ -463,7 +473,9 @@ class QboConnectionService
         $norm = fn(string $s) => trim((string)preg_replace('/[^a-z0-9]+/', ' ', strtolower(preg_replace('/^.*:/', '', $s))));
         $want = $norm($ittaiName);
         if ($want === '') return null;
-        foreach ($remote as $r) if ($norm($r['name']) === $want) return (string)$r['qbo_id'];
+        $exact = array_values(array_filter($remote, fn($r) => $norm($r['name']) === $want));
+        if (count($exact) === 1) return (string)$exact[0]['qbo_id'];
+        if (count($exact) > 1) return null;
         $hits = array_values(array_filter($remote, function ($r) use ($norm, $want) {
             $n = $norm($r['name']);
             return $n !== '' && (strpos($n, $want) !== false || strpos($want, $n) !== false);

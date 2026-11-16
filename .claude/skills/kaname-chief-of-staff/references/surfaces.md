@@ -25,7 +25,7 @@
 
 | Feature | iPhone | Web / Android | Server (one place) | Gap |
 |---|---|---|---|---|
-| Opening brief (brain → ITTAI → strapline → brain flips to Kaname's face → brief) | `OpeningOverlay`, ready copy (`ready=1`), plays every open (`oncePerDay = false`) | none | `HeadBriefReadyService` | web has no opening brief (the dashboard card is the equivalent) |
+| Opening brief (brain → ITTAI → strapline → brain flips to Kaname's face → brief) | `OpeningOverlay`, ready copy (`ready=1`), plays when the server says so (`open_now` from `KanameOpenRule`: once a day, again only for new urgent); the phone sends back `shown_day` / `shown_urgent`; no answer = no card. Developer flag `-mwAlwaysBrief` (DEBUG) | **Android still plays every open** (`BRIEF_ONCE_PER_DAY = false`, `wantsBrief = { true }` in `DayScreens.kt`) | `HeadBriefReadyService` + `KanameOpenRule` | Android owed; web has no opening brief (the dashboard card is the equivalent) |
 | Order of brief lines | phone re-sorts: new first, then priority; 3 lines | score order (`CharlieRankService::rank()`) | `CharlieRankService` | iPhone ignores score — order can differ from the web |
 | Which lines | Kaname's column only (deadlines, House) | the one thing + every head's top 3 | `CharlieDeskService::today()` | other heads' lines are not on the iPhone opening screen |
 | Kaname's card items | Team tab, top 3 of Kaname's column | Kaname card + Action Board column | `TeamCardService::column()` | — |

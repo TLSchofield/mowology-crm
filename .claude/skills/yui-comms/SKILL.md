@@ -18,7 +18,7 @@ covers:
   - tools/messages-bridge/*
   - ios/MowologyCRM/MowologyCRM/Features/Team/*
 metadata:
-  version: 1.2.0
+  version: 1.2.1
   created: 2026-10-11
   owner: Tim Schofield (Mowology)
 ---
@@ -106,7 +106,7 @@ written**, **how Yui is allowed to act**, and **where each job lives in code**.
 | An unhappy client: first in the list, acknowledgement-only draft | `UpsetSignal::assess()` / `UpsetSignal::draftRule()` | Yui's card, Claude draft |
 | What to look at twice in a drafted reply (a price, a date or a length the conversation does not support) | `DraftChecks::check()` via `YuiDraftService::draftReply()` flag_label | Yui's card |
 | Text rules check | `YuiRules::smsProblems()` (wraps `SamFollowupService::smsProblems()`) | Yui send, `public/crm/js/yui-card.js` mirror |
-| Supplier mail + business licence | `SupplierInboxService::poll()` | inside sales_inbox_poll (office@ + iCloud) |
+| Supplier mail + business licence; each verified sender kept as a supplier contact (headers only, 2026-11-15) | `SupplierInboxService::poll()` → `SupplierContactService::sawInMail()` | inside sales_inbox_poll (office@ + iCloud) |
 | Facts in mail/money (strata, roles, details) | `ClueService` (`app/Modules/Comms/Cron/clues_daily.php`) | Yui + Penny clues |
 | Customer texts from Tim's iPhone | `TextBridgeService::ingest()` + `tools/messages-bridge/bridge.py` | Sam/Yui history |
 | Personal texts out of the record (unknown number or saved contact) | `TextBridgeService::markPersonal()` / `TextBridgeService::markContactPersonal()` | Yui's text panel (owner only) |

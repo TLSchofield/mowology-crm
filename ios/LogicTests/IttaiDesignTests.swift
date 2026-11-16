@@ -185,5 +185,13 @@ for mode in ItMode.allCases {
     check(p.hex(.statusComplete) == ItPalette(mode).hex(.statusComplete), "ittai brand \(mode) leaves status colours alone")
 }
 
+// Brand colours for all (owner 2026-11-14): with the switch off, tenant == brand in every mode.
+check(ItTenantColours.enabled == false, "tenant colours switch is off")
+for mode in [ItMode.light, .dark, .field] {
+    let p = ItPalette(mode)
+    check(p.hex(.tenant) == p.hex(.brand), "tenant == brand in \(mode)")
+    check(p.hex(.tenantMark) == p.hex(.brand), "tenantMark == brand in \(mode)")
+}
+
 print(fails == 0 ? "Ittai design checks: all passed" : "Ittai design checks: \(fails) FAILED")
 exit(fails == 0 ? 0 : 1)

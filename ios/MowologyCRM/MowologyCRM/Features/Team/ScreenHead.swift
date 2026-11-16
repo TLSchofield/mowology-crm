@@ -2,95 +2,261 @@
 //  ScreenHead.swift
 //  MowologyCRM
 //
-//  The head of department who owns a work screen (docs/plans/kaname-tab-and-screen-heads-spec.md §2):
-//  Otto on Schedule and Time, Penny on Receipts. Their face sits in the screen's title bar; a line under the title
-//  appears only when they need you and the screen has no card of its own saying so. Admins only — crew see neither.
-//  Kaname himself is the centre tab, never a face here. Both read the ready brief's per-head states
-//  (ReadyBriefStore, an environment object set by MainTabView); a tap opens that head's workspace in Kaname's tab.
-//
 
+import Foundation
+
+/// Pure decisions for the two-line work-screen header. Kept free of SwiftUI so the
+/// command-line logic suite can prove role, dismissal, and select-mode behaviour.
+struct ScreenHeaderRules: Equatable {
+    let showsHeadLine: Bool
+    let stateText: String?
+    let showsReview: Bool
+    let showsTimeChip: Bool
+    let showsRefresh: Bool
+
+    static func reason(live: String?, demo: String?, isDemo: Bool) -> String? {
+        isDemo ? demo : live
+    }
+
+    static func resolve(
+        isAdmin: Bool,
+        reason: String?,
+        dismissedReason: String?,
+        isSelecting: Bool
+    ) -> Self {
+        guard isAdmin else {
+            return Self(
+                showsHeadLine: false,
+                stateText: nil,
+                showsReview: false,
+                showsTimeChip: !isSelecting,
+                showsRefresh: !isSelecting
+            )
+        }
+
+        let readableReason = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let needsReview = readableReason?.isEmpty == false && readableReason != dismissedReason
+        return Self(
+            showsHeadLine: true,
+            stateText: needsReview ? readableReason : "All clear",
+            showsReview: needsReview,
+            showsTimeChip: !isSelecting,
+            showsRefresh: !isSelecting
+        )
+    }
+}
+
+#if !SCREEN_HEADER_LOGIC_ONLY
 import SwiftUI
 
-/// The owning head's face, 28 pt with their state ring, for a screen's leading title-bar slot.
-struct ScreenHeadFace: View {
+/// The common header for Schedule, Receipts, and Time Clock. A safe-area inset owns
+/// its height, so Dynamic Type can stack either line without covering screen content.
+struct ScreenHeader<Title: View, SecondaryActions: View>: View {
     let slug: String
+    let isSelecting: Bool
+    let isRefreshing: Bool
+    let headOnly: Bool
+    let onRefresh: () -> Void
+    let title: () -> Title
+    let secondaryActions: () -> SecondaryActions
+
     @EnvironmentObject private var authSession: AuthSession
     @EnvironmentObject private var store: ReadyBriefStore
+    @Environment(\.it) private var it
+    @Environment(\.itAppStyle) private var appStyle
     @AppStorage("ittai.design.field") private var field = false
+    @AppStorage private var dismissed: String
+
+    init(
+        slug: String,
+        isSelecting: Bool = false,
+        isRefreshing: Bool = false,
+        headOnly: Bool = false,
+        onRefresh: @escaping () -> Void,
+        @ViewBuilder title: @escaping () -> Title,
+        @ViewBuilder secondaryActions: @escaping () -> SecondaryActions
+    ) {
+        self.slug = slug
+        self.isSelecting = isSelecting
+        self.isRefreshing = isRefreshing
+        self.headOnly = headOnly
+        self.onRefresh = onRefresh
+        self.title = title
+        self.secondaryActions = secondaryActions
+        _dismissed = AppStorage(wrappedValue: "", "screenHead.dismissed.\(slug)")
+    }
+
+    private var head: TeamHead? { TeamHead.all.first(where: { $0.slug == slug }) }
+
+    private var demoReason: String? {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-mwScreenHeaderDemo") else { return nil }
+        switch slug {
+        case "penny": return "Three receipts need your review"
+        default: return nil
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    private var isDemo: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-mwScreenHeaderDemo")
+        #else
+        false
+        #endif
+    }
+
+    private var rules: ScreenHeaderRules {
+        ScreenHeaderRules.resolve(
+            isAdmin: isDemo || authSession.user?.isAdmin == true,
+            reason: ScreenHeaderRules.reason(
+                live: ScreenHead.needsYou(slug, store),
+                demo: demoReason,
+                isDemo: isDemo
+            ),
+            dismissedReason: isDemo ? nil : dismissed,
+            isSelecting: isSelecting
+        )
+    }
 
     var body: some View {
-        if authSession.user?.isAdmin == true, let head = TeamHead.all.first(where: { $0.slug == slug }) {
-            Button { ScreenHead.open(slug) } label: {
-                ItPortrait(name: head.name, url: head.faceURL, state: ScreenHead.state(slug, store), size: 28)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
+        Group {
+            if rules.showsHeadLine || !headOnly {
+                VStack(spacing: 0) {
+                    if rules.showsHeadLine, let head {
+                        headLine(head)
+                    }
+                    if !headOnly { controlsLine }
+                }
+                .background(it.surface)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(it.line).frame(height: ItStroke.hairline)
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(head.name), \(head.role)")
-            .accessibilityHint("Opens \(head.name)'s workspace")
-            .ittaiTheme(field: field)
+        }
+        .ittaiTheme(field: field)
+    }
+
+    private func headLine(_ head: TeamHead) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: ItSpace.s2) { headIdentity(head); Spacer(minLength: ItSpace.s2); headState }
+            VStack(alignment: .leading, spacing: ItSpace.s1) { headIdentity(head); headState }
+        }
+        .padding(.horizontal, ItSpace.s4)
+        .frame(minHeight: ItSize.targetPhone)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func headIdentity(_ head: TeamHead) -> some View {
+        Button { ScreenHead.open(slug) } label: {
+            HStack(spacing: ItSpace.s2) {
+                ItPortrait(name: head.name, url: head.faceURL, state: ScreenHead.state(slug, store), size: ItSize.hexCompact)
+                Text(head.name)
+                    .itText(.body14)
+                    .foregroundStyle(it.text)
+                Text("AI")
+                    .font(appStyle.font(.caption2, weight: .semibold))
+                    .foregroundStyle(it.color(.brand))
+                    .padding(.horizontal, ItSpace.s2)
+                    .padding(.vertical, ItSpace.s1)
+                    .overlay { Capsule().stroke(it.color(.brand), lineWidth: ItStroke.hairline) }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(head.name), AI head of department")
+        .accessibilityHint("Opens \(head.name)'s workspace")
+    }
+
+    private var headState: some View {
+        HStack(spacing: ItSpace.s1) {
+            Text(rules.stateText ?? "All clear")
+                .font(appStyle.font(.caption, weight: .semibold))
+                .foregroundStyle(it.meta)
+                .fixedSize(horizontal: false, vertical: true)
+            if rules.showsReview {
+                Button("Review") { ScreenHead.open(slug) }
+                    .font(appStyle.font(.caption, weight: .semibold))
+                    .foregroundStyle(it.color(.brand))
+                    .frame(minHeight: ItSize.targetPhone)
+                Button { dismissed = demoReason ?? ScreenHead.needsYou(slug, store) ?? "" } label: {
+                    Image(systemName: "xmark")
+                        .foregroundStyle(it.meta)
+                        .frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss until the reason changes")
+            }
+        }
+    }
+
+    private var controlsLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: ItSpace.s2) { controlsTitle; Spacer(minLength: ItSpace.s2); controls }
+            VStack(alignment: .leading, spacing: ItSpace.s1) { controlsTitle; controls }
+        }
+        .padding(.horizontal, ItSpace.s4)
+        .frame(minHeight: ItSize.targetPhone)
+    }
+
+    private var controlsTitle: some View {
+        title()
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
+    }
+
+    private var controls: some View {
+        HStack(spacing: ItSpace.s1) {
+            if rules.showsTimeChip { TimeChip() }
+            if rules.showsRefresh {
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(it.color(.brand))
+                        .frame(minWidth: ItSize.targetPhone, minHeight: ItSize.targetPhone)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+                .accessibilityLabel("Refresh")
+            }
+            secondaryActions()
         }
     }
 }
 
-/// "Otto: …" under the title, only while the head is waiting for approval or blocked and gave a reason.
-/// Dismissed, it stays away until the reason changes.
-struct ScreenHeadLine: View {
-    let slug: String
-    @EnvironmentObject private var authSession: AuthSession
-    @EnvironmentObject private var store: ReadyBriefStore
-    @AppStorage("ittai.design.field") private var field = false
-    @AppStorage private var dismissed: String
+extension ScreenHeader where SecondaryActions == EmptyView {
+    init(
+        slug: String,
+        isSelecting: Bool = false,
+        isRefreshing: Bool = false,
+        onRefresh: @escaping () -> Void,
+        @ViewBuilder title: @escaping () -> Title
+    ) {
+        self.init(
+            slug: slug,
+            isSelecting: isSelecting,
+            isRefreshing: isRefreshing,
+            headOnly: false,
+            onRefresh: onRefresh,
+            title: title,
+            secondaryActions: { EmptyView() }
+        )
+    }
+}
 
+extension ScreenHeader where Title == EmptyView, SecondaryActions == EmptyView {
+    /// The owning-head line for a pushed work screen. The destination keeps its own
+    /// navigation title, toolbar, and refresh behaviour unchanged.
     init(slug: String) {
-        self.slug = slug
-        _dismissed = AppStorage(wrappedValue: "", "screenHead.dismissed.\(slug)")
-    }
-
-    var body: some View {
-        if authSession.user?.isAdmin == true,
-           let head = TeamHead.all.first(where: { $0.slug == slug }),
-           let reason = ScreenHead.needsYou(slug, store), reason != dismissed {
-            Row(head: head, state: ScreenHead.state(slug, store), reason: reason) { dismissed = reason }
-                .ittaiTheme(field: field)
-        }
-    }
-
-    private struct Row: View {
-        let head: TeamHead
-        let state: ItEmployeeState?
-        let reason: String
-        let onDismiss: () -> Void
-        @Environment(\.it) private var it
-
-        var body: some View {
-            HStack(spacing: ItSpace.s2) {
-                Button { ScreenHead.open(head.slug) } label: {
-                    HStack(spacing: ItSpace.s2) {
-                        ItPortrait(name: head.name, url: head.faceURL, state: state, size: 24)
-                        Text("\(head.name): \(reason)")
-                            .itText(.body14)
-                            .foregroundStyle(it.text)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens \(head.name)'s workspace")
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark").foregroundStyle(it.meta)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss until something changes")
-            }
-            .padding(.leading, ItSpace.s4)
-            .background(it.surface)
-            .overlay(alignment: .bottom) { Rectangle().fill(it.line).frame(height: 1) }
-        }
+        self.init(
+            slug: slug,
+            headOnly: true,
+            onRefresh: {},
+            title: { EmptyView() },
+            secondaryActions: { EmptyView() }
+        )
     }
 }
 
@@ -100,16 +266,15 @@ enum ScreenHead {
         store.response?.heads?[slug]?.state.flatMap(ItEmployeeState.init(rawValue:))
     }
 
-    /// The reason to interrupt, or nil: only approval / blocked with a readable reason.
     static func needsYou(_ slug: String, _ store: ReadyBriefStore) -> String? {
-        guard let s = state(slug, store), s == .approval || s == .blocked,
+        guard let state = state(slug, store), state == .approval || state == .blocked,
               let reason = store.response?.heads?[slug]?.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
               !reason.isEmpty else { return nil }
         return reason
     }
 
-    /// MainTabView follows pendingHead to Kaname's tab; TeamView opens the head's workspace.
     static func open(_ slug: String) {
         NotificationRouter.shared.pendingHead = HeadRoute(head: slug, quoteId: nil)
     }
 }
+#endif

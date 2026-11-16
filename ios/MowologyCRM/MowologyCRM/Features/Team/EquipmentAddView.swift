@@ -212,17 +212,26 @@ struct OttoAddEquipmentButton: View {
     @State private var showingList = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                showing = true
-            } label: {
-                Label("Add — snap the plate", systemImage: "camera.viewfinder")
-                    .frame(maxWidth: .infinity)
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    showing = true
+                } label: {
+                    Label("Add — snap the plate", systemImage: "camera.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                Button {
+                    showingList = true
+                } label: {
+                    Label("Equipment", systemImage: "list.bullet")
+                        .frame(maxWidth: .infinity)
+                }
             }
+            // The same label capture as Receipts' ⋯ menu: MainTabView brings Receipts forward and ReceiptsView opens the camera.
             Button {
-                showingList = true
+                NotificationCenter.default.post(name: .mwSnapLabel, object: nil)
             } label: {
-                Label("Equipment", systemImage: "list.bullet")
+                Label("Snap a product label", systemImage: "tag.fill")
                     .frame(maxWidth: .infinity)
             }
         }

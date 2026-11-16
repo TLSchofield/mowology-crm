@@ -7,7 +7,7 @@
 
 import Foundation
 
-private let baseURLString = Server.api.absoluteString
+private var baseURLString: String { Server.api.absoluteString }
 
 /// Enumeration of every API endpoint the app communicates with.
 /// Each case resolves to a `URL` and declares whether it requires an
@@ -216,6 +216,10 @@ enum APIEndpoint {
     /// review-form lookups shared with the Android review card (JWT). Uses `type=`
     /// because the /api/ router's rewrite appends its own `action` param.
     case expenseLookup(query: [URLQueryItem])
+
+    /// GET /api/expenses/expense-lookup?type=vendor_items&vendor_id=N — a supplier's
+    /// learned receipt lines and active catalogue, for the offline item picker.
+    case vendorItems(vendorId: Int)
 
     /// POST /api/expenses/expense-delete — delete an own draft expense (JWT). Body: { id }
     case expenseDelete
@@ -509,7 +513,7 @@ enum APIEndpoint {
         case .teamHeadBriefReady(let head):
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head),
-                                      URLQueryItem(name: "ready", value: "1")]
+                                      URLQueryItem(name: "ready", value: "1")] + MorningBriefStore.shownQueryItems
             return components?.url
 
         case .teamHeadAction:
@@ -565,6 +569,14 @@ enum APIEndpoint {
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
             components?.queryItems = query
+            return components?.url
+
+        case .vendorItems(let vendorId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
+            components?.queryItems = [
+                URLQueryItem(name: "type", value: "vendor_items"),
+                URLQueryItem(name: "vendor_id", value: "\(vendorId)"),
+            ]
             return components?.url
 
         case .expenseDelete:
@@ -799,6 +811,7 @@ enum APIEndpoint {
              .ottoMissedReview,
              .ottoMissedReviewAction,
              .expenseLookup,
+             .vendorItems,
              .expenseDelete,
              .expenseLineItems,
              .expenseLineItemAction,
@@ -905,6 +918,7 @@ enum APIEndpoint {
              .pennyKnowledgeItems,
              .ottoMissedReview,
              .expenseLookup,
+             .vendorItems,
              .expenseLineItems,
              .scheduleJobs,
              .scheduleInvoices,

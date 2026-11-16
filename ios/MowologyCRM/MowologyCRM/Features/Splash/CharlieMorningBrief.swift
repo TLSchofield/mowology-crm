@@ -54,11 +54,30 @@ enum MorningBriefStore {
         return f.string(from: d)
     }
 
-    /// Owner, 2026-10-11: the brief plays on EVERY open until he says to go back to once a day.
-    /// Set to true to restore the once-a-day rule.
-    static let oncePerDay = false
-    static var shownToday: Bool { oncePerDay && UserDefaults.standard.string(forKey: shownKey) == dayString() }
-    static func markShown() { UserDefaults.standard.set(dayString(), forKey: shownKey) }
+    // Owner, 2026-11-13: not on every open. The SERVER decides (KanameOpenRule: once a day on the first open with something
+    // to say, again the same day only for something new and urgent); this phone only remembers what it last showed and
+    // sends it back with the next request (shown_day, shown_urgent).
+    private static let shownUrgentKey = "mw.morningBrief.shownUrgent.v1"
+    static let maxShownUrgent = 50
+
+    static var shownDay: String? { UserDefaults.standard.string(forKey: shownKey) }
+    static var shownUrgent: [String] { UserDefaults.standard.stringArray(forKey: shownUrgentKey) ?? [] }
+
+    /// What the next ready-brief request tells the server this phone has already shown.
+    static var shownQueryItems: [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let d = shownDay { items.append(URLQueryItem(name: "shown_day", value: d)) }
+        let u = shownUrgent
+        if !u.isEmpty { items.append(URLQueryItem(name: "shown_urgent", value: u.joined(separator: ","))) }
+        return items
+    }
+
+    /// Called when the card actually plays: the server's day and the urgent ids it carried.
+    static func markShown(day: String?, urgentIds: [String]) {
+        UserDefaults.standard.set(day ?? dayString(), forKey: shownKey)
+        let all = Array((shownUrgent + urgentIds.filter { !shownUrgent.contains($0) }).suffix(maxShownUrgent))
+        UserDefaults.standard.set(all, forKey: shownUrgentKey)
+    }
 
     static func load() -> MorningBriefSnapshot? {
         guard let d = UserDefaults.standard.data(forKey: snapshotKey) else { return nil }
@@ -107,6 +126,10 @@ final class MorningBriefLoader: ObservableObject {
 
     @Published private(set) var finished = false
 
+    /// The server's answer to "play the card now?" (nil: older server, or no answer — then it stays quiet).
+    struct OpenVerdict: Equatable { var openNow: Bool; var reason: String; var day: String?; var urgentIds: [String] }
+    @Published private(set) var verdict: OpenVerdict?
+
     /// Today's brief, with the saved one meanwhile. Never cancelled: a live build reads every head's
     /// desk (~7 s, measured 2026-10-10) — the old 2.5 s cut-off meant the brief never arrived.
     /// The server now keeps it ready (?ready=1, HeadBriefReadyService), so it is normally instant.
@@ -114,6 +137,7 @@ final class MorningBriefLoader: ObservableObject {
     func load(authSession: AuthSession) async {
         snapshot = MorningBriefStore.load()
         isFresh = false
+        verdict = nil
         finished = false
         defer { finished = true }
         let client = APIClient(authSession: authSession)
@@ -124,6 +148,13 @@ final class MorningBriefLoader: ObservableObject {
             let s = MorningBriefStore.build(headline: r.headline, items: r.items, quote: r.quote)
             MorningBriefStore.save(s)
             snapshot = s
+            verdict = r.openNow.map { OpenVerdict(openNow: $0, reason: r.openReason ?? "", day: r.openDay, urgentIds: r.urgentIds) }
+            #if DEBUG
+            // Developer override: see the card after every new build (the 2026-10-11 reason for the old every-open rule).
+            if ProcessInfo.processInfo.arguments.contains("-mwAlwaysBrief") {
+                verdict = OpenVerdict(openNow: true, reason: "debug", day: r.openDay, urgentIds: r.urgentIds)
+            }
+            #endif
             isFresh = true
         }
     }
@@ -134,12 +165,18 @@ final class MorningBriefLoader: ObservableObject {
 struct OpeningOverlay: View {
     /// waiting = the splash has gone and the app is usable; Charlie's small brain sits top left
     /// with the dots until his brief arrives, then the card lands.
-    enum Phase { case splash, waiting, brief, done }
+    enum Phase { case splash, waiting, brief, welcome, done }
 
     /// Asked when the spin ends (not at launch: the login may still be loading then).
-    let wantsBrief: () -> Bool?         // admin + first open today; nil = login still loading
+    let wantsBrief: () -> Bool?         // admin + the server says play it now (KanameOpenRule); nil = login or verdict still loading
     @ObservedObject var loader: MorningBriefLoader
+    /// The one-time welcome for a person who has never seen it for this business; nil = none (the usual brief rules apply).
+    var welcome: () -> KanameWelcomeCard? = { nil }
+    /// The welcome's primary button, called once the overlay has gone.
+    var onWelcomeAction: (KanameWelcome.Entry) -> Void = { _ in }
     var onFinish: () -> Void
+
+    @State private var welcomeCard: KanameWelcomeCard?
 
     @AppStorage("mw.opening.lightBackground") private var light = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -191,6 +228,12 @@ struct OpeningOverlay: View {
                         .padding(.top, top + 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                if phase == .welcome, let card = welcomeCard {
+                    welcomeView(card, brainSlot: small)
+                        .padding(.horizontal, 16)
+                        .padding(.top, top + 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 if !showingAssembly && (phase == .splash || phase == .waiting) {
                     let big = phase == .splash
                     OrbitDots(color: light ? Color.MW.green : Color.MW.lime, radius: (big ? bigSize : small) * 0.62)
@@ -234,10 +277,10 @@ struct OpeningOverlay: View {
                     // view fills the screen and could swallow taps meant for the brief.
                     .contentShape(Circle())
                     .onTapGesture {
-                        guard phase == .brief else { return }
+                        guard phase == .brief || phase == .welcome else { return }
                         withAnimation(.easeInOut(duration: 0.45)) { showFace.toggle() }
                     }
-                    .allowsHitTesting(phase == .brief)
+                    .allowsHitTesting(phase == .brief || phase == .welcome)
                     .accessibilityLabel(showFace ? "Kaname" : "Kaname's brain")
                     .shadow(color: .black.opacity(light ? 0.18 : 0), radius: phase == .splash ? 18 : 4, y: phase == .splash ? 10 : 2)
                     .position(phase == .splash ? center : corner)
@@ -283,6 +326,16 @@ struct OpeningOverlay: View {
             if want == false || (want == true && loader.isFresh) { break }
             try? await Task.sleep(nanoseconds: 200_000_000); waited += 0.2
         }
+        // The first time this person opens the app for this business: the welcome, instead of the brief.
+        if let card = welcome() {
+            welcomeCard = card
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .welcome }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation(.easeInOut(duration: 0.5)) { showFace = true }
+            }
+            return
+        }
         let showBrief = wantsBrief() == true
         if showBrief && !loader.isFresh {
             // Not here yet: open the app and keep Charlie thinking in the corner (up to 20 s more).
@@ -294,7 +347,7 @@ struct OpeningOverlay: View {
             }
         }
         if showBrief, let s = loader.snapshot, !s.headline.isEmpty || !s.lines.isEmpty {
-            MorningBriefStore.markShown()
+            MorningBriefStore.markShown(day: loader.verdict?.day, urgentIds: loader.verdict?.urgentIds ?? [])
             withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { phase = .brief }
             // Landed: the brain turns over to show who is talking.
             Task { @MainActor in
@@ -315,6 +368,57 @@ struct OpeningOverlay: View {
     private func close() {
         withAnimation(.easeInOut(duration: 0.35)) { phase = .done }
         onFinish()
+    }
+
+    /// Marked seen on the button or Later, never on display.
+    private func finishWelcome(_ card: KanameWelcomeCard, action: Bool) {
+        KanameWelcome.markSeen(host: card.host, userId: card.userId)
+        close()
+        if action {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { onWelcomeAction(card.entry) }
+        }
+    }
+
+    @ViewBuilder
+    private func welcomeView(_ card: KanameWelcomeCard, brainSlot: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Color.clear.frame(width: brainSlot, height: brainSlot)   // the brain lands here
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Kaname").font(.headline).foregroundStyle(ink)
+                    Text("Chief of Staff").font(.caption).foregroundStyle(ink.opacity(0.65))
+                }
+                Spacer(minLength: 0)
+            }
+            Text(KanameWelcome.headline(firstName: card.firstName))
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(KanameWelcome.body)
+                .font(.subheadline).foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(KanameWelcome.entryLine(card.entry))
+                .font(.subheadline).foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button(KanameWelcome.laterButton) { finishWelcome(card, action: false) }
+                    .font(.subheadline)
+                    .foregroundStyle(ink.opacity(0.7))
+                Spacer()
+                Button(KanameWelcome.primaryButton(card.entry)) { finishWelcome(card, action: true) }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(Color.MW.green, in: Capsule())
+                    .foregroundStyle(.white)
+            }
+            .padding(.top, 4)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(background)
+                .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
+        )
     }
 
     @ViewBuilder
