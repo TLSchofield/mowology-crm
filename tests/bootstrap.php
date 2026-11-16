@@ -100,6 +100,7 @@ require_once __DIR__ . '/../app/Core/Auth/JwtService.php';
 // One phone sign-in for every business (2026-11-11): token.php's check + token, and the ittai.ca directory
 require_once __DIR__ . '/../app/Core/Auth/PhoneSignIn.php';
 require_once __DIR__ . '/../app/Modules/Auth/Services/BusinessDirectory.php';
+require_once __DIR__ . '/../app/Modules/Auth/Services/AppTokenService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/PasswordChangeRules.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/PortalProfileAudit.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';

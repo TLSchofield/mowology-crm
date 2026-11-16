@@ -52,6 +52,8 @@ final class PhoneSignInTest extends TestCase
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, username TEXT, password_hash TEXT, full_name TEXT, role TEXT, is_active INTEGER, last_login TEXT)');
         $db->exec('CREATE TABLE activity_log (id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT, details TEXT, ip_address TEXT)');
+        // H2 (migration 1458): every sign-in is recorded before its token is handed out.
+        $db->exec('CREATE TABLE app_token_sessions (jti TEXT PRIMARY KEY, user_id INTEGER NOT NULL, platform TEXT NOT NULL DEFAULT \'ios\', created_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT NULL)');
         $db->exec('CREATE TABLE business_settings (id INTEGER PRIMARY KEY, company_name TEXT, company_phone TEXT, company_email TEXT, company_website TEXT, company_address TEXT)');
         $db->exec("INSERT INTO business_settings (company_name) VALUES ('Greenleaf Gardens')");
         $ins = $db->prepare('INSERT INTO users (id, email, username, password_hash, full_name, role, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -89,7 +91,7 @@ final class PhoneSignInTest extends TestCase
         $this->assertSame(30 * 24 * 3600, $r['expires_in']);
 
         $c = self::claims($r['token']);
-        $this->assertSame(['iss', 'aud', 'sub', 'email', 'name', 'role', 'iat', 'exp', 'pwd_v', 'biz'], array_keys($c));
+        $this->assertSame(['iss', 'aud', 'sub', 'email', 'name', 'role', 'iat', 'exp', 'pwd_v', 'biz', 'jti'], array_keys($c));
         $this->assertSame('ios', $c['aud']);
         $this->assertSame('7', $c['sub']);
         $this->assertSame('greenleaf', $c['biz']);
@@ -197,6 +199,12 @@ final class PhoneSignInTest extends TestCase
         Tenant::forTests(null);
         $this->assertNull(validateJwtToken(PhoneSignIn::token($user, 'greenleaf', 'mobile', BLUEMOON_JWT_SECRET, time())[0]));
         $this->assertNotNull(validateJwtToken(PhoneSignIn::token($user, 'default', 'mobile', BLUEMOON_JWT_SECRET, time())[0]));
-        $this->assertNotNull(validateJwtToken(generateMobileJwt($user, 120)), 'no biz claim: accepted as before');
+        // A token with no biz claim (issued before the claim existed) is judged by its signature alone. Built by hand:
+        // generateMobileJwt() now records the sign-in in the database, which this test does not have.
+        $b64 = fn(string $s): string => rtrim(strtr(base64_encode($s), '+/', '-_'), '=');
+        $head = $b64(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
+        $body = $b64(json_encode(['iss' => 'mowology', 'aud' => 'ios', 'sub' => '3', 'iat' => time(), 'exp' => time() + 120]));
+        $sig  = $b64(hash_hmac('sha256', $head . '.' . $body, BLUEMOON_JWT_SECRET, true));
+        $this->assertNotNull(validateJwtToken($head . '.' . $body . '.' . $sig), 'no biz claim: accepted as before');
     }
 }

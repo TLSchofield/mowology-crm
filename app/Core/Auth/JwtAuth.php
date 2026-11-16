@@ -19,6 +19,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/AuthFreshness.php';
+require_once __DIR__ . '/../../Modules/Auth/Services/AppTokenService.php';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,13 @@ function jwtCurrentUser(int $userId, ?array $payload = null): ?array
     if ($payload !== null && !AuthFreshness::jwtPasswordOk($payload, (string)($u['password_hash'] ?? ''))) {
         return null;
     }
+    // H2 (2026-11-16): this one sign-in must still be on record and not revoked. A token with no jti (issued
+    // before the record existed) has no row and is refused, so each phone signs in once more.
+    // No payload means no token was checked, so there is nothing to accept: refuse (fail closed).
+    if ($payload === null) return null;
+    $jti = (string)($payload['jti'] ?? '');
+    $row = AppTokenService::find(getDB(), $jti);
+    if (AppTokenService::refusal($row, $userId) !== null) return null;
     unset($u['password_hash']);
     return $u;
 }

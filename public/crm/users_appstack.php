@@ -142,6 +142,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     logActivity($user['id'], null, 'Changed password for user #' . $targetUserId, null);
                     break;
 
+                // ── Sign one app (phone) out (H2, 2026-11-16) ─────
+                case 'sign_out_app_sign_in':
+                    $targetUserId = (int)($_POST['user_id'] ?? 0);
+                    $jti          = (string)($_POST['jti'] ?? '');
+                    if ($targetUserId <= 0) {
+                        throw new Exception('Invalid user ID.');
+                    }
+                    require_once APP_ROOT . '/Modules/Auth/Services/AppTokenService.php';
+                    if (AppTokenService::revoke($db, $jti, $targetUserId, time())) {
+                        $flash = 'That phone is signed out. It will need to sign in again.';
+                        logActivity($user['id'], null, 'Signed out an app sign-in for user #' . $targetUserId, null);
+                    } else {
+                        $flash = 'That sign-in had already ended.';
+                    }
+                    break;
+
                 default:
                     throw new Exception('Unknown action.');
             }
@@ -298,6 +314,9 @@ $csrfToken = generateCSRFToken();
                       <button class="btn btn-sm btn-outline-secondary ml-1" data-toggle="modal" data-target="#pwModal<?php echo $uid; ?>">
                         <i data-feather="lock" style="width:14px;height:14px"></i> Password
                       </button>
+                      <button class="btn btn-sm btn-outline-secondary ml-1" data-toggle="modal" data-target="#appSignInsModal<?php echo $uid; ?>">
+                        <i data-feather="smartphone" style="width:14px;height:14px"></i> Phones
+                      </button>
                       <?php if ($uid !== $user['id']): ?>
                       <form method="post" class="d-inline ml-1" onsubmit="return confirm('<?php echo $u['is_active'] ? 'Deactivate' : 'Reactivate'; ?> this user?')">
                         <input type="hidden" name="csrf_token" value="<?php echo h($csrfToken); ?>">
@@ -351,6 +370,53 @@ $csrfToken = generateCSRFToken();
               </div>
             </div>
           </div>
+
+          <!-- App (phone) sign-ins: sign one out, e.g. a lost phone (H2) -->
+          <?php
+          require_once APP_ROOT . '/Modules/Auth/Services/AppTokenService.php';
+          foreach ($users as $u):
+            $uid = (int)$u['id'];
+            $appSignIns = AppTokenService::activeFor($db, $uid, time());
+          ?>
+          <div class="modal fade" id="appSignInsModal<?php echo $uid; ?>" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Phones signed in: <?php echo h($u['full_name'] ?: $u['email']); ?></h5>
+                  <button type="button" class="close" data-dismiss="modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                  <?php if (!$appSignIns): ?>
+                    <p class="text-muted mb-0">No phone is signed in to the app for this person.</p>
+                  <?php else: ?>
+                    <p class="small text-muted">Signing a phone out makes its app sign in again. Other phones stay signed in.</p>
+                    <table class="table table-sm mb-0">
+                      <thead><tr><th>Platform</th><th>Signed in</th><th>Good until</th><th></th></tr></thead>
+                      <tbody>
+                      <?php foreach ($appSignIns as $s): ?>
+                        <tr>
+                          <td><?php echo h($s['platform']); ?></td>
+                          <td><?php echo h(date('M j, Y g:ia', strtotime($s['created_at'] . ' UTC'))); ?></td>
+                          <td><?php echo h(date('M j, Y g:ia', strtotime($s['expires_at'] . ' UTC'))); ?></td>
+                          <td class="text-right">
+                            <form method="post" class="d-inline">
+                              <input type="hidden" name="csrf_token" value="<?php echo h($csrfToken); ?>">
+                              <input type="hidden" name="action" value="sign_out_app_sign_in">
+                              <input type="hidden" name="user_id" value="<?php echo $uid; ?>">
+                              <input type="hidden" name="jti" value="<?php echo h($s['jti']); ?>">
+                              <button type="submit" class="btn btn-sm btn-outline-danger">Sign out this phone</button>
+                            </form>
+                          </td>
+                        </tr>
+                      <?php endforeach; ?>
+                      </tbody>
+                    </table>
+                  <?php endif; ?>
+                </div>
+              </div>
+            </div>
+          </div>
+          <?php endforeach; ?>
 
           <!-- Role assignment modals -->
           <?php foreach ($users as $u):

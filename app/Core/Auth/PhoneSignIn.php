@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/Tenant.php';
 require_once __DIR__ . '/AccountantFence.php';
+require_once __DIR__ . '/../../Modules/Auth/Services/AppTokenService.php';
 
 final class PhoneSignIn
 {
@@ -119,7 +120,12 @@ final class PhoneSignIn
             error_log('token.php: BLUEMOON_JWT_SECRET missing or too short — refusing to issue tokens');
             return ['status' => 'not_configured'];
         }
-        [$token, $ttl] = self::token($user, $key, $audience, self::secretFor($key, $master), time());
+        // H2 (2026-11-16): the sign-in is recorded before its token is handed out, so it can be revoked. If the
+        // record can't be written the sign-in fails rather than issuing a token nobody can revoke.
+        $jti = AppTokenService::newJti();
+        $now = time();
+        [$token, $ttl] = self::token($user, $key, $audience, self::secretFor($key, $master), $now, $jti);
+        AppTokenService::issue($db, (int)$user['id'], $jti, $audience === 'mobile' ? 'ios' : 'web', $ttl, $now);
 
         // ── Respond ────────────────────────────────────────────────────────────
         // The app greets the business and its chief of staff by their shown names (Claudia walk 1, 2026-11-03: the
@@ -152,7 +158,7 @@ final class PhoneSignIn
      * Mobile tokens live 30 days — crew must survive server outages and long weekends without being forced to
      * re-authenticate. Web tokens stay short.
      */
-    public static function token(array $user, string $key, string $audience, string $secret, int $now): array
+    public static function token(array $user, string $key, string $audience, string $secret, int $now, string $jti = ''): array
     {
         $header = self::b64(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
         $aud = $audience === 'mobile' ? 'ios' : 'bluemoon';
@@ -171,7 +177,7 @@ final class PhoneSignIn
             'pwd_v' => substr(hash('sha256', (string)$user['password_hash']), 0, 8),
             // The business it was issued for: validateJwtToken() refuses it anywhere else (2026-11-11).
             'biz'   => $key,
-        ]));
+        ] + ($jti !== '' ? ['jti' => $jti] : [])));
 
         $signature = self::b64(hash_hmac('sha256', $header . '.' . $payload, $secret, true));
         return [$header . '.' . $payload . '.' . $signature, $ttl];

@@ -193,6 +193,8 @@ final class AuthSession: ObservableObject {
         GPSTrackingService.shared.stop(reason: .signedOut)
         // This phone stops getting this user's pushes (the server switches its token off).
         if let jwt = token { DeviceTokenService.unregister(jwt: jwt) }
+        // H2: this sign-in ends on the server too. Best effort: offline, the token lasts until it expires.
+        if let jwt = token { Self.endServerSignIn(jwt: jwt) }
         KeychainStore.delete(key: KeychainKey.jwt)
         KeychainStore.delete(key: KeychainKey.user)
         OfflineDirectory.shared.clear()
@@ -200,6 +202,22 @@ final class AuthSession: ObservableObject {
         user            = nil
         isAuthenticated = false
         businessChoices = []
+    }
+
+    /// POST /api/auth/logout.php with this sign-in's token. A plain request, not APIClient: APIClient calls
+    /// logout() on a 401, which would send this again.
+    private static func endServerSignIn(jwt: String) {
+        guard let url = APIEndpoint.authLogout.url else { return }
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = APIEndpoint.authLogout.httpMethod
+        request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error {
+                AppDiagnostics.shared.record(category: "auth", message: "Server sign-out not confirmed: \(ErrorDetails.describe(error))")
+            } else if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                AppDiagnostics.shared.record(category: "auth", message: "Server sign-out returned HTTP \(http.statusCode)")
+            }
+        }.resume()
     }
 
     // MARK: - Private

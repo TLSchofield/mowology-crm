@@ -17,6 +17,10 @@ enum APIEndpoint {
     /// POST /api/auth/token.php — exchange credentials for a JWT.
     case tokenAuth
 
+    /// POST /api/auth/logout.php — ends this one sign-in (H2). Sent by AuthSession.logout() as a plain
+    /// request, not through APIClient: a 401 there would call logout() again.
+    case authLogout
+
     /// GET /api/schedule/day?date=YYYY-MM-DD[&scope=mine|all][&service=slug] — stops for a specific date.
     /// scope/service: whose jobs and which job type (CrewViewScope on the server, 2026-10-14).
     /// crews: on All crews, the people ticked on the phone (comma user ids, 2026-11-08); nil/"" = everyone.
@@ -316,6 +320,8 @@ enum APIEndpoint {
         switch self {
         case .tokenAuth:
             return URL(string: "\(baseURLString)/auth/token.php")
+        case .authLogout:
+            return URL(string: "\(baseURLString)/auth/logout.php")
 
         case .scheduleDay(let date, let scope, let service, let crews):
             var components = URLComponents(string: "\(baseURLString)/schedule/day")
@@ -744,6 +750,7 @@ enum APIEndpoint {
     var requiresAuth: Bool {
         switch self {
         case .tokenAuth: return false
+        case .authLogout: return true
         case .scheduleDay,
              .scheduleWeek,
              .scheduleTimer,
@@ -850,6 +857,7 @@ enum APIEndpoint {
     var httpMethod: String {
         switch self {
         case .tokenAuth:    return "POST"
+        case .authLogout:   return "POST"
         case .tasksMobileCreate, .quoteMobileCreate, .invoicesMobileAction: return "POST"
         case .tasksMobile,
              .quoteMobile,

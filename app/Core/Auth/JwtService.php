@@ -22,6 +22,8 @@ declare(strict_types=1);
  * @param int    $ttl     Seconds until expiry. Default 30 days.
  * @return string  Signed JWT string
  */
+require_once __DIR__ . '/../../Modules/Auth/Services/AppTokenService.php';
+
 function generateMowologyJwt(int $userId, string $email, string $name, string $role, int $ttl = 2592000): string
 {
     // Load the shared secret from JwtAuth.php if not already available
@@ -33,6 +35,9 @@ function generateMowologyJwt(int $userId, string $email, string $name, string $r
     $now    = time();
     // pwd_v: a password change or reset makes this token invalid (Fable review 2026-10-12).
     $pwdV   = jwtPasswordVersionFor($userId);
+    // H2: recorded before the token is handed out, so it can be revoked. Fails closed (throws) if not recorded.
+    $jti    = AppTokenService::newJti();
+    AppTokenService::issue(getDB(), $userId, $jti, 'app', $ttl, $now);
 
     $header  = _jwtB64(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
     $payload = _jwtB64(json_encode([
@@ -44,6 +49,7 @@ function generateMowologyJwt(int $userId, string $email, string $name, string $r
         'role'  => $role,
         'iat'   => $now,
         'exp'   => $now + $ttl,
+        'jti'   => $jti,
     ] + ($pwdV !== '' ? ['pwd_v' => $pwdV] : [])));
     $sig = _jwtB64(hash_hmac('sha256', $header . '.' . $payload, $secret, true));
 
@@ -55,13 +61,16 @@ function generateMowologyJwt(int $userId, string $email, string $name, string $r
  *
  * @param array{id:mixed,email?:mixed,full_name?:mixed,role?:mixed,password_hash?:mixed} $user
  */
-function generateMobileJwt(array $user, int $ttl = 2592000): string
+function generateMobileJwt(array $user, int $ttl = 2592000, ?PDO $db = null): string
 {
     if (!function_exists('jwtSecret')) {
         require_once __DIR__ . '/JwtAuth.php';
     }
 
     $now = time();
+    // H2: recorded before the token is handed out, so it can be revoked. Fails closed (throws) if not recorded.
+    $jti = AppTokenService::newJti();
+    AppTokenService::issue($db ?? getDB(), (int)$user['id'], $jti, 'ios', $ttl, $now);
     $header = _jwtB64(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
     $payload = _jwtB64(json_encode([
         'iss'   => 'mowology',
@@ -72,6 +81,7 @@ function generateMobileJwt(array $user, int $ttl = 2592000): string
         'role'  => (string)($user['role'] ?? 'user'),
         'iat'   => $now,
         'exp'   => $now + $ttl,
+        'jti'   => $jti,
         'pwd_v' => substr(hash('sha256', (string)($user['password_hash'] ?? '')), 0, 8),
     ]));
     $sig = _jwtB64(hash_hmac('sha256', $header . '.' . $payload, jwtSecret(), true));
