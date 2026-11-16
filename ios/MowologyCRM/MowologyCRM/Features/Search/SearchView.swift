@@ -52,6 +52,11 @@ final class SearchViewModel: ObservableObject {
     func refreshNearby(force: Bool = false) async {
         guard force || Date().timeIntervalSince(nearbyTriedAt) > 30 else { return }
         nearbyTriedAt = Date()
+        // Unstructured: the view's `.task` is cancelled by every redraw, which killed this request each time.
+        await Task { await self.fetchNearby() }.value
+    }
+
+    private func fetchNearby() async {
         if let location = try? await locationManager.currentLocation() {
             fix = location
         }
