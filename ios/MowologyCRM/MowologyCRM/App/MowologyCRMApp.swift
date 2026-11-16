@@ -19,6 +19,7 @@ struct MowologyCRMApp: App {
     // MARK: - Init
 
     init() {
+        VitalsUploader.shared.start()   // before CrashLoopBreaker: it reads the last run's breadcrumbs first
         AppCrashReports.shared.start()
         ChangeCapture.shared.start()   // lets a redraw alarm name the property that changed
         HangWatchdog.shared.start()
@@ -49,6 +50,8 @@ struct MowologyCRMApp: App {
                     Task { await AppTransitionDrainService.shared.drain() }
                     Task { await AppPhotoQueueDrainService.shared.drain() }
                     PlantSendQueue.shared.configure(apiClient: client)
+                    VitalsUploader.shared.configure(apiClient: client)
+                    Task { await VitalsUploader.shared.flush() }
                     Task { await PlantSendQueue.shared.drain() }   // plants sent with no signal carry on
                 }
         }
@@ -62,6 +65,7 @@ struct MowologyCRMApp: App {
                 Task { await AppTransitionDrainService.shared.drain() }
                 Task { await AppPhotoQueueDrainService.shared.drain() }
                 Task { await PlantSendQueue.shared.drain() }
+                Task { await VitalsUploader.shared.flush() }
                 // Re-registering is idempotent server-side (upsert) and gives retry
                 // coverage if the token arrived while offline on a previous launch.
                 UIApplication.shared.registerForRemoteNotifications()

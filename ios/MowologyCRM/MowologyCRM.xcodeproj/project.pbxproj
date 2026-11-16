@@ -200,6 +200,8 @@
 		566C776E08938C785A1C921D /* ScheduleFilterRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */; };
 		5284984004F20A82DE95B6EF /* GoogleContactsSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C584111CA23D8D4C688C7FB4 /* GoogleContactsSession.swift */; };
 		086719EE901614642AE03C49 /* MetricKitSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B2F2424E9F51F3E60BC70E /* MetricKitSummary.swift */; };
+		4D031475B14753B8D00CA99F /* VitalsEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABDA36E9915EAFFD5082F980 /* VitalsEvents.swift */; };
+		EFD470442948B222B4E817E3 /* VitalsUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2DD5968CCA167CBC7357BE7 /* VitalsUploader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -398,6 +400,8 @@
 		912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleFilterRules.swift; sourceTree = "<group>"; };
 		C584111CA23D8D4C688C7FB4 /* GoogleContactsSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleContactsSession.swift; sourceTree = "<group>"; };
 		81B2F2424E9F51F3E60BC70E /* MetricKitSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricKitSummary.swift; sourceTree = "<group>"; };
+		ABDA36E9915EAFFD5082F980 /* VitalsEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsEvents.swift; sourceTree = "<group>"; };
+		B2DD5968CCA167CBC7357BE7 /* VitalsUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsUploader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -777,6 +781,8 @@
 				AE3B95820B618BC3B1317113 /* HangWatchdog.swift */,
 				40719F84FBED7493582D39A4 /* CrashLoopBreaker.swift */,
 				81B2F2424E9F51F3E60BC70E /* MetricKitSummary.swift */,
+				ABDA36E9915EAFFD5082F980 /* VitalsEvents.swift */,
+				B2DD5968CCA167CBC7357BE7 /* VitalsUploader.swift */,
 			);
 			path = Diagnostics;
 			sourceTree = "<group>";
@@ -1068,6 +1074,8 @@
 				566C776E08938C785A1C921D /* ScheduleFilterRules.swift in Sources */,
 				5284984004F20A82DE95B6EF /* GoogleContactsSession.swift in Sources */,
 				086719EE901614642AE03C49 /* MetricKitSummary.swift in Sources */,
+				4D031475B14753B8D00CA99F /* VitalsEvents.swift in Sources */,
+				EFD470442948B222B4E817E3 /* VitalsUploader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

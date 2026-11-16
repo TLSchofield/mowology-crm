@@ -123,6 +123,8 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules
 require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureService.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaFixedMarks.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaServerErrors.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AppVitalsService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAppVitals.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRiskRegister.php';
