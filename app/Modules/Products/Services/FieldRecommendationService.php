@@ -805,6 +805,25 @@ class FieldRecommendationService
         return null;
     }
 
+    /**
+     * Crew may only ask who a button goes to for a visit they are on. The property comes from
+     * the visit, never from an unchecked property_id (a visit with no property must not fall
+     * back to whichever property the caller names). Pure: the caller supplies the visit's facts.
+     */
+    public static function crewRecipientsProblem(int $visitId, int $visitPropertyId, int $requestedPropertyId): ?string
+    {
+        if ($visitId <= 0) {
+            return 'Pick the visit this is for before you ask who it goes to';
+        }
+        if ($visitPropertyId <= 0) {
+            return 'This visit has no property on file';
+        }
+        if ($requestedPropertyId > 0 && $requestedPropertyId !== $visitPropertyId) {
+            return 'That property is not on this visit';
+        }
+        return null;
+    }
+
     /** Gathers the visit's facts and applies crewScopeProblem(). Used for every non-office create. */
     public function crewVisitProblem(int $visitId, array $input): ?string
     {

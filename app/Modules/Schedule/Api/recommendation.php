@@ -131,7 +131,18 @@ try {
         case 'recipients':
             $visitId = (int)($_GET['visit_id'] ?? 0);
             $checkVisit($visitId);
-            $propertyId = $svc->resolvePropertyId($visitId, ['property_id' => (int)($_GET['property_id'] ?? 0)]);
+            $requestedPropertyId = (int)($_GET['property_id'] ?? 0);
+            if (!$isAdmin) {
+                // Crew: the property must come from a visit they are on, never a bare property_id.
+                $problem = FieldRecommendationService::crewRecipientsProblem(
+                    $visitId, $svc->resolvePropertyId($visitId, []), $requestedPropertyId);
+                if ($problem !== null) {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => $problem]);
+                    exit;
+                }
+            }
+            $propertyId = $svc->resolvePropertyId($visitId, ['property_id' => $requestedPropertyId]);
             $r = $ask->recipients($propertyId);
             $askOut = null;
             if ($r['ask']) {
