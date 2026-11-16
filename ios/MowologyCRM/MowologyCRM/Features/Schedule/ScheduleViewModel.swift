@@ -105,7 +105,10 @@ final class ScheduleViewModel: ObservableObject {
     /// Also gates on the daily pre-shift quiz.
     func refresh() async {
         ScheduleCache.shared.evictOlderThan()
-        quizRequired = !QuizViewModel.hasAttemptedToday()
+        // The gate needs the server's yes: switched on AND at least one question. Local "attempted today" only
+        // stops it re-showing after a pass.
+        let status = await QuizViewModel.serverStatus(apiClient: apiClient)
+        quizRequired = status.enabled && !status.done && !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }

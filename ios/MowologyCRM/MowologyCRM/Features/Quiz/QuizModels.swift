@@ -5,6 +5,16 @@
 
 import Foundation
 
+// MARK: - Status
+
+/// GET /api/schedule/quiz?action=status. `enabled` is true only when the business has the quiz on AND has
+/// at least one usable question; `done` is true once today's quiz is complete.
+struct QuizStatusResponse: Decodable {
+    let success: Bool
+    let enabled: Bool
+    let done: Bool
+}
+
 // MARK: - Session Start
 
 struct QuizStartResponse: Decodable {

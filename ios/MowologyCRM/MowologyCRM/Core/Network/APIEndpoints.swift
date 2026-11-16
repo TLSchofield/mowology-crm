@@ -75,6 +75,9 @@ enum APIEndpoint {
     /// GET /api/schedule/quiz?session_id=N&q=N — fetch a single quiz question.
     case quizQuestion(sessionId: Int, q: Int)
 
+    /// GET /api/schedule/quiz?action=status — is the pre-shift quiz on for this crew member, and is today's done.
+    case quizStatus
+
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
     case scheduleJobPhoto
 
@@ -169,6 +172,11 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .quizStatus:
+            var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
+            components?.queryItems = [URLQueryItem(name: "action", value: "status")]
+            return components?.url
+
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
         }
@@ -199,6 +207,7 @@ enum APIEndpoint {
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
+             .quizStatus,
              .scheduleJobPhoto: return true
         }
     }
@@ -228,7 +237,8 @@ enum APIEndpoint {
              .scheduleJobs,
              .scheduleInvoices,
              .scheduleQuotes,
-             .quizQuestion: return "GET"
+             .quizQuestion,
+             .quizStatus: return "GET"
 
         case .quizAction,
              .scheduleJobPhoto: return "POST"

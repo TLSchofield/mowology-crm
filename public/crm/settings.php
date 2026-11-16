@@ -18,6 +18,9 @@ $csrfToken = generateCSRFToken();
 $db = getDB();
 $_quizRows = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('quiz_preshift_enabled','quiz_preshift_session_length','manager_override_pin')")->fetchAll(PDO::FETCH_KEY_PAIR);
 $_quizEnabled     = ($_quizRows['quiz_preshift_enabled'] ?? '0') === '1';
+require_once dirname(__DIR__, 2) . '/app/Modules/Quiz/Services/PreshiftGate.php';
+$_quizIsLive      = PreshiftGate::isActive($db);            // on AND at least one question
+$_quizQuestionCount = PreshiftGate::usableQuestionCount($db);
 $_quizLen         = (int)($_quizRows['quiz_preshift_session_length'] ?? 3);
 $_managerPinSet   = !empty($_quizRows['manager_override_pin']);
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
@@ -1092,6 +1095,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 </label>
                             </div>
                             <small class="form-text text-muted">Applies to all roles including admins.</small>
+                            <?php if ($_quizEnabled && !$_quizIsLive): ?>
+                            <small class="form-text text-warning">
+                                Off for crew until at least one quiz question is active (<?= (int)$_quizQuestionCount ?> now).
+                            </small>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <div class="form-group row mb-3">

@@ -1377,10 +1377,7 @@ switch ($action) {
 
     // ── Pre-shift gate: check if user needs quiz today ────────────────────────
     case 'preshift_check':
-        $enabledRow = $db->query(
-            "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
-        )->fetch(PDO::FETCH_ASSOC);
-        $enabled = ($enabledRow && $enabledRow['setting_value'] == '1');
+        $enabled = PreshiftGate::isActive($db);
 
         $lenRow = $db->query(
             "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"

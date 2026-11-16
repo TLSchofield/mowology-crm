@@ -28,10 +28,8 @@ $preshiftEnabled = false;
 $preshiftDone    = false;
 $preshiftLen     = 3;
 (function () use ($db, $user, &$preshiftEnabled, &$preshiftDone, &$preshiftLen) {
-    $row = $db->query(
-        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
-    )->fetch(PDO::FETCH_ASSOC);
-    if (!$row || $row['setting_value'] != '1') return;
+    require_once dirname(__DIR__, 2) . '/app/Modules/Quiz/Services/PreshiftGate.php';
+    if (!PreshiftGate::isActive($db)) return;
     // Per-user override — defensive until migration 1015 runs
     try {
         $skipRow = $db->prepare("SELECT quiz_preshift_skip FROM users WHERE id = ?");
