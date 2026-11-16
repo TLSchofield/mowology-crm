@@ -27,6 +27,7 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/plan-functions.php';
 require_once CRM_INCLUDES . '/timeclock-functions.php';
 require_once CRM_INCLUDES . '/weather-service.php';
+require_once dirname(__DIR__, 3) . '/app/Modules/Quiz/Services/PreshiftGate.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -45,22 +46,8 @@ $clockData = [
 ];
 
 // ── 2. Quiz status ───────────────────────────────────────────────────
-$enabledRow = $db->query(
-    "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
-)->fetch(PDO::FETCH_ASSOC);
-$quizEnabled = ($enabledRow && $enabledRow['setting_value'] == '1');
-
-// Per-user override: if the user has quiz_preshift_skip set, treat quiz as disabled for them.
-// Wrapped defensively — column may not exist until migration 1015 runs.
-if ($quizEnabled) {
-    try {
-        $skipRow = $db->prepare("SELECT quiz_preshift_skip FROM users WHERE id = ?");
-        $skipRow->execute([$user['id']]);
-        if ($skipRow->fetchColumn()) $quizEnabled = false;
-    } catch (Throwable $e) {
-        // Column not yet migrated — ignore, quiz stays enabled
-    }
-}
+// On only when the business switched it on AND has a usable question, and not skipped for this user.
+$quizEnabled = PreshiftGate::isRequiredFor($db, (int)$user['id']);
 
 $quizDone = false;
 $quizSessionLength = 3;

@@ -47,12 +47,8 @@ try {
     $preshiftEnabled = false;
     $sessionLength   = 3;
 
-    $row = $db->query(
-        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
-    )->fetch(PDO::FETCH_ASSOC);
-    if ($row && $row['setting_value'] == '1') {
-        $preshiftEnabled = true;
-    }
+    require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
+    $preshiftEnabled = PreshiftGate::isRequiredFor($db, (int)$user['id']);
 
     $lenRow = $db->query(
         "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"

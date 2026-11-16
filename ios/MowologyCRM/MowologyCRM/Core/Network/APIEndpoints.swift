@@ -240,6 +240,9 @@ enum APIEndpoint {
     /// GET /api/schedule/quiz?session_id=N&q=N — fetch a single quiz question.
     case quizQuestion(sessionId: Int, q: Int)
 
+    /// GET /api/schedule/quiz?action=status — is the pre-shift quiz on for this crew member, and is today's done.
+    case quizStatus
+
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
     /// GET /api/schedule/search — q (+ optional fix) | mode=nearby | mode=property&id.
     case fieldSearch(query: String, lat: Double?, lng: Double?)
@@ -604,6 +607,11 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .quizStatus:
+            var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
+            components?.queryItems = [URLQueryItem(name: "action", value: "status")]
+            return components?.url
+
         case .fieldSearch(let query, let lat, let lng):
             var components = URLComponents(string: "\(baseURLString)/schedule/search")
             var items = [URLQueryItem(name: "q", value: query)]
@@ -818,6 +826,7 @@ enum APIEndpoint {
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
+             .quizStatus,
              .scheduleJobPhoto,
              .plantId,
              .scheduleVisitPhotos,
@@ -935,7 +944,8 @@ enum APIEndpoint {
              .fieldSearchProperty,
              .ownerSearch,
              .ownerSearchContact,
-             .quizQuestion: return "GET"
+             .quizQuestion,
+             .quizStatus: return "GET"
 
         case .quizAction,
              .recommendationCreate,

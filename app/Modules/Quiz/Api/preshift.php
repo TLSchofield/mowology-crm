@@ -65,6 +65,7 @@ header('X-Content-Type-Options: nosniff');
 
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
 
 $jwtUser = requireJwt();
 $userId  = (int)$jwtUser['id'];
@@ -76,16 +77,11 @@ try {
     // ── GET: check today's status ────────────────────────────────────────────
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
-        // Fail-open: no settings row → required = false, crew is not blocked.
-        $settingStmt = $db->query(
-            "SELECT is_enabled, session_length, pass_threshold
-             FROM quiz_preshift_settings
-             ORDER BY id DESC LIMIT 1"
-        );
-        $setting = $settingStmt ? $settingStmt->fetch(PDO::FETCH_ASSOC) : null;
-
-        $isEnabled     = $setting ? (bool)$setting['is_enabled'] : false;
-        $sessionLength = $setting ? max(3, min(10, (int)$setting['session_length'])) : 5;
+        // Same rule as every other reader: on only when the business switched it on AND has at least one
+        // active question, and not skipped for this user. Session length comes from the admin's setting.
+        $isEnabled     = PreshiftGate::isRequiredFor($db, $userId);
+        $lenRow        = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'")->fetch(PDO::FETCH_ASSOC);
+        $sessionLength = max(3, min(10, (int)($lenRow['setting_value'] ?? 3)));
 
         if (!$isEnabled) {
             http_response_code(200);

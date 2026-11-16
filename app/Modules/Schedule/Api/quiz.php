@@ -36,6 +36,7 @@ try {
     require_once APP_ROOT . '/Core/config.php';
     require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
 
     $jwtUser   = requireJwt();
     $userId    = (int)$jwtUser['id'];
@@ -266,6 +267,19 @@ try {
     // ── Route ─────────────────────────────────────────────────────────────────
 
     $method = $_SERVER['REQUEST_METHOD'];
+
+    // GET ?action=status — is the pre-shift quiz on for this crew member, and is today's done?
+    // The apps gate the schedule on this, so a switched-on quiz with no questions never blocks anyone.
+    if ($method === 'GET' && ($_GET['action'] ?? '') === 'status') {
+        $enabled = PreshiftGate::isRequiredFor($db, $userId);
+        $done    = false;
+        if ($enabled) {
+            $doneStmt = $db->prepare("SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()");
+            $doneStmt->execute([$userId]);
+            $done = (bool)$doneStmt->fetch();
+        }
+        mOk(['enabled' => $enabled, 'done' => $done]);
+    }
 
     // GET with session_id+q = fetch a question
     if ($method === 'GET' && isset($_GET['session_id'], $_GET['q'])) {
