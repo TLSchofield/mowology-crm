@@ -407,6 +407,9 @@ struct SpineStepNode<Content: View>: View {
     var detailStatus: String? = nil
     var contentHorizontalPadding = ItSpace.s4
     var showsContent = true
+    /// The current step's label is drawn elsewhere (onboarding types it into a pill inside the card): the node keeps
+    /// only its number circle, so the same words are never on the page twice. VoiceOver still reads the title.
+    var hidesCurrentTitle = false
     let done: Bool
     let current: Bool
     @ViewBuilder var content: () -> Content
@@ -429,10 +432,16 @@ struct SpineStepNode<Content: View>: View {
                     }
                 } else {
                     HStack(spacing: ItSpace.s3) {
-                        Text(title).itText(.body16, weight: 600).foregroundStyle(current || done ? it.text : it.meta)
-                            .multilineTextAlignment(.trailing).padding(.horizontal, current ? 6 : 0)
-                            .background(current ? appStyle.page : Color.clear)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        Group {
+                            if current && hidesCurrentTitle {
+                                Color.clear.frame(height: 1)
+                            } else {
+                                Text(title).itText(.body16, weight: 600).foregroundStyle(current || done ? it.text : it.meta)
+                                    .multilineTextAlignment(.trailing).padding(.horizontal, current ? 6 : 0)
+                                    .background(current ? appStyle.page : Color.clear)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                         circle
                         detailView.frame(maxWidth: .infinity, alignment: .leading)
                     }

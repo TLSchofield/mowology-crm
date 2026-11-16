@@ -165,6 +165,7 @@ struct BusinessOnboardingView: View {
                     let atDone = key == "done" && m.key == "done"
                     let current = m.key == key && !atDone
                     SpineStepNode(number: m.number, title: m.title, detail: (m.state == .done && !current) || atDone ? "Done" : (m.state == .skipped ? "Later" : ""),
+                                  hidesCurrentTitle: true,
                                   done: (m.state == .done && !current) || atDone, current: current) {
                         VStack(alignment: .leading, spacing: ItSpace.s3) {
                             stepBody(key: key, step: step, map: map, mark: m)
@@ -219,10 +220,21 @@ private struct StepTitle: View {
         VStack(alignment: .leading, spacing: ItSpace.s1) {
             if let mark {
                 // The label types itself out letter by letter (owner 2026-11-13); finished steps and Reduce Motion show it whole.
-                let full = "\(mark.number)  \(mark.title)"
+                let full = mark.title
                 let shown = (answer != nil || reduceMotion) ? full : String(full.prefix(typed))
-                Text(shown).itText(.meta13, weight: 600).foregroundStyle(it.meta)
+                // One large pill, the only place these words are on the page (the node beside the line shows just its
+                // number). The full text is laid out invisibly first so the pill does not grow as the letters arrive.
+                Text(full).itText(.body16, weight: 600).hidden()
+                    .padding(.horizontal, ItSpace.s4).padding(.vertical, ItSpace.s3)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .leading) {
+                        Text(shown).itText(.body16, weight: 600).foregroundStyle(it.brand)
+                            .padding(.horizontal, ItSpace.s4)
+                    }
+                    .background(it.brand.opacity(0.10), in: Capsule())
+                    .overlay(Capsule().stroke(it.brand.opacity(0.35), lineWidth: 1))
+                    .padding(.bottom, ItSpace.s2)
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel(full)
                     .task(id: full) {
                         typed = 0
