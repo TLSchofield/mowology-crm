@@ -937,3 +937,7 @@ could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, 
 - The `vendors` table holds receipt-OCR fragments as names/aliases ("STORE #: 43016", "SANS", "pnty", "city of"). Match a vendor only at the start of the merchant text, names 4+ letters, aliases 8+ (`BankLineEvidence::vendorFor()`).
 - Bank-line presses must say everything they do: Approve on a found receipt also links it and reverses the line's own entry (`BankDeskService::decide`), so the button reads "+ link receipt".
 
+
+### Split PST and unbilled-contract cover (2026-11-16)
+- `ExpenseSplitService::allocate()`: a line the owner marked `pst_taxable=false` must never carry PST. Before, with no line marked true the printed-PST inference ran over every line, so the "off" line could still get PST. Explicit false removes the line from the inference.
+- `UnbilledVisitService::contractCovers()`: an active seasonal/annual/custom contract covers a visit with no invoice only when the visit is under a year old. Older visits with no invoice are `contract_gap`, whatever the contract's status today.

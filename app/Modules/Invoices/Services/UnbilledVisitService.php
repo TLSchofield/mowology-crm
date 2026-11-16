@@ -216,7 +216,9 @@ class UnbilledVisitService
         // seasonal / annual / custom: billed once per season or year, often by hand.
         $t = strtotime($day);
         foreach ($dates as $d) if (abs(strtotime((string)$d) - $t) <= 366 * 86400) return true;
-        return $active;
+        // An active contract only has an invoice "still to come" for recent work: a visit more than a
+        // year old with no invoice near it is a gap, whatever the contract's status is today.
+        return $active && $t >= strtotime($today) - 366 * 86400;
     }
 
     /** What invoicing this visit would charge, before tax (invoice-prefill.php's rule). */

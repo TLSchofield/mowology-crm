@@ -390,4 +390,12 @@ class UnbilledWorkFinderTest extends TestCase
             UnbilledWorkFinder::normaliseSelections(['5', ['visit_id' => 6, 'amount' => '12.5'], ['visit_id' => 5], 0, 'x'])
         );
     }
+
+    public function testAnActiveAnnualContractDoesNotCoverAVisitOverAYearOldWithNoInvoice(): void
+    {
+        $v = ['scheduled_date' => '2024-05-01', 'contract_status' => 'active', 'contract_invoice_dates' => []];
+        $this->assertFalse(UnbilledVisitService::contractCovers($v, 'annual', '2026-11-16'));
+        $v['scheduled_date'] = '2026-09-01';
+        $this->assertTrue(UnbilledVisitService::contractCovers($v, 'annual', '2026-11-16'));
+    }
 }
