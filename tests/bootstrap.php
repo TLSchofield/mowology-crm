@@ -584,6 +584,7 @@ require_once __DIR__ . '/../app/Services/Push/DeviceTokenService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitGenerationService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanProfitabilityService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanMaterialsService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WebServiceCatalog.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanHelpersService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitLifecycleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/ClusterService.php';
