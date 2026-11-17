@@ -374,7 +374,7 @@ struct ReceiptDetailView: View {
         }
         .buttonStyle(.plain)
         .disabled(!canEditGrid || agreed || value == nil)
-        .accessibilityHint(agreed ? "" : "Uses the reader value")
+        .accessibilityLabel(agreed ? "Reader \(label(for: key)) \(value ?? "")" : "Use Reader's \(label(for: key)) \(value ?? "")")
     }
 
     // MARK: Penny-only rows
@@ -531,6 +531,7 @@ struct ReceiptDetailView: View {
                 Button {
                     Task {
                         saveGeneration += 1
+                        for index in gridItems.indices where gridItems[index].dirty { itemSaveGenerations[index, default: 0] += 1; await saveGridItem(index) }
                         if !editedFields.isEmpty { await saveDraft() }
                         dismiss()
                     }
@@ -699,16 +700,17 @@ struct ReceiptDetailView: View {
         var saved = false
         if item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let id = item.storedID {
             saved = await viewModel.deleteLineItem(id: id)
+            if saved, gridItems.indices.contains(index) { gridItems[index].storedID = nil }
         } else if let id = item.storedID {
             if let updated = await viewModel.updateLineItem(id: id, name: item.name, quantity: nil,
                                                             unitPrice: nil, lineTotal: item.amount) {
-                gridItems[index].storedID = updated.id
+                if gridItems.indices.contains(index) { gridItems[index].storedID = updated.id }
                 saved = true
             }
         } else if !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let added = await viewModel.addLineItem(expenseId: expense.id, name: item.name,
                                                           lineTotal: item.amount, productId: nil) {
-            gridItems[index].storedID = added.id
+            if gridItems.indices.contains(index) { gridItems[index].storedID = added.id }
             lineItems.append(added)
             saved = true
         }
