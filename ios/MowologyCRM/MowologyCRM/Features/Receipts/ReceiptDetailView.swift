@@ -456,43 +456,70 @@ struct ReceiptDetailView: View {
         if keys.contains("vendor") { soloField("vendor") }
         if keys.contains("date") { soloField("date") }
         if includeCategory { categoryRow }
+        if !items.isEmpty {
+            Text("Items").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, ItSpace.s2)
+        }
         ForEach(items, id: \.self) { soloItem($0) }
         ForEach(Self.amountKeys.filter(keys.contains), id: \.self) { soloField($0) }
     }
 
     private func soloField(_ key: String) -> some View {
         let mismatch = key == "total" && totalMismatch
+        let isAmount = Self.amountKeys.contains(key)
         return VStack(alignment: .leading, spacing: ItSpace.s1) {
-            Text(label(for: key)).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-            Group {
-                if Self.amountKeys.contains(key) {
-                    TextField("0.00", text: amountTextBinding(key)).keyboardType(.decimalPad)
-                } else {
-                    TextField("-", text: textBinding(key), axis: .vertical)
+            if isAmount {
+                // Label left, amount right, one row (Tim, 2026-11-17: too much scrolling).
+                HStack(alignment: .firstTextBaseline, spacing: ItSpace.s3) {
+                    Text(label(for: key)).font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                    TextField("0.00", text: amountTextBinding(key))
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(appStyle.font(.body, weight: .medium))
+                        .foregroundStyle(appStyle.text)
+                        .disabled(!canEditGrid)
+                        .accessibilityLabel("Penny \(label(for: key))")
                 }
+                .frame(minHeight: ItSize.targetPhone - ItSpace.s2)
+            } else {
+                Text(label(for: key)).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                TextField("-", text: textBinding(key), axis: .vertical)
+                    .font(appStyle.font(.body, weight: .medium))
+                    .foregroundStyle(appStyle.text)
+                    .frame(minHeight: ItSize.targetPhone - ItSpace.s4, alignment: .leading)
+                    .disabled(!canEditGrid)
+                    .accessibilityLabel("Penny \(label(for: key))")
             }
-            .font(appStyle.font(.body, weight: .medium))
-            .foregroundStyle(appStyle.text)
-            .frame(minHeight: ItSize.targetPhone - ItSpace.s4, alignment: .leading)
-            .disabled(!canEditGrid)
-            .accessibilityLabel("Penny \(label(for: key))")
             if mismatch {
                 Label("Sub total + GST + PST = \(computedTotalText)", systemImage: "exclamationmark.triangle.fill")
                     .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, ItSpace.s2)
+        .padding(.vertical, ItSpace.s1)
         .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth) }
     }
 
+    /// One row per item: name left (wraps if long), price right.
     private func soloItem(_ index: Int) -> some View {
-        VStack(alignment: .leading, spacing: ItSpace.s1) {
-            Text("Item").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
-            itemEditor(index)
+        HStack(alignment: .firstTextBaseline, spacing: ItSpace.s3) {
+            TextField("Item name", text: $gridItems[index].name, axis: .vertical)
+                .onSubmit { Task { await saveGridItem(index) } }
+                .onChange(of: gridItems[index].name) { _, _ in scheduleItemSave(index) }
+                .disabled(!canEditGrid)
+                .accessibilityLabel("Penny item name")
+            TextField("0.00", value: $gridItems[index].amount, format: .number.precision(.fractionLength(2)))
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 84)
+                .onSubmit { Task { await saveGridItem(index) } }
+                .onChange(of: gridItems[index].amount) { _, _ in scheduleItemSave(index) }
+                .disabled(!canEditGrid)
+                .accessibilityLabel("Penny item price")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, ItSpace.s2)
+        .font(appStyle.font(.subheadline))
+        .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone - ItSpace.s2, alignment: .leading)
+        .padding(.vertical, ItSpace.s1)
         .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth) }
     }
 
