@@ -65,6 +65,9 @@ struct ReceiptDetailView: View {
     @State private var draft: ReceiptSaveRecord?
     @State private var editedFields = Set<String>()
     @State private var readerChoices = Set<String>()
+    @State private var pinnedPairs = Set<String>()
+    @State private var showsAgreedRows = false
+    @State private var categoryFocusTick = 0
     @State private var recordWasEdited = false
     @State private var saveGeneration = 0
     @State private var itemSaveGenerations: [Int: Int] = [:]
@@ -74,6 +77,7 @@ struct ReceiptDetailView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: ItSpace.s4) {
                     if let receiptImage {
@@ -87,6 +91,8 @@ struct ReceiptDetailView: View {
                     DisclosureGroup("More", isExpanded: $showsMoreDetails) {
                         VStack(alignment: .leading, spacing: ItSpace.s4) {
                             Button("Edit all fields") { showEditSheet = true }.disabled(!isEditable)
+                            Button("Reject receipt", role: .destructive) { rejectReason = ""; showRejectSheet = true }
+                                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
                             detailsContent
                             if hasVisibleRisk { riskContent }
                             if isAdmin && !mergedCopies.isEmpty { mergedContent }
@@ -100,6 +106,9 @@ struct ReceiptDetailView: View {
             }
             // Pull to refresh: a suggestion Penny made after the screen opened shows up here.
             .refreshable { await refreshAll() }
+            .onChange(of: categoryFocusTick) { _, _ in
+                withAnimation { proxy.scrollTo("categoryRow", anchor: .top) }
+            }
             .navigationTitle("Receipt")
             .navigationBarTitleDisplayMode(.inline)
             .itAppScreen()
@@ -108,6 +117,7 @@ struct ReceiptDetailView: View {
                     Button("Close") { dismiss() }
                         .foregroundStyle(appStyle.palette.color(.brand))
                 }
+            }
             }
         }
         .presentationDragIndicator(.visible)
@@ -137,6 +147,7 @@ struct ReceiptDetailView: View {
             }
         }
         .task { await loadLineItems() }
+        .task { await viewModel.loadCategories() }
         .task(id: expense.id) { await loadRisk() }
         .task(id: expense.id) { if isAdmin { mergedCopies = await viewModel.loadMerged(expenseId: expense.id) } }
         .fullScreenCover(item: Binding(get: { mergedPhoto.map { IdentURL(url: $0) } }, set: { mergedPhoto = $0?.url })) { t in
@@ -172,9 +183,33 @@ struct ReceiptDetailView: View {
 
     // MARK: - Penny's read
 
+    // Design round 4 (2026-11-17, Tim): only Penny's side is editable. Rows where Reader and Penny disagree (or that were just
+    // fixed) sit on the line as a pair; everything that agrees is a Penny-only list. Later is the way out, no Reject here.
+    private static let textKeys = ["vendor", "date"]
+    private static let amountKeys = ["subtotal", "gst", "pst", "total"]
+
+    private func isPair(_ key: String) -> Bool {
+        if pinnedPairs.contains(key) || readerChoices.contains(key) { return true }
+        guard let reader = readerValue(key) else { return false }
+        return !valuesAgree(key: key, reader: reader, penny: pennyText(key))
+    }
+
+    private func itemIsPair(_ index: Int) -> Bool {
+        gridItems[index].differs || gridItems[index].readerChosen || gridItems[index].dirty
+    }
+
+    private var pairedItems: [Int] { gridItems.indices.filter(itemIsPair) }
+    private var comparedCount: Int { Self.textKeys.count + Self.amountKeys.count + gridItems.count }
+    private var pairedCount: Int {
+        (Self.textKeys + Self.amountKeys).filter(isPair).count + pairedItems.count
+    }
+    private var totalMismatch: Bool {
+        guard let draft else { return false }
+        return !ReceiptCompareRules.totalsAddUp(subtotal: draft.subtotal, gst: draft.gst, pst: draft.pst, total: draft.total)
+    }
+
     private var receiptGrid: some View {
         VStack(spacing: 0) {
-            gridHeadings
             if alreadySent {
                 Text("Already sent to accounting")
                     .font(appStyle.font(.subheadline))
@@ -182,24 +217,33 @@ struct ReceiptDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, ItSpace.s3)
             }
-            if let draft {
-                gridField("Vendor", key: "vendor", reader: readerValue("vendor"), value: binding(\.vendor, field: "vendor"))
-                gridField("Date", key: "date", reader: readerValue("date"), value: binding(\.date, field: "date"))
-                gridField("For", key: "accounting_category", reader: readerValue("accounting_category"), value: binding(\.category, field: "accounting_category"))
-                ForEach(Array(gridItems.indices), id: \.self) { itemIndex in
-                    gridItem(index: itemIndex)
+            if draft != nil {
+                if pairedCount > 0 {
+                    pairedSection
+                    let agreed = comparedCount - pairedCount
+                    if agreed > 0 { agreedDisclosure(count: agreed) }
+                    categoryRow
+                } else {
+                    if pennyRead != nil { agreeLine }
+                    pennyOnlyRows(keys: Self.textKeys + Self.amountKeys, items: Array(gridItems.indices), includeCategory: true)
                 }
-                addItemOnSpine
-                gridAmount("Sub total", key: "subtotal", reader: readerValue("subtotal"), amount: binding(\.subtotal, field: "subtotal"))
-                gridAmount("GST", key: "gst", reader: readerValue("gst"), amount: binding(\.gst, field: "gst"))
-                gridAmount("PST", key: "pst", reader: readerValue("pst"), amount: binding(\.pst, field: "pst"))
-                gridAmount("Total", key: "total", reader: readerValue("total"), amount: binding(\.total, field: "total"),
-                           mismatch: !ReceiptCompareRules.totalsAddUp(subtotal: draft.subtotal, gst: draft.gst, pst: draft.pst, total: draft.total))
+                addItemRow
                 actionRow
             }
         }
-        .overlay { SpineLine(large: false).allowsHitTesting(false) }
         .disabled(alreadySent)
+    }
+
+    // MARK: Pairs on the line
+
+    private var pairedSection: some View {
+        VStack(spacing: 0) {
+            gridHeadings
+            ForEach(Self.textKeys.filter(isPair), id: \.self) { pairField($0) }
+            ForEach(pairedItems, id: \.self) { pairItem($0) }
+            ForEach(Self.amountKeys.filter(isPair), id: \.self) { pairField($0) }
+        }
+        .overlay { SpineLine(large: false).allowsHitTesting(false) }
     }
 
     private var gridHeadings: some View {
@@ -212,95 +256,77 @@ struct ReceiptDetailView: View {
         .padding(.vertical, ItSpace.s2)
     }
 
-    private func gridField(_ label: String, key: String, reader: String?, value: Binding<String>) -> some View {
-        gridRow(label: label) {
-            readerButton(reader, key: key)
-        } right: {
-            HStack(spacing: ItSpace.s1) {
-                if !readerChoices.contains(key) { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
-                TextField("-", text: value, axis: .vertical)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(rightColor(key: key, reader: reader, penny: value.wrappedValue))
-                    .accessibilityLabel("Penny \(label)")
-                    .disabled(!canEditGrid)
-            }
-        }
-    }
-
-    private func gridAmount(_ label: String, key: String, reader: String?, amount: Binding<Double>, mismatch: Bool = false) -> some View {
-        let text = Binding(
-            get: { String(format: "%.2f", amount.wrappedValue) },
-            set: { amount.wrappedValue = ReceiptNumber.parse($0) ?? 0 }
-        )
-        return gridRow(label: label) {
-            readerButton(reader.map(currencyText) ?? "-", key: key)
-        } right: {
-            HStack(spacing: ItSpace.s1) {
-                if !readerChoices.contains(key) { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
-                TextField("0.00", text: text)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(mismatch ? appStyle.attention : rightColor(key: key, reader: reader, penny: text.wrappedValue))
-                    .accessibilityLabel("Penny \(label)")
-                    .accessibilityValue(mismatch ? "\(text.wrappedValue), does not add up" : text.wrappedValue)
-                    .disabled(!canEditGrid)
-            }
-        }
-    }
-
-    private func gridRow<Left: View, Right: View>(label: String,
+    /// The label sits on page colour so the line breaks round it (words never sit on the line); values hug the line;
+    /// agreement is a ringed tick on the line.
+    private func pairRow<Left: View, Right: View>(label: String, agreed: Bool,
                                                    @ViewBuilder left: () -> Left,
                                                    @ViewBuilder right: () -> Right) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                left().frame(maxWidth: .infinity, alignment: .trailing)
-                Text(label)
-                    .font(appStyle.font(.caption2, weight: .semibold))
-                    .foregroundStyle(appStyle.meta)
-                    .frame(width: SpineMetrics.slot)
-                    .background(appStyle.page)
-                    .accessibilityHidden(true)
-                right().frame(maxWidth: .infinity, alignment: .leading)
-            }
-            VStack(alignment: .leading, spacing: ItSpace.s2) {
-                Text(label).font(appStyle.font(.caption2, weight: .semibold)).foregroundStyle(appStyle.meta)
-                    .frame(maxWidth: .infinity).background(appStyle.page)
-                HStack(alignment: .top, spacing: SpineMetrics.slot) {
-                    VStack(alignment: .trailing, spacing: ItSpace.s1) {
-                        Text("Reader").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-                        left()
-                    }.frame(maxWidth: .infinity, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: ItSpace.s1) {
-                        Text("Penny").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
-                        right()
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: ItSpace.s1) {
+            Text(label)
+                .font(appStyle.font(.caption, weight: .semibold))
+                .foregroundStyle(appStyle.meta)
+                .padding(.horizontal, ItSpace.s2)
+                .background(appStyle.page)
+                .accessibilityHidden(true)
+            HStack(alignment: .top, spacing: 0) {
+                left().frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, ItSpace.s1)
+                ZStack {
+                    if agreed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(appStyle.font(.title3))
+                            .foregroundStyle(pennyBrand)
+                            .background(appStyle.page, in: Circle())
+                            .accessibilityLabel("Agrees")
+                    }
                 }
+                .frame(width: SpineMetrics.slot, height: ItSize.targetPhone)
+                right().frame(maxWidth: .infinity, alignment: .leading).padding(.leading, ItSpace.s1)
             }
         }
         .font(appStyle.font(.subheadline))
         .padding(.vertical, ItSpace.s3)
-        .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth) }
     }
 
-    private func readerButton(_ value: String?, key: String) -> some View {
-        Button {
-            guard canEditGrid, let value else { return }
-            chooseReader(value, field: key)
-        } label: {
-            HStack(spacing: ItSpace.s1) {
-                if readerChoices.contains(key) { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
-                Text(value ?? "-").fixedSize(horizontal: false, vertical: true)
+    private func pairField(_ key: String) -> some View {
+        let isAmount = Self.amountKeys.contains(key)
+        let reader = readerValue(key)
+        let agreed = valuesAgree(key: key, reader: reader, penny: pennyText(key))
+        let mismatch = key == "total" && totalMismatch
+        return pairRow(label: label(for: key), agreed: agreed) {
+            readerButton(isAmount ? reader.map(currencyText) : reader, key: key, agreed: agreed)
+        } right: {
+            VStack(alignment: .leading, spacing: ItSpace.s1) {
+                if isAmount {
+                    TextField("0.00", text: amountTextBinding(key))
+                        .keyboardType(.decimalPad)
+                } else {
+                    TextField("-", text: textBinding(key), axis: .vertical)
+                }
+                if !agreed {
+                    Label("Different", systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.caption))
+                }
+                if mismatch {
+                    Label("Does not add up", systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.caption))
+                }
             }
-            .foregroundStyle(valuesAgree(key: key, reader: readerValue(key), penny: pennyText(key)) ? appStyle.meta : appStyle.text)
+            .multilineTextAlignment(.leading)
+            .foregroundStyle(agreed && !mismatch ? appStyle.text : appStyle.attention)
+            .frame(minHeight: ItSize.targetPhone, alignment: .top)
+            .padding(ItSpace.s1)
+            .background(agreed && !mismatch ? Color.clear : appStyle.attention.opacity(0.08))
+            .disabled(!canEditGrid)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Penny \(label(for: key))")
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Uses the reader value")
     }
 
-    private func gridItem(index: Int) -> some View {
-        gridRow(label: "Item") {
+    private func pairItem(_ index: Int) -> some View {
+        let agreed = !gridItems[index].differs
+        return pairRow(label: "Item", agreed: agreed) {
             Button {
-                guard canEditGrid else { return }
+                guard canEditGrid, gridItems[index].readerName != nil else { return }
                 gridItems[index].name = gridItems[index].readerName ?? ""
                 gridItems[index].amount = gridItems[index].readerAmount ?? 0
                 gridItems[index].readerChosen = true
@@ -308,71 +334,228 @@ struct ReceiptDetailView: View {
                 itemWasEdited = true
                 Task { await saveGridItem(index) }
             } label: {
-                itemText(name: gridItems[index].readerName, amount: gridItems[index].readerAmount,
-                         checked: gridItems[index].readerChosen)
-            }.buttonStyle(.plain)
-                .disabled(!canEditGrid)
+                VStack(alignment: .trailing, spacing: ItSpace.s1) {
+                    itemText(name: gridItems[index].readerName, amount: gridItems[index].readerAmount)
+                    if !agreed, gridItems[index].readerName != nil {
+                        Text("Use Reader's").font(appStyle.font(.caption)).underline().foregroundStyle(pennyBrand)
+                    }
+                }
+                .frame(minHeight: ItSize.targetPhone, alignment: .top)
+                .foregroundStyle(agreed ? appStyle.meta : appStyle.text)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canEditGrid || agreed)
         } right: {
             VStack(alignment: .leading, spacing: ItSpace.s1) {
-                TextField("Item name", text: $gridItems[index].name, axis: .vertical)
-                    .onSubmit { Task { await saveGridItem(index) } }
-                    .onChange(of: gridItems[index].name) { _, _ in scheduleItemSave(index) }
-                    .disabled(!canEditGrid)
-                TextField("0.00", value: $gridItems[index].amount, format: .number.precision(.fractionLength(2)))
-                    .keyboardType(.decimalPad)
-                    .onSubmit { Task { await saveGridItem(index) } }
-                    .onChange(of: gridItems[index].amount) { _, _ in scheduleItemSave(index) }
-                    .disabled(!canEditGrid)
+                itemEditor(index)
+                if !agreed {
+                    Label("Different", systemImage: "exclamationmark.triangle.fill")
+                        .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
+                }
             }
             .padding(ItSpace.s1)
-            .background(gridItems[index].differs ? pennyBrand.opacity(0.08) : Color.clear)
+            .background(agreed ? Color.clear : appStyle.attention.opacity(0.08))
         }
     }
 
-    private func itemText(name: String?, amount: Double?, checked: Bool) -> some View {
-        VStack(alignment: .trailing, spacing: ItSpace.s1) {
-            HStack(spacing: ItSpace.s1) {
-                if checked { Image(systemName: "checkmark").font(appStyle.font(.caption2, weight: .bold)) }
-                Text(amount.map { String(format: "$%.2f", $0) } ?? "-")
+    private func readerButton(_ value: String?, key: String, agreed: Bool) -> some View {
+        Button {
+            guard canEditGrid, let value, !agreed else { return }
+            chooseReader(value, field: key)
+        } label: {
+            VStack(alignment: .trailing, spacing: ItSpace.s1) {
+                Text(value ?? "-").fixedSize(horizontal: false, vertical: true)
+                if !agreed, value != nil {
+                    Text("Use Reader's").font(appStyle.font(.caption)).underline().foregroundStyle(pennyBrand)
+                }
             }
+            .frame(minHeight: ItSize.targetPhone, alignment: .top)
+            .foregroundStyle(agreed ? appStyle.meta : appStyle.text)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canEditGrid || agreed || value == nil)
+        .accessibilityHint(agreed ? "" : "Uses the reader value")
+    }
+
+    // MARK: Penny-only rows
+
+    private var agreeLine: some View {
+        HStack(spacing: ItSpace.s2) {
+            Image(systemName: "checkmark.circle").foregroundStyle(pennyBrand)
+            Text("Reader agrees on all \(comparedCount) fields")
+        }
+        .font(appStyle.font(.subheadline))
+        .foregroundStyle(appStyle.meta)
+        .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone, alignment: .leading)
+    }
+
+    private func agreedDisclosure(count: Int) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { showsAgreedRows.toggle() }
+            } label: {
+                HStack(spacing: ItSpace.s1) {
+                    Text("\(count) \(count == 1 ? "field agrees" : "fields agree")")
+                    Image(systemName: showsAgreedRows ? "chevron.up" : "chevron.down").font(appStyle.font(.caption))
+                }
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.text)
+                .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+                .background(appStyle.page)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(showsAgreedRows ? "Hides them" : "Shows them")
+            if showsAgreedRows {
+                pennyOnlyRows(keys: (Self.textKeys + Self.amountKeys).filter { !isPair($0) },
+                              items: gridItems.indices.filter { !itemIsPair($0) }, includeCategory: false)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pennyOnlyRows(keys: [String], items: [Int], includeCategory: Bool) -> some View {
+        if keys.contains("vendor") { soloField("vendor") }
+        if keys.contains("date") { soloField("date") }
+        if includeCategory { categoryRow }
+        ForEach(items, id: \.self) { soloItem($0) }
+        ForEach(Self.amountKeys.filter(keys.contains), id: \.self) { soloField($0) }
+    }
+
+    private func soloField(_ key: String) -> some View {
+        let mismatch = key == "total" && totalMismatch
+        return VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text(label(for: key)).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            Group {
+                if Self.amountKeys.contains(key) {
+                    TextField("0.00", text: amountTextBinding(key)).keyboardType(.decimalPad)
+                } else {
+                    TextField("-", text: textBinding(key), axis: .vertical)
+                }
+            }
+            .font(appStyle.font(.body, weight: .medium))
+            .foregroundStyle(mismatch ? appStyle.attention : appStyle.text)
+            .frame(minHeight: ItSize.targetPhone - ItSpace.s4, alignment: .leading)
+            .disabled(!canEditGrid)
+            .accessibilityLabel("Penny \(label(for: key))")
+            if mismatch {
+                Label("Does not add up", systemImage: "exclamationmark.triangle.fill")
+                    .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, ItSpace.s2)
+        .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth) }
+    }
+
+    private func soloItem(_ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text("Item").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            itemEditor(index)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, ItSpace.s2)
+        .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth) }
+    }
+
+    private func itemEditor(_ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            TextField("Item name", text: $gridItems[index].name, axis: .vertical)
+                .onSubmit { Task { await saveGridItem(index) } }
+                .onChange(of: gridItems[index].name) { _, _ in scheduleItemSave(index) }
+                .disabled(!canEditGrid)
+            TextField("0.00", value: $gridItems[index].amount, format: .number.precision(.fractionLength(2)))
+                .keyboardType(.decimalPad)
+                .onSubmit { Task { await saveGridItem(index) } }
+                .onChange(of: gridItems[index].amount) { _, _ in scheduleItemSave(index) }
+                .disabled(!canEditGrid)
+        }
+        .frame(minHeight: ItSize.targetPhone, alignment: .topLeading)
+    }
+
+    private func itemText(name: String?, amount: Double?) -> some View {
+        VStack(alignment: .trailing, spacing: ItSpace.s1) {
+            Text(amount.map { String(format: "$%.2f", $0) } ?? "-")
             if let name, !name.isEmpty { Text(name).fixedSize(horizontal: false, vertical: true) }
         }
     }
 
-    private var addItemOnSpine: some View {
+    private var categoryRow: some View {
+        var options = viewModel.accountingCategories
+        if let current = draft?.category, !current.isEmpty, !options.contains(current) { options.insert(current, at: 0) }
+        return ReceiptCategoryCombo(text: binding(\.category, field: "accounting_category"), options: options,
+                                    enabled: canEditGrid) { categoryFocusTick += 1 }
+            .id("categoryRow")
+    }
+
+    private var addItemRow: some View {
         Button {
             gridItems.append(ReceiptGridItemDraft(readerName: nil, readerAmount: nil, name: "", amount: 0, storedID: nil))
         } label: {
-            Image(systemName: "plus.circle")
-                .font(appStyle.font(.title3))
+            Label("Add item", systemImage: "plus.circle")
+                .font(appStyle.font(.subheadline))
                 .foregroundStyle(pennyBrand)
-                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
-                .background(appStyle.page, in: Circle())
+                .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Add item")
-        .frame(maxWidth: .infinity)
         .disabled(!canEditGrid)
     }
 
+    private func label(for key: String) -> String {
+        ["vendor": "Vendor", "date": "Date", "subtotal": "Sub total", "gst": "GST", "pst": "PST", "total": "Total"][key] ?? key
+    }
+
+    private func textBinding(_ key: String) -> Binding<String> {
+        key == "vendor" ? binding(\.vendor, field: "vendor") : binding(\.date, field: "date")
+    }
+
+    private func amountTextBinding(_ key: String) -> Binding<String> {
+        let amount: Binding<Double>
+        switch key {
+        case "subtotal": amount = binding(\.subtotal, field: key)
+        case "gst": amount = binding(\.gst, field: key)
+        case "pst": amount = binding(\.pst, field: key)
+        default: amount = binding(\.total, field: key)
+        }
+        return Binding(get: { String(format: "%.2f", amount.wrappedValue) },
+                       set: { amount.wrappedValue = ReceiptNumber.parse($0) ?? 0 })
+    }
+
+    // MARK: Two square buttons
+
+    /// Approve (filled) and Later (outlined), indigo, half the panel each with one gap between (Tim, 2026-11-17).
+    /// Later closes the sheet and leaves the receipt a draft; anything already typed is kept as that draft.
     private var actionRow: some View {
-        HStack(spacing: 0) {
-            Button("Reject") { rejectReason = ""; showRejectSheet = true }
+        let radius = appStyle.cornerRadius(ItRadius.md)
+        return VStack(spacing: ItSpace.s2) {
+            HStack(spacing: SpineMetrics.slot) {
+                Button {
+                    Task {
+                        saveGeneration += 1
+                        if !editedFields.isEmpty { await saveDraft() }
+                        dismiss()
+                    }
+                } label: {
+                    Text("Later")
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .foregroundStyle(pennyBrand)
+                        .frame(maxWidth: .infinity, minHeight: ItSize.targetCrewAction)
+                        .background(appStyle.page, in: RoundedRectangle(cornerRadius: radius))
+                        .overlay(RoundedRectangle(cornerRadius: radius).stroke(pennyBrand, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+                Button { Task { await approveGrid() } } label: {
+                    Text(viewModel.isPerformingAction ? "Approving…" : "Approve")
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .foregroundStyle(appStyle.surface)
+                        .frame(maxWidth: .infinity, minHeight: ItSize.targetCrewAction)
+                        .background(pennyBrand, in: RoundedRectangle(cornerRadius: radius))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
+            }
+            Text("Later keeps this as a draft")
+                .font(appStyle.font(.caption))
                 .foregroundStyle(appStyle.meta)
-                .frame(maxWidth: .infinity)
-                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
-            ItPortrait(name: "Penny", url: TeamHead.all.first { $0.slug == "penny" }?.faceURL,
-                       size: SpineMetrics.compactRing, brandRing: false)
-                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
-                .background(appStyle.page, in: Circle())
-                .accessibilityHidden(true)
-            Button("Approve") { Task { await approveGrid() } }
-                .font(appStyle.font(.subheadline, weight: .semibold))
-                .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
-                .foregroundStyle(appStyle.surface)
-                .background(pennyBrand)
-                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
-                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
         }
         .padding(.vertical, ItSpace.s3)
     }
@@ -456,6 +639,7 @@ struct ReceiptDetailView: View {
                 value[keyPath: keyPath] = newValue
                 draft = value
                 editedFields.insert(field)
+                pinnedPairs.insert(field)
                 readerChoices.remove(field)
                 recordWasEdited = true
                 scheduleSave()
@@ -1865,5 +2049,105 @@ private struct ReceiptGridItemDraft: Equatable {
         readerName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             != name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             || readerAmount != amount
+    }
+}
+
+/// Category as a typeable search (Tim, 2026-11-17): tap, type, pick. The saved category changes only when a row is picked
+/// (or Return is pressed), so a half-typed word is never autosaved as the category. Penny's current value is the placeholder.
+private struct ReceiptCategoryCombo: View {
+    @Binding var text: String
+    let options: [String]
+    let enabled: Bool
+    let onFocus: () -> Void
+
+    @Environment(\.itAppStyle) private var appStyle
+    @FocusState private var focused: Bool
+    @State private var query = ""
+
+    private var pennyBrand: Color { appStyle.palette.color(.brand) }
+
+    private var matches: [String] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let list = q.isEmpty ? options : options.filter { $0.lowercased().contains(q) }
+        return Array(list.prefix(8))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ItSpace.s1) {
+            Text("Category").font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+            HStack(spacing: ItSpace.s2) {
+                TextField(text.isEmpty ? "Search categories" : text, text: $query)
+                    .focused($focused)
+                    .submitLabel(.done)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .font(appStyle.font(.body, weight: .medium))
+                    .foregroundStyle(appStyle.text)
+                    .onSubmit { commitTyped() }
+                    .accessibilityLabel("Penny category")
+                Image(systemName: focused ? "chevron.up" : "chevron.down")
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, ItSpace.s3)
+            .frame(minHeight: ItSize.targetPhone)
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md))
+                .stroke(focused ? pennyBrand : appStyle.line, lineWidth: focused ? 2 : 1))
+            .disabled(!enabled)
+            if focused {
+                VStack(spacing: 0) {
+                    ForEach(matches, id: \.self) { option in
+                        Button { pick(option) } label: {
+                            HStack {
+                                Text(option).font(appStyle.font(.subheadline))
+                                    .foregroundStyle(appStyle.text)
+                                Spacer(minLength: 0)
+                                if option == text {
+                                    Image(systemName: "checkmark").foregroundStyle(pennyBrand)
+                                }
+                            }
+                            .padding(.horizontal, ItSpace.s3)
+                            .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(option == text ? .isSelected : [])
+                        Rectangle().fill(appStyle.line).frame(height: SpineMetrics.lineWidth)
+                    }
+                    let typed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !typed.isEmpty, !options.contains(where: { $0.caseInsensitiveCompare(typed) == .orderedSame }) {
+                        Button { pick(typed) } label: {
+                            Text("Use “\(typed)”")
+                                .font(appStyle.font(.subheadline))
+                                .foregroundStyle(pennyBrand)
+                                .padding(.horizontal, ItSpace.s3)
+                                .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, ItSpace.s2)
+        .onAppear { query = text }
+        .onChange(of: text) { _, new in if !focused { query = new } }
+        .onChange(of: focused) { _, isFocused in
+            if isFocused { query = ""; onFocus() } else { query = text }
+        }
+    }
+
+    private func pick(_ value: String) {
+        text = value
+        query = value
+        focused = false
+    }
+
+    private func commitTyped() {
+        if let first = matches.first { pick(first) }
+        else {
+            let typed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if typed.isEmpty { focused = false } else { pick(typed) }
+        }
     }
 }
