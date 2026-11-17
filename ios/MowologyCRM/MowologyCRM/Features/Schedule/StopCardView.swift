@@ -126,7 +126,9 @@ struct StopCardView: View {
 
                 // Crew names (admin only)
                 if isAdmin && !stop.crewNames.isEmpty {
-                    Label(stop.crewNames.map(DisplayNameFormatter.string).joined(separator: ", "), systemImage: "person.2.fill")
+                    // Initials keep the crew line to one short row (audit 2026-11-17); full names stay for VoiceOver.
+                    Label(stop.crewNames.map(Self.crewInitials).joined(separator: " · "), systemImage: "person.2.fill")
+                        .accessibilityLabel(stop.crewNames.map(DisplayNameFormatter.string).joined(separator: ", "))
                         .font(appStyle.font(.caption))
                         .foregroundStyle(appStyle.meta)
                         .fixedSize(horizontal: false, vertical: true)
@@ -182,6 +184,13 @@ struct StopCardView: View {
         dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
             : AnyLayout(HStackLayout(alignment: .top))
+    }
+
+    /// "Nigel Casey" -> "NC". One word gives its first two letters.
+    static func crewInitials(_ name: String) -> String {
+        let parts = DisplayNameFormatter.string(name).split(separator: " ")
+        if parts.count >= 2 { return String(parts[0].prefix(1) + parts[parts.count - 1].prefix(1)).uppercased() }
+        return String(parts.first?.prefix(2) ?? "").uppercased()
     }
 
     private var statusPresentation: (label: String, icon: ItIconShape, color: Color)? {
