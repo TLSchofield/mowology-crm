@@ -133,15 +133,17 @@ struct StopCardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                // Visit count badge
-                HStack(spacing: 3) {
-                    Image(systemName: "checkmark.circle")
-                        .font(appStyle.font(.caption2))
-                    Text("\(stop.visitCount) visit\(stop.visitCount == 1 ? "" : "s")")
-                        .font(appStyle.font(.caption).monospacedDigit())
+                // Visit count: shown only when a stop has several visits ("1 visit" adds nothing to a card).
+                if stop.visitCount > 1 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle")
+                            .font(appStyle.font(.caption2))
+                        Text("\(stop.visitCount) visits")
+                            .font(appStyle.font(.caption).monospacedDigit())
+                    }
+                    .foregroundStyle(appStyle.meta)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .foregroundStyle(appStyle.meta)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 12)

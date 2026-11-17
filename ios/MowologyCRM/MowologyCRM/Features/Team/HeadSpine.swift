@@ -119,8 +119,7 @@ struct SpineHead: View {
 
     private var nameRow: some View {
         HStack(spacing: 6) {
-            Text(name).itText(.title22, weight: 600).foregroundStyle(it.text)
-            ItAITag()
+            Text(name).itText(.title22, weight: 600).foregroundStyle(it.text)   // AI tag removed: the role line says it (2026-11-17 audit)
         }
     }
 

@@ -481,10 +481,14 @@ struct SearchResultRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let client = property.clientLine {
-                    Label(client, systemImage: "person.fill")
-                        .font(appStyle.font(.caption))
-                        .foregroundStyle(appStyle.meta)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // Icon and name share one edge (a plain Label pushed the icon into its own column; audit 2026-11-17).
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(systemName: "person.fill").frame(width: 14)
+                        Text(client)
+                    }
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 if let lastDone = property.lastDone {
                     Label(lastDone, systemImage: "clock.arrow.circlepath")
