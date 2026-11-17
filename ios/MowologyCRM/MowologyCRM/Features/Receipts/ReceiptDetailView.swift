@@ -70,6 +70,7 @@ struct ReceiptDetailView: View {
     @State private var pinnedPairs = Set<String>()
     @State private var showsAgreedRows = false
     @State private var categoryFocusTick = 0
+    @State private var keyboardUp = false
     @State private var recordWasEdited = false
     @State private var saveGeneration = 0
     @State private var itemSaveGenerations: [Int: Int] = [:]
@@ -79,17 +80,22 @@ struct ReceiptDetailView: View {
 
     var body: some View {
         NavigationStack {
+            // The photo stays put while Reader | Penny scrolls beneath it, so each value can be checked against the paper
+            // (Tim, 2026-11-17). It shrinks while the keyboard is up so the field being typed in keeps room.
+            VStack(spacing: 0) {
+            if let receiptImage {
+                pinnedReceipt(receiptImage)
+                    .overlay(alignment: .topLeading) { statusBadge.padding(ItSpace.s2) }
+            } else {
+                VStack(spacing: ItSpace.s3) {
+                    statusBadge.frame(maxWidth: .infinity, alignment: .leading)
+                    receiptPhotoPlaceholder
+                }
+                .padding(.horizontal, ItSpace.s4)
+            }
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: ItSpace.s4) {
-                    if let receiptImage {
-                        pinnedReceipt(receiptImage)
-                            .padding(.horizontal, -ItSpace.s4)
-                            .overlay(alignment: .topLeading) { statusBadge.padding(ItSpace.s2) }
-                    } else {
-                        statusBadge.frame(maxWidth: .infinity, alignment: .leading)
-                        receiptPhotoPlaceholder
-                    }
                     receiptGrid
                     DisclosureGroup("More", isExpanded: $showsMoreDetails) {
                         VStack(alignment: .leading, spacing: ItSpace.s4) {
@@ -122,7 +128,10 @@ struct ReceiptDetailView: View {
                 }
             }
             }
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showRejectSheet) {
             rejectSheet
@@ -206,6 +215,25 @@ struct ReceiptDetailView: View {
     private var pairedCount: Int {
         (Self.textKeys + Self.amountKeys).filter(isPair).count + pairedItems.count
     }
+    /// What sub total + GST + PST come to, shown on the Total row so the message names the sum, not just "wrong".
+    private var computedTotalText: String {
+        guard let draft else { return "" }
+        return String(format: "$%.2f", draft.subtotal + draft.gst + draft.pst)
+    }
+
+    /// True when swapping Reader's value into this field would make sub total + GST + PST equal the total.
+    private func readerFixesTotals(_ key: String, reader: String?) -> Bool {
+        guard totalMismatch, let draft, ["subtotal", "gst", "pst"].contains(key),
+              let value = ReceiptNumber.parse(reader ?? "") else { return false }
+        var trial = draft
+        switch key {
+        case "subtotal": trial.subtotal = value
+        case "gst": trial.gst = value
+        default: trial.pst = value
+        }
+        return ReceiptCompareRules.totalsAddUp(subtotal: trial.subtotal, gst: trial.gst, pst: trial.pst, total: trial.total)
+    }
+
     private var totalMismatch: Bool {
         guard let draft else { return false }
         return !ReceiptCompareRules.totalsAddUp(subtotal: draft.subtotal, gst: draft.gst, pst: draft.pst, total: draft.total)
@@ -295,8 +323,16 @@ struct ReceiptDetailView: View {
         let reader = readerValue(key)
         let agreed = valuesAgree(key: key, reader: reader, penny: pennyText(key))
         let mismatch = key == "total" && totalMismatch
+        let fixes = readerFixesTotals(key, reader: reader)
         return pairRow(label: label(for: key), agreed: agreed) {
-            readerButton(isAmount ? reader.map(currencyText) : reader, key: key, agreed: agreed)
+            VStack(alignment: .trailing, spacing: ItSpace.s1) {
+                readerButton(isAmount ? reader.map(currencyText) : reader, key: key, agreed: agreed)
+                if fixes {
+                    Label("Makes the total add up", systemImage: "checkmark.circle")
+                        .font(appStyle.font(.caption)).foregroundStyle(pennyBrand)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
         } right: {
             VStack(alignment: .leading, spacing: ItSpace.s1) {
                 if isAmount {
@@ -310,15 +346,15 @@ struct ReceiptDetailView: View {
                         .font(appStyle.font(.caption))
                 }
                 if mismatch {
-                    Label("Does not add up", systemImage: "exclamationmark.triangle.fill")
+                    Label("Sub total + GST + PST = \(computedTotalText)", systemImage: "exclamationmark.triangle.fill")
                         .font(appStyle.font(.caption))
                 }
             }
             .multilineTextAlignment(.leading)
-            .foregroundStyle(agreed && !mismatch ? appStyle.text : appStyle.attention)
+            .foregroundStyle(agreed ? appStyle.text : appStyle.attention)
             .frame(minHeight: ItSize.targetPhone, alignment: .top)
             .padding(ItSpace.s1)
-            .background(agreed && !mismatch ? Color.clear : appStyle.attention.opacity(0.08))
+            .background(agreed ? Color.clear : appStyle.attention.opacity(0.08))
             .disabled(!canEditGrid)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Penny \(label(for: key))")
@@ -436,12 +472,12 @@ struct ReceiptDetailView: View {
                 }
             }
             .font(appStyle.font(.body, weight: .medium))
-            .foregroundStyle(mismatch ? appStyle.attention : appStyle.text)
+            .foregroundStyle(appStyle.text)
             .frame(minHeight: ItSize.targetPhone - ItSpace.s4, alignment: .leading)
             .disabled(!canEditGrid)
             .accessibilityLabel("Penny \(label(for: key))")
             if mismatch {
-                Label("Does not add up", systemImage: "exclamationmark.triangle.fill")
+                Label("Sub total + GST + PST = \(computedTotalText)", systemImage: "exclamationmark.triangle.fill")
                     .font(appStyle.font(.caption)).foregroundStyle(appStyle.attention)
             }
         }
@@ -1220,7 +1256,7 @@ struct ReceiptDetailView: View {
         ReceiptZoomView(image: image)
             .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
             .frame(maxWidth: .infinity)
-            .frame(height: UIScreen.main.bounds.height * (dynamicTypeSize.isAccessibilitySize ? 0.25 : 1.0 / 3.0))
+            .frame(height: UIScreen.main.bounds.height * (keyboardUp ? 0.16 : (dynamicTypeSize.isAccessibilitySize ? 0.25 : 1.0 / 3.0)))
             .background(appStyle.sunk)
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.sm)))   // the spine card is the only border
     }
