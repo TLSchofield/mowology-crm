@@ -1220,7 +1220,7 @@ struct ReceiptDetailView: View {
         ReceiptZoomView(image: image)
             .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
             .frame(maxWidth: .infinity)
-            .frame(height: UIScreen.main.bounds.height * (dynamicTypeSize.isAccessibilitySize ? 0.28 : 0.42))
+            .frame(height: UIScreen.main.bounds.height * (dynamicTypeSize.isAccessibilitySize ? 0.25 : 1.0 / 3.0))
             .background(appStyle.sunk)
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.sm)))   // the spine card is the only border
     }
