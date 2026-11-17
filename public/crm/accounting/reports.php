@@ -2,7 +2,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
-requirePermission('expenses.view');
+requirePermission('ledger.view'); // Codex 2026-11-17: crew hold expenses.view; P&L, GST and margins are office + accountant only
 
 $pageTitle  = 'Financial Reports';
 $activePage = 'accounting';

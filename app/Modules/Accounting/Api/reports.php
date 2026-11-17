@@ -30,7 +30,7 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
 
     requireLogin();
-    requirePermission('expenses.view');
+    requirePermission('ledger.view'); // Codex 2026-11-17: crew hold expenses.view; P&L, GST and margins are office + accountant only
 
     $db = getDB();
     session_write_close();
