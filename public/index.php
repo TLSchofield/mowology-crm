@@ -36,13 +36,6 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
     {"@type": "City", "name": "Burnaby",  "addressRegion": "BC", "addressCountry": "CA"},
     {"@type": "City", "name": "Richmond", "addressRegion": "BC", "addressCountry": "CA"}
   ],
-  "aggregateRating": {
-    "@type": "AggregateRating",
-    "ratingValue": "5",
-    "bestRating": "5",
-    "worstRating": "1",
-    "ratingCount": "5"
-  },
   "review": [
     {
       "@type": "Review",
@@ -137,8 +130,8 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
           </div>
           <div class="mw-hero__trust-sep"></div>
           <div class="mw-hero__trust-item">
-            <span class="mw-hero__trust-num">100%</span>
-            <span>Verified Service</span>
+            <a class="mw-hero__trust-num" href="<?= h(SITE_REVIEW_URL) ?>" title="Google rating as of <?= h(SITE_GOOGLE_RATING_AS_OF) ?>" style="color:inherit;text-decoration:none"><?= h(SITE_GOOGLE_RATING) ?>&#9733;</a>
+            <span>Google Rating (<?= (int)SITE_GOOGLE_REVIEW_COUNT ?> reviews)</span>
           </div>
         </div>
 
@@ -172,15 +165,15 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
         <div class="mw-stat__circle">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </div>
-        <p class="mw-stat__num">100%</p>
-        <p class="mw-stat__label">Photo-Verified Service</p>
+        <p class="mw-stat__num">Every</p>
+        <p class="mw-stat__label">Visit Photo-Reported</p>
       </div>
       <div class="mw-stat">
         <div class="mw-stat__circle">
           <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
         </div>
-        <p class="mw-stat__num">5&#9733;</p>
-        <p class="mw-stat__label">Average Rating</p>
+        <p class="mw-stat__num"><?= h(SITE_GOOGLE_RATING) ?>&#9733;</p>
+        <p class="mw-stat__label">Google Rating, <?= (int)SITE_GOOGLE_REVIEW_COUNT ?> Reviews</p>
       </div>
     </div>
   </section>
@@ -406,8 +399,8 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
   <!-- CTA Section -->
   <section class="cta-section">
     <div class="container">
-      <h2>Ready to Elevate Your Property's Landscape?</h2>
-      <p>Get a free, no-obligation quote for your property</p>
+      <h2>Tell us about the property. We'll walk it and send a written proposal.</h2>
+      <p>Free and no obligation. We reply within one business day.</p>
       <div class="cta-buttons">
         <a href="/jobFlow/jobFlow-getQuote.php" class="btn btn-primary-large">Get My Property Quote</a>
         <a href="tel:7788469273" class="btn btn-secondary-large">Call 778-846-9273</a>

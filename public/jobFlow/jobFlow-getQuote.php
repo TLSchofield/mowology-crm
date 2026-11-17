@@ -233,8 +233,9 @@ $serviceOptions = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Get Your Free Quote — Mowology</title>
-    <meta name="description" content="Get a free landscaping or snow removal quote from Mowology. Vancouver's trusted property care company. Fast response guaranteed.">
+    <title>Get a Free Landscaping Quote | Strata, Commercial and Residential | Mowology</title>
+    <meta name="description" content="Tell us about your strata, commercial or residential property in Vancouver, Burnaby or Richmond. Free site walk and a written proposal, with a reply within one business day.">
+    <link rel="canonical" href="https://mowology.ca/jobFlow/jobFlow-getQuote.php">
     <link rel="stylesheet" href="/assets/css/master.css">
     <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260902">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -388,6 +389,42 @@ $serviceOptions = [
                 </div>
             </div>
 
+            <!-- Strata / commercial details (shown when Property Type is strata or commercial) -->
+            <?php $intakeNow = (array)($formData['intake'] ?? []); $intakeOn = QuoteIntakeDetails::applies((string)($formData['property_type'] ?? 'residential')); ?>
+            <div id="intake-section" style="display:<?php echo $intakeOn ? 'block' : 'none'; ?>;">
+                <h2 class="form-section-title" style="margin-top: 28px;">About the Property <span class="optional-label">(optional, helps us prepare the site walk)</span></h2>
+                <div class="form-grid">
+                    <div class="form-group full-width">
+                        <label for="org_name">Management company or business</label>
+                        <input type="text" id="org_name" name="org_name" maxlength="120"
+                               value="<?php echo h($intakeNow['org_name'] ?? ''); ?>" autocomplete="organization">
+                    </div>
+                    <div class="form-group">
+                        <label for="site_count">Buildings or sites</label>
+                        <input type="text" id="site_count" name="site_count" maxlength="40"
+                               value="<?php echo h($intakeNow['site_count'] ?? ''); ?>" placeholder="e.g. 3 buildings">
+                    </div>
+                    <div class="form-group">
+                        <label for="decision_maker">Who decides on landscaping?</label>
+                        <select id="decision_maker" name="decision_maker">
+                            <?php foreach (QuoteIntakeDetails::DECIDERS as $dk => $dl): ?>
+                                <option value="<?php echo h($dk); ?>" <?php echo (($intakeNow['decision_maker'] ?? '') === $dk) ? 'selected' : ''; ?>><?php echo h($dl); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="current_contractor">Current contractor</label>
+                        <input type="text" id="current_contractor" name="current_contractor" maxlength="120"
+                               value="<?php echo h($intakeNow['current_contractor'] ?? ''); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label for="timing">Next AGM, budget meeting or start date</label>
+                        <input type="text" id="timing" name="timing" maxlength="80"
+                               value="<?php echo h($intakeNow['timing'] ?? ''); ?>" placeholder="e.g. March AGM">
+                    </div>
+                </div>
+            </div>
+
             <!-- Services needed -->
             <h2 class="form-section-title" style="margin-top: 28px;">Services Needed</h2>
             <div class="form-group full-width <?php echo isset($errors['service_types']) ? 'error' : ''; ?>">
@@ -465,7 +502,7 @@ $serviceOptions = [
             <div class="form-group full-width">
                 <label for="description">Tell us about your property <span class="optional-label">(optional)</span></label>
                 <textarea id="description" name="description" rows="4" maxlength="2000"
-                          placeholder="Any special considerations, access instructions, or specific areas to focus on…"><?php echo h($formData['description'] ?? ''); ?></textarea>
+                          placeholder="Any special considerations, access instructions, or specific areas to focus on…"><?php echo h(QuoteIntakeDetails::split((string)($formData['description'] ?? ''))['notes']); ?></textarea>
             </div>
 
             <!-- Communication preferences -->
@@ -490,8 +527,8 @@ $serviceOptions = [
                     <input type="checkbox" id="consent_marketing" name="consent_marketing"
                            <?php echo !empty($formData['consent_marketing']) ? 'checked' : ''; ?>>
                     <div class="consent-label">
-                        <strong>Optional: Promotions &amp; Tips</strong>
-                        Send me occasional seasonal reminders, promotions, and property care tips.
+                        <strong>Optional: Seasonal Reminders &amp; Tips</strong>
+                        Send me occasional seasonal reminders and property care tips by email. I can unsubscribe at any time.
                     </div>
                 </div>
 
@@ -587,10 +624,17 @@ function initAutocomplete() {
     function updateSections() {
         const boxes = document.querySelectorAll('input[name="service_types[]"]:checked');
         const selected = Array.from(boxes).map(b => b.value);
-        const hasLawn = selected.some(s => lawnServices.includes(s));
+        const ptEl = document.getElementById('property_type');
+        const isBuilding = ptEl && (ptEl.value === 'strata' || ptEl.value === 'commercial');
+        const hasLawn = !isBuilding && selected.some(s => lawnServices.includes(s));
         if (lawnSection) lawnSection.style.display = hasLawn ? '' : 'none';
         if (irrSection)  irrSection.style.display  = hasLawn ? '' : 'none';
+        const intakeSection = document.getElementById('intake-section');
+        if (intakeSection) intakeSection.style.display = isBuilding ? 'block' : 'none';
     }
+
+    const ptSelect = document.getElementById('property_type');
+    if (ptSelect) ptSelect.addEventListener('change', updateSections);
 
     document.querySelectorAll('input[name="service_types[]"]').forEach(cb => {
         cb.addEventListener('change', updateSections);
