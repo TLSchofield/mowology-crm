@@ -52,6 +52,9 @@
         if (!d.results || !d.results.length) { out.innerHTML = '<div class="small text-muted">No supplier lists it right now. Try fewer words or another size.</div>'; return; }
         out.innerHTML = '<ul class="list-group">' + d.results.map(function (g, i) {
             var b = g.best, label = g.common || g.name;
+            // Several cultivars share one common name ("Japanese Maple"); put the cultivar in the title so rows are told apart.
+            var cv = g.common ? /'([^']+)'/.exec(String(b.item || '')) : null;
+            if (cv && label.toLowerCase().indexOf(cv[1].toLowerCase()) < 0) label += " '" + cv[1] + "'";
             var stock = b.available == null ? 'stock not listed' : (b.available > 0 ? b.available + ' in stock' : 'sold out');
             var meta = esc(b.supplier) + ' · ' + money(b.price) + ' cost · ' + esc(stock) + (b.stale ? ' · list ' + b.age_days + ' days old' : '')
                 + (b.distance ? ' · about ' + b.distance.km + ' km from the job' : '') + (b.rules && b.rules.length ? ' · ' + esc(b.rules[0]) : '');
