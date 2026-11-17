@@ -25,8 +25,13 @@ let quiet = ScreenHeaderRules.resolve(
     isSelecting: false
 )
 expect(quiet.showsHeadLine, "admins always see the head line")
-expect(quiet.stateText == "All clear", "quiet heads say All clear")
+expect(quiet.stateText == "No decisions waiting", "quiet heads say No decisions waiting")
 expect(!quiet.showsReview, "quiet heads do not offer Review")
+
+let loadingQuiet = ScreenHeaderRules.resolve(isAdmin: true, reason: nil, dismissedReason: nil, isSelecting: false, briefStatus: .loading)
+expect(loadingQuiet.stateText == "Checking decisions", "an unloaded brief is not reported as quiet")
+let failedQuiet = ScreenHeaderRules.resolve(isAdmin: true, reason: nil, dismissedReason: nil, isSelecting: false, briefStatus: .failed)
+expect(failedQuiet.stateText == "Decision status unavailable", "a failed brief is not reported as quiet")
 
 let needsReview = ScreenHeaderRules.resolve(
     isAdmin: true,
@@ -43,7 +48,7 @@ let dismissed = ScreenHeaderRules.resolve(
     dismissedReason: "Approve the schedule change",
     isSelecting: false
 )
-expect(dismissed.stateText == "All clear", "a dismissed reason stays quiet")
+expect(dismissed.stateText == "No decisions waiting", "a dismissed reason stays quiet")
 expect(!dismissed.showsReview, "a dismissed reason does not offer Review")
 
 let changed = ScreenHeaderRules.resolve(
