@@ -152,9 +152,16 @@ struct ScheduleView: View {
                     initialAction: pendingActions[stop.id],
                     onInitialActionRun: { pendingActions[stop.id] = nil }
                 )
+                // The head line leads the screen, as on Schedule (Tim, 2026-11-17): the system bar is hidden and
+                // the back button and address sit in their own row under it.
+                .toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    ScreenHeader(slug: "otto")
+                    VStack(spacing: 0) {
+                        ScreenHeader(slug: "otto")
+                        VisitBackBar(title: stop.propertyAddress)
+                    }
                 }
+                .background(PopGestureEnabler())
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
@@ -418,4 +425,45 @@ struct ScheduleView: View {
 private enum AddForm: String, Identifiable {
     case task, quote, invoice
     var id: String { rawValue }
+}
+
+
+/// Back button + address for the visit screen, drawn under the head line now the system bar is hidden.
+private struct VisitBackBar: View {
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.itAppStyle) private var appStyle
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Back")
+            Text(title)
+                .font(appStyle.font(.headline, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(appStyle.text)
+        .padding(.horizontal, 8)
+        .background(appStyle.page)
+    }
+}
+
+/// Keeps the swipe-from-edge back gesture working while the navigation bar is hidden.
+private struct PopGestureEnabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController { Holder() }
+    func updateUIViewController(_ vc: UIViewController, context: Context) {}
+    private final class Holder: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+            navigationController?.interactivePopGestureRecognizer?.delegate = nil
+        }
+    }
 }
