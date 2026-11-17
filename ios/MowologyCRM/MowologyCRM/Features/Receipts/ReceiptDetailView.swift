@@ -36,6 +36,8 @@ struct ReceiptDetailView: View {
     // from the receipt — the reader may have missed items she read (Chevron #424, 2026-10-13).
     @State private var pennyRead: PennyRead?
     @State private var receiptImage: UIImage?
+    @State private var receiptImageLoading = false
+    @State private var receiptImageError: String?
     @State private var showsMoreDetails = false
 
     @State private var showRejectSheet = false
@@ -86,6 +88,7 @@ struct ReceiptDetailView: View {
                             .overlay(alignment: .topLeading) { statusBadge.padding(ItSpace.s2) }
                     } else {
                         statusBadge.frame(maxWidth: .infinity, alignment: .leading)
+                        receiptPhotoPlaceholder
                     }
                     receiptGrid
                     DisclosureGroup("More", isExpanded: $showsMoreDetails) {
@@ -243,7 +246,7 @@ struct ReceiptDetailView: View {
             ForEach(pairedItems, id: \.self) { pairItem($0) }
             ForEach(Self.amountKeys.filter(isPair), id: \.self) { pairField($0) }
         }
-        .overlay { SpineLine(large: false).allowsHitTesting(false) }
+        .background { SpineLine(large: false).allowsHitTesting(false) }
     }
 
     private var gridHeadings: some View {
@@ -1238,19 +1241,57 @@ struct ReceiptDetailView: View {
         }
     }
 
+    /// The photo area is never silently empty: loading, no photo saved, or the exact failure with a retry (owner rule 2026-10-18).
+    @ViewBuilder private var receiptPhotoPlaceholder: some View {
+        VStack(spacing: ItSpace.s2) {
+            if receiptImageLoading {
+                ProgressView()
+                Text("Loading the receipt photo…").font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+            } else if receiptURL == nil {
+                Image(systemName: "photo").font(appStyle.font(.title2)).foregroundStyle(appStyle.meta)
+                Text("No photo was saved with this receipt").font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(appStyle.attention)
+                Text("Couldn't load the receipt photo").font(appStyle.font(.subheadline, weight: .semibold))
+                if let receiptImageError {
+                    Text(receiptImageError).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                        .multilineTextAlignment(.center)
+                }
+                Button("Try again") { Task { await loadReceiptImage() } }
+                    .frame(minHeight: ItSize.targetPhone)
+                    .foregroundStyle(pennyBrand)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .padding(ItSpace.s3)
+        .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.sm)))
+    }
+
     private func loadReceiptImage() async {
         #if DEBUG
         if seededImage != nil { return }
         #endif
         receiptImage = nil
+        receiptImageError = nil
         guard let receiptURL else { return }
+        receiptImageLoading = true
+        defer { receiptImageLoading = false }
         do {
             let (data, response) = try await URLSession.shared.data(from: receiptURL)
-            guard !(response is HTTPURLResponse) || (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
-                  let image = UIImage(data: data) else { return }
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                receiptImageError = "HTTP \(http.statusCode)"
+                AppDiagnostics.shared.record(category: "ReceiptImage", message: receiptImageError ?? "")
+                return
+            }
+            guard let image = UIImage(data: data) else {
+                receiptImageError = "The file is not an image (\(data.count) bytes)"
+                AppDiagnostics.shared.record(category: "ReceiptImage", message: receiptImageError ?? "")
+                return
+            }
             receiptImage = image
         } catch {
-            // The photo is optional in this sheet; a failed load deliberately leaves no placeholder behind.
+            receiptImageError = ErrorDetails.describe(error)
+            AppDiagnostics.shared.record(category: "ReceiptImage", message: receiptImageError ?? "")
         }
     }
 
