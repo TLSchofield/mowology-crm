@@ -440,17 +440,18 @@ private struct VisitBackBar: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("Back")
             Text(title)
                 .font(appStyle.font(.headline, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
         }
         .foregroundStyle(appStyle.text)
         .padding(.horizontal, 8)
+        .padding(.vertical, 2)
         .background(appStyle.page)
     }
 }

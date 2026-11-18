@@ -724,7 +724,7 @@ struct JobPhotoSection: View {
                     RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .fill(isFlagged
                               ? appStyle.attention.opacity(0.12)
-                              : appStyle.sunk)
+                              : (appStyle.isEnabled ? appStyle.tenant.opacity(0.08) : appStyle.sunk))
                         .frame(maxWidth: .infinity)
                         .frame(height: 110)
                     if isFlagLoading {
@@ -737,16 +737,20 @@ struct JobPhotoSection: View {
                                 .font(appStyle.font(size: 28))
                             Text(isFlagged ? "Endorsed" : "Endorse")
                                 .font(appStyle.font(.caption, weight: .semibold))
+                            // The key marketing action: say where the photos go (Tim, 2026-11-17).
+                            Text(isFlagged ? "In marketing" : "for marketing")
+                                .font(appStyle.font(.caption2))
+                                .lineLimit(1).minimumScaleFactor(0.8)
                         }
-                        .foregroundStyle(isFlagged ? appStyle.attention : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2)))
+                        .foregroundStyle(isFlagged ? appStyle.attention : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray2)))
                     }
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .stroke(isFlagged
                                 ? appStyle.attention.opacity(0.4)
-                                : (appStyle.isEnabled ? appStyle.line : Color(.systemGray5)),
-                                lineWidth: isFlagged ? 2 : 1)
+                                : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray5)),
+                                lineWidth: isFlagged ? 2 : 1.5)
                 )
             }
             .buttonStyle(.plain)
