@@ -17,6 +17,8 @@ struct Visit: Codable, Identifiable, Hashable {
     let estimatedDuration: Int?
     let pricePerVisit: Double?
     let scheduledStart: String?
+    /// HH:MM the booking ends (web card shows 8:30–4:00); nil from older servers.
+    let scheduledEnd: String?
     /// Crew endorsed this visit — drives review request gate + BA marketing.
     let isFlagged: Bool
     /// Everyone who endorsed this visit, in order. `isFlagged` is the signed-in user's own heart.
@@ -42,6 +44,7 @@ struct Visit: Codable, Identifiable, Hashable {
         case estimatedDuration    = "estimated_duration"
         case pricePerVisit        = "price_per_visit"
         case scheduledStart       = "scheduled_start"
+        case scheduledEnd         = "scheduled_end"
         case isFlagged            = "is_flagged"
         case endorsedBy           = "endorsed_by"
         case contactHasReviewed   = "contact_has_reviewed"
@@ -54,7 +57,7 @@ struct Visit: Codable, Identifiable, Hashable {
     init(visitId: Int, visitNumber: String? = nil, serviceType: String = "",
          planTitle: String? = nil, planNumber: String? = nil,
          visitStatus: String = "scheduled", estimatedDuration: Int? = nil,
-         pricePerVisit: Double? = nil, scheduledStart: String? = nil,
+         pricePerVisit: Double? = nil, scheduledStart: String? = nil, scheduledEnd: String? = nil,
          isFlagged: Bool = false, endorsedBy: [String] = [], contactHasReviewed: Bool = false,
          pricingModel: String = "per_visit", isContractBilled: Bool = false,
          history: ServiceHistory? = nil) {
@@ -67,6 +70,7 @@ struct Visit: Codable, Identifiable, Hashable {
         self.estimatedDuration  = estimatedDuration
         self.pricePerVisit      = pricePerVisit
         self.scheduledStart     = scheduledStart
+        self.scheduledEnd       = scheduledEnd
         self.isFlagged          = isFlagged
         self.endorsedBy         = endorsedBy
         self.contactHasReviewed = contactHasReviewed
@@ -87,6 +91,7 @@ struct Visit: Codable, Identifiable, Hashable {
         estimatedDuration  = try? c.decode(Int.self,     forKey: .estimatedDuration)
         pricePerVisit      = try? c.decode(Double.self,  forKey: .pricePerVisit)
         scheduledStart     = try? c.decode(String.self,  forKey: .scheduledStart)
+        scheduledEnd       = try? c.decode(String.self,  forKey: .scheduledEnd)
         isFlagged          = (try? c.decode(Bool.self,   forKey: .isFlagged))          ?? false
         endorsedBy         = (try? c.decode([String].self, forKey: .endorsedBy))       ?? []
         contactHasReviewed = (try? c.decode(Bool.self,   forKey: .contactHasReviewed)) ?? false
