@@ -587,43 +587,6 @@ struct VisitDetailView: View {
             Divider()
             actionButtons(for: visit, currentStatus: currentStatus)
 
-            // MARK: Work Record — checklist, materials used, notes
-            // Open on completed visits too: materials and notes are often written
-            // up in the truck after the timer is stopped.
-            if ["scheduled", "in_progress", "completed"].contains(currentStatus.lowercased()) {
-                Divider()
-                NavigationLink {
-                    VisitWorkView(visitId: visit.visitId, authSession: authSession)
-                } label: {
-                    HStack {
-                        Label("Checklist, materials & notes", systemImage: "checklist")
-                            .font(appStyle.font(.subheadline, weight: .semibold))
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(appStyle.font(.footnote, weight: .semibold))
-                            .foregroundStyle(appStyle.meta)
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .tint(appStyle.text)
-            }
-
-            // MARK: Crew Service Recommendations
-            // Photograph work that needs doing and offer the client a quote for it.
-            //
-            // Deliberately NOT gated to scheduled/in_progress like the before/after
-            // proof below: crews spot sellable work while packing up and walking the
-            // property, which is usually after they have hit Finish. Gating this the
-            // same way removed the feature at the exact moment it gets used.
-            if ["scheduled", "in_progress", "completed"].contains(visit.visitStatus.lowercased()) {
-                Divider()
-                RecommendationSection(
-                    visitId:     visit.visitId,
-                    authSession: authSession
-                )
-            }
-
             // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
                 let isVisitFlagged  = viewModel.isFlagged(for: visit)
@@ -670,6 +633,57 @@ struct VisitDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                 }
             }
+
+            // MARK: Work Record — checklist, materials used, notes
+            // Open on completed visits too: materials and notes are often written
+            // up in the truck after the timer is stopped.
+            if ["scheduled", "in_progress", "completed"].contains(currentStatus.lowercased()) {
+                Divider()
+                NavigationLink {
+                    VisitWorkView(visitId: visit.visitId, authSession: authSession)
+                } label: {
+                    HStack {
+                        Label("Checklist, materials & notes", systemImage: "checklist")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(appStyle.font(.footnote, weight: .semibold))
+                            .foregroundStyle(appStyle.meta)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .tint(appStyle.text)
+            }
+
+            // MARK: What is this plant? — grouped with the checklist and recommendations (Tim, 2026-11-18)
+            if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                JobPhotoSection(
+                    visitId:       visit.visitId,
+                    isActive:      isActive || currentStatus.lowercased() == "in_progress",
+                    authSession:   authSession,
+                    captureGate:   { specialRequestBlocks(visit.visitId) },
+                    photosLocked:  specialRequests.firstUnread(for: visit.visitId) != nil,
+                    part:          .plant
+                )
+            }
+
+            // MARK: Crew Service Recommendations
+            // Photograph work that needs doing and offer the client a quote for it.
+            //
+            // Deliberately NOT gated to scheduled/in_progress like the before/after
+            // proof above: crews spot sellable work while packing up and walking the
+            // property, which is usually after they have hit Finish. Gating this the
+            // same way removed the feature at the exact moment it gets used.
+            if ["scheduled", "in_progress", "completed"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                RecommendationSection(
+                    visitId:     visit.visitId,
+                    authSession: authSession
+                )
+            }
+
         }
         .padding(14)
         .background(

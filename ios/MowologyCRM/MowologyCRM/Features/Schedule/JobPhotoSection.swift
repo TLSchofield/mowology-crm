@@ -266,6 +266,10 @@ struct JobPhotoSection: View {
     let captureGate:    (() -> Bool)?
     /// True while that gate would block — the library picker is swapped for a plain button.
     let photosLocked:   Bool
+    /// Which half of the old card to draw: the photo tiles, or the "What is this plant?" row, which the visit
+    /// screen now groups with Checklist and Recommend a Service (Tim, 2026-11-18).
+    enum Part { case photos, plant }
+    var part: Part = .photos
 
     @ViewBuilder
     private func plantLine(_ it: PlantSendQueue.Item) -> some View {
@@ -355,7 +359,9 @@ struct JobPhotoSection: View {
          endorsedBy: [String] = [],
          onFlagToggle: (() async -> Void)? = nil,
          captureGate: (() -> Bool)? = nil,
-         photosLocked: Bool = false) {
+         photosLocked: Bool = false,
+         part: Part = .photos) {
+        self.part         = part
         self.visitId      = visitId
         self.isActive     = isActive
         self.authSession  = authSession
@@ -370,6 +376,48 @@ struct JobPhotoSection: View {
     }
 
     var body: some View {
+        switch part {
+        case .photos: photosBody
+        case .plant:  plantBody
+        }
+    }
+
+    private var plantBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !photosLocked {
+                Button {
+                    showPlantId = true
+                } label: {
+                    HStack {
+                        Label("What is this plant?", systemImage: "leaf")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(appStyle.font(.footnote, weight: .semibold))
+                            .foregroundStyle(appStyle.meta)
+                    }
+                    .padding(.vertical, 4)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(appStyle.text)
+            }
+
+            // Plants sent from this job (PlantSendQueue): identifying → the answer → confirm (optional).
+            ForEach(plantSends.sent(forVisit: visitId, userId: authSession.user?.id)) { it in
+                plantLine(it)
+            }
+        }
+        .fullScreenCover(isPresented: $showPlantId) {
+            PlantIdView(visitId: visitId, authSession: authSession) { showPlantId = false }
+        }
+        .fullScreenCover(item: $plantToConfirm) { it in
+            PlantIdView(visitId: visitId, authSession: authSession, preset: it.response, presetItemId: it.id, presetPick: plantPick) { plantToConfirm = nil }
+        }
+    }
+
+    private var photosBody: some View {
         VStack(alignment: .leading, spacing: 10) {
 
             // Section header
@@ -443,27 +491,6 @@ struct JobPhotoSection: View {
 
             extrasStrip()
 
-            if !photosLocked {
-                Button {
-                    showPlantId = true
-                } label: {
-                    Label("What is this plant?", systemImage: "leaf")
-                        .font(appStyle.font(.subheadline, weight: .semibold))
-                }
-                .buttonStyle(.bordered)
-                .tint(appStyle.tenant)
-            }
-
-            // Plants sent from this job (PlantSendQueue): identifying → the answer → confirm (optional).
-            ForEach(plantSends.sent(forVisit: visitId, userId: authSession.user?.id)) { it in
-                plantLine(it)
-            }
-        }
-        .fullScreenCover(isPresented: $showPlantId) {
-            PlantIdView(visitId: visitId, authSession: authSession) { showPlantId = false }
-        }
-        .fullScreenCover(item: $plantToConfirm) { it in
-            PlantIdView(visitId: visitId, authSession: authSession, preset: it.response, presetItemId: it.id, presetPick: plantPick) { plantToConfirm = nil }
         }
         .task { await vm.loadExisting() }
         // Batch camera — presented when captureSlot is non-nil. Opens on the tapped slot's
@@ -594,7 +621,7 @@ struct JobPhotoSection: View {
                     } else {
                         Rectangle()
                             .fill(enabled
-                                  ? appStyle.tenant.opacity(0.08)
+                                  ? appStyle.tenant
                                   : appStyle.sunk)
                             .frame(maxWidth: .infinity)
                             .frame(height: 110)
@@ -605,16 +632,11 @@ struct JobPhotoSection: View {
                                           : "lock.fill")
                                         .font(appStyle.font(.title3))
                                         .foregroundStyle(enabled
-                                                         ? appStyle.tenant
+                                                         ? appStyle.onTenant
                                                          : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
                                     Text(label)
                                         .font(appStyle.font(.caption, weight: .semibold))
-                                        .foregroundStyle(enabled ? appStyle.tenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2)))
-                                    if !enabled {
-                                        Text("Start job first")
-                                            .font(appStyle.font(.caption2))
-                                            .foregroundStyle(appStyle.isEnabled ? appStyle.meta : Color(.tertiaryLabel))
-                                    }
+                                        .foregroundStyle(enabled ? appStyle.onTenant : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2)))
                                 }
                             }
                     }
@@ -735,12 +757,9 @@ struct JobPhotoSection: View {
                         VStack(spacing: 4) {
                             Image(systemName: isFlagged ? "heart.fill" : "heart")
                                 .font(appStyle.font(size: 28))
-                            Text(isFlagged ? "Endorsed" : "Endorse")
+                            // One word, fits the tile (Tim, 2026-11-18: "just 'social'"). The heart fills when endorsed.
+                            Text("Social")
                                 .font(appStyle.font(.caption, weight: .semibold))
-                            // The key marketing action: say where the photos go (Tim, 2026-11-17).
-                            Text(isFlagged ? "In marketing" : "for marketing")
-                                .font(appStyle.font(.caption2))
-                                .lineLimit(1).minimumScaleFactor(0.8)
                         }
                         .foregroundStyle(isFlagged ? appStyle.attention : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray2)))
                     }
@@ -756,6 +775,7 @@ struct JobPhotoSection: View {
             .buttonStyle(.plain)
             .scaleEffect(isFlagLoading ? 1.0 : 1.0)
             .disabled(isFlagLoading)
+            .accessibilityLabel(isFlagged ? "Social. Endorsed for marketing. Tap to undo." : "Social. Endorse these photos for marketing.")
 
         }
         .frame(maxWidth: .infinity)
