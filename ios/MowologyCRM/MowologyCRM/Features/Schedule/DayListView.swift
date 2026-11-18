@@ -720,12 +720,15 @@ struct DayTimeGridView: View {
             .foregroundStyle(active ? appStyle.onTenant : (done ? appStyle.meta : appStyle.text))
             .padding(.horizontal, 8).padding(.vertical, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(active ? appStyle.tenant : appStyle.surface, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+            .background(active ? appStyle.tenant : appStyle.surface)
+            // One shape for the card, its border and the accent: the border is drawn inside the shape, the accent is
+            // laid over it and clipped to the same shape, so it follows both left corners and ends where the
+            // border does, with no cap and no double stroke.
+            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)).strokeBorder(appStyle.line, lineWidth: 1))
             .overlay(alignment: .leading) {
                 Rectangle().fill(done ? appStyle.line : appStyle.tenant).frame(width: 3)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
             }
-            .overlay(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)).stroke(appStyle.line, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
             .opacity(done ? 0.7 : 1)
         }
         .buttonStyle(.plain)
