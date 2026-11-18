@@ -467,6 +467,8 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if args.contains("-mwQuizDemo") {
+            QuizView(authSession: AuthSession(), onPass: {}).itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwAddTaskDemo") {
             AddTaskView(authSession: AuthSession()).itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwAddQuoteDemo") {
@@ -650,7 +652,10 @@ private struct ScheduleTimelineDemo: View {
             VStack(spacing: 0) {
                 DayCarouselView(selectedDate: Date(), weekDays: [], dotsKey: "", showsLine: true, onLand: { _ in })
                 DayTimeGridView(stops: stops + [Self.stop(7, "Spruce Gardens", "3 Sample Lane",
-                                                          Self.visit(70, "lawn_care", "scheduled", "10:30", 30))],
+                                                          Self.visit(70, "lawn_care", "scheduled", "10:30", 30)),
+                                                // a booked-all-day visit, to see the card's lower corner (8:30-4:00)
+                                                Self.stop(8, "Oakridge Gardens", "6015 Tisdall Street",
+                                                          Self.visit(80, "Willow front beds", "scheduled", "08:30", 450))],
                                 isLoading: false, isToday: true, onRefresh: {}, onSelect: { _ in })
             }
             .environment(\.itTabSlot, ItTabSlot(index: 0, count: 5))

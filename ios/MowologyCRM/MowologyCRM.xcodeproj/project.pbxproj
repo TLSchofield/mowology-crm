@@ -218,6 +218,8 @@
 		A2A2175BB0710F6B63E8E386 /* OnboardingBarLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58374817D2C8AA812F4FFA3A /* OnboardingBarLogic.swift */; };
 		CA01607D79E0D6D19C56BE7C /* VendorItemCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */; };
 		C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */; };
+		70DFA209222DE10C2BE33F0A /* QuizQuestionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */; };
+		05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E465AAA0176426DA253EC733 /* QuizDemo.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -434,6 +436,8 @@
 		58374817D2C8AA812F4FFA3A /* OnboardingBarLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingBarLogic.swift; sourceTree = "<group>"; };
 		5D5BF0728D4806D5A42F6E1C /* VendorItemCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VendorItemCache.swift; sourceTree = "<group>"; };
 		FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptRowRules.swift; sourceTree = "<group>"; };
+		8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizQuestionScreen.swift; sourceTree = "<group>"; };
+		E465AAA0176426DA253EC733 /* QuizDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizDemo.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -575,6 +579,8 @@
 				AA1234567890ABCDEF123401 /* QuizModels.swift */,
 				AA1234567890ABCDEF123402 /* QuizView.swift */,
 				AA1234567890ABCDEF123403 /* QuizViewModel.swift */,
+				8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */,
+				E465AAA0176426DA253EC733 /* QuizDemo.swift */,
 			);
 			path = Quiz;
 			sourceTree = "<group>";
@@ -1140,6 +1146,8 @@
 				A2A2175BB0710F6B63E8E386 /* OnboardingBarLogic.swift in Sources */,
 				CA01607D79E0D6D19C56BE7C /* VendorItemCache.swift in Sources */,
 				C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */,
+				70DFA209222DE10C2BE33F0A /* QuizQuestionScreen.swift in Sources */,
+				05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

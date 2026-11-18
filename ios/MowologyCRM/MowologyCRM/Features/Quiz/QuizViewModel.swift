@@ -49,6 +49,12 @@ final class QuizViewModel: ObservableObject {
         self.apiClient = APIClient(authSession: authSession)
     }
 
+    #if DEBUG
+    /// `-mwQuizDemo`: canned questions and answers, no server (see QuizDemo.swift).
+    var demoScript: [QuizDemoQuestion]?
+    private var demoSubmissions = 0
+    #endif
+
     // MARK: - Public API
 
     /// Asks the server whether the pre-shift quiz applies to this crew member today. The server answers "on"
@@ -79,6 +85,12 @@ final class QuizViewModel: ObservableObject {
 
     /// Start a new 10-question quiz session.
     func start() async {
+        #if DEBUG
+        if let demo = demoScript { sessionId = 1; totalQuestions = demo.count
+            let a = ProcessInfo.processInfo.arguments
+            currentNum = (a.firstIndex(of: "-mwQuizStart").flatMap { $0 + 1 < a.count ? Int(a[$0 + 1]) : nil }) ?? 1
+            await loadQuestion(num: currentNum); return }
+        #endif
         isLoading    = true
         errorMessage = nil
         phase        = .loading
@@ -103,10 +115,23 @@ final class QuizViewModel: ObservableObject {
     /// Submit the selected answer for the current question.
     func submitAnswer(optionId: Int?) async {
         guard let sid = sessionId,
-              let q   = currentQuestion else { return }
+              let q   = currentQuestion,
+              answerState == nil, !isLoading else { return }   // one answer per question: a repeat tap scores nothing
 
         let timeTaken = Int(Date().timeIntervalSince(questionStartTime))
         isLoading     = true
+        #if DEBUG
+        if let demo = demoScript {
+            let correct = currentNum * 10 + demo[currentNum - 1].correct
+            demoSubmissions += 1
+            print("QUIZDEMO submission #\(demoSubmissions) for question \(currentNum)")
+            try? await Task.sleep(nanoseconds: 120_000_000)   // a believable round trip
+            answerState = QuizAnswerState(optionId: optionId, isCorrect: optionId == correct, correctOptionId: correct)
+            phase = .feedback
+            isLoading = false
+            return
+        }
+        #endif
 
         do {
             var body: [String: Any] = [
@@ -149,6 +174,14 @@ final class QuizViewModel: ObservableObject {
     // MARK: - Private
 
     private func loadQuestion(num: Int) async {
+        #if DEBUG
+        if let demo = demoScript {
+            currentQuestion = demo[num - 1].response(num: num, total: demo.count)
+            phase = .question(num: num, of: demo.count)
+            isLoading = false
+            return
+        }
+        #endif
         guard let sid = sessionId else { return }
         isLoading     = true
         errorMessage  = nil
@@ -170,6 +203,9 @@ final class QuizViewModel: ObservableObject {
     }
 
     private func finish() async {
+        #if DEBUG
+        if demoScript != nil { result = nil; phase = .finished(passed: true); isLoading = false; return }
+        #endif
         guard let sid = sessionId else { return }
         isLoading = true
 
