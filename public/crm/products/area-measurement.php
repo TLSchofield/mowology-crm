@@ -57,6 +57,13 @@ if ($propertyId) {
 }
 
 // Opened from a plant ("Draw its bed"): show where its photo was taken and which way the camera faced.
+// Coming from the property page's Plants card ("Draw a bed"): bed mode + a safe way back.
+$bedMode = (($_GET['mode'] ?? '') === 'bed');
+$returnTo = '';
+if (!empty($_GET['return_to']) && preg_match('#^/crm/properties/view\.php\?id=\d+$#', (string)$_GET['return_to'])) {
+    $returnTo = (string)$_GET['return_to'];
+}
+
 $plantFocus = null;
 if ($property && !empty($_GET['plant'])) {
     try {
@@ -91,6 +98,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         if (function_exists('saveMeasurementsForProperty')) {
             $result = saveMeasurementsForProperty($propId, $measurements, $user['id']);
+            // The beds were just re-saved (new ids): put every plant in the bed it belongs in.
+            if (!empty($result['success'])) {
+                try {
+                    require_once APP_ROOT . '/Modules/Plants/Services/PlantIdService.php';
+                    $moved = (new PlantIdService($db))->rematchProperty($propId);
+                    $result['plants_moved'] = $moved;
+                    if ($moved > 0) $result['message'] = rtrim((string)($result['message'] ?? 'Saved.'), '. ') . '. ' . $moved . ' plant' . ($moved === 1 ? '' : 's') . ' moved into ' . ($moved === 1 ? 'its' : 'their') . ' bed' . ($moved === 1 ? '' : 's') . '.';
+                } catch (Throwable $e) { error_log('rematchProperty: ' . $e->getMessage()); }
+            }
             echo json_encode($result);
         } else {
             echo json_encode(['success' => false, 'error' => 'MeasurementService not available']);
@@ -172,6 +188,9 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                           </div>
                       </div>
                       <div class="card-body p-0">
+                          <?php if ($bedMode && !$plantFocus): ?>
+                          <div class="alert alert-success py-2 mb-2">Draw each bed, name it, then press <b>Save to property</b>. Plants already photographed here will move into their bed by themselves.</div>
+                          <?php endif; ?>
                           <?php if ($plantFocus): ?>
                           <div class="d-flex align-items-center p-2 border-bottom small">
                               <?php if ($plantFocus['thumb']): ?><img src="<?= htmlspecialchars($plantFocus['thumb']) ?>" alt="" width="56" height="56" class="rounded mr-2"><?php endif; ?>
@@ -591,7 +610,17 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
 
         // Existing measurements from database
         const existingMeasurements = <?php echo json_encode($existingMeasurements); ?>;
+        const BED_MODE = <?php echo $bedMode ? 'true' : 'false'; ?>;
+        const RETURN_TO = <?php echo json_encode($returnTo); ?>;
         const PLANT_FOCUS = <?php echo json_encode($plantFocus, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        if (BED_MODE || PLANT_FOCUS_PRESENT()) { document.addEventListener('DOMContentLoaded', function () {
+            var sel = document.getElementById('areaType');
+            if (!sel) return;
+            for (var i = 0; i < sel.options.length; i++) {
+                if (/garden|bed/i.test(sel.options[i].value)) { sel.selectedIndex = i; break; }
+            }
+        }); }
+        function PLANT_FOCUS_PRESENT() { return typeof PLANT_FOCUS !== 'undefined' && !!PLANT_FOCUS; }
 
         function showPlantFocus(m) {
             if (!PLANT_FOCUS || !window.google) return;
@@ -726,7 +755,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
             const m = tool.getCurrent();
             const isLine = m.shapeType === 'polyline';
 
-            const areaName = document.getElementById('areaName').value || `Area ${areaCounter + 1}`;
+            const areaName = document.getElementById('areaName').value || `${BED_MODE ? 'Bed' : 'Area'} ${areaCounter + 1}`;
             const areaType = document.getElementById('areaType').value;
             const color = getRandomColor();
             const adopted = tool.adoptCurrent({ color: color });
@@ -994,6 +1023,14 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                     statusDiv.style.background = '#d1fae5';
                     statusDiv.style.color = '#065f46';
                     statusDiv.textContent = data.message;
+                    if (RETURN_TO && /^\/crm\/properties\/view\.php\?id=\d+$/.test(RETURN_TO)) {
+                        statusDiv.innerHTML = '';
+                        statusDiv.appendChild(document.createTextNode((data.message || 'Saved.') + ' '));
+                        const back = document.createElement('a');
+                        back.href = RETURN_TO; back.textContent = 'Back to the property';
+                        statusDiv.appendChild(back);
+                        setTimeout(function () { window.location.href = RETURN_TO; }, 2500);
+                    }
                 } else {
                     statusDiv.style.background = '#fee2e2';
                     statusDiv.style.color = '#991b1b';

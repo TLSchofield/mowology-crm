@@ -561,7 +561,7 @@ if ($apiKey) {
                         <a href="/crm/clients_appstack.php" class="btn btn-secondary">Cancel</a>
                     <?php endif; ?>
                     <a href="/crm/jobs/zone-editor.php?property_id=<?= (int)$propertyId ?>&return_to=<?= urlencode('/crm/properties/view.php?id=' . $propertyId) ?>" class="btn btn-outline-secondary ml-2">
-                        Zone Editor (measurements)
+                        Clock-in border &amp; work zones
                     </a>
                 </div>
                 <?php endif; ?>
@@ -574,7 +574,10 @@ if ($apiKey) {
                         <h5 class="card-title mb-0">Plants</h5>
                         <small class="text-muted">What grows here, and in which bed. <a href="/crm/plants/library.php">Plant library</a></small>
                     </div>
-                    <button type="button" class="btn btn-sm btn-primary mw-plants-open">What is this?</button>
+                    <div>
+                        <a href="#" class="btn btn-sm btn-outline-primary mr-1 mw-plants-draw" hidden>Draw a bed</a>
+                        <button type="button" class="btn btn-sm btn-primary mw-plants-open">What is this?</button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="mw-plants-take mb-3" hidden></div>
@@ -583,7 +586,6 @@ if ($apiKey) {
                     <p class="small text-muted mt-2 mb-0 mw-plants-attr"></p>
                 </div>
             </div>
-            <script src="/assets/js/photo-markers.js?v=<?= @filemtime(dirname(__DIR__, 2) . '/assets/js/photo-markers.js') ?: '1' ?>" defer></script>
             <script src="/assets/js/photo-markers.js?v=<?= @filemtime(dirname(__DIR__, 2) . '/assets/js/photo-markers.js') ?: '1' ?>" defer></script>
             <script src="/crm/js/plant-id.js?v=<?= @filemtime(dirname(__DIR__) . '/js/plant-id.js') ?: '1' ?>" defer></script>
 

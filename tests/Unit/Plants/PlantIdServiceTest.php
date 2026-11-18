@@ -157,6 +157,56 @@ class PlantIdServiceTest extends TestCase
         $this->assertTrue($svc->forProperty(76)[0]['bed']['sure']);
     }
 
+    public function testRematchPutsAnUnplacedPlantInANewBed(): void
+    {
+        $db = $this->db(); $calls = 0;
+        $svc = new PlantIdService($db, $this->transport(self::answer(0.82), $calls), $this->root);
+        $svc->identify(76, [2], [], 7);
+        $db->exec('UPDATE plant_records SET measurement_id = NULL, bed_name = NULL, bed_how = NULL');   // drawn before any bed existed
+        $this->assertSame(1, $svc->rematchProperty(76));
+        $r = $db->query('SELECT measurement_id, bed_name, bed_how FROM plant_records')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(['10', 'Garden Bed South West'], [(string)$r['measurement_id'], $r['bed_name']]);
+        $this->assertNotNull($r['bed_how']);
+        $this->assertSame(0, $svc->rematchProperty(76), 'second run changes nothing');
+    }
+
+    public function testRematchKeepsAPersonsPickAndFollowsTheReSavedId(): void
+    {
+        $db = $this->db(); $calls = 0;
+        $svc = new PlantIdService($db, $this->transport(self::answer(0.82), $calls), $this->root);
+        $id = (int)$svc->identify(76, [2], [], 7)['record']['id'];
+        $svc->confirm($id, ['scientific_name' => 'Lavandula stoechas', 'measurement_id' => 10], 7);
+        $db->exec("UPDATE plant_records SET bed_how = 'picked'");
+        $db->exec('UPDATE property_measurements SET id = 55');   // re-save: new id, same bed name
+        $svc->rematchProperty(76);
+        $r = $db->query('SELECT measurement_id, bed_how FROM plant_records')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(['55', 'picked'], [(string)$r['measurement_id'], $r['bed_how']]);
+    }
+
+    public function testRematchMovesAPlantOutOfABedRedrawnElsewhereUnderTheSameName(): void
+    {
+        $db = $this->db(); $calls = 0;
+        $svc = new PlantIdService($db, $this->transport(self::answer(0.82), $calls), $this->root);
+        $svc->identify(76, [2], [], 7);
+        $far = json_encode([['lat' => 49.30, 'lng' => -123.20], ['lat' => 49.30, 'lng' => -123.19], ['lat' => 49.29, 'lng' => -123.19], ['lat' => 49.29, 'lng' => -123.20]]);
+        $db->prepare('UPDATE property_measurements SET polygon_coords = ?')->execute([$far]);   // same name, now across town
+        $this->assertSame(1, $svc->rematchProperty(76));
+        $this->assertNull($db->query('SELECT measurement_id FROM plant_records')->fetchColumn());
+    }
+
+    public function testRematchLeavesAPickedPlantAloneWhenTwoBedsShareItsName(): void
+    {
+        $db = $this->db(); $calls = 0;
+        $svc = new PlantIdService($db, $this->transport(self::answer(0.82), $calls), $this->root);
+        $id = (int)$svc->identify(76, [2], [], 7)['record']['id'];
+        $svc->confirm($id, ['scientific_name' => 'Lavandula stoechas', 'measurement_id' => 10], 7);
+        $db->exec("UPDATE plant_records SET bed_how = 'picked'");
+        $ring = $db->query('SELECT polygon_coords FROM property_measurements')->fetchColumn();
+        $db->prepare("INSERT INTO property_measurements VALUES (11, 76, 'garden bed south west', 'garden_beds', ?)")->execute([$ring]);
+        $svc->rematchProperty(76);
+        $this->assertSame('10', (string)$db->query('SELECT measurement_id FROM plant_records')->fetchColumn());
+    }
+
     public function testUnsureResultsOfferTheTopMatchesWithPhotos(): void
     {
         // 2464 Point Grey Rd, 2026-10-20: Japanese enkianthus 41%, Japanese pieris 29% — it was pieris.

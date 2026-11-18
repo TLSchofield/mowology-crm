@@ -288,6 +288,43 @@ class PlantIdService
         return $out;
     }
 
+    /**
+     * After the beds are drawn or re-saved: put each plant in the bed it belongs in, and remember it.
+     * A person's own pick ('picked') is never changed. Returns how many plants now sit in a different bed than before.
+     */
+    public function rematchProperty(int $propertyId): int
+    {
+        if (!$this->ready()) return 0;
+        $beds = $this->beds($propertyId);
+        $s = $this->db->prepare("SELECT * FROM plant_records WHERE property_id = ? AND status <> 'removed'");
+        $s->execute([$propertyId]);
+        $up = $this->db->prepare('UPDATE plant_records SET measurement_id = ?, bed_name = ?, bed_how = ?, updated_at = ? WHERE id = ?');
+        $moved = 0;
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (($r['bed_how'] ?? '') === 'picked') {
+                // A person's pick: only follow the re-saved id when exactly one bed carries that name; otherwise leave it alone.
+                $same = array_values(array_filter($beds, fn($b) => strcasecmp($b['name'], (string)$r['bed_name']) === 0));
+                if (count($same) === 1 && (int)$same[0]['id'] !== (int)$r['measurement_id']) $up->execute([$same[0]['id'], $same[0]['name'], 'picked', date('Y-m-d H:i:s'), $r['id']]);
+                continue;
+            }
+            // Everyone else goes by where the photo was taken against today's outlines (a redrawn bed of the same name can move);
+            // with no photo position at all, fall back to the saved name.
+            $b = null;
+            if ($r['lat'] !== null) {
+                $l = BedLocator::locate((float)$r['lat'], (float)$r['lng'], $r['accuracy_m'] !== null ? (float)$r['accuracy_m'] : null,
+                                        $r['heading_deg'] !== null ? (float)$r['heading_deg'] : null, $beds);
+                if ($l['id']) $b = ['id' => $l['id'], 'name' => $l['name'], 'sure' => $l['sure'], 'how' => $l['how']];
+            }
+            if (!$b && $r['lat'] === null) { $b = self::resolveBed(array_merge($r, ['lat' => null]), $beds); if ($b) $b['how'] = 'name'; }
+            $newId = $b ? (int)$b['id'] : null;
+            $newName = $b ? $b['name'] : null;
+            if ($newId === ($r['measurement_id'] !== null ? (int)$r['measurement_id'] : null) && $newName === $r['bed_name']) continue;
+            $up->execute([$newId, $newName, $b ? ($b['how'] ?? 'near') : null, date('Y-m-d H:i:s'), $r['id']]);
+            $moved++;
+        }
+        return $moved;
+    }
+
     public function one(int $id): ?array
     {
         $s = $this->db->prepare('SELECT * FROM plant_records WHERE id = ?');
