@@ -148,6 +148,9 @@ try {
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
         $hbr = new HeadBriefReadyService($db);
+        // This run is what keeps the work-queue copy fresh for everyone else (HouseBriefAdapter::STALE_SECONDS).
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+        HouseBriefAdapter::$refreshing = true;
         $hbr->rebuildCharlie($f, $name, $view);
         // The dashboard's copy of the same answer: "Needs you now" shows it with the page (speed pass, 2026-10-19).
         $hbr->keepToday(HeadBriefReadyService::todayPayload($card, $desk, $name));

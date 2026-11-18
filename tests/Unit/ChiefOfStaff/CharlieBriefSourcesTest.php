@@ -110,6 +110,20 @@ class CharlieBriefSourcesTest extends TestCase
         $this->assertSame('house:overdue_invoice', $b['items'][0]['key']);
         $this->assertSame(0, $sweeps, 'a fresh copy means the slow sweep does not run');
 
+        // 20 minutes old: past CACHE_SECONDS but inside STALE_SECONDS, so a card load still skips the sweep ...
+        $db->exec("UPDATE head_brief_ready SET built_at = '" . date('Y-m-d H:i:s', time() - 1200) . "'");
+        (new HouseBriefAdapter($db, $sweep))->brief();
+        $this->assertSame(0, $sweeps, 'a copy inside the stale window is served without the sweep');
+        // ... but the refreshing cron rebuilds it.
+        HouseBriefAdapter::$refreshing = true;
+        try {
+            (new HouseBriefAdapter($db, $sweep))->brief();
+        } finally {
+            HouseBriefAdapter::$refreshing = false;
+        }
+        $this->assertSame(1, $sweeps, 'the cron run rebuilds an expired copy');
+        $sweeps = 0;
+
         // An old copy is rebuilt.
         $db->exec("UPDATE head_brief_ready SET built_at = '" . date('Y-m-d H:i:s', time() - 3600) . "'");
         $b2 = (new HouseBriefAdapter($db, $sweep))->brief();
