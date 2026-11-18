@@ -467,6 +467,14 @@ struct ScheduleTimelineDemoOverlay: View {
             MeniscusBarDemo(variant: variant).itAppTheme(enabled: true, field: args.contains("-mwTimelineField"))
         } else if args.contains("-mwBeadDemo") {
             MeniscusBarDemo(variant: "receipts").itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwPhotoTilesDemo") {
+            // The visit screen's Before / After / Social tiles ("active" = After unlocked).
+            JobPhotoSection(visitId: 1, isActive: i + 1 < args.count && args[i + 1] == "active", authSession: AuthSession(),
+                            isFlagged: false, isFlagLoading: false, endorsedBy: [], onFlagToggle: {}, captureGate: nil, photosLocked: false)
+                .padding(16).padding(.top, 60)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(Color.white.ignoresSafeArea())
+                .itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwQuizDemo") {
             QuizView(authSession: AuthSession(), onPass: {}).itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwAddTaskDemo") {

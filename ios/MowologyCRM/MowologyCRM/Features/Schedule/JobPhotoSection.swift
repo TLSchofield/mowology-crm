@@ -628,9 +628,10 @@ struct JobPhotoSection: View {
                             .overlay {
                                 VStack(spacing: 4) {
                                     Image(systemName: enabled
-                                          ? "camera.badge.plus"
+                                          ? "camera.fill"
                                           : "lock.fill")
-                                        .font(appStyle.font(.title3))
+                                        .font(appStyle.font(size: 28))      // same size as Social's heart,
+                                        .frame(height: 32)                  // in the same fixed-height slot, so the three labels share a line
                                         .foregroundStyle(enabled
                                                          ? appStyle.onTenant
                                                          : (appStyle.isEnabled ? appStyle.meta : Color(.systemGray3)))
@@ -737,7 +738,10 @@ struct JobPhotoSection: View {
 
     @ViewBuilder
     private func heartSlot() -> some View {
-        VStack(spacing: 6) {
+        // Social sends the photos to marketing, so it opens only once Before and After are both taken (Tim, 2026-11-18).
+        // An already-endorsed visit stays tappable so the endorsement can be undone.
+        let ready = isFlagged || vm.isComplete
+        return VStack(spacing: 6) {
             Button {
                 guard let toggle = onFlagToggle, !isFlagLoading else { return }
                 Task { await toggle() }
@@ -746,7 +750,7 @@ struct JobPhotoSection: View {
                     RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .fill(isFlagged
                               ? appStyle.attention.opacity(0.12)
-                              : (appStyle.isEnabled ? appStyle.tenant.opacity(0.08) : appStyle.sunk))
+                              : (ready && appStyle.isEnabled ? appStyle.tenant.opacity(0.08) : appStyle.sunk))
                         .frame(maxWidth: .infinity)
                         .frame(height: 110)
                     if isFlagLoading {
@@ -755,27 +759,33 @@ struct JobPhotoSection: View {
                             .tint(appStyle.attention)
                     } else {
                         VStack(spacing: 4) {
-                            Image(systemName: isFlagged ? "heart.fill" : "heart")
+                            Image(systemName: !ready ? "lock.fill" : (isFlagged ? "heart.fill" : "heart"))
                                 .font(appStyle.font(size: 28))
+                                .frame(height: 32)
                             // One word, fits the tile (Tim, 2026-11-18: "just 'social'"). The heart fills when endorsed.
                             Text("Social")
                                 .font(appStyle.font(.caption, weight: .semibold))
                         }
-                        .foregroundStyle(isFlagged ? appStyle.attention : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray2)))
+                        .foregroundStyle(isFlagged ? appStyle.attention
+                                         : (!ready ? (appStyle.isEnabled ? appStyle.meta : Color(.systemGray2))
+                                                   : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray2))))
                     }
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
                         .stroke(isFlagged
                                 ? appStyle.attention.opacity(0.4)
-                                : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray5)),
-                                lineWidth: isFlagged ? 2 : 1.5)
+                                : (!ready ? (appStyle.isEnabled ? appStyle.line : Color(.systemGray5))
+                                          : (appStyle.isEnabled ? appStyle.tenant : Color(.systemGray5))),
+                                lineWidth: isFlagged ? 2 : (ready ? 1.5 : 1))
                 )
             }
             .buttonStyle(.plain)
             .scaleEffect(isFlagLoading ? 1.0 : 1.0)
-            .disabled(isFlagLoading)
-            .accessibilityLabel(isFlagged ? "Social. Endorsed for marketing. Tap to undo." : "Social. Endorse these photos for marketing.")
+            .disabled(isFlagLoading || !ready)
+            .accessibilityLabel(isFlagged ? "Social. Endorsed for marketing. Tap to undo."
+                                : (ready ? "Social. Endorse these photos for marketing."
+                                         : "Social. Locked until the before and after photos are taken."))
 
         }
         .frame(maxWidth: .infinity)
