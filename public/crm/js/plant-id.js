@@ -91,19 +91,53 @@
         return '<p class="small text-muted mb-2">' + says + (state.canEdit ? ' <button type="button" class="btn btn-sm btn-link p-0 align-baseline" data-seeding="' + (w.seeding ? 0 : 1) + '">' + (w.seeding ? 'Turn off' : 'Turn on') + '</button>' : '') + '</p>';
     }
 
+    function plantRow(p) {
+        var thumb = p.thumbs && p.thumbs[0] ? '<img src="' + esc(p.thumbs[0]) + '" alt="" width="44" height="44" class="rounded">' : '';
+        var badge = p.status === 'confirmed' ? '' : ' <span class="badge badge-warning">' + (p.status === 'unsure' ? 'not sure' : 'check') + '</span>';
+        var acts = state.canEdit ? (p.status !== 'confirmed' ? '<button type="button" class="btn btn-sm btn-outline-primary mr-1" data-check="' + p.id + '">Check</button>' : '')
+            + (!p.bed ? '<a class="btn btn-sm btn-outline-secondary mr-1" href="' + drawBedUrl(p.id) + '">Draw its bed</a>' : '')
+            + '<button type="button" class="btn btn-sm btn-link text-muted" data-remove="' + p.id + '">Remove</button>' : '';
+        acts = planButton(p) + acts;
+        return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + (p.bed && !p.bed.sure ? 'probably in this bed · ' : '') + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + workOf(p) + '</td>'
+            + '<td class="text-right text-nowrap">' + acts + '</td></tr>';
+    }
+
+    // Where "Draw a bed" goes: the bed-drawing map for this property, and back here when saved.
+    function drawBedUrl(plantId) {
+        return '/crm/products/area-measurement.php?property_id=' + PID + '&mode=bed' + (plantId ? '&plant=' + plantId : '')
+            + '&return_to=' + encodeURIComponent('/crm/properties/view.php?id=' + PID);
+    }
+
     function renderList(plants) {
         var box = q('.mw-plants-list');
+        var drawBtn = q('.mw-plants-draw');
+        if (drawBtn) { drawBtn.href = drawBedUrl(0); drawBtn.hidden = !state.canEdit; }
         if (!plants.length) { box.innerHTML = '<p class="text-muted small mb-0">No plants recorded here yet. Tap <b>What is this?</b> and take three photos of one plant.</p>'; return; }
-        box.innerHTML = workHead() + '<table class="table table-sm mb-0"><tbody>' + plants.map(function (p) {
-            var thumb = p.thumbs && p.thumbs[0] ? '<img src="' + esc(p.thumbs[0]) + '" alt="" width="44" height="44" class="rounded">' : '';
-            var badge = p.status === 'confirmed' ? '' : ' <span class="badge badge-warning">' + (p.status === 'unsure' ? 'not sure' : 'check') + '</span>';
-            var acts = state.canEdit ? (p.status !== 'confirmed' ? '<button type="button" class="btn btn-sm btn-outline-primary mr-1" data-check="' + p.id + '">Check</button>' : '')
-                + (!p.bed ? '<a class="btn btn-sm btn-outline-secondary mr-1" href="/crm/products/area-measurement.php?property_id=' + PID + '&plant=' + p.id + '">Draw its bed</a>' : '')
-                + '<button type="button" class="btn btn-sm btn-link text-muted" data-remove="' + p.id + '">Remove</button>' : '';
-            acts = planButton(p) + acts;
-            return '<tr><td width="52">' + thumb + '</td><td>' + nameOf(p) + badge + '<div class="small text-muted">' + bedOf(p) + ' · ' + esc(String(p.created_at || '').slice(0, 10)) + '</div>' + careOf(p) + workOf(p) + '</td>'
-                + '<td class="text-right text-nowrap">' + acts + '</td></tr>';
-        }).join('') + '</tbody></table>';
+
+        // Group the plants by the bed they sit in; the ones with no bed come first with a nudge to draw it.
+        var groups = {}, order = [], loose = [];
+        plants.forEach(function (p) {
+            if (!p.bed) { loose.push(p); return; }
+            var k = String(p.bed.name);
+            if (!groups[k]) { groups[k] = []; order.push(k); }
+            groups[k].push(p);
+        });
+        (state.beds || []).forEach(function (b) {   // beds already drawn but with no plants yet
+            var k = String(b.name);
+            if (!groups[k] && /garden|bed|border|hedge/i.test(String(b.type || '') + ' ' + k)) { groups[k] = []; order.push(k); }
+        });
+        order.sort(function (x, y) { return x.localeCompare(y); });
+
+        function section(title, hint, list) {
+            return '<div class="mw-plant-group mb-3"><div class="d-flex align-items-baseline border-bottom pb-1 mb-1"><b>' + esc(title) + '</b>'
+                + '<span class="badge badge-light ml-2">' + list.length + '</span>' + (hint ? '<span class="small text-muted ml-2">' + hint + '</span>' : '') + '</div>'
+                + (list.length ? '<table class="table table-sm mb-0"><tbody>' + list.map(plantRow).join('') + '</tbody></table>' : '<p class="small text-muted mb-0">No plants photographed in this bed yet.</p>')
+                + '</div>';
+        }
+        var html = workHead();
+        if (loose.length) html += section('No bed yet', state.canEdit ? 'Draw the bed and these will move into it by themselves.' : '', loose);
+        order.forEach(function (k) { html += section(k, '', groups[k]); });
+        box.innerHTML = html;
         state.plants = plants;
     }
 

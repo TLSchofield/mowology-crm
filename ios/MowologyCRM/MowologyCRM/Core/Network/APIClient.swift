@@ -40,7 +40,19 @@ final class APIClient: ObservableObject {
     var currentUserId: Int? { authSession?.user?.id }
     var currentUserIsAdmin: Bool { authSession?.user?.isAdmin ?? false }
 
-    private func logout() {
+    /// Signs out after a 401. Records which request was refused first (method, path, the server's
+    /// `code`, and whether a Bearer token was sent). Never records the token itself.
+    /// True while a token is held. Background senders check this before posting.
+    var isSignedIn: Bool { authSession?.token != nil }
+
+    private func logout(for request: URLRequest, data: Data?) {
+        let code = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["code"] as? String
+        let path = request.url?.path ?? "?"
+        let sentBearer = request.value(forHTTPHeaderField: "Authorization") != nil
+        AppDiagnostics.shared.record(
+            category: "auth.401",
+            message: "\(request.httpMethod ?? "?") \(path) code=\(code.map { String($0.prefix(40)) } ?? "none") bearer=\(sentBearer)"
+        )
         VendorItemCache.shared.clear()
         authSession?.logout()
     }
@@ -90,7 +102,8 @@ final class APIClient: ObservableObject {
         body: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeout: TimeInterval? = nil,
-        faultsAreTransient: Bool = false
+        faultsAreTransient: Bool = false,
+        signsOutOn401: Bool = true
     ) async throws -> T {
         guard let url = endpoint.url else {
             throw APIError.invalidURL
@@ -138,8 +151,9 @@ final class APIClient: ObservableObject {
         // Inspect the HTTP status code.
         if let httpResponse = response as? HTTPURLResponse {
             if httpResponse.statusCode == 401 {
-                // Token is invalid or expired — sign out immediately.
-                logout()
+                // Token is invalid or expired — sign out immediately, unless the caller is a background
+                // report that must not end the session (the vitals upload, see VitalsUploader).
+                if signsOutOn401 { logout(for: urlRequest, data: data) }
                 throw APIError.unauthorized
             }
 
@@ -215,7 +229,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(for: request, data: data); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = ErrorDetails.response(data, status: http.statusCode)
                 // Only the app's own "this photo can't be taken" is the server's answer about the photo. A 403 or 404 can
@@ -262,7 +276,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(for: request, data: data); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 throw APIError.serverError(ErrorDetails.response(data, status: http.statusCode))
             }
@@ -304,7 +318,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(for: request, data: data); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 throw APIError.serverError(ErrorDetails.response(data, status: http.statusCode))
             }
@@ -361,7 +375,7 @@ final class APIClient: ObservableObject {
         catch { throw APIError.networkError(error) }
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { logout(); throw APIError.unauthorized }
+            if http.statusCode == 401 { logout(for: request, data: data); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = ErrorDetails.response(data, status: http.statusCode)
                 // 5xx / timeout / rate limit: the server did not say no — keep the photo and retry.

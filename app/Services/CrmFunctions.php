@@ -687,15 +687,21 @@ function getPropertiesForContact($contactId, $db = null, $activeOnly = true) {
         return [];
     }
     $db = $db ?: getDB();
-    $sql = "SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude
+    // A contact reaches a property as site contact, as quote contact (e.g. a strata
+    // representative), or through a current property_contacts row.
+    $sql = "SELECT id, property_name, address, city, province, postal_code, property_type, status, latitude, longitude
             FROM properties
-            WHERE site_contact_id = ?";
+            WHERE (site_contact_id = ?
+                   OR quote_contact_id = ?
+                   OR EXISTS (SELECT 1 FROM property_contacts pc
+                              WHERE pc.property_id = properties.id AND pc.contact_id = ?
+                                AND (pc.ended_on IS NULL OR pc.ended_on >= CURDATE())))";
     if ($activeOnly) {
         $sql .= " AND status = 'active'";
     }
     $sql .= " ORDER BY address";
     $stmt = $db->prepare($sql);
-    $stmt->execute([$contactId]);
+    $stmt->execute([$contactId, $contactId, $contactId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 

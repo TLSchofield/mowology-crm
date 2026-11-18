@@ -260,6 +260,7 @@ struct ReceiptDetailView: View {
                     .padding(.vertical, ItSpace.s3)
             }
             if draft != nil {
+                paymentRow
                 if pairedCount > 0 {
                     pairedSection
                     let agreed = comparedCount - pairedCount
@@ -561,6 +562,52 @@ struct ReceiptDetailView: View {
         return ReceiptCategoryCombo(text: binding(\.category, field: "accounting_category"), options: options,
                                     enabled: canEditGrid) { categoryFocusTick += 1 }
             .id("categoryRow")
+    }
+
+    private static let paymentOptions = ["credit_card", "debit", "cash", "etransfer", "company_card", "owner_paid"]
+
+    private static func paymentTitle(_ v: String) -> String {
+        switch v {
+        case "credit_card":  return "Credit Card"
+        case "company_card": return "Company Card"
+        case "etransfer":    return "e-Transfer"
+        case "owner_paid":   return "Paid personally (owner)"
+        default:             return v.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    /// How it was paid, always visible at the top: it decides which account the expense lands in (Tim, 2026-11-17).
+    private var paymentRow: some View {
+        let current = draft?.paymentMethod ?? ""
+        var options = Self.paymentOptions
+        if !current.isEmpty, !options.contains(current) { options.insert(current, at: 0) }
+        let radius = appStyle.cornerRadius(ItRadius.md)
+        return HStack(spacing: ItSpace.s3) {
+            Text("Paid with").font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+            Spacer(minLength: ItSpace.s2)
+            Menu {
+                ForEach(options, id: \.self) { option in
+                    Button {
+                        binding(\.paymentMethod, field: "payment_method").wrappedValue = option
+                    } label: {
+                        if option == current { Label(Self.paymentTitle(option), systemImage: "checkmark") } else { Text(Self.paymentTitle(option)) }
+                    }
+                }
+            } label: {
+                HStack(spacing: ItSpace.s2) {
+                    Text(current.isEmpty ? "Choose" : Self.paymentTitle(current))
+                        .font(appStyle.font(.body, weight: .semibold))
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(pennyBrand)
+                .padding(.horizontal, ItSpace.s3)
+                .frame(minHeight: ItSize.targetPhone)
+                .overlay(RoundedRectangle(cornerRadius: radius).stroke(pennyBrand.opacity(0.5), lineWidth: 1))
+            }
+            .disabled(!canEditGrid)
+            .accessibilityLabel("Paid with \(current.isEmpty ? "not chosen" : Self.paymentTitle(current)). Double tap to change.")
+        }
+        .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
     }
 
     private var addItemRow: some View {

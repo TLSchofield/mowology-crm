@@ -615,7 +615,8 @@ enum APIEndpoint {
 
         case .quizStatus:
             var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
-            components?.queryItems = [URLQueryItem(name: "action", value: "status")]
+            // `mode`, not `action`: under /api/ the .htaccess QSA rewrite owns `action` (router note).
+            components?.queryItems = [URLQueryItem(name: "mode", value: "status")]
             return components?.url
 
         case .fieldSearch(let query, let lat, let lng):

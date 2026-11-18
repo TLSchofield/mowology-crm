@@ -125,13 +125,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_properties' && $_SERVER['
     // Get properties linked to this contact via site_contact_id
     if ($contactId) {
         $stmt = $db->prepare("
-            SELECT p.id, p.address, p.city, p.property_type, p.postal_code
+            SELECT p.id, p.property_name, p.address, p.city, p.property_type, p.postal_code
             FROM properties p
-            WHERE p.site_contact_id = ?
+            WHERE (p.site_contact_id = ?
+                   OR p.quote_contact_id = ?
+                   OR EXISTS (SELECT 1 FROM property_contacts pc
+                              WHERE pc.property_id = p.id AND pc.contact_id = ?
+                                AND (pc.ended_on IS NULL OR pc.ended_on >= CURDATE())))
               AND (p.status IS NULL OR p.status = 'active')
             ORDER BY p.address ASC
         ");
-        $stmt->execute([$contactId]);
+        $stmt->execute([$contactId, $contactId, $contactId]);
         $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -992,7 +996,9 @@ $activePage = 'jobs';
                               card.dataset.propertyId = prop.id;
 
                               var typeLabel = (prop.property_type || 'property').replace('_', ' ');
-                              var addrParts = [prop.address];
+                              var addrParts = [];
+                              if (prop.property_name) addrParts.push(prop.property_name);
+                              addrParts.push(prop.address);
                               if (prop.city) addrParts.push(prop.city);
 
                               card.innerHTML = '<i data-feather="map-pin"></i>'

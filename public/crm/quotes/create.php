@@ -1239,7 +1239,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         data.properties.forEach(p => {
                             const opt = document.createElement('option');
                             opt.value = p.id;
-                            opt.textContent = p.address + ', ' + p.city + ' (' + (p.property_type || 'N/A') + ')';
+                            opt.textContent = (p.property_name ? p.property_name + ' — ' : '') + p.address + ', ' + p.city + ' (' + (p.property_type || 'N/A') + ')';
                             propertySelect.appendChild(opt);
                         });
 

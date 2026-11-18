@@ -32,7 +32,7 @@ struct HeadSpineDemo: View {
                 VStack(alignment: .leading, spacing: 0) {
                     SpineHead(slug: slug, name: name, state: .approval)
                     sections
-                    SpineNode(slug: slug, id: "learned", title: "What \(name) has learned", symbol: "brain",
+                    SpineNode(slug: slug, id: "learned", title: "What \(name) has learned", symbol: "lightbulb",
                               waiting: HeadSpineLogic.count(42, "learned")) {
                         Text("\(name) has learned 42 things about how you work — mostly the work you do most.")
                             .itText(.body14)

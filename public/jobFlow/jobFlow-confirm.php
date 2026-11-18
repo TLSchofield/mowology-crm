@@ -325,7 +325,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 // ── 6. Log consent ────────────────────────────────────────
                 $consentEntries = [
                     'quote_followup'  => [$data['consent_quote'],    'I agree to be contacted about this quote request via email, phone, or text message.'],
-                    'marketing_email' => [$data['consent_marketing'], 'Send me occasional seasonal reminders, promotions, and property care tips.'],
+                    'marketing_email' => [$data['consent_marketing'], 'Send me occasional seasonal reminders and property care tips by email. I can unsubscribe at any time.'],
                     'sms'             => [$data['consent_sms'],       'I agree to receive SMS updates about scheduling and quote progress.'],
                 ];
                 foreach ($consentEntries as $type => [$given, $text]) {

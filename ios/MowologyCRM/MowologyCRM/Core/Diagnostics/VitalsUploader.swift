@@ -80,7 +80,8 @@ final class VitalsUploader {
 
     func flush() async {
         #if !DEBUG
-        guard !flushing, let client else { return }
+        // Signed out (no token) → nothing to send: the server would answer 401 and the backoff would start.
+        guard !flushing, let client, client.isSignedIn else { return }
         let batch = outbox.nextBatch(now: Date())
         guard !batch.isEmpty else { return }
         flushing = true
@@ -88,7 +89,9 @@ final class VitalsUploader {
         let ids = batch.map(\.id)
         do {
             guard let events = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(batch)) else { return }
-            let _: Ack = try await client.request(.appVitals, body: ["device": Self.device(), "events": events], faultsAreTransient: true)
+            // A 401 here must not sign the crew out: this is a background report, not the session.
+            let _: Ack = try await client.request(.appVitals, body: ["device": Self.device(), "events": events],
+                                                  faultsAreTransient: true, signsOutOn401: false)
             outbox.sent(ids)
         } catch APIError.serverError {
             outbox.rejected(ids)           // the server said no to this batch; retrying cannot help
