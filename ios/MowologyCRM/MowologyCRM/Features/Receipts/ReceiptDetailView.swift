@@ -71,6 +71,9 @@ struct ReceiptDetailView: View {
     @State private var showsAgreedRows = false
     @State private var categoryFocusTick = 0
     @State private var keyboardUp = false
+    /// Receipt photo size: 0 strip, 1 normal (a third of the screen), 2 large. Cycled by the button on the photo.
+    @State private var photoSize = 1
+    @State private var amountsFocusTick = 0
     @State private var recordWasEdited = false
     @State private var saveGeneration = 0
     @State private var itemSaveGenerations: [Int: Int] = [:]
@@ -86,6 +89,7 @@ struct ReceiptDetailView: View {
             if let receiptImage {
                 pinnedReceipt(receiptImage)
                     .overlay(alignment: .topLeading) { statusBadge.padding(ItSpace.s2) }
+                    .overlay(alignment: .bottomTrailing) { photoSizeButton.padding(ItSpace.s2) }
             } else {
                 VStack(spacing: ItSpace.s3) {
                     statusBadge.frame(maxWidth: .infinity, alignment: .leading)
@@ -96,6 +100,7 @@ struct ReceiptDetailView: View {
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: ItSpace.s4) {
+                    if draft != nil && totalMismatch { totalsBanner }
                     receiptGrid
                     DisclosureGroup("More", isExpanded: $showsMoreDetails) {
                         VStack(alignment: .leading, spacing: ItSpace.s4) {
@@ -115,6 +120,12 @@ struct ReceiptDetailView: View {
             }
             // Pull to refresh: a suggestion Penny made after the screen opened shows up here.
             .refreshable { await refreshAll() }
+            .onChange(of: amountsFocusTick) { _, _ in
+                withAnimation { proxy.scrollTo("amount-subtotal", anchor: .top) }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if draft != nil && !keyboardUp { actionFooter }
+            }
             .onChange(of: categoryFocusTick) { _, _ in
                 withAnimation { proxy.scrollTo("categoryRow", anchor: .top) }
             }
@@ -259,7 +270,6 @@ struct ReceiptDetailView: View {
                     pennyOnlyRows(keys: Self.textKeys + Self.amountKeys, items: Array(gridItems.indices), includeCategory: true)
                 }
                 addItemRow
-                actionRow
             }
         }
         .disabled(alreadySent)
@@ -272,7 +282,7 @@ struct ReceiptDetailView: View {
             gridHeadings
             ForEach(Self.textKeys.filter(isPair), id: \.self) { pairField($0) }
             ForEach(pairedItems, id: \.self) { pairItem($0) }
-            ForEach(Self.amountKeys.filter(isPair), id: \.self) { pairField($0) }
+            ForEach(Self.amountKeys.filter(isPair), id: \.self) { pairField($0).id("amount-\($0)") }
         }
         .background { SpineLine(large: false).allowsHitTesting(false) }
     }
@@ -420,8 +430,8 @@ struct ReceiptDetailView: View {
 
     private var agreeLine: some View {
         HStack(spacing: ItSpace.s2) {
-            Image(systemName: "checkmark.circle").foregroundStyle(pennyBrand)
-            Text("Reader agrees on all \(comparedCount) fields")
+            Image(systemName: totalMismatch ? "exclamationmark.triangle.fill" : "checkmark.circle").foregroundStyle(pennyBrand)
+            Text(totalMismatch ? "Reader agrees · Totals need checking" : "Reader agrees on all \(comparedCount) fields")
         }
         .font(appStyle.font(.subheadline))
         .foregroundStyle(appStyle.meta)
@@ -461,7 +471,7 @@ struct ReceiptDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.top, ItSpace.s2)
         }
         ForEach(items, id: \.self) { soloItem($0) }
-        ForEach(Self.amountKeys.filter(keys.contains), id: \.self) { soloField($0) }
+        ForEach(Self.amountKeys.filter(keys.contains), id: \.self) { soloField($0).id("amount-\($0)") }
     }
 
     private func soloField(_ key: String) -> some View {
@@ -590,41 +600,73 @@ struct ReceiptDetailView: View {
 
     /// Approve (filled) and Later (outlined), indigo, half the panel each with one gap between (Tim, 2026-11-17).
     /// Later closes the sheet and leaves the receipt a draft; anything already typed is kept as that draft.
-    private var actionRow: some View {
+    private var actionFooter: some View {
         let radius = appStyle.cornerRadius(ItRadius.md)
-        return VStack(spacing: ItSpace.s2) {
-            HStack(spacing: SpineMetrics.slot) {
-                Button {
-                    Task {
-                        saveGeneration += 1
-                        for index in gridItems.indices where gridItems[index].dirty { itemSaveGenerations[index, default: 0] += 1; await saveGridItem(index) }
-                        if !editedFields.isEmpty { await saveDraft() }
-                        dismiss()
-                    }
-                } label: {
-                    Text("Later")
-                        .font(appStyle.font(.subheadline, weight: .semibold))
-                        .foregroundStyle(pennyBrand)
-                        .frame(maxWidth: .infinity, minHeight: ItSize.targetCrewAction)
-                        .background(appStyle.page, in: RoundedRectangle(cornerRadius: radius))
-                        .overlay(RoundedRectangle(cornerRadius: radius).stroke(pennyBrand, lineWidth: 1.5))
+        return HStack(spacing: SpineMetrics.slot) {
+            Button {
+                Task {
+                    saveGeneration += 1
+                    for index in gridItems.indices where gridItems[index].dirty { itemSaveGenerations[index, default: 0] += 1; await saveGridItem(index) }
+                    if !editedFields.isEmpty { await saveDraft() }
+                    dismiss()
                 }
-                .buttonStyle(.plain)
-                Button { Task { await approveGrid() } } label: {
-                    Text(viewModel.isPerformingAction ? "Approving…" : "Approve")
-                        .font(appStyle.font(.subheadline, weight: .semibold))
-                        .foregroundStyle(appStyle.surface)
-                        .frame(maxWidth: .infinity, minHeight: ItSize.targetCrewAction)
-                        .background(pennyBrand, in: RoundedRectangle(cornerRadius: radius))
-                }
-                .buttonStyle(.plain)
-                .disabled(!canActOn(expense) || viewModel.isPerformingAction)
+            } label: {
+                Text("Later")
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(pennyBrand)
+                    .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+                    .background(appStyle.page, in: RoundedRectangle(cornerRadius: radius))
+                    .overlay(RoundedRectangle(cornerRadius: radius).stroke(pennyBrand, lineWidth: 1.5))
             }
-            Text("Later keeps this as a draft")
-                .font(appStyle.font(.caption))
-                .foregroundStyle(appStyle.meta)
+            .buttonStyle(.plain)
+            .accessibilityHint("Keeps this receipt as a draft")
+            Button { Task { await approveGrid() } } label: {
+                Text(viewModel.isPerformingAction ? "Approving…" : "Approve")
+                    .font(appStyle.font(.subheadline, weight: .semibold))
+                    .foregroundStyle(appStyle.surface)
+                    .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone)
+                    .background(pennyBrand, in: RoundedRectangle(cornerRadius: radius))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canActOn(expense) || viewModel.isPerformingAction)
         }
-        .padding(.vertical, ItSpace.s3)
+        .padding(.horizontal, ItSpace.s4)
+        .padding(.vertical, ItSpace.s2)
+        .background(appStyle.page)
+        .overlay(alignment: .top) { Rectangle().fill(appStyle.meta.opacity(0.25)).frame(height: 1) }
+        .disabled(alreadySent)
+    }
+
+    /// Sits right under the photo: names the gap and jumps to the amounts (Tim, 2026-11-17).
+    private var totalsBanner: some View {
+        let diff = abs(draft.map { $0.total - ($0.subtotal + $0.gst + $0.pst) } ?? 0)
+        return Button { amountsFocusTick += 1 } label: {
+            HStack(spacing: ItSpace.s2) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(String(format: "Total is $%.2f off the sum of its parts", diff)).multilineTextAlignment(.leading)
+                Spacer(minLength: ItSpace.s2)
+                Text("Review amounts").font(appStyle.font(.subheadline, weight: .semibold))
+            }
+            .font(appStyle.font(.subheadline))
+            .foregroundStyle(pennyBrand)
+            .padding(ItSpace.s3)
+            .frame(maxWidth: .infinity, minHeight: ItSize.targetPhone, alignment: .leading)
+            .background(pennyBrand.opacity(0.10), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.md)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Scrolls to the amounts")
+    }
+
+    private var photoSizeButton: some View {
+        Button { photoSize = (photoSize + 1) % 3 } label: {
+            Image(systemName: photoSize == 1 ? "arrow.up.left.and.arrow.down.right" : (photoSize == 2 ? "arrow.down.right.and.arrow.up.left" : "chevron.down"))
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(appStyle.surface)
+                .frame(width: ItSize.targetPhone, height: ItSize.targetPhone)
+                .background(pennyBrand.opacity(0.9), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(photoSize == 1 ? "Make receipt photo larger" : (photoSize == 2 ? "Shrink receipt photo to a strip" : "Restore receipt photo size"))
     }
 
     private func prepareDraft(read: PennyRead?) {
@@ -1279,11 +1321,16 @@ struct ReceiptDetailView: View {
 
     // MARK: - Sections
 
+    private var photoFraction: CGFloat {
+        let base: CGFloat = photoSize == 0 ? 0.10 : (photoSize == 2 ? 0.55 : (dynamicTypeSize.isAccessibilitySize ? 0.25 : 1.0 / 3.0))
+        return keyboardUp ? min(base, 0.16) : base
+    }
+
     private func pinnedReceipt(_ image: UIImage) -> some View {
         ReceiptZoomView(image: image)
             .accessibilityLabel("Receipt photo. Pinch to zoom, drag to move.")
             .frame(maxWidth: .infinity)
-            .frame(height: UIScreen.main.bounds.height * (keyboardUp ? 0.16 : (dynamicTypeSize.isAccessibilitySize ? 0.25 : 1.0 / 3.0)))
+            .frame(height: UIScreen.main.bounds.height * photoFraction)
             .background(appStyle.sunk)
             .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(ItRadius.sm)))   // the spine card is the only border
     }

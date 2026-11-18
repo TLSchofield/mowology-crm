@@ -45,6 +45,12 @@ let row = MetricKitSummary.metricsRow(.init(launchMedianMs: 640, resumeMedianMs:
 print(row)
 check(row == "launch 640 ms median · resume 120 ms · hitches 7.2 ms/s · peak memory 312 MB · cpu 900 s · gpu 12.5 s · location 3000 s · foreground 7200 s · cpu per foreground hour 450 s", "metrics row")
 check(MetricKitSummary.metricsRow(.init()).hasPrefix("launch n/a median · resume n/a"), "missing values read n/a")
+var withExits = MetricKitSummary.DailyMetrics()
+withExits.foregroundExits = ["normal": 12, "watchdog": 1, "memory limit": 2]
+withExits.backgroundExits = ["normal": 30]
+let exitRow = MetricKitSummary.metricsRow(withExits)
+check(exitRow.contains("exits fg: memory limit 2, watchdog 1, normal 12 · exits bg: normal 30"), "exit reasons, trouble first")
+check(!row.contains("exits"), "no exit data, no exit text")
 
 check(MetricKitSummary.histogramMedian([(100, 1), (200, 5), (50, 1)]) == 200, "histogram median")
 check(MetricKitSummary.histogramMedian([]) == nil, "empty histogram")
