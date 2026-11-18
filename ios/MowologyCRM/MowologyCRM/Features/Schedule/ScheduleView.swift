@@ -17,6 +17,7 @@ struct ScheduleView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showDatePicker = false
+    @State private var showFilters = false
     @State private var pickerDate     = Date()
     /// Which view the day shows: chosen on the Schedule bead (tap = next, long press = pick), remembered.
     @ObservedObject private var views = ScheduleViewStore.shared
@@ -238,6 +239,9 @@ struct ScheduleView: View {
         .sheet(isPresented: $showDatePicker) {
             datePicker
         }
+        .sheet(isPresented: $showFilters) {
+            filterSheet
+        }
         .sheet(item: $movingStop) { stop in
             MoveStopSheet(stop: stop, apiClient: viewModel.client)
         }
@@ -338,44 +342,12 @@ struct ScheduleView: View {
         }
     }
 
-    /// Crew people and job types in one checklist menu; it stays open while ticking. The icon carries a count.
+    /// One filter button: opens a sheet with crews and job types (a menu this long ran off the screen and hid the
+    /// job types, 2026-11-18). The icon carries a count.
     @ViewBuilder
     private var filterMenu: some View {
         if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
-            Menu {
-                if viewModel.canSwitchScope {
-                    Section("Whose jobs") {
-                        Toggle("Mine", isOn: Binding(
-                            get: { viewModel.scope == "mine" },
-                            set: { on in if on { Task { await viewModel.setCrews("", scope: "mine") } } }
-                        ))
-                        Toggle("All crews", isOn: Binding(
-                            get: { viewModel.scope == "all" && viewModel.selectedCrews.isEmpty },
-                            set: { on in if on { Task { await viewModel.setCrews("", scope: "all") } } }
-                        ))
-                        ForEach(viewModel.crews) { c in
-                            Toggle(c.label, isOn: Binding(
-                                get: { viewModel.scope == "all" && viewModel.selectedCrews.contains(c.value) },
-                                set: { _ in Task { await viewModel.toggleCrew(c.value) } }
-                            ))
-                        }
-                    }
-                }
-                if !viewModel.jobTypes.isEmpty {
-                    Section("Job types") {
-                        Toggle("All job types", isOn: Binding(
-                            get: { viewModel.selectedJobTypes.isEmpty },
-                            set: { on in if on { Task { await viewModel.setJobType("") } } }
-                        ))
-                        ForEach(viewModel.jobTypes) { t in
-                            Toggle(t.label, isOn: Binding(
-                                get: { viewModel.selectedJobTypes.contains(t.value) },
-                                set: { _ in Task { await viewModel.toggleJobType(t.value) } }
-                            ))
-                        }
-                    }
-                }
-            } label: {
+            Button { showFilters = true } label: {
                 Image(systemName: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     .font(.system(size: 22))
                     .foregroundStyle(appStyle.tenant)
@@ -392,10 +364,69 @@ struct ScheduleView: View {
                     .frame(minWidth: 48, minHeight: 48)
                     .contentShape(Rectangle())
             }
-            .menuActionDismissBehavior(.disabled)
+            .buttonStyle(.plain)
             .accessibilityLabel(activeFilterCount > 0 ? "Filters, \(activeFilterCount) on" : "Filters")
             .accessibilityHint("Choose crews and job types")
         }
+    }
+
+    private var filterSheet: some View {
+        NavigationStack {
+            List {
+                if viewModel.canSwitchScope {
+                    Section("Whose jobs") {
+                        filterRow("Mine", on: viewModel.scope == "mine") { await viewModel.setCrews("", scope: "mine") }
+                        filterRow("All crews", on: viewModel.scope == "all" && viewModel.selectedCrews.isEmpty) {
+                            await viewModel.setCrews("", scope: "all")
+                        }
+                        ForEach(viewModel.crews) { c in
+                            filterRow(c.label, on: viewModel.scope == "all" && viewModel.selectedCrews.contains(c.value)) {
+                                await viewModel.toggleCrew(c.value)
+                            }
+                        }
+                    }
+                }
+                if !viewModel.jobTypes.isEmpty {
+                    Section("Job types") {
+                        filterRow("All job types", on: viewModel.selectedJobTypes.isEmpty) { await viewModel.setJobType("") }
+                        ForEach(viewModel.jobTypes) { t in
+                            filterRow(t.label, on: viewModel.selectedJobTypes.contains(t.value)) {
+                                await viewModel.toggleJobType(t.value)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showFilters = false }
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .foregroundStyle(appStyle.tenant)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// A tick row. The sheet stays open while ticking.
+    private func filterRow(_ title: String, on: Bool, _ action: @escaping () async -> Void) -> some View {
+        Button {
+            impactLight.impactOccurred()
+            Task { await action() }
+        } label: {
+            HStack {
+                Text(title).foregroundStyle(appStyle.text)
+                Spacer()
+                if on { Image(systemName: "checkmark").foregroundStyle(appStyle.tenant).fontWeight(.semibold) }
+            }
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private var crewFilterOn: Bool { viewModel.canSwitchScope && (viewModel.scope == "all" || !viewModel.selectedCrews.isEmpty) }
