@@ -47,8 +47,12 @@ $plansStmt = $db->prepare("
 $plansStmt->execute([$propertyId]);
 $plans = $plansStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$lat = $property['latitude']  ?? $property['lat'] ?? 49.2827;
-$lng = $property['longitude'] ?? $property['lng'] ?? -123.1207;
+// Real coordinates only: if the property has none, the map geocodes its address
+// instead of opening on a made-up downtown Vancouver point.
+$lat = (float)($property['latitude']  ?? $property['lat'] ?? 0);
+$lng = (float)($property['longitude'] ?? $property['lng'] ?? 0);
+$hasCoords = ($lat != 0.0 && $lng != 0.0);
+$geocodeAddress = trim(($property['address'] ?? '') . ' ' . ($property['city'] ?? ''));
 
 // Support return_to parameter for back navigation (prevent open redirect)
 $returnTo = '';
@@ -197,7 +201,8 @@ $extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"
 
 <script>
 const PROPERTY_ID  = <?= (int)$propertyId ?>;
-const MAP_CENTER   = { lat: <?= (float)$lat ?>, lng: <?= (float)$lng ?> };
+const MAP_CENTER   = <?= $hasCoords ? '{ lat: ' . (float)$lat . ', lng: ' . (float)$lng . ' }' : 'null' ?>;
+const MAP_ADDRESS  = <?= json_encode($geocodeAddress) ?>;
 const CSRF_TOKEN   = '<?= htmlspecialchars(generateCSRFToken()) ?>';
 const GEOFENCE_API = '/crm/api/geofence.php';
 
@@ -215,6 +220,7 @@ function initZoneEditor() {
     tool = new MapDrawTool({
         mapContainer: 'zone-map',
         center:       MAP_CENTER,
+        address:      MAP_ADDRESS,
         zoom:         20,
         marker:       true,
         onReady: function () {
@@ -242,7 +248,26 @@ function loadZones() {
         zoneList = zones || [];
         const coordArrays = [];
         zoneList.forEach(function (z) { addZoneOverlay(z); coordArrays.push(z.ring); });
-        if (coordArrays.length) tool.fitAll(coordArrays);
+        // Fit to the zones, but ignore any ring more than 2 km from the property
+        // (a stray or mis-saved zone would zoom the map out over the whole city).
+        let fitArrays = coordArrays;
+        if (MAP_CENTER) {
+            fitArrays = coordArrays.filter(function (ring) {
+                return ring.some(function (pt) {
+                    const la = Array.isArray(pt) ? pt[0] : pt.lat;
+                    const lo = Array.isArray(pt) ? pt[1] : pt.lng;
+                    const dLat = (la - MAP_CENTER.lat) * 111000;
+                    const dLng = (lo - MAP_CENTER.lng) * 111000 * Math.cos(MAP_CENTER.lat * Math.PI / 180);
+                    return Math.sqrt(dLat * dLat + dLng * dLng) < 2000;
+                });
+            });
+        }
+        if (fitArrays.length) {
+            tool.fitAll(fitArrays);
+            google.maps.event.addListenerOnce(tool._map, 'idle', function () {
+                if (tool._map.getZoom() > 20) tool._map.setZoom(20);
+            });
+        }
         renderZoneList(zoneList);
     });
 }
