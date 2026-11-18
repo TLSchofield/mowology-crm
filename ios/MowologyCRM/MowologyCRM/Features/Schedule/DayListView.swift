@@ -690,6 +690,13 @@ struct DayTimeGridView: View {
         .padding(.trailing, 16)
     }
 
+    /// The service on the card, as on the web schedule ("Willow front beds").
+    private static func serviceName(_ stop: Stop) -> String? {
+        let v = stop.visits.first
+        let t = (v?.planTitle ?? v?.serviceType)?.trimmingCharacters(in: .whitespaces)
+        return (t?.isEmpty == false) ? t : nil
+    }
+
     private func blockButton(_ stop: Stop, window: String?) -> some View {
         let done = stop.isResolved
         let active = stop.isInProgress
@@ -699,10 +706,17 @@ struct DayTimeGridView: View {
                 Text(name)
                     .font(appStyle.font(.footnote, weight: .semibold))
                     .lineLimit(1)
+                if let service = Self.serviceName(stop) {
+                    Text(service).font(appStyle.font(.caption2, weight: .semibold)).lineLimit(1)
+                }
                 if let window {
                     Text(window).font(appStyle.font(.caption2)).lineLimit(1)
                 }
+                if !stop.propertyAddress.isEmpty, stop.propertyAddress != name {
+                    Text(stop.propertyAddress).font(appStyle.font(.caption2)).lineLimit(1).opacity(0.8)
+                }
             }
+            .clipped()
             .foregroundStyle(active ? appStyle.onTenant : (done ? appStyle.meta : appStyle.text))
             .padding(.horizontal, 8).padding(.vertical, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
