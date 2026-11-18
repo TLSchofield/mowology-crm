@@ -22,6 +22,7 @@ var MwDayViewMap = (function() {
     var userMarker = null;
     var stopMarkers = [];
     var pinnedStopId = null;
+    var pinnedLastStopId = null;
     var userLat = null;
     var userLng = null;
     var optimizedStops = null;
@@ -39,6 +40,10 @@ var MwDayViewMap = (function() {
         seasonal_cleanup: '#455A64'
     };
 
+    // Skipped stops (crew/desktop marked the job not-done) render as a blue pin
+    // with an ✕, distinct from the grey "completed" pins.
+    var SKIPPED_COLOR = '#3B82F6';
+
     // ═══════════════════════════════════════════════════
     //  INIT
     // ═══════════════════════════════════════════════════
@@ -52,6 +57,7 @@ var MwDayViewMap = (function() {
 
         if (externalBtn) externalBtn.addEventListener('click', openExternal);
         wirePinButtons();
+        initPinsFromDom();
         wireCardHighlight();
 
         waitForMaps(function() {
@@ -62,15 +68,30 @@ var MwDayViewMap = (function() {
         });
     }
 
+    // The Maps script is loaded with loading=async, which lazy-loads classes
+    // (Map, ControlPosition, Marker, Geocoder, DirectionsService, ...) rather
+    // than defining them the moment google.maps exists. Wait for importLibrary
+    // itself, then explicitly load the libraries this file touches.
     function waitForMaps(cb) {
-        if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
-            cb();
+        function ready() {
+            return window.google && google.maps && typeof google.maps.importLibrary === 'function';
+        }
+        function loadAll() {
+            Promise.all([
+                google.maps.importLibrary('maps'),
+                google.maps.importLibrary('marker'),
+                google.maps.importLibrary('geocoding'),
+                google.maps.importLibrary('routes')
+            ]).then(cb);
+        }
+        if (ready()) {
+            loadAll();
             return;
         }
         var check = setInterval(function() {
-            if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+            if (ready()) {
                 clearInterval(check);
-                cb();
+                loadAll();
             }
         }, 200);
     }
@@ -245,93 +266,68 @@ var MwDayViewMap = (function() {
     }
 
     function multiStopRoute(assigned, hasGPS) {
-        var origin, destination, waypoints = [], waypointStops = [];
-        var pinnedStop = null;
-        var otherStops = [];
+        var origin, destination, destStop = null, firstStop = null;
+        var waypoints = [], waypointStops = [];
+        var pinnedFirst = null, pinnedLast = null, pool = [];
 
-        // Separate pinned from rest
-        if (pinnedStopId) {
-            for (var i = 0; i < assigned.length; i++) {
-                if (assigned[i].stopId === pinnedStopId) {
-                    pinnedStop = assigned[i];
-                } else {
-                    otherStops.push(assigned[i]);
-                }
+        // Separate pinned-first and pinned-last from the optimizable pool
+        for (var i = 0; i < assigned.length; i++) {
+            if (pinnedStopId && assigned[i].stopId === pinnedStopId) {
+                pinnedFirst = assigned[i];
+            } else if (pinnedLastStopId && assigned[i].stopId === pinnedLastStopId) {
+                pinnedLast = assigned[i];
+            } else {
+                pool.push(assigned[i]);
             }
-            // If pinned stop not found in assigned, ignore pin
-            if (!pinnedStop) {
-                otherStops = assigned;
-            }
-        } else {
-            otherStops = assigned;
         }
 
-        if (pinnedStop) {
-            // Pinned stop is origin, optimize the rest
-            origin = stopToLatLng(pinnedStop);
+        var originIsGPS = false;
+
+        // ── Origin ──
+        if (pinnedFirst) {
+            origin = stopToLatLng(pinnedFirst);
             if (!origin) { titleEl.textContent = 'Missing location data'; return; }
-
-            // Find farthest from pinned as destination
-            var fIdx = findFarthest(otherStops, pinnedStop.lat, pinnedStop.lng);
-            var destStop = otherStops[fIdx];
-            destination = stopToLatLng(destStop);
-
-            // Remaining as optimizable waypoints
-            for (var j = 0; j < otherStops.length; j++) {
-                if (j !== fIdx) {
-                    var loc = stopToLatLng(otherStops[j]);
-                    if (loc) {
-                        waypoints.push({ location: loc, stopover: true });
-                        waypointStops.push(otherStops[j]);
-                    }
-                }
-            }
-
-            // Build optimized order: pinned first, then Google-optimized rest
-            fireDirections(origin, destination, waypoints, waypointStops, destStop, pinnedStop, otherStops, false);
-
+            firstStop = pinnedFirst;
         } else if (hasGPS) {
-            // No pin, GPS available: origin = GPS, optimize all
             origin = new google.maps.LatLng(userLat, userLng);
-
-            var fIdx = findFarthest(assigned, userLat, userLng);
-            var destStop = assigned[fIdx];
-            destination = stopToLatLng(destStop);
-
-            for (var j = 0; j < assigned.length; j++) {
-                if (j !== fIdx) {
-                    var loc = stopToLatLng(assigned[j]);
-                    if (loc) {
-                        waypoints.push({ location: loc, stopover: true });
-                        waypointStops.push(assigned[j]);
-                    }
-                }
-            }
-
-            fireDirections(origin, destination, waypoints, waypointStops, destStop, null, assigned, true);
-
+            originIsGPS = true;
         } else {
-            // No pin, no GPS: first stop = origin, optimize rest
-            origin = stopToLatLng(assigned[0]);
+            // No first pin, no GPS: first available stop becomes the origin
+            firstStop = pool.length ? pool.shift() : null;
+            if (!firstStop) { titleEl.textContent = 'Missing location data'; return; }
+            origin = stopToLatLng(firstStop);
             if (!origin) { titleEl.textContent = 'Missing location data'; return; }
-
-            var fIdx = findFarthest(assigned.slice(1), assigned[0].lat, assigned[0].lng);
-            // fIdx is relative to slice(1), so actual index = fIdx + 1
-            var destStop = assigned[fIdx + 1];
-            destination = stopToLatLng(destStop);
-
-            for (var j = 1; j < assigned.length; j++) {
-                if (j !== fIdx + 1) {
-                    var loc = stopToLatLng(assigned[j]);
-                    if (loc) {
-                        waypoints.push({ location: loc, stopover: true });
-                        waypointStops.push(assigned[j]);
-                    }
-                }
-            }
-
-            fireDirections(origin, destination, waypoints, waypointStops, destStop, assigned[0], assigned, false);
         }
+
+        // ── Destination ──
+        var refLat = originIsGPS ? userLat : firstStop.lat;
+        var refLng = originIsGPS ? userLng : firstStop.lng;
+        if (pinnedLast) {
+            destStop = pinnedLast;
+            destination = stopToLatLng(pinnedLast);
+            if (!destination) { titleEl.textContent = 'Missing location data'; return; }
+        } else if (pool.length > 0) {
+            // No last pin: farthest stop from the origin becomes the destination
+            var fIdx = findFarthest(pool, refLat, refLng);
+            destStop = pool[fIdx];
+            destination = stopToLatLng(destStop);
+            pool.splice(fIdx, 1);
+        } else {
+            // Degenerate (e.g. only the origin stop is routable) — nothing to optimize
+            destStop = firstStop;
+            destination = origin;
+        }
+
+        // ── Waypoints = whatever remains in the pool ──
+        for (var j = 0; j < pool.length; j++) {
+            var loc = stopToLatLng(pool[j]);
+            if (loc) {
+                waypoints.push({ location: loc, stopover: true });
+                waypointStops.push(pool[j]);
+            }
+        }
+
+        fireDirections(origin, destination, waypoints, waypointStops, destStop, firstStop, assigned, originIsGPS);
     }
 
     function fireDirections(origin, destination, waypoints, waypointStops, destStop, firstStop, allAssigned, originIsGPS) {
@@ -534,7 +530,7 @@ var MwDayViewMap = (function() {
     //  MARKERS (teardrop pin style — consistent with crew map)
     // ═══════════════════════════════════════════════════
 
-    function createPinIcon(color, label, size, isCompleted) {
+    function createPinIcon(color, label, size, isCompleted, isSkipped) {
         // Teardrop pin SVG matching crew map style
         var w = size || 36;
         var h = Math.round(w * 44 / 36);
@@ -544,9 +540,16 @@ var MwDayViewMap = (function() {
         var fontSize = Math.round(w * 13 / 36);
         var textY = cy + Math.round(fontSize * 0.38);
 
-        // For completed stops: pale green with a checkmark
         var innerContent;
-        if (isCompleted) {
+        if (isSkipped) {
+            // Skipped stops: ✕ mark (job marked not-done in the field or desktop)
+            var xs = Math.round(w * 0.17);
+            var sw = Math.max(2, Math.round(w / 14));
+            innerContent = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.3"/>' +
+                '<line x1="' + (cx - xs) + '" y1="' + (cy - xs) + '" x2="' + (cx + xs) + '" y2="' + (cy + xs) + '" stroke="white" stroke-width="' + sw + '" stroke-linecap="round"/>' +
+                '<line x1="' + (cx + xs) + '" y1="' + (cy - xs) + '" x2="' + (cx - xs) + '" y2="' + (cy + xs) + '" stroke="white" stroke-width="' + sw + '" stroke-linecap="round"/>';
+        } else if (isCompleted) {
+            // For completed stops: pale green with a checkmark
             var tickSize = Math.round(w * 0.3);
             var tx = cx - Math.round(tickSize * 0.5);
             var ty = cy - Math.round(tickSize * 0.15);
@@ -570,9 +573,13 @@ var MwDayViewMap = (function() {
     }
 
     function placeMarker(position, stop, index, isActive, isUnassigned) {
-        var color, size, completed = false;
+        var color, size, completed = false, skipped = false;
 
-        if (stop.status === 'completed' || stop.isInvoiced) {
+        if (stop.status === 'skipped') {
+            color = SKIPPED_COLOR;  // blue ✕ — job marked not-done
+            size = 34;
+            skipped = true;
+        } else if (stop.status === 'completed' || stop.isInvoiced) {
             color = '#9CA3AF';  // pale green
             size = 34;
             completed = true;
@@ -582,13 +589,16 @@ var MwDayViewMap = (function() {
         } else if (stop.stopId === pinnedStopId) {
             color = '#e85d04';
             size = 40;
+        } else if (stop.stopId === pinnedLastStopId) {
+            color = '#1565C0';
+            size = 40;
         } else {
             color = serviceColors[stop.serviceType] || '#2D8659';
             size = isActive ? 40 : 36;
         }
 
         var label = index !== null ? String(index + 1) : '\u2022';
-        var icon = createPinIcon(color, label, size, completed);
+        var icon = createPinIcon(color, label, size, completed, skipped);
 
         var marker = new google.maps.Marker({
             position: position,
@@ -609,7 +619,8 @@ var MwDayViewMap = (function() {
             serviceType: stop.serviceType || '',
             label: label,
             isUnassigned: !!isUnassigned,
-            isCompleted: completed
+            isCompleted: completed,
+            isSkipped: skipped
         });
     }
 
@@ -766,45 +777,101 @@ var MwDayViewMap = (function() {
     //  PIN AS 1ST STOP
     // ═══════════════════════════════════════════════════
 
+    // Restore persisted pins (data-pin="first|last") rendered server-side.
+    function initPinsFromDom() {
+        document.querySelectorAll('.mw-dv-pin-btn').forEach(function(btn) {
+            var stopId = parseInt(btn.dataset.stopId, 10);
+            if (btn.dataset.pin === 'first') pinnedStopId = stopId;
+            else if (btn.dataset.pin === 'last') pinnedLastStopId = stopId;
+        });
+        renderPins();
+    }
+
+    // Persist a pin change. Mirrors the day-scoped state on the server so it
+    // survives reloads; failures roll the UI back so the two stay in sync.
+    function persistPin(stopId, pin, revert) {
+        fetch('/crm/api/set-route-pin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stop_id: stopId, pin: pin, csrf_token: window.MW_CSRF || '' })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res || !res.success) { revert(); }
+        })
+        .catch(function() { revert(); });
+    }
+
     function wirePinButtons() {
         document.querySelectorAll('.mw-dv-pin-btn').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var stopId = parseInt(btn.dataset.stopId, 10);
 
+                // Snapshot for rollback if the server rejects the change.
+                var prevFirst = pinnedStopId, prevLast = pinnedLastStopId;
+                var newPin;
+
+                // Cycle this stop: none → first → last → none
                 if (pinnedStopId === stopId) {
+                    // Was first → become last
                     pinnedStopId = null;
-                    updatePinUI(null);
+                    pinnedLastStopId = stopId;
+                    newPin = 'last';
+                } else if (pinnedLastStopId === stopId) {
+                    // Was last → clear
+                    pinnedLastStopId = null;
+                    newPin = null;
                 } else {
+                    // Was unpinned → become first (and free this stop from a last pin)
                     pinnedStopId = stopId;
-                    updatePinUI(stopId);
+                    newPin = 'first';
                 }
 
+                renderPins();
                 computeRoute();
+
+                persistPin(stopId, newPin, function() {
+                    pinnedStopId = prevFirst;
+                    pinnedLastStopId = prevLast;
+                    renderPins();
+                    computeRoute();
+                });
             });
         });
     }
 
-    function updatePinUI(activeStopId) {
+    // Render the first/last pin state across all cards from the two state vars.
+    function renderPins() {
         document.querySelectorAll('.mw-dv-pin-btn').forEach(function(btn) {
             var id = parseInt(btn.dataset.stopId, 10);
             var card = btn.closest('.mw-dv-card');
+            var existing = card.querySelector('.mw-dv-pin-badge');
+            if (existing) existing.remove();
 
-            if (id === activeStopId) {
+            btn.classList.remove('mw-dv-pin-active', 'mw-dv-pin-last');
+            card.classList.remove('mw-dv-card-pinned', 'mw-dv-card-pinned-last');
+
+            var label = null;
+            if (id === pinnedStopId) {
                 btn.classList.add('mw-dv-pin-active');
                 card.classList.add('mw-dv-card-pinned');
-                // Add badge
-                if (!card.querySelector('.mw-dv-pin-badge')) {
-                    var badge = document.createElement('span');
-                    badge.className = 'mw-dv-pin-badge';
-                    badge.textContent = '#1';
-                    btn.parentNode.insertBefore(badge, btn);
-                }
+                btn.title = 'First stop — click for last, again to clear';
+                label = '#1';
+            } else if (id === pinnedLastStopId) {
+                btn.classList.add('mw-dv-pin-last');
+                card.classList.add('mw-dv-card-pinned-last');
+                btn.title = 'Last stop — click again to clear';
+                label = 'LAST';
             } else {
-                btn.classList.remove('mw-dv-pin-active');
-                card.classList.remove('mw-dv-card-pinned');
-                var badge = card.querySelector('.mw-dv-pin-badge');
-                if (badge) badge.remove();
+                btn.title = 'Pin as 1st stop';
+            }
+
+            if (label) {
+                var badge = document.createElement('span');
+                badge.className = 'mw-dv-pin-badge' + (label === 'LAST' ? ' mw-dv-pin-badge-last' : '');
+                badge.textContent = label;
+                btn.parentNode.insertBefore(badge, btn);
             }
         });
     }
@@ -829,13 +896,13 @@ var MwDayViewMap = (function() {
         stopMarkers.forEach(function(sm) {
             if (sm.stopId === stopId) {
                 // Enlarge the highlighted marker
-                var color = sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
-                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted));
+                var color = sm.isSkipped ? SKIPPED_COLOR : (sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659'))));
+                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted, sm.isSkipped));
                 sm.marker.setZIndex(200);
             } else {
                 // Dim others slightly via smaller size
-                var c = sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659')));
-                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted));
+                var c = sm.isSkipped ? SKIPPED_COLOR : (sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659')))));
+                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted, sm.isSkipped));
                 sm.marker.setZIndex(10);
             }
         });
@@ -844,17 +911,21 @@ var MwDayViewMap = (function() {
     function unhighlightMarkers() {
         stopMarkers.forEach(function(sm) {
             var color, size;
-            if (sm.isCompleted) {
+            if (sm.isSkipped) {
+                color = SKIPPED_COLOR; size = 34;
+            } else if (sm.isCompleted) {
                 color = '#9CA3AF'; size = 34;
             } else if (sm.isUnassigned) {
                 color = '#9CA3AF'; size = 30;
             } else if (sm.stopId === pinnedStopId) {
                 color = '#e85d04'; size = 40;
+            } else if (sm.stopId === pinnedLastStopId) {
+                color = '#1565C0'; size = 40;
             } else {
                 color = serviceColors[sm.serviceType] || '#2D8659';
                 size = 36;
             }
-            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size, sm.isCompleted));
+            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size, sm.isCompleted, sm.isSkipped));
             sm.marker.setZIndex(10);
         });
     }
@@ -960,6 +1031,7 @@ var MwDayViewMap = (function() {
     return {
         recompute: computeRoute,
         getPinnedStopId: function() { return pinnedStopId; },
+        getPinnedLastStopId: function() { return pinnedLastStopId; },
         getMap: function() { return map; }
     };
 
@@ -1001,10 +1073,10 @@ var MwDayViewMap = (function() {
             if (data.success) {
                 onSuccess(data);
             } else {
-                onError(data.error || 'An error occurred.');
+                onError(data.error || 'An error occurred.', data.code || null);
             }
         })
-        .catch(function(err) { onError('Network error. Please try again.'); });
+        .catch(function(err) { onError('Network error. Please try again.', null); });
     }
 
     function setCardDoneState(card, invoiceId, invoiceNumber, withInvoice) {
@@ -1047,25 +1119,104 @@ var MwDayViewMap = (function() {
         if (!footer) return;
 
         var stopId = card.dataset.stopId || '';
+
+        // Mirror schedule.php's $dvPerVisit gating: hide "Complete & Invoice" if any
+        // visit on this stop is contract-billed or has a non-per_visit pricing_model.
+        var perVisit = true;
+        try {
+            var visits = JSON.parse(card.dataset.visits || '[]');
+            perVisit = visits.every(function (v) {
+                return (v.pricing_model || 'per_visit') === 'per_visit' && !v.is_contract_billed;
+            });
+        } catch (e) { /* malformed/missing data-visits — fall back to showing both */ }
+
         footer.className = 'mw-dv-card-footer mw-dv-footer-pending';
+        if (perVisit) {
+            footer.innerHTML =
+                '<button class="mw-dv-btn-complete mw-dv-btn-complete-invoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="1">'
+                + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+                + ' Complete &amp; Invoice</button>'
+                + '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
+                + 'Complete &#8212; No Invoice</button>';
+        } else {
+            footer.innerHTML =
+                '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
+                + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+                + ' Complete</button>';
+        }
+        footer.innerHTML += '<button class="mw-dv-btn-skip" data-stop-id="' + escapeHtml(stopId) + '" title="Skip this stop — not done today">Skip</button>';
+    }
+
+    // Skipped: blue ✕ badge + Unskip — the same footer schedule.php renders for a skipped stop.
+    function setCardSkippedState(card, visitIds) {
+        card.className = card.className.replace(/mw-stop-status-\w+/g, '') + ' mw-stop-status-skipped';
+        var footer = card.querySelector('.mw-dv-card-footer');
+        if (!footer) return;
+        var stopId = card.dataset.stopId || '';
+        footer.className = 'mw-dv-card-footer mw-dv-footer-skipped';
         footer.innerHTML =
-            '<button class="mw-dv-btn-complete mw-dv-btn-complete-invoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="1">'
-            + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-            + ' Complete &amp; Invoice</button>'
-            + '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
-            + 'Complete &#8212; No Invoice</button>';
+            '<span class="mw-dv-skip-badge">'
+            + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+            + ' Skipped</span>'
+            + (visitIds && visitIds.length
+                ? '<button class="mw-dv-btn-reopen mw-dv-btn-unskip" data-stop-id="' + escapeHtml(stopId) + '" data-visit-ids="' + escapeHtml(visitIds.join(',')) + '" title="Undo skip — put this stop back on the route">Unskip</button>'
+                : '');
+    }
+
+    function dvSkipStop(card, stopId) {
+        var btns = card.querySelectorAll('.mw-dv-btn-complete, .mw-dv-btn-skip');
+        btns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.6'; });
+        dvPost(
+            { action: 'skip_stop', stop_id: stopId },
+            function(data) {
+                var left = (data.refused || []).length;
+                if (left) {
+                    // Part of the stop could not be skipped (completed / locked / invoiced visit):
+                    // the server's propagation decides what the card is now — reload rather than guess (Codex 2026-11-03).
+                    showDvToast('Skipped what could be skipped — ' + left + ' visit' + (left === 1 ? '' : 's') + ' left as is.', 'info');
+                    setTimeout(function() { window.location.reload(); }, 900);
+                    return;
+                }
+                setCardSkippedState(card, data.skipped || []);
+                showDvToast('Stop skipped.', 'info');
+            },
+            function(errMsg) {
+                btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+                showDvToast(errMsg, 'error');
+            }
+        );
     }
 
     function escapeHtml(str) {
         return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    function dvCompleteStop(card, stopId, withInvoice) {
+    function dvCompleteStop(card, stopId, withInvoice, extraVisits) {
         var btns = card.querySelectorAll('.mw-dv-btn-complete');
         btns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.6'; });
 
+        // Before invoicing: offer other unbilled work at this address (MwUnbilledWork).
+        // Lookup failures (crew without billing access, offline) fall straight through.
+        if (withInvoice && extraVisits === undefined && window.MwUnbilledWork) {
+            var firstVisit = 0;
+            try { firstVisit = (JSON.parse(card.dataset.visits || '[]')[0] || {}).visit_id || 0; } catch (e) {}
+            if (firstVisit) {
+                MwUnbilledWork.fetch({ visit_id: firstVisit }).then(function (data) {
+                    if (!data || !(data.items || []).length) { dvCompleteStop(card, stopId, true, []); return; }
+                    MwUnbilledWork.prompt(data, { title: 'Complete & Invoice' }).then(function (sel) {
+                        if (sel === null) {
+                            btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+                            return;
+                        }
+                        dvCompleteStop(card, stopId, true, sel);
+                    });
+                });
+                return;
+            }
+        }
+
         dvPost(
-            { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0 },
+            { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0, extra_visits: extraVisits || [] },
             function(data) {
                 if (data.already_completed && !data.invoice_id) {
                     setCardDoneState(card, null, null, false);
@@ -1079,24 +1230,43 @@ var MwDayViewMap = (function() {
                 setCardDoneState(card, data.invoice_id, data.invoice_number, withInvoice);
                 showDvToast('Stop marked complete.', 'success');
             },
-            function(errMsg) {
+            function(errMsg, errCode) {
+                if (errCode === 'CONTRACT_BILLED') {
+                    // Visit/stop was still marked complete server-side — just no
+                    // invoice was created. Reflect that instead of leaving the
+                    // buttons in a stale, re-clickable pending state.
+                    setCardDoneState(card, null, null, false);
+                    showDvToast(errMsg, 'info');
+                    return;
+                }
                 btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
                 showDvToast(errMsg, 'error');
             }
         );
     }
 
-    function dvReopenStop(card, visitId) {
-        dvPost(
-            { action: 'reopen_visit', visit_id: visitId },
-            function() {
+    // Reopen / unskip EVERY visit on the stop, one request each (reopen_visit is per visit).
+    // Posting only the first left the others completed or skipped behind a pending card (Codex 2026-11-03).
+    function dvReopenStop(card, visitIds, isUnskip) {
+        var ids = Array.isArray(visitIds) ? visitIds.slice() : [visitIds];
+        var failed = 0;
+        (function next() {
+            if (!ids.length) {
+                if (failed) {
+                    showDvToast('Some visits could not be reopened — reloading.', 'error');
+                    setTimeout(function() { window.location.reload(); }, 900);
+                    return;
+                }
                 setCardPendingState(card);
-                showDvToast('Stop reopened — marked as scheduled.', 'info');
-            },
-            function(errMsg) {
-                showDvToast(errMsg, 'error');
+                showDvToast(isUnskip ? 'Skip undone — stop back on the route.' : 'Stop reopened — marked as scheduled.', 'info');
+                return;
             }
-        );
+            dvPost(
+                { action: 'reopen_visit', visit_id: ids.shift() },
+                function() { next(); },
+                function(errMsg) { failed++; showDvToast(errMsg, 'error'); next(); }
+            );
+        })();
     }
 
     document.addEventListener('click', function(e) {
@@ -1108,14 +1278,27 @@ var MwDayViewMap = (function() {
             return;
         }
 
+        var skip = e.target.closest('.mw-dv-btn-skip');
+        if (skip) {
+            var sCard = skip.closest('.mw-dv-card');
+            if (!sCard) return;
+            if (!confirm('Skip this stop? It is marked not done today; a visit already started is stopped and its timer closed.')) return;
+            dvSkipStop(sCard, parseInt(sCard.dataset.stopId, 10));
+            return;
+        }
+
         var reopen = e.target.closest('.mw-dv-btn-reopen');
         if (reopen) {
-            if (!confirm('Reopen this stop? All visits will be marked as scheduled again.')) return;
+            var isUnskip = reopen.classList.contains('mw-dv-btn-unskip');
+            var confirmMsg = isUnskip
+                ? 'Undo skip? This stop goes back on the route as scheduled.'
+                : 'Reopen this stop? All visits will be marked as scheduled again.';
+            if (!confirm(confirmMsg)) return;
             var rCard = reopen.closest('.mw-dv-card');
             if (!rCard) return;
             var visitIds = (reopen.dataset.visitIds || '').split(',').map(Number).filter(Boolean);
             if (!visitIds.length) return;
-            dvReopenStop(rCard, visitIds[0]);
+            dvReopenStop(rCard, visitIds, isUnskip);
         }
     });
 

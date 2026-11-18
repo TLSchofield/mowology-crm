@@ -1,0 +1,197 @@
+<?php
+/**
+ * Charlie (Foreman) — card and calendar page endpoint. Owner only.
+ *
+ * GET  ?mode=today      The brief (bad news first), the one thing, each head's top items,
+ *                       questions, the decision inbox and the urgent list.
+ * GET  ?mode=calendar   Deadlines, history, the year-end pack, rules, rulings, settings.
+ * POST {mode: 'act', key, what: open|dismiss|snooze, csrf_token}
+ * POST {mode: 'ask', question, csrf_token}         Ask Charlie (CharlieAskService — the iOS Ask box's
+ *                       answer: facts by SQL first, then Claude, daily-capped). Owner or admin.
+ * POST {mode: 'answer', question_id, answer, csrf_token}
+ * POST {mode: 'deadline_done', key, csrf_token}                    from the card / inbox
+ * POST {mode: 'deadline_mark', occurrence_id, what: done|skip|snooze, days?, note?, csrf_token}
+ * POST {mode: 'deadline_save', id?, title, category, repeat, date|dates|day|months, anchor_date?,
+ *       lead_days, prepare, amount_hint, active, csrf_token}
+ * POST {mode: 'inbox_done', key, head, label, batch_key?, ok, message, csrf_token}
+ *                       Logged after Tim's click reached the head's OWN endpoint.
+ * POST {mode: 'override', rule, key, csrf_token}                   release a held proposal
+ * POST {mode: 'rule_save', slug, enabled, params: {…}, csrf_token}
+ * POST {mode: 'settings_save', payment_min, csrf_token}
+ *
+ * ?mode=, not ?action= (the /api/ router appends its own action). Migrations 1170–1173.
+ */
+declare(strict_types=1);
+header('Content-Type: application/json');
+
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 6; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
+    }
+    unset($__dir, $__i);
+}
+
+try {
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once CRM_INCLUDES . '/functions.php';
+    requireLogin();
+    $user = getCurrentUser() ?? [];
+
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = $method === 'POST' ? (json_decode(file_get_contents('php://input'), true) ?? []) : [];
+    $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'today');
+
+    if ($method === 'POST' && !verifyCSRFToken((string)($input['csrf_token'] ?? ''))) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+
+    $db = getDB();
+    session_write_close();
+
+    if (!function_exists('getWorkQueueItems')) require_once APP_ROOT . '/Services/CrmFunctions.php';
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
+    require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
+    require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/AccountantPackService.php';
+    $f = new CharlieForemanService($db);
+    $desk = $f->desk;
+    if (!$desk->ready()) {
+        echo json_encode(['ok' => false, 'ready' => false, 'error' => 'Migration 1170 has not run']);
+        exit;
+    }
+    // Ask Charlie is also open to an admin (to try it from a browser session); everything else is the owner's.
+    $canAsk = $mode === 'ask' && ($user['role'] ?? '') === 'admin';
+    if (!$desk->isOwner($user) && !$canAsk) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => HeadIdentity::chiefName() . ' works for the owner only']);
+        exit;
+    }
+    $name = CharlieVoice::firstName($user);
+    $uid = (int)($user['id'] ?? 0);
+
+    $need = static function (bool $ready, string $migration) {
+        if ($ready) return true;
+        echo json_encode(['ok' => false, 'error' => "Migration {$migration} has not run"]);
+        return false;
+    };
+
+    switch ($mode) {
+        case 'today':
+            $card = $f->card($name);
+            $desk->markSeen();
+            // One builder for the live answer and the dashboard's saved copy (HeadBriefReadyService).
+            require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
+            $payload = HeadBriefReadyService::todayPayload($card, $desk, $name);
+            try { (new HeadBriefReadyService($db))->keepToday($payload); } catch (Throwable $e) { /* the answer still goes out */ }
+            echo json_encode($payload);
+            break;
+
+        case 'calendar':
+            $out = ['ok' => true, 'deadlines' => null, 'history' => [], 'pack' => [], 'rules' => null, 'rulings' => [], 'inbox' => null,
+                    'payment_min' => null, 'questions' => $desk->questions($name)];
+            if ($f->deadlines->ready()) {
+                $out['deadlines'] = $f->deadlines->all();
+                $out['history'] = $f->deadlines->history();
+                $out['pack'] = (new AccountantPackService($db))->lines();
+                $out['pack_year'] = (int)date('Y') - 1;
+            }
+            if ($f->inbox->ready()) {
+                $out['rules'] = array_values($f->inbox->rules());
+                $out['rulings'] = $f->inbox->rulings();
+                $out['inbox'] = $f->inbox->view($name);
+            }
+            if ($f->urgent->ready()) $out['payment_min'] = $f->urgent->threshold();
+            echo json_encode($out);
+            break;
+
+        case 'unmute':
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode($desk->unmute((string)($input['kind'] ?? '')));
+            break;
+
+        case 'prefs_reset':
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new RuntimeException('POST required');
+            echo json_encode($desk->resetPrefs(!empty($input['mutes'])));
+            break;
+
+        case 'act':
+            $what = (string)($input['what'] ?? '');
+            if (!in_array($what, ['open', 'dismiss', 'snooze'], true)) {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Unknown action']);
+                break;
+            }
+            echo json_encode($desk->act(substr((string)($input['key'] ?? ''), 0, 120), $what));
+            break;
+
+        case 'ask':
+            // The same answer the iOS Team tab gets (team-mobile.php mode=ask): facts first, then Claude, capped.
+            require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
+            @set_time_limit(90);
+            echo json_encode((new CharlieAskService($db))->ask((string)($input['question'] ?? ''), $uid));
+            break;
+
+        case 'answer':
+            echo json_encode($desk->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? '')));
+            break;
+
+        case 'deadline_done':
+            if (!$need($f->deadlines->ready(), '1171')) break;
+            $occ = $f->deadlines->occurrenceIdForKey((string)($input['key'] ?? ''));
+            echo json_encode($occ ? $f->deadlines->mark($occ, 'done', $uid) : ['ok' => false, 'message' => "I can't find that deadline"]);
+            break;
+
+        case 'deadline_mark':
+            if (!$need($f->deadlines->ready(), '1171')) break;
+            echo json_encode($f->deadlines->mark((int)($input['occurrence_id'] ?? 0), (string)($input['what'] ?? ''), $uid,
+                (int)($input['days'] ?? 3), (string)($input['note'] ?? '')));
+            break;
+
+        case 'deadline_save':
+            if (!$need($f->deadlines->ready(), '1171')) break;
+            echo json_encode($f->deadlines->save((array)$input));
+            break;
+
+        case 'inbox_done':
+            if (!$need($f->inbox->ready(), '1173')) break;
+            $key = substr((string)($input['key'] ?? ''), 0, 120);
+            $ok = !empty($input['ok']);
+            $f->inbox->logAction($key, (string)($input['head'] ?? ''), (string)($input['label'] ?? ''),
+                isset($input['batch_key']) ? (string)$input['batch_key'] : null, $ok, (string)($input['message'] ?? ''), $uid);
+            if ($ok) $desk->act($key, 'open');   // the inbox click counts as going to it (learning)
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'override':
+            if (!$need($f->inbox->ready(), '1172')) break;
+            echo json_encode($f->inbox->override((string)($input['rule'] ?? ''), substr((string)($input['key'] ?? ''), 0, 120), $uid));
+            break;
+
+        case 'rule_save':
+            if (!$need($f->inbox->ready(), '1172')) break;
+            echo json_encode($f->inbox->saveRule((string)($input['slug'] ?? ''), !empty($input['enabled']), (array)($input['params'] ?? [])));
+            break;
+
+        case 'settings_save':
+            if (!$need($f->urgent->ready(), '1173')) break;
+            $v = $input['payment_min'] ?? null;
+            if (!is_numeric($v) || (float)$v < 0) { echo json_encode(['ok' => false, 'message' => 'Enter a dollar amount']); break; }
+            $f->urgent->setThreshold((float)$v);
+            echo json_encode(['ok' => true, 'message' => "Saved — I'll email you about failed payments of $" . number_format((float)$v, 0) . ' or more.']);
+            break;
+
+        default:
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Unknown mode']);
+    }
+} catch (Throwable $e) {
+    error_log('Charlie API: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => (class_exists('HeadIdentity') ? HeadIdentity::chiefName() : 'The chief of staff') . ' is unavailable right now']);
+}

@@ -9,6 +9,12 @@ import SwiftUI
 import MapKit
 
 struct DayMapView: View {
+    /// The stop card's height grows with the phone's text size: a fixed 148 pt (set before Ittai's larger
+    /// type and 48 pt buttons) let the time line spill off the top and Directions off the bottom (2026-10-19).
+    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 200
+    @Environment(\.itAppStyle) private var appStyle
+    /// Room for the meniscus bar under pinned bottom controls (Tim, 2026-11-05).
+    @Environment(\.itBarClearance) private var barClearance
 
     let stops: [Stop]
     let isLoading: Bool
@@ -16,9 +22,18 @@ struct DayMapView: View {
     var routes: [CrewRoute] = []
     var liveCrew: [CrewLiveLocation] = []
     var currentUserId: Int? = nil
+    /// Device position, for the distance shown on each carousel card.
+    var userLocation: CLLocation? = nil
+    /// Admin only: asks the parent to open the Move Stop sheet for this stop.
+    var onMove: ((Stop) -> Void)? = nil
 
-    @State private var selectedStop: Stop?
+    /// The stop in focus — the carousel card on screen and the enlarged pin.
+    /// nil means "overview": every stop fitted on the map, carousel at its first card.
+    @State private var selectedId: Int?
     @State private var position: MapCameraPosition = .automatic
+    @State private var isCarouselCollapsed = false
+
+    private let selectionFeedback = UISelectionFeedbackGenerator()
 
     private var mappableStops: [Stop] {
         stops.filter { $0.latitude != nil && $0.longitude != nil }
@@ -31,7 +46,7 @@ struct DayMapView: View {
     ]
 
     private func color(forUserId userId: Int) -> Color {
-        if let me = currentUserId, userId == me { return Color.MW.green }
+        if let me = currentUserId, userId == me { return appStyle.tenant }
         return Self.trailPalette[abs(userId) % Self.trailPalette.count]
     }
 
@@ -45,26 +60,101 @@ struct DayMapView: View {
                 map
             }
 
-            if let stop = selectedStop {
-                StopBottomCard(stop: stop) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        selectedStop = nil
-                    }
-                }
-                .transition(.asymmetric(
-                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                    removal:   .move(edge: .bottom).combined(with: .opacity)
-                ))
-                .zIndex(1)
+            if !mappableStops.isEmpty {
+                carousel
+                    .padding(.bottom, barClearance)
+                    .zIndex(1)
             }
         }
         .onAppear  { fitCameraToAll() }
-        .onChange(of: stops) { _, _ in
-            withAnimation { selectedStop = nil }
-            fitCameraToAll()
+        .onChange(of: stops.map(\.id)) { _, ids in
+            // A poll refresh keeps the same stops — hold the crew's place. Only a
+            // different day (or a stop leaving it) returns to the overview.
+            if let selectedId, !ids.contains(selectedId) {
+                self.selectedId = nil
+                fitCameraToAll()
+            } else if selectedId == nil {
+                fitCameraToAll()
+            }
         }
-        .onChange(of: routes)   { _, _ in fitCameraToAll() }
-        .onChange(of: liveCrew) { _, _ in fitCameraToAll() }
+        .onChange(of: selectedId) { _, id in
+            guard let id, let stop = mappableStops.first(where: { $0.id == id }) else { return }
+            selectionFeedback.selectionChanged()
+            focusCamera(on: stop)
+        }
+        // Trails and live pins refresh every poll; only refit while in overview.
+        .onChange(of: routes)   { _, _ in if selectedId == nil { fitCameraToAll() } }
+        .onChange(of: liveCrew) { _, _ in if selectedId == nil { fitCameraToAll() } }
+    }
+
+    // MARK: - Carousel
+
+    /// Swipe the cards and the map follows; tap a pin and the cards follow.
+    private var carousel: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        isCarouselCollapsed.toggle()
+                    }
+                } label: {
+                    Image(systemName: isCarouselCollapsed ? "chevron.up" : "chevron.down")
+                        .font(appStyle.font(.footnote, weight: .bold))
+                        .foregroundStyle(appStyle.tenant)
+                        .frame(width: 56, height: appStyle.isEnabled ? 48 : 30)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .accessibilityLabel(isCarouselCollapsed ? "Show stops" : "Hide stops")
+
+                if selectedId != nil {
+                    Button {
+                        selectedId = nil
+                        fitCameraToAll()
+                    } label: {
+                        Label("All stops", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .font(appStyle.font(.caption, weight: .semibold))
+                            .foregroundStyle(appStyle.tenant)
+                            .padding(.horizontal, 12)
+                            .frame(height: appStyle.isEnabled ? 48 : 30)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                    .transition(.opacity)
+                }
+            }
+
+            if !isCarouselCollapsed {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(Array(mappableStops.enumerated()), id: \.element.id) { index, stop in
+                            StopCarouselCard(
+                                stop: stop,
+                                routeOrder: index + 1,
+                                total: mappableStops.count,
+                                distanceMeters: distance(to: stop),
+                                canMove: isAdmin && stop.canBeMoved && onMove != nil,
+                                onMove: { onMove?(stop) },
+                                height: cardHeight
+                            )
+                            .containerRelativeFrame(.horizontal)
+                            .id(stop.id)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $selectedId)
+                .contentMargins(.horizontal, 28, for: .scrollContent)
+                .frame(height: cardHeight)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(.bottom, 10)
+        .animation(.easeInOut(duration: 0.2), value: selectedId == nil)
+    }
+
+    private func distance(to stop: Stop) -> CLLocationDistance? {
+        guard let userLocation, let lat = stop.latitude, let lng = stop.longitude else { return nil }
+        return userLocation.distance(from: CLLocation(latitude: lat, longitude: lng))
     }
 
     // MARK: - Map
@@ -115,12 +205,13 @@ struct DayMapView: View {
                 ) {
                     StopPin(
                         stop: stop,
-                        isSelected: selectedStop?.id == stop.id,
+                        isSelected: selectedId == stop.id,
                         routeOrder: (mappableStops.firstIndex(where: { $0.id == stop.id }) ?? 0) + 1
                     )
                     .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            selectedStop = selectedStop?.id == stop.id ? nil : stop
+                            isCarouselCollapsed = false
+                            selectedId = stop.id
                         }
                     }
                 }
@@ -133,7 +224,7 @@ struct DayMapView: View {
             MapUserLocationButton()
             MapCompass()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
     }
 
     // MARK: - Empty State
@@ -142,18 +233,18 @@ struct DayMapView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "map")
-                .font(.system(size: 52))
-                .foregroundStyle(Color(.systemGray3))
+                .font(appStyle.font(size: 52))
+                .foregroundStyle(appStyle.color(.meta, legacy: Color(.systemGray3)))
             Text("No Stops Scheduled")
-                .font(.title3.bold())
+                .font(appStyle.font(.title3, weight: .bold))
             Text("There are no stops on this day.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
                 .multilineTextAlignment(.center)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
     }
 
     // MARK: - Camera
@@ -191,11 +282,26 @@ struct DayMapView: View {
             position = .region(MKCoordinateRegion(center: center, span: span))
         }
     }
+
+    /// Street-level view of one stop. The centre sits a little south of the pin
+    /// so the pin lands in the clear area above the carousel, not behind it.
+    private func focusCamera(on stop: Stop) {
+        guard let lat = stop.latitude, let lng = stop.longitude else { return }
+        let span = MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        let center = CLLocationCoordinate2D(
+            latitude:  lat - (isCarouselCollapsed ? 0 : span.latitudeDelta * 0.18),
+            longitude: lng
+        )
+        withAnimation(.easeInOut(duration: 0.45)) {
+            position = .region(MKCoordinateRegion(center: center, span: span))
+        }
+    }
 }
 
 // MARK: - Crew Pin
 
 private struct CrewPin: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let crew: CrewLiveLocation
     let color: Color
@@ -221,15 +327,15 @@ private struct CrewPin: View {
                 .fill(isStale ? color.opacity(0.45) : color)
                 .frame(width: 30, height: 30)
                 .overlay(Circle().stroke(.white, lineWidth: 2))
-                .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+                .shadow(color: appStyle.shadow(0.22), radius: 3, y: 2)
 
             if crew.isTruck {
                 Image(systemName: iconName)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(appStyle.font(size: 13, weight: .bold))
                     .foregroundStyle(.white)
             } else {
                 Text(initials)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(appStyle.font(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
             }
         }
@@ -239,18 +345,19 @@ private struct CrewPin: View {
 // MARK: - Stop Pin
 
 private struct StopPin: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let stop: Stop
     let isSelected: Bool
     let routeOrder: Int
 
     private var pinColor: Color {
-        if stop.isComplete   { return Color(.systemGray) }
-        if stop.isInProgress { return Color.MW.green }
-        return Color.MW.green
+        if stop.isComplete   { return appStyle.color(.meta, legacy: Color(.systemGray)) }
+        if stop.isInProgress { return appStyle.tenant }
+        return appStyle.tenant
     }
 
-    private var selectedColor: Color { Color.MW.dark }
+    private var selectedColor: Color { appStyle.color(.tenant, legacy: Color.MW.dark) }
 
     private var iconName: String {
         if stop.isComplete   { return "checkmark" }
@@ -267,20 +374,20 @@ private struct StopPin: View {
                     .overlay(
                         Circle().stroke(.white, lineWidth: isSelected ? 3 : 2)
                     )
-                    .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+                    .shadow(color: appStyle.shadow(0.22), radius: 3, y: 2)
 
                 if stop.isComplete {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(appStyle.font(size: 13, weight: .bold))
+                        .foregroundStyle(appStyle.onTenant)
                 } else if stop.isInProgress {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(appStyle.font(size: 10, weight: .bold))
+                        .foregroundStyle(appStyle.onTenant)
                 } else {
                     Text("\(routeOrder)")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(appStyle.font(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(appStyle.onTenant)
                 }
             }
 
@@ -305,101 +412,126 @@ private struct PinTail: Shape {
     }
 }
 
-// MARK: - Bottom Card
+// MARK: - Carousel Card
 
-private struct StopBottomCard: View {
+/// One stop in the map carousel. The whole card opens the stop; Directions and
+/// Move are reachable without leaving the map.
+private struct StopCarouselCard: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     let stop: Stop
-    let onDismiss: () -> Void
+    let routeOrder: Int
+    let total: Int
+    let distanceMeters: Double?
+    let canMove: Bool
+    let onMove: () -> Void
+    let height: CGFloat
+
+    private var statusColor: Color {
+        stop.isComplete ? Color(.systemGray) : appStyle.tenant
+    }
+
+    private var distanceText: String? {
+        guard let m = distanceMeters else { return nil }
+        return m < 1000 ? "\(Int((m / 10).rounded()) * 10) m" : String(format: "%.1f km", m / 1000)
+    }
 
     var body: some View {
-        NavigationLink(value: stop) {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
+            NavigationLink(value: stop) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(stop.estimatedArrival ?? "Anytime")
+                            .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                            .foregroundStyle(statusColor)
 
-                // Drag handle
-                Capsule()
-                    .fill(Color(.systemGray4))
-                    .frame(width: 36, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-                    .padding(.bottom, 14)
+                        if stop.isComplete {
+                            Label("Done", systemImage: "checkmark.circle.fill")
+                                .font(appStyle.font(.caption, weight: .semibold))
+                                .foregroundStyle(appStyle.meta)
+                        } else if stop.isInProgress {
+                            Label("In progress", systemImage: "play.circle.fill")
+                                .font(appStyle.font(.caption, weight: .semibold))
+                                .foregroundStyle(appStyle.tenant)
+                        }
 
-                HStack(alignment: .top, spacing: 14) {
+                        Spacer()
 
-                    // Status icon
-                    ZStack {
-                        Circle()
-                            .fill(stop.isComplete
-                                  ? Color(.systemGray5)
-                                  : Color.MW.green.opacity(0.12))
-                            .frame(width: 46, height: 46)
-                        Image(systemName: stop.isComplete
-                              ? "checkmark.circle.fill"
-                              : (stop.isInProgress ? "play.circle.fill" : "calendar.circle"))
-                            .font(.system(size: 24))
-                            .foregroundStyle(stop.isComplete ? Color(.systemGray2) : Color.MW.green)
+                        if let distanceText {
+                            Label(distanceText, systemImage: "location.fill")
+                                .font(appStyle.font(.caption).monospacedDigit())
+                                .foregroundStyle(appStyle.meta)
+                        }
+                        Text("\(routeOrder)/\(total)")
+                            .font(appStyle.font(.caption, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(appStyle.meta)
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(stop.propertyAddress)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+                    Text(stop.headline.map(DisplayNameFormatter.string) ?? stop.propertyAddress)   // same case as the list
+                        .font(appStyle.font(.body, weight: .bold))
+                        .foregroundStyle(appStyle.text)
+                        .lineLimit(1)
+
+                    Text(stop.headline == nil ? stop.propertyCity : stop.fullAddress)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
+                        .lineLimit(1)
+
+                    if let line = stop.historyLine {
+                        Label(line.service.map { "\($0): \(line.text)" } ?? line.text,
+                              systemImage: line.warning ? "exclamationmark.circle.fill" : "clock.arrow.circlepath")
+                            .font(appStyle.font(.caption))
                             .lineLimit(1)
-                        Text(stop.propertyCity)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        // Service badges (up to 2)
-                        if !stop.visits.isEmpty {
-                            HStack(spacing: 5) {
-                                ForEach(stop.visits.prefix(2)) { visit in
-                                    Text(visit.serviceTypeLabel)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.MW.green)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(Color.MW.green.opacity(0.1))
-                                        .clipShape(Capsule())
-                                }
-                                if stop.visits.count > 2 {
-                                    Text("+\(stop.visits.count - 2)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.top, 2)
-                        }
-
-                        // ETA
-                        if let eta = stop.estimatedArrival {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.caption2)
-                                Text(eta)
-                                    .font(.caption)
-                            }
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 2)
-                        }
+                            .foregroundStyle(line.warning ? appStyle.attention : appStyle.meta)
+                    } else if let first = stop.visits.first {
+                        Text(first.serviceTypeLabel + (stop.visits.count > 1 ? " +\(stop.visits.count - 1)" : ""))
+                            .font(appStyle.font(.caption))
+                            .foregroundStyle(appStyle.meta)
+                            .lineLimit(1)
                     }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(.systemGray3))
-                        .padding(.top, 4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: .black.opacity(0.12), radius: 16, x: 0, y: -4)
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                Button(action: openDirections) {
+                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        .font(appStyle.font(.caption, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 34)
+                        .foregroundStyle(appStyle.onTenant)
+                        .background(appStyle.tenant, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(9)))
+                }
+
+                if canMove {
+                    Button(action: onMove) {
+                        Label("Move", systemImage: "calendar.badge.clock")
+                            .font(appStyle.font(.caption, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: appStyle.isEnabled ? 48 : 34)
+                            .foregroundStyle(appStyle.tenant)
+                            .background(appStyle.tenant.opacity(0.10), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(9)))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(14)
+        .frame(height: height)
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(16), style: .continuous))
+        .shadow(color: appStyle.shadow(0.14), radius: 12, x: 0, y: 3)
+    }
+
+    private func openDirections() {
+        guard let lat = stop.latitude, let lng = stop.longitude else { return }
+        let item = MKMapItem(placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        ))
+        item.name = stop.headline ?? stop.fullAddress
+        item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
     }
 }
 
@@ -413,9 +545,9 @@ private struct StopBottomCard: View {
                     propertyId: 1, propertyAddress: "3304 West 12th Avenue",
                     propertyCity: "Vancouver", propertyName: nil,
                     latitude: 49.2604, longitude: -123.1625,
-                    contactId: 1, contactName: "Gary Hudson", contactPhone: nil,
+                    contactId: 1, contactName: "Gary Hudson", contactPhone: nil, contactEmail: nil, onsiteContact: nil,
                     companyName: nil,
-                    lawnSqft: nil, crewNames: ["Tim SCH"],
+                    lawnSqft: nil, crewIds: [1], crewNames: ["Tim SCH"],
                     visitCount: 1,
                     visits: [Visit(visitId: 1, visitNumber: "V-001", serviceType: "lawn_care",
                                    planTitle: nil, planNumber: nil, visitStatus: "scheduled",

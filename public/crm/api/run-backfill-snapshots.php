@@ -25,12 +25,16 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 requireLogin();
 $user = getCurrentUser();
 if (($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     die('Admin only.');
 }
+// A GET only shows a confirm button; the backfill runs on POST + CSRF (Fable review 2026-10-12).
+require_once APP_ROOT . '/Core/AdminActionGuard.php';
+adminActionGuard('the margin snapshot backfill');
 
 ini_set('display_errors', '1');
 error_reporting(E_ALL);
@@ -77,7 +81,7 @@ try {
     ");
     $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
-    echo "[ERROR] Query failed: " . $e->getMessage() . "\n";
+    echo "[ERROR] Query failed: " . ApiResponse::message($e, 'run-backfill-snapshots') . "\n";
 
     // Fallback: try simpler query without the LEFT JOIN
     echo "\nTrying simpler query...\n";
@@ -96,7 +100,7 @@ try {
         $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo "Found " . count($visits) . " completed visits (will re-process all).\n";
     } catch (Throwable $e2) {
-        echo "[FATAL] Even simple query failed: " . $e2->getMessage() . "\n";
+        echo "[FATAL] Even simple query failed: " . ApiResponse::message($e2, 'run-backfill-snapshots') . "\n";
         exit;
     }
 }
@@ -144,7 +148,7 @@ foreach ($visits as $i => $v) {
         }
     } catch (Throwable $e) {
         $failed++;
-        echo "[FAIL] Visit #{$visitId}: " . $e->getMessage() . "\n";
+        echo "[FAIL] Visit #{$visitId}: " . ApiResponse::message($e, 'run-backfill-snapshots') . "\n";
     }
 }
 

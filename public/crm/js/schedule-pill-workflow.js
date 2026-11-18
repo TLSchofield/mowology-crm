@@ -36,6 +36,42 @@
     var activeDrawer = null;
     var activeDrawerVisitId = null;
     var cachedGps = null;
+    var _camPermState = null;   // 'granted' | 'denied' | 'prompt' | null (unknown) — see refreshCameraPermission()
+
+    /**
+     * POST to job-timer.php with the CSRF token (required on session POSTs since 2026-10-12).
+     * opts = { body: <JSON string> }. A stale token (cached page) is refreshed from
+     * /crm/api/get-csrf.php and the call retried once. Resolves to the fetch Response.
+     */
+    function jobTimerFetch(opts, retried) {
+        return fetch('/crm/api/job-timer.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf || window.MW_CSRF_TOKEN || '' },
+            body: opts.body
+        }).then(function(r) {
+            if (r.status !== 403 || retried) return r;
+            return r.clone().json().then(function(d) {
+                if (!d || d.code !== 'CSRF_INVALID') return r;
+                return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin', cache: 'no-store' })
+                    .then(function(t) { return t.json(); })
+                    .then(function(t) { if (t && t.token) state.csrf = t.token; return jobTimerFetch(opts, true); });
+            }, function() { return r; });
+        });
+    }
+
+    // True when running inside the native Capacitor Android shell. Camera
+    // permission handling and timer re-arming only apply here; browsers and
+    // iOS keep their existing behaviour untouched.
+    function isNativeAndroid() {
+        try {
+            return !!(window.Capacitor &&
+                      window.Capacitor.isNativePlatform &&
+                      window.Capacitor.isNativePlatform() &&
+                      window.Capacitor.getPlatform &&
+                      window.Capacitor.getPlatform() === 'android');
+        } catch (e) { return false; }
+    }
 
     // ═══════════════════════════════════════════════════════
     //  INITIALIZATION
@@ -147,8 +183,40 @@
             console.log('[PillWorkflow] GPS ready:', lat, lng);
         });
 
+        // Re-arm running timers whenever the app returns to the foreground.
+        // Android WebViews freeze setInterval while backgrounded; without this
+        // the timer can stay stuck at 0:00 after the screen locks. (Bug fix)
+        // Also poll for status changes made elsewhere on the same resume —
+        // same rationale, see startStatusPoll() below.
+        function onForeground() {
+            refreshAllPillTimers();
+            pollStatuses();
+        }
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') onForeground();
+        });
+        window.addEventListener('pageshow', onForeground);
+        window.addEventListener('focus', onForeground);
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+            try {
+                window.Capacitor.Plugins.App.addListener('resume', onForeground);
+            } catch (e) { /* App plugin unavailable — DOM events still cover it */ }
+        }
+
+        // Background poll so a job completed elsewhere (another crew member,
+        // another platform, or this same crew member on a second device)
+        // shows up here without a manual refresh.
+        startStatusPoll();
+
+        // Cache camera permission state up front so the very first photo tap can
+        // be guarded on native Android. (Bug fix — "Access denied" on before photo)
+        if (isNativeAndroid()) refreshCameraPermission();
+
         // Listen for hero promotion (GPS arrival) — auto-clock-in single-visit cards
         document.addEventListener('mw-hero-promoted', function(e) {
+            // GPS moved this card to the top and opened it: draw its Before / After / More strip now.
+            // Only a tap used to draw it, so a GPS-opened card showed no photo spot (Tim, 2026-10-14).
+            if (e.detail && e.detail.card) renderStripsForCard(e.detail.card);
             autoClockInSingleVisit(e.detail.card);
         });
 
@@ -188,6 +256,7 @@
                     scrollArea.insertBefore(card, scrollArea.firstElementChild);
                     scrollArea.scrollTop = 0;
                 }
+                renderStripsForCard(card);   // its photo strip, like a tapped card (2026-10-14)
             }
 
             // Sync shared footer and per-visit section footer to timer state
@@ -308,6 +377,12 @@
             case 'prompt_after':
                 renderPhotoPrompt(drawer, visitId, 'after');
                 break;
+            case 'completed':
+                // Crews spot sellable work while packing up, after they have
+                // finished. Without this the drawer vanished on completion and
+                // took the Recommend button with it.
+                renderCompletedDrawer(drawer, visitId);
+                break;
         }
 
         drawer.style.display = 'block';
@@ -340,14 +415,14 @@
     // ═══════════════════════════════════════════════════════
 
     /**
-     * "Clock In" button for a scheduled visit
+     * "Start" button for a scheduled visit
      */
     function renderClockInDrawer(drawer, visitId) {
         drawer.innerHTML =
             '<div class="mw-mc-drawer-row">' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-primary" data-action="clock-in">' +
             '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>' +
-            '    Clock In' +
+            '    Start' +
             '  </button>' +
             '</div>';
 
@@ -375,6 +450,35 @@
     /**
      * "Photo" + "Finish" buttons for an in-progress visit
      */
+    /**
+     * Post-completion drawer. Deliberately minimal: the visit is finished, so the
+     * only thing still worth offering is a service recommendation.
+     */
+    function renderCompletedDrawer(drawer, visitId) {
+        drawer.innerHTML =
+            '<div class="mw-mc-drawer-row-secondary">' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="recommend">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2-6.3-4.6-6.3 4.6L7.9 13.8 2 9.4h7.6z"/></svg>' +
+            '    Recommend a Service' +
+            '  </button>' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="plant">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>' +
+            '    Plant?' +
+            '  </button>' +
+            '</div>';
+
+        drawer.querySelector('[data-action="recommend"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openRecommendModal(visitId);
+            });
+        drawer.querySelector('[data-action="plant"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openPlantId(visitId);
+            });
+    }
+
     function renderWorkingDrawer(drawer, visitId) {
         var v = visits[visitId];
         drawer.innerHTML =
@@ -393,6 +497,14 @@
             '  </button>' +
             '</div>' +
             '<div class="mw-mc-drawer-row-secondary">' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="recommend">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2-6.3-4.6-6.3 4.6L7.9 13.8 2 9.4h7.6z"/></svg>' +
+            '    Recommend' +
+            '  </button>' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="plant">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>' +
+            '    Plant?' +
+            '  </button>' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-stop" data-action="stop-timer">' +
             '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
             '    Stop Timer' +
@@ -409,6 +521,17 @@
             .addEventListener('click', function(e) {
                 e.stopPropagation();
                 openObservationModal(visitId);
+            });
+
+        drawer.querySelector('[data-action="recommend"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openRecommendModal(visitId);
+            });
+        drawer.querySelector('[data-action="plant"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openPlantId(visitId);
             });
 
         drawer.querySelector('[data-action="finish"]')
@@ -455,7 +578,10 @@
         drawer.querySelector('[data-action="take-photo"]')
             .addEventListener('click', function(e) {
                 e.stopPropagation();
-                triggerCamera(visitId, category);
+                // The same in-app camera as the photo tiles (2026-10-20, Fable): this button used the OS file
+                // picker, whose permission check misreads Android's grant and fails with no message — "Before
+                // does nothing" while After (from a tile) worked. triggerBatchCamera falls back to it if needed.
+                triggerBatchCamera(visitId, category);
             });
 
         var skipBtn = drawer.querySelector('[data-action="skip-photo"]');
@@ -487,8 +613,12 @@
     /**
      * Start a visit timer (clock in)
      */
-    function clockIn(visitId) {
-        console.log('[PillWorkflow] clockIn called for visit ' + visitId);
+    function clockIn(visitId, opts) {
+        opts = opts || {};
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
+        console.log('[PillWorkflow] clockIn called for visit ' + visitId + (opts.skipBeforePrompt ? ' (skipBeforePrompt)' : ''));
         var btn = activeDrawer ? activeDrawer.querySelector('[data-action="clock-in"]') : null;
         if (btn) {
             btn.disabled = true;
@@ -497,9 +627,7 @@
 
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] Sending start timer request for visit ' + visitId);
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({
                     action: 'start',
                     visit_id: visitId,
@@ -513,7 +641,7 @@
                 if (data.success) {
                     visits[visitId].entryId = data.entry_id;
                     visits[visitId].startTime = new Date();
-                    visits[visitId].status = 'prompt_before';
+                    visits[visitId].status = opts.skipBeforePrompt ? 'in_progress' : 'prompt_before';
 
                     // Store tracking requirements from API response
                     if (data.tracking_level) {
@@ -546,9 +674,13 @@
                     if (stopIdForTimer) footerSetTiming(stopIdForTimer, visitId);
                     pvSetTiming(visitId);
 
-                    // Show before photo prompt in drawer
+                    // Before photo already captured (it triggered this clock-in)?
+                    // Start the running timer directly. Otherwise show the before
+                    // photo prompt in the drawer.
                     var drawer = card ? card.querySelector('.mw-mc-pill-drawer') : null;
-                    if (drawer) {
+                    if (opts.skipBeforePrompt) {
+                        startPillTimer(visitId);
+                    } else if (drawer) {
                         renderPhotoPrompt(drawer, visitId, 'before');
                         drawer.style.display = 'block';
                         activeDrawer = drawer;
@@ -557,11 +689,17 @@
 
                     // Show the persistent active job panel
                     if (card) showActivePanel(visitId, card);
+                } else if (data.code === 'special_request_unacknowledged' && window.MwSpecialRequest) {
+                    window.MwSpecialRequest.fromServer(visitId, data.special_requests || []);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
+                    }
                 } else {
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (btn) {
                         btn.disabled = false;
-                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                     }
                 }
             })
@@ -569,7 +707,7 @@
                 showToast('Network error. Check your connection.');
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                 }
             });
         });
@@ -584,9 +722,7 @@
         var originalHtml = v.pill.innerHTML;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({
                     action: 'stop',
                     visit_id: visitId,
@@ -654,9 +790,7 @@
         if (!v) return;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({
                     action: 'stop',
                     visit_id: visitId,
@@ -735,6 +869,19 @@
 
         var v = visits[visitId];
         if (!v) { console.warn('[PillWorkflow] triggerCamera: visit ' + visitId + ' not registered'); return; }
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
+
+        // Bug fix: on native Android the OS camera is reached through the WebView
+        // file picker, which throws "Access denied" when the app's CAMERA
+        // permission is off. If we already know it's denied, skip the doomed
+        // click and show actionable guidance instead. (Synchronous — preserves
+        // the user-gesture requirement for the click in the granted path.)
+        if (isNativeAndroid() && _camPermState === 'denied') {
+            showCameraDeniedDialog();
+            return;
+        }
 
         var card = v.pill.closest('.mw-mc-card');
         if (!card) { console.warn('[PillWorkflow] triggerCamera: no card found for visit ' + visitId); return; }
@@ -774,7 +921,15 @@
             }
 
             if (!input.files || !input.files.length) {
-                // User cancelled — re-render strip so placeholders are still tappable
+                // No file: either the user cancelled, or Android denied camera
+                // access (the picker fails silently with no file). Re-check the
+                // permission so a denial surfaces the guidance dialog and guards
+                // the next tap. (Bug fix)
+                if (isNativeAndroid()) {
+                    refreshCameraPermission(function(stateStr) {
+                        if (stateStr === 'denied') showCameraDeniedDialog();
+                    });
+                }
                 renderPhotoStrip(visitId);
                 return;
             }
@@ -822,8 +977,15 @@
                         } else {
                             closeDrawer();
                         }
+                    } else if (curStatus !== 'in_progress' && curStatus !== 'completed') {
+                        // Before photo taken without clocking in first → the photo
+                        // IS the clock-in: start the timer now (skip the before-prompt,
+                        // we already have the photo), then show strip + confirmation.
+                        clockIn(visitId, { skipBeforePrompt: true });
+                        renderPhotoStrip(visitId);
+                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                     } else {
-                        // Placeholder tap outside workflow: just save + update strip
+                        // Timer already running/completed: just save + update strip
                         renderPhotoStrip(visitId);
                         if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                     }
@@ -871,16 +1033,96 @@
      * navigation or a crash before "Done" is tapped.
      * Falls back to triggerCamera() if getUserMedia is unavailable.
      */
-    function triggerBatchCamera(visitId) {
+    // ── Native camera (Android app 1.5.0+, MwCamera plugin; switch app-version.json android.native_camera) ──
+    // The phone's full camera and a background uploader that survives the app closing. Off, or an older
+    // app, and the web camera below is used as before.
+    var nativeCam = null;          // the plugin, once it says it is enabled
+    (function () {
+        var p = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.MwCamera;
+        if (!p || typeof p.available !== 'function') return;
+        p.available().then(function (r) { if (r && r.enabled) nativeCam = p; }).catch(function () {});
+    })();
+
+    /** After photos are in: the same job steps the one-shot camera takes. */
+    function afterPhotosTaken(visitId, category) {
+        var cur = visits[visitId] ? visits[visitId].status : null;
+        if (category === 'before' && cur === 'prompt_before') {
+            // Start was already pressed (the timer runs): go to working, as the one-shot handler does.
+            // Calling clockIn here started the timer twice — the server refused and Before looked failed.
+            visits[visitId].status = 'in_progress';
+            updatePillVisual(visitId, 'in_progress');
+            startPillTimer(visitId);
+            renderPhotoStrip(visitId);
+            closeDrawer();
+        } else if (category === 'before' && cur !== 'in_progress' && cur !== 'completed') {
+            clockIn(visitId, { skipBeforePrompt: true });
+        } else if (category === 'after' && cur === 'prompt_after') {
+            visits[visitId].status = 'completed';
+            renderPhotoStrip(visitId);
+            clockOut(visitId);
+        }
+    }
+
+    function openNativeCamera(visitId, category) {
+        nativeCam.open({ visitId: visitId, category: category }).then(function (r) {
+            var shots = (r && r.shots) || [];
+            if (!shots.length) return;
+            var cats = {};
+            shots.forEach(function (s) {
+                cats[s.category] = true;
+                var t = s.thumb || '__uploaded__';
+                if (s.category === 'before') visits[visitId].beforeThumb = t;
+                else if (s.category === 'after') visits[visitId].afterThumb = t;
+                else {
+                    if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                    visits[visitId].additionalThumbs.push(t);
+                }
+            });
+            renderPhotoStrip(visitId);
+            showToast(shots.length + ' photo' + (shots.length !== 1 ? 's' : '') + ' saved \u2014 they upload in the background');
+            // Job steps follow what was shot (the tabs let them switch from Before to After).
+            if (cats.before) afterPhotosTaken(visitId, 'before');
+            if (cats.after) afterPhotosTaken(visitId, 'after');
+        }).catch(function () {
+            nativeCam = null;              // something's wrong with it: the web camera from now on
+            triggerBatchCamera(visitId, category);
+        });
+    }
+
+    function triggerBatchCamera(visitId, category) {
+        // Before / After take several shots too, as on the iPhone (2026-10-14); default: additional.
+        category = category || 'additional';
         var v = visits[visitId];
         if (!v) return;
+        if (nativeCam && !(window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId))) {
+            openNativeCamera(visitId, category);
+            return;
+        }
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
 
         if (typeof BatchCamera === 'undefined' ||
             !navigator.mediaDevices ||
             !navigator.mediaDevices.getUserMedia) {
-            triggerCamera(visitId, 'additional');
+            triggerCamera(visitId, category);
             return;
         }
+
+        // Photos sent straight to the server because the phone's photo store is unavailable: the visit
+        // moves on (start / finish) only once they are in (Codex review 2026-10-20).
+        var direct = { pending: 0, failed: 0, finish: null };
+        var finishShots = function () {
+            if (direct.failed > 0) {
+                showToast('A photo did not upload. Take it again before going on.', 7000);
+                renderPhotoStrip(visitId);
+                return;
+            }
+            afterPhotosTaken(visitId, category);
+        };
+        var whenShotsIn = function () {
+            if (direct.pending > 0) direct.finish = finishShots; else finishShots();
+        };
 
         var cam = new BatchCamera({
             maxPhotos: 10,
@@ -889,15 +1131,29 @@
                 // Show on the card strip immediately via blob URL so the user
                 // sees each photo appear as they snap it.
                 var blobUrl = URL.createObjectURL(file);
-                if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
-                visits[visitId].additionalThumbs.push(blobUrl);
+                if (category === 'before') {
+                    visits[visitId].beforeThumb = blobUrl;
+                } else if (category === 'after') {
+                    visits[visitId].afterThumb = blobUrl;
+                } else {
+                    if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                    visits[visitId].additionalThumbs.push(blobUrl);
+                }
                 renderPhotoStrip(visitId);
 
                 // Save to IDB immediately — photo survives crash/navigation before Done
-                saveToPhotoQueue(visitId, file, 'additional', function (queueId) {
+                saveToPhotoQueue(visitId, file, category, function (queueId) {
                     if (queueId !== null) {
                         console.log('[PillWorkflow] Batch photo persisted to queue id=' + queueId);
+                        return;
                     }
+                    // The phone's photo store is unavailable: send it now instead of losing it (Fable 2026-10-20).
+                    direct.pending++;
+                    uploadPhoto(visitId, file, category, function (ok) {
+                        direct.pending--;
+                        if (!ok) direct.failed++;
+                        if (direct.pending === 0 && direct.finish) { var f = direct.finish; direct.finish = null; f(); }
+                    });
                 });
             },
 
@@ -906,22 +1162,28 @@
                 showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — uploading…');
                 // All captured photos are already 'pending' in IDB — kick the queue runner
                 processPhotoQueue();
+                // The same job steps the one-shot camera takes (photo handler above): a Before photo
+                // before Start is the start; the After photo asked for at the finish completes the job.
+                whenShotsIn();
             },
 
             onCancel: function (count, reason) {
                 if (reason === 'denied') {
                     showCameraPermissionBanner();
-                    triggerCamera(visitId, 'additional');
+                    triggerCamera(visitId, category);
                     return;
                 }
                 if (reason === 'unsupported' || reason === 'error') {
                     // getUserMedia unavailable — fall back to OS camera silently
-                    triggerCamera(visitId, 'additional');
+                    triggerCamera(visitId, category);
                     return;
                 }
                 if (count > 0) {
                     showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — will upload when connected.');
                     processPhotoQueue();
+                    // Closed with the X after taking photos: the job steps still happen, as with Done
+                    // (the drawer's Before / After button opens this camera now — Codex review 2026-10-20).
+                    whenShotsIn();
                 }
             }
         });
@@ -940,6 +1202,9 @@
 
         var v = visits[visitId];
         if (!v) { console.warn('[PillWorkflow] triggerGallery: visit ' + visitId + ' not registered'); return; }
+        // Special request gate (mw-special-request.js is only on the page when the feature is on):
+        // an unread client request shows its screen INSTEAD of this action; the crew tap again after "Got it".
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return;
 
         // Clean up any pending camera session to prevent ghost inputs
         if (pendingCamera) {
@@ -1026,10 +1291,54 @@
      *  - HTTP 4xx other → error toast, do NOT queue
      */
     function uploadPhoto(visitId, file, category, callback) {
-        doUploadPhoto(visitId, file, category, false, callback);
+        // Shrink a big phone photo once, here, and keep that copy for every retry: the queue then
+        // re-sends identical bytes, which the server recognises as the same photo (2026-10-14:
+        // full-size photos up to 15 MB timed out on cellular and were dropped after 3 tries).
+        // Refresh the GPS fix (≤ 60 s old) while the photo is being shrunk, so the
+        // upload carries where THIS photo was taken, not where the shift started.
+        // getGps falls back to the last fix on timeout, so this never blocks a photo.
+        var gpsReady = new Promise(function(resolve) {
+            var t = setTimeout(resolve, 6500);          // never let a silent geolocation bridge hold a photo
+            getGps(function() { clearTimeout(t); resolve(); });
+        });
+        Promise.all([preparePhoto(file), gpsReady]).then(function(res) {
+            var p = res[0];
+            doUploadPhoto(visitId, p.file, category, false, callback, p.takenAt);
+        });
     }
 
-    function doUploadPhoto(visitId, file, category, isRetry, callback) {
+    var PHOTO_MAX_EDGE = 2048;
+    var PHOTO_KEEP_UNDER = 1200 * 1024;   // a photo already this small and small enough keeps its own data
+
+    /**
+     * {file, takenAt}: the photo at most PHOTO_MAX_EDGE px on its long edge (upright), and when it was
+     * taken (the camera's file time). Shrinking drops the photo's embedded time, so takenAt is sent with
+     * the upload and the server uses it (MediaUploadService). Any problem → the original, unchanged.
+     */
+    function preparePhoto(file) {
+        var takenAt = new Date(file && file.lastModified ? file.lastModified : Date.now()).toISOString();
+        var keep = Promise.resolve({ file: file, takenAt: takenAt });
+        if (!file || !/^image\/(jpeg|png|webp)$/i.test(file.type || '') || typeof createImageBitmap !== 'function') return keep;
+        return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function(bmp) {
+            var w = bmp.width, h = bmp.height, edge = Math.max(w, h);
+            if (edge <= PHOTO_MAX_EDGE && file.size <= PHOTO_KEEP_UNDER) { if (bmp.close) bmp.close(); return { file: file, takenAt: takenAt }; }
+            var scale = Math.min(1, PHOTO_MAX_EDGE / edge);
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            if (bmp.close) bmp.close();
+            return new Promise(function(resolve) {
+                canvas.toBlob(function(blob) {
+                    if (!blob || blob.size >= file.size) { resolve({ file: file, takenAt: takenAt }); return; }
+                    var name = (file.name || 'photo').replace(/\.[a-z0-9]+$/i, '') + '.jpg';
+                    resolve({ file: new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified || Date.now() }), takenAt: takenAt });
+                }, 'image/jpeg', 0.85);
+            });
+        }).catch(function() { return { file: file, takenAt: takenAt }; });
+    }
+
+    function doUploadPhoto(visitId, file, category, isRetry, callback, takenAt) {
         // 1b. AbortController for 30-second fetch timeout
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         var timeoutId  = controller
@@ -1043,6 +1352,7 @@
         formData.append('context_id', String(visitId));
         formData.append('category', category);
         formData.append('visibility', 'client_visible');
+        if (takenAt) formData.append('taken_at', takenAt);
 
         // Attach GPS if available
         if (cachedGps) {
@@ -1086,7 +1396,7 @@
                                     state.csrf = d.token;
                                     console.log('[PillWorkflow] CSRF token refreshed');
                                 }
-                                doUploadPhoto(visitId, file, category, true, callback);
+                                doUploadPhoto(visitId, file, category, true, callback, takenAt);
                             })
                             .catch(function() {
                                 showToast('Session expired. Reload the page and try again.');
@@ -1102,22 +1412,36 @@
                 });
             }
 
-            // 1c. Server errors (5xx): do NOT queue — same error will recur on retry
+            // Held by the special-request gate (409): keep the photo; the queue replays it with queued_at,
+            // which the gate accepts (Fable 2026-10-20 — it used to be dropped).
+            if (status === 409) {
+                showToast('Read the client\u2019s request first \u2014 your photo is saved and will upload.', 6000);
+                return queueAfterFailure(visitId, file, category, takenAt, function(ok, url) { callback(ok, url); });
+            }
+
+            // Login expired (the service worker answers 401 for a redirect to the login page): keep the
+            // photo; it goes up once they sign in again.
+            if (status === 401) {
+                showToast('Your login has expired \u2014 sign in again. Your photo is saved.');
+                return queueAfterFailure(visitId, file, category, takenAt, function(ok, url) { callback(ok, url); });
+            }
+
+            // Server errors (5xx): keep the photo and retry later — a photo is never lost to a bad moment
+            // on the server (2026-10-14; it used to be dropped with a toast).
             if (status >= 500) {
                 return response.text().then(function(txt) {
                     console.error('[PillWorkflow] Server error ' + status + ':', txt.slice(0, 200));
-                    showToast('Server error (' + status + '). Check connection and try again.');
-                    callback(false, null);
+                    queueAfterFailure(visitId, file, category, takenAt, callback);
                 });
             }
 
             // Guard against non-JSON before parsing
             var ct = response.headers.get('content-type') || '';
             if (!ct.includes('application/json') && !ct.includes('text/json')) {
+                // A login page, an "Offline" page from the service worker, a proxy error: keep it and retry.
                 return response.text().then(function(txt) {
                     console.warn('[PillWorkflow] Non-JSON response status=' + status + ':', txt.slice(0, 120));
-                    showToast('Unexpected server response. Try again.');
-                    callback(false, null);
+                    queueAfterFailure(visitId, file, category, takenAt, callback);
                 });
             }
             return response.json();
@@ -1183,25 +1507,34 @@
                 console.error('[PillWorkflow] Upload error:', err.message || err);
             }
 
-            // Only queue on genuine network/timeout errors — not server errors
-            if ((isNetwork || isAbort) && photoQueueDb) {
-                saveToPhotoQueue(visitId, file, category, function(queueId) {
-                    if (queueId !== null) {
-                        showToast(navigator.onLine
-                            ? 'Upload failed \u2014 will retry automatically'
-                            : 'No signal \u2014 photo saved for later');
-                    } else {
-                        showToast('Upload failed \u2014 check connection and try again.');
-                    }
-                    callback(false, null);
-                });
-            } else {
-                showToast(isAbort
-                    ? 'Upload timed out. Check your signal and try again.'
-                    : 'Upload failed \u2014 check connection and try again.');
-                callback(false, null);
-            }
+            // Any failure keeps the photo and retries it (network, timeout, a bad answer).
+            queueAfterFailure(visitId, file, category, takenAt, callback);
         });
+    }
+
+    /** A photo that didn't upload goes to the queue, which keeps trying until it's in (never dropped). */
+    function queueAfterFailure(visitId, file, category, takenAt, callback, waited) {
+        if (!photoQueueDb) {
+            // The photo store opens a moment after the page; a photo that failed in that moment waits
+            // for it (up to 5 s) instead of being lost (Codex review, 2026-10-14).
+            if ((waited || 0) < 5000) {
+                setTimeout(function () { queueAfterFailure(visitId, file, category, takenAt, callback, (waited || 0) + 250); }, 250);
+                return;
+            }
+            showToast('Upload failed \u2014 keep this screen open and try again.');
+            callback(false, null);
+            return;
+        }
+        saveToPhotoQueue(visitId, file, category, function(queueId) {
+            if (queueId !== null) {
+                showToast(navigator.onLine
+                    ? 'Photo saved \u2014 it will upload automatically'
+                    : 'No signal \u2014 photo saved, it will upload when you have signal');
+            } else {
+                showToast('Upload failed \u2014 check connection and try again.');
+            }
+            callback(false, null);
+        }, takenAt);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -1216,7 +1549,12 @@
         var footerClockIn = card.querySelector('[data-footer-clockin]');
         if (footerClockIn) footerClockIn.style.display = 'none';
 
-        panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
+        // Bound once per panel: showActivePanel runs on load and on every clock-in (Fable 2026-10-20 —
+        // a second binding opened the camera twice).
+        var bindNow = panel.dataset.apBound !== '1';
+        panel.dataset.apBound = '1';
+
+        if (bindNow) panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var cat = btn.getAttribute('data-ap-photo');
                 if (cat === 'additional') {
@@ -1226,15 +1564,15 @@
                     if (!v) return;
                     v.status = 'prompt_after';
                     markPhotoPrompt(visitId, 'after');
-                    triggerCamera(visitId, 'after');
+                    triggerBatchCamera(visitId, 'after');
                 } else {
-                    triggerCamera(visitId, cat);
+                    triggerBatchCamera(visitId, cat);
                 }
             });
         });
 
         var pauseBtn = panel.querySelector('[data-ap-pause]');
-        if (pauseBtn) {
+        if (pauseBtn && bindNow) {
             pauseBtn.addEventListener('click', function() {
                 var v = visits[visitId];
                 if (!v) return;
@@ -1244,7 +1582,7 @@
         }
 
         var finishBtn = panel.querySelector('[data-ap-finish]');
-        if (finishBtn) {
+        if (finishBtn && bindNow) {
             finishBtn.addEventListener('click', function() {
                 var v = visits[visitId];
                 if (!v) return;
@@ -1381,6 +1719,29 @@
         if (v && v.timerInterval) {
             clearInterval(v.timerInterval);
             v.timerInterval = null;
+        }
+    }
+
+    /**
+     * Re-arm every running pill timer.
+     *
+     * Android Capacitor WebViews freeze JS (and throttle/kill setInterval) when
+     * the app is backgrounded or the screen locks. On some devices the interval
+     * never resumes ticking when the app returns to the foreground, leaving the
+     * timer frozen at whatever it last rendered (e.g. 0:00 right after start).
+     *
+     * Because each tick recomputes elapsed from Date.now() - startTime, simply
+     * clearing and restarting the interval — and repainting immediately — snaps
+     * the display back to the correct wall-clock value. Wired to visibilitychange,
+     * pageshow and the Capacitor App 'resume' event below.
+     */
+    function refreshAllPillTimers() {
+        for (var vid in visits) {
+            if (!visits.hasOwnProperty(vid)) continue;
+            var v = visits[vid];
+            if (!v || !v.startTime || v.paused) continue;
+            if (v.status !== 'in_progress' && v.status !== 'prompt_before' && v.status !== 'prompt_after') continue;
+            startPillTimer(parseInt(vid, 10)); // clears any stale interval + repaints immediately
         }
     }
 
@@ -1594,7 +1955,9 @@
             ph.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var cat = ph.dataset.category;
-                triggerCamera(visitId, cat);
+                // Several shots per tap (the in-app camera), as on the iPhone; it falls back to the
+                // phone's own camera when the in-app one can't open.
+                triggerBatchCamera(visitId, cat);
             });
         });
 
@@ -1699,6 +2062,74 @@
         return false;
     }
 
+    // ═══════════════════════════════════════════════════════
+    //  STATUS POLLING — pick up completions made elsewhere
+    // ═══════════════════════════════════════════════════════
+    // Background poll so a job completed by a teammate (another crew member,
+    // an admin, or the iOS app) shows up here within ~20s without a manual
+    // refresh — feeds the existing updatePillVisual()/checkStopComplete()
+    // DOM patchers a second data source rather than reinventing them.
+
+    var statusPollInterval = null;
+    var statusPollInFlight = false;
+
+    function startStatusPoll() {
+        if (statusPollInterval) return; // already running
+        statusPollInterval = setInterval(pollStatuses, 20000);
+    }
+
+    function pollStatuses() {
+        if (statusPollInFlight) return; // don't overlap a slow tick
+        statusPollInFlight = true;
+
+        var url = '/crm/api/calendar-stops.php?date=' + encodeURIComponent(state.mobileDate);
+        if (state.isCrew) {
+            url += '&crew=' + encodeURIComponent(state.userId);
+        }
+
+        fetch(url, { headers: { 'Accept': 'application/json' } })
+            .then(function(r) {
+                var ct = r.headers.get('content-type') || '';
+                if (!r.ok || ct.indexOf('application/json') === -1) {
+                    throw new Error('non-JSON response (likely session expired)');
+                }
+                return r.json();
+            })
+            .then(function(data) {
+                if (!data || !data.success || !Array.isArray(data.stops)) return;
+                data.stops.forEach(function(stop) {
+                    (stop.visits || []).forEach(function(v) {
+                        applyPolledVisitStatus(v.visit_id, v.visit_status);
+                    });
+                });
+            })
+            .catch(function() {
+                // Silent by design — a poll tick failing (offline, session
+                // hiccup, redirect-to-login) isn't worth surfacing; the next
+                // tick, or a manual pull-to-refresh, recovers.
+            })
+            .finally(function() {
+                statusPollInFlight = false;
+            });
+    }
+
+    function applyPolledVisitStatus(visitId, newStatus) {
+        var v = visits[visitId];
+        if (!v || !newStatus || v.status === newStatus) return;
+
+        // Don't clobber a visit the user is actively mid-action on locally —
+        // an in-flight timer, a paused mid-workflow state, or the visit
+        // behind the currently-open action drawer takes priority over a poll
+        // tick; the next tick picks up the resolved state once they're done.
+        if (v.timerInterval || v.paused || activeDrawerVisitId === visitId) return;
+
+        v.status = newStatus;
+        updatePillVisual(visitId, newStatus);
+
+        var card = v.pill ? v.pill.closest('.mw-mc-card') : null;
+        if (card) checkStopComplete(card);
+    }
+
     /**
      * Update the top bar progress bar when a stop completes
      */
@@ -1746,13 +2177,18 @@
     //  GPS HELPER
     // ═══════════════════════════════════════════════════════
 
+    // A fix is reused for at most 60 s. It used to be cached for the whole
+    // shift, so every photo of a visit carried the FIRST fix of the day and
+    // the photo pins on the client's visit report all stacked on one spot.
+    var GPS_FRESH_MS = 60 * 1000;
+
     function getGps(callback) {
-        if (cachedGps) {
+        if (cachedGps && (Date.now() - (cachedGps.at || 0)) < GPS_FRESH_MS) {
             callback(cachedGps.lat, cachedGps.lng);
             return;
         }
         if (!navigator.geolocation) {
-            callback(null, null);
+            callback(cachedGps ? cachedGps.lat : null, cachedGps ? cachedGps.lng : null);
             return;
         }
         navigator.geolocation.getCurrentPosition(
@@ -1760,12 +2196,14 @@
                 cachedGps = {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy
+                    accuracy: pos.coords.accuracy,
+                    at: Date.now()
                 };
                 callback(cachedGps.lat, cachedGps.lng);
             },
             function() {
-                callback(null, null);
+                // Refresh failed: the last fix is still better than nothing.
+                callback(cachedGps ? cachedGps.lat : null, cachedGps ? cachedGps.lng : null);
             },
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
         );
@@ -1810,8 +2248,11 @@
             req.onsuccess = function(e) {
                 photoQueueDb = e.target.result;
                 if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] Photo queue IDB ready');
-                // Attempt to upload any photos queued during a previous session
-                processPhotoQueue();
+                // Photos left 'uploading' (the app was closed mid-upload) or marked 'failed' by the old
+                // 3-try limit go back in line (2026-10-14), then the queue runs.
+                rescueStuckPhotos(function() { processPhotoQueue(); });
+                // Keep trying while the page is open, not only when the network comes back.
+                setInterval(processPhotoQueue, 60000);
                 // Show queue badges for any pending/failed items on the visible cards
                 refreshQueueBadges();
             };
@@ -1823,6 +2264,35 @@
             console.warn('[PillWorkflow] Photo queue IDB unavailable:', err && err.message);
         }
     })();
+
+    /** 'failed' items, and 'uploading' ones older than 2 minutes, back to 'pending'. */
+    function rescueStuckPhotos(then) {
+        try {
+            var tx = photoQueueDb.transaction('queue', 'readwrite');
+            var store = tx.objectStore('queue');
+            var req = store.getAll();
+            req.onsuccess = function() {
+                (req.result || []).forEach(function(item) {
+                    var stale = item.status === 'uploading' && Date.now() - (item.lastAttempt || 0) > 120000;
+                    if (item.status === 'failed' || stale) {
+                        item.status = 'pending';
+                        store.put(item);
+                    }
+                });
+            };
+            tx.oncomplete = function() { if (then) then(); };
+            tx.onerror = function() { if (then) then(); };
+        } catch (err) {
+            if (then) then();
+        }
+    }
+
+    function refreshCsrfToken() {
+        fetch('/crm/api/get-csrf.php', { method: 'GET', credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { if (d && d.token) state.csrf = d.token; })
+            .catch(function() { /* next pass tries again */ });
+    }
 
     // Retry queued photos as soon as network is restored
     window.addEventListener('online', function() {
@@ -1851,7 +2321,8 @@
                     }
                     if (item.status === 'pending' || item.status === 'uploading') {
                         countsByVisit[item.visitId].pending++;
-                    } else if (item.status === 'failed') {
+                    } else if (item.status === 'failed' || item.status === 'refused') {
+                        // Refused photos stay on the badge after the toast (Codex review 2026-10-20).
                         countsByVisit[item.visitId].failed++;
                     }
                 });
@@ -1909,7 +2380,7 @@
      * Converts to ArrayBuffer (survives page reloads / session restarts).
      * Calls callback(queueId) on success, callback(null) on failure.
      */
-    function saveToPhotoQueue(visitId, file, category, callback) {
+    function saveToPhotoQueue(visitId, file, category, callback, takenAt) {
         if (!photoQueueDb) {
             if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] IDB unavailable — cannot queue photo');
             if (callback) callback(null);
@@ -1929,6 +2400,7 @@
                     filename:    file.name    || 'photo.jpg',
                     mimeType:    file.type    || 'image/jpeg',
                     createdAt:   Date.now(),
+                    takenAt:     takenAt || new Date(file.lastModified || Date.now()).toISOString(),
                     status:      'pending',
                     retries:     0,
                     lastAttempt: 0,
@@ -2024,15 +2496,12 @@
         if (idx >= items.length) { done(); return; }
 
         var item       = items[idx];
-        var MAX_RETRY  = 3;
 
-        if (item.retries >= MAX_RETRY) {
-            console.warn('[PillWorkflow] Dropping queued photo after ' + MAX_RETRY +
-                ' retries: visit=' + item.visitId + ' cat=' + item.category);
-            updateQueueItemStatus(item.id, { status: 'failed' }, function() {
-                refreshQueueBadges();
-                processQueueItems(items, idx + 1, done);
-            });
+        // Never give up on a photo (2026-10-14; it was marked failed after 3 tries). Wait longer after
+        // each failure: 30 s, 1, 2, 4 … minutes, at most an hour — the iPhone does the same.
+        var wait = Math.min(3600000, 30000 * Math.pow(2, Math.max(0, (item.retries || 0) - 1)));
+        if ((item.retries || 0) > 0 && Date.now() - (item.lastAttempt || 0) < wait) {
+            processQueueItems(items, idx + 1, done);
             return;
         }
 
@@ -2042,7 +2511,7 @@
 
             var fd = new FormData();
             fd.append('files[]',      file);
-            fd.append('csrf_token',   item.csrf || state.csrf);
+            fd.append('csrf_token',   state.csrf || item.csrf);   // the page's current token; a stored one goes stale
             fd.append('context_type', 'job_visit');
             fd.append('context_id',   String(item.visitId));
             fd.append('category',     item.category);
@@ -2052,14 +2521,19 @@
                 fd.append('gps_lng', String(item.gpsLng));
             }
             if (item.powStamp) fd.append('pow_stamp', '1');
+            // When it was taken — the special-request gate accepts a queued photo, never strands it.
+            fd.append('queued_at', String(item.createdAt || Date.now()));
+            if (item.takenAt) fd.append('taken_at', item.takenAt);
 
             if (MW_PHOTO_DEBUG) {
                 console.log('[PillWorkflow:DEBUG] Uploading queued photo id=' + item.id +
                     ' visit=' + item.visitId + ' cat=' + item.category);
             }
 
+            var httpStatus = 0;
             fetch('/crm/api/media-upload.php', { method: 'POST', body: fd })
             .then(function(r) {
+                httpStatus = r.status;
                 var ct = r.headers.get('content-type') || '';
                 if (!ct.includes('application/json') && !ct.includes('text/json')) {
                     return r.text().then(function(t) {
@@ -2118,6 +2592,18 @@
                         ? data.results[0].errors.join(', ')
                         : (data.error || 'Upload rejected');
                     console.warn('[PillWorkflow] Queue upload rejected:', errMsg);
+                    if (/csrf/i.test(errMsg)) refreshCsrfToken();   // next try uses a fresh token
+                    // Refused for good (not allowed, visit gone, bad file): stop retrying it every hour and
+                    // say so — it used to sit as "pending" for ever (Fable 2026-10-20). CSRF and 409 retry.
+                    var refused = !/csrf/i.test(errMsg) && [400, 403, 404, 413, 415, 422].indexOf(httpStatus) !== -1;
+                    if (refused) {
+                        updateQueueItemStatus(item.id, { status: 'refused', error: errMsg }, function() {
+                            showToast('A photo was refused by the server: ' + errMsg, 7000);
+                            refreshQueueBadges();
+                            processQueueItems(items, idx + 1, done);
+                        });
+                        return;
+                    }
                     updateQueueItemStatus(item.id, { status: 'pending', retries: item.retries + 1 }, function() {
                         processQueueItems(items, idx + 1, done);
                     });
@@ -2174,6 +2660,111 @@
     }
 
     /**
+     * Query the WebView camera permission and cache it in _camPermState.
+     * Uses the standard Permissions API (Chromium-based Android WebView supports
+     * the 'camera' permission name). Attaches a one-time onchange listener so the
+     * cache stays fresh if the user toggles the permission in Settings and returns.
+     * Calls cb(stateStr) when resolved; degrades gracefully where unsupported.
+     */
+    function refreshCameraPermission(cb) {
+        if (!navigator.permissions || !navigator.permissions.query) {
+            if (cb) cb(_camPermState);
+            return;
+        }
+        try {
+            navigator.permissions.query({ name: 'camera' }).then(function(status) {
+                _camPermState = status.state; // 'granted' | 'denied' | 'prompt'
+                if (!status._mwBound) {
+                    status._mwBound = true;
+                    status.onchange = function() { _camPermState = status.state; };
+                }
+                if (cb) cb(_camPermState);
+            }).catch(function() {
+                // 'camera' not a queryable permission on this device — leave unknown.
+                if (cb) cb(_camPermState);
+            });
+        } catch (e) {
+            if (cb) cb(_camPermState);
+        }
+    }
+
+    /**
+     * Open the OS app-settings screen so the user can enable Camera. Prefers a
+     * native helper, then the Capacitor App plugin's openUrl with an Android
+     * app-details intent. Best-effort: the dialog's text instructions stand on
+     * their own if the device ignores the intent.
+     */
+    function openAppSettings() {
+        try {
+            if (window.MwNative && typeof window.MwNative.openAppSettings === 'function') {
+                window.MwNative.openAppSettings();
+                return;
+            }
+            var plugins = window.Capacitor && window.Capacitor.Plugins;
+            if (plugins && plugins.App && typeof plugins.App.openUrl === 'function') {
+                var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
+                    ? 'ca.mowology.crew' : null; // app id is .crew (not .crm)
+                var url = pkg
+                    ? 'intent://' + pkg + '#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
+                    : 'app-settings:';
+                plugins.App.openUrl({ url: url }).catch(function() {
+                    // Fall back to the generic Settings app.
+                    plugins.App.openUrl({ url: 'intent://#Intent;action=android.settings.SETTINGS;end' })
+                        .catch(function() {});
+                });
+            }
+        } catch (e) { /* text instructions cover this */ }
+    }
+
+    /**
+     * Full-screen "Camera access denied" guidance with an Open Settings button.
+     * Shown when the OS has blocked camera access for the app. (Bug fix)
+     */
+    function showCameraDeniedDialog() {
+        var existing = document.getElementById('mw-cam-denied-dialog');
+        if (existing) return;
+
+        var overlay = document.createElement('div');
+        overlay.id = 'mw-cam-denied-dialog';
+        overlay.style.cssText =
+            'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);' +
+            'display:flex;align-items:center;justify-content:center;padding:24px;';
+
+        overlay.innerHTML =
+            '<div style="background:#fff;border-radius:14px;max-width:340px;width:100%;' +
+                'padding:24px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.4);">' +
+                '<div style="font-size:2rem;margin-bottom:10px;">📷</div>' +
+                '<h3 style="margin:0 0 10px;font-size:1.1rem;font-weight:700;color:#1a1a1a;">Camera access denied</h3>' +
+                '<p style="margin:0 0 18px;font-size:0.88rem;line-height:1.5;color:#555;">' +
+                    'Camera access denied — go to <strong>Settings &rsaquo; Apps &rsaquo; Mowology &rsaquo; ' +
+                    'Permissions</strong> and enable <strong>Camera</strong>.' +
+                '</p>' +
+                '<button id="mw-cam-denied-settings" style="' +
+                    'display:block;width:100%;padding:13px;margin-bottom:10px;border:none;border-radius:8px;' +
+                    'background:#2d8659;color:#fff;font-weight:700;font-size:0.92rem;cursor:pointer;">' +
+                    'Open Settings' +
+                '</button>' +
+                '<button id="mw-cam-denied-dismiss" style="' +
+                    'display:block;width:100%;padding:11px;border:none;border-radius:8px;' +
+                    'background:transparent;color:#888;font-weight:600;font-size:0.88rem;cursor:pointer;">' +
+                    'Not now' +
+                '</button>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+        document.getElementById('mw-cam-denied-settings').addEventListener('click', function() {
+            openAppSettings();
+            overlay.remove();
+        });
+        document.getElementById('mw-cam-denied-dismiss').addEventListener('click', function() {
+            overlay.remove();
+        });
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+    }
+
+    /**
      * Simple toast notification (top of scroll area)
      */
     function showCameraPermissionBanner() {
@@ -2211,9 +2802,10 @@
         });
     }
 
-    function showToast(msg) {
+    function showToast(msg, duration) {
         var existing = document.querySelector('.mw-mc-toast');
         if (existing) existing.remove();
+        var holdMs = (typeof duration === 'number' && duration > 0) ? duration : 2500;
 
         var toast = document.createElement('div');
         toast.className = 'mw-mc-toast';
@@ -2232,13 +2824,13 @@
             toast.style.opacity = '1';
         });
 
-        // Fade out and remove after 2.5s
+        // Fade out and remove after the hold duration (default 2.5s)
         setTimeout(function() {
             toast.style.opacity = '0';
             setTimeout(function() {
                 if (toast.parentNode) toast.parentNode.removeChild(toast);
             }, 300);
-        }, 2500);
+        }, holdMs);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -2420,6 +3012,333 @@
         }
     }
 
+    // ── Crew service recommendations ─────────────────────────────────────────
+    // Crew photograph work that needs doing and pick a service, then choose:
+    //   Ask first  — a short note with the photos and NO price to the person who decides
+    //                the work (on-site contact, else site contact). A manager/admin reads
+    //                and sends it here; crew save it for them.
+    //   Send quote — the priced quote to the billing contact (1114 behaviour; fixed-price
+    //                packages flagged auto-send go straight out, the rest queue for review).
+    // Backed by /api/schedule/recommendation (session auth here, JWT on iOS).
+
+    var recommendOptions = null;   // cached catalogue chips
+
+    /**
+     * POST JSON with the page CSRF token. A stale token (403 CSRF) is refreshed from
+     * /crm/api/get-csrf.php and the request retried once — this page is AppStack, but the
+     * same JS also runs on long-lived PWA sessions whose token goes stale.
+     */
+    function postRecoJson(body, isRetry) {
+        body.csrf_token = state.csrf;
+        return fetch('/api/schedule/recommendation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function(r) {
+            return r.json().catch(function() { return { success: false, error: 'Server error (' + r.status + ')' }; })
+                .then(function(data) {
+                    if (r.status === 403 && !isRetry && data && /CSRF/i.test(data.error || '')) {
+                        return fetch('/crm/api/get-csrf.php', { method: 'GET' })
+                            .then(function(t) { return t.json(); })
+                            .then(function(d) {
+                                if (d && d.token) state.csrf = d.token;
+                                return postRecoJson(body, true);
+                            });
+                    }
+                    return data;
+                });
+        });
+    }
+
+    /** "What is this plant?" — plant-id-crew.js, loaded the first time it's tapped (2026-10-15). */
+    function openPlantId(visitId) {
+        if (window.MwPlantCrew) { window.MwPlantCrew.open(visitId, state.csrf || window.MW_CSRF_TOKEN || ''); return; }
+        if (openPlantId.loading) return;   // a second tap while it loads would open two
+        openPlantId.loading = true;
+        var s = document.createElement('script');
+        s.src = '/crm/js/plant-id-crew.js?v=20261015b';
+        s.onload = function () { openPlantId.loading = false; if (window.MwPlantCrew) window.MwPlantCrew.open(visitId, state.csrf || window.MW_CSRF_TOKEN || ''); };
+        s.onerror = function () { openPlantId.loading = false; s.remove(); if (window.mwToast) window.mwToast('Plant ID could not load — check the signal.', 'error'); };
+        document.head.appendChild(s);
+    }
+
+    function openRecommendModal(visitId) {
+        var existing = document.getElementById('mw-reco-modal');
+        if (existing) existing.remove();
+
+        var modal = document.createElement('div');
+        modal.id = 'mw-reco-modal';
+        modal.className = 'mw-obs-modal';
+        modal.innerHTML =
+            '<div class="mw-obs-modal-content">' +
+            '  <div class="mw-obs-modal-header">' +
+            '    <h3>Recommend a Service</h3>' +
+            '    <button class="mw-obs-modal-close" data-action="close">&times;</button>' +
+            '  </div>' +
+            '  <div class="mw-obs-modal-body" id="mw-reco-pick">' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Service *</label>' +
+            '      <div id="mw-reco-chips" class="mw-reco-chips">Loading services...</div>' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Photos</label>' +
+            '      <input type="file" id="mw-reco-photos" accept="image/*" capture="environment" multiple>' +
+            '      <small>Show them what you spotted. Up to 4 go with the email.</small>' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>What you saw (optional)</label>' +
+            '      <textarea id="mw-reco-note" rows="2" placeholder="e.g. Beds along the front are overgrown"></textarea>' +
+            '    </div>' +
+            '    <div class="mw-reco-paths" id="mw-reco-paths"></div>' +
+            '    <div class="mw-obs-error" id="mw-reco-error" style="display:none;"></div>' +
+            '  </div>' +
+            '  <div class="mw-obs-modal-body" id="mw-reco-draft" hidden></div>' +
+            '  <div class="mw-obs-modal-footer mw-reco-footer" id="mw-reco-footer">' +
+            '    <button class="mw-obs-btn mw-reco-btn-ask" id="mw-reco-ask" disabled>Ask first</button>' +
+            '    <button class="mw-obs-btn mw-obs-btn-submit" id="mw-reco-submit" disabled>Send quote</button>' +
+            '  </div>' +
+            '</div>';
+
+        document.body.appendChild(modal);
+
+        modal.querySelectorAll('[data-action="close"]').forEach(function(btn) {
+            btn.addEventListener('click', closeRecommendModal);
+        });
+
+        var selected = null;
+        var people = null;           // mode=recipients response
+        var chipBox = modal.querySelector('#mw-reco-chips');
+        var submitBtn = modal.querySelector('#mw-reco-submit');
+        var askBtn = modal.querySelector('#mw-reco-ask');
+        var pathsBox = modal.querySelector('#mw-reco-paths');
+        var errBox = modal.querySelector('#mw-reco-error');
+
+        function askBlockedReason() {
+            if (!people) return 'Checking who to ask…';
+            if (!people.ask_ready) return 'Ask first is not switched on yet';
+            if (!people.ask) return 'Nobody at this property has an email address';
+            if (!people.ask.consent_ok) return people.ask.consent || 'No email consent on file';
+            return '';
+        }
+
+        function renderPaths() {
+            submitBtn.textContent = selected && !selected.has_price ? 'Send to office for pricing' : 'Send quote';
+            submitBtn.disabled = !selected;
+            var blocked = askBlockedReason();
+            askBtn.disabled = !selected || blocked !== '';
+            if (!people) { pathsBox.innerHTML = ''; return; }
+            var ask = people.ask, quote = people.quote;
+            var askLine = blocked
+                ? '<span class="mw-reco-path-off">' + escHtml(blocked) + '</span>'
+                : '<b>' + escHtml(ask.name) + '</b> ' + (ask.role === 'onsite' ? '(on-site contact)' : '(site contact)') +
+                  ' · photos, no price · ' + (people.can_send ? 'you read it before it goes' : 'a manager reads it before it goes');
+            var quoteLine = quote
+                ? '<b>' + escHtml(quote.name) + '</b> (billing) · ' + (selected && !selected.has_price ? 'the office prices it first' : (selected && selected.auto_send ? 'goes straight out' : 'the office checks it first'))
+                : '<span class="mw-reco-path-off">No site contact on file</span>';
+            pathsBox.innerHTML =
+                '<div class="mw-reco-path"><span class="mw-reco-path-k">Ask first</span><span>' + askLine + '</span></div>' +
+                '<div class="mw-reco-path"><span class="mw-reco-path-k">Send quote</span><span>' + quoteLine + '</span></div>';
+        }
+
+        function renderChips(options) {
+            if (!options.length) {
+                chipBox.innerHTML = '<span class="mw-reco-empty">No services published to the field yet. ' +
+                                    'An admin can enable them under Products.</span>';
+                return;
+            }
+            chipBox.innerHTML = '';
+            options.forEach(function(opt) {
+                var chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'mw-reco-chip';
+                chip.setAttribute('data-product-id', opt.product_id);
+                var priceText = opt.price_label || (Number(opt.price) > 0 ? '$' + Number(opt.price).toFixed(2) : 'Price TBC');
+                chip.innerHTML = '<span class="mw-reco-chip-label">' + escHtml(opt.label) + '</span>' +
+                                 '<span class="mw-reco-chip-price">' + escHtml(priceText) + '</span>';
+                chip.addEventListener('click', function() {
+                    selected = opt;
+                    if (selected.has_price === undefined) selected.has_price = Number(opt.price) > 0;
+                    chipBox.querySelectorAll('.mw-reco-chip').forEach(function(c) {
+                        c.classList.remove('is-selected');
+                    });
+                    chip.classList.add('is-selected');
+                    renderPaths();
+                });
+                chipBox.appendChild(chip);
+            });
+        }
+
+        if (recommendOptions) {
+            renderChips(recommendOptions);
+        } else {
+            fetch('/api/schedule/recommendation?mode=options')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    recommendOptions = (data && data.options) || [];
+                    renderChips(recommendOptions);
+                })
+                .catch(function() {
+                    chipBox.innerHTML = '<span class="mw-reco-empty">Could not load services.</span>';
+                });
+        }
+
+        fetch('/api/schedule/recommendation?mode=recipients&visit_id=' + encodeURIComponent(visitId))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { people = d && d.success ? d : { ask_ready: false }; renderPaths(); })
+            .catch(function() { people = { ask_ready: false }; renderPaths(); });
+
+        function go(intent, btn) {
+            errBox.style.display = 'none';
+            if (!selected) {
+                errBox.textContent = 'Pick a service first.';
+                errBox.style.display = 'block';
+                return;
+            }
+            var label = btn.textContent;
+            askBtn.disabled = true;
+            submitBtn.disabled = true;
+            btn.textContent = 'Sending...';
+
+            var files = Array.prototype.slice.call(modal.querySelector('#mw-reco-photos').files || []);
+            var note = modal.querySelector('#mw-reco-note').value.trim();
+
+            function fail(msg) {
+                btn.textContent = label;
+                renderPaths();
+                errBox.textContent = msg;
+                errBox.style.display = 'block';
+            }
+
+            uploadRecommendPhotos(files, visitId, function(mediaIds) {
+                postRecoJson({
+                    action: 'create',
+                    intent: intent,
+                    visit_id: visitId,
+                    product_id: selected.product_id,
+                    note: note || null,
+                    media_ids: mediaIds
+                }).then(function(data) {
+                    if (!data || !data.success) {
+                        fail((data && data.error) || 'Could not save the recommendation');
+                        return;
+                    }
+                    if (data.draft && data.draft.ok) {
+                        showAskDraft(modal, data.draft);
+                        return;
+                    }
+                    closeRecommendModal();
+                    showToast(data.message || 'Recommendation saved');
+                }).catch(function() {
+                    fail('Network error — try again when you have signal');
+                });
+            }, fail);
+        }
+
+        askBtn.addEventListener('click', function() { go('ask', askBtn); });
+        submitBtn.addEventListener('click', function() { go('quote', submitBtn); });
+    }
+
+    /**
+     * The Ask-first email, editable, for a manager/admin on site. Nothing is sent until
+     * they press Send; "Save for later" leaves it in the office's Ask first tab.
+     */
+    function showAskDraft(modal, d) {
+        var pick = modal.querySelector('#mw-reco-pick');
+        var box = modal.querySelector('#mw-reco-draft');
+        var footer = modal.querySelector('#mw-reco-footer');
+        modal.querySelector('.mw-obs-modal-header h3').textContent = 'Ask first';
+        pick.hidden = true;
+        box.hidden = false;
+        var to = d.to || {};
+        var consent = d.consent || {};
+        var photos = (d.photos || []).map(function(p) {
+            return '<img src="' + escHtml(p.url) + '" alt="Site photo" class="mw-reco-ask-photo">';
+        }).join('');
+        box.innerHTML =
+            '<div class="mw-reco-ask-to"><span class="mw-reco-path-k">To</span> <b>' + escHtml(to.name || '') + '</b> &lt;' + escHtml(to.email || '') + '&gt;' +
+            ' <small>' + (to.role === 'onsite' ? 'on-site contact' : 'site contact') + '</small></div>' +
+            '<div class="mw-reco-ask-consent' + (consent.ok ? '' : ' is-bad') + '">' + escHtml(consent.reason || '') + '</div>' +
+            (photos ? '<div class="mw-reco-ask-photos">' + photos + '<small>Attached at 1024px</small></div>' : '<div class="mw-reco-ask-consent">No photos — it will go as a note.</div>') +
+            '<div class="mw-obs-field"><label>Subject</label><input type="text" id="mw-ask-subject" class="mw-reco-ask-in"></div>' +
+            '<div class="mw-obs-field"><label>Email' + (d.drafted_by === 'learned' ? ' <small class="mw-reco-learned">written your way</small>' : '') + '</label>' +
+            '<textarea id="mw-ask-body" rows="12" class="mw-reco-ask-in"></textarea>' +
+            '<small>No price goes in this email. Our name, address and an unsubscribe line are added underneath.</small></div>' +
+            '<div class="mw-obs-error" id="mw-ask-error" style="display:none;"></div>';
+        box.querySelector('#mw-ask-subject').value = d.subject || '';
+        box.querySelector('#mw-ask-body').value = d.body || '';
+
+        footer.innerHTML =
+            '<button class="mw-obs-btn mw-obs-btn-cancel" id="mw-ask-later">Save for later</button>' +
+            '<button class="mw-obs-btn mw-obs-btn-submit" id="mw-ask-send"' + (consent.ok ? '' : ' disabled') + '>Send to ' + escHtml((to.first_name || 'them')) + '</button>';
+        footer.querySelector('#mw-ask-later').addEventListener('click', function() {
+            closeRecommendModal();
+            showToast('Saved — it is in the Ask first tab under Recommendations');
+        });
+        var sendBtn = footer.querySelector('#mw-ask-send');
+        var err = box.querySelector('#mw-ask-error');
+        sendBtn.addEventListener('click', function() {
+            err.style.display = 'none';
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending...';
+            postRecoJson({
+                action: 'ask_send',
+                observation_id: d.observation_id,
+                subject: box.querySelector('#mw-ask-subject').value,
+                body: box.querySelector('#mw-ask-body').value
+            }).then(function(r) {
+                if (r && r.success) {
+                    closeRecommendModal();
+                    showToast(r.message || 'Sent');
+                } else {
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'Send to ' + (to.first_name || 'them');
+                    err.textContent = (r && (r.error || r.message)) || 'It did not send — it is still saved';
+                    err.style.display = 'block';
+                }
+            }).catch(function() {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send to ' + (to.first_name || 'them');
+                err.textContent = 'Network error — it is still saved; try again or send it from the office';
+                err.style.display = 'block';
+            });
+        });
+    }
+
+    function closeRecommendModal() {
+        var modal = document.getElementById('mw-reco-modal');
+        if (modal) modal.remove();
+    }
+
+    /**
+     * Upload each photo, collecting media_ids. A single failure aborts rather
+     * than sending the client a half-documented recommendation.
+     */
+    function uploadRecommendPhotos(files, visitId, onDone, onError) {
+        if (!files.length) {
+            onDone([]);
+            return;
+        }
+
+        var mediaIds = [];
+        var index = 0;
+
+        function next() {
+            if (index >= files.length) {
+                onDone(mediaIds);
+                return;
+            }
+            uploadObservationPhoto(files[index], visitId, function(mediaId) {
+                mediaIds.push(mediaId);
+                index++;
+                next();
+            }, function(msg) {
+                onError('Photo upload failed: ' + msg);
+            });
+        }
+
+        next();
+    }
+
     /**
      * Upload observation photo via existing media-upload endpoint
      */
@@ -2548,7 +3467,7 @@
     }
 
     // ═══════════════════════════════════════════════════════
-    //  CARD ACTION FOOTER (Clock In / Timer + Complete Job)
+    //  CARD ACTION FOOTER (Start / Timer + Complete Job)
     // ═══════════════════════════════════════════════════════
 
     /**
@@ -2581,7 +3500,7 @@
             clockInBtn.disabled = false;
             clockInBtn.classList.remove('is-clocked-in');
             clockInBtn.innerHTML =
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
             clockInBtn.style.display = 'flex';
         }
     }
@@ -2594,7 +3513,7 @@
 
     /**
      * Initialise per-visit section footers in expand-detail.
-     * Wires Clock In and Complete Job buttons for each visit section.
+     * Wires Start and Complete Job buttons for each visit section.
      */
     function initPerVisitFooters() {
         document.querySelectorAll('[data-pv-footer]').forEach(function(footer) {
@@ -2622,16 +3541,15 @@
                 if (clockInBtn) clockInBtn.style.display = 'flex';
             }
 
-            // Clock In button — clocks in for this specific visit
+            // Start button — starts the timer for this specific visit
             if (clockInBtn) {
                 clockInBtn.addEventListener('click', function(e) {
                     e.stopPropagation();
+                    if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return; // special request gate
                     clockInBtn.disabled = true;
                     clockInBtn.innerHTML = '<span>Starting…</span>';
                     getGps(function(lat, lng) {
-                        fetch('/crm/api/job-timer.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                        jobTimerFetch({
                             body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
                         })
                         .then(function(r) { return r.json(); })
@@ -2656,15 +3574,19 @@
                                 if (stopId) footerSetTiming(stopId, visitId);
                                 pvSetTiming(visitId);
                             } else {
-                                showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                                if (data.code === 'special_request_unacknowledged' && window.MwSpecialRequest) {
+                                    window.MwSpecialRequest.fromServer(visitId, data.special_requests || []);
+                                } else {
+                                    showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                                }
                                 clockInBtn.disabled = false;
-                                clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                                clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                             }
                         })
                         .catch(function() {
                             showToast('Network error. Check your connection.');
                             clockInBtn.disabled = false;
-                            clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                            clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                         });
                     });
                 });
@@ -2730,7 +3652,7 @@
      * Initialise all card footer elements after pill registration is complete.
      * Each footer shows either:
      *   - A running timer display + styled "Complete Job" button (is-timing state)
-     *   - A "Clock In" button + default "Complete Job" button (no active timer)
+     *   - A "Start" button + default "Complete Job" button (no active timer)
      */
     function initCardFooters() {
         var footers = document.querySelectorAll('.mw-mc-card-footer');
@@ -2902,6 +3824,7 @@
      * Delegates to the existing clockIn() and syncs footer state on success.
      */
     function handleFooterClockIn(stopId, visitId, footer) {
+        if (window.MwSpecialRequest && window.MwSpecialRequest.blocks(visitId)) return; // special request gate
         var clockInBtn = footer.querySelector('[data-footer-clockin]');
         if (clockInBtn) {
             clockInBtn.disabled = true;
@@ -2912,9 +3835,7 @@
         // (clockIn reads activeDrawer for the button loading state).
         // We use null — clockIn already guards against null activeDrawer.
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            jobTimerFetch({
                 body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
             })
             .then(function(r) { return r.json(); })
@@ -2958,10 +3879,14 @@
                         }
                     }
                 } else {
-                    showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                    if (data.code === 'special_request_unacknowledged' && window.MwSpecialRequest) {
+                        window.MwSpecialRequest.fromServer(visitId, data.special_requests || []);
+                    } else {
+                        showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                    }
                     if (clockInBtn) {
                         clockInBtn.disabled = false;
-                        clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                        clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                     }
                 }
             })
@@ -2969,7 +3894,7 @@
                 showToast('Network error. Check your connection.');
                 if (clockInBtn) {
                     clockInBtn.disabled = false;
-                    clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                    clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                 }
             });
         });
@@ -3084,6 +4009,46 @@
         }, 320);
     }
 
+    // Full-screen success splash shown after a visit invoice is sent, so crew
+    // get an unmissable confirmation (the small toast was easy to miss in the
+    // field). Auto-dismisses after 4s; tap anywhere to dismiss sooner.
+    function showInvoiceSentSplash(invoiceNumber) {
+        var existing = document.getElementById('mw-inv-splash');
+        if (existing) existing.remove();
+
+        var BIG_CHECK =
+            '<svg viewBox="0 0 52 52" class="mw-inv-splash-svg">' +
+                '<circle class="mw-inv-splash-circle" cx="26" cy="26" r="24"/>' +
+                '<path class="mw-inv-splash-tick" d="M14 27l8 8 16-16"/>' +
+            '</svg>';
+
+        var splash = document.createElement('div');
+        splash.id = 'mw-inv-splash';
+        splash.className = 'mw-inv-splash';
+        splash.setAttribute('role', 'alert');
+        splash.innerHTML =
+            '<div class="mw-inv-splash-card">' +
+                '<div class="mw-inv-splash-check">' + BIG_CHECK + '</div>' +
+                '<div class="mw-inv-splash-title">Invoice Sent</div>' +
+                (invoiceNumber ? '<div class="mw-inv-splash-num">' + invoiceNumber + '</div>' : '') +
+                '<div class="mw-inv-splash-sub">The customer has been emailed.</div>' +
+                '<div class="mw-inv-splash-hint">Tap anywhere to dismiss</div>' +
+            '</div>';
+
+        document.body.appendChild(splash);
+        requestAnimationFrame(function() { splash.classList.add('mw-inv-splash-open'); });
+
+        var dismissed = false;
+        var dismiss = function() {
+            if (dismissed) return;
+            dismissed = true;
+            splash.classList.remove('mw-inv-splash-open');
+            setTimeout(function() { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 320);
+        };
+        splash.addEventListener('click', dismiss);
+        setTimeout(dismiss, 4000);
+    }
+
     function showInvoiceSheet(card) {
         var visitId     = parseInt(card.dataset.visitId, 10);
         var extrasRate  = (window.MW_SCHEDULE_STATE && MW_SCHEDULE_STATE.extrasRate) || 5.00;
@@ -3161,8 +4126,84 @@
                 updateStopChipSent(card);
                 showToast('Job complete — invoice already exists');
             }
+            // Snow & salt route stop with nothing recorded yet: ask what was done.
+            if (!d.success && (d.code === 'SERVICE_CHOICE_REQUIRED' || d.code === 'NOTHING_DONE')) {
+                showSnowChoice();
+            }
         })
         .catch(function() {});
+
+        /**
+         * Snow & salt route stop: the crew record what was done, and the run is
+         * invoiced at that one rate (SnowContractService). Only shown when the
+         * server says this stop needs it, so every other stop's sheet is unchanged.
+         */
+        function showSnowChoice() {
+            var step1 = document.getElementById('mw-inv-step1');
+            if (!step1 || document.getElementById('mw-inv-snow')) return;
+            var choices = [['salt', 'Salted'], ['arctic', 'Arctic salt (-5°C)'], ['snow', 'Snow cleared'], ['none', 'Nothing needed']];
+            var box = document.createElement('div');
+            box.className = 'mw-inv-section';
+            box.id = 'mw-inv-snow';
+            box.innerHTML = '<div class="mw-inv-section-label">What was done here?</div>' +
+                '<div class="mw-inv-extras-row">' +
+                choices.map(function(c) {
+                    return '<button class="mw-inv-extra-btn mw-inv-snow-btn" data-choice="' + c[0] + '">' + c[1] + '</button>';
+                }).join('') +
+                '</div>';
+            step1.insertBefore(box, step1.children[1] || null);
+            var previewBtn = document.getElementById('mw-inv-preview-btn');
+            if (previewBtn) previewBtn.disabled = true;
+
+            box.querySelectorAll('.mw-inv-snow-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var choice = btn.dataset.choice;
+                    box.querySelectorAll('.mw-inv-snow-btn').forEach(function(b) { b.disabled = true; });
+                    postSnowChoice({ visit_id: visitId, choice: choice }, false).then(function(res) {
+                        box.querySelectorAll('.mw-inv-snow-btn').forEach(function(b) {
+                            b.disabled = false;
+                            b.classList.toggle('is-selected', b === btn && !!(res && res.success));
+                        });
+                        if (!res || !res.success) {
+                            showToast((res && res.error) || 'Could not save — try again');
+                            return;
+                        }
+                        if (choice === 'none') {
+                            closeInvoiceSheet();
+                            showToast('Recorded — nothing needed, no invoice');
+                            return;
+                        }
+                        if (previewBtn) previewBtn.disabled = false;
+                    }).catch(function() {
+                        box.querySelectorAll('.mw-inv-snow-btn').forEach(function(b) { b.disabled = false; });
+                        showToast('No connection — try again');
+                    });
+                });
+            });
+        }
+
+        /** POST the stop's service choice; a stale CSRF token is refreshed and retried once. */
+        function postSnowChoice(body, isRetry) {
+            body.csrf_token = state.csrf;
+            return fetch('/crm/api/snow-route-choice.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function(r) {
+                return r.json().catch(function() { return { success: false, error: 'Server error (' + r.status + ')' }; })
+                    .then(function(data) {
+                        if (r.status === 403 && !isRetry) {
+                            return fetch('/crm/api/get-csrf.php', { method: 'GET' })
+                                .then(function(t) { return t.json(); })
+                                .then(function(c) {
+                                    if (c && c.token) state.csrf = c.token;
+                                    return postSnowChoice(body, true);
+                                });
+                        }
+                        return data;
+                    });
+            });
+        }
 
         // Extras buttons
         var extrasBtns = sheet.querySelectorAll('.mw-inv-extra-btn');
@@ -3312,7 +4353,8 @@
                 .then(function(res) {
                     if (res.success) {
                         closeInvoiceSheet();
-                        showToast('Invoice ' + (res.invoice_number || '') + ' sent!');
+                        // Unmissable full-screen confirmation for crew in the field.
+                        showInvoiceSentSplash(res.invoice_number || '');
                         updateStopChipSent(card);
                     } else {
                         showToast(res.error || 'Could not send. Open invoice to retry.');

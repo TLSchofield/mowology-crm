@@ -5,6 +5,8 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/error-handler.php';
+require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -31,6 +33,10 @@ if (isset($_GET['updated'])) {
     if (!empty($_GET['warn'])) {
         $message .= ' Note: ' . htmlspecialchars($_GET['warn']) . ' contained an invalid value and was cleared.';
     }
+    $messageType = 'success';
+}
+if (isset($_GET['portal_link'])) {
+    $message = 'New client portal link issued — the old link no longer works. Open Client Portal to copy the new one.';
     $messageType = 'success';
 }
 
@@ -152,6 +158,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
             exit;
         }
+        // Hard delete is an office decision (crew hold clients.view only) — Fable review 2026-10-12.
+        if (!userHasPermission('clients.edit')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'You do not have permission to delete clients']);
+            exit;
+        }
 
         $ids = array_filter(array_map('intval', $jsonData['ids'] ?? []), function($id) { return $id > 0; });
         if (empty($ids)) {
@@ -167,44 +179,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
 
         try {
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            // Never cascade-delete invoices or strand job plans: a client with any quote, job
+            // plan or invoice is skipped (archive it instead).
+            require_once APP_ROOT . '/Modules/Contacts/Services/CompanyDeleteGuard.php';
+            $guard     = new CompanyDeleteGuard($db);
+            $deletable = $guard->deletable($ids);
+            $skipped   = count($ids) - count($deletable);
+            $deleted   = 0;
 
-            // Count related records for the response
-            $relatedJobs = 0;
-            $relatedInvoices = 0;
-            try {
-                $stmt = $db->prepare("SELECT COUNT(*) FROM job_plans WHERE company_id IN ({$placeholders})");
-                $stmt->execute($ids);
-                $relatedJobs = (int)$stmt->fetchColumn();
-            } catch (Exception $e) {}
-            try {
-                $stmt = $db->prepare("SELECT COUNT(*) FROM invoices WHERE company_id IN ({$placeholders})");
-                $stmt->execute($ids);
-                $relatedInvoices = (int)$stmt->fetchColumn();
-            } catch (Exception $e) {}
-
-            $db->beginTransaction();
-
-            // Clean up activity_log (no FK constraint)
-            try {
-                $db->prepare("DELETE FROM activity_log WHERE company_id IN ({$placeholders})")->execute($ids);
-            } catch (Exception $e) {}
-
-            // Delete companies (cascades: company_properties, invoices, jobs)
-            $stmt = $db->prepare("DELETE FROM companies WHERE id IN ({$placeholders})");
-            $stmt->execute($ids);
-            $deleted = $stmt->rowCount();
-
-            $db->commit();
+            if ($deletable) {
+                $placeholders = implode(',', array_fill(0, count($deletable), '?'));
+                // Never delete audit rows: cut their link to the company instead (Fable audit #25).
+                require_once APP_ROOT . '/Modules/Technology/Services/AuditTrail.php';
+                $db->beginTransaction();
+                $deletedNames = AuditTrail::detachCompanies($db, $deletable);
+                $stmt = $db->prepare("DELETE FROM companies WHERE id IN ({$placeholders})");
+                $stmt->execute($deletable);
+                $deleted = $stmt->rowCount();
+                $db->commit();
+                AuditTrail::logCompaniesDeleted(isset($user['id']) ? (int)$user['id'] : null, $deletedNames);
+            }
 
             echo json_encode([
-                'success' => true,
+                'success'       => true,
                 'deleted_count' => $deleted,
-                'related_jobs' => $relatedJobs,
-                'related_invoices' => $relatedInvoices
+                'skipped_count' => $skipped,
             ]);
         } catch (Exception $e) {
-            $db->rollBack();
+            if ($db->inTransaction()) $db->rollBack();
             http_response_code(500);
             echo json_encode(['success' => false, 'error' => 'Delete failed']);
         }
@@ -728,20 +730,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $messageType = 'error';
                 }
             }
-        } elseif ($action === 'delete_client') {
-            if ($clientId) {
-                try {
-                    $db->prepare("DELETE FROM companies WHERE id = ?")->execute([$clientId]);
-                    $message = 'Client deleted successfully!';
-                    $messageType = 'success';
-                    $action = null;
-                    $clientId = 0;
-                } catch (PDOException $e) {
-                    $errorHandler->logDatabaseError($e, '', [], 'Failed to delete client. Please try again.');
-                    $message = 'Failed to delete client. Please try again.';
-                    $messageType = 'error';
-                }
-            }
         } elseif ($action === 'update_contact') {
             $contactId = intval($_POST['contact_id'] ?? 0);
             if ($contactId) {
@@ -758,6 +746,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $consentQuoteFollowup = isset($_POST['consent_quote_followup']) ? 1 : 0;
                 $hasReviewed = isset($_POST['has_reviewed']) ? 1 : 0;
                 $notes = trim($_POST['notes'] ?? '');
+                $contactRole       = trim($_POST['contact_role'] ?? '');
+                $employerCompanyId = (int)($_POST['employer_company_id'] ?? 0);
 
                 if (empty($firstName)) {
                     $message = 'Please enter a first name.';
@@ -785,9 +775,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ]);
 
                         // Update pipeline stage if provided
+                        // Only a real change is a manual choice (and pins the stage) — the select
+                        // is always posted, so an untouched form must not pin anything.
                         $newLifecycleStage = trim($_POST['lifecycle_stage'] ?? '');
-                        if ($newLifecycleStage) {
+                        $oldLifecycleStage = trim((string)($_POST['lifecycle_stage_was'] ?? ''));
+                        if (!empty($_POST['lifecycle_unpin'])) {
+                            setContactLifecyclePinned((int)$contactId, false);   // let Sam manage it
+                        } elseif ($newLifecycleStage !== '' && $newLifecycleStage !== $oldLifecycleStage) {
                             updateContactLifecycleStage($contactId, $newLifecycleStage, $user['id']);
+                        }
+
+                        // Update role & employer company
+                        try {
+                            $contactService = new ContactService($db);
+                            $contactService->updateContactRoleAndEmployer(
+                                $contactId,
+                                $contactRole ?: null,
+                                $employerCompanyId ?: null
+                            );
+                        } catch (Throwable $roleErr) {
+                            // Graceful — columns may not exist yet if migration hasn't run
                         }
 
                         // Track field changes
@@ -1014,6 +1021,25 @@ if ($action === 'view_contact' && $clientId) {
             $contactCompany = null;
         }
 
+        // Employer company (the firm this contact works for, distinct from primary_contact linkage)
+        $employerCompany = null;
+        if (!empty($viewContact['employer_company_id'])) {
+            try {
+                $empStmt = $db->prepare("SELECT id, company_name, company_type FROM companies WHERE id = ? LIMIT 1");
+                $empStmt->execute([(int)$viewContact['employer_company_id']]);
+                $employerCompany = $empStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (Throwable $e) { /* ok */ }
+        }
+
+        // Properties managed by this contact (site_contact or employer PM)
+        $managedProperties = [];
+        if (!empty($viewContact['contact_role']) || !empty($viewContact['employer_company_id'])) {
+            try {
+                $contactSvc = new ContactService($db);
+                $managedProperties = $contactSvc->getManagedProperties((int)$clientId);
+            } catch (Throwable $e) { $managedProperties = []; }
+        }
+
         // Fetch other contacts for property reassignment dropdown
         $otherContacts = [];
         try {
@@ -1126,7 +1152,8 @@ if ($action === 'view_contact' && $clientId) {
                 $whereClause = implode(' OR ', $conditions);
                 $stmt = $db->prepare("
                     SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
-                           i.issue_date, i.due_date, i.amount_paid
+                           i.issue_date, i.due_date, i.amount_paid,
+                           i.payment_method, i.payment_reference
                     FROM invoices i
                     WHERE {$whereClause}
                     ORDER BY i.created_at DESC
@@ -1135,6 +1162,28 @@ if ($action === 'view_contact' && $clientId) {
                 $contactInvoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
         } catch (Exception $e) { $contactInvoices = []; }
+
+        // ── Candidate bank-deposit matches for this contact's unpaid invoices ──
+        // Same inline reconciliation as /crm/invoices/index.php ("likely match" pill).
+        $contactInvoiceMatches = [];
+        try {
+            $__payableIds = [];
+            foreach ($contactInvoices as $__inv) {
+                if (in_array($__inv['status'], ['sent', 'viewed', 'partial', 'overdue'], true)
+                    && (float)$__inv['balance_due'] > 0.005) {
+                    $__payableIds[] = (int)$__inv['id'];
+                }
+            }
+            $__svcFile = APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+            if ($__payableIds && is_file($__svcFile)) {
+                require_once $__svcFile;
+                $contactInvoiceMatches = (new InvoiceReconciliationService($db))->topCandidatesForInvoiceIds($__payableIds);
+            }
+            unset($__payableIds, $__inv, $__svcFile);
+        } catch (Throwable $__e) {
+            error_log('[clients/view_contact] candidate match error: ' . $__e->getMessage());
+            $contactInvoiceMatches = [];
+        }
 
         // ── Billing Statement: Stripe payments per invoice ──
         $contactStripePayments = [];
@@ -1169,6 +1218,11 @@ if ($action === 'view_contact' && $clientId) {
 
             $runningBal = 0.0;
             foreach ($sortedInvoices as $inv) {
+                // Cancelled invoices represent no real financial event — exclude
+                // them from the statement so voided/duplicate bills don't inflate
+                // "total charged" or the running balance.
+                if (($inv['status'] ?? '') === 'cancelled') { continue; }
+
                 // Charge row
                 $charge = floatval($inv['total'] ?? 0);
                 $runningBal += $charge;
@@ -1752,7 +1806,7 @@ if ($action === 'new' && empty($extraHead)) {
 
 // Fetch companies list for link-company dropdown (used in view_contact and new action)
 $existingCompaniesForLink = [];
-if ($action === 'view_contact' || $action === 'new') {
+if ($action === 'view_contact' || $action === 'new' || $action === 'edit_contact') {
     $existingCompaniesForLink = $db->query("SELECT id, company_name, company_type FROM companies ORDER BY company_name")->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -2428,11 +2482,18 @@ $unconvertedRequests = $db->query("
                     </div>
                     <div class="card-body">
                       <?php
-                        $currentStage  = $_POST['lifecycle_stage'] ?? $contact['lifecycle_stage'] ?? $contact['prospect_status'] ?? 'prospect';
+                        $storedStage   = (string)($contact['lifecycle_stage'] ?? $contact['prospect_status'] ?? 'prospect');
+                        $currentStage  = $_POST['lifecycle_stage'] ?? $storedStage;
                         $editStages    = function_exists('getLifecycleStages') ? getLifecycleStages() : [];
+                        $stagePinned   = array_key_exists('lifecycle_pinned', $contact) ? (int)$contact['lifecycle_pinned'] === 1 : null;
+                        // Keep a stage the list doesn't offer, so saving the form can't silently change it.
+                        if ($editStages && $storedStage !== '' && !in_array($storedStage, array_column($editStages, 'stage_key'), true)) {
+                            $editStages[] = ['stage_key' => $storedStage, 'stage_label' => ucwords(str_replace('_', ' ', $storedStage))];
+                        }
                       ?>
+                      <input type="hidden" name="lifecycle_stage_was" value="<?php echo h($storedStage); ?>">
                       <div class="form-group mb-0">
-                        <select class="form-control" name="lifecycle_stage">
+                        <select class="form-control" name="lifecycle_stage" aria-describedby="mw-stage-pin-help">
                           <?php if (!empty($editStages)): ?>
                             <?php foreach ($editStages as $st): ?>
                               <option value="<?php echo h($st['stage_key']); ?>"
@@ -2447,6 +2508,17 @@ $unconvertedRequests = $db->query("
                           <?php endif; ?>
                         </select>
                       </div>
+                      <?php if ($stagePinned === true): ?>
+                        <div class="mw-stage-pin" id="mw-stage-pin-help">
+                          <span class="mw-stage-pin-badge"><i data-feather="lock"></i> Set by hand</span>
+                          <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="lifecycle_unpin" name="lifecycle_unpin" value="1">
+                            <label class="custom-control-label" for="lifecycle_unpin">Unpin (let Sam manage it)</label>
+                          </div>
+                        </div>
+                      <?php elseif ($stagePinned === false): ?>
+                        <small class="form-text text-muted" id="mw-stage-pin-help">Managed by Sam from contracts, quotes and invoices. Changing it here pins it.</small>
+                      <?php endif; ?>
                     </div>
                   </div>
 
@@ -2458,6 +2530,43 @@ $unconvertedRequests = $db->query("
                       <textarea class="form-control" name="notes" rows="3"><?php echo h($_POST['notes'] ?? $contact['notes'] ?? ''); ?></textarea>
                     </div>
                   </div>
+
+                  <!-- Role & Association -->
+                  <div class="card mb-3">
+                    <div class="card-header">
+                      <h5 class="card-title mb-0"><i data-feather="briefcase"></i> Role &amp; Association</h5>
+                    </div>
+                    <div class="card-body">
+                      <div class="form-group">
+                        <label>Contact Role</label>
+                        <?php $currentRole = $_POST['contact_role'] ?? $contact['contact_role'] ?? ''; ?>
+                        <select class="form-control" name="contact_role">
+                          <option value="">— No role assigned —</option>
+                          <option value="property_manager" <?php echo $currentRole === 'property_manager' ? 'selected' : ''; ?>>Property Manager</option>
+                          <option value="strata_rep"       <?php echo $currentRole === 'strata_rep'       ? 'selected' : ''; ?>>Strata Rep</option>
+                          <option value="owner"            <?php echo $currentRole === 'owner'            ? 'selected' : ''; ?>>Owner</option>
+                          <option value="billing_contact"  <?php echo $currentRole === 'billing_contact'  ? 'selected' : ''; ?>>Billing Contact</option>
+                          <option value="site_supervisor"  <?php echo $currentRole === 'site_supervisor'  ? 'selected' : ''; ?>>Site Supervisor</option>
+                          <option value="other"            <?php echo $currentRole === 'other'            ? 'selected' : ''; ?>>Other</option>
+                        </select>
+                      </div>
+                      <div class="form-group mb-0">
+                        <label>Employer / Company</label>
+                        <?php $currentEmployerId = (int)($_POST['employer_company_id'] ?? $contact['employer_company_id'] ?? 0); ?>
+                        <select class="form-control" name="employer_company_id">
+                          <option value="0">— Not linked to a company —</option>
+                          <?php foreach ($existingCompaniesForLink as $comp): ?>
+                            <option value="<?php echo (int)$comp['id']; ?>"
+                              <?php echo $currentEmployerId === (int)$comp['id'] ? 'selected' : ''; ?>>
+                              <?php echo h($comp['company_name']); ?><?php echo $comp['company_type'] === 'property_manager' ? ' (PM)' : ''; ?>
+                            </option>
+                          <?php endforeach; ?>
+                        </select>
+                        <small class="form-text text-muted">The company this person works for (e.g. their property management firm).</small>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
@@ -2506,6 +2615,23 @@ $unconvertedRequests = $db->query("
                   <span class="mw-contact-stage-badge" style="background: <?php echo h($stageColor); ?>;">
                     <?php echo h($stageLabel); ?>
                   </span>
+                  <?php if (!empty($viewContact['contact_role'])): ?>
+                    <?php
+                      $roleLabels = [
+                        'property_manager' => 'Property Manager',
+                        'strata_rep'       => 'Strata Rep',
+                        'owner'            => 'Owner',
+                        'billing_contact'  => 'Billing Contact',
+                        'site_supervisor'  => 'Site Supervisor',
+                        'other'            => 'Other',
+                      ];
+                      $roleLabel = $roleLabels[$viewContact['contact_role']] ?? ucfirst(str_replace('_', ' ', $viewContact['contact_role']));
+                    ?>
+                    <span class="mw-contact-role-badge">
+                      <i data-feather="briefcase" style="width:11px;height:11px;"></i>
+                      <?php echo h($roleLabel); ?>
+                    </span>
+                  <?php endif; ?>
                 </div>
               </div>
               <a href="clients_appstack.php" class="btn btn-outline-secondary btn-sm">
@@ -2525,6 +2651,17 @@ $unconvertedRequests = $db->query("
                       <a href="/customer/portal.php?contact_id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-sm btn-outline-primary" target="_blank" title="Open client portal">
                         <i data-feather="external-link" style="width:14px;height:14px;"></i> Client Portal
                       </a>
+                      <?php if (userHasPermission('clients.edit')): ?>
+                      <!-- Replace a leaked / forwarded portal link (security review #14) -->
+                      <form method="post" action="/crm/api/portal-link-regenerate.php" class="d-inline"
+                            onsubmit="return confirm('Issue a new portal link? The old link stops working straight away.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo h(generateCSRFToken()); ?>">
+                        <input type="hidden" name="contact_id" value="<?php echo (int)$viewContact['id']; ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Regenerate portal link">
+                          <i data-feather="refresh-cw" style="width:14px;height:14px;"></i> Regenerate portal link
+                        </button>
+                      </form>
+                      <?php endif; ?>
                       <a href="?action=edit_contact&id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-sm btn-success" title="Edit contact">
                         <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit
                       </a>
@@ -2612,6 +2749,7 @@ $unconvertedRequests = $db->query("
                         <span class="mw-contact-pref-badge <?php echo !empty($viewContact['consent_quote_followup']) ? 'active' : 'inactive'; ?>">
                           <i data-feather="check-circle" style="width: 12px; height: 12px;"></i> Follow-up
                         </span>
+                        <?php include __DIR__ . '/includes/photo-optout-control.php'; ?>
                       </div>
                     </div>
 
@@ -2640,6 +2778,23 @@ $unconvertedRequests = $db->query("
                       </span>
                       <div class="mw-contact-field-body text-muted" style="font-size:13px;">
                         <?php echo nl2br(h($viewContact['notes'])); ?>
+                      </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Employer company -->
+                    <?php if ($employerCompany): ?>
+                    <div class="mw-contact-field">
+                      <span class="mw-icon-box" title="Employer company">
+                        <i data-feather="briefcase"></i>
+                      </span>
+                      <div class="mw-contact-field-body">
+                        <a href="?action=view_company&id=<?php echo (int)$employerCompany['id']; ?>" style="color: var(--mw-green); font-weight: 600;">
+                          <?php echo h($employerCompany['company_name']); ?>
+                        </a>
+                        <?php if ($employerCompany['company_type'] === 'property_manager'): ?>
+                          <span style="font-size:11px;color:#94a3b8;margin-left:5px;">property management</span>
+                        <?php endif; ?>
                       </div>
                     </div>
                     <?php endif; ?>
@@ -3286,10 +3441,11 @@ $unconvertedRequests = $db->query("
                       <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0 mw-client-compact-table">
                           <thead>
-                            <tr><th>Invoice</th><th>Status</th><th class="text-right">Total</th><th class="text-right">Paid</th><th class="text-right">Balance</th></tr>
+                            <tr><th>Invoice</th><th>Status</th><th>Payment</th><th class="text-right">Total</th><th class="text-right">Paid</th><th class="text-right">Balance</th></tr>
                           </thead>
                           <tbody>
                             <?php foreach ($contactInvoices as $inv): ?>
+                              <?php $invMatches = $contactInvoiceMatches[(int)$inv['id']] ?? []; $invBalance = (float)($inv['balance_due'] ?? 0); ?>
                               <tr onclick="window.location='invoices/view.php?id=<?php echo (int)$inv['id']; ?>'" style="cursor:pointer;">
                                 <td>
                                   <strong><?php echo h($inv['invoice_number']); ?></strong>
@@ -3297,13 +3453,73 @@ $unconvertedRequests = $db->query("
                                     <br><small class="text-muted"><?php echo formatDate($inv['issue_date']); ?></small>
                                   <?php endif; ?>
                                 </td>
-                                <td><?php echo getStatusBadge($inv['status'], 'invoice'); ?></td>
+                                <td>
+                                  <?php echo getStatusBadge($inv['status'], 'invoice'); ?>
+                                  <?php if (!empty($invMatches)): ?>
+                                    <button type="button" class="mw-match-pill mt-1"
+                                            onclick="event.stopPropagation(); mwToggleMatch(<?php echo (int)$inv['id']; ?>)"
+                                            title="<?php echo ($invMatches[0]['kind'] ?? '') === 'cheque' ? 'A cheque deposit likely pays this invoice' : 'A bank deposit likely matches this invoice'; ?>">
+                                      <i data-feather="link-2"></i>
+                                      <?php echo htmlspecialchars(InvoiceReconciliationService::chipText($invMatches)); ?>
+                                    </button>
+                                  <?php endif; ?>
+                                </td>
+                                <td><?php echo h(formatPaymentMethod($inv['payment_method'] ?? '', $inv['payment_reference'] ?? '')) ?: '—'; ?></td>
                                 <td class="text-right"><?php echo formatCurrency($inv['total'] ?? 0); ?></td>
                                 <td class="text-right"><?php echo formatCurrency($inv['amount_paid'] ?? 0); ?></td>
-                                <td class="text-right <?php echo floatval($inv['balance_due'] ?? 0) > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
+                                <td class="text-right <?php echo $invBalance > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
                                   <?php echo formatCurrency($inv['balance_due'] ?? 0); ?>
                                 </td>
                               </tr>
+                              <?php if (!empty($invMatches)): ?>
+                              <tr class="mw-match-row" id="mw-match-row-<?php echo (int)$inv['id']; ?>" style="display:none;">
+                                <td colspan="6" class="mw-match-cell">
+                                  <div class="mw-match-panel">
+                                    <div class="mw-match-panel-head">
+                                      <i data-feather="zap"></i>
+                                      <span>Possible bank deposit<?php echo count($invMatches) > 1 ? 's' : ''; ?> for <strong><?php echo h($inv['invoice_number']); ?></strong></span>
+                                      <span class="mw-match-balance">Balance due <?php echo formatCurrency($invBalance); ?></span>
+                                    </div>
+                                    <?php foreach ($invMatches as $m): ?>
+                                    <div class="mw-match-item">
+                                      <span class="mw-conf-badge mw-conf-<?php echo $m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low'); ?>" title="Match confidence"><?php echo (int)$m['confidence']; ?>%</span>
+                                      <div class="mw-match-info">
+                                        <div class="mw-match-desc"><?php echo h($m['description'] ?: 'Bank deposit'); ?></div>
+                                        <div class="mw-match-meta">
+                                          <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
+                                          <?php foreach ($m['reasons'] as $reason): ?>
+                                            <span class="mw-match-reason"><?php echo h($reason); ?></span>
+                                          <?php endforeach; ?>
+                                        </div>
+                                        <?php if (!empty($m['covers_more'])): ?>
+                                          <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
+                                        <?php endif; ?>
+                                        <?php if (!empty($m['likely_recorded'])): ?>
+                                          <div class="mw-match-note">⚠ Possibly already recorded — this amount exactly matches e-Transfer payment<?php echo count($m['likely_recorded']['invoice_numbers']) > 1 ? 's' : ''; ?> recorded on <?php echo formatDate($m['likely_recorded']['pay_date']); ?> against <?php echo h(implode(', ', $m['likely_recorded']['invoice_numbers'])); ?>. If so, mark it recorded instead of attaching it again.</div>
+                                        <?php endif; ?>
+                                      </div>
+                                      <div class="mw-match-apply">
+                                        <div class="mw-match-amount-field">
+                                          <span>$</span>
+                                          <input type="number" step="0.01" min="0.01" class="mw-match-amount"
+                                                 value="<?php echo number_format($m['suggested_amount'], 2, '.', ''); ?>"
+                                                 data-balance="<?php echo number_format($invBalance, 2, '.', ''); ?>"
+                                                 data-remaining="<?php echo number_format($m['amount'], 2, '.', ''); ?>">
+                                        </div>
+                                        <button type="button" class="mw-action-btn mw-action-btn-paid"
+                                                onclick="mwAttachDeposit(this, <?php echo (int)$inv['id']; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($inv['invoice_number'])); ?>)">
+                                          Attach
+                                        </button>
+                                        <button type="button" class="mw-match-dismiss" title="This deposit's money was already recorded by hand — stop suggesting it"
+                                                onclick="mwMarkDepositRecorded(this, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($m['description'] ?: 'Bank deposit')); ?>)">Already recorded</button>
+                                        <button type="button" class="mw-match-dismiss" onclick="mwToggleMatch(<?php echo (int)$inv['id']; ?>)">Close</button>
+                                      </div>
+                                    </div>
+                                    <?php endforeach; ?>
+                                  </div>
+                                </td>
+                              </tr>
+                              <?php endif; ?>
                             <?php endforeach; ?>
                           </tbody>
                         </table>
@@ -3313,7 +3529,7 @@ $unconvertedRequests = $db->query("
                 </div>
 
                 <!-- Billing Statement Card -->
-                <div class="card mb-3 mw-grid-wide">
+                <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">
                       <i data-feather="book-open"></i> Billing Statement
@@ -3323,11 +3539,17 @@ $unconvertedRequests = $db->query("
                         <span class="badge badge-success ml-1">Paid in full</span>
                       <?php endif; ?>
                     </h5>
-                    <?php if (!empty($statementLedger)): ?>
+                    <div class="d-flex gap-2">
+                      <a href="/crm/invoices/statement.php?contact_id=<?php echo (int)$clientId; ?>&period=all_outstanding"
+                         class="btn btn-sm btn-primary">
+                        <i data-feather="file-text"></i> Statement &amp; Email
+                      </a>
+                      <?php if (!empty($statementLedger)): ?>
                       <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printStatement(<?php echo (int)$clientId; ?>)">
                         <i data-feather="printer"></i> Print
                       </button>
-                    <?php endif; ?>
+                      <?php endif; ?>
+                    </div>
                   </div>
                   <div class="card-body p-0">
                     <?php if (empty($statementLedger)): ?>
@@ -3491,6 +3713,14 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
 
+                <!-- Also pays as (Penny, payer_aliases 1362): a contact with a company pays as the company -->
+                <?php if (!$contactCompany) {
+                    $payerAliasName = trim(($viewContact['first_name'] ?? '') . ' ' . ($viewContact['last_name'] ?? ''));
+                    $payerAliasContactId = (int)$viewContact['id'];
+                    $payerAliasCompanyId = null;
+                    include __DIR__ . '/includes/payer-aliases-card.php';
+                } ?>
+
                 <!-- Recent Photos Card -->
                 <?php if (!empty($recentPhotos)): ?>
                 <div class="card mb-3">
@@ -3512,7 +3742,7 @@ $unconvertedRequests = $db->query("
                   <div class="card-body p-2">
                     <div class="mw-recent-photos-grid">
                       <?php foreach ($recentPhotos as $rp):
-                          $origUrl = '/uploads/photos/' . $rp['filename'];
+                          $origUrl = uploadsUrl('photos') . '/' . $rp['filename'];
                           $thumbUrl = $rp['thumb_path'] ?? $rp['grid_path'] ?? $origUrl;
                           $viewUrl = $rp['view_path'] ?? $origUrl;
                       ?>
@@ -3529,6 +3759,59 @@ $unconvertedRequests = $db->query("
 
               <!-- Right Column: Map + Route Intelligence -->
               <div class="col-lg-5">
+
+                <!-- Team on this client + Recent conversation: filled by contact-team.js from
+                     /crm/api/contact-team.php; stay hidden if the load fails. -->
+                <div class="card mb-3 mw-ct-card" id="mw-ct-team" data-contact-id="<?php echo (int)$clientId; ?>" hidden>
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="users"></i> Team on this client</h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <ul class="mw-ct-list"></ul>
+                    <button type="button" class="mw-ct-more" hidden></button>
+                  </div>
+                </div>
+                <div class="card mb-3 mw-ct-card" id="mw-ct-comms" data-contact-id="<?php echo (int)$clientId; ?>" hidden>
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i data-feather="message-circle"></i> Recent conversation</h5>
+                    <span class="mw-ct-sub">Last 90 days</span>
+                  </div>
+                  <div class="card-body p-0">
+                    <ol class="mw-ct-timeline"></ol>
+                    <button type="button" class="mw-ct-showmore" hidden>Show more</button>
+                  </div>
+                </div>
+                <script src="<?php echo function_exists('_av') ? _av('/crm/js/contact-team.js') : '/crm/js/contact-team.js'; ?>" defer></script>
+
+                <!-- Managed Properties panel (shown when contact has a role or employer PM) -->
+                <?php if (!empty($managedProperties)): ?>
+                <div class="card mb-3 mw-managed-props-card">
+                  <div class="card-header d-flex align-items-center justify-content-between">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="layers"></i> Managed Properties
+                      <span class="badge badge-pill ml-1" style="background: var(--mw-light); color: var(--mw-dark); font-weight: 600;"><?php echo count($managedProperties); ?></span>
+                    </h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                      <?php foreach ($managedProperties as $mp): ?>
+                        <li class="list-group-item mw-managed-prop-row">
+                          <div class="mw-managed-prop-address">
+                            <i data-feather="home" style="width:13px;height:13px;color:var(--mw-green);flex-shrink:0;"></i>
+                            <a href="/crm/properties/view.php?id=<?php echo (int)$mp['id']; ?>" style="color: var(--bs-body-color); font-weight: 500; font-size: 13px;">
+                              <?php echo h($mp['address']); ?><?php if ($mp['city']): ?><span style="color:#94a3b8;font-weight:400;">, <?php echo h($mp['city']); ?></span><?php endif; ?>
+                            </a>
+                          </div>
+                          <?php if ($mp['link_type'] === 'employer_pm'): ?>
+                            <span class="mw-managed-prop-via-badge">via employer</span>
+                          <?php endif; ?>
+                        </li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0"><i data-feather="map"></i> Neighbourhood Map</h5>
@@ -3851,6 +4134,12 @@ $unconvertedRequests = $db->query("
                 </div>
                 <?php endif; ?>
 
+                <!-- Jobber price history + quotes (read-only history; fragment loaded on demand, empty when there is none) -->
+                <div id="mwJobberHistory"></div>
+                <script>
+                (function(){fetch('/crm/api/jobber-price-history.php?contact_id=<?= (int)$clientId ?>&html=1',{credentials:'same-origin'}).then(function(r){return r.ok?r.text():''}).then(function(h){var el=document.getElementById('mwJobberHistory');if(el&&h.indexOf('card')!==-1)el.innerHTML=h}).catch(function(){})})();
+                </script>
+
                 <!-- Activity Timeline Card (Enhanced) -->
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
@@ -4036,6 +4325,90 @@ $unconvertedRequests = $db->query("
             (function() {
               var CONTACT_ID = <?php echo (int)$viewContact['id']; ?>;
               var CSRF_TOKEN = '<?php echo csrf_token(); ?>';
+
+              // ── Inline bank-deposit matching (same as /crm/invoices/index.php) ──
+              function mwFmtMoney(n) {
+                return '$' + parseFloat(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+              }
+              window.mwToggleMatch = function (invoiceId) {
+                var row = document.getElementById('mw-match-row-' + invoiceId);
+                if (!row) return;
+                var open = row.style.display !== 'none' && row.style.display !== '';
+                row.style.display = open ? 'none' : 'table-row';
+              };
+
+              window.mwMarkDepositRecorded = function (btn, txId, desc) {
+                  if (!confirm('Mark this deposit as already recorded?\n\n' + desc + '\n\nIt will stop being suggested against invoices and be booked as a cash-clearing transfer (not income). You can reverse this later.')) { return; }
+                  var origLabel = btn.textContent;
+                  btn.disabled = true;
+                  btn.textContent = 'Saving…';
+                  fetch('/crm/api/accounting-reconciliation.php', {
+                      method : 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                      body   : JSON.stringify({ action: 'mark_recorded', csrf_token: CSRF_TOKEN, transaction_id: txId })
+                  })
+                  .then(function (r) { return r.json(); })
+                  .then(function (data) {
+                      if (data.ok) {
+                          mwToast('Deposit marked as already recorded.', 'success');
+                          setTimeout(function () { window.location.reload(); }, 1000);
+                      } else {
+                          btn.disabled = false; btn.textContent = origLabel;
+                          mwToast(data.error || 'Could not update the deposit.', 'error');
+                      }
+                  })
+                  .catch(function () {
+                      btn.disabled = false; btn.textContent = origLabel;
+                      mwToast('Network error — please try again.', 'error');
+                  });
+              };
+              window.mwAttachDeposit = function (btn, invoiceId, txId, invNum) {
+                var item      = btn.closest('.mw-match-item');
+                var input     = item.querySelector('.mw-match-amount');
+                var amount    = parseFloat(input.value);
+                var balance   = parseFloat(input.dataset.balance);
+                var remaining = parseFloat(input.dataset.remaining);
+                if (!(amount > 0)) { mwToast('Enter a valid amount.', 'error'); return; }
+                if (amount > remaining + 0.005) {
+                  mwToast('Amount exceeds the deposit (' + mwFmtMoney(remaining) + ' available).', 'error');
+                  return;
+                }
+                if (amount > balance + 0.005) {
+                  if (!confirm('That is more than the invoice balance (' + mwFmtMoney(balance)
+                    + '). It will be capped to the balance. Continue?')) { return; }
+                }
+                var origLabel = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = 'Attaching…';
+                fetch('/crm/api/accounting-reconciliation.php', {
+                  method : 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                  body   : JSON.stringify({
+                    action        : 'attach',
+                    csrf_token    : CSRF_TOKEN,
+                    transaction_id: txId,
+                    allocations   : [{ invoice_id: invoiceId, amount: amount }]
+                  })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                  if (data.ok) {
+                    var rec = (data.result && data.result.recorded && data.result.recorded[0]) || {};
+                    mwToast(invNum + ' — ' + (rec.fully_paid ? 'paid in full' : 'partial payment recorded') + '.', 'success');
+                    setTimeout(function () { window.location.reload(); }, 1200);
+                  } else {
+                    btn.disabled = false;
+                    btn.textContent = origLabel;
+                    mwToast(data.error || 'Could not attach deposit.', 'error');
+                  }
+                })
+                .catch(function (err) {
+                  btn.disabled = false;
+                  btn.textContent = origLabel;
+                  console.error('[mwAttachDeposit]', err);
+                  mwToast('Network error — please try again.', 'error');
+                });
+              };
               var propertiesData = <?php echo json_encode($contactProperties); ?>;
               var nearbyClientsData = <?php echo json_encode($nearbyClients); ?>;
               var availableTags = <?php echo json_encode($availableTags); ?>;
@@ -5013,7 +5386,7 @@ $unconvertedRequests = $db->query("
                                 <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
                               </a>
                               <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0 && (int)($prop['has_arrival_border'] ?? 0) === 0): ?>
-                              <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$companyId); ?>"
+                              <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$clientId); ?>"
                                  class="mw-prop-action-btn mw-prop-action-border-missing" title="Draw arrival border for accurate auto-clock-in">
                                 <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
                               </a>
@@ -5159,6 +5532,14 @@ $unconvertedRequests = $db->query("
                     <?php endif; ?>
                   </div>
                 </div>
+
+                <!-- Also pays as (Penny, payer_aliases 1362) -->
+                <?php
+                  $payerAliasName = (string)($viewCompany['company_name'] ?? '');
+                  $payerAliasContactId = null;
+                  $payerAliasCompanyId = (int)$viewCompany['id'];
+                  include __DIR__ . '/includes/payer-aliases-card.php';
+                ?>
 
                 <!-- Quotes Card -->
                 <div class="card mb-3">
@@ -6916,10 +7297,7 @@ $unconvertedRequests = $db->query("
 
               var response = prompt(
                 'WARNING: Permanently delete ' + count + ' client(s)?\n\n' +
-                'This will CASCADE DELETE all their:\n' +
-                '• Jobs\n' +
-                '• Invoices\n' +
-                '• Property associations\n\n' +
+                'Clients with any quote, job or invoice are skipped — archive those instead.\n\n' +
                 'This is IRREVERSIBLE. Type DELETE to confirm:'
               );
               if (response !== 'DELETE') return;
@@ -6936,8 +7314,7 @@ $unconvertedRequests = $db->query("
               .then(function(data) {
                 if (data.success) {
                   var msg = data.deleted_count + ' client(s) deleted.';
-                  if (data.related_jobs > 0) msg += '\n' + data.related_jobs + ' job(s) cascade-deleted.';
-                  if (data.related_invoices > 0) msg += '\n' + data.related_invoices + ' invoice(s) cascade-deleted.';
+                  if (data.skipped_count > 0) msg += '\n' + data.skipped_count + ' skipped: they have quotes, jobs or invoices (archive them instead).';
                   alert(msg);
                   location.reload();
                 } else {

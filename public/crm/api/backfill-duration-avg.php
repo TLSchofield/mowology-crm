@@ -1,7 +1,6 @@
 <?php
 /**
- * Backfill: populate job_visits.actual_duration_minutes and update
- * job_plans.estimated_duration_minutes with rolling average of actual visit times.
+ * Backfill: populate job_visits.actual_duration_minutes and report timer averages.
  *
  * Safe to run multiple times. Only processes completed visits with timer data.
  * Visit /crm/api/backfill-duration-avg.php (admin only).
@@ -23,7 +22,10 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
+require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (Fable review 2026-10-12)
 $user = getCurrentUser();
+session_write_close();
 if (($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     echo json_encode(['error' => 'Admin only']);
@@ -59,7 +61,7 @@ foreach ($visitIds as $vid) {
 }
 $log[] = "Updated actual_duration_minutes on {$visitsUpdated} visits.";
 
-// 2. Update estimated_duration_minutes on each plan with completed visits
+// 2. Report timer averages. Plan lengths are set only in Otto's review, on the owner's tap.
 $planStmt = $db->query("
     SELECT DISTINCT jv.plan_id
     FROM job_visits jv
@@ -70,7 +72,6 @@ $planStmt = $db->query("
 ");
 $planIds = array_column($planStmt->fetchAll(PDO::FETCH_ASSOC), 'plan_id');
 
-$plansUpdated = 0;
 $planDetails = [];
 foreach ($planIds as $pid) {
     $rollAvgStmt = $db->prepare("
@@ -91,17 +92,10 @@ foreach ($planIds as $pid) {
     $newEst = ($row && $row['avg_duration'] !== null) ? (int)round((float)$row['avg_duration']) : 0;
 
     if ($newEst > 0) {
-        // Fetch old value for the log
-        $oldRow = $db->prepare("SELECT estimated_duration_minutes FROM job_plans WHERE id = ?");
-        $oldRow->execute([$pid]);
-        $old = (int)($oldRow->fetchColumn() ?: 0);
-
-        $db->prepare("UPDATE job_plans SET estimated_duration_minutes = ? WHERE id = ?")->execute([$newEst, $pid]);
-        $planDetails[] = "Plan #{$pid}: {$old} → {$newEst} min";
-        $plansUpdated++;
+        $planDetails[] = "Plan #{$pid}: timer average {$newEst} min";
     }
 }
-$log[] = "Updated estimated_duration_minutes on {$plansUpdated} plans.";
+$log[] = 'Plan lengths are set in Otto\'s review; no plan lengths were changed.';
 $log = array_merge($log, $planDetails);
 
 echo json_encode(['success' => true, 'log' => $log]);

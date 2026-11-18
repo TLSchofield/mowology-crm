@@ -29,15 +29,16 @@ if (defined('APP_ROOT')) {
     require_once APP_ROOT . '/Core/config.php';
 }
 
-$secret = defined('UNSUBSCRIBE_SECRET') ? UNSUBSCRIBE_SECRET : 'mowology-unsub-2026';
+// One sign/verify for every unsubscribe link (Fable review 2026-10-12) — see UnsubscribeLink.
+require_once APP_ROOT . '/Modules/Marketing/Services/UnsubscribeLink.php';
+if (UnsubscribeLink::secret() === null) error_log('unsubscribe.php: UNSUBSCRIBE_SECRET is not defined — every token refused');
 
 $email = strtolower(trim($_GET['email'] ?? $_POST['email'] ?? ''));
 $token = $_GET['token'] ?? $_POST['token'] ?? '';
 $sendId = (int)($_GET['sid'] ?? $_POST['sid'] ?? 0);
 
 // Validate token
-$expectedToken = hash_hmac('sha256', $email, $secret);
-$validToken = hash_equals($expectedToken, $token);
+$validToken = UnsubscribeLink::verify($email, $token);
 
 $message = '';
 $success = false;
@@ -54,10 +55,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && !empty($email)) {
             VALUES (?, ?, NOW())
         ")->execute([$email, $reason ?: null]);
 
-        // Update contact.receive_marketing
+        // Update contact.receive_marketing and clear express consent timestamp
         $db->prepare("
-            UPDATE contacts SET receive_marketing = 0 WHERE email = ?
+            UPDATE contacts SET receive_marketing = 0, consent_email_express_at = NULL WHERE email = ?
         ")->execute([$email]);
+
+        // CASL audit: write to consent_log for each affected contact
+        $contactStmt = $db->prepare("SELECT id FROM contacts WHERE email = ? LIMIT 1");
+        $contactStmt->execute([$email]);
+        $unsubContactId = (int)$contactStmt->fetchColumn();
+        if ($unsubContactId) {
+            $db->prepare("INSERT INTO consent_log (contact_id, consent_type, consent_given, consent_source, ip_address, user_agent) VALUES (?, 'marketing_email', 0, 'unsubscribe_link', ?, ?)")
+               ->execute([$unsubContactId, $_SERVER['REMOTE_ADDR'] ?? '', $_SERVER['HTTP_USER_AGENT'] ?? '']);
+        }
 
         // If we have a send ID, mark it
         if ($sendId) {

@@ -325,6 +325,14 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 <div class="mw-mc-pill-drawer" style="display: none;"></div>
                 <!-- Persistent photo strip (JS populates after photo capture) -->
                 <div class="mw-mc-photo-strips"></div>
+                <?php $phVisitId = (int)($stop['visits'][0]['visit_id'] ?? 0); if ($phVisitId > 0): ?>
+                <button type="button" class="mw-mc-photo-history-btn"
+                        data-photo-history="<?php echo $phVisitId; ?>"
+                        data-photo-history-label="<?php echo htmlspecialchars((string)($stop['property_address'] ?? '')); ?>">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><polyline points="21 15 16 10 7 19"/></svg>
+                    Photos
+                </button>
+                <?php endif; ?>
             <?php endif; ?>
 
             <?php $stopProfitMargin = $stop['profit_margin'] ?? null; ?>
@@ -430,7 +438,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
         <?php endif; ?>
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit): ?>
-        <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
+        <!-- ── Card Action Footer: Start / Timer + Complete ── -->
         <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -438,12 +446,27 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
             </div>
             <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin" data-footer-clockin="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Clock In
+                Start
             </button>
             <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-complete" data-footer-complete="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                 Complete Job
             </button>
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-skip"
+                    data-footer-skip="<?php echo (int)$footerVisitId; ?>"
+                    data-skip-stop="<?php echo (int)$stop['stop_id']; ?>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Skip
+            </button>
+            <?php if (in_array($user['role'] ?? '', ['admin', 'manager'], true)): ?>
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-move"
+                    data-move-stop="<?php echo (int)$stop['stop_id']; ?>"
+                    data-move-from="<?php echo htmlspecialchars((string)($stop['stop_date'] ?? '')); ?>"
+                    data-move-label="<?php echo htmlspecialchars((string)($stop['property_address'] ?? '')); ?>"
+                    aria-label="Move to another date" title="Move to another date">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="13 14 16 17 13 20"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+            </button>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 
@@ -521,11 +544,18 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
     <div class="mw-mc-card-body">
         <div class="mw-mc-compact-main">
             <div class="mw-mc-compact-info">
-                <!-- Line 1: Time + Phone + Client Name (ALL CAPS) -->
+                <?php
+                    // The iPhone's card (StopCardView.swift): the property first, arrival on the right, then
+                    // client · crew · visits underneath (StopCardText; Tim 2026-10-14 "iOS looks better").
+                    require_once APP_ROOT . '/Modules/Jobs/Services/StopCardText.php';
+                    $mwHead    = StopCardText::headline($stop);
+                    $mwClient  = StopCardText::client($stop);
+                    $mwArrive  = StopCardText::arrival($stop);
+                    $mwCrew    = (function_exists('userHasPermission') && userHasPermission('jobs.edit')) ? StopCardText::crew($stop) : '';
+                    $mwVisits  = StopCardText::visits($stop);
+                ?>
+                <!-- Line 1: Phone + headline (property, else company, else contact) + arrival on the right -->
                 <div class="mw-mc-compact-line1">
-                    <?php if ($timeDisplay): ?>
-                        <span class="mw-mc-compact-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
-                    <?php endif; ?>
                     <?php if ($contactPhone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
                     <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
                        class="mw-mc-compact-phone"
@@ -535,17 +565,34 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                     </a>
                     <?php endif; ?>
-                    <?php if ($clientName): ?>
-                        <span class="mw-mc-compact-client"><?php echo strtoupper($clientName); ?></span>
+                    <?php if ($mwHead !== ''): ?>
+                        <span class="mw-mc-compact-client"><?php echo htmlspecialchars(mb_strtoupper($mwHead)); ?></span>
                     <?php else: ?>
                         <span class="mw-mc-compact-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></span>
                     <?php endif; ?>
                     <?php if ($badge && $visitStatus === 'in_progress'): ?>
                         <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
                     <?php endif; ?>
+                    <?php if ($mwArrive !== ''): ?>
+                        <span class="mw-mc-compact-eta">
+                            <span class="mw-mc-compact-eta-time"><?php echo htmlspecialchars($mwArrive); ?></span>
+                            <span class="mw-mc-compact-eta-lbl">est. arrival</span>
+                            <span class="mw-mc-compact-eta-dist" data-eta-dist></span>
+                        </span>
+                    <?php endif; ?>
                 </div>
                 <!-- Line 2: Street address -->
                 <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
+                <?php // When was this last done — see partials/service-history.php
+                if (!empty($mwServiceHistory) && function_exists('mwServiceHistoryLine')) {
+                    echo mwServiceHistoryLine($stop, $mwServiceHistory);
+                } ?>
+                <!-- Client · crew · visits, as on the iPhone -->
+                <div class="mw-mc-compact-meta">
+                    <?php if ($mwClient !== ''): ?><span class="mw-mc-compact-meta-item" title="Client"><?php echo htmlspecialchars($mwClient); ?></span><?php endif; ?>
+                    <?php if ($mwCrew !== ''): ?><span class="mw-mc-compact-meta-item" title="Crew"><?php echo htmlspecialchars($mwCrew); ?></span><?php endif; ?>
+                    <span class="mw-mc-compact-meta-item"><?php echo htmlspecialchars($mwVisits); ?></span>
+                </div>
             </div>
 
         </div>
@@ -597,6 +644,18 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 </div>
             <?php endif; ?>
 
+            <?php // Two calendar weeks per service on this stop (a lawn visit and a salting visit
+                  // each get their own grid — a green Tuesday must say which one it was).
+            if (!empty($mwServiceHistory) && function_exists('mwServiceHistoryGrid')) {
+                $_shMany = count($stop['visits'] ?? []) > 1;
+                foreach (($stop['visits'] ?? []) as $_shVisit) {
+                    echo mwServiceHistoryGrid(
+                        $mwServiceHistory[(int)($_shVisit['visit_id'] ?? 0)] ?? null,
+                        $_shMany ? (string)($_shVisit['plan_title'] ?? '') : ''
+                    );
+                }
+            } ?>
+
             <?php if ($lawnSqFtDisplay): ?>
                 <div class="mw-mc-lawn-sqft">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
@@ -609,6 +668,15 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     Last visit: <?php echo htmlspecialchars($lastVisitDisplay); ?>
                 </div>
+            <?php endif; ?>
+
+            <?php $phVisitId = (int)($stop['visits'][0]['visit_id'] ?? 0); if ($phVisitId > 0): ?>
+            <button type="button" class="mw-mc-photo-history-btn"
+                    data-photo-history="<?php echo $phVisitId; ?>"
+                    data-photo-history-label="<?php echo htmlspecialchars((string)($stop['property_address'] ?? '')); ?>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><polyline points="21 15 16 10 7 19"/></svg>
+                Photos
+            </button>
             <?php endif; ?>
 
             <!-- Obsidian Root™ tile — matches Before/After photo tile dimensions -->
@@ -651,8 +719,10 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                     <!-- Photo strip for this specific visit -->
                     <div class="mw-mc-photo-strips" data-visit-strip="<?php echo $evId; ?>"></div>
 
-                    <?php if (!$evDone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                    <!-- Per-visit action footer — only visible when card is expanded -->
+                    <?php if ($multiVisit && !$evDone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+                    <!-- Per-visit action footer — only visible when card is expanded. Only for stops with
+                         several visits: a one-visit stop has the card footer (Start / Complete / Skip / Move),
+                         and both showed as two Start / Complete rows (Tim, 2026-10-14). -->
                     <div class="mw-mc-pv-footer" data-pv-footer="<?php echo $evId; ?>">
                         <div class="mw-mc-footer-timer" data-pv-timer="<?php echo $evId; ?>" style="display:none;">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -661,7 +731,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                         <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin"
                                 data-pv-clockin="<?php echo $evId; ?>" style="display:none;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                            Clock In
+                            Start
                         </button>
                         <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-complete"
                                 data-pv-complete="<?php echo $evId; ?>">
@@ -752,7 +822,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
         <?php endif; ?>
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit): ?>
-        <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
+        <!-- ── Card Action Footer: Start / Timer + Complete ── -->
         <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -760,12 +830,27 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
             </div>
             <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin" data-footer-clockin="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Clock In
+                Start
             </button>
             <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-complete" data-footer-complete="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                 Complete Job
             </button>
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-skip"
+                    data-footer-skip="<?php echo (int)$footerVisitId; ?>"
+                    data-skip-stop="<?php echo (int)$stop['stop_id']; ?>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Skip
+            </button>
+            <?php if (in_array($user['role'] ?? '', ['admin', 'manager'], true)): ?>
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-move"
+                    data-move-stop="<?php echo (int)$stop['stop_id']; ?>"
+                    data-move-from="<?php echo htmlspecialchars((string)($stop['stop_date'] ?? '')); ?>"
+                    data-move-label="<?php echo htmlspecialchars((string)($stop['property_address'] ?? '')); ?>"
+                    aria-label="Move to another date" title="Move to another date">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="13 14 16 17 13 20"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+            </button>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 

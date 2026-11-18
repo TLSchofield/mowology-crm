@@ -30,17 +30,25 @@ try {
     requireLogin();
     requirePermission('expenses.view');
     $canEdit = userHasPermission('expenses.edit');
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+
+    $method = $_SERVER['REQUEST_METHOD'];
+    $input  = [];
+    if ($method !== 'GET') {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!is_array($input)) $input = [];
+        // Chart-of-accounts changes need the session token (read before session_write_close()).
+        if (!verifyCSRFToken(ApiResponse::csrfToken($input))) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Your session token expired — refresh the page and try again.']);
+            exit;
+        }
+    }
 
     $db = getDB();
     session_write_close();
 
-    $method = $_SERVER['REQUEST_METHOD'];
-    if ($method === 'GET') {
-        $action = $_GET['action'] ?? 'list';
-    } else {
-        $input  = json_decode(file_get_contents('php://input'), true) ?? [];
-        $action = $input['action'] ?? '';
-    }
+    $action = $method === 'GET' ? ($_GET['action'] ?? 'list') : ($input['action'] ?? '');
 
     switch ($action) {
 
@@ -204,7 +212,7 @@ try {
     }
 
 } catch (Throwable $e) {
-    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
-    http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    require_once APP_ROOT . '/Core/ApiResponse.php';
+    http_response_code(ApiResponse::status($e));
+    echo json_encode(['ok' => false, 'error' => ApiResponse::message($e, 'accounts.php')]);
 }

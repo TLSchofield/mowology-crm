@@ -8,6 +8,7 @@
  * Web trigger (POST, admin only):
  *   POST /crm/cron/automation_runner.php
  */
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 if (PHP_SAPI !== 'cli') {
     // Web trigger: require admin login
     $__dir = __DIR__;

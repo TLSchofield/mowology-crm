@@ -50,6 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
+                    // Roles before the change, for the audit line (Fable audit #25, 2026-10-12).
+                    $roleNames = static function (PDO $db, int $uid): string {
+                        $s = $db->prepare("SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? ORDER BY r.name");
+                        $s->execute([$uid]);
+                        return implode(', ', $s->fetchAll(PDO::FETCH_COLUMN)) ?: '(none)';
+                    };
+                    $rolesBefore = $roleNames($db, $targetUserId);
+
                     // Delete existing roles
                     $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetUserId]);
 
@@ -64,7 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Clear perm cache for that user's session (bump version)
                     // The user will get fresh permissions on their next request
                     $flash = 'Roles updated successfully.';
-                    logActivity($user['id'], null, 'Updated roles for user #' . $targetUserId, 'Roles: ' . implode(',', $roleIds));
+                    logActivity($user['id'], null, 'Updated roles for user #' . $targetUserId,
+                        'Roles: ' . $rolesBefore . ' → ' . $roleNames($db, $targetUserId));
                     break;
 
                 // ── Toggle active status ────────────────────
@@ -80,7 +89,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $db->prepare("UPDATE users SET is_active = NOT is_active WHERE id = ?");
                     $stmt->execute([$targetUserId]);
                     $flash = 'User status updated.';
-                    logActivity($user['id'], null, 'Toggled active status for user #' . $targetUserId, null);
+                    $nowActive = $db->prepare("SELECT is_active FROM users WHERE id = ?");
+                    $nowActive->execute([$targetUserId]);
+                    $nowActive = (int)$nowActive->fetchColumn();
+                    logActivity($user['id'], null, 'Toggled active status for user #' . $targetUserId,
+                        'Active: ' . ($nowActive ? 'no → yes' : 'yes → no'));
                     break;
 
                 // ── Change password for a user ──────────────
@@ -92,16 +105,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($targetUserId <= 0) {
                         throw new Exception('Invalid user ID.');
                     }
-                    if (strlen($newPass) < 8) {
-                        throw new Exception('Password must be at least 8 characters.');
+                    // Setting an admin's password needs an admin (Fable review 2026-10-12) — rules in
+                    // PasswordChangeRules (min 12 characters, same as the reset pages).
+                    require_once APP_ROOT . '/Modules/Team/Services/PasswordChangeRules.php';
+                    $tgt = $db->prepare("SELECT u.role,
+                                                EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                                                       WHERE ur.user_id = u.id AND r.name = 'admin') AS has_admin_role
+                                         FROM users u WHERE u.id = ? LIMIT 1");
+                    $tgt->execute([$targetUserId]);
+                    $tgtRow = $tgt->fetch(PDO::FETCH_ASSOC);
+                    if (!$tgtRow) {
+                        throw new Exception('Invalid user ID.');
                     }
-                    if ($newPass !== $confirmPass) {
-                        throw new Exception('Passwords do not match.');
+                    $pwErr = PasswordChangeRules::check(
+                        (string)$newPass,
+                        (string)$confirmPass,
+                        ($tgtRow['role'] ?? '') === 'admin' || !empty($tgtRow['has_admin_role']),
+                        userHasPermission('users.manage'),
+                        ($user['role'] ?? '') === 'admin'
+                    );
+                    if ($pwErr !== null) {
+                        throw new Exception($pwErr);
                     }
 
                     $hash = password_hash($newPass, PASSWORD_DEFAULT);
                     $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1")
                        ->execute([$hash, $targetUserId]);
+                    // A password change also ends every "trusted device" for two-step sign-in (migration 1440; no-op without it).
+                    try { (new TwoStepService($db, null))->revokeAllDevices($targetUserId); } catch (Throwable $e) { error_log('two-step devices not revoked: ' . $e->getMessage()); }
+                    if ($targetUserId === (int)$user['id']) {
+                        // Own password: keep this session; the person's other sessions end (#12).
+                        $_SESSION['pwd_v'] = AuthFreshness::passwordVersion($hash);
+                    }
 
                     $flash = 'Password updated successfully.';
                     logActivity($user['id'], null, 'Changed password for user #' . $targetUserId, null);
@@ -414,13 +449,13 @@ $csrfToken = generateCSRFToken();
                     <div class="form-group">
                       <label for="pw_new_<?php echo $uid; ?>">New Password</label>
                       <input type="password" class="form-control" id="pw_new_<?php echo $uid; ?>"
-                             name="new_password" required minlength="8"
-                             placeholder="Minimum 8 characters" autocomplete="new-password">
+                             name="new_password" required minlength="12"
+                             placeholder="Minimum 12 characters" autocomplete="new-password">
                     </div>
                     <div class="form-group mb-0">
                       <label for="pw_confirm_<?php echo $uid; ?>">Confirm Password</label>
                       <input type="password" class="form-control" id="pw_confirm_<?php echo $uid; ?>"
-                             name="confirm_password" required minlength="8"
+                             name="confirm_password" required minlength="12"
                              placeholder="Re-enter new password" autocomplete="new-password">
                     </div>
                   </div>

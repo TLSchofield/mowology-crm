@@ -25,6 +25,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once PUBLIC_ROOT . '/includes/functions.php';
 require_once CRM_INCLUDES . '/invoice-routing.php';
 
@@ -113,7 +114,28 @@ try {
                 ];
             }
         } catch (PDOException $e) {
-            // clients/client_contacts absent (pre-Phase-1) — fall through to legacy.
+            error_log(get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Unable to load invoice recipients. Please try again.']);
+            exit;
+        }
+    }
+
+    // ── Company billed directly: its LIVE routing first (2026-10-11) ─────────
+    // client_contacts is a one-time copy (migration 1049) that nothing updates, so a billing
+    // contact changed on the company never reached this list. The company's own
+    // invoice_routing_method now decides who is preselected; the copied people stay as CCs.
+    if ($clientId && !empty($recipients)) {
+        // A managed account (a strata run by a PM firm) follows its MANAGER's routing, as a
+        // PM-managed property does — VR15-40 bills Macdonald's accounts inbox, not its own contact.
+        $lc = getDB()->prepare("SELECT COALESCE(m.legacy_company_id, cl.legacy_company_id)
+                                FROM clients cl LEFT JOIN clients m ON m.id = cl.managed_by_client_id
+                                WHERE cl.id = ?");
+        $lc->execute([$clientId]);
+        $legacyCompany = (int)$lc->fetchColumn();
+        if ($legacyCompany > 0) {
+            $routed = resolveCompanyBillingRecipient($legacyCompany);
+            if ($routed) $recipients = preferRecipients($routed, $recipients);
         }
     }
 
@@ -152,6 +174,31 @@ try {
         }
     }
 
+    // ── PM-MANAGED BILLING PRECEDENCE ──────────────────────────────────────
+    // If the property is managed by a firm, invoices bill the MANAGEMENT
+    // COMPANY's accounts contact (honoring its invoice_routing_method), NOT the
+    // on-site/property contact. The management billing recipient becomes the
+    // preselected primary; anything resolved above stays in the list but
+    // unchecked (available as a CC). This is the documented intent of the
+    // contract "PM-Managed Billing" screen and fixes the case where the form
+    // defaulted to the property manager *person* instead of the firm's accounts.
+    if ($propertyId) {
+        $pmRecipients = resolveManagementBillingRecipient($propertyId);
+        if (!empty($pmRecipients)) {
+            $pmContactIds = array_column($pmRecipients, 'contact_id');
+            $ccRecipients = [];
+            foreach ($recipients as $r) {
+                // Drop duplicates of the PM contacts; demote the rest to unchecked.
+                if (in_array((int)($r['contact_id'] ?? 0), array_map('intval', $pmContactIds), true)) {
+                    continue;
+                }
+                $r['preselect'] = false;
+                $ccRecipients[] = $r;
+            }
+            $recipients = array_merge($pmRecipients, $ccRecipients);
+        }
+    }
+
     // Determine recipients
     // (already set above)
 
@@ -169,7 +216,7 @@ try {
     header('Content-Type: application/json');
     echo json_encode([
         'success' => false,
-        'error' => htmlspecialchars($e->getMessage())
+        'error' => htmlspecialchars(ApiResponse::message($e, 'api-get-recipients'))
     ]);
 }
 ?>

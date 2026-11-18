@@ -33,6 +33,34 @@ var MwRouteMap = (function() {
         console.log.apply(console, args);
     }
 
+    // The Maps script is loaded with loading=async, which lazy-loads classes
+    // (Map, ControlPosition, Marker, Geocoder, DirectionsService, ...) rather
+    // than defining them the moment google.maps exists. Wait for importLibrary
+    // itself, then explicitly load the libraries this file touches.
+    function ensureMapsLibraries(cb) {
+        function ready() {
+            return window.google && google.maps && typeof google.maps.importLibrary === 'function';
+        }
+        function loadAll() {
+            Promise.all([
+                google.maps.importLibrary('maps'),
+                google.maps.importLibrary('marker'),
+                google.maps.importLibrary('geocoding'),
+                google.maps.importLibrary('routes')
+            ]).then(cb);
+        }
+        if (ready()) {
+            loadAll();
+            return;
+        }
+        var check = setInterval(function() {
+            if (ready()) {
+                clearInterval(check);
+                loadAll();
+            }
+        }, 200);
+    }
+
     // ── State ──
     var map = null;
     var geocoder = null;
@@ -148,16 +176,7 @@ var MwRouteMap = (function() {
             });
         }
 
-        if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-            var check = setInterval(function() {
-                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
-                    clearInterval(check);
-                    onMapsReady();
-                }
-            }, 200);
-        } else {
-            onMapsReady();
-        }
+        ensureMapsLibraries(onMapsReady);
     }
 
     function open(stopIndex) {
@@ -177,21 +196,14 @@ var MwRouteMap = (function() {
         document.body.style.overflow = 'hidden';
 
         if (!mapInitialized) {
-            if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-                var check = setInterval(function() {
-                    if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
-                        clearInterval(check);
-                        initMap();
-                        getFreshGPS(function() { computeFullRoute(); });
-                    }
-                }, 200);
-                return;
-            }
-            initMap();
-        } else {
-            google.maps.event.trigger(map, 'resize');
+            ensureMapsLibraries(function() {
+                initMap();
+                getFreshGPS(function() { computeFullRoute(); });
+            });
+            return;
         }
 
+        google.maps.event.trigger(map, 'resize');
         getFreshGPS(function() { computeFullRoute(); });
     }
 
@@ -1326,12 +1338,21 @@ var MwRouteMap = (function() {
                 '</button>' +
             '</div>' +
             '<div class="mw-mv-sched-picker" id="mwSchedPicker" style="display:none">' +
-                '<input type="date" class="mw-mv-sched-date-input" id="mwSchedDateInput">' +
+                '<button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwSchedDateInput" aria-haspopup="true" aria-expanded="false">' +
+                    '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+                    '<span class="mw-datepicker-date" data-mw-dp-label></span>' +
+                    '<svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+                '</button>' +
+                // min is fixed at build time (today never changes mid-session) so the
+                // picker — constructed once, right after this markup is inserted —
+                // picks it up; setting inp.min later would be too late for it to see.
+                '<input type="date" class="mw-mv-sched-date-input" id="mwSchedDateInput" hidden min="' + todayStr() + '">' +
                 '<button type="button" class="mw-mv-sched-btn mw-mv-sched-confirm" id="mwSchedConfirm">Confirm</button>' +
             '</div>' +
             '<div class="mw-mv-sched-msg" id="mwSchedMsg" role="status"></div>';
 
         viewEl.appendChild(schedSheet);
+        if (window.mwInitDatePickers) window.mwInitDatePickers(schedSheet);
 
         document.getElementById('mwSchedClose').addEventListener('click', closeScheduleSheet);
 
@@ -1348,9 +1369,10 @@ var MwRouteMap = (function() {
             var tStr = tomorrow.getFullYear() + '-' +
                 String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' +
                 String(tomorrow.getDate()).padStart(2, '0');
-            inp.min = todayStr();
-            if (!inp.value) inp.value = tStr;
-            inp.focus();
+            if (!inp.value) {
+                inp.value = tStr;
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+            }
         });
 
         document.getElementById('mwSchedConfirm').addEventListener('click', function() {
@@ -1401,22 +1423,14 @@ var MwRouteMap = (function() {
         var btns = schedSheet ? schedSheet.querySelectorAll('.mw-mv-sched-btn') : [];
         btns.forEach(function(b) { b.disabled = true; });
 
-        fetch('/crm/api/reschedule-stop.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stop_id: stopId, new_date: date, force: force })
-        })
-        .then(function(r) {
-            return r.json().then(function(d) { return { ok: r.ok, data: d }; });
-        })
-        .then(function(res) {
-            if (res.data && res.data.warning && !force) {
+        MwApi.post('/crm/api/reschedule-stop.php', { stop_id: stopId, new_date: date, force: force })
+        .then(function(data) {
+            if (data.warning && !force) {
                 // Capacity warning — show inline message + force button
                 if (msg) {
                     msg.textContent = '';
                     var warnSpan = document.createElement('span');
-                    warnSpan.textContent = res.data.message + ' ';
+                    warnSpan.textContent = data.message + ' ';
                     var forceBtn = document.createElement('button');
                     forceBtn.type = 'button';
                     forceBtn.className = 'mw-mv-sched-btn mw-mv-sched-confirm';
@@ -1427,20 +1441,17 @@ var MwRouteMap = (function() {
                     msg.appendChild(forceBtn);
                 }
                 btns.forEach(function(b) { b.disabled = false; });
-            } else if (res.ok) {
+            } else {
                 if (msg) msg.textContent = '\u2713 Moved to ' + date;
                 setTimeout(function() {
                     closeScheduleSheet();
                     window.location.reload();
                 }, 1400);
-            } else {
-                btns.forEach(function(b) { b.disabled = false; });
-                if (msg) msg.textContent = (res.data && res.data.error) ? res.data.error : 'Could not reschedule. Try again.';
             }
         })
-        .catch(function() {
+        .catch(function(err) {
             btns.forEach(function(b) { b.disabled = false; });
-            if (msg) msg.textContent = 'Network error. Please try again.';
+            if (msg) msg.textContent = (err && err.serverError) ? err.serverError : 'Network error. Please try again.';
         });
     }
 
@@ -1761,7 +1772,204 @@ var MwRouteMap = (function() {
         toggle: toggle,
         openToStop: openToStop,
         launchNavToStop: launchNavToStop,
-        close: close
+        close: close,
+        // Exposes the live Google map ONLY while the route view is open and
+        // initialised — returns null when closed so the truck layer (below)
+        // can pause polling and tear down its marker automatically.
+        getMap: function() { return (isOpen && mapInitialized) ? map : null; }
     };
 
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Truck Location Layer (mobile route map)
+//  ───────────────────────────────────────
+//  Mirrors the day-view truck layer (schedule-day-map.js) but drives off the
+//  mobile MwRouteMap view. Polls /crm/api/truck-location.php every 30s while
+//  the route view is OPEN, renders the same SVG truck badge as a
+//  google.maps.OverlayView, and tears the marker down the moment the view
+//  closes. Gracefully no-ops if MwRouteMap isn't present or no tracker is
+//  configured.
+// ═══════════════════════════════════════════════════════════════════════════
+(function() {
+    'use strict';
+
+    var POLL_INTERVAL_MS = 30000;
+    var STATE_CHECK_MS   = 1000;  // How often we watch MwRouteMap open/close
+    var STALE_THRESHOLD_S = 600;  // 10 min — show grey/stale badge above this
+
+    var truckOverlay = null;
+    var truckInfoWindow = null;
+    var truckLastLoc = null;
+    var pollTimer = null;
+    var watchTimer = null;
+    var active = false;           // true while polling (route view is open)
+
+    function routeMap() {
+        return (window.MwRouteMap && MwRouteMap.getMap) ? MwRouteMap.getMap() : null;
+    }
+
+    function init() {
+        // Watch for the route view opening/closing and start/stop accordingly.
+        watchTimer = setInterval(watch, STATE_CHECK_MS);
+    }
+
+    function watch() {
+        var map = routeMap();
+        if (map && !active) startPolling();
+        else if (!map && active) stopPolling();
+    }
+
+    function startPolling() {
+        if (active) return;
+        active = true;
+        poll();
+        pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+    }
+
+    function stopPolling() {
+        active = false;
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        removeTruck();
+    }
+
+    function poll() {
+        if (!routeMap()) { stopPolling(); return; }
+        fetch('/crm/api/truck-location.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.ok) return;
+                if (!data.location) return; // No ping yet
+                placeTruck(data.location);
+            })
+            .catch(function() { /* silently ignore — next poll will retry */ });
+    }
+
+    function placeTruck(loc) {
+        var map = routeMap();
+        if (!map || typeof google === 'undefined') return;
+        if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+
+        truckLastLoc = loc;
+        var pos = new google.maps.LatLng(loc.lat, loc.lng);
+        var isStale = (loc.age_seconds || 0) > STALE_THRESHOLD_S;
+
+        if (!truckOverlay) {
+            truckOverlay = createTruckOverlay(pos, isStale);
+            truckOverlay.setMap(map);
+            truckInfoWindow = new google.maps.InfoWindow();
+            truckOverlay.onDivClick = function() {
+                truckInfoWindow.setContent(formatInfoBubble(truckLastLoc || loc));
+                truckInfoWindow.setPosition(truckOverlay.getPosition());
+                truckInfoWindow.open(map);
+            };
+        } else {
+            truckOverlay.setPosition(pos);
+            truckOverlay.setStale(isStale);
+            truckOverlay.setTitle(formatTruckTitle(loc));
+            if (truckInfoWindow && truckInfoWindow.getMap()) {
+                truckInfoWindow.setContent(formatInfoBubble(loc));
+            }
+        }
+    }
+
+    function removeTruck() {
+        if (truckInfoWindow) { truckInfoWindow.close(); truckInfoWindow = null; }
+        if (truckOverlay) { truckOverlay.setMap(null); truckOverlay = null; }
+        truckLastLoc = null;
+    }
+
+    /**
+     * Build a google.maps.OverlayView that renders the truck badge as an
+     * HTML element so the surrounding CSS pulse ring (.mw-truck-overlay) can
+     * animate — static Marker icons can't. Disc is centred on the LatLng.
+     */
+    function createTruckOverlay(position, isStale) {
+        var ov = new google.maps.OverlayView();
+        ov._position = position;
+        ov._div = null;
+
+        ov.onAdd = function() {
+            var div = document.createElement('div');
+            div.className = 'mw-truck-overlay' + (isStale ? ' is-stale' : '');
+            div.innerHTML = truckBadgeSvg();
+            div.title = formatTruckTitle(truckLastLoc || {});
+            div.addEventListener('click', function() {
+                if (typeof ov.onDivClick === 'function') ov.onDivClick();
+            });
+            ov._div = div;
+            this.getPanes().overlayMouseTarget.appendChild(div);
+        };
+
+        ov.draw = function() {
+            if (!ov._div) return;
+            var pos = this.getProjection().fromLatLngToDivPixel(ov._position);
+            if (!pos) return;
+            // Disc is 48×48 — anchor at centre so the badge sits on the GPS point.
+            ov._div.style.left = (pos.x - 24) + 'px';
+            ov._div.style.top  = (pos.y - 24) + 'px';
+        };
+
+        ov.onRemove = function() {
+            if (ov._div && ov._div.parentNode) ov._div.parentNode.removeChild(ov._div);
+            ov._div = null;
+        };
+
+        ov.setPosition = function(p) { ov._position = p; ov.draw(); };
+        ov.getPosition = function()  { return ov._position; };
+        ov.setStale = function(stale) {
+            if (ov._div) ov._div.classList.toggle('is-stale', !!stale);
+        };
+        ov.setTitle = function(t) {
+            if (ov._div) ov._div.title = t;
+        };
+
+        return ov;
+    }
+
+    function truckBadgeSvg() {
+        // White disc with a purple→cyan gradient line-art truck (matches day view).
+        // Outer CSS provides the cyan pulse + disc.
+        return '<div class="mw-truck-badge">' +
+                 '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" ' +
+                      'stroke-linecap="round" stroke-linejoin="round" ' +
+                      'xmlns="http://www.w3.org/2000/svg">' +
+                   '<defs>' +
+                     '<linearGradient id="mwTruckGradRM" x1="0" y1="0" x2="1" y2="1">' +
+                       '<stop offset="0%" stop-color="#553c9a"/>' +
+                       '<stop offset="100%" stop-color="#3eb5c9"/>' +
+                     '</linearGradient>' +
+                   '</defs>' +
+                   '<rect x="1" y="3" width="15" height="13" rx="2" stroke="url(#mwTruckGradRM)"/>' +
+                   '<path d="M16 8 L20 8 L23 11 L23 16 L16 16 Z" stroke="url(#mwTruckGradRM)"/>' +
+                   '<circle cx="5.5"  cy="18.5" r="2.5" stroke="url(#mwTruckGradRM)"/>' +
+                   '<circle cx="18.5" cy="18.5" r="2.5" stroke="url(#mwTruckGradRM)"/>' +
+                 '</svg>' +
+               '</div>';
+    }
+
+    function formatTruckTitle(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        return 'Truck — last seen ' + ageLabel;
+    }
+
+    function formatInfoBubble(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        var speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '—';
+        var batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '—';
+        return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+               '<strong style="color:#e85d04">🛻 Truck</strong><br>' +
+               '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
+               'Speed: ' + speed + '<br>' +
+               'Battery: ' + batt +
+               '</div>';
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+}());

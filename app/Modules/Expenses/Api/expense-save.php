@@ -25,8 +25,10 @@ header('Content-Type: application/json');
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -38,7 +40,9 @@ try {
     }
 
     $input = json_decode(file_get_contents('php://input'), true);
+    // A refusal is a 4xx, never a 200: the phone's queue reads a 200 with no expense_id as "try later" for ever.
     if (!is_array($input)) {
+        http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'JSON body required']);
         exit;
     }
@@ -46,8 +50,32 @@ try {
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total       = (float)($input['total'] ?? 0);
 
+    // Mobile submits for desktop review: only draft / pending_approval are accepted here.
+    // approved / rejected / forwarded require the audited ExpenseApprovalService paths.
+    $requestedStatus = (string)($input['status'] ?? 'pending_approval');
+    $status = in_array($requestedStatus, ['draft', 'pending_approval'], true) ? $requestedStatus : 'pending_approval';
+
     if ($total <= 0 && empty($input['description'])) {
+        http_response_code(422);
         echo json_encode(['success' => false, 'error' => 'Total amount or description is required']);
+        exit;
+    }
+
+    // One photo, one expense (see ExpenseCreateGuard): a repeat of this save answers with
+    // the expense already made from the photo instead of inserting another.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseCreateGuard.php';
+    $createGuard  = new ExpenseCreateGuard(getDB());
+    $guardMediaId = !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null;
+    // Only a photo this user may see (Codex review 2026-10-14).
+    if ($guardMediaId && !ExpenseService::userMayUseReceiptMedia(getDB(), $guardMediaId, $userId,
+            ExpenseService::isOffice((string)($jwtUser['role'] ?? ''), jwtUserHasPermission($jwtUser, 'expenses.approve')))) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'That receipt photo isn\'t yours to attach']);
+        exit;
+    }
+    $existingId   = $createGuard->claim($guardMediaId);
+    if ($existingId !== null) {
+        echo json_encode(ExpenseCreateGuard::existingResponse($existingId));
         exit;
     }
 
@@ -63,66 +91,92 @@ try {
         error_log('Anomaly detection error: ' . $e->getMessage());
     }
 
-    $db   = getDB();
-    $stmt = $db->prepare("
-        INSERT INTO expenses
-            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
-             accounting_category, gbp_category, payment_method, receipt_media_id,
-             receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
-             job_id, notes, status, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-    $stmt->execute([
-        $expenseDate,
-        !empty($input['vendor_id'])       ? (int)$input['vendor_id']       : null,
-        $input['vendor_name_raw']         ?? null,
-        $input['description']             ?? null,
-        (float)($input['amount']          ?? 0),
-        (float)($input['gst_amount']      ?? 0),
-        (float)($input['pst_amount']      ?? 0),
-        $total,
-        $input['accounting_category']     ?? null,
-        $input['gbp_category']            ?? null,
-        $input['payment_method']          ?? null,
-        !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
-        !empty($input['receipt_lat'])      ? (float)$input['receipt_lat']    : null,
-        !empty($input['receipt_lng'])      ? (float)$input['receipt_lng']    : null,
-        (int)($input['match_confidence']  ?? 0),
-        $anomalyFlags ?: null,
-        $anomalyScore,
-        $input['raw_ocr_json']            ?? null,
-        !empty($input['job_id'])          ? (int)$input['job_id']           : null,
-        $input['notes']                   ?? null,
-        'draft',
-        $userId,
-    ]);
+    $db = getDB();
+    // Through the expense gate (migration 1233): the insert, its line items, the printed
+    // facts, the duplicate check, the capture baseline + line-item lessons (when OCR'd),
+    // line prices and the audit row — the same door as the desktop save.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
+    try {
+        $ocrd = !empty($input['raw_ocr_json']) && !empty($input['ocr_parsed']);
+        $created = (new ExpenseGate($db))->apply(null, ExpenseGate::rowFromInput($input, [
+            'expense_date'  => $expenseDate,
+            'total'         => $total,
+            'anomaly_flags' => $anomalyFlags ?: null,
+            'anomaly_score' => $anomalyScore,
+            'status'        => $status,
+            'created_by'    => $userId,
+        ]) + (!empty($input['line_items']) && is_array($input['line_items']) ? ['line_items' => $input['line_items']] : []),
+            ['id' => $userId, 'kind' => 'user'], 'ios_save', [
+            'ocr_parsed'  => $ocrd ? $input['ocr_parsed'] : null,
+            'learn_lines' => $ocrd ? $input : null,
+            'price_intel' => true,
+            // Anyone's phone save teaches the reader now — crew included (Tim, 2026-11-04: "crew corrections yes
+            // teach"). The lessons stay provisional: the desk's approval confirms them or overturns the fields it
+            // changes (amendPhoneLessons), so a crew mistake is undone by the desk, not learned for good.
+            'learn_now'   => $ocrd,
+        ]);
+        $expenseId = (int)$created['expense_id'];
+    } finally {
+        $createGuard->release($guardMediaId);   // the INSERT is in: the next request sees it
+    }
 
-    $expenseId = (int)$db->lastInsertId();
-
-    // Record OCR corrections for self-learning
-    if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
-        try {
-            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            $ocrParsed = is_string($input['ocr_parsed'])
-                ? json_decode($input['ocr_parsed'], true)
-                : $input['ocr_parsed'];
-            if (is_array($ocrParsed)) {
-                recordCorrections(
-                    !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-                    $input['vendor_name_raw'] ?? null,
-                    $ocrParsed,
-                    $input,
-                    $input['raw_ocr_json']
-                );
+    // "Save & Send" — same one-tap flow as the Android review card (mobileSaveExpense(true)
+    // → receipt-send.php). The expense is already committed above; a send failure is
+    // reported, never fatal, so the record is never lost.
+    $sent      = false;
+    $sendError = null;
+    if (!empty($input['and_send'])) {
+        $stStmt = getDB()->prepare("SELECT status FROM expenses WHERE id = ?");
+        $stStmt->execute([$expenseId]);
+        $savedStatus = (string)$stStmt->fetchColumn();
+        if (!jwtUserHasPermission($jwtUser, 'expenses.send')) {
+            $sendError = 'Permission denied: expenses.send required';
+        } elseif (!in_array($savedStatus, ['approved'], true)) {
+            // Phone receipts are capture-only: approved on the desk, then sent (owner rule
+            // 2026-09-03). A draft went straight to the accountant with no approval (review 2026-10-12).
+            $sendError = 'Saved. Receipts from the phone are sent to the accountant after approval in the office.';
+        } elseif (empty($input['receipt_media_id'])) {
+            $sendError = 'No receipt image attached to this expense';
+        } else {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
+                $sendResult = sendReceiptToAccounting([
+                    'expense_id'          => $expenseId,
+                    'media_id'            => (int)$input['receipt_media_id'],
+                    'vendor'              => $input['vendor_name_raw'] ?? 'Unknown',
+                    'subtotal'            => (string)($input['amount'] ?? '0.00'),
+                    'gst_amount'          => (string)($input['gst_amount'] ?? '0.00'),
+                    'total'               => (string)$total,
+                    'date'                => $expenseDate,
+                    'job_id'              => $input['job_id'] ?? null,
+                    'description'         => $input['description'] ?? '',
+                    'accounting_category' => $input['accounting_category'] ?? '',
+                ], $userId);
+                $sent = !empty($sendResult['success']);
+                if (!$sent) {
+                    $sendError = $sendResult['error'] ?? 'Send failed';
+                }
+            } catch (Throwable $e) {
+                $sendError = ApiResponse::message($e, 'expense-save');
             }
-        } catch (Throwable $e) {
-            error_log('OCR learning error: ' . $e->getMessage());
         }
     }
 
-    echo json_encode(['success' => true, 'expense_id' => $expenseId]);
+    // The status as it stands now: a receipt from a filed year may have been filed by the save itself.
+    $stNow = getDB()->prepare("SELECT status, rejection_reason FROM expenses WHERE id = ?");
+    $stNow->execute([$expenseId]);
+    $saved = $stNow->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    echo json_encode([
+        'success'    => true,
+        'expense_id' => $expenseId,
+        'status'     => $saved['status'] ?? $status,
+        'filed'      => ($saved['status'] ?? '') === 'rejected' && strncmp((string)($saved['rejection_reason'] ?? ''), 'Filed:', 6) === 0,
+        'sent'       => $sent,
+        'send_error' => $sendError,
+    ]);
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Save failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Save failed: ' . ApiResponse::message($e, 'expense-save')]);
 }

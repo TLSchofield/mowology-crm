@@ -39,33 +39,27 @@ if (!$isCli) {
         exit;
     }
 
-    // CSRF check for POST (non-record calls only; record is internal)
+    // CSRF check for POST — the comment above previously described this without
+    // the code actually doing it.
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $action = $_GET['action'] ?? ($method === 'POST' ? 'record' : 'latest');
+    if ($method === 'POST') {
+        $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+    }
 } else {
     $method = 'POST';
     $action = 'record';
 }
 
-// ── Ensure table exists (idempotent — runs DDL only if missing) ──────────────
-function ensureCronRunsTable(PDO $db): void {
-    $db->exec("CREATE TABLE IF NOT EXISTS cron_runs (
-        id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        cron_key      VARCHAR(64)  NOT NULL,
-        triggered_by  ENUM('cron','web') NOT NULL DEFAULT 'cron',
-        status        ENUM('success','warning','error') NOT NULL DEFAULT 'success',
-        duration_ms   INT UNSIGNED NULL,
-        summary       VARCHAR(512) NULL,
-        error_message TEXT         NULL,
-        ran_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        INDEX idx_cron_key_ran_at (cron_key, ran_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
-}
+// cron_runs is created by migration 900 — no runtime DDL (data-only MySQL user, Fable audit #27).
 
 try {
     $db = getDB();
-    ensureCronRunsTable($db);
 
     // ── GET latest ────────────────────────────────────────────────────────────
     if ($method === 'GET' && $action === 'latest') {

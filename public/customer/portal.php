@@ -30,10 +30,16 @@
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 
 $db = getDB();
+require_once APP_ROOT . '/Modules/Contacts/Services/PortalTokenService.php'; // 365-day portal links (audit #14)
 
 $contact    = null;
 $adminMode  = false;
@@ -43,6 +49,7 @@ $error      = '';
 if (isset($_GET['contact_id'])) {
     require_once dirname(__DIR__) . '/loginAuth/auth.php';
     requireLogin();
+    requirePermission('billing.view');
     $adminMode = true;
     $contactId = intval($_GET['contact_id']);
 
@@ -58,7 +65,7 @@ if (isset($_GET['contact_id'])) {
 // ── Mode 2: Client access via portal token ───────────────────────────────────
 } elseif (isset($_GET['token']) && $_GET['token'] !== '') {
     $token = trim($_GET['token']);
-    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ?" . PortalTokenService::liveSql($db) . " LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This portal link is invalid or has expired.';
@@ -69,10 +76,7 @@ if (isset($_GET['contact_id'])) {
 
 // ── Generate portal token if admin and contact has none ──────────────────────
 if ($adminMode && $contact && empty($contact['portal_token'])) {
-    $newToken = bin2hex(random_bytes(24)); // 48-char hex token
-    $stmt = $db->prepare("UPDATE contacts SET portal_token = ? WHERE id = ?");
-    $stmt->execute([$newToken, $contact['id']]);
-    $contact['portal_token'] = $newToken;
+    $contact['portal_token'] = PortalTokenService::issue($db, (int)$contact['id']); // stamped: 365 days (audit #14)
 }
 
 // ── Load documents ────────────────────────────────────────────────────────────
@@ -138,11 +142,29 @@ if ($contact && !$error) {
     $billingTotalPaid    = 0.0;
     $billingOutstanding  = 0.0;
     foreach ($invoices as $inv) {
+        if ($inv['status'] === 'cancelled') { continue; }
         $billingTotalCharged += floatval($inv['total_amount'] ?? 0);
         $billingTotalPaid    += floatval($inv['amount_paid'] ?? 0);
         if (in_array($inv['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
             $billingOutstanding += floatval($inv['balance_due'] ?? 0);
         }
+    }
+
+    // Prepaid credit balance, if this contact is linked to a client with any ledger activity.
+    $clientCreditBalance = null;
+    try {
+        $clStmt = $db->prepare("SELECT id FROM clients WHERE legacy_contact_id = ? LIMIT 1");
+        $clStmt->execute([$contact['id']]);
+        $clientIdForCredit = $clStmt->fetchColumn();
+        if ($clientIdForCredit) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+            $creditBal = (new ClientCreditService($db))->getBalance((int)$clientIdForCredit);
+            if ($creditBal > 0) {
+                $clientCreditBalance = $creditBal;
+            }
+        }
+    } catch (Exception $e) {
+        $clientCreditBalance = null;
     }
 
     // Upcoming visits: scheduled or in-progress, today onwards
@@ -174,8 +196,9 @@ if ($contact && !$error) {
         $stmt = $db->prepare("
             SELECT jv.id, jv.visit_number, jv.scheduled_date, jv.status,
                    jv.completed_at, jv.actual_duration_minutes, jv.actual_amount,
-                   jp.title AS service_name, jp.service_type,
-                   p.address AS property_address
+                   jp.title AS service_name, jp.service_type, jp.contract_id,
+                   p.address AS property_address,
+                   p.latitude AS property_lat, p.longitude AS property_lng
             FROM job_visits jv
             JOIN job_plans jp ON jv.plan_id = jp.id
             JOIN properties p ON jp.property_id = p.id
@@ -188,6 +211,24 @@ if ($contact && !$error) {
         $completedVisits = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         $completedVisits = [];
+    }
+
+    // Your plants: the confirmed plants on each property, last work done and what comes next (PlantWorkService)
+    $plantSummaries = [];
+    try {
+        $stmt = $db->prepare("SELECT id, address FROM properties WHERE site_contact_id = ? ORDER BY id LIMIT 10");
+        $stmt->execute([$contactId]);
+        $plantProps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if ($plantProps) {
+            require_once APP_ROOT . '/Modules/Plants/Services/PlantWorkService.php';
+            $plantWork = new PlantWorkService($db);
+            foreach ($plantProps as $pp) {
+                $rows = $plantWork->portalSummary((int)$pp['id'], date('Y-m-d'));
+                if ($rows) $plantSummaries[] = ['address' => (string)$pp['address'], 'plants' => $rows];
+            }
+        }
+    } catch (Throwable $e) {
+        $plantSummaries = [];
     }
 
     // Photos for all completed visits — queried from the unified media system
@@ -229,23 +270,14 @@ if ($contact && !$error) {
         }
     }
 
-    // GPS pings for completed visits (crew_location_history linked by visit_id)
+    // GPS pings for completed visits — only fixes ON the property, never mock locations
+    // (a running timer stamps the fuel run and the lunch stop with the visit too).
     $visitPings = [];
     if (!empty($completedVisits)) {
-        $pingIds = array_column($completedVisits, 'id');
-        $pingPH  = implode(',', array_fill(0, count($pingIds), '?'));
         try {
-            $stmt = $db->prepare("
-                SELECT visit_id, latitude, longitude, timestamp
-                FROM crew_location_history
-                WHERE visit_id IN ($pingPH)
-                ORDER BY visit_id ASC, timestamp ASC
-            ");
-            $stmt->execute($pingIds);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $ping) {
-                $visitPings[(int)$ping['visit_id']][] = $ping;
-            }
-        } catch (Exception $e) {
+            require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+            $visitPings = (new RouteProofService($db))->forVisits(array_column($completedVisits, 'id'));
+        } catch (Throwable $e) {
             // pings unavailable
         }
     }
@@ -255,7 +287,7 @@ $hasAnyPings = !empty($visitPings);
 $firstName   = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $contactName = $contact ? trim(htmlspecialchars($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : 'Client';
 $hasAnything = !empty($quotes) || !empty($invoices) || !empty($completedVisits);
-$baseUrl     = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+$baseUrl     = PortalBrand::appUrl(); // never the Host header
 $portalUrl   = $contact && !empty($contact['portal_token'])
                ? $baseUrl . '/customer/portal.php?token=' . urlencode($contact['portal_token'])
                : '';
@@ -313,15 +345,15 @@ function statusBadge(string $status, bool $overdue = false): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Client Portal<?php if ($contact): ?> — <?php echo $contactName; ?><?php endif; ?></title>
-  <link rel="stylesheet" href="/customer/portal.css">
+  <link rel="stylesheet" href="/customer/portal.css?v=20261104p">
   <?php if ($hasAnyPings): ?>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
   <?php endif; ?>
 </head>
 <body>
 
 <header class="portal-header">
-  <div class="portal-logo-text">Mowo<span>logy</span></div>
+  <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
   <div class="portal-header-divider"></div>
   <span class="portal-header-label">Client Portal</span>
   <?php if ($contact): ?>
@@ -372,7 +404,7 @@ function statusBadge(string $status, bool $overdue = false): string {
         <div class="portal-link-label">Client's portal link</div>
         <div class="portal-link-copy">
           <input type="text" id="portal-url-input" value="<?php echo htmlspecialchars($portalUrl); ?>" readonly>
-          <button onclick="copyPortalLink()">Copy</button>
+          <button data-mw-call="copyPortalLink">Copy</button>
         </div>
       <?php endif; ?>
     </div>
@@ -422,28 +454,39 @@ function statusBadge(string $status, bool $overdue = false): string {
         </svg>
         <h3>No documents yet</h3>
         <p>Your quotes and invoices will appear here once they've been sent.<br>
-           Have a question? Call us at (778) 846-9273.</p>
+           <?php if (PortalBrand::phoneLinkHtml() !== ''): ?>Have a question? Call us at <?= PortalBrand::phoneLinkHtml() ?>.<?php endif; ?></p>
       </div>
 
     <?php else: ?>
 
       <?php if ($billingOutstanding > 0 || $billingTotalPaid > 0): ?>
         <div class="portal-billing-summary">
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label">Total Invoiced</div>
-            <div class="portal-billing-stat-value">$<?php echo number_format($billingTotalCharged, 2); ?></div>
-          </div>
-          <div class="portal-billing-divider"></div>
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label">Paid</div>
-            <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($billingTotalPaid, 2); ?></div>
-          </div>
-          <div class="portal-billing-divider"></div>
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label"><?php echo $billingOutstanding > 0 ? 'Balance Due' : 'Outstanding'; ?></div>
-            <div class="portal-billing-stat-value <?php echo $billingOutstanding > 0 ? 'portal-billing-due' : 'portal-billing-paid'; ?>">
-              $<?php echo number_format($billingOutstanding, 2); ?>
+          <div class="portal-billing-summary-head">Account Summary</div>
+          <div class="portal-billing-grid">
+            <div class="portal-billing-stat">
+              <div class="portal-billing-stat-label">Total Invoiced</div>
+              <div class="portal-billing-stat-value">$<?php echo number_format($billingTotalCharged, 2); ?></div>
             </div>
+            <div class="portal-billing-stat">
+              <div class="portal-billing-stat-label">Paid</div>
+              <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($billingTotalPaid, 2); ?></div>
+            </div>
+            <div class="portal-billing-stat">
+              <div class="portal-billing-stat-label"><?php echo $billingOutstanding > 0 ? 'Balance Due' : 'Outstanding'; ?></div>
+              <div class="portal-billing-stat-value <?php echo $billingOutstanding > 0 ? 'portal-billing-due' : 'portal-billing-muted'; ?>">
+                $<?php echo number_format($billingOutstanding, 2); ?>
+              </div>
+            </div>
+            <?php if ($clientCreditBalance !== null): ?>
+            <div class="portal-billing-stat portal-billing-stat-credit">
+              <div class="portal-billing-stat-label">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+                Prepaid Credit
+              </div>
+              <div class="portal-billing-stat-value portal-billing-credit-value">$<?php echo number_format($clientCreditBalance, 2); ?></div>
+              <div class="portal-billing-stat-sub">Applied automatically to future invoices</div>
+            </div>
+            <?php endif; ?>
           </div>
         </div>
       <?php endif; ?>
@@ -471,7 +514,7 @@ function statusBadge(string $status, bool $overdue = false): string {
                 </div>
               </div>
               <div class="portal-doc-actions">
-                <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
+                <button class="portal-btn-outline" data-mw-call="copyLink" data-mw-args="<?php echo htmlspecialchars(json_encode([(string)$url, '$this']), ENT_QUOTES); ?>">Copy</button>
                 <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">View</a>
               </div>
             </li>
@@ -514,7 +557,7 @@ function statusBadge(string $status, bool $overdue = false): string {
                 </div>
               </div>
               <div class="portal-doc-actions">
-                <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
+                <button class="portal-btn-outline" data-mw-call="copyLink" data-mw-args="<?php echo htmlspecialchars(json_encode([(string)$url, '$this']), ENT_QUOTES); ?>">Copy</button>
                 <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">View</a>
               </div>
             </li>
@@ -566,6 +609,32 @@ function statusBadge(string $status, bool $overdue = false): string {
         </ul>
       <?php endif; ?>
 
+      <?php if (!empty($plantSummaries)): ?>
+        <p class="portal-section-label">Your Plants</p>
+        <?php foreach ($plantSummaries as $ps): ?>
+        <div class="portal-plants">
+          <?php if (count($plantSummaries) > 1): ?>
+            <div class="portal-plants-address"><?php echo htmlspecialchars($ps['address']); ?></div>
+          <?php endif; ?>
+          <ul class="portal-plants-list">
+            <?php foreach ($ps['plants'] as $pl): ?>
+            <li class="portal-plants-row">
+              <div class="portal-plants-name"><?php echo htmlspecialchars($pl['plant']); ?><?php echo $pl['count'] > 1 ? ' <span class="portal-plants-count">&times;' . (int)$pl['count'] . '</span>' : ''; ?></div>
+              <div class="portal-plants-meta">
+                <?php if ($pl['last']): ?>
+                  Last: <?php echo htmlspecialchars($pl['last']['task']); ?>, <?php echo date('M j', strtotime($pl['last']['done_at'])); ?>
+                <?php endif; ?>
+                <?php if ($pl['next']): ?>
+                  <?php echo $pl['last'] ? ' &middot; ' : ''; ?><?php echo $pl['next']['now'] ? 'Due now' : 'Next'; ?>: <?php echo htmlspecialchars($pl['next']['task']); ?> (<?php echo htmlspecialchars($pl['next']['when']); ?>)
+                <?php endif; ?>
+              </div>
+            </li>
+            <?php endforeach; ?>
+          </ul>
+        </div>
+        <?php endforeach; ?>
+      <?php endif; ?>
+
       <?php if (!empty($completedVisits)): ?>
         <p class="portal-section-label">Service History</p>
         <ul class="portal-visit-list">
@@ -576,7 +645,15 @@ function statusBadge(string $status, bool $overdue = false): string {
               $mon      = date('M', $ts);
               $label    = htmlspecialchars($v['service_name'] ?: ucwords(str_replace('_', ' ', $v['service_type'])));
               $addr     = htmlspecialchars($v['property_address'] ?? '');
-              $durMins  = (int)($v['actual_duration_minutes'] ?? 0);
+              // What this client may see for contract work (Settings → Client Portal).
+              // Staff previewing the portal see everything.
+              if (!isset($mwClientVisibility)) {
+                  require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+                  $mwClientVisibility = new ClientVisibilityService($db);
+              }
+              $vSees    = $adminMode ? ['report' => true, 'length' => true]
+                                     : $mwClientVisibility->forContractId($v['contract_id'] ?? null);
+              $durMins  = $vSees['length'] ? (int)($v['actual_duration_minutes'] ?? 0) : 0;
               if ($durMins > 0) {
                   $durHrs  = intdiv($durMins, 60);
                   $durRem  = $durMins % 60;
@@ -610,13 +687,13 @@ function statusBadge(string $status, bool $overdue = false): string {
                     <span class="portal-visit-stat"><?php echo htmlspecialchars($amt); ?></span>
                   <?php endif; ?>
                   <?php if (!empty($contact['portal_token']) && !$adminMode): ?>
-                    <button type="button" class="portal-visit-rebook-btn" onclick="mwRebookVisit(<?php echo (int)$v['id']; ?>, '<?php echo htmlspecialchars(addslashes($label), ENT_QUOTES); ?>')">
+                    <button type="button" class="portal-visit-rebook-btn" data-mw-rebook="<?php echo (int)$v['id']; ?>" data-mw-call="mwRebookVisit" data-mw-args="<?php echo htmlspecialchars(json_encode([(int)$v['id'], (string)$label]), ENT_QUOTES); ?>">
                       &#8634; Book again
                     </button>
                   <?php endif; ?>
                   <?php
                     $rptToken = $adminMode ? ($contact['portal_token'] ?? '') : ($contact['portal_token'] ?? '');
-                    if ($rptToken):
+                    if ($rptToken && $vSees['report']):
                   ?>
                     <a href="/customer/visit-report.php?token=<?php echo urlencode($rptToken); ?>&amp;visit_id=<?php echo (int)$v['id']; ?>"
                        class="portal-visit-report-link">View Report &#8594;</a>
@@ -638,14 +715,14 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <div class="portal-photo-grid">
                     <?php foreach (array_slice($vPhotos, 0, $showMax) as $pi => $ph): ?>
                       <?php $thumbSrc = $ph['thumb_path'] ?: $ph['file_path']; ?>
-                      <div class="portal-photo-thumb" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $pi; ?>)">
+                      <div class="portal-photo-thumb" data-mw-call="openLightbox" data-mw-args="<?php echo htmlspecialchars(json_encode([$photoUrls, (int)$pi]), ENT_QUOTES); ?>">
                         <img src="<?php echo htmlspecialchars($thumbSrc); ?>"
                              alt="<?php echo htmlspecialchars($ph['photo_type'] ?? ''); ?>"
                              loading="lazy">
                       </div>
                     <?php endforeach; ?>
                     <?php if ($extra > 0): ?>
-                      <div class="portal-photo-more" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $showMax; ?>)">
+                      <div class="portal-photo-more" data-mw-call="openLightbox" data-mw-args="<?php echo htmlspecialchars(json_encode([$photoUrls, (int)$showMax]), ENT_QUOTES); ?>">
                         +<?php echo $extra; ?>
                       </div>
                     <?php endif; ?>
@@ -665,7 +742,11 @@ function statusBadge(string $status, bool $overdue = false): string {
                        id="vmap-<?php echo (int)$v['id']; ?>"
                        data-pings="<?php echo htmlspecialchars($pingJson, ENT_QUOTES); ?>"
                        data-start="<?php echo htmlspecialchars($startTime); ?>"
-                       data-count="<?php echo $pingCount; ?>">
+                       data-count="<?php echo $pingCount; ?>"
+                       <?php if (!empty($v['property_lat']) && !empty($v['property_lng'])): ?>
+                       data-property-lat="<?php echo htmlspecialchars((string)$v['property_lat']); ?>"
+                       data-property-lng="<?php echo htmlspecialchars((string)$v['property_lng']); ?>"
+                       <?php endif; ?>>
                   </div>
                 <?php endif; ?>
               </div>
@@ -712,7 +793,7 @@ function statusBadge(string $status, bool $overdue = false): string {
     <?php endif; ?>
 
     <div class="portal-footer">
-      Questions? Call <a href="tel:7788469273">(778) 846-9273</a> or email <a href="mailto:tim@mowology.ca">tim@mowology.ca</a>
+      <?= PortalBrand::questionsHtml() ?>
     </div>
 
   </div>
@@ -722,17 +803,17 @@ function statusBadge(string $status, bool $overdue = false): string {
 <div class="portal-toast" id="toast">Link copied!</div>
 
 <!-- Lightbox -->
-<div class="portal-lightbox" id="lb" onclick="closeLightboxOnBg(event)">
-  <button class="portal-lightbox-prev" onclick="lbStep(-1)">&#8249;</button>
+<div class="portal-lightbox" id="lb" data-mw-call="closeLightboxOnBg" data-mw-args='["$event"]'>
+  <button class="portal-lightbox-prev" data-mw-call="lbStep" data-mw-args="[-1]">&#8249;</button>
   <div class="portal-lightbox-inner">
-    <button class="portal-lightbox-close" onclick="closeLightbox()">&#x2715;</button>
+    <button class="portal-lightbox-close" data-mw-call="closeLightbox">&#x2715;</button>
     <img id="lb-img" src="" alt="">
     <div class="portal-lightbox-caption" id="lb-cap"></div>
   </div>
-  <button class="portal-lightbox-next" onclick="lbStep(1)">&#8250;</button>
+  <button class="portal-lightbox-next" data-mw-call="lbStep" data-mw-args="[1]">&#8250;</button>
 </div>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 var lbPhotos = [], lbIdx = 0;
 function openLightbox(photosJson, idx) {
   lbPhotos = typeof photosJson === 'string' ? JSON.parse(photosJson) : photosJson;
@@ -767,7 +848,7 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 function copyLink(url, btn) {
   navigator.clipboard.writeText(url).then(function() {
     var orig = btn.textContent;
@@ -797,7 +878,7 @@ function mwRebookVisit(visitId, serviceLabel) {
   );
   if (note === null) return; // cancelled
 
-  var btns = document.querySelectorAll('button[onclick*="mwRebookVisit(' + visitId + ',');
+  var btns = document.querySelectorAll('button[data-mw-rebook="' + visitId + '"]');
   btns.forEach(function(b) { b.disabled = true; b.textContent = 'Sending...'; });
 
   var formData = new FormData();
@@ -831,8 +912,8 @@ function mwRebookVisit(visitId, serviceLabel) {
 
 
 <?php if ($hasAnyPings): ?>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<script>
+<script src="/assets/vendor/leaflet/leaflet.min.js"></script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   document.querySelectorAll('.portal-visit-map[data-pings]').forEach(function(el) {
     var pings  = JSON.parse(el.dataset.pings || '[]');
@@ -872,17 +953,44 @@ function mwRebookVisit(visitId, serviceLabel) {
       L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
     }
 
-    // Centre on ping centroid, zoom 19 for house-number detail
-    var sLat = 0, sLng = 0;
-    latlngs.forEach(function(p) { sLat += p[0]; sLng += p[1]; });
-    map.setView([sLat / latlngs.length, sLng / latlngs.length], 19);
+    // Centre on the property's actual geocoded address when we have it — GPS
+    // pings drift with signal noise and cluster unevenly (e.g. extra
+    // stationary pings near the parking/start spot), so centering on them
+    // visually shoves the real property to one side of the frame. The
+    // property's address coordinates are the authoritative "where this is,"
+    // regardless of how the crew's pings happened to fall.
+    // Fall back to the pings' bounding-box midpoint (not the arithmetic mean,
+    // same reasoning) only if the property has no geocoded coordinates.
+    // Zoom stays fixed at 19 for house-number detail.
+    var center;
+    if (el.dataset.propertyLat && el.dataset.propertyLng) {
+      center = [parseFloat(el.dataset.propertyLat), parseFloat(el.dataset.propertyLng)];
+    } else {
+      var lats = latlngs.map(function(p) { return p[0]; });
+      var lngs = latlngs.map(function(p) { return p[1]; });
+      center = [
+        (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2,
+        (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2
+      ];
+    }
+    map.setView(center, 19);
+
+    // The map container's real width/height isn't settled yet at this point
+    // (still inside the card's flex/grid layout reflow), so the initial
+    // setView above is computed against a stale size and drifts off-centre
+    // once the container reaches its final width. Re-apply the same centre
+    // AFTER invalidateSize() has picked up the real dimensions.
 
     requestAnimationFrame(function() {
-      setTimeout(function() { map.invalidateSize(true); }, 80);
+      setTimeout(function() {
+        map.invalidateSize(true);
+        map.setView(center, 19);
+      }, 80);
     });
   });
 })();
 </script>
 <?php endif; ?>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

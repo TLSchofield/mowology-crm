@@ -1,0 +1,3 @@
+outbox/*.md
+!outbox/.gitkeep
+__pycache__/

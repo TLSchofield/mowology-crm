@@ -18,6 +18,7 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         <i class="hamburger align-self-center"></i>
     </a>
 
+    <?php if (empty($mwLedgerOnly)): /* the accountant's login: no tracking dot, clock or receipt camera */ ?>
     <!-- Location Tracking Status Indicator -->
     <div class="mw-tracking-dot-wrapper" id="trackingDotWrapper" title="Loading...">
         <span class="mw-tracking-dot" id="trackingDot">
@@ -42,16 +43,19 @@ if (!isset($user)) $user = ['name' => 'Admin'];
     </button>
     <?php endif; ?>
 
+    <?php endif; ?>
     <!-- Right cluster — margin-left:auto pushes to far right.
          Kept OUTSIDE .navbar-collapse so Bootstrap/Popper dropdown positioning works correctly. -->
     <div class="mw-topbar-right-cluster">
 
-        <!-- Global Search Trigger -->
+<?php if (empty($mwLedgerOnly)): ?>
+                <!-- Global Search Trigger -->
         <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             <span class="mw-spotlight-trigger-text">Search...</span>
             <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
         </button>
+        <?php endif; ?>
 
         <!-- Debug Panel Toggle -->
         <?php
@@ -87,6 +91,40 @@ if (!isset($user)) $user = ['name' => 'Admin'];
           <?php endif; ?>
         </button>
 
+        <!-- OPcache Reset — admin only. This host runs OPcache with
+             validate_timestamps off, so deployed PHP changes don't take
+             effect until this is hit once. Previously a URL admins had to
+             visit manually after every lftp deploy. -->
+        <?php if (function_exists('isAdmin') && isAdmin()): ?>
+        <button
+          type="button"
+          class="mw-opcache-btn"
+          id="mwOpcacheResetBtn"
+          title="Reset OPcache (needed after every deploy)"
+          onclick="(function(btn){
+            btn.classList.remove('mw-opcache-btn--ok', 'mw-opcache-btn--err');
+            btn.classList.add('mw-opcache-btn--busy');
+            btn.disabled = true;
+            fetch('/crm/api/opcache-reset.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'csrf_token=' + encodeURIComponent(window.MW_CSRF_TOKEN || '') }).then(function(r){ return r.json(); }).then(function(d){
+              btn.classList.remove('mw-opcache-btn--busy');
+              btn.classList.add(d.opcache_reset ? 'mw-opcache-btn--ok' : 'mw-opcache-btn--err');
+              btn.title = d.opcache_reset ? 'OPcache reset ✓' : 'OPcache reset failed';
+              btn.disabled = false;
+              setTimeout(function(){
+                btn.classList.remove('mw-opcache-btn--ok', 'mw-opcache-btn--err');
+                btn.title = 'Reset OPcache (needed after every deploy)';
+              }, 3000);
+            }).catch(function(){
+              btn.classList.remove('mw-opcache-btn--busy');
+              btn.classList.add('mw-opcache-btn--err');
+              btn.title = 'OPcache reset failed';
+              btn.disabled = false;
+            });
+          })(this)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"></path></svg>
+        </button>
+        <?php endif; ?>
+
         <!-- User / Settings icon dropdown -->
         <div class="dropdown">
             <button class="mw-topbar-settings-btn dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="<?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?>">
@@ -102,8 +140,19 @@ if (!isset($user)) $user = ['name' => 'Admin'];
                 <a class="dropdown-item" href="/crm/profile.php">
                     <i class="align-middle mr-1" data-feather="user"></i> Profile
                 </a>
+                <a class="dropdown-item" href="/crm/account/two-step.php">
+                    <i class="align-middle mr-1" data-feather="shield"></i> Two-step sign-in
+                </a>
                 <a class="dropdown-item" href="/crm/settings.php">
                     <i class="align-middle mr-1" data-feather="settings"></i> Settings
+                </a>
+                <?php $__itOn = ($_COOKIE['it_design'] ?? '') === '1'; // the Ittai design choice (dashboard_appstack.php sets it) ?>
+                <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_design=<?php echo $__itOn ? '0' : '1'; ?>">
+                    <i class="align-middle mr-1" data-feather="layout"></i> <?php echo $__itOn ? 'Back to the classic design' : 'Try the new design'; ?>
+                </a>
+                <?php $__brandIttai = ($_COOKIE['it_brand'] ?? '') === 'ittai'; // Ittai brand preview (dashboard_appstack.php sets it) ?>
+                <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_brand=<?php echo $__brandIttai ? 'mowology' : 'ittai'; ?>">
+                    <i class="align-middle mr-1" data-feather="droplet"></i> <?php echo $__brandIttai ? 'Back to Mowology colours' : 'Preview Ittai colours'; ?>
                 </a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" href="/crm/logout_secure.php">

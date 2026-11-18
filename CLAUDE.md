@@ -59,14 +59,46 @@ This is a critical constraint for all SQL queries and schema changes:
     - ❌ No special characters that may not survive gateway encoding
     - ✅ Always direct the customer to **check their email** for links/attachments
     - ✅ Always include the phone number `(778) 846-9273` as a fallback contact
+12. **NEVER use a native `<input type="date">` as the user-facing control for a new date field.** Use the shared `MwDatePicker` component (`/crm/js/mw-datepicker.js`, auto-loaded on every AppStack page) instead — it matches the CRM's branded calendar UI. Pattern:
+    - Standalone form field → `data-mw-dp-commit="input"` + a hidden companion `<input type="date">` as the real form value. See `public/crm/invoices/create.php`'s `due_date` field for a working example.
+    - From/to range filter → two linked instances via `data-mw-dp-range-group`/`data-mw-dp-range-role="start"|"end"`. See `public/crm/accounting/reports.php`'s date-range filter.
+    - Full usage docs: `HOWTO.md` → "Adding a Date Field". The native input may stay in the DOM (`hidden`) as the actual form value carrier — just never show it to the user directly.
+13. **ALWAYS check `COMPONENTS.md` before writing new shared UI JS/CSS.** It catalogs every reusable frontend component (toasts, searchable-select, date-picker, offline queue, camera permission guard, etc.) the same way `/crm/includes/functions.php` catalogs shared PHP helpers. Building a second toast system, a second offline queue, etc. because the existing one wasn't discovered is exactly the kind of duplication this file exists to prevent — check it first, and add a new entry to it whenever you build something reusable enough that another page should use it instead of reinventing it.
 
 ---
 
-## 1b. Deployment Workflow — Commit, Push, Verify
+## 1a. Head skills — load the one for the area first
+
+Anything touching receipts, expenses, GST/PST, invoices/payments, deposits, Stripe, bank
+statements, the ledger, payroll or Penny: load the `penny-bc-bookkeeping` skill first
+(`.claude/skills/penny-bc-bookkeeping/`). It holds BC rules, how this ledger works, Penny's
+operating rules, the one place for each job, iPhone/Android/web parity, and traps already hit.
+Every head has one: `penny-bc-bookkeeping`, `kaname-chief-of-staff`, `sam-sales`, `otto-operations`,
+`mia-marketing`, `yui-comms`, `ada-technology`; location rules (country/province/city) are in the
+shared `regions` skill. `tests/Unit/Docs/HeadSkillsTest.php` keeps them in step with the code, and
+the end-of-session hook names the skills whose code changed.
+
+---
+
+## 1b. Git Worktree Operations — MANDATORY PATH RULE
+
+When the primary working directory contains `.claude/worktrees/`, you are inside a **git worktree**.
+The worktree is a completely separate checkout on its own branch. The parent repo directory is on a **different branch** and contains **different file versions** — reading or editing files there will silently operate on the wrong code.
+
+**Rules (no exceptions):**
+- **ALL `Read`, `Edit`, `Write`, `Bash` file operations MUST use the worktree path as root.** The worktree path is the `Primary working directory` shown at session start (e.g. `/Users/.../mowology-crm/.claude/worktrees/<name>/`).
+- **NEVER use the parent project root** (`/Users/timschofield/Projects/mowology-crm/`) for file operations while in a worktree.
+- **When spawning Explore or other agents**, pass the worktree path explicitly as the search root — do NOT pass the parent project path.
+- **Git commands** (`git add`, `git commit`, `git push`) must run in the worktree directory (the shell cwd), which is correct by default. Never `cd` up to the parent repo and run git there.
+- Verify you're operating in the right tree: `pwd` should return a path containing `.claude/worktrees/`.
+
+---
+
+## 1c. Deployment Workflow — Commit, Push, Verify
 
 **After completing any code changes, ALWAYS follow this workflow:**
 
-1. **Commit and push immediately** — do not wait for the user to ask. Stage only the files you changed, write a clear commit message, and `git push` to `main`.
+1. **Commit immediately** — do not wait for the user to ask. Stage only the files you changed and write a clear commit message. **Deploy only through the scripts** (`scripts/deploy-safe.sh`, `deploy-file.sh`, `deploy-step.sh`, `deploy-checked.sh`, `deploy-migration.sh`, `./deploy.sh`): each one runs the feature gate first, which merges your branch into `feature/language`, runs the tests and pushes, and uploads nothing until that worked (Tim, 2026-11-06 — chats deploying from their own branches had left feature/language days behind production). Never upload with raw lftp. For a change that is pushed but not deployed (docs, iOS), run `scripts/merge-to-feature.sh` yourself.
 2. **Wait for deploy** — cPanel auto-deploys from GitHub. Allow a few seconds after push.
 3. **Verify on production** — open the affected page(s) on `https://mowology.ca` in the browser and confirm:
    - The page loads without errors (no white screen, no PHP fatal)
@@ -75,6 +107,51 @@ This is a critical constraint for all SQL queries and schema changes:
 4. **Report back** — tell the user what you verified and whether it's working or needs further fixes.
 
 **This is mandatory.** Pushing code without verifying it on production is not acceptable. The user should never have to ask "did you push?" or discover a broken page themselves.
+
+---
+
+## 1c. Architectural Knowledge Layer — Check Before Coding
+
+**Before changing any code in this repo** — a bug fix, a one-line patch, a new feature, a refactor, an "architecture change" or a "safely upgrade this" task (including when using `/anthropic-skills:safe-production-refactoring-architect`) — read the relevant doc(s) in the Obsidian vault first:
+
+`/Users/timschofield/Library/Mobile Documents/iCloud~md~obsidian/Documents/30-PROJECTS/Active/Mowology-CRM/Architecture/`
+
+Start at `_Architecture-Index.md`, then the doc matching the system being touched (Integration-Map, Known-Failure-Patterns, Decision-Log, Tech-Debt-Map, or a dedicated doc like Accounting-Ledger). This is a targeted read (one doc, a few KB) instead of re-deriving coupling risks, silent-failure traps, and "why is it built this way" from scratch via grep/Read across the codebase. Treat vault content as a starting hypothesis, not ground truth — spot-check anything load-bearing against the current code before acting on it (the vault decays like any doc).
+
+This used to say "before any refactor". It was narrowed in practice to mean only big rewrites, and on 2026-09-24 a two-day GPS outage was diagnosed from scratch while `Known-Failure-Patterns.md` already held the matching CSRF trap. It now means **any** code change, and it is enforced globally rather than per-project: a `PreToolUse` hook at `~/.claude/hooks/vault-check.py` resolves whichever vault folder belongs to the repo you are in and injects its index on the first code edit of a session. The hook is a reminder; reading the specific doc is still the rule. `/obsidian` (also global now) closes the loop afterwards.
+
+After the work, use `/obsidian` (bare, no arguments) to log what changed back into the vault — it auto-detects scope from the session.
+
+---
+
+## 1c-bis. Independent Codex review before risky releases (Tim, 2026-10-14)
+
+**Codex reviews, Claude edits.** Before deploying a change that touches money (invoices, payments, receipts, the ledger, payroll), the crew apps (schedule page, photos, GPS, the Android/iOS apps), client-facing pages (portal, public forms), or auth and permissions, run:
+
+```bash
+scripts/codex-review.sh <name> <prompt-file> <changed files or dirs>
+```
+
+The script copies **code only** to a temp folder, replaces every client, company and property name from the live CRM with `[client]`, stops if anything looks like a secret, and runs `codex exec` read-only. Never point Codex at the repo itself: docs, tests and plans hold client data.
+
+- **Check every finding against the real code** before acting on it. Say which findings were real and which weren't.
+- **Fix the real ones** through the normal path: test, local site, deploy, verify.
+- **Small or easily reversed changes don't need it.**
+- **Cost:** it runs on Tim's ChatGPT plan, not Claude usage.
+
+The first trial (Android camera, 2026-10-14) found 5 real defects that Claude had missed.
+
+## 1d. Evidence-Gated Debugging — Three Rules
+
+Before touching a bug or building a fix, apply these three rules in order:
+
+**1. State the prediction.** Before any non-trivial change, write one sentence: "I expect this to do X." If the result doesn't match, that gap is the diagnostic — not a reason to guess again.
+
+**2. Verify on production, not assumption.** After every deploy, open the affected page on the live site and confirm the specific fix works. The 1b deploy workflow already requires this — the rule is: don't skip it when confident.
+
+**3. Two failed fixes = stop and get data.** After two attempts that don't resolve a symptom, stop guessing. Read the actual error (console, network tab, PHP logs, DB state). A third guess without new data is just noise.
+
+These replace ceremony with habit. No record-keeping, no role separation — just: predict, observe, and know when to stop guessing.
 
 ---
 
@@ -393,3 +470,9 @@ Step-by-step checklists for adding new CRM features, public site pages, service 
 
 Full FTP credentials, lftp commands, and deploy workflow are in **`DEPLOYMENT.md`**.
 Use the `/deploy` slash command: `/deploy public/crm/file.php`
+
+---
+
+## 10. Multi-discipline tenants (standing rule, 2026-10-10)
+
+Everything built from now on assumes the product will have tenants from different trades, not only landscaping. Mowology is tenant #1, not the template. No trade-specific words in new schema, services or copy; learned knowledge splits into a shared/universal layer (the vendor knowledge commons, `app/Modules/Knowledge/`, `docs/architecture/vendor-knowledge-commons.md`) and a tenant-private layer. Vendor identity is canonical and cross-tenant; categories go through the neutral taxonomy. If a shortcut would bake Mowology in, say so and build the tenant-neutral version.

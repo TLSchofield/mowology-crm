@@ -38,6 +38,9 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Services/Messaging/IdentityMail.php';
+    require_once APP_ROOT . '/Core/Uploads.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     // PowPdfGenerator is loaded inside the generate_pdf action only — not here
 
@@ -87,6 +90,14 @@ try {
         $withInvoice = !empty($input['invoice']);
         $notes       = trim($input['notes'] ?? '');
         $extrasMins  = max(0, (int)($input['extras_minutes'] ?? 0));
+        // "Also unbilled at this address" lines ticked on the schedule card (UnbilledWorkFinder).
+        // Only someone who may bill can add them; they are claimed in the invoice transaction below.
+        $extraVisits = [];
+        if ($withInvoice && !empty($input['extra_visits']) && is_array($input['extra_visits'])
+            && ($isAdmin || userHasPermission('billing.edit'))) {
+            require_once APP_ROOT . '/Modules/Invoices/Services/UnbilledWorkFinder.php';
+            $extraVisits = UnbilledWorkFinder::normaliseSelections($input['extra_visits']);
+        }
 
         if ($stopId < 1) {
             http_response_code(400);
@@ -113,7 +124,7 @@ try {
         // Fetch all completable visits for this stop (matched by stop_id)
         $vsStmt = $db->prepare("
             SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                   jv.invoice_id, jv.scheduled_date,
+                   jv.invoice_id, jv.scheduled_date, jv.status AS visit_status,
                    jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                    p.address AS service_address, p.city AS service_city,
                    p.province AS service_province, p.postal_code AS service_postal,
@@ -128,6 +139,10 @@ try {
         ");
         $vsStmt->execute([$stopId]);
         $completableVisits = $vsStmt->fetchAll(PDO::FETCH_ASSOC);
+        // A visit the crew skipped is not done: completing the stop must not complete and bill it
+        // (2026-10-12). Only when EVERY visit on the stop is skipped (e.g. auto-rollover skipped a
+        // stop that was then done) does completing the stop mean those visits were done.
+        $completableVisits = powWithoutSkipped($completableVisits);
 
         // Fallback: if no visits found by stop_id (e.g. crew reassignment created a new stop
         // but the visit is still linked to the old stop), find visits for the same
@@ -135,7 +150,7 @@ try {
         if (empty($completableVisits)) {
             $fbStmt = $db->prepare("
                 SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                       jv.invoice_id, jv.scheduled_date, jv.stop_id AS stop_id_old,
+                       jv.invoice_id, jv.scheduled_date, jv.stop_id AS stop_id_old, jv.status AS visit_status,
                        jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                        p.address AS service_address, p.city AS service_city,
                        p.province AS service_province, p.postal_code AS service_postal,
@@ -158,7 +173,7 @@ try {
                 ORDER BY jv.plan_id, jv.sequence_index ASC
             ");
             $fbStmt->execute([$stopId, $stopId, $stopId]);
-            $allFbVisits = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+            $allFbVisits = powWithoutSkipped($fbStmt->fetchAll(PDO::FETCH_ASSOC));
 
             // Deduplicate: keep only ONE visit per plan (lowest sequence_index wins)
             $seenPlans = [];
@@ -268,20 +283,20 @@ try {
             exit;
         }
 
-        // Extras rate
+        // Extras: the one calc (InvoiceFromVisitService::computeExtrasAmount), recorded on the
+        // FIRST visit only — it used to be written onto every visit of the stop (counted N times)
+        // and never reached the invoice (2026-10-12).
         $extrasAmount = 0.00;
         if ($extrasMins > 0) {
-            try {
-                $rateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-                $ratePerBlock = floatval($rateRow['setting_value'] ?? 5.00);
-                $blocks = (int)ceil($extrasMins / 5);
-                $extrasAmount = round($blocks * $ratePerBlock, 2);
-            } catch (Exception $e) {}
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceFromVisitService.php';
+            $extrasAmount = (float)(new InvoiceFromVisitService($db))->computeExtrasAmount($extrasMins)['amount'];
         }
 
         $completedVisitIds = [];
-        foreach ($completableVisits as $cv) {
+        foreach ($completableVisits as $cvIdx => $cv) {
             $cvId = (int)$cv['visit_id'];
+            $cvExtrasMins = $cvIdx === 0 ? $extrasMins : 0;
+            $cvExtrasAmt  = $cvIdx === 0 ? $extrasAmount : 0.00;
             if (!$alreadyCompletedByField) {
                 // Visit not yet completed — mark it done now
                 $db->prepare("
@@ -293,8 +308,11 @@ try {
                         extras_minutes = ?,
                         extras_amount  = ?
                     WHERE id = ?
-                ")->execute([$notes, $notes, $extrasMins, $extrasAmount, $cvId]);
+                ")->execute([$notes, $notes, $cvExtrasMins, $cvExtrasAmt, $cvId]);
                 addAuditLog($db, $cvId, (int)$user['id'], 'complete', null, $ip);
+                // Special-request extra work goes on top of the sheet's extras (once; never throws).
+                require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+                SpecialRequestGate::afterCompletion($db, $cvId);
 
                 $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
                 if (file_exists($vcService)) {
@@ -314,6 +332,41 @@ try {
 
         if ($withInvoice && !empty($completableVisits)) {
             require_once APP_ROOT . '/Services/CrmFunctions.php';
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+
+            // Contract-billed plans are invoiced automatically through the contract —
+            // never via a per-visit invoice. The stop/visits are already marked
+            // complete above; only invoice creation is blocked here.
+            $contractSvc = new ContractService($db);
+            $stopPlanIds = array_unique(array_map(fn($cv) => (int)($cv['plan_id'] ?? 0), $completableVisits));
+            $billedMap   = $contractSvc->getContractBilledPlanIds($stopPlanIds);
+            if (in_array(true, $billedMap, true)) {
+                echo json_encode([
+                    'success' => false,
+                    'error'   => 'This visit is billed under an active contract, not per-visit. '
+                               . 'It has been marked complete, but no per-visit invoice was created. '
+                               . 'Billing happens automatically through the contract.',
+                    'code'    => 'CONTRACT_BILLED',
+                ]);
+                exit;
+            }
+
+            // Snow & salt route stops bill the service the crew recorded, one run per
+            // invoice (InvoiceFromVisitService). A stop-level invoice here would bill
+            // price_per_visit regardless of what was done.
+            require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+            $snowSvc = new SnowContractService($db);
+            foreach ($stopPlanIds as $spid) {
+                if ($snowSvc->isRoutePlan((int)$spid)) {
+                    echo json_encode([
+                        'success' => false,
+                        'error'   => 'Salt & snow runs are invoiced one stop at a time from what the crew recorded. '
+                                   . 'The stop is marked complete; use Create Invoice on the visit.',
+                        'code'    => 'SNOW_ROUTE',
+                    ]);
+                    exit;
+                }
+            }
 
             // Idempotency: if any visit already has an invoice (created via a
             // different path), return that invoice instead of creating a duplicate.
@@ -334,7 +387,7 @@ try {
             $firstVisit = $completableVisits[0];
             $contactId  = (int)($firstVisit['contact_id'] ?? 0);
             $propertyId = (int)($firstVisit['property_id'] ?? 0);
-            $subtotal   = round(array_sum(array_column($completableVisits, 'price_per_visit')), 2);
+            $subtotal   = round(array_sum(array_column($completableVisits, 'price_per_visit')) + $extrasAmount, 2);
             if ($subtotal <= 0) $subtotal = 0.00;
 
             $taxRate   = 0.05; // GST default
@@ -342,6 +395,8 @@ try {
                 $taxRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'tax_rate' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
                 if ($taxRow) $taxRate = (float)$taxRow['setting_value'];
             } catch (Exception $e) {}
+            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+            $taxRate = TaxEngine::chargedRate($db, $taxRate);   // not registered for GST → none
 
             $taxAmount  = round($subtotal * $taxRate, 2);
             $total      = round($subtotal + $taxAmount, 2);
@@ -360,6 +415,10 @@ try {
                 $invContractId = (int)($cidStmt->fetchColumn() ?: 0);
             }
 
+            // One transaction for the invoice, its lines, the visit links and any
+            // missed-work lines, so a conflict on an extra visit leaves no half invoice.
+            $db->beginTransaction();
+            try {
             $db->prepare("
                 INSERT INTO invoices
                     (invoice_number, contact_id, property_id, plan_id, contract_id,
@@ -401,6 +460,16 @@ try {
                     $cv['scheduled_date'] ?? null,
                 ]);
             }
+            // Timed extra work, as InvoiceFromVisitService::createFromVisit() bills it.
+            if ($extrasAmount > 0 && $extrasMins > 0) {
+                $db->prepare("
+                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
+                    VALUES (?, ?, 1, ?, ?, ?, ?)
+                ")->execute([
+                    $invoiceId, 'Additional services (' . $extrasMins . ' min)', $extrasAmount, $extrasAmount,
+                    (int)$completableVisits[0]['visit_id'] ?: null, $completableVisits[0]['scheduled_date'] ?? null,
+                ]);
+            }
 
             // Link visits to invoice
             $db->prepare("
@@ -409,6 +478,34 @@ try {
             ")->execute(array_merge([$invoiceId], $completedVisitIds));
 
             addAuditLog($db, $completedVisitIds[0], (int)$user['id'], 'invoice_created', ['invoice_id' => $invoiceId], $ip);
+
+            if ($extraVisits) {
+                $finder = new UnbilledWorkFinder($db);
+                $anchor = $finder->anchorForVisit((int)$completedVisitIds[0]);
+                $finder->claim($invoiceId, $extraVisits, (int)$user['id'], [
+                    'property_id'       => $anchor['property_id'] ?? $propertyId,
+                    'company_id'        => $anchor['company_id'] ?? null,
+                    'exclude_visit_ids' => $completedVisitIds,
+                    'can_mark_done'     => in_array(($user['role'] ?? ''), ['admin', 'manager'], true),
+                    'invoice_number'    => $invoiceNumber,
+                    'actor_name'        => (string)($user['full_name'] ?? $user['name'] ?? ''),
+                ]);
+                $finder->retotalInvoice($invoiceId);
+            }
+            $db->commit();
+            } catch (Throwable $invEx) {
+                if ($db->inTransaction()) $db->rollBack();
+                if ($invEx instanceof UnbilledWorkConflict) {
+                    echo json_encode([
+                        'success'   => false,
+                        'error'     => 'The stop is marked complete, but no invoice was created: ' . ApiResponse::message($invEx, 'pow-actions'),
+                        'code'      => 'UNBILLED_CONFLICT',
+                        'retryable' => true,
+                    ]);
+                    exit;
+                }
+                throw $invEx;
+            }
         }
 
         echo json_encode([
@@ -420,6 +517,49 @@ try {
     }
 
     // ── Reopen Visit ─────────────────────────────────────────────────────────
+    // ── Skip stop (desktop schedule card, 2026-11-03) ─────────────────────
+    // Skips every open visit on the stop. The office (admin / jobs.edit) may also skip a
+    // visit started by mistake — its timers are closed first (VisitLifecycleService).
+    if ($action === 'skip_stop') {
+        $stopId = isset($input['stop_id']) ? (int)$input['stop_id'] : 0;
+        if ($stopId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'stop_id is required']);
+            exit;
+        }
+        if (!$isAdmin) {
+            $skStmt = $db->prepare("
+                SELECT 1 FROM calendar_stops
+                WHERE id = ? AND stop_date = CURDATE() AND (crew_id = ? OR id IN (
+                    SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?
+                ))
+            ");
+            $skStmt->execute([$stopId, (int)$user['id'], (int)$user['id']]);
+            if (!$skStmt->fetch()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Not authorized for this stop.']);
+                exit;
+            }
+        }
+        require_once CRM_INCLUDES . '/plan-functions.php';
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+        $sk = VisitLifecycleService::skipStop($stopId, (int)$user['id'], (string)($input['reason'] ?? ''), (bool)$isAdmin);
+        if (!empty($sk['skipped'])) {
+            foreach ($sk['skipped'] as $skVisitId) {
+                try { addAuditLog($db, (int)$skVisitId, (int)$user['id'], 'skip', $input['reason'] ?? null, $ip); } catch (Throwable $e) { /* trail only */ }
+            }
+        }
+        if (!$sk['success']) http_response_code(409);
+        echo json_encode([
+            'success' => $sk['success'],
+            'skipped' => $sk['skipped'],
+            'refused' => $sk['refused'],
+            'message' => $sk['message'],
+            'error'   => $sk['success'] ? null : $sk['message'],
+        ]);
+        exit;
+    }
+
     if ($action === 'reopen_visit') {
         if ($visitId < 1) {
             http_response_code(400);
@@ -448,7 +588,9 @@ try {
         }
 
         // Auth: admin always; crew only if stop_date = today
-        $isSameDayCrew = (int)($rvRow['assigned_crew_id'] ?? 0) === (int)$user['id']
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+        $rvStopCrew    = (new VisitWorkService($db))->stopCrewIds(isset($rvRow['stop_id']) ? (int)$rvRow['stop_id'] : null);
+        $isSameDayCrew = VisitWorkService::canAccess($rvRow, (int)$user['id'], false, $rvStopCrew)
                          && $rvRow['stop_date'] === date('Y-m-d');
         if (!$isAdmin && !$isSameDayCrew) {
             http_response_code(403);
@@ -508,13 +650,17 @@ try {
         exit;
     }
 
-    $isCrew  = (int)($visit['assigned_crew_id'] ?? 0) === (int)$user['id'];
+    // The assigned crew member OR anyone on the stop's crew — a stop can carry
+    // several people, and the lead being away must not lock the card.
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+    $stopCrewIds = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+    $isCrew      = VisitWorkService::canAccess($visit, (int)$user['id'], false, $stopCrewIds);
 
     if (!$isAdmin && !$isCrew) {
         http_response_code(403);
         echo json_encode([
             'success'   => false,
-            'error'     => 'This visit is assigned to another crew member.',
+            'error'     => 'This visit is assigned to another crew.',
             'code'      => 'NOT_AUTHORIZED',
             'retryable' => false,
         ]);
@@ -534,6 +680,17 @@ try {
         exit;
     }
 
+    // Special request gate (inert unless ops_settings.special_requests_enabled): an unread client
+    // request answers 409 to a live start / photo. Offline-queue replays (Idempotency-Key /
+    // X-Queued-At / queued_at) pass, logged, so a queued action is never stuck.
+    if ($action === 'start_visit' || $action === 'upload_photo') {
+        require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+        $srQueuedAt = $_SERVER['HTTP_X_QUEUED_AT'] ?? ($input['queued_at'] ?? ($_POST['queued_at'] ?? null));
+        SpecialRequestGate::enforce($db, $visitId, (int)$user['id'],
+            !empty($_SERVER['HTTP_IDEMPOTENCY_KEY']) || $srQueuedAt !== null, $srQueuedAt,
+            $action === 'start_visit' ? 'start' : 'photo', 'error');
+    }
+
     switch ($action) {
 
         // ── Start Visit ───────────────────────────────────────────────────
@@ -547,15 +704,22 @@ try {
 
             $svcType = $input['service_type'] ?? $visit['service_type'] ?? null;
 
-            $db->prepare("
+            // status = 'scheduled' in the WHERE: with several crew on a stop, two phones
+            // can press Start together — only the first may win.
+            $startStmt = $db->prepare("
                 UPDATE job_visits SET
                     status = 'in_progress',
                     started_at = NOW(),
                     gps_arrival_lat = ?,
                     gps_arrival_lng = ?,
                     service_type = COALESCE(?, service_type)
-                WHERE id = ?
-            ")->execute([$lat, $lng, $svcType, $visitId]);
+                WHERE id = ? AND status = 'scheduled'
+            ");
+            $startStmt->execute([$lat, $lng, $svcType, $visitId]);
+            if ($startStmt->rowCount() === 0) {
+                echo json_encode(['success' => false, 'error' => 'A crew mate already started this visit']);
+                break;
+            }
 
             addAuditLog($db, $visitId, (int)$user['id'], 'start', null, $ip);
 
@@ -581,25 +745,8 @@ try {
             if (!is_array($items)) {
                 throw new InvalidArgumentException('items must be an array');
             }
-            $sanitized = [];
-            foreach ($items as $item) {
-                $sanitized[] = [
-                    'item'    => substr(strip_tags((string)($item['item'] ?? '')), 0, 255),
-                    'checked' => !empty($item['checked']),
-                    'note'    => substr(strip_tags((string)($item['note'] ?? '')), 0, 500),
-                ];
-            }
-            $json = json_encode($sanitized);
-            $db->prepare("
-                UPDATE job_visits SET
-                    checklist_json = ?,
-                    checklist_completed_at = NOW(),
-                    checklist_completed_by = ?,
-                    checklist_completed = ?
-                WHERE id = ?
-            ")->execute([$json, $user['id'], $json, $visitId]);
-
-            addAuditLog($db, $visitId, (int)$user['id'], 'checklist_saved', ['count' => count($sanitized)], $ip);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            (new VisitWorkService($db))->saveChecklist($visitId, (int)$user['id'], $items, $ip, VisitWorkService::SOURCE_WEB);
             echo json_encode(['success' => true]);
             break;
 
@@ -607,19 +754,8 @@ try {
         case 'save_materials':
             $items = $input['items'] ?? [];
             if (!is_array($items)) throw new InvalidArgumentException('items must be an array');
-            $sanitized = [];
-            foreach ($items as $m) {
-                $sanitized[] = [
-                    'name'           => substr(strip_tags((string)($m['name'] ?? '')), 0, 255),
-                    'qty'            => is_numeric($m['qty'] ?? '') ? round((float)$m['qty'], 4) : null,
-                    'unit'           => substr(strip_tags((string)($m['unit'] ?? '')), 0, 50),
-                    'rate_per_unit'  => is_numeric($m['rate_per_unit'] ?? '') ? round((float)$m['rate_per_unit'], 2) : null,
-                    'note'           => substr(strip_tags((string)($m['note'] ?? '')), 0, 500),
-                ];
-            }
-            $db->prepare("UPDATE job_visits SET materials_json = ? WHERE id = ?")
-               ->execute([json_encode($sanitized), $visitId]);
-            addAuditLog($db, $visitId, (int)$user['id'], 'materials_saved', ['count' => count($sanitized)], $ip);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            (new VisitWorkService($db))->saveMaterials($visitId, (int)$user['id'], $items, $ip, VisitWorkService::SOURCE_WEB);
             echo json_encode(['success' => true]);
             break;
 
@@ -638,16 +774,16 @@ try {
 
         // ── Save Note ─────────────────────────────────────────────────────
         case 'save_notes':
-            $content  = trim($input['content'] ?? '');
+            $content  = $input['content'] ?? '';
             $noteType = $input['note_type'] ?? 'general';
-            $visible  = !empty($input['visible_to_customer']) ? 1 : 0;
-            $allowed  = ['general','customer_request','issue','follow_up','internal'];
-            if (!in_array($noteType, $allowed)) $noteType = 'general';
-            if (strlen($content) < 1) throw new InvalidArgumentException('Note content required');
-            $db->prepare("
-                INSERT INTO visit_notes (visit_id, note_type, content, is_visible_to_customer, created_by)
-                VALUES (?, ?, ?, ?, ?)
-            ")->execute([$visitId, $noteType, $content, $visible, $user['id']]);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            (new VisitWorkService($db))->addNote(
+                $visitId,
+                (int)$user['id'],
+                is_string($content) ? $content : '',
+                is_string($noteType) ? $noteType : 'general',
+                !empty($input['visible_to_customer'])
+            );
             echo json_encode(['success' => true]);
             break;
 
@@ -657,16 +793,19 @@ try {
             if (!str_starts_with($dataUrl, 'data:image/png;base64,')) {
                 throw new InvalidArgumentException('Invalid signature format');
             }
-            $imgData = base64_decode(substr($dataUrl, 22));
+            // At most ~500 KB, and really a PNG (Codex review 2026-10-15: any size was decoded and written).
+            if (strlen($dataUrl) > 700000) throw new InvalidArgumentException('Signature image too large');
+            $imgData = base64_decode(substr($dataUrl, 22), true);
             if ($imgData === false) throw new InvalidArgumentException('Invalid base64');
+            if (strncmp($imgData, "\x89PNG\r\n\x1a\n", 8) !== 0) throw new InvalidArgumentException('Invalid signature format');
 
-            $sigDir = PUBLIC_ROOT . '/uploads/pow/signatures/';
+            $sigDir = uploadsDir('pow/signatures') . '/';
             if (!is_dir($sigDir)) mkdir($sigDir, 0755, true);
 
             $filename = 'sig_' . $visitId . '_' . time() . '.png';
             file_put_contents($sigDir . $filename, $imgData);
 
-            $sigPath = '/uploads/pow/signatures/' . $filename;
+            $sigPath = uploadsUrl('pow/signatures') . '/' . $filename;
             $db->prepare("UPDATE job_visits SET signature_path = ? WHERE id = ?")
                ->execute([$sigPath, $visitId]);
             addAuditLog($db, $visitId, (int)$user['id'], 'signature_saved', null, $ip);
@@ -741,6 +880,9 @@ try {
             ")->execute([$lat, $lng, $notes, $notes, $extrasMins, $extrasAmount, $extrasNote, $extrasNote, $visitId]);
 
             addAuditLog($db, $visitId, (int)$user['id'], 'complete', null, $ip);
+            // Special-request extra work goes on top of the sheet's extras (once; never throws).
+            require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+            SpecialRequestGate::afterCompletion($db, $visitId);
 
             // Capture labor cost + margin snapshot at completion time
             $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
@@ -768,6 +910,16 @@ try {
             if (file_exists($refService)) {
                 require_once $refService;
                 ReferralRewardService::maybeAwardCompletion($visitId, $db, (int)$user['id']);
+            }
+
+            // Push-notify admins/other crew that the job is done — shared
+            // with the JWT/web-timer completion path
+            // (VisitLifecycleService::updateVisitStatus()) so this isn't a
+            // second copy of the same notify logic.
+            $vlsService = APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+            if (file_exists($vlsService)) {
+                require_once $vlsService;
+                VisitLifecycleService::notifyCompletion($visitId, (int)$user['id']);
             }
 
             // Propagate to calendar_stops: if ALL visits in the same stop
@@ -810,9 +962,12 @@ try {
 
         // ── Skip Visit ────────────────────────────────────────────────────
         case 'skip_visit':
+            // The same guarded path as the iPhone skip (VisitLifecycleService::skipVisit): only a
+            // visit not yet started can be skipped; a completed one never (2026-10-12).
             require_once CRM_INCLUDES . '/plan-functions.php';
-            $result = updateVisitStatus($visitId, 'skipped', (int)$user['id']);
-            echo json_encode(['success' => $result]);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+            $skip = VisitLifecycleService::skipVisit($visitId, (int)$user['id'], (string)($input['reason'] ?? ''));
+            echo json_encode(['success' => $skip['success'], 'message' => $skip['message'], 'error' => $skip['success'] ? null : $skip['message']]);
             break;
 
         // ── Generate PDF ───────────────────────────────────────────────────
@@ -827,7 +982,7 @@ try {
             $gen = new PowPdfGenerator(
                 $db,
                 PUBLIC_ROOT,
-                defined('SITE_URL') ? SITE_URL : 'https://mowology.ca'
+                defined('SITE_URL') ? SITE_URL : _idSiteUrl()
             );
             $result = $gen->generate($visitId, $forceRegen);
             if ($result['success']) {
@@ -889,10 +1044,11 @@ try {
             $caption   = substr(strip_tags($input['caption'] ?? ''), 0, 255);
             $sortOrder = isset($input['sort_order']) ? (int)$input['sort_order'] : 0;
 
-            $uploadDir = PUBLIC_ROOT . '/uploads/photos/';
+            $uploadDir = uploadsDir('photos') . '/';
             if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
 
-            $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'jpg');
+            // Extension from the VALIDATED type, never the client's file name (2026-10-12).
+            $ext      = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/heic' => 'heic'][$realMime] ?? 'jpg';
             $base     = 'pow_' . $visitId . '_' . $photoType . '_' . bin2hex(random_bytes(8));
             $filename = $base . '.' . $ext;
             $fullPath = $uploadDir . $filename;
@@ -956,10 +1112,10 @@ try {
                 'success'    => true,
                 'photo_id'   => $photoId,
                 'filename'   => $filename,
-                'thumb_url'  => $variants['thumb_path'] ?? ('/uploads/photos/' . $filename),
-                'grid_url'   => $variants['grid_path']  ?? ('/uploads/photos/' . $filename),
-                'view_url'   => $variants['view_path']  ?? ('/uploads/photos/' . $filename),
-                'orig_url'   => '/uploads/photos/' . $filename,
+                'thumb_url'  => $variants['thumb_path'] ?? (uploadsUrl('photos') . '/' . $filename),
+                'grid_url'   => $variants['grid_path']  ?? (uploadsUrl('photos') . '/' . $filename),
+                'view_url'   => $variants['view_path']  ?? (uploadsUrl('photos') . '/' . $filename),
+                'orig_url'   => uploadsUrl('photos') . '/' . $filename,
                 'photo_type' => $photoType,
             ]);
             break;
@@ -985,7 +1141,7 @@ try {
     http_response_code(400);
     echo json_encode([
         'success'   => false,
-        'error'     => $e->getMessage(),
+        'error'     => ApiResponse::message($e, 'pow-actions'),
         'code'      => 'BAD_REQUEST',
         'retryable' => false,
     ]);
@@ -1003,6 +1159,13 @@ try {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Visits of a stop that completing it may complete and bill (VisitLifecycleService::billableAtStop). */
+function powWithoutSkipped(array $visits): array
+{
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+    return VisitLifecycleService::billableAtStop($visits);
+}
 
 function loadVisit(PDO $db, int $visitId): ?array
 {
@@ -1065,9 +1228,9 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $outExt  = $canWebP ? 'webp' : 'jpg';
 
     // Create variant subdirectories
-    $tDir = PUBLIC_ROOT . '/uploads/photos/t/' . $visitId . '/';
-    $gDir = PUBLIC_ROOT . '/uploads/photos/g/' . $visitId . '/';
-    $vDir = PUBLIC_ROOT . '/uploads/photos/v/' . $visitId . '/';
+    $tDir = uploadsDir('photos/t') . '/' . $visitId . '/';
+    $gDir = uploadsDir('photos/g') . '/' . $visitId . '/';
+    $vDir = uploadsDir('photos/v') . '/' . $visitId . '/';
     foreach ([$tDir, $gDir, $vDir] as $d) {
         if (!is_dir($d)) @mkdir($d, 0755, true);
     }
@@ -1083,7 +1246,7 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $tFile = $baseName . '_t.' . $outExt;
     gdSave($thumb, $tDir . $tFile, $outExt, 65); // 65 quality — thumbs
     imagedestroy($thumb);
-    $result['thumb_path'] = '/uploads/photos/t/' . $visitId . '/' . $tFile;
+    $result['thumb_path'] = uploadsUrl('photos/t') . '/' . $visitId . '/' . $tFile;
 
     // ── Grid: 512px max (contain, no upscale) ────────────────────────────
     [$gridW, $gridH] = gdScaleDimensions($origW, $origH, 512);
@@ -1093,7 +1256,7 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $gFile = $baseName . '_g.' . $outExt;
     gdSave($grid, $gDir . $gFile, $outExt, 70); // 70 quality — grid
     imagedestroy($grid);
-    $result['grid_path'] = '/uploads/photos/g/' . $visitId . '/' . $gFile;
+    $result['grid_path'] = uploadsUrl('photos/g') . '/' . $visitId . '/' . $gFile;
 
     // ── View: 1280px max (contain, no upscale) ───────────────────────────
     [$viewW, $viewH] = gdScaleDimensions($origW, $origH, 1280);
@@ -1103,7 +1266,7 @@ function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, 
     $vFile = $baseName . '_v.' . $outExt;
     gdSave($view, $vDir . $vFile, $outExt, 78); // 78 quality — view
     imagedestroy($view);
-    $result['view_path'] = '/uploads/photos/v/' . $visitId . '/' . $vFile;
+    $result['view_path'] = uploadsUrl('photos/v') . '/' . $visitId . '/' . $vFile;
 
     imagedestroy($gd);
     return $result;

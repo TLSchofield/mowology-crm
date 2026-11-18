@@ -41,11 +41,11 @@ require __DIR__ . '/includes/header.php';
           </div>
           <div class="benefit-item">
             <strong>⚡ Emergency Response</strong>
-            <p>24/7 availability for storm damage, fallen trees, and urgent maintenance needs.</p>
+            <p>Storm damage, fallen branches and blocked entrances get a response within 24 hours.</p>
           </div>
           <div class="benefit-item">
-            <strong>📊 Detailed Reporting</strong>
-            <p>Monthly reports and seasonal planning to keep your board informed.</p>
+            <strong>📸 Photo Report Every Visit</strong>
+            <p>A timestamped photo report after each visit keeps your board and property manager informed.</p>
           </div>
           <div class="benefit-item">
             <strong>🛡️ Full Insurance</strong>

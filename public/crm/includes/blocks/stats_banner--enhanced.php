@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced Stats Banner Block Renderer — Animated scroll-triggered counters
  *
@@ -119,7 +120,7 @@ if (empty($stats)) {
 }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var section = document.getElementById('<?= h($uid) ?>');
   if (!section) return;

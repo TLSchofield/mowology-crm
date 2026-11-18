@@ -1,0 +1,348 @@
+[
+ {
+  "tool": "labour-cost",
+  "inputs": {
+   "wage": 24,
+   "vacation": 4,
+   "stat": 4.4,
+   "cpp": 5.95,
+   "ei": 2.282,
+   "wcb": 3.14,
+   "billable": 75,
+   "truck": 6,
+   "rate": 80
+  },
+  "expected": {
+   "costPaid": 34.97454,
+   "costBilled": 46.632719
+  }
+ },
+ {
+  "tool": "labour-cost",
+  "inputs": {
+   "wage": 20,
+   "vacation": 0,
+   "stat": 0,
+   "cpp": 0,
+   "ei": 0,
+   "wcb": 0,
+   "billable": 100,
+   "truck": 0
+  },
+  "expected": {
+   "costPaid": 20.0,
+   "costBilled": 20.0
+  }
+ },
+ {
+  "tool": "labour-cost",
+  "inputs": {
+   "wage": 30,
+   "vacation": 4,
+   "stat": 4.4,
+   "cpp": 5.95,
+   "ei": 2.282,
+   "wcb": 3.14,
+   "billable": 60,
+   "truck": 10,
+   "rate": 20
+  },
+  "expected": {
+   "costPaid": 46.218174,
+   "costBilled": 77.030291
+  }
+ },
+ {
+  "tool": "labour-cost",
+  "inputs": {
+   "wage": 1,
+   "vacation": 0,
+   "stat": 0,
+   "cpp": 0,
+   "ei": 0,
+   "wcb": 0,
+   "billable": 1,
+   "truck": 0
+  },
+  "expected": {
+   "costPaid": 1.0,
+   "costBilled": 100.0
+  }
+ },
+ {
+  "tool": "labour-cost",
+  "inputs": {
+   "wage": 50,
+   "vacation": 10,
+   "stat": 5,
+   "cpp": 6,
+   "ei": 3,
+   "wcb": 4,
+   "billable": 80,
+   "truck": 5
+  },
+  "expected": {
+   "costPaid": 69.975,
+   "costBilled": 87.46875
+  }
+ },
+ {
+  "tool": "labour-cost",
+  "inputs": {
+   "wage": 24,
+   "vacation": 4,
+   "stat": 4.4,
+   "cpp": 11.9,
+   "ei": 0,
+   "wcb": 0,
+   "billable": 70,
+   "truck": 2
+  },
+  "expected": {
+   "costPaid": 31.111904,
+   "costBilled": 44.445577
+  }
+ },
+ {
+  "tool": "markup-margin",
+  "inputs": {
+   "mode": "markup",
+   "percent": 30,
+   "cost": 400
+  },
+  "expected": {
+   "markup": 0.3,
+   "margin": 0.230769,
+   "price": 520.0
+  }
+ },
+ {
+  "tool": "markup-margin",
+  "inputs": {
+   "mode": "margin",
+   "percent": 25,
+   "cost": 400
+  },
+  "expected": {
+   "markup": 0.333333,
+   "margin": 0.25,
+   "price": 533.333333
+  }
+ },
+ {
+  "tool": "markup-margin",
+  "inputs": {
+   "mode": "markup",
+   "percent": 0,
+   "cost": 100
+  },
+  "expected": {
+   "markup": 0.0,
+   "margin": 0.0,
+   "price": 100.0
+  }
+ },
+ {
+  "tool": "markup-margin",
+  "inputs": {
+   "mode": "margin",
+   "percent": 0,
+   "cost": 100
+  },
+  "expected": {
+   "markup": 0.0,
+   "margin": 0.0,
+   "price": 100.0
+  }
+ },
+ {
+  "tool": "markup-margin",
+  "inputs": {
+   "mode": "margin",
+   "percent": 99,
+   "cost": 1
+  },
+  "expected": {
+   "markup": 99.0,
+   "margin": 0.99,
+   "price": 100.0
+  }
+ },
+ {
+  "tool": "markup-margin",
+  "inputs": {
+   "mode": "markup",
+   "percent": 100
+  },
+  "expected": {
+   "markup": 1.0,
+   "margin": 0.5
+  }
+ },
+ {
+  "tool": "break-even",
+  "inputs": {
+   "truck_payment": 500,
+   "insurance": 200,
+   "phone_software": 100,
+   "yard_storage": 300,
+   "own_pay": 4000,
+   "other": 0,
+   "rate": 100,
+   "cost_per_billed_hour": 50
+  },
+  "expected": {
+   "fixed": 5100,
+   "hours": 102.0
+  }
+ },
+ {
+  "tool": "break-even",
+  "inputs": {
+   "rate": 50,
+   "cost_per_billed_hour": 50
+  },
+  "expected": {
+   "fixed": 0,
+   "hours": null
+  }
+ },
+ {
+  "tool": "break-even",
+  "inputs": {
+   "own_pay": 1000,
+   "rate": 40,
+   "cost_per_billed_hour": 50
+  },
+  "expected": {
+   "fixed": 1000,
+   "hours": null
+  }
+ },
+ {
+  "tool": "break-even",
+  "inputs": {
+   "rate": 100,
+   "cost_per_billed_hour": 0
+  },
+  "expected": {
+   "fixed": 0,
+   "hours": 0.0
+  }
+ },
+ {
+  "tool": "break-even",
+  "inputs": {
+   "other": 1,
+   "rate": 1,
+   "cost_per_billed_hour": 0
+  },
+  "expected": {
+   "fixed": 1,
+   "hours": 1.0
+  }
+ },
+ {
+  "tool": "break-even",
+  "inputs": {
+   "truck_payment": 100,
+   "insurance": 100,
+   "rate": 75,
+   "cost_per_billed_hour": 25
+  },
+  "expected": {
+   "fixed": 200,
+   "hours": 4.0
+  }
+ },
+ {
+  "tool": "mow-price",
+  "inputs": {
+   "onsite": 35,
+   "crew": 2,
+   "drive": 12,
+   "cost_paid": 36,
+   "margin": 30,
+   "minimum": 55
+  },
+  "expected": {
+   "labour": 56.4,
+   "final": 80.571429
+  }
+ },
+ {
+  "tool": "mow-price",
+  "inputs": {
+   "onsite": 30,
+   "crew": 1,
+   "drive": 0,
+   "cost_paid": 30,
+   "margin": 0,
+   "minimum": 0
+  },
+  "expected": {
+   "labour": 15.0,
+   "final": 15.0
+  }
+ },
+ {
+  "tool": "mow-price",
+  "inputs": {
+   "onsite": 10,
+   "crew": 1,
+   "drive": 5,
+   "cost_paid": 20,
+   "margin": 20,
+   "minimum": 55
+  },
+  "expected": {
+   "labour": 5.0,
+   "final": 55
+  }
+ },
+ {
+  "tool": "mow-price",
+  "inputs": {
+   "onsite": 60,
+   "crew": 3,
+   "drive": 30,
+   "cost_paid": 40,
+   "margin": 50,
+   "minimum": 0
+  },
+  "expected": {
+   "labour": 180.0,
+   "final": 360.0
+  }
+ },
+ {
+  "tool": "mow-price",
+  "inputs": {
+   "onsite": 1,
+   "crew": 1,
+   "drive": 0,
+   "cost_paid": 0,
+   "margin": 99,
+   "minimum": 0
+  },
+  "expected": {
+   "labour": 0.0,
+   "final": 0.0
+  }
+ },
+ {
+  "tool": "mow-price",
+  "inputs": {
+   "onsite": 45,
+   "crew": 2,
+   "drive": 15,
+   "cost_paid": 25,
+   "margin": 25,
+   "minimum": 40
+  },
+  "expected": {
+   "labour": 50.0,
+   "final": 66.666667
+  }
+ }
+]

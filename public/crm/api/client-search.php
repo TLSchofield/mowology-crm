@@ -13,6 +13,7 @@
  */
 ini_set('display_errors', '0');
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 session_write_close(); // release session lock — autocomplete fires on every keypress
 
@@ -98,21 +99,9 @@ switch ($action) {
         $companyId = isset($_GET['company_id']) ? intval($_GET['company_id']) : 0;
 
         if ($contactId) {
-            // A contact reaches a property as site contact, as the quote contact
-            // (e.g. a strata representative), or through property_contacts.
-            $stmt = $db->prepare("
-                SELECT p.id, p.property_name, p.address, p.city, p.province, p.postal_code,
-                       p.property_type, p.status, p.latitude, p.longitude
-                FROM properties p
-                WHERE (p.site_contact_id = ?
-                       OR p.quote_contact_id = ?
-                       OR EXISTS (SELECT 1 FROM property_contacts pc
-                                  WHERE pc.property_id = p.id AND pc.contact_id = ?
-                                    AND (pc.ended_on IS NULL OR pc.ended_on >= CURDATE())))
-                  AND p.status = 'active'
-                ORDER BY p.address ASC
-            ");
-            $stmt->execute([$contactId, $contactId, $contactId]);
+            $properties = getPropertiesForContact($contactId, $db, true);
+            echo json_encode(['success' => true, 'properties' => $properties]);
+            break;
         } elseif ($companyId) {
             $stmt = $db->prepare("
                 SELECT p.id, p.property_name, p.address, p.city, p.province, p.postal_code,

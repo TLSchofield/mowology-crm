@@ -74,6 +74,7 @@ foreach ($jobs as $j) {
 // Add travel buffer between stops
 $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 
+$snowGate = snowRunVisitPredicate($db); // route stops count only while a run is open (SnowRunGate)
 $revStmt = $db->prepare("
     SELECT COALESCE(SUM(jp.price_per_visit), 0)
     FROM job_visits jv
@@ -81,8 +82,9 @@ $revStmt = $db->prepare("
     WHERE jv.scheduled_date = ?
       AND jv.assigned_crew_id = ?
       AND jv.status IN ('scheduled','in_progress','completed')
+      AND {$snowGate['sql']}
 ");
-$revStmt->execute([$today, $user['id']]);
+$revStmt->execute(array_merge([$today, $user['id']], $snowGate['params']));
 $summaryRevenue = (float)($revStmt->fetchColumn() ?: 0);
 
 // ── Weather — hourly AM/PM split, daily fallback ──────────────────────────────
@@ -173,7 +175,13 @@ try {
 // ── Meta ──────────────────────────────────────────────────────────────────────
 // (CSRF + session_write_close already called at top of file, before DB work.)
 
-$isDriver  = !empty($user['is_driver']);
+// WHO owes a vehicle log is decided per SHIFT — an open trip, or "I'm driving" said today —
+// not by the permanent users.is_driver flag (the owner drives some days; a flagged employee
+// is sometimes a passenger).
+require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+$tripSvc      = new TripReportService($db);
+$shiftDriving = $tripSvc->shiftState((int)$user['id']);           // driving | not_driving | unasked
+$isDriver     = ($shiftDriving === 'driving');
 
 // ── Post-trip status (drivers only) — gates the clock-out button ──────────────
 // Drivers must fill out the end-of-shift vehicle check before clocking out.
@@ -184,19 +192,7 @@ $isDriver  = !empty($user['is_driver']);
 // They CANNOT clock out while any row is in the open state
 // (pre_trip_at IS NOT NULL AND post_trip_at IS NULL) — that's the
 // current trip's post-trip form blocking the flow.
-$postComplete = true;
-if ($isDriver) {
-    $ptStmt = $db->prepare("
-        SELECT COUNT(*) FROM vehicle_trip_reports
-        WHERE driver_id = ?
-          AND report_date = ?
-          AND pre_trip_at IS NOT NULL
-          AND post_trip_at IS NULL
-    ");
-    $ptStmt->execute([$user['id'], $today]);
-    $openTripCount = (int)$ptStmt->fetchColumn();
-    $postComplete = ($openTripCount === 0);
-}
+$postComplete = !$tripSvc->hasOpenTrip((int)$user['id']);
 
 $userName  = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
 if (!$userName) $userName = $user['full_name'] ?? 'Crew';
@@ -213,24 +209,38 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0D3B2E">
     <title>Home Base — Mowology</title>
-    <link rel="manifest" href="/assets/favicon/site.webmanifest">
-    <link rel="icon" href="/assets/favicon/favicon.ico">
-    <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
+    <link rel="manifest" href="/assets/favicon-ittai/site.webmanifest">
+    <link rel="icon" href="/assets/favicon-ittai/favicon.ico">
+    <link rel="apple-touch-icon" href="/assets/favicon-ittai/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
+    <link href="/crm/css/crew-team.css?v=20261007a" rel="stylesheet">
+    <link href="/crm/css/mobile-nav.css?v=20261008b" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20261103gps" defer></script>
+    <link href="/crm/css/mw-pull-forward.css?v=20261008a" rel="stylesheet">
+    <?php
+    // On site where the visit is booked another day → "doing it now?" (CSRF via get-csrf.php).
+    // OFF unless ops_settings pull_forward_enabled / pull_forward_user_ids (migration 1276).
+    $__pfOn = false;
+    try {
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitPullForwardService.php';
+        $__pfOn = !empty($user['id']) && VisitPullForwardService::enabledFor(getDB(), (int)$user['id']);
+    } catch (Throwable $e) { $__pfOn = false; }
+    if ($__pfOn): ?>
+    <script src="/crm/js/mw-pull-forward.js?v=20261008b" defer></script>
+    <?php endif; unset($__pfOn); ?>
     <style>
         :root {
             /* Brand colour + shared sizing tokens come from
                /crm/css/tokens.css loaded in <head>. Only keep the
                homebase-specific values here. */
-            --hb-nav-h:        68px;
+            --hb-nav-h:        64px;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -441,29 +451,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         .hb-mem-answer-text { font-size: 15px; font-weight: 700; color: var(--hb-dark); }
         .hb-mem-notes { font-size: 13px; color: var(--hb-muted); line-height: 1.55; font-style: italic; }
 
-        /* ── Bottom nav ──────────────────────────────────────────── */
-        .hb-nav {
-            position: fixed; bottom: 0; left: 0; right: 0;
-            height: calc(var(--hb-nav-h) + var(--hb-safe-bottom));
-            padding-bottom: var(--hb-safe-bottom);
-            background: #fff;
-            border-top: 1px solid var(--hb-border);
-            display: grid; grid-template-columns: repeat(4, 1fr);
-            z-index: 100;
-        }
-        .hb-nav-btn {
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 3px;
-            text-decoration: none; color: var(--hb-muted);
-            font-size: 11px; font-weight: 500;
-            border: none; background: none; cursor: pointer;
-            -webkit-tap-highlight-color: transparent;
-            transition: color 0.15s;
-        }
-        .hb-nav-btn svg { stroke: currentColor; }
-        .hb-nav-btn.active  { color: var(--hb-green); }
-        .hb-nav-btn:active  { color: var(--hb-dark); }
-
+        /* Bottom nav: the shared crew bar (.mw-mobile-bottombar, /crm/css/mobile-nav.css) */
         /* ── Slide-up menu ───────────────────────────────────────── */
         .hb-menu-overlay {
             position: fixed; inset: 0; z-index: 200; pointer-events: none;
@@ -569,6 +557,9 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     </div>
 
     <div class="hb-content">
+
+        <!-- ── Penny (department heads on the crew app) — only when she has a question ── -->
+        <?php include __DIR__ . '/includes/penny-crew-badge.php'; ?>
 
         <!-- ── Day Summary ───────────────────────────────────────────────── -->
         <div class="hb-card">
@@ -695,24 +686,30 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
 </div><!-- /.hb-scroll -->
 
 <!-- ── Bottom Nav ────────────────────────────────────────────────────────────── -->
-<nav class="hb-nav">
-    <button class="hb-nav-btn active" aria-label="Home Base">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+<div class="mw-mobile-bottombar">
+    <!-- The one crew bar — same five tabs as includes/mobile-nav.php and the Schedule page:
+         Home · Schedule · Receipts · Timesheet · Account -->
+    <button type="button" class="mw-mobile-nav-btn mw-mobile-nav-active" aria-label="Home Base" aria-current="page">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         <span>Home</span>
     </button>
-    <a href="/crm/jobs/schedule.php" class="hb-nav-btn" aria-label="Schedule">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    <a href="/crm/jobs/schedule.php" class="mw-mobile-nav-btn" aria-label="Schedule">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span>Schedule</span>
     </a>
-    <a href="/crm/expenses_appstack.php?mode=quick&return=<?php echo urlencode('/crm/homebase.php'); ?>" class="hb-nav-btn" aria-label="Receipt">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        <span>Receipt</span>
+    <a href="/crm/expenses_appstack.php?mode=quick&return=<?php echo urlencode('/crm/homebase.php'); ?>" class="mw-mobile-nav-btn" aria-label="Receipts">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span>Receipts</span>
     </a>
-    <button class="hb-nav-btn" id="hbMenuBtn" aria-label="Menu">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        <span>Menu</span>
+    <a href="/crm/timeclock/my-timesheet.php" class="mw-mobile-nav-btn" aria-label="Timesheet">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Timesheet</span>
+    </a>
+    <button type="button" class="mw-mobile-nav-btn" id="hbMenuBtn" aria-label="Account">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>Account</span>
     </button>
-</nav>
+</div>
 
 <!-- ── Slide-up Menu ─────────────────────────────────────────────────────────── -->
 <div class="hb-menu-overlay" id="hbMenuOverlay">
@@ -750,17 +747,17 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Today's Schedule
             </a>
-            <?php if ($isDriver): ?>
+            <?php if ($postComplete): // no open trip → anyone may take the wheel ?>
             <a href="/crm/driver-log.php" class="hb-menu-nav-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-                Pre-Trip Log
-            </a>
-            <?php if (!$postComplete): ?>
-            <a href="/crm/driver-log-post.php" class="hb-menu-nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                Post-Trip Log
+                <?php echo $isDriver ? 'Pre-Trip Log' : "I'm driving now (pre-trip)"; ?>
             </a>
             <?php endif; ?>
+            <?php if (!$postComplete): // an open trip → end it (hand over the wheel, or end of day) ?>
+            <a href="/crm/driver-log-post.php" class="hb-menu-nav-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                End trip (post-trip)
+            </a>
             <?php endif; ?>
             <a href="/crm/map_appstack.php" class="hb-menu-nav-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
@@ -769,6 +766,10 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             <a href="/crm/expenses_appstack.php" class="hb-menu-nav-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
                 Expenses
+            </a>
+            <a href="/crm/my-team.php" class="hb-menu-nav-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                My team
             </a>
             <div class="hb-menu-divider"></div>
             <a href="/crm/profile.php" class="hb-menu-nav-item">
@@ -831,7 +832,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     window.hbClockOut = function () {
         // Drivers must complete the post-trip vehicle check before clocking out.
         // Send them to the dedicated form — it saves post-trip, then clocks out.
-        if (IS_DRIVER && !POST_COMPLETE) {
+        if (!POST_COMPLETE) {                        // whoever opened a trip closes it
             window.location.href = '/crm/driver-log-post.php';
             return;
         }
@@ -857,6 +858,15 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                     try {
                         if (window.MwNative && window.MwNative.geo) {
                             window.MwNative.geo.stopBackgroundTracking();
+                        }
+                        // Also stop the MwTracking resilience service (wake lock,
+                        // Activity Recognition, boot-restart flag) started by
+                        // tracking.startSession() on clock-in — geo.stopBackgroundTracking()
+                        // only stops the community background-geolocation watcher, not this.
+                        // Previously never called, so tracking kept running for up to
+                        // 10 hours (and across a reboot) after clock-out.
+                        if (window.MwNative && window.MwNative.tracking) {
+                            window.MwNative.tracking.stopSession();
                         }
                     } catch (e) { /* non-critical */ }
                     if (window.MwHaptics) window.MwHaptics.success();
@@ -1013,6 +1023,18 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         }
     });
 }());
+</script>
+<script>window.MW_USER_ID = <?php echo (int)$user['id']; ?>;</script>
+<script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
+<script>
+// Clocked in elsewhere (or before this update) and never asked today → ask now.
+<?php if ($shiftDriving === 'unasked'): ?>
+document.addEventListener('DOMContentLoaded', function () {
+    MwTripLog.afterClockIn({ driver_question_required: true }, window.MW_USER_ID).then(function (url) {
+        if (url) window.location.href = url;
+    });
+});
+<?php endif; ?>
 </script>
 </body>
 </html>

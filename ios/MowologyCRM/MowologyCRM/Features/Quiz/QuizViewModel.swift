@@ -11,6 +11,7 @@ import Foundation
 
 private let kQuizPassedDate   = "mw.quizPassedDate"
 private let kQuizAttemptedDate = "mw.quizAttemptedDate"
+private let kQuizServerEnabled = "mw.quizServerEnabled"
 
 @MainActor
 final class QuizViewModel: ObservableObject {
@@ -50,6 +51,19 @@ final class QuizViewModel: ObservableObject {
 
     // MARK: - Public API
 
+    /// Asks the server whether the pre-shift quiz applies to this crew member today. The server answers "on"
+    /// only when the business switched it on AND has at least one question, so a quiz with no questions never
+    /// blocks the schedule. Offline, the last answer the server gave is used; before any answer, the quiz is off.
+    static func serverStatus(apiClient: APIClient) async -> (enabled: Bool, done: Bool) {
+        do {
+            let status: QuizStatusResponse = try await apiClient.request(.quizStatus)
+            UserDefaults.standard.set(status.enabled, forKey: kQuizServerEnabled)
+            return (status.enabled, status.done)
+        } catch {
+            return (UserDefaults.standard.bool(forKey: kQuizServerEnabled), false)
+        }
+    }
+
     /// True if the quiz was passed today (for UI badges / score display).
     static func hasPassedToday() -> Bool {
         let stored = UserDefaults.standard.string(forKey: kQuizPassedDate) ?? ""
@@ -79,7 +93,8 @@ final class QuizViewModel: ObservableObject {
             currentNum     = 1
             await loadQuestion(num: 1)
         } catch {
-            errorMessage = "Could not start quiz. Check your connection."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
             isLoading    = false
             phase        = .error   // FIX: was left as .loading, trapping the user forever
         }
@@ -112,7 +127,8 @@ final class QuizViewModel: ObservableObject {
             )
             phase = .feedback
         } catch {
-            errorMessage = "Could not submit answer. Try again."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
         }
 
         isLoading = false
@@ -145,7 +161,8 @@ final class QuizViewModel: ObservableObject {
             questionStartTime = .now
             phase             = .question(num: num, of: totalQuestions)
         } catch {
-            errorMessage = "Could not load question. Try again."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
             phase        = .error
         }
 
@@ -170,7 +187,8 @@ final class QuizViewModel: ObservableObject {
 
             phase = .finished(passed: response.passed)
         } catch {
-            errorMessage = "Could not finalize quiz. Your answers are saved."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error) + " Your answers are saved."
             phase        = .finished(passed: false)
         }
 
@@ -178,8 +196,6 @@ final class QuizViewModel: ObservableObject {
     }
 
     private static func todayISO() -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withFullDate]
-        return f.string(from: .now)
+        VancouverDay.string()   // the Vancouver day, not GMT's (the gate reopened every evening)
     }
 }

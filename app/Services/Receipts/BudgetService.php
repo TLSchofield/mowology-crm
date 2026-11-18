@@ -156,26 +156,33 @@ function checkBudgetOnSave(array $expense, ?PDO $db = null): ?array
     // Calculate what the new percentage would be
     $newSpent = $current['spent'] + $total;
     $newPct = ($current['budget'] > 0) ? round(($newSpent / $current['budget']) * 100, 1) : 0;
+    require_once dirname(__DIR__, 2) . '/Modules/Expenses/Services/ReceiptAmountRules.php';
+    $crossingLevel = ReceiptAmountRules::budgetCrossingLevel(
+        (string)$current['status'],
+        $newPct,
+        (float)$current['warning_threshold'],
+        (float)$current['critical_threshold']
+    );
 
     // Only warn if this expense pushes it over a threshold
-    if ($current['status'] === 'ok' && $newPct >= $current['warning_threshold']) {
+    if ($crossingLevel === 'critical') {
         return [
-            'level'    => 'warning',
+            'level'    => 'critical',
             'message'  => sprintf(
-                'This expense will push %s spending to %.0f%% of budget ($%.2f / $%.2f)',
-                $category, $newPct, $newSpent, $current['budget']
+                'This expense will exceed the %s monthly budget ($%.2f / $%.2f = %.0f%%)',
+                $category, $newSpent, $current['budget'], $newPct
             ),
             'category' => $category,
             'new_pct'  => $newPct,
         ];
     }
 
-    if ($current['status'] !== 'critical' && $newPct >= $current['critical_threshold']) {
+    if ($crossingLevel === 'warning') {
         return [
-            'level'    => 'critical',
+            'level'    => 'warning',
             'message'  => sprintf(
-                'This expense will exceed the %s monthly budget ($%.2f / $%.2f = %.0f%%)',
-                $category, $newSpent, $current['budget'], $newPct
+                'This expense will push %s spending to %.0f%% of budget ($%.2f / $%.2f)',
+                $category, $newPct, $newSpent, $current['budget']
             ),
             'category' => $category,
             'new_pct'  => $newPct,

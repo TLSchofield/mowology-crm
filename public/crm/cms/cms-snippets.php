@@ -288,6 +288,8 @@ foreach ($grouped as $bt => $snippets) {
                                       $pConfig = json_decode($previewSnippet['content_json'], true) ?: [];
                                       $tokens = cms_getTokenDefaults();
                                       $config = cms_processBlockConfig($pConfig, $tokens, false);
+                                      require_once APP_ROOT . '/Modules/CMS/Services/CmsHtmlSanitizer.php';
+                                      $config = CmsHtmlSanitizer::cleanConfigUrls($config, '#'); // Fable #7
                                       $rendererPath = dirname(__DIR__) . '/includes/blocks/' . $previewSnippet['block_type'] . '.php';
                                       if (file_exists($rendererPath)) {
                                           include $rendererPath;

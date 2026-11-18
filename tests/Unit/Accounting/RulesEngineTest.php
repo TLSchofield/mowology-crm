@@ -60,6 +60,19 @@ class RulesEngineTest extends TestCase
     }
 
     /** @test */
+    public function contains_matches_despite_lost_word_spaces(): void
+    {
+        // A space-separated rule should still match a description whose word
+        // boundaries were lost during PDF extraction (EBCDIC reflow).
+        $engine = $this->engineWithRules([$this->makeRule(['condition_value' => 'point of sale'])]);
+        $this->assertNotNull($engine->previewMatch('POINTOFSALE CHV43016 VANCOUVER', '', 'expense'));
+        // and it still matches a normally-spaced description
+        $this->assertNotNull($engine->previewMatch('POINT OF SALE (CHV43016)', '', 'expense'));
+        // but does not over-match an unrelated description
+        $this->assertNull($engine->previewMatch('ETRANSFER DEBIT (NIGEL CASEY)', '', 'expense'));
+    }
+
+    /** @test */
     public function contains_is_case_insensitive(): void
     {
         $engine = $this->engineWithRules([$this->makeRule(['condition_value' => 'home depot'])]);

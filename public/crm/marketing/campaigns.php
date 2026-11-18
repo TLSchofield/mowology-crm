@@ -477,10 +477,15 @@ $activePage = 'marketing';
                   });
               });
 
-              // Opt-In resend days toggle
-              document.getElementById('optBulkTarget').addEventListener('change', function() {
-                  document.getElementById('optResendDaysWrap').style.display = this.value === 'pending' ? '' : 'none';
-              });
+              // Opt-In resend days toggle — #optBulkTarget only renders for
+              // users with marketing.edit ($canEdit), so guard against null
+              // for view-only users.
+              var optBulkTargetEl = document.getElementById('optBulkTarget');
+              if (optBulkTargetEl) {
+                  optBulkTargetEl.addEventListener('change', function() {
+                      document.getElementById('optResendDaysWrap').style.display = this.value === 'pending' ? '' : 'none';
+                  });
+              }
 
               // ── Section switching ────────────────────────────────────────
               window.switchSection = function(section) {

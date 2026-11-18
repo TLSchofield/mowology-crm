@@ -23,6 +23,7 @@ if (defined('APP_ROOT')) {
 requireLogin();
 $user = getCurrentUser();
 $db = getDB();
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
 $error = '';
 $success = '';
 
@@ -416,8 +417,10 @@ if ($request['latitude'] && $request['longitude']) {
 
 $pageTitle = 'Quote Workflow - ' . htmlspecialchars($contactName);
 $activePage = 'quotes';
-$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
-           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initMaps" async defer></script>';
+$mdtVer    = @filemtime(__DIR__ . '/js/map-draw/map-draw-tool.js') ?: '1';
+$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initMaps" async defer></script>'
+           . '<script src="/crm/js/quote-visit.js?v=' . (@filemtime(__DIR__ . '/js/quote-visit.js') ?: '1') . '" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -480,6 +483,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
                                         <span class="text-muted ml-2 small"><?php echo h($fullAddress ?: 'No address'); ?></span>
                                     </div>
                                     <div>
+                                        <span class="mw-qv-badge" id="mwQuoteVisitBadge" hidden></span>
                                         <?php if ($request['email']): ?>
                                             <a href="mailto:<?php echo h($request['email']); ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="event.stopPropagation();" title="<?php echo h($request['email']); ?>">
                                                 <i class="align-middle" data-feather="mail" style="width:12px;height:12px;"></i>
@@ -533,6 +537,67 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
                                             <i class="align-middle mr-1" data-feather="x-circle" style="width:12px;height:12px;"></i> Decline
                                         </button>
                                     </form>
+
+                                    <?php
+                                    // Otto's best day to look (LeadRouteDay, 2026-11-03): suggested, pre-fills the Day below; booking stays a tap.
+                                    $__ottoDay = null;
+                                    if ($requestId > 0) {
+                                        try {
+                                            require_once APP_ROOT . '/Modules/Operations/Services/OttoLeadService.php';
+                                            $__od = (new OttoLeadService($db))->bestDays([['id' => (int)$requestId, 'lat' => (float)($request['latitude'] ?? 0), 'lng' => (float)($request['longitude'] ?? 0),
+                                                                                         'has_address' => trim((string)($request['address'] ?? '')) !== '']]);
+                                            $__ottoDay = $__od[(int)$requestId] ?? null;
+                                        } catch (Throwable $e) { error_log('quote-workflow: Otto best day: ' . $e->getMessage()); }
+                                    }
+                                    ?>
+                                    <?php if ($requestId > 0): /* Quote visit (AppointmentService, 2026-10-15) — filled by quote-visit.js */ ?>
+                                    <?php if ($__ottoDay): ?>
+                                    <div class="mw-qv-otto">
+                                        <b>Otto:</b> <?php echo h(LeadRouteDay::line($__ottoDay)); ?>
+                                        <?php if (!empty($__ottoDay['best'])): ?><small><?php echo h($__ottoDay['best']['text']); ?><?php foreach ($__ottoDay['alternatives'] as $__a): ?> &middot; <?php echo h($__a['text']); ?><?php endforeach; ?></small><?php endif; ?>
+                                    </div>
+                                    <?php endif; ?>
+                                    <div class="mw-qv" id="mwQuoteVisit" data-request-id="<?php echo (int)$requestId; ?>" data-csrf="<?php echo h($csrfToken); ?>">
+                                        <div class="mw-qv-booked" data-qv-booked hidden></div>
+                                        <button type="button" class="btn btn-sm btn-outline-success mw-qv-open" data-qv-open hidden>
+                                            <i class="align-middle mr-1" data-feather="calendar" style="width:12px;height:12px;"></i> Book quote visit
+                                        </button>
+                                        <div class="mw-qv-form" data-qv-form hidden>
+                                            <div class="mw-qv-row">
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label">Day</label>
+                                                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwQvDate" aria-haspopup="true" aria-expanded="false">
+                                                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                                    </button>
+                                                    <input type="date" id="mwQvDate" class="form-control" hidden value="<?php echo h($__ottoDay['best']['date'] ?? date('Y-m-d', strtotime('+1 day'))); ?>">
+                                                </div>
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label" for="mwQvTime">Time</label>
+                                                    <select id="mwQvTime" class="form-control form-control-sm" data-qv-time></select>
+                                                </div>
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label" for="mwQvWho">Who goes</label>
+                                                    <select id="mwQvWho" class="form-control form-control-sm" data-qv-who></select>
+                                                </div>
+                                                <div class="mw-qv-field">
+                                                    <label class="form-label" for="mwQvLen">Length</label>
+                                                    <select id="mwQvLen" class="form-control form-control-sm" data-qv-len>
+                                                        <option value="30">30 min</option><option value="45" selected>45 min</option>
+                                                        <option value="60">1 hour</option><option value="90">1½ hours</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <input type="text" class="form-control form-control-sm mw-qv-note" data-qv-note maxlength="500" placeholder="Note for the visit (gate code, what to look at…)">
+                                            <div class="mw-qv-actions">
+                                                <button type="button" class="btn btn-sm btn-success" data-qv-save>Save visit</button>
+                                                <button type="button" class="btn btn-sm btn-link" data-qv-cancel-form>Close</button>
+                                            </div>
+                                        </div>
+                                        <div class="mw-qv-msg" data-qv-msg hidden></div>
+                                    </div>
+                                    <?php endif; ?>
                                 </div>
                             </div>
 
@@ -607,7 +672,12 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Valid Until</label>
-                                                <input type="date" name="valid_until" class="form-control" value="<?php echo date('Y-m-d', strtotime('+30 days')); ?>">
+                                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#valid_until" aria-haspopup="true" aria-expanded="false">
+                                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                                </button>
+                                                <input type="date" id="valid_until" name="valid_until" class="form-control" hidden value="<?php echo date('Y-m-d', strtotime('+30 days')); ?>">
                                             </div>
                                         </div>
 
@@ -696,7 +766,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
                                             <div class="col-md-12 mb-2">
                                                 <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Terms & Conditions</label>
                                                 <textarea name="terms" class="form-control" rows="3">Payment due within 30 days of service completion.
-All prices include GST.
+GST (5%) is added to all prices.
 Work to be completed weather permitting.</textarea>
                                             </div>
                                             <div class="col-md-6 mb-2">
@@ -894,7 +964,7 @@ Work to be completed weather permitting.</textarea>
             }
         });
 
-        var tax = subtotal * 0.05;
+        var tax = subtotal * <?= json_encode(TaxEngine::chargedRate($db, 0.05)) ?>; // 0 when not registered for GST
         var total = subtotal + tax;
 
         document.getElementById('subtotalDisplay').textContent = formatCurrencyJS(subtotal);
@@ -1444,9 +1514,12 @@ Work to be completed weather permitting.</textarea>
             rules.forEach(function(rule) {
                 var price = wfCalculatePreviewPrice(rule, totalUnits);
                 var freq = frequencyLabels[rule.default_frequency] || rule.default_frequency;
+                var yp = rule.pricing_model === 'per_yard_area' ? mwYardRuleParams(rule) : null;
                 var rateInfo = rule.pricing_model === 'flat'
                     ? 'Flat rate'
-                    : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft');
+                    : (yp
+                        ? mwYardsFromArea(totalUnits, yp.depth, yp.min) + ' yd × $' + parseFloat(rule.price_per_unit).toFixed(2) + ' (' + yp.depth + ' in deep, ' + yp.min + ' yd min)'
+                        : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft'));
 
                 rulesHtml +=
                     '<label class="mw-service-option">' +
@@ -1493,8 +1566,34 @@ Work to be completed weather permitting.</textarea>
             case 'min_plus_linear_ft':
                 price = minPrice + (Math.max(0, totalUnits - included) * perUnit);
                 break;
+            case 'per_yard_area':
+                var yp = mwYardRuleParams(rule);
+                price = mwYardsFromArea(totalUnits, yp.depth, yp.min) * perUnit;
+                break;
         }
         return Math.round(price * 100) / 100;
+    }
+
+    // JS/PHP PARITY: mirrors QuoteCalculator::yardsFromArea() and ::yardRuleParams() in
+    // app/Services/QuoteCalculator.php (and the copy in quotes/create.php). Change all three
+    // together. Integer maths in hundredths: 216 sq ft at 3 in is exactly 2 yd, not 3.
+    function mwYardsFromArea(sqft, depthIn, minYards) {
+        depthIn = parseFloat(depthIn);
+        if (!(depthIn > 0)) depthIn = 3;
+        minYards = Math.max(0, parseInt(minYards, 10) || 0);
+        var area  = Math.round(Math.max(0, parseFloat(sqft) || 0) * 100);
+        var depth = Math.round(depthIn * 100);
+        var den   = 324 * 10000;
+        var yards = Math.floor((area * depth + den - 1) / den);
+        return Math.max(minYards, yards);
+    }
+    function mwYardRuleParams(rule) {
+        var depth = parseFloat(rule.depth_inches);
+        var min = rule.min_units;
+        return {
+            depth: depth > 0 ? depth : 3,
+            min: (min === null || min === undefined || min === '') ? 2 : Math.max(0, parseInt(min, 10) || 0)
+        };
     }
 
     function wfUpdateAddButtonState() {

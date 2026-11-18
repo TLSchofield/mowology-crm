@@ -2149,7 +2149,9 @@ async function runBulkSeed(dry) {
 
     try {
         const url  = '/crm/api/run-migration-quiz-images.php' + (dry ? '?dry=1' : '');
-        const r    = await fetch(url);
+        // Runners need POST + the CSRF token (migrationRunnerGuard, 2026-10-12).
+        const r    = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                        body: 'csrf_token=' + encodeURIComponent(window.MW_CSRF_TOKEN || '') });
         const d    = await r.json();
 
         spinner.style.display = 'none';

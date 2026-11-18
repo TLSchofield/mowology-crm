@@ -7,8 +7,15 @@
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
+header('Cache-Control: no-store, private');
+header('Pragma: no-cache');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
+require_once APP_ROOT . '/Core/Csp.php';
+MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
+require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php';
 
 $db    = getDB();
 $error = '';
@@ -26,7 +33,7 @@ if (!$error) {
     $stmt = $db->prepare("
         SELECT
             i.*,
-            c.company_name,
+            " . BillToResolver::INVOICE_COMPANY_NAME . " AS company_name,
             c.billing_email,
             c.billing_phone,
             COALESCE(ct.first_name, dc.first_name) as contact_first,
@@ -42,6 +49,7 @@ if (!$error) {
         LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
         LEFT JOIN contacts dc  ON i.contact_id = dc.id
         LEFT JOIN properties p ON i.property_id = p.id
+        " . BillToResolver::INVOICE_COMPANY_JOINS . "
         WHERE i.access_token = ?
           AND (i.token_expires_at IS NULL OR i.token_expires_at > NOW())
         LIMIT 1
@@ -50,7 +58,7 @@ if (!$error) {
     $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$invoice) {
-        $error = 'This invoice link is invalid or has expired. Please contact Mowology at (778) 846-9273.';
+        $error = 'This invoice link is invalid or has expired. ' . PortalBrand::contactSentence();
     } else {
         // ── View tracking ────────────────────────────────────────────────
         // Update view_count + timestamps on every portal access,
@@ -105,6 +113,27 @@ $isPayable   = $invoice && in_array($invoice['status'], ['sent', 'viewed', 'part
 $contactName = $invoice ? trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) : '';
 $displayName = $invoice ? ($invoice['company_name'] ?: $contactName ?: 'Valued Customer') : '';
 
+// Payment instructions (e-Transfer etc.) — single source of truth: business_settings,
+// the same value shown on the invoice PDF.
+$paymentInstructions = '';
+if ($isPayable) {
+    try {
+        $val = $db->query("SELECT invoice_payment_instructions FROM business_settings WHERE id = 1")->fetchColumn();
+        $paymentInstructions = trim((string)($val ?: ''));
+    } catch (Exception $e) {
+        $paymentInstructions = '';
+    }
+}
+
+// Cards are the original business's own. Other businesses' clients pay on QuickBooks' page, when it is on.
+$takesCards = Tenant::takesCards();
+$qboPayUrl = null;
+if ($isPayable && !$takesCards) {
+    require_once APP_ROOT . '/Modules/QuickBooks/Services/QboClientPayService.php';
+    $qboConn = new QboConnectionService($db);
+    if ($qboConn->tablesReady()) $qboPayUrl = (new QboClientPayService(new QboSyncService($qboConn), $qboConn))->forInvoice((int)$invoice['id']);
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 function fmt(float $n): string {
     return '$' . number_format($n, 2);
@@ -118,17 +147,17 @@ function fmtDate(string $d): string {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice<?php echo $invoice ? ' ' . htmlspecialchars($invoice['invoice_number']) : ''; ?> | Mowology</title>
+    <title>Invoice<?php echo $invoice ? ' ' . htmlspecialchars($invoice['invoice_number']) : ''; ?> | <?= htmlspecialchars(PortalBrand::name()) ?></title>
     <meta name="robots" content="noindex,nofollow">
     <link rel="stylesheet" href="/customer/portal.css">
-    <?php if ($isPayable): ?>
+    <?php if ($isPayable && $takesCards): ?>
         <script src="https://js.stripe.com/v3/" defer></script>
     <?php endif; ?>
 </head>
 <body>
 
 <header class="portal-header">
-    <div class="portal-logo-text">Mowo<span>logy</span></div>
+    <div class="portal-logo-text"><?= PortalBrand::logoHtml() ?></div>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Invoice</span>
     <?php if ($invoice): ?>
@@ -190,7 +219,14 @@ function fmtDate(string $d): string {
                 <div class="due-label">Amount Due</div>
                 <div class="due-amount"><?php echo fmt(floatval($invoice['balance_due'])); ?> CAD</div>
             </div>
-            <button class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" onclick="openPayModal()">Pay Online Now</button>
+            <?php if ($takesCards): ?>
+            <button class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" data-mw-call="openPayModal">Pay Online Now</button>
+            <?php elseif ($qboPayUrl): ?>
+            <div>
+                <a class="portal-btn" style="background:var(--p-bg);color:var(--p-dark);" href="<?php echo htmlspecialchars($qboPayUrl); ?>" target="_blank" rel="noopener">Pay Online Now</a>
+                <div style="font-size:12px;margin-top:6px;text-align:center;">Payment is handled by QuickBooks.</div>
+            </div>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
@@ -264,12 +300,16 @@ function fmtDate(string $d): string {
                 </div>
                 <div class="portal-bill-section">
                     <h4>From</h4>
-                    <div class="portal-bill-name">Mowology Landscaping</div>
+                    <div class="portal-bill-name"><?= htmlspecialchars(PortalBrand::displayName()) ?></div>
+                    <?php
+                    $fromSite = trim((string)preg_replace('#^https?://#i', '', PortalBrand::homeUrl()), '/');
+                    $fromLines = array_filter([PortalBrand::phone(), PortalBrand::email(), $fromSite], function ($l) { return $l !== ''; });
+                    ?>
+                    <?php if ($fromLines): ?>
                     <div class="portal-bill-detail">
-                        (778) 846-9273<br>
-                        hello@mowology.ca<br>
-                        mowology.ca
+                        <?php echo implode('<br>', array_map('htmlspecialchars', $fromLines)); ?>
                     </div>
+                    <?php endif; ?>
                     <?php if (!empty($invoice['property_address'])): ?>
                         <div style="margin-top:12px;">
                             <h4>Service Address</h4>
@@ -315,7 +355,7 @@ function fmtDate(string $d): string {
                     <span class="portal-table-num"><?php echo fmt(floatval($invoice['subtotal'])); ?></span>
                 </div>
                 <div class="portal-total-row">
-                    <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)</span>
+                    <span>GST (<?php echo round(($invoice['tax_rate'] ?? 0.05) * 100); ?>%)</span>
                     <span class="portal-table-num"><?php echo fmt(floatval($invoice['tax_amount'] ?? 0)); ?></span>
                 </div>
                 <div class="portal-total-row grand">
@@ -336,10 +376,17 @@ function fmtDate(string $d): string {
         </div>
     </div>
 
+    <?php if ($isPayable && $paymentInstructions !== ''): ?>
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">How to Pay</div>
+            <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo htmlspecialchars($paymentInstructions); ?></div>
+        </div>
+    <?php endif; ?>
+
     <?php if (!empty($invoice['notes'])): ?>
         <div class="portal-info-card">
             <div class="portal-info-card-header">Notes</div>
-            <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo htmlspecialchars($invoice['notes']); ?></div>
+            <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo InvoiceNoteFormatter::html($invoice['notes'], false); ?></div>
         </div>
     <?php endif; ?>
 
@@ -347,19 +394,18 @@ function fmtDate(string $d): string {
     <div class="portal-info-card">
         <div class="portal-info-card-header">Questions?</div>
         <div class="portal-info-card-body" style="font-size:0.875rem;color:var(--p-text-mid);">
-            <p>Please contact us at <a href="tel:+17788469273">(778) 846-9273</a> or
-            <a href="mailto:hello@mowology.ca">hello@mowology.ca</a>.
-            We're happy to help.</p>
+            <p><?php if (PortalBrand::contactHtml() !== ''): ?>Please contact us at <?= PortalBrand::contactHtml() ?>.
+            <?php endif; ?>We're happy to help.</p>
         </div>
     </div>
 
     <!-- Payment modal -->
-    <?php if ($isPayable): ?>
+    <?php if ($isPayable && $takesCards): ?>
     <div id="payModal" class="portal-overlay" role="dialog" aria-modal="true" aria-labelledby="payModalTitle">
         <div class="portal-modal">
             <div class="portal-modal-hdr">
                 <h3 id="payModalTitle">Pay Invoice <?php echo htmlspecialchars($invoice['invoice_number']); ?></h3>
-                <button class="portal-modal-close" onclick="closePayModal()" aria-label="Close">&times;</button>
+                <button class="portal-modal-close" data-mw-call="closePayModal" aria-label="Close">&times;</button>
             </div>
             <div class="portal-modal-body">
                 <div class="portal-modal-amount">
@@ -377,7 +423,7 @@ function fmtDate(string $d): string {
                         </div>
                         <div class="portal-saved-card-actions">
                             <span class="portal-saved-card-badge">Card on file</span>
-                            <button class="portal-btn-text" onclick="showNewCardForm()">Use a different card</button>
+                            <button class="portal-btn-text" data-mw-call="showNewCardForm">Use a different card</button>
                         </div>
                     </div>
                     <div id="autopayWrap" class="portal-save-card-wrap" style="display:none;margin-top:10px;">
@@ -410,16 +456,16 @@ function fmtDate(string $d): string {
                 <div id="stripeError" class="portal-stripe-error" style="display:none;"></div>
             </div>
             <div class="portal-modal-footer" id="stripeFooter" style="display:none;">
-                <button class="portal-btn-outline" onclick="closePayModal()">Cancel</button>
-                <button id="stripePay" class="portal-btn" onclick="submitPayment()" disabled>
+                <button class="portal-btn-outline" data-mw-call="closePayModal">Cancel</button>
+                <button id="stripePay" class="portal-btn" data-mw-call="submitPayment" disabled>
                     <span id="stripePayLabel">Pay <?php echo fmt(floatval($invoice['balance_due'])); ?></span>
                     <span id="stripePaySpinner" style="display:none;">Processing&hellip;</span>
                 </button>
             </div>
             <!-- Saved card quick-pay footer (shown when using card on file) -->
             <div class="portal-modal-footer" id="savedCardFooter" style="display:none;">
-                <button class="portal-btn-outline" onclick="closePayModal()">Cancel</button>
-                <button id="savedCardPay" class="portal-btn" onclick="submitSavedCardPayment()" disabled>
+                <button class="portal-btn-outline" data-mw-call="closePayModal">Cancel</button>
+                <button id="savedCardPay" class="portal-btn" data-mw-call="submitSavedCardPayment" disabled>
                     <span id="savedCardPayLabel">Pay <?php echo fmt(floatval($invoice['balance_due'])); ?></span>
                     <span id="savedCardPaySpinner" style="display:none;">Processing&hellip;</span>
                 </button>
@@ -427,7 +473,7 @@ function fmtDate(string $d): string {
         </div>
     </div>
 
-    <script>
+    <script<?= MwCsp::attr() ?>>
     (function () {
         'use strict';
 
@@ -483,6 +529,11 @@ function fmtDate(string $d): string {
                 if (data.error) {
                     showError(data.error);
                     document.getElementById('stripeLoading').style.display = 'none';
+                    return;
+                }
+                if (data.already_paid) {
+                    // Server refused to create a second charge — invoice is already paid.
+                    showAlreadyPaid();
                     return;
                 }
                 fetched = true;
@@ -631,6 +682,7 @@ function fmtDate(string $d): string {
                 .then(function (r) { return r.json(); })
                 .then(function (newData) {
                     if (newData.error) { setLoading(false); showError(newData.error); return; }
+                    if (newData.already_paid) { setLoading(false); showAlreadyPaid(); return; }
                     // Update elements with new client_secret
                     elements.fetchUpdates().then(doConfirm).catch(doConfirm);
                 })
@@ -671,12 +723,9 @@ function fmtDate(string $d): string {
                     }
                 } else if (result.paymentIntent && (result.paymentIntent.status === 'succeeded' || result.paymentIntent.status === 'processing')) {
                     if (wantsAutopay) {
-                        // Enroll the existing card in autopay (contact already has a saved PM)
-                        fetch('/customer/api/autopay-setup.php', {
-                            method : 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, action: 'enable_existing_card' })
-                        }).then(function () { showSuccess(); }).catch(function () { showSuccess(); });
+                        // Autopay with the card on file needs the cardholder to re-enter it (security
+                        // review #13) — send them to the autopay page's card form.
+                        window.location.href = '/customer/autopay.php?token=' + encodeURIComponent(<?php echo json_encode($token); ?>);
                     } else {
                         showSuccess();
                     }
@@ -718,6 +767,17 @@ function fmtDate(string $d): string {
             ].join('');
             setTimeout(function () { location.reload(); }, 5000);
         }
+        function showAlreadyPaid() {
+            document.querySelector('#payModal .portal-modal').innerHTML = [
+                '<div style="padding:48px 32px;text-align:center;">',
+                '<div style="font-size:56px;color:#2D8659;line-height:1;">&#10003;</div>',
+                '<h3 style="color:#0D3B2E;margin:16px 0 8px;font-family:Montserrat,sans-serif;">Already Paid</h3>',
+                '<p style="color:#4a6b5d;font-size:14px;">This invoice has already been paid &mdash; no further payment is needed. Thank you!</p>',
+                '<p style="color:#9ca3af;font-size:12px;margin-top:12px;">Refreshing&hellip;</p>',
+                '</div>'
+            ].join('');
+            setTimeout(function () { location.reload(); }, 3000);
+        }
 
         <?php if (isset($_GET['payment']) && $_GET['payment'] === 'success'): ?>
         // Show success message after redirect-based payment (e.g. 3DS)
@@ -737,9 +797,10 @@ function fmtDate(string $d): string {
 <?php endif; ?>
 
     <div class="portal-footer">
-        &copy; <?php echo date('Y'); ?> Mowology Landscaping &mdash; mowology.ca
+        &copy; <?php echo date('Y'); ?> <?= htmlspecialchars(PortalBrand::displayName()) ?> &mdash; <?= htmlspecialchars(PortalBrand::websiteLabel()) ?>
     </div>
 
 </div>
+<script src="/assets/js/mw-csp-actions.js"></script>
 </body>
 </html>

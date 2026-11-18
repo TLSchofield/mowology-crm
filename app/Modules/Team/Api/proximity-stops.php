@@ -22,11 +22,13 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // read-only — release session lock immediately
 
     if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
         http_response_code(405);
@@ -41,12 +43,16 @@ try {
     $autoArrivalServiceTypes = array_filter(array_map('trim', explode(',', $autoArrivalServiceTypesStr)));
 
     $allVisits = getAllJobsForDate($today);
+    // Crew get only their own stops unless the company lets them see every crew's (CrewViewScope, 2026-10-14).
+    require_once APP_ROOT . '/Modules/Schedule/Services/CrewViewScope.php';
+    $seesOthers = CrewViewScope::seesOtherCrews((string)($user['role'] ?? ''), CrewViewScope::setting(getDB()));
 
     $stops = [];
     foreach ($allVisits as $v) {
         $vLat = $v['property_lat'] ?? null;
         $vLng = $v['property_lng'] ?? null;
         if (empty($vLat) || empty($vLng)) continue;
+        if (!$seesOthers && (int)($v['assigned_crew_id'] ?? 0) !== (int)$user['id'] && !userIsCrewOnVisit((int)$v['id'], (int)$user['id'])) continue;
 
         $stops[] = [
             'visit_id'        => (int)$v['id'],
@@ -75,5 +81,5 @@ try {
     echo json_encode(['error' => 'Database error']);
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'proximity-stops')]);
 }

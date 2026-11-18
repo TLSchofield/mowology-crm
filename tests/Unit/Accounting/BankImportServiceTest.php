@@ -22,6 +22,257 @@ class BankImportServiceTest extends TestCase
         $pdo = $this->createMock(PDO::class);
         $this->service = new BankImportService($pdo);
         $this->ref = new \ReflectionClass(BankImportService::class);
+        $this->setToday('2026-10-05');
+    }
+
+    private function setToday(string $date): void
+    {
+        $p = $this->ref->getProperty('today');
+        $p->setAccessible(true);
+        $p->setValue($this->service, $date);
+    }
+
+    // ── detectPreset() ────────────────────────────────────────────────────────
+
+    /** Encode an ASCII string as the UTF-8-wrapped EBCDIC bytes smalot emits. */
+    private function toEbcdicUtf8(string $ascii): string
+    {
+        $map = [' ' => 0x40, '.' => 0x4B, ',' => 0x6B, '(' => 0x4D, ')' => 0x5D];
+        for ($i = 0; $i <= 8; $i++) $map[chr(ord('A') + $i)] = 0xC1 + $i;
+        for ($i = 0; $i <= 8; $i++) $map[chr(ord('J') + $i)] = 0xD1 + $i;
+        for ($i = 0; $i <= 7; $i++) $map[chr(ord('S') + $i)] = 0xE2 + $i;
+        for ($i = 0; $i <= 9; $i++) $map[chr(ord('0') + $i)] = 0xF0 + $i;
+        $out = '';
+        foreach (str_split($ascii) as $c) {
+            $out .= $c === "\n" ? "\n" : (isset($map[$c]) ? mb_chr($map[$c], 'UTF-8') : $c);
+        }
+        return $out;
+    }
+
+    private function callPrivate(string $method, ...$args)
+    {
+        $m = $this->ref->getMethod($method);
+        $m->setAccessible(true);
+        return $m->invoke($this->service, ...$args);
+    }
+
+    // ── EBCDIC decode (Vancity 2026+ font) ──────────────────────────────────────
+
+    /** @test */
+    public function looksLikeEbcdic_detects_ebcdic_text(): void
+    {
+        $this->assertTrue($this->callPrivate('looksLikeEbcdic',
+            $this->toEbcdicUtf8('MOWOLOGY LAWNS AND LANDSCAPES VANCOUVER BC 14,331.92 OPENING BALANCE')));
+        $this->assertFalse($this->callPrivate('looksLikeEbcdic',
+            'Plain ASCII bank statement text with a balance of 14,331.92 and more words here'));
+    }
+
+    /** @test */
+    public function decodeEbcdicStatement_reflows_transactions(): void
+    {
+        // A minimal EBCDIC statement: opening balance + two date-triplets.
+        $ascii = "OPENING BALANCE\n100.00\n"
+               . "01MAY POS GROCERY\n10.00\n90.00\n"
+               . "02MAY DEPOSIT\n40.00\n130.00\n";
+        $decoded = $this->callPrivate('decodeEbcdicStatement', $this->toEbcdicUtf8($ascii));
+
+        $this->assertNotNull($decoded);
+        $this->assertStringContainsString('WITHDRAWALS DEPOSITS BALANCE', $decoded);
+        $this->assertStringContainsString('OPENING BALANCE 100.00', $decoded);
+        $this->assertStringContainsString('01 MAY POSGROCERY 10.00 90.00', $decoded);
+        $this->assertStringContainsString('02 MAY DEPOSIT 40.00 130.00', $decoded);
+    }
+
+    /** @test */
+    public function decodeEbcdicStatement_absorbs_wrapped_description_lines(): void
+    {
+        // The amount is not on the line immediately after the date — the description
+        // wraps across two lines first (real Vancity layout for long merchant names).
+        $ascii = "OPENING BALANCE\n100.00\n"
+               . "01MAY POS SOUTHLANDS\nNURSERY VANCOUVER\n10.00\n90.00\n";
+        $decoded = $this->callPrivate('decodeEbcdicStatement', $this->toEbcdicUtf8($ascii));
+
+        $this->assertNotNull($decoded);
+        // wrapped description joined, amount + balance captured (not dropped)
+        $this->assertStringContainsString('01 MAY POSSOUTHLANDSNURSERYVANCOUVER 10.00 90.00', $decoded);
+    }
+
+    /** @test */
+    public function decodeEbcdicStatement_keeps_the_savings_sections_with_their_headers(): void
+    {
+        // Sept 2026 layout: chequing, then GST RESERVES with one interest credit, then shares.
+        $ascii = "OPENING BALANCE\n100.00\n"
+               . "01SEP POS GROCERY\n10.00\n90.00\n"
+               . "BUSINESS JUMPSTART SAVINGS (GST RESERVES)\nOPENING BALANCE\n8.64\n"
+               . "30SEP INTEREST CREDITED\n0.01\n8.65\n"
+               . "CLASS B MEMBERSHIP SHARES\nOPENING BALANCE\n7.29\n";
+        $decoded = $this->callPrivate('decodeEbcdicStatement', $this->toEbcdicUtf8($ascii));
+
+        $this->assertStringContainsString('01 SEP POSGROCERY 10.00 90.00', $decoded);
+        $this->assertStringContainsString("BUSINESS JUMPSTART SAVINGS (GST RESERVES)\nOPENING BALANCE 8.64\n30 SEP INTERESTCREDITED 0.01 8.65", $decoded);
+        $this->assertStringContainsString('CLASS B MEMBERSHIP SHARES', $decoded);
+
+        $this->setToday('2026-10-07');
+        $rows = $this->callPrivate('parsePdfText', $decoded, false)['rows'];
+        $this->assertSame([null, '6827'], array_column($rows, 'statement_account'), 'chequing has no header here: the unnamed section is the primary');
+        $this->assertSame([true, false], array_column($rows, 'statement_primary'));
+        $this->assertSame('income', $rows[1]['type']);
+    }
+
+    /** @test */
+    public function decodeEbcdicStatement_returns_null_for_non_ebcdic(): void
+    {
+        $this->assertNull($this->callPrivate('decodeEbcdicStatement', "01/05  GROCERY  10.00  90.00\n"));
+    }
+
+    // ── parsePdfText: year-boundary correction ──────────────────────────────────
+
+    /** @test */
+    public function parsePdfText_corrects_year_across_dec_jan_rollover(): void
+    {
+        $text = "STATEMENT PERIOD 2025 2026\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "30 DEC POS GROCERY 100.00 900.00\n"
+              . "02 JAN DEPOSIT 200.00 1100.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('2025-12-30', $rows[0]['date']); // December → prior year
+        $this->assertSame('2026-01-02', $rows[1]['date']); // January → statement year
+    }
+
+    /** @test */
+    public function parsePdfText_keeps_single_year_when_no_rollover(): void
+    {
+        $text = "STATEMENT PERIOD 2024\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "01 JUN POS A 50.00 950.00\n"
+              . "15 JUN POS B 50.00 900.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2024-06-01', $rows[0]['date']);
+        $this->assertSame('2024-06-15', $rows[1]['date']);
+    }
+
+    /** @test */
+    public function parsePdfText_dates_december_statement_imported_in_april_as_last_year(): void
+    {
+        // The 2026-04-29 incident: a Dec-2025 statement with no year anywhere
+        // was dated Dec 2026 — 122 future rows.
+        $this->setToday('2026-04-29');
+        $text = "WITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "07 DEC MOBILE DEPOSIT 100.00 1100.00\n"
+              . "31 DEC INTEREST CREDITED TO ACCOUNT 0.50 1100.50\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2025-12-07', $rows[0]['date']);
+        $this->assertSame('2025-12-31', $rows[1]['date']);
+    }
+
+    /** @test */
+    public function parsePdfText_anchors_to_statement_period_not_a_stray_later_year(): void
+    {
+        $this->setToday('2026-04-29');
+        $text = "STATEMENT PERIOD 01 DEC 2025 to 31 DEC 2025\nPrinted 2026 copyright 2026\n"
+              . "WITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "07 DEC MOBILE DEPOSIT 100.00 1100.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2025-12-07', $rows[0]['date']);
+    }
+
+    /** @test */
+    public function parsePdfText_period_across_year_end_uses_anchor_per_row(): void
+    {
+        // Multi-account statement: each section restarts the Dec → Jan period.
+        $text = "STATEMENT PERIOD 15 DEC 2025 to 14 JAN 2026\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "20 DEC POS A 10.00 990.00\n"
+              . "05 JAN POS B 10.00 980.00\n"
+              . "22 DEC POS C 10.00 970.00\n"
+              . "10 JAN POS D 10.00 960.00\n";
+        $dates = array_column($this->callPrivate('parsePdfText', $text, false)['rows'], 'date');
+        $this->assertSame(['2025-12-20', '2026-01-05', '2025-12-22', '2026-01-10'], $dates);
+    }
+
+    /** @test */
+    public function parsePdfText_multi_account_restart_is_not_a_year_rollover(): void
+    {
+        $text = "STATEMENT PERIOD 2025\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "20 NOV POS A 10.00 990.00\n"
+              . "05 DEC POS B 10.00 980.00\n"
+              . "21 NOV POS C 10.00 970.00\n"
+              . "06 DEC POS D 10.00 960.00\n";
+        $dates = array_column($this->callPrivate('parsePdfText', $text, false)['rows'], 'date');
+        $this->assertSame(['2025-11-20', '2025-12-05', '2025-11-21', '2025-12-06'], $dates);
+    }
+
+    /** @test */
+    public function parsePdfText_never_dates_a_row_after_the_import_date(): void
+    {
+        $this->setToday('2026-10-05');
+        $text = "WITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "28 SEP POS A 10.00 990.00\n"
+              . "03 OCT POS B 10.00 980.00\n"
+              . "20 OCT POS C 10.00 970.00\n";
+        $dates = array_column($this->callPrivate('parsePdfText', $text, false)['rows'], 'date');
+        $this->assertSame(['2026-09-28', '2026-10-03', '2025-10-20'], $dates);
+        foreach ($dates as $d) $this->assertLessThanOrEqual('2026-10-05', $d);
+    }
+
+    /** @test */
+    public function parsePdfText_keeps_an_explicit_row_year(): void
+    {
+        $text = "STATEMENT PERIOD 01 JUN 2026 to 30 JUN 2026\n"
+              . "2024-06-03 OLD ITEM 10.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2024-06-03', $rows[0]['date']);
+    }
+
+    /** @test */
+    public function statementAnchorDate_ignores_amounts_that_look_like_years(): void
+    {
+        $this->assertSame('2025-12-31',
+            $this->callPrivate('statementAnchorDate', "Dec 31, 2025\n15 MAY 2030.00 4000.00"));
+        $this->assertNull($this->callPrivate('statementAnchorDate', "no dates here 2025"));
+    }
+
+    /** @test */
+    public function latestOnOrBefore_handles_leap_day(): void
+    {
+        $this->assertSame('2024-02-29', $this->callPrivate('latestOnOrBefore', 2, 29, '2026-03-31'));
+    }
+
+    /** @test */
+    public function parseCSV_yearless_dates_are_never_in_the_future(): void
+    {
+        $this->setToday('2026-04-29');
+        $csv  = "Date,Description,Amount\nDec 07,MOBILE DEPOSIT,100.00\n2026-12-07,EXPLICIT,5.00\n";
+        $rows = $this->callPrivate('parseCSV', $csv, ['date' => 0, 'description' => 1, 'amount' => 2], 1, 'bank');
+        $this->assertSame('2025-12-07', $rows[0]['date']);
+        $this->assertSame('2026-12-07', $rows[1]['date']); // explicit year kept; commit() refuses it
+    }
+
+    /** @test */
+    public function commit_refuses_rows_dated_after_today(): void
+    {
+        $this->setToday('2026-04-29');
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/dated after today/');
+        $this->service->commit([['date' => '2026-12-07', 'description' => 'MOBILE DEPOSIT', 'amount' => 1, 'type' => 'income']], 1);
+    }
+
+    // ── parsePdfText: balance-delta classification (#3) ─────────────────────────
+
+    /** @test */
+    public function parsePdfText_classifies_by_balance_delta_when_running_balance_present(): void
+    {
+        // No "WITHDRAWALS DEPOSITS BALANCE" header → not detected as 3-column, but a
+        // running-balance column is present; classification must follow the delta.
+        $text = "STATEMENT PERIOD 2026\n"
+              . "01 MAY POS A 50.00 950.00\n"   // baseline (sets running balance)
+              . "02 MAY DEPOSIT B 100.00 1050.00\n"  // balance up → income
+              . "03 MAY POS C 200.00 850.00\n";  // balance down → expense
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+
+        $byDate = [];
+        foreach ($rows as $r) { $byDate[$r['date']] = $r['type']; }
+        $this->assertSame('income',  $byDate['2026-05-02']);
+        $this->assertSame('expense', $byDate['2026-05-03']);
     }
 
     // ── detectPreset() ────────────────────────────────────────────────────────
@@ -58,16 +309,21 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
-    public function getPresets_returns_all_six_banks(): void
+    public function getPresets_includes_banks_and_credit_cards(): void
     {
         $presets = $this->service->getPresets();
-        $this->assertCount(6, $presets);
+        // Banks
         $this->assertArrayHasKey('td', $presets);
         $this->assertArrayHasKey('rbc', $presets);
         $this->assertArrayHasKey('bmo', $presets);
         $this->assertArrayHasKey('cibc', $presets);
         $this->assertArrayHasKey('scotiabank', $presets);
+        $this->assertArrayHasKey('vancity', $presets);
         $this->assertArrayHasKey('generic', $presets);
+        // Credit cards
+        $this->assertArrayHasKey('td_cc', $presets);
+        $this->assertArrayHasKey('vancity_cc', $presets);
+        $this->assertArrayHasKey('generic_cc', $presets);
     }
 
     // ── parseNumber() (private) ───────────────────────────────────────────────
@@ -232,5 +488,823 @@ class BankImportServiceTest extends TestCase
         $this->assertArrayHasKey('is_duplicate', $rows[0]);
         $this->assertFalse($rows[0]['is_duplicate']);
         $this->assertNull($rows[0]['account_id']);
+    }
+
+    // ── getPresetKind() ───────────────────────────────────────────────────────
+
+    /** @test */
+    public function getPresetKind_bank_presets_are_bank(): void
+    {
+        $this->assertSame('bank', $this->service->getPresetKind('td'));
+        $this->assertSame('bank', $this->service->getPresetKind('vancity'));
+        $this->assertSame('bank', $this->service->getPresetKind('generic'));
+    }
+
+    /** @test */
+    public function getPresetKind_credit_card_presets_are_credit_card(): void
+    {
+        $this->assertSame('credit_card', $this->service->getPresetKind('td_cc'));
+        $this->assertSame('credit_card', $this->service->getPresetKind('vancity_cc'));
+        $this->assertSame('credit_card', $this->service->getPresetKind('generic_cc'));
+    }
+
+    /** @test */
+    public function getPresetKind_unknown_defaults_to_bank(): void
+    {
+        $this->assertSame('bank', $this->service->getPresetKind('auto'));
+        $this->assertSame('bank', $this->service->getPresetKind('nonsense'));
+    }
+
+    // ── detectStatementType() ─────────────────────────────────────────────────
+
+    /** @test */
+    public function detectStatementType_vancity_credit_card(): void
+    {
+        $header = 'Card Number,Transaction Date,Posted Date,Description,Amount';
+        $this->assertSame('vancity_cc', $this->service->detectStatementType($header, 'vancity_visa_jan.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_vancity_bank(): void
+    {
+        $header = 'Date,Description,Withdrawal,Deposit,Balance';
+        $this->assertSame('vancity', $this->service->detectStatementType($header, 'vancity_chequing.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_td_credit_card(): void
+    {
+        $header = 'Transaction Date,Description,Visa Card,Amount';
+        $this->assertSame('td_cc', $this->service->detectStatementType($header, 'TD_VISA_statement.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_td_bank(): void
+    {
+        $header = 'Date,Description,Withdrawal,Deposit,Balance';
+        $this->assertSame('td', $this->service->detectStatementType($header, 'td_chequing.csv'));
+    }
+
+    /**
+     * Regression: Vancity's downloadable statement export ("Date,Description,
+     * Debits,Credits,Balance") carries no institution name in the header or
+     * filename. Before this fix it fell through to the 'generic' preset
+     * (single signed amount column), which misread the Debits column as a
+     * positive amount and flipped every expense row to income.
+     * @test
+     */
+    public function detectStatementType_unbranded_debit_credit_export_uses_generic_dc(): void
+    {
+        $header = 'Date,Description,Debits,Credits,Balance';
+        $this->assertSame('generic_dc', $this->service->detectStatementType($header, 'Account_Statement_6801_05-Aug-2026.csv'));
+
+        $preset = $this->service->getPreset('generic_dc');
+        $this->assertSame('bank', $preset['kind']);
+        $this->assertSame(2, $preset['debit']);
+        $this->assertSame(3, $preset['credit']);
+    }
+
+    /** @test */
+    public function detectStatementType_unknown_returns_empty(): void
+    {
+        $this->assertSame('', $this->service->detectStatementType('foo,bar,baz', 'mystery.csv'));
+    }
+
+    // ── isCreditCardPayment() (private) ───────────────────────────────────────
+
+    private function isCreditCardPayment(string $desc): bool
+    {
+        $m = $this->ref->getMethod('isCreditCardPayment');
+        return (bool)$m->invoke($this->service, $desc);
+    }
+
+    /** @test */
+    public function isCreditCardPayment_matches_payment_thank_you(): void
+    {
+        $this->assertTrue($this->isCreditCardPayment('PAYMENT - THANK YOU'));
+        $this->assertTrue($this->isCreditCardPayment('PAYMENT RECEIVED THANK YOU'));
+    }
+
+    /** @test */
+    public function isCreditCardPayment_matches_visa_payment(): void
+    {
+        $this->assertTrue($this->isCreditCardPayment('VISA PAYMENT VANCITY'));
+        $this->assertTrue($this->isCreditCardPayment('PAYMENT TO TD VISA'));
+        $this->assertTrue($this->isCreditCardPayment('PRE-AUTHORIZED PAYMENT'));
+    }
+
+    /** @test */
+    public function isCreditCardPayment_a_preauthorized_bill_is_not_a_card_payment(): void
+    {
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment TELUS MOBILITY Telus Mobility'));
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment TD ON-LINE LOANS SYSTEM'));
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment Wave PYRL Wave Payroll'));
+        $this->assertTrue($this->isCreditCardPayment('Preauthorized payment VANCITY VISA AUTO PAYMENT'), 'names the card');
+    }
+
+    /** @test */
+    public function isCreditCardPayment_ignores_normal_purchases(): void
+    {
+        $this->assertFalse($this->isCreditCardPayment('SHELL GAS STATION'));
+        $this->assertFalse($this->isCreditCardPayment('HOME DEPOT #7012'));
+        $this->assertFalse($this->isCreditCardPayment('VISA — JUST A MERCHANT NAME'));
+    }
+
+    // ── parseCSV() credit-card routing ────────────────────────────────────────
+
+    private function parseCcCSV(string $content, array $mapping, int $skipRows = 1): array
+    {
+        $m = $this->ref->getMethod('parseCSV');
+        return $m->invoke($this->service, $content, $mapping, $skipRows, 'credit_card');
+    }
+
+    /** @test */
+    public function parseCSV_cc_charge_is_positive_expense(): void
+    {
+        // TD single-amount CC: charges positive.
+        $csv = "Date,Description,Amount\n2024-01-15,Shell Gas,65.42";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'amount' => 2]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('expense', $rows[0]['type']);
+        $this->assertSame('charge', $rows[0]['cc_role']);
+        $this->assertEqualsWithDelta(65.42, $rows[0]['amount'], 0.001);
+    }
+
+    /** @test */
+    public function parseCSV_cc_refund_is_negative_expense(): void
+    {
+        // TD single-amount CC: payments/credits negative; a non-payment credit is a refund.
+        $csv = "Date,Description,Amount\n2024-01-20,HOME DEPOT REFUND,-30.00";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'amount' => 2]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('expense', $rows[0]['type']);
+        $this->assertSame('refund', $rows[0]['cc_role']);
+        $this->assertEqualsWithDelta(-30.00, $rows[0]['amount'], 0.001);
+    }
+
+    /** @test */
+    public function parseCSV_cc_payment_is_flagged_settlement(): void
+    {
+        $csv = "Date,Description,Amount\n2024-01-25,PAYMENT - THANK YOU,-500.00";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'amount' => 2]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('payment', $rows[0]['cc_role']);
+        $this->assertTrue($rows[0]['cc_payment']);
+        $this->assertEqualsWithDelta(500.00, $rows[0]['amount'], 0.001);
+    }
+
+    /** @test */
+    public function parseCSV_cc_debit_credit_charge_and_payment(): void
+    {
+        // Debit column = charge, Credit column = payment/refund.
+        $csv = "Date,Desc,Debit,Credit\n2024-01-15,Lowes,120.00,\n2024-01-25,VISA PAYMENT,,500.00";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3]);
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('charge', $rows[0]['cc_role']);
+        $this->assertEqualsWithDelta(120.00, $rows[0]['amount'], 0.001);
+        $this->assertSame('payment', $rows[1]['cc_role']);
+        $this->assertTrue($rows[1]['cc_payment']);
+    }
+
+    // ── applyCcSettlement() (private) ─────────────────────────────────────────
+
+    private function applyCcSettlement(array $row, int $ccPayableId, int $defaultExpenseId): array
+    {
+        $m = $this->ref->getMethod('applyCcSettlement');
+        $handled = $m->invokeArgs($this->service, [&$row, $ccPayableId, $defaultExpenseId]);
+        return ['handled' => $handled, 'row' => $row];
+    }
+
+    /** @test */
+    public function applyCcSettlement_bank_debit_cc_payment_becomes_transfer(): void
+    {
+        $row = ['type' => 'expense', 'description' => 'VANCITY VISA PAYMENT', 'amount' => 500.0];
+        $out = $this->applyCcSettlement($row, 42, 99);
+
+        $this->assertTrue($out['handled']);
+        $this->assertSame('transfer', $out['row']['type']);
+        $this->assertSame(42, $out['row']['account_id']);
+        $this->assertSame('2400', $out['row']['account_code']);
+        $this->assertTrue($out['row']['cc_payment']);
+        $this->assertStringContainsString('reconcile', strtolower($out['row']['cc_note']));
+    }
+
+    /** @test */
+    public function applyCcSettlement_a_card_charge_that_mentions_payment_stays_a_charge(): void
+    {
+        // Fable 2026-10-13: on a card statement, "GOOGLE *PAYMENT" or "PAYMENT PROCESSING" is a purchase.
+        $m = $this->ref->getMethod('applyCcSettlement');
+        foreach (['GOOGLE *PAYMENT', 'SQ *PAYMENT PROCESSING'] as $desc) {
+            $row = ['type' => 'expense', 'description' => $desc, 'amount' => 24.99, 'cc_role' => 'charge'];
+            $handled = $m->invokeArgs($this->service, [&$row, 42, 99, 'credit_card']);
+            $this->assertFalse($handled, $desc . ' is a charge, not the payoff');
+        }
+        $row = ['type' => 'expense', 'description' => 'JAN 16AUTOMATIC PAYMENT', 'amount' => 359.22, 'cc_role' => 'payment'];
+        $this->assertTrue($m->invokeArgs($this->service, [&$row, 42, 99, 'credit_card']), 'the real payoff still is one');
+    }
+
+    /** @test */
+    public function applyCcSettlement_falls_back_to_expense_when_no_cc_account(): void
+    {
+        $row = ['type' => 'expense', 'description' => 'VISA PAYMENT', 'amount' => 500.0];
+        $out = $this->applyCcSettlement($row, 0, 99);
+
+        $this->assertTrue($out['handled']);
+        $this->assertSame('expense', $out['row']['type']);
+        $this->assertSame(99, $out['row']['account_id']);
+    }
+
+    /** @test */
+    public function applyCcSettlement_ignores_normal_expense(): void
+    {
+        $row = ['type' => 'expense', 'description' => 'SHELL GAS STATION', 'amount' => 60.0];
+        $out = $this->applyCcSettlement($row, 42, 99);
+
+        $this->assertFalse($out['handled']);
+        $this->assertSame('expense', $out['row']['type']);
+    }
+
+    // ── Manual reconciliation: scoreExpenseTransactionPair() ────────────────────
+    //
+    // Candidate scoring is pure (no DB) and unit-tested directly. The transactional
+    // attach()/detach() write paths follow this codebase's existing convention for
+    // side-effecting reconciliation services (see InvoiceReconciliationServiceTest's
+    // header comment) — verified on production per the feature's plan, not mocked
+    // here, since a faithful PDO-mock of a multi-step guarded UPDATE adds test
+    // complexity without adding real coverage over what the guards themselves need.
+
+    private function expenseRow(array $overrides = []): array
+    {
+        return array_merge([
+            'expense_date'    => '2026-07-10',
+            'total'           => 84.50,
+            'vendor_name_raw' => 'Home Depot',
+        ], $overrides);
+    }
+
+    private function transactionRow(array $overrides = []): array
+    {
+        return array_merge([
+            'transaction_date' => '2026-07-10',
+            'description'      => 'HOME DEPOT #1234 VANCOUVER',
+            'amount'           => 84.50,
+        ], $overrides);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_exact_amount_same_day_vendor_match_scores_high(): void
+    {
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow());
+
+        $this->assertNotNull($score);
+        $this->assertSame(90, $score['confidence']); // 50 amount + 20 same-day + 20 vendor
+        $this->assertContains('Exact amount match', $score['reasons']);
+        $this->assertContains('Same day', $score['reasons']);
+        $this->assertContains('Vendor name matches statement description', $score['reasons']);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_close_amount_within_tolerance_scores_lower(): void
+    {
+        // $0.75 off on an $84.50 total is within max(0.5, 2%) but not exact.
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['amount' => 85.25]));
+
+        $this->assertNotNull($score);
+        $this->assertContains('Amount close (within 2%)', $score['reasons']);
+        $this->assertLessThan(90, $score['confidence']);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_unrelated_amount_returns_null(): void
+    {
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['amount' => 250.00]));
+        $this->assertNull($score);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_beyond_match_window_returns_null(): void
+    {
+        // 15 days apart — findExpenseMatch()'s auto-match window is ±3d, this
+        // manual path widens to ±14d, but still has to draw a line somewhere.
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['transaction_date' => '2026-07-25']));
+        $this->assertNull($score);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_no_vendor_overlap_still_scores_on_amount_and_date(): void
+    {
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['description' => 'POS PURCHASE 5591']));
+
+        $this->assertNotNull($score);
+        $this->assertNotContains('Vendor name matches statement description', $score['reasons']);
+        $this->assertSame(70, $score['confidence']); // 50 amount + 20 same-day, no vendor bonus
+    }
+
+    // ── Manual reconciliation: candidateTransactionsForExpense() ────────────────
+
+    /** Build a service whose expense lookup and transaction-candidate queries return canned rows. */
+    private function bankImportServiceWith(?array $expenseRow, array $transactionRows): BankImportService
+    {
+        $expenseStmt = $this->createMock(PDOStatement::class);
+        $expenseStmt->method('execute')->willReturn(true);
+        $expenseStmt->method('fetch')->willReturn($expenseRow ?: false);
+
+        $txStmt = $this->createMock(PDOStatement::class);
+        $txStmt->method('execute')->willReturn(true);
+        $txStmt->method('fetchAll')->willReturn($transactionRows);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(
+            function (string $sql) use ($expenseStmt, $txStmt) {
+                return strpos($sql, 'FROM accounting_transactions at') !== false ? $txStmt : $expenseStmt;
+            }
+        );
+
+        return new BankImportService($pdo);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_ranks_high_confidence_first(): void
+    {
+        $svc = $this->bankImportServiceWith(
+            ['id' => 1, 'expense_date' => '2026-07-10', 'total' => 84.50, 'vendor_name_raw' => 'Home Depot'],
+            [
+                ['id' => 201, 'transaction_date' => '2026-07-15', 'description' => 'POS PURCHASE', 'amount' => 85.00, 'bank_account' => 'Vancity'],
+                ['id' => 202, 'transaction_date' => '2026-07-10', 'description' => 'HOME DEPOT #1234', 'amount' => 84.50, 'bank_account' => 'Vancity'],
+            ]
+        );
+
+        $candidates = $svc->candidateTransactionsForExpense(1);
+
+        $this->assertCount(2, $candidates);
+        $this->assertSame(202, $candidates[0]['transaction_id']); // exact amount + same day + vendor wins
+        $this->assertGreaterThan($candidates[1]['confidence'], $candidates[0]['confidence']);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_finds_the_exact_line_by_the_printed_receipt_date(): void
+    {
+        // Dunbar Lumber 2026-10-24: form date Jun 22 (wrong), receipt and bank say May 27 — the exact $48.13 line is 26 days from the form date.
+        $svc = $this->bankImportServiceWith(
+            ['id' => 7, 'expense_date' => '2026-06-22', 'total' => 48.13, 'vendor_name_raw' => 'Dunbar Lumber'],
+            [['id' => 301, 'transaction_date' => '2026-05-27', 'description' => 'POINT OF SALE (DUNBAR LUMBER SUPPLY VANCOUVER BCCA)', 'amount' => 48.13, 'bank_account' => 'Visa']]
+        );
+
+        $without = $svc->candidateTransactionsForExpense(7, 8, null, null, null);
+        $this->assertSame([], array_values(array_filter($without, fn($c) => empty($c['vendor_only']))), 'no printed date: unchanged — beyond the window');
+
+        $with = $svc->candidateTransactionsForExpense(7, 8, null, null, '2026-05-27');
+        $this->assertCount(1, $with);
+        $this->assertSame(301, $with[0]['transaction_id']);
+        $this->assertGreaterThanOrEqual(80, $with[0]['confidence']);
+        $this->assertSame('2026-05-27', $with[0]['suggest_expense_date']);
+        $this->assertStringContainsString('the form says Jun 22', implode(' ', $with[0]['reasons']));
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_keeps_the_date_suggestion_when_both_anchors_tie(): void
+    {
+        // Codex 2026-10-24: both anchors cap at 100 (Otto's printed-basis stop adds 20), the earlier row won the tie and lost the suggestion.
+        $svc = $this->bankImportServiceWith(
+            ['id' => 9, 'expense_date' => '2026-10-23', 'total' => 48.13, 'vendor_name_raw' => 'Dunbar Lumber'],
+            [['id' => 501, 'transaction_date' => '2026-10-24', 'description' => 'DUNBAR LUMBER', 'amount' => 48.13, 'bank_account' => 'Visa']]
+        );
+        $c = $svc->candidateTransactionsForExpense(9, 8, null, null, '2026-10-24');
+        $this->assertSame('2026-10-24', $c[0]['suggest_expense_date']);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_empty_printed_date_falls_back_to_the_stored_one(): void
+    {
+        $svc = $this->bankImportServiceWith(
+            ['id' => 10, 'expense_date' => '2026-07-10', 'total' => 84.50, 'vendor_name_raw' => 'Home Depot'],
+            [['id' => 601, 'transaction_date' => '2026-07-10', 'description' => 'HOME DEPOT #1234', 'amount' => 84.50, 'bank_account' => 'Vancity']]
+        );
+        $this->assertCount(1, $svc->candidateTransactionsForExpense(10, 8, null, null, ''));
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_ignores_a_printed_date_equal_to_the_form_date(): void
+    {
+        $svc = $this->bankImportServiceWith(
+            ['id' => 8, 'expense_date' => '2026-07-10', 'total' => 84.50, 'vendor_name_raw' => 'Home Depot'],
+            [['id' => 401, 'transaction_date' => '2026-07-10', 'description' => 'HOME DEPOT #1234', 'amount' => 84.50, 'bank_account' => 'Vancity']]
+        );
+        $c = $svc->candidateTransactionsForExpense(8, 8, null, null, '2026-07-10');
+        $this->assertCount(1, $c);
+        $this->assertArrayNotHasKey('suggest_expense_date', $c[0]);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_returns_empty_for_unknown_expense(): void
+    {
+        $svc = $this->bankImportServiceWith(null, []);
+        $this->assertSame([], $svc->candidateTransactionsForExpense(999));
+    }
+
+    // ── checkTrueDuplicate() ─────────────────────────────────────────────────
+
+    /**
+     * A transaction with reference_type='bank_import' must be detected as a
+     * duplicate even when it has no corresponding bank_import_rows entry —
+     * e.g. historical imports created outside the standard commit path.
+     * Regression test: the query used to require a bank_import_rows JOIN,
+     * which silently missed real duplicates when that audit row was absent.
+     */
+    public function test_checkTrueDuplicate_matches_without_bank_import_rows_entry(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->expects($this->once())->method('execute')
+            ->with(['expense', 23.61, '2026-07-31', '2026-07-31']);
+        $stmt->method('fetchAll')->willReturn([555]);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->expects($this->once())->method('prepare')
+            ->with($this->callback(function (string $sql) {
+                return strpos($sql, 'JOIN bank_import_rows') === false   // never REQUIRES the audit row
+                    && strpos($sql, 'FROM accounting_transactions') !== false
+                    && strpos($sql, "reference_type = 'bank_import'") !== false;
+            }))
+            ->willReturn($stmt);
+
+        $svc = new BankImportService($pdo);
+        $m = $this->ref->getMethod('checkTrueDuplicate');
+        $m->setAccessible(true);
+        $result = $m->invoke($svc, '2026-07-31', 23.61, 'expense');
+
+        $this->assertSame(555, $result);
+    }
+
+    public function test_checkTrueDuplicate_returns_null_when_no_match(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method('fetchAll')->willReturn([]);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturn($stmt);
+
+        $svc = new BankImportService($pdo);
+        $m = $this->ref->getMethod('checkTrueDuplicate');
+        $m->setAccessible(true);
+        $result = $m->invoke($svc, '2026-08-05', 66.15, 'income');
+
+        $this->assertNull($result);
+    }
+
+    /**
+     * Regression: a prior import of this exact row may have already been
+     * reclassified from 'income' to 'transfer' — either auto-matched to an
+     * invoice (see the "Book the bank deposit as a cash-clearing TRANSFER"
+     * branch in enrichRows/previewImport) or a credit-card settlement. Checking
+     * only `type = ?` (the incoming row's own type) missed every such row on
+     * re-import, since the earlier copy no longer carries that type — a
+     * duplicate silently got re-created instead of skipped. Real case: a July
+     * statement re-imported over an already-covered period created 22
+     * duplicate rows this way. The query must also match type='transfer'.
+     */
+    public function test_checkTrueDuplicate_matches_row_already_reclassified_to_transfer(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->expects($this->once())->method('execute')
+            ->with(['income', 63.68, '2026-07-19', '2026-07-19']);
+        $stmt->method('fetchAll')->willReturn([24440]);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->expects($this->once())->method('prepare')
+            ->with($this->callback(function (string $sql) {
+                return strpos($sql, "type IN (?, 'transfer')") !== false;
+            }))
+            ->willReturn($stmt);
+
+        $svc = new BankImportService($pdo);
+        $m = $this->ref->getMethod('checkTrueDuplicate');
+        $m->setAccessible(true);
+        $result = $m->invoke($svc, '2026-07-19', 63.68, 'income');
+
+        $this->assertSame(24440, $result);
+    }
+
+    // ── removeDuplicateRow() ─────────────────────────────────────────────────
+    // Guard clauses only — the happy-path DELETE transaction is exercised on
+    // production (same convention as attach()/detach() elsewhere in this
+    // module). Each guard re-verifies against the DB rather than trusting a
+    // caller-supplied "this is safe" flag from an earlier read.
+
+    /** Build a PDO mock whose prepare() dispatches by SQL substring. */
+    private function pdoDispatching(array $handlers): PDO
+    {
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($handlers) {
+            foreach ($handlers as $needle => $makeStmt) {
+                if (str_contains($sql, $needle)) {
+                    return $makeStmt();
+                }
+            }
+            $this->fail('Unexpected query: ' . $sql);
+        });
+        return $pdo;
+    }
+
+    private function stmtReturning($fetchValue, string $fetchMethod = 'fetch'): PDOStatement
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method($fetchMethod)->willReturn($fetchValue);
+        return $stmt;
+    }
+
+    public function test_removeDuplicateRow_throws_when_row_not_found(): void
+    {
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir' => fn() => $this->stmtReturning(false),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Row not found');
+        (new BankImportService($pdo))->removeDuplicateRow(999, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_no_sibling_remains(): void
+    {
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir' => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                => fn() => $this->stmtReturning([1], 'fetchAll'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('only record');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_non_transfer_type_when_unverified(): void
+    {
+        // A row still type='income' with no bank_statement_verifications
+        // record may represent real, unrecognized money — must never be
+        // silently deleted. Only type='transfer', or a verified-excess row,
+        // is safe to remove.
+        $row = ['id'=>2,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(false, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not type=transfer');
+        (new BankImportService($pdo))->removeDuplicateRow(2, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_verified_real_count_is_zero(): void
+    {
+        // A verification record with real_count=0 means NO real transaction
+        // matches this (date, amount) at all — a parsing artifact, not a
+        // duplicate. Must never be auto-deleted, needs a human to figure out
+        // what it actually is.
+        $row = ['id'=>2,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-03-18','amount'=>7774.70,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(0, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('zero matches');
+        (new BankImportService($pdo))->removeDuplicateRow(2, 1);
+    }
+
+    public function test_removeDuplicateRow_allows_verified_excess_even_when_type_is_income(): void
+    {
+        // The real case this exists for: Dorset Realty Group sent 2 real
+        // $409.92 payments on the same day, but 6 copies ended up in the DB
+        // (re-imported 3x). Verified real_count=2 means ids [59,60] (the two
+        // oldest) are kept, and every later id — still type='income', never
+        // reclassified to transfer — is legitimately removable.
+        $row = ['id'=>172,'session_id'=>35,'transaction_id'=>500,'transaction_date'=>'2026-03-19','amount'=>409.92,'description'=>'x','tx_type'=>'income'];
+        $deleteRowsStmt = $this->stmtReturning(null);
+        $deleteTxStmt   = $this->stmtReturning(null);
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([59, 60, 171, 172, 286, 287], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'         => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM journal_entries'                 => fn() => $this->stmtReturning(false, 'fetchColumn'),   // no live entry to reverse
+            'DELETE FROM bank_import_rows'         => fn() => $deleteRowsStmt,
+            'DELETE FROM accounting_transactions'  => fn() => $deleteTxStmt,
+        ]);
+        $pdo->method('beginTransaction')->willReturn(true);
+        $pdo->method('commit')->willReturn(true);
+
+        $result = (new BankImportService($pdo))->removeDuplicateRow(172, 1);
+
+        $this->assertSame(172, $result['removed_row_id']);
+        $this->assertSame(500, $result['removed_tx_id']);
+    }
+
+    public function test_removeDuplicateRow_reverses_the_lines_journal_entry_in_the_same_transaction(): void
+    {
+        // Fable 2026-10-13: removing a bank line (or rolling back an import) deleted the row and left its
+        // journal entry live — the books kept money the bank never had, until someone found the orphan.
+        $row = ['id'=>172,'session_id'=>35,'transaction_id'=>500,'transaction_date'=>'2026-03-19','amount'=>409.92,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([59, 60, 171, 172, 286, 287], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'         => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'DELETE FROM bank_import_rows'         => fn() => $this->stmtReturning(null),
+            'DELETE FROM accounting_transactions'  => fn() => $this->stmtReturning(null),
+        ]);
+        $pdo->method('beginTransaction')->willReturn(true);
+        $pdo->method('commit')->willReturn(true);
+        $svc = new class($pdo) extends BankImportService {
+            public array $reversed = [];
+            protected function reverseJournalForLines(array $txIds, ?int $userId, string $why): int { $this->reversed[] = [$txIds, $why]; return count($txIds); }
+        };
+
+        $svc->removeDuplicateRow(172, 1);
+
+        $this->assertSame([500], $svc->reversed[0][0]);
+        $this->assertStringContainsString('duplicate', $svc->reversed[0][1]);
+    }
+
+    public function test_removeDuplicateRow_refuses_verified_keep_row_even_though_amount_matches(): void
+    {
+        // id=59 is among the two oldest (the ones being KEPT per real_count=2)
+        // — must refuse even though the (date,amount) is verified, since this
+        // specific row is not excess.
+        $row = ['id'=>59,'session_id'=>34,'transaction_id'=>400,'transaction_date'=>'2026-03-19','amount'=>409.92,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([59, 60, 171, 172, 286, 287], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not type=transfer');
+        (new BankImportService($pdo))->removeDuplicateRow(59, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_allocation_exists(): void
+    {
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(false, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(1, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('payment allocation');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_etransfer_notification_references_it(): void
+    {
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(false, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'         => fn() => $this->stmtReturning(1, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('pending e-Transfer notification');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    // ── parseVerificationCsv() ───────────────────────────────────────────────
+
+    public function test_parseVerificationCsv_counts_debits_and_credits(): void
+    {
+        $csv = "Date,Description,Debits,Credits,Balance\n"
+             . "19-Mar-2026,Preauthorized credit DORSET REALTY GROUP,,409.92,100.00\n"
+             . "19-Mar-2026,Preauthorized credit DORSET REALTY GROUP,,409.92,509.92\n"
+             . "20-Mar-2026,Point of sale SHELL,20.00,,489.92\n";
+
+        $svc = new BankImportService($this->createMock(PDO::class));
+        $counts = $svc->parseVerificationCsv($csv);
+
+        $byKey = [];
+        foreach ($counts as $c) { $byKey[$c['date'] . '|' . $c['amount']] = $c['count']; }
+
+        $this->assertSame(2, $byKey['2026-03-19|409.92'] ?? null);
+        $this->assertSame(1, $byKey['2026-03-20|20'] ?? null);
+    }
+
+    public function test_parseVerificationCsv_ignores_header_and_blank_lines(): void
+    {
+        $csv = "Date,Description,Debits,Credits,Balance\n\n01-Jan-2026,Test,5.00,,10.00\n\n";
+        $svc = new BankImportService($this->createMock(PDO::class));
+        $counts = $svc->parseVerificationCsv($csv);
+        $this->assertCount(1, $counts);
+        $this->assertSame('2026-01-01', $counts[0]['date']);
+        $this->assertSame(5.0, $counts[0]['amount']);
+    }
+
+    public function test_parseVerificationCsv_skips_unparseable_rows(): void
+    {
+        $csv = "Date,Description,Debits,Credits,Balance\n"
+             . "not-a-date,Junk,1.00,,1.00\n"
+             . "01-Jan-2026,OK row,2.00,,2.00\n";
+        $svc = new BankImportService($this->createMock(PDO::class));
+        $counts = $svc->parseVerificationCsv($csv);
+        $this->assertCount(1, $counts);
+        $this->assertSame(2.0, $counts[0]['amount']);
+    }
+
+    public function test_any_payment_wording_on_a_card_statement_is_the_payoff_not_a_refund(): void
+    {
+        foreach (['PAYMENT RECEIVED - THANK YOU', 'ONLINE PAYMENT', 'PAYMENT FROM CHQ 1234', 'PYMT VANCITY'] as $d) {
+            $this->assertTrue(BankImportService::isCardStatementPayment($d), $d);
+        }
+        foreach (['REFUND HOME DEPOT', 'PAYMENT REVERSAL', 'CASH BACK REWARD', 'HOME DEPOT #7020'] as $d) {
+            $this->assertFalse(BankImportService::isCardStatementPayment($d), $d);
+        }
+    }
+
+    public function test_a_file_is_day_first_when_any_date_says_so(): void
+    {
+        $this->assertTrue(BankImportService::isDayFirst(['03/09/2026', '15/09/2026']));
+        $this->assertFalse(BankImportService::isDayFirst(['09/03/2026', '09/15/2026']));
+        $this->assertFalse(BankImportService::isDayFirst(['03/09/2026', '04/09/2026']));   // ambiguous: stays month-first
+        $this->assertFalse(BankImportService::isDayFirst(['2026-09-15', '07-Sep-2026']));
+    }
+
+    /** Banks run words together — "THEHOMEDEPOT7043" must still name Home Depot (2026-10-13). */
+    public function testVendorInDescriptionReadsRunTogetherBankLines(): void
+    {
+        $this->assertTrue(BankImportService::vendorInDescription('Home Depot', 'POINTOFSALE(THEHOMEDEPOT7043RICHMONDBCCA)'));
+        $this->assertTrue(BankImportService::vendorInDescription('Chevron', 'POS CHEVRON 00234 VANCOUVER'));
+        $this->assertTrue(BankImportService::vendorInDescription("Lowe's Canada", 'POINTOFSALE(LOWES#3021BURNABY)'));
+        $this->assertFalse(BankImportService::vendorInDescription('Home Depot', 'POINTOFSALE(DOLCEDENTALVANCOUVERBCCA)'));
+        $this->assertFalse(BankImportService::vendorInDescription('Canada Post', 'PREAUTHORIZEDPAYMENT(INSURANCECORPORATIONOFBC)'), 'a stop word alone is not a match');
+        $this->assertFalse(BankImportService::vendorInDescription('', 'ANYTHING'));
+    }
+
+    // ── Statement sections (migration 1360): quiet accounts are still "in" ──────
+
+    /** Text shaped like a decoded Vancity statement: Reserve funds ••6819 printed with no transactions. */
+    public function test_parser_records_a_section_with_no_transactions(): void
+    {
+        $text = "STATEMENT PERIOD 01 MAR 2026 to 31 MAR 2026\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 21,919.50\n"
+              . "02 MAR POINT OF SALE SHELL 45.00 21,874.50\n"
+              . "31 MAR CHARGES APPLIED TO ACCOUNT 46.50 21,828.00\n\n"
+              . "BUSINESS INVESTMENT SAVINGS #100058186819 (RESERVE FUNDS)\nOPENING BALANCE 0.69\n\n"
+              . "BUSINESS JUMPSTART SAVINGS #100058186827 (GST RESERVES)\nOPENING BALANCE 8.58\n"
+              . "31 MAR INTEREST CREDITED TO ACCOUNT (CREDIT INTEREST) 0.01 8.59\n"
+              . "SHARES CLASS B MEMBERSHIP SHARES #100013640901\nOPENING BALANCE 7.29\n";
+        $parsed = $this->callPrivate('parsePdfText', $text, false);
+        $by = array_column($parsed['sections'], null, 'suffix');
+        $this->assertArrayHasKey('6819', $by, 'a header with no lines is still a section');
+        $this->assertSame(0, $by['6819']['lines']);
+        $this->assertSame(0.69, $by['6819']['opening']);
+        $this->assertSame(1, $by['6827']['lines']);
+        $this->assertArrayNotHasKey('0901', $by, 'membership shares are not a bank account');
+
+        $this->assertSame(['2026-03-01', '2026-03-31'], BankImportService::statementPeriod($text));
+        $sections = array_column(BankImportService::statementSections($parsed['sections'], [], BankImportService::statementPeriod($text), $parsed['balance_meta'], '100058186801'), null, 'suffix');
+        $this->assertSame(['6801', '6819', '6827'], (function ($k) { sort($k); return $k; })(array_map('strval', array_keys($sections))));
+        $this->assertSame(2, $sections['6801']['lines'], 'the statement\'s own account takes the number on the statement');
+        $this->assertSame('primary', $sections['6801']['kind']);
+        $this->assertSame(21919.5, $sections['6801']['opening']);
+        $this->assertSame(0, $sections['6819']['lines']);
+        $this->assertSame('2026-03-31', $sections['6819']['period_to']);
+    }
+
+    /** Page 1 of a Vancity statement: one line per account, then opening / withdrawals / deposits / closing. */
+    public function test_vancity_account_summary_gives_each_accounts_balances(): void
+    {
+        $lines = ['ACCOUNT SUMMARY', '01 JAN 2026', 'WITHDRAWALS', 'DEPOSITS', '31 JAN 2026',
+                  'INDE PE NDE NT B US INES S AC COUNT #1 00 0 58 18 68 01', '2,6 79.92', '14,97 5 .82', '22 ,06 2 .62', '9,76 6. 72',
+                  'B US INE S S INVE S TMENT SA VINGS # 10 00 58 18 6 81 9', '(RE S ERVE FUND S )', '0 .6 9', '0 .00', '0 .00', '0. 69',
+                  'B US INE S S J UMPS TA RT S A VIN GS #1 00 05 81 8 68 27 (G ST', 'RES ERV ES )', '8,329.38', '8 ,32 3.66', '2 .85', '8. 57',
+                  'TO TAL NUMB E R OF CHEQ UES 0', 'OPENING BALANCE', '2 ,6 79.92'];
+        $s = BankImportService::vancitySummary($lines);
+        $this->assertSame(['6801', '6819', '6827'], array_map('strval', array_keys($s)));
+        $this->assertSame(['kind' => 'savings', 'opening' => 0.69, 'closing' => 0.69], $s['6819']);
+        $this->assertSame(8329.38, $s['6827']['opening']);
+        $this->assertSame(8.57, $s['6827']['closing']);
+        $this->assertSame('primary', $s['6801']['kind']);
+
+        // The summary fills balances the transaction text doesn't carry; a quiet account still gets a row.
+        $rows = BankImportService::statementSections([['suffix' => '', 'kind' => 'primary', 'opening' => 2679.92, 'lines' => 73]], $s, ['2026-01-01', '2026-01-31']);
+        $by = array_column($rows, null, 'suffix');
+        $this->assertSame(73, $by['6801']['lines']);
+        $this->assertSame(9766.72, $by['6801']['closing']);
+        $this->assertSame(0, $by['6819']['lines']);
+        $this->assertSame(0, $by['6827']['lines'], 'no parsed lines for it here');
+        $this->assertSame([], BankImportService::statementSections([['suffix' => '', 'kind' => 'primary', 'opening' => 1.0, 'lines' => 1]], [], null), 'no period, no sections');
+    }
+
+    /** Vancity glues the posting date onto the text: "JUL 13PAYMENT RECEIVED" is still a payment (2026-10-13). */
+    public function testCardStatementPaymentWithGluedDate(): void
+    {
+        $this->assertTrue(BankImportService::isCardStatementPayment('JUL 13PAYMENT RECEIVED -- THANK YOU'));
+        $this->assertTrue(BankImportService::isCardStatementPayment('PAYMENT RECEIVED - THANK YOU'));
+        $this->assertFalse(BankImportService::isCardStatementPayment('JUL 02WAVE - PAYROLL FEES TORONTO ON'));
+        $this->assertFalse(BankImportService::isCardStatementPayment('PAYMENT REVERSAL'));
     }
 }

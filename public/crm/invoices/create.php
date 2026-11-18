@@ -4,6 +4,8 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceLineItems.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/UnbilledWorkFinder.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -41,7 +43,7 @@ if (!$visitId && isset($_GET['stop_id'])) {
 
 if ($visitId) {
     $stmt = $db->prepare("
-        SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
+        SELECT jv.id as visit_id, jv.visit_number, jv.status, jv.actual_amount,
                jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
                jv.extras_minutes, jv.extras_amount, jv.extras_note,
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
@@ -59,16 +61,22 @@ if ($visitId) {
         LEFT JOIN companies c ON jp.company_id = c.id
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN contacts con ON p.site_contact_id = con.id
-        WHERE jv.id = ? AND jv.status = 'completed'
+        WHERE jv.id = ?
     ");
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    if ($visit && !empty($visit['existing_invoice_id'])) {
+        header("Location: view.php?id={$visit['existing_invoice_id']}&already_invoiced=1");
+        exit;
+    }
+
+    if ($visit && $visit['status'] !== 'completed') {
+        $error = 'This visit has not been marked completed yet. Mark the visit complete on the Schedule before creating an invoice.';
+        $visit = false;
+    }
+
     if ($visit) {
-        if (!empty($visit['existing_invoice_id'])) {
-            header("Location: view.php?id={$visit['existing_invoice_id']}&already_invoiced=1");
-            exit;
-        }
         $visitAmount  = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $contactName  = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
 
@@ -89,6 +97,24 @@ if ($visitId) {
             }
         }
 
+        // Snow & salt route stop: the plan holds every rate — prefill only what the crew did.
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        $snowBilling = (new SnowContractService($db))->billingForVisit((int)$visitId, (int)$visit['plan_id'], (string)$visit['scheduled_date']);
+        if ($snowBilling !== null) {
+            if (!$snowBilling['ok']) {
+                $error = $snowBilling['error'];
+                $visit = false;
+            } else {
+                $prefillLineItems = [];
+                foreach ($snowBilling['lines'] as $i => $l) {
+                    $prefillLineItems[] = $l + ['service_type' => 'snow_removal', 'unit_type' => 'visit', 'sort_order' => $i];
+                }
+                $visitAmount = array_sum(array_column($snowBilling['lines'], 'line_total'));
+            }
+        }
+    }
+
+    if ($visit) {
         $prefill = [
             'company_id'        => $visit['company_id'],
             'property_id'       => $visit['property_id'],
@@ -117,6 +143,8 @@ if ($visitId) {
     }
 }
 
+// Crew time on site: drawn by includes/invoice-crew-time.php next to the service date.
+
 // Prefill from plan (contract upfront/manual billing — no visit required)
 if (!$visitId && isset($_GET['plan_id'])) {
     $planId = intval($_GET['plan_id']);
@@ -125,7 +153,7 @@ if (!$visitId && isset($_GET['plan_id'])) {
             SELECT jp.*, jp.plan_number, jp.title, jp.service_type,
                    jp.estimated_amount, jp.plan_start_date,
                    p.address, p.city, p.province, p.postal_code,
-                   p.site_contact_id,
+                   p.site_contact_id, p.property_manager_id, p.billing_entity_name,
                    COALESCE(con.first_name, '') AS contact_first,
                    COALESCE(con.last_name,  '') AS contact_last,
                    con.email  AS contact_email,
@@ -156,6 +184,32 @@ if (!$visitId && isset($_GET['plan_id'])) {
 
             $amount      = !empty($planRow['billing_amount']) ? $planRow['billing_amount'] : $planRow['estimated_amount'];
             $contactName = trim($planRow['contact_first'] . ' ' . $planRow['contact_last']) ?: null;
+
+            // PM-managed building: the bill-to is the MANAGEMENT FIRM's account
+            // ("Entity C/O Firm"), and invoices route to the firm's accounts
+            // contact — NOT the on-site contact. Resolve the firm's company name
+            // and unified client account so the customer prefills as a billing
+            // entity. (Without this, plans with no company_id fall back to the
+            // site contact and email the property manager person instead.)
+            $pmCompanyId   = (int)($planRow['property_manager_id'] ?? 0);
+            $pmClientId    = 0;
+            $pmCompanyName = null;
+            if ($pmCompanyId) {
+                try {
+                    $mStmt = $db->prepare("
+                        SELECT co.company_name, cl.id AS client_id
+                        FROM companies co
+                        LEFT JOIN clients cl ON cl.legacy_company_id = co.id
+                        WHERE co.id = ? ORDER BY cl.id LIMIT 1
+                    ");
+                    $mStmt->execute([$pmCompanyId]);
+                    if ($mr = $mStmt->fetch(PDO::FETCH_ASSOC)) {
+                        $pmCompanyName = $mr['company_name'] ?? null;
+                        $pmClientId    = (int)($mr['client_id'] ?? 0);
+                    }
+                } catch (PDOException $e) { /* pre-Phase-1 — leave unset */ }
+            }
+            $isPmManaged = $pmCompanyId > 0 && $pmClientId > 0;
             $baseDate    = !empty($planRow['contract_start_date']) ? $planRow['contract_start_date'] : ($planRow['plan_start_date'] ?? date('Y-m-d'));
             $billMonth   = date('F Y', strtotime($baseDate));
             $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
@@ -201,6 +255,12 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 'issue_date'          => $baseDate,
                 'scheduled_date'      => date('Y-m-d'),
                 'from_plan'           => true,
+                // PM-managed billing entity (drives the customer prefill below)
+                'is_pm_managed'       => $isPmManaged,
+                'pm_company_id'       => $pmCompanyId,
+                'pm_client_id'        => $pmClientId,
+                'pm_company_name'     => $pmCompanyName,
+                'billing_entity_name' => $planRow['billing_entity_name'] ?? '',
             ];
         }
     }
@@ -323,10 +383,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
         $description   = trim($_POST['description'] ?? '');
         $subtotal      = floatval($_POST['subtotal'] ?? 0);
+        // The form posts editable line-item rows (InvoiceLineItems). When it does, they
+        // ARE the invoice: the old plan-copy and single-amount paths below are skipped.
+        $manualLines = null;
+        if (InvoiceLineItems::posted($_POST)) {
+            $parsedLines      = InvoiceLineItems::fromPost($_POST);
+            $manualLines      = $parsedLines['items'];
+            $subtotal         = $parsedLines['subtotal'];
+            $usePlanLineItems = false;
+        }
+        // "Also unbilled at this address" lines the person ticked (MwUnbilledWork). Only visits
+        // that are both ticked AND still on a posted line are claimed — removing the line un-ticks it.
+        $unbilledClaims = [];
+        if ($manualLines !== null && !empty($_POST['unbilled_visit_ids'])) {
+            $ticked = array_map('intval', (array)$_POST['unbilled_visit_ids']);
+            foreach ($manualLines as $ml) {
+                if ($ml['visit_id'] && in_array((int)$ml['visit_id'], $ticked, true) && (int)$ml['visit_id'] !== $linkedVisitId) {
+                    $unbilledClaims[] = ['visit_id' => (int)$ml['visit_id'], 'amount' => (float)$ml['line_total']];
+                }
+            }
+        }
         // Read GST rate from business settings (falls back to 5% if not configured)
         $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
         $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
         $taxRate   = round(floatval($bs['gst_rate'] ?? 5.00) / 100, 4);
+        require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+        if (!TaxEngine::gstRegistered($db)) $taxRate = 0.0;
         $gstNumber = trim($bs['gst_registration'] ?? '');
         $taxAmount = round($subtotal * $taxRate, 2);
         $total     = $subtotal + $taxAmount;
@@ -353,7 +435,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $selectedRecipients = [];
         if (!empty($_POST['selected_recipients'])) {
             $selectedRecipients = json_decode($_POST['selected_recipients'], true) ?? [];
-            $selectedRecipients = array_filter(array_map('intval', $selectedRecipients));
+            // contact_id 0 is a legitimate sentinel — the PM-managed "email address"
+            // routing recipient (no linked contact row, e.g. a firm's ingestion inbox).
+            // array_filter()'s default callback treats 0 as falsy and drops it, which
+            // silently loses that recipient (or blocks creation entirely if it was the
+            // only one selected), so filter only genuinely invalid (negative) values.
+            $selectedRecipients = array_values(array_filter(
+                array_map('intval', $selectedRecipients),
+                fn($v) => $v >= 0
+            ));
         }
 
         $addressDiffers = (
@@ -366,7 +456,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$companyId && !$contactId) {
             $error = 'Please select a customer.';
         } elseif ($subtotal <= 0) {
-            $error = 'Please enter a valid amount.';
+            $error = $manualLines !== null ? 'Add at least one line item with a price.' : 'Please enter a valid amount.';
         } elseif (empty($selectedRecipients)) {
             $error = 'Please select at least one invoice recipient.';
         } else {
@@ -437,6 +527,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pliRows->execute([$linkedPlanId]);
                     $planLineItems = $pliRows->fetchAll(PDO::FETCH_ASSOC);
 
+                    // Snow & salt route plan: never copy every rate — only what was done at the stop.
+                    require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+                    $snowSvc = new SnowContractService($db);
+                    if ($snowSvc->isRoutePlan($linkedPlanId)) {
+                        $vdStmt = $db->prepare("SELECT scheduled_date FROM job_visits WHERE id = ?");
+                        $vdStmt->execute([$linkedVisitId]);
+                        $snowBilling = $linkedVisitId
+                            ? $snowSvc->billingForVisit($linkedVisitId, $linkedPlanId, (string)$vdStmt->fetchColumn())
+                            : ['ok' => false, 'error' => 'A snow & salt route invoice must be made from a single stop.'];
+                        if (empty($snowBilling['ok'])) {
+                            throw new DomainException($snowBilling['error']);
+                        }
+                        $planLineItems = [];
+                        foreach ($snowBilling['lines'] as $i => $l) {
+                            $planLineItems[] = $l + ['service_type' => 'snow_removal', 'unit_type' => 'visit', 'sort_order' => $i];
+                        }
+                    }
+
                     if ($planLineItems) {
                         // Recalculate totals from actual plan items (overrides form subtotal)
                         $lineSubtotal = array_sum(array_column($planLineItems, 'line_total'));
@@ -471,7 +579,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                if (!$usePlanLineItems) {
+                if ($manualLines !== null) {
+                    $liStmt = $db->prepare("
+                        INSERT INTO invoice_line_items
+                            (invoice_id, title, description, quantity, unit_price, line_total, visit_id, service_date, sort_order)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    foreach ($manualLines as $i => $li) {
+                        $liStmt->execute([
+                            $invoiceId,
+                            $li['title'],
+                            $li['description'],
+                            $li['quantity'],
+                            $li['unit_price'],
+                            $li['line_total'],
+                            $li['visit_id'] ?: ($linkedVisitId ?: null),
+                            $li['service_date'] ?: $serviceDate,
+                            $i,
+                        ]);
+                    }
+                } elseif (!$usePlanLineItems) {
                     $db->prepare("
                         INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
                         VALUES (?, ?, 1, ?, ?, ?, ?)
@@ -523,10 +650,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ) VALUES (?, ?, ?, ?)
                 ");
 
+                // contact_id 0 has no row in `contacts` — it's the PM-managed
+                // "email address" routing recipient (e.g. a firm's ingestion
+                // inbox with no linked contact). Re-resolve it from the property
+                // rather than trusting anything client-submitted, since the
+                // checkbox carries no email of its own.
+                $pmContactlessRecipient = null;
+                if (in_array(0, $selectedRecipients, true) && $propertyId) {
+                    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+                    foreach (resolveManagementBillingRecipient($propertyId) as $r) {
+                        if ((int)$r['contact_id'] === 0) { $pmContactlessRecipient = $r; break; }
+                    }
+                }
+
                 $recipientNames = [];
                 $smsRecipients  = [];
 
                 foreach ($selectedRecipients as $rcptContactId) {
+                    if ($rcptContactId === 0) {
+                        if (!$pmContactlessRecipient) continue; // nothing resolvable — skip safely
+                        $insertRecipient->execute([
+                            $invoiceId,
+                            null,
+                            'billing_contact',
+                            $pmContactlessRecipient['email_address']
+                        ]);
+                        $recipientNames[] = $pmContactlessRecipient['contact_name'];
+                        continue;
+                    }
+
                     $recipientContacts->execute([$rcptContactId]);
                     $contact = $recipientContacts->fetch(PDO::FETCH_ASSOC);
 
@@ -559,8 +711,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 logActivityExtended($user['id'], 'Invoice created', $details, $companyId ?: null, null, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
 
                 if ($linkedVisitId) {
-                    $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
-                       ->execute([$invoiceId, $linkedVisitId]);
+                    // Only claim a visit no other invoice holds (the same rule InvoiceFromVisitService uses):
+                    // two tabs, or a visit already billed elsewhere, must not be invoiced twice (Fable 2026-10-13).
+                    $claim = $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ? AND (invoice_id IS NULL OR invoice_id = ?)");
+                    $claim->execute([$invoiceId, $linkedVisitId, $invoiceId]);
+                    if ($claim->rowCount() === 0) {
+                        $held = $db->prepare("SELECT i.invoice_number FROM job_visits jv JOIN invoices i ON i.id = jv.invoice_id WHERE jv.id = ?");
+                        $held->execute([$linkedVisitId]);
+                        throw new DomainException('This visit is already on invoice ' . ($held->fetchColumn() ?: 'another invoice') . ' — nothing was created.');
+                    }
 
                     // Auto-attach salt/winter service report if one exists for this visit
                     $srCheck = $db->prepare("SELECT id, pdf_path, report_number FROM salt_run_reports WHERE visit_id = ? AND pdf_path IS NOT NULL LIMIT 1");
@@ -582,21 +741,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                // Missed work ticked from the "Also unbilled at this address" list: the lines are
+                // already in (they were form rows); link + mark the visits here, in this transaction.
+                if ($unbilledClaims) {
+                    $finder = new UnbilledWorkFinder($db);
+                    $finder->claim((int)$invoiceId, $unbilledClaims, (int)$user['id'], [
+                        'property_id'       => $propertyId,
+                        'company_id'        => $companyId ?: null,
+                        'exclude_visit_ids' => $linkedVisitId ? [$linkedVisitId] : [],
+                        'insert_lines'      => false,
+                        'can_mark_done'     => in_array(($user['role'] ?? ''), ['admin', 'manager'], true),
+                        'invoice_number'    => $invoiceNumber,
+                        'actor_name'        => (string)($user['full_name'] ?? $user['name'] ?? ''),
+                    ]);
+                    $finder->retotalInvoice((int)$invoiceId);
+                }
+
                 $db->commit();
 
                 header("Location: view.php?id={$invoiceId}&created=1");
                 exit;
 
+            } catch (UnbilledWorkConflict $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                $error = $e->getMessage();
             } catch (\Throwable $e) {
                 if ($db->inTransaction()) $db->rollBack();
                 error_log("Invoice creation error: " . $e->getMessage());
-                $error = 'Error creating invoice. Please try again.';
+                $error = $e instanceof DomainException ? $e->getMessage() : 'Error creating invoice. Please try again.';
             }
         }
     }
 }
 
 $csrfToken = generateCSRFToken();
+$canSaveService = userHasPermission('products.edit') || (($user['role'] ?? '') === 'admin');
 
 $pageTitle  = 'Create Invoice';
 $activePage = 'invoices';
@@ -612,18 +791,36 @@ if ($apiKey) {
 
             <h1 class="h3 mb-3">Create Invoice</h1>
             <p class="text-muted mb-4"><?php
-                if ($visitId && isset($visit)) {
+                if ($visitId && !empty($visit)) {
                     echo 'Creating invoice from completed visit';
                 } else {
                     echo 'Create a new invoice manually';
                 }
             ?></p>
 
+            <?php
+            // A visit on an active contract that bills itself monthly: extra work is fine (a mulch add-on),
+            // but say so before a second bill goes out for work the contract already covers (Fable 2026-10-13).
+            $contractNote = null;
+            if (!empty($prefill['plan_id'])) {
+                try {
+                    require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+                    if ((new ContractService($db))->isPlanContractBilled((int)$prefill['plan_id'])) {
+                        $cn = $db->prepare("SELECT c.contract_number FROM job_plans jp JOIN contracts c ON c.id = jp.contract_id WHERE jp.id = ?");
+                        $cn->execute([(int)$prefill['plan_id']]);
+                        $contractNote = $cn->fetchColumn() ?: 'a contract';
+                    }
+                } catch (\Throwable $e) { error_log('invoice create contract check: ' . $e->getMessage()); }
+            }
+            ?>
+            <?php if ($contractNote): ?>
+                <div class="alert alert-warning">This client is on contract <?php echo htmlspecialchars($contractNote); ?>, which is billed monthly. Only bill work the contract doesn't cover (an add-on or extra visit).</div>
+            <?php endif; ?>
             <?php if ($error): ?>
                 <div class="mw-error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <?php if ($visitId && isset($visit)): ?>
+            <?php if ($visitId && !empty($visit)): ?>
                 <div class="mw-info-banner">
                     <strong>Creating from Visit <?php echo htmlspecialchars($visit['visit_number']); ?></strong><br>
                     Plan: <?php echo htmlspecialchars($visit['plan_number'] . ' — ' . $visit['title']); ?><br>
@@ -711,12 +908,22 @@ if ($apiKey) {
                         <div class="mw-form-row mt-3">
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
-                                <input type="date" name="issue_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#issue_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="issue_date" name="issue_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($prefill['issue_date'] ?? $prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                             </div>
                             <div class="mw-form-group">
                                 <label class="form-label">Due Date</label>
-                                <input type="date" name="due_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#due_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="due_date" name="due_date" class="form-control" hidden
                                        value="<?php echo date('Y-m-d', strtotime(($prefill['scheduled_date'] ?? 'now') . ' +30 days')); ?>">
                             </div>
                         </div>
@@ -802,92 +1009,90 @@ if ($apiKey) {
                             </div>
                         </div>
 
-                        <!-- ── Description & Amount ── -->
+                        <!-- ── Line items (editable; prefilled from the job plan or visit) ── -->
                         <?php
-                        $planLineItems = $prefill['plan_line_items'] ?? [];
-                        $lineItemsSubtotal = array_sum(array_column($planLineItems, 'line_total'));
+                        $initialLines = [];
+                        // After a failed submit, show what was typed rather than the original prefill.
+                        $postedUnbilled = array_map('intval', (array)($_POST['unbilled_visit_ids'] ?? []));
+                        foreach (($manualLines ?? []) as $ml) {
+                            $initialLines[] = ['title' => (string)$ml['title'], 'description' => $ml['description'],
+                                               'quantity' => $ml['quantity'], 'unit_price' => $ml['unit_price'],
+                                               'visit_id' => $ml['visit_id'], 'service_date' => $ml['service_date'],
+                                               'unbilled' => $ml['visit_id'] && in_array((int)$ml['visit_id'], $postedUnbilled, true)];
+                        }
+                        foreach ($initialLines ? [] : ($prefill['plan_line_items'] ?? []) as $pli) {
+                            $initialLines[] = [
+                                'title'       => (string)($pli['service_type'] ?? ''),
+                                'description' => (string)($pli['description'] ?? ''),
+                                'quantity'    => (float)($pli['quantity'] ?? 1),
+                                'unit_price'  => (float)($pli['unit_price'] ?? 0),
+                            ];
+                        }
+                        if (!$initialLines && (float)($prefill['amount'] ?? 0) > 0) {
+                            $initialLines[] = [
+                                'title'       => '',
+                                'description' => (string)($prefill['description'] ?? ''),
+                                'quantity'    => 1,
+                                'unit_price'  => (float)$prefill['amount'],
+                            ];
+                        }
+                        $formTaxRate = 0.05;
+                        try {
+                            $trStmt = $db->query("SELECT gst_rate FROM business_settings LIMIT 1");
+                            $trRow  = $trStmt ? $trStmt->fetch(PDO::FETCH_ASSOC) : null;
+                            if ($trRow && $trRow['gst_rate'] !== null) $formTaxRate = round((float)$trRow['gst_rate'] / 100, 4);
+                            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+                            if (!TaxEngine::gstRegistered($db)) $formTaxRate = 0.0;
+                        } catch (Throwable $e) { /* keep 5% */ }
                         ?>
-                        <?php if ($planLineItems): ?>
-                        <!-- Zero-re-entry: line items auto-populated from quote/plan -->
-                        <input type="hidden" name="use_plan_line_items" value="1">
-                        <input type="hidden" name="subtotal" value="<?php echo htmlspecialchars((string)$lineItemsSubtotal); ?>">
-                        <input type="hidden" name="service_date" value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? ''); ?>">
-
-                        <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3" style="font-size:.85rem;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
-                            Line items auto-populated from job plan — no re-entry needed
+                        <?php if (!empty($prefill['plan_line_items'])): ?>
+                        <div class="alert alert-success py-2 mb-3" style="font-size:.85rem;">
+                            Lines filled in from the job plan. Change, remove or add to them before creating the invoice.
                         </div>
-
-                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Service</th>
-                                    <th style="width:70px;">Qty</th>
-                                    <th style="width:90px;">Unit Price</th>
-                                    <th style="width:90px;">Line Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($planLineItems as $pli): ?>
-                                <tr>
-                                    <td>
-                                        <div class="font-weight-600"><?php echo htmlspecialchars($pli['service_type'] ?? 'Service'); ?></div>
-                                        <?php if (!empty($pli['description'])): ?>
-                                        <div class="text-muted" style="font-size:.8rem;"><?php echo htmlspecialchars($pli['description']); ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td><?php echo htmlspecialchars((string)$pli['quantity']); ?> <span class="text-muted"><?php echo htmlspecialchars($pli['unit_type'] ?? ''); ?></span></td>
-                                    <td>$<?php echo number_format(floatval($pli['unit_price']), 2); ?></td>
-                                    <td>$<?php echo number_format(floatval($pli['line_total']), 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-
-                        <div class="mw-totals-box mt-3">
-                            <div class="mw-totals-row">
-                                <span>Subtotal</span>
-                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal, 2); ?></span>
-                            </div>
-                            <div class="mw-totals-row">
-                                <span>GST (5%)</span>
-                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal * 0.05, 2); ?></span>
-                            </div>
-                            <div class="mw-totals-row grand">
-                                <span>Total</span>
-                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal * 1.05, 2); ?></span>
-                            </div>
-                        </div>
-
-                        <?php else: ?>
-                        <!-- Manual / no plan items: single description + amount -->
-                        <div class="mw-form-group">
-                            <label class="form-label">Description</label>
-                            <textarea name="description" class="form-control" rows="2"
-                                      placeholder="Services rendered…"><?php echo htmlspecialchars($prefill['description'] ?? ''); ?></textarea>
-                        </div>
-
-                        <div class="mw-form-group" style="max-width:300px;">
-                            <label class="form-label">Amount (before tax) *</label>
-                            <input type="number" name="subtotal" id="subtotalInput" class="form-control"
-                                   step="0.01" min="0" required
-                                   value="<?php echo htmlspecialchars($prefill['amount'] ?? ''); ?>"
-                                   oninput="calculateTotals()">
-                        </div>
+                        <?php endif; ?>
 
                         <div class="mw-form-group" style="max-width:260px;">
                             <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
-                            <input type="date" name="service_date" class="form-control"
+                            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#service_date" aria-haspopup="true" aria-expanded="false">
+                                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <input type="date" id="service_date" name="service_date" class="form-control" hidden
                                    value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                         </div>
 
-                        <div class="mw-totals-box">
+                        <?php $crewTimeVisitId = ($visitId && !empty($prefill['visit_id'])) ? (int)$visitId : 0; include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
+
+                        <!-- Other unbilled work at this property (UnbilledWorkFinder) — filled by MwUnbilledWork -->
+                        <div id="invUnbilledPanel" class="mw-unbilled mb-3" hidden></div>
+
+                        <label class="form-label">Line Items *</label>
+                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Service / description</th>
+                                    <th style="width:90px;">Qty</th>
+                                    <th style="width:120px;">Unit Price</th>
+                                    <th style="width:100px;" class="text-right">Line Total</th>
+                                    <th style="width:44px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="invLineItemsBody"></tbody>
+                        </table>
+                        <div class="d-flex mt-2" style="gap:8px;flex-wrap:wrap;">
+                            <div id="invServicePicker"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="invAddLineBtn">+ Add Line</button>
+                        </div>
+                        <input type="hidden" name="subtotal" id="subtotalInput" value="0">
+
+                        <div class="mw-totals-box mt-3">
                             <div class="mw-totals-row">
                                 <span>Subtotal</span>
                                 <span class="mw-totals-value" id="subtotalDisplay">$0.00</span>
                             </div>
                             <div class="mw-totals-row">
-                                <span>GST (5%)</span>
+                                <span>GST (<?php echo rtrim(rtrim(number_format($formTaxRate * 100, 2), '0'), '.'); ?>%)</span>
                                 <span class="mw-totals-value" id="taxDisplay">$0.00</span>
                             </div>
                             <div class="mw-totals-row grand">
@@ -895,7 +1100,15 @@ if ($apiKey) {
                                 <span class="mw-totals-value" id="totalDisplay">$0.00</span>
                             </div>
                         </div>
-                        <?php endif; ?>
+                        <script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
+                        <script src="/crm/js/mw-unbilled-work.js?v=20261008a"></script>
+                        <script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
+                        <script>
+                        window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
+                        window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
+                        window.MW_INV_TAX     = <?php echo json_encode($formTaxRate); ?>;
+                        window.MW_INV_CAN_SAVE_SERVICE = <?php echo $canSaveService ? 'true' : 'false'; ?>;
+                        </script>
 
                         <?php
                         // Extras add-on preview
@@ -928,6 +1141,7 @@ if ($apiKey) {
                             ?>
                             <textarea name="notes" class="form-control" rows="3"
                                       placeholder="Payment terms, thank you message, etc."><?php echo htmlspecialchars($notesValue); ?></textarea>
+                            <div id="miaNoteHost" class="mw-mia-host"></div>
                         </div>
                     </div>
                 </div>
@@ -1359,18 +1573,347 @@ document.getElementById('invoiceForm').addEventListener('submit', function (e) {
     }
 });
 
-// ── Totals calculation ──
+// ── Line items + totals ──
+const invLinesBody = document.getElementById('invLineItemsBody');
+let invServiceOptionsPromise = null;
+
+function invoiceServiceOptions() {
+    if (!invServiceOptionsPromise) {
+        invServiceOptionsPromise = fetch('/crm/api/product-quick-add.php', { credentials: 'same-origin' })
+            .then(function (response) {
+                if (!response.ok) throw new Error('Options request failed');
+                return response.json();
+            })
+            .then(function (data) {
+                return data.success ? data : { categories: [], units: [] };
+            })
+            .catch(function () { return { categories: [], units: [] }; });
+    }
+    return invServiceOptionsPromise;
+}
+
+function serviceFormField(labelText, control) {
+    const field = document.createElement('label');
+    field.className = 'mw-svc-form-field';
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    field.appendChild(label);
+    field.appendChild(control);
+    return field;
+}
+
+function serviceSelect(firstOption) {
+    const select = document.createElement('select');
+    select.className = 'form-control form-control-sm';
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = firstOption;
+    select.appendChild(option);
+    return select;
+}
+
+function fillServiceSelect(select, options, textKey) {
+    options.forEach(function (item) {
+        const option = document.createElement('option');
+        option.value = String(item.id);
+        option.textContent = item[textKey] || '';
+        select.appendChild(option);
+    });
+}
+
+function openServiceForm(row, link) {
+    if (row._svcFormRow) {
+        row._svcFormRow.remove();
+        row._svcFormRow = null;
+        return;
+    }
+
+    const formRow = document.createElement('tr');
+    formRow.className = 'mw-svc-form-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    const panel = document.createElement('div');
+    panel.className = 'mw-svc-form';
+    const grid = document.createElement('div');
+    grid.className = 'mw-svc-form-grid';
+
+    const titleValue = row.querySelector('input[name="li_title[]"]').value.trim();
+    const descriptionValue = row.querySelector('.mw-li-desc').value.trim();
+    const name = document.createElement('input');
+    name.type = 'text'; name.maxLength = 255; name.className = 'form-control form-control-sm';
+    name.value = titleValue || descriptionValue;
+    const price = document.createElement('input');
+    price.type = 'number'; price.step = '0.01'; price.min = '0'; price.className = 'form-control form-control-sm';
+    price.value = row.querySelector('.mw-li-unit').value;
+    const category = serviceSelect('No category');
+    const unit = serviceSelect('No unit');
+    const description = document.createElement('textarea');
+    description.rows = 2; description.maxLength = 2000; description.className = 'form-control form-control-sm';
+    description.value = descriptionValue && descriptionValue !== name.value ? descriptionValue : '';
+
+    grid.appendChild(serviceFormField('Name', name));
+    grid.appendChild(serviceFormField('Price', price));
+    grid.appendChild(serviceFormField('Category', category));
+    grid.appendChild(serviceFormField('Unit', unit));
+    const descriptionField = serviceFormField('Description', description);
+    descriptionField.classList.add('mw-svc-form-wide');
+    grid.appendChild(descriptionField);
+
+    const actions = document.createElement('div');
+    actions.className = 'mw-svc-form-actions';
+    const save = document.createElement('button');
+    save.type = 'button'; save.className = 'btn btn-sm btn-primary'; save.textContent = 'Save service';
+    const cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'btn btn-sm btn-outline-secondary'; cancel.textContent = 'Cancel';
+    const message = document.createElement('div');
+    message.className = 'mw-svc-form-msg';
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    panel.appendChild(grid);
+    panel.appendChild(actions);
+    panel.appendChild(message);
+    cell.appendChild(panel);
+    formRow.appendChild(cell);
+    row.parentNode.insertBefore(formRow, row.nextSibling);
+    row._svcFormRow = formRow;
+    name.focus();
+
+    invoiceServiceOptions().then(function (options) {
+        if (!formRow.isConnected) return;
+        fillServiceSelect(category, options.categories || [], 'name');
+        fillServiceSelect(unit, options.units || [], 'name');
+    });
+
+    cancel.addEventListener('click', function () {
+        formRow.remove();
+        row._svcFormRow = null;
+    });
+    // These fields sit inside #invoiceForm: Enter must save the service, never submit the invoice.
+    [name, price, category, unit].forEach(function (field) {
+        field.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); if (!save.disabled) save.click(); }
+        });
+    });
+    save.addEventListener('click', function () {
+        const csrf = document.querySelector('#invoiceForm input[name="csrf_token"]');
+        const body = new FormData();
+        body.append('name', name.value);
+        body.append('price', price.value);
+        body.append('category_id', category.value);
+        body.append('unit_type_id', unit.value);
+        body.append('description', description.value);
+        body.append('csrf_token', csrf ? csrf.value : '');
+        save.disabled = true;
+        message.textContent = '';
+        fetch('/crm/api/product-quick-add.php', { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    // The invoice line itself stays exactly as typed; only the catalog gains a service.
+                    window.MW_INV_CATALOG.push(data.item);
+                    formRow.remove();
+                    row._svcFormRow = null;
+                    const saved = document.createElement('span');
+                    saved.className = 'mw-svc-saved';
+                    saved.textContent = 'Saved as service';
+                    link.replaceWith(saved);
+                } else if (data.duplicate) {
+                    message.textContent = (data.message || '') + ' It is already in Add from services.';
+                } else {
+                    message.textContent = data.message || data.error || 'Could not save that service.';
+                }
+            })
+            .catch(function () { message.textContent = 'Could not reach the server. Try again.'; })
+            .then(function () { if (formRow.isConnected) save.disabled = false; });
+    });
+}
+
 function calculateTotals() {
-    const el = document.getElementById('subtotalInput');
-    if (!el) return;
-    const subtotal = parseFloat(el.value) || 0;
-    const tax   = subtotal * 0.05;
+    if (!invLinesBody) return;
+    let subtotal = 0;
+    invLinesBody.querySelectorAll('.mw-li-row').forEach(function (row) {
+        const q  = parseFloat(row.querySelector('.mw-li-qty').value)  || 0;
+        const u  = parseFloat(row.querySelector('.mw-li-unit').value) || 0;
+        const lt = Math.round((q || 1) * u * 100) / 100;
+        row.querySelector('.mw-li-total').textContent = '$' + lt.toFixed(2);
+        subtotal += lt;
+    });
+    subtotal = Math.round(subtotal * 100) / 100;
+    const tax   = Math.round(subtotal * (window.MW_INV_TAX || 0.05) * 100) / 100;
     const total = subtotal + tax;
+    document.getElementById('subtotalInput').value         = subtotal.toFixed(2);
     document.getElementById('subtotalDisplay').textContent = '$' + subtotal.toFixed(2);
     document.getElementById('taxDisplay').textContent      = '$' + tax.toFixed(2);
     document.getElementById('totalDisplay').textContent    = '$' + total.toFixed(2);
 }
+
+function addInvoiceLine(data) {
+    data = data || {};
+    const row = document.createElement('tr');
+    row.className = 'mw-li-row';
+    row.innerHTML =
+        '<td><div class="text-muted mw-li-title-label" style="font-size:.75rem;"></div>' +
+            '<input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" placeholder="Describe the work">' +
+            '<input type="hidden" name="li_title[]" value="">' +
+            '<input type="hidden" name="li_visit_id[]" class="mw-li-visit" value="">' +
+            '<input type="hidden" name="li_service_date[]" class="mw-li-sdate" value=""></td>' +
+        '<td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>' +
+        '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
+        '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
+        '<td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>';
+    row.querySelector('.mw-li-title-label').textContent = data.title || '';
+    row.querySelector('input[name="li_title[]"]').value = data.title || '';
+    row.querySelector('.mw-li-desc').value = data.description || '';
+    if (data.quantity != null) row.querySelector('.mw-li-qty').value = String(data.quantity);
+    if (data.unit_price != null) row.querySelector('.mw-li-unit').value = (parseFloat(data.unit_price) || 0).toFixed(2);
+    if (data.visit_id) row.querySelector('.mw-li-visit').value = String(data.visit_id);
+    if (data.service_date) row.querySelector('.mw-li-sdate').value = data.service_date;
+    if (window.MW_INV_CAN_SAVE_SERVICE) {
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'btn btn-link btn-sm mw-svc-save-link';
+        link.textContent = 'Save as service';
+        link.addEventListener('click', function () { openServiceForm(row, link); });
+        row.querySelector('td').appendChild(link);
+    }
+    if (data.unbilled && data.visit_id) {
+        // Ticked from "Also unbilled at this address": the server claims this visit on save.
+        row.dataset.unbilledVisit = String(data.visit_id);
+        const u = document.createElement('input');
+        u.type = 'hidden'; u.name = 'unbilled_visit_ids[]'; u.value = String(data.visit_id);
+        row.querySelector('td').appendChild(u);
+    }
+    row.querySelectorAll('.mw-li-qty, .mw-li-unit').forEach(function (inp) { inp.addEventListener('input', calculateTotals); });
+    row.querySelector('.mw-li-remove').addEventListener('click', function () {
+        if (row._svcFormRow) row._svcFormRow.remove();
+        row.remove();
+        if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();   // always keep one row
+        calculateTotals();
+    });
+    invLinesBody.appendChild(row);
+    calculateTotals();
+    return row;
+}
+
+if (invLinesBody) {
+    (window.MW_INV_LINES || []).forEach(function (l) { addInvoiceLine(l); });
+    if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();
+    document.getElementById('invAddLineBtn').addEventListener('click', function () {
+        addInvoiceLine().querySelector('.mw-li-desc').focus();
+    });
+    if (window.MwServicePicker) {
+        window.MW_INV_PICKER = MwServicePicker.attach(document.getElementById('invServicePicker'), window.MW_INV_CATALOG || [], function (svc) {
+            // A fresh blank row is replaced rather than left empty above the picked service.
+            const rows = invLinesBody.querySelectorAll('.mw-li-row');
+            if (rows.length === 1) {
+                const r = rows[0];
+                if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) {
+                    if (r._svcFormRow) r._svcFormRow.remove();
+                    r.remove();
+                }
+            }
+            const addedRow = addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: svc.agreed ? (svc.quantity || 1) : 1, unit_price: svc.base_price });
+            const saveLink = addedRow.querySelector('.mw-svc-save-link');
+            if (saveLink) saveLink.hidden = true;
+        });
+    }
+}
 calculateTotals();
+
+// ── Mia's note suggestion (/crm/api/mia-invoice-suggestion.php) ──
+(function () {
+    const note = document.querySelector('#invoiceForm textarea[name="notes"]');
+    if (!window.MwMiaInvoiceNote || !note) return;
+    MwMiaInvoiceNote.attach({
+        note: note, host: document.getElementById('miaNoteHost'), invoiceId: 0,
+        getContext: function () {
+            const seen = {};
+            const services = Array.from(document.querySelectorAll('#invLineItemsBody input[name="li_title[]"], #invLineItemsBody input[name="li_description[]"]'))
+                .map(function (i) { return i.value.trim(); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = 1; return true; });
+            return { property_id: parseInt(propertyIdInput.value, 10) || 0, contact_id: parseInt(contactIdInput.value, 10) || 0,
+                     company_id: parseInt(companyIdInput.value, 10) || 0, services: services };
+        }
+    });
+})();
+
+// ── Agreed prices for this client (/crm/api/agreed-prices.php → picker "Agreed price" block) ──
+(function () {
+    if (!window.MW_INV_PICKER || !propertyIdInput) return;
+    let lastKey = null, seq = 0;
+    function load() {
+        const pid = parseInt(propertyIdInput.value, 10) || 0;
+        const cid = parseInt(companyIdInput.value, 10) || 0;
+        const key = pid + ':' + cid;
+        if (key === lastKey) return;
+        lastKey = key;
+        const mine = ++seq;   // only the newest request may write (A→B→A can't be overwritten by a stale A)
+        if (!pid) { MW_INV_PICKER.setAgreed([]); return; }
+        fetch('/crm/api/agreed-prices.php?property_id=' + pid + (cid ? '&company_id=' + cid : ''), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (mine === seq) MW_INV_PICKER.setAgreed(d && d.success ? d.items : []); })
+            .catch(function () { if (mine === seq) MW_INV_PICKER.setAgreed([]); });
+    }
+    setInterval(load, 800);   // the customer/property pickers set these hidden inputs from several places
+    load();
+})();
+
+// ── Also unbilled at this address (MwUnbilledWork + /crm/api/unbilled-work.php) ──
+(function () {
+    const panel = document.getElementById('invUnbilledPanel');
+    if (!panel || !window.MwUnbilledWork || !invLinesBody) return;
+    const visitInput = document.querySelector('#invoiceForm input[name="visit_id"]');
+    let lastKey = null;
+
+    function rowFor(visitId) {
+        return invLinesBody.querySelector('.mw-li-row[data-unbilled-visit="' + visitId + '"]');
+    }
+    function onToggle(it, checked, amount) {
+        const existing = rowFor(it.visit_id);
+        if (checked) {
+            if (existing) {
+                if (it.needs_price) existing.querySelector('.mw-li-unit').value = (amount || 0).toFixed(2);
+                calculateTotals();
+                return;
+            }
+            // A fresh blank row is replaced rather than left empty above the added line.
+            const rows = invLinesBody.querySelectorAll('.mw-li-row');
+            if (rows.length === 1 && !rows[0].querySelector('.mw-li-desc').value && !(parseFloat(rows[0].querySelector('.mw-li-unit').value) > 0)) rows[0].remove();
+            addInvoiceLine({ title: it.plan_title, description: it.description, quantity: 1, unit_price: amount,
+                             visit_id: it.visit_id, service_date: it.service_date, unbilled: true });
+        } else if (existing) {
+            existing.remove();
+            if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();
+            calculateTotals();
+        }
+    }
+    function load() {
+        const pid = parseInt(propertyIdInput.value, 10) || 0;
+        const cid = parseInt(companyIdInput.value, 10) || 0;
+        const vid = visitInput ? (parseInt(visitInput.value, 10) || 0) : 0;
+        const key = pid + ':' + cid + ':' + vid;
+        if (key === lastKey) return;
+        const first = lastKey === null;
+        lastKey = key;
+        if (!first) {
+            // Lines already ticked for a previous property no longer apply.
+            invLinesBody.querySelectorAll('.mw-li-row[data-unbilled-visit]').forEach(function (r) { r.remove(); });
+            if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();
+            calculateTotals();
+        }
+        if (!pid && !vid) { panel.hidden = true; panel.innerHTML = ''; return; }
+        MwUnbilledWork.fetch(vid ? { visit_id: vid } : { property_id: pid, company_id: cid || '' }).then(function (data) {
+            if (key !== lastKey) return;
+            if (!data) { panel.hidden = true; return; }
+            // After a failed submit the ticked lines are already in the table: show them ticked.
+            const hadRows = !!invLinesBody.querySelector('.mw-li-row[data-unbilled-visit]');
+            (data.items || []).forEach(function (it) { it.preselect = rowFor(it.visit_id) ? true : (hadRows ? false : !!it.preselect); });
+            MwUnbilledWork.render(panel, data, { onToggle: onToggle });
+        });
+    }
+    // The customer typeahead / property picker set these hidden inputs from several places; watch them.
+    setInterval(load, 800);
+    load();
+})();
 
 // ── HTML escape helper ──
 function escHtml(str) {
@@ -1436,7 +1979,27 @@ function escHtml(str) {
 })();
 <?php endif; ?>
 
-<?php if (!empty($prefill['from_plan']) && (!empty($prefill['contact_id']) || !empty($prefill['company_id']))): ?>
+<?php if (!empty($prefill['from_plan']) && !empty($prefill['is_pm_managed'])): ?>
+// PM-managed building: prefill the customer as a billing entity
+// ("Entity C/O Management Firm"). Recipients resolve from the firm's account
+// (its accounts contact), and the invoice header reads "Entity C/O Firm" —
+// instead of defaulting to the on-site property manager person.
+(function () {
+    selectCustomer({
+        type:             'billing_entity',
+        id:               <?php echo (int)$prefill['pm_company_id']; ?>,
+        client_id:        <?php echo (int)$prefill['pm_client_id']; ?>,
+        billing_entity_name: <?php echo json_encode($prefill['billing_entity_name'] ?? ''); ?>,
+        label:            <?php echo json_encode(trim(($prefill['billing_entity_name'] ?: 'Building') . ' C/O ' . ($prefill['pm_company_name'] ?? 'Management'))); ?>,
+        sublabel:         <?php echo json_encode('Billed to ' . ($prefill['pm_company_name'] ?? 'management') . ' accounts'); ?>,
+        property_id:      <?php echo (int)($prefill['property_id'] ?? 0); ?>,
+        property_address: <?php echo json_encode($prefill['service_address'] ?? ''); ?>,
+        property_city:    <?php echo json_encode($prefill['service_city'] ?? ''); ?>,
+    });
+})();
+<?php endif; ?>
+
+<?php if (!empty($prefill['from_plan']) && empty($prefill['is_pm_managed']) && (!empty($prefill['contact_id']) || !empty($prefill['company_id']))): ?>
 // Prefilled from a plan (manual / upfront billing) — auto-select the customer
 // so the recipient list, property, and billing address populate without the user
 // having to re-search them.

@@ -8,6 +8,7 @@
 declare(strict_types=1);
 
 require_once dirname(dirname(__DIR__)) . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once dirname(__DIR__) . '/includes/cms-functions.php';
 
 header('Content-Type: application/json');
@@ -20,6 +21,7 @@ session_write_close();
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         throw new \RuntimeException('Invalid CSRF token');
     }
+    session_write_close();
 
     // Count before truncate
     $db = getDB();
@@ -36,5 +38,5 @@ session_write_close();
 
     echo json_encode(['success' => true, 'count' => $count]);
 } catch (\Throwable $e) {
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'cms-flush-cache')]);
 }

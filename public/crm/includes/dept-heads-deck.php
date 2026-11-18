@@ -1,0 +1,326 @@
+<?php
+/**
+ * Department heads deck — dashboard top row.
+ *
+ * Penny (bookkeeper) is live: her numbers and the receipt carousel
+ * (/crm/js/bookkeeper-card.js → /crm/api/bookkeeper.php). Every other head shows as a
+ * placeholder until its card exists: when includes/<slug>-card.php is there (sam-card.php,
+ * otto-card.php, mia-card.php, yui-card.php, charlie-card.php) it is shown full-width under Penny instead.
+ * Each card guards itself (permission, migration) and renders nothing until it's ready.
+ *
+ * Shown only to users who can approve expenses, and only once migration 1125 has
+ * run. Never breaks the dashboard: any failure renders nothing.
+ */
+if (!function_exists('userHasPermission') || !userHasPermission('expenses.approve')) {
+    return;
+}
+try {
+    require_once APP_ROOT . '/Services/HeadIdentity.php';
+    require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';   // categories for the card, loaded here, not via another file
+    require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+    $__desk = new BookkeeperDeskService(getDB());
+    if (!$__desk->ready()) {
+        return;
+    }
+    $__rate = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/OwnerFreedomService.php';
+        $__rate = (float)((new OwnerFreedomService(getDB()))->settings()['owner_rate'] ?? 0) ?: null;
+    } catch (Throwable $__e) { /* no rate → no net saving */ }
+    $ps = $__desk->stats($__rate);
+    require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
+    $__hi = PennyQuestionService::firstName((array)($user ?? getCurrentUser() ?? []));
+    $__badges = ['earned' => [], 'next' => null];
+    $__vendors = [];
+    $__brain = null;
+    $__audit = null;
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
+        $__pb = new PennyBadgeService(getDB());
+        $__badges = $__pb->badges();
+        $__vendors = $__pb->vendors(6);
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyBrainService.php';
+        $__brain = (new PennyBrainService(getDB()))->learned();
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennySelfAuditService.php';
+        $__audit = (new PennySelfAuditService(getDB()))->dueThenLast();   // weekly; code only
+    } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
+    $__tripMissing = [];
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/TripCostService.php';
+        $__tcp = new TripCostService(getDB());
+        if ($__tcp->ready()) $__tripMissing = $__tcp->missingReceipts(14);   // links receipts filed since the cron
+    } catch (Throwable $__e) { /* trip overhead is a bonus (migration 1216) */ }
+    $__scStrip = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+        $__scs = new StatementCoverageService(getDB());
+        if ($__scs->ready()) $__scStrip = StatementCoverageService::strip($__scs->latest());   // computed once a day
+    } catch (Throwable $__e) { /* statements check is a bonus (migration 1231) */ }
+    $__lookback = null;
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+        $__lookback = (new LookbackService(getDB()))->cardLine();   // open look-back proposals (migration 1250)
+    } catch (Throwable $__e) { /* the look-back is a bonus */ }
+    $__pm = null;
+    try {
+        if (function_exists('isAdmin') && isAdmin()) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $__pm = (new PaymentMatchService(getDB()))->cardLine();   // cached; re-matched at most every 4 h
+        }
+    } catch (Throwable $__e) { /* payments ↔ invoices is a bonus (migration 1260) */ }
+    // Three things for Penny's card (Tim, 2026-10-26): the receipt that teaches her most, the one holding up the oldest
+    // month, money waiting — each with its why. Off unless ops_settings.penny_focus_card = 1; ?focus=1 previews it, ?focus=0 forces the full card.
+    $__focusOn = false; $__focusRows = [];
+    try {
+        $__fs = getDB()->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'penny_focus_card'");
+        $__fs->execute();
+        $__want = (string)($_GET['focus'] ?? '');
+        $__focusOn = $__want === '1' || ($__want !== '0' && (string)$__fs->fetchColumn() === '1');
+        if ($__focusOn) {
+            require_once APP_ROOT . '/Modules/Expenses/Services/PennyFocusService.php';
+            $__isAdm = function_exists('isAdmin') && isAdmin();
+            $__focusRows = (new PennyFocusService(getDB()))->rows($__pm, (float)($ps['gst_stuck'] ?? 0), $__isAdm && ($_GET['fresh'] ?? '') === '1', $__isAdm);
+            $__focusRows = array_values(array_filter($__focusRows, [PennyFocusService::class, 'validRow']));
+        }
+    } catch (Throwable $__e) { $__focusOn = false; error_log('Penny focus: ' . $__e->getMessage()); }
+} catch (Throwable $__e) {
+    error_log('Dept heads deck unavailable: ' . $__e->getMessage());
+    return;
+}
+
+$__money = fn(?float $v) => $v === null ? '—' : '$' . number_format($v, $v >= 100 ? 0 : 2);
+$__toReview = $ps['waiting'] + $ps['drafts'];
+$__readyPct = $__toReview > 0 ? min(100, (int)round($ps['ready'] / $__toReview * 100)) : 100;
+$__team = [
+    ['sam',     'Sam',     'Sales',                     ['New leads & HomeStars requests', 'Quotes waiting on a reply', 'Follow-ups due today']],
+    ['otto',    'Otto',    'Operations',                ["Today's crew & route", 'Weather changes', 'GPS / timesheet gaps']],
+    ['mia',     'Mia',     'Marketing & relationships', ['Who to reconnect with', 'Quiet property managers', 'Reviews & referrals']],
+    ['yui',     'Yui',     'Comms · client relations',  ['Client replies waiting on you', 'Approvals with no accepted quote', 'Renewals, check-ins & arrears notes']],
+    ['ada',     'Ada',     'Technology',                ['Scheduled jobs failing or missed', 'Connections down (Google, Meta, Apple, Stripe)', 'Unused logins']],
+    ['charlie', HeadIdentity::chiefName(), 'Chief of Staff',            ['The one thing that needs you today', '7 am brief from every head']],
+];
+?>
+<div class="mw-heads-deck" id="mw-heads-deck">
+  <section class="mw-head-card mw-head-feature" id="mw-penny">
+    <div class="mw-head-portrait">
+      <div class="mw-head-photo">
+        <img src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="168" height="168">
+        <?php if ($__brain !== null): ?>
+          <button type="button" class="mw-brain" data-head="Penny" aria-label="Penny's brain: <?= (int)$__brain['units'] ?> things learned"
+                  data-empty="Nothing learned yet. Every receipt you approve or correct teaches her something."
+                  data-teach="She glows brighter the more often she's right first time"
+                  data-units="<?= (int)$__brain['units'] ?>"
+                  data-bright="<?= h((string)(($ps['right_first_time'] ?? 50) / 100)) ?>"
+                  data-parts="<?= h(json_encode($__brain['parts'])) ?>"
+                  data-since="<?= h(!empty($__brain['since']) ? date('M j, Y', strtotime($__brain['since'])) : '') ?>"><canvas></canvas></button>
+        <?php endif; ?>
+      </div>
+      <div>
+        <div class="mw-head-name">Penny</div>
+        <div class="mw-head-role">Bookkeeper · receipts &amp; expenses</div>
+        <span class="mw-head-pill"><i></i>Working</span>
+        <div class="mw-head-badges" aria-label="Penny's badges">
+          <?php foreach ($__badges['earned'] as $__b): ?>
+            <span class="mw-head-badge" title="<?= h($__b['title']) ?>"><?= h($__b['icon']) ?> <?= h($__b['label']) ?></span>
+          <?php endforeach; ?>
+          <?php if ($__badges['next']): $__n = $__badges['next']; ?>
+            <span class="mw-head-badge is-next" title="Next badge — <?= h($__n['title']) ?>">
+              <?= h($__n['icon']) ?> <?= h($__n['label']) ?> <small><?= (int)$__n['have'] ?>/<?= (int)$__n['need'] ?></small>
+              <i style="width: <?= (int)round($__n['have'] / max(1, $__n['need']) * 100) ?>%"></i>
+            </span>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="mw-head-say">
+        Hey<?= $__hi !== '' ? ' ' . h($__hi) : '' ?> —
+        <?php if ($ps['ready'] > 0): ?>
+          I've prepared <b><?= (int)$ps['ready'] ?> receipt<?= $ps['ready'] === 1 ? '' : 's' ?></b> for you to approve.
+        <?php else: ?>
+          I'm preparing your receipts now.
+        <?php endif; ?>
+        <?php if ($ps['drafts'] > 0): ?> I'm working through the <b><?= (int)$ps['drafts'] ?> draft<?= $ps['drafts'] === 1 ? '' : 's' ?></b>.<?php endif; ?>
+        <?php if ($ps['gst_stuck'] >= 1): ?>
+          There's <b><?= h($__money($ps['gst_stuck'])) ?> of GST</b> you can claim back sitting in receipts nobody has approved yet.
+        <?php endif; ?>
+      </div>
+
+      <?php if ($__focusOn): ?>
+      <section class="mw-focus" aria-label="Three things for you">
+        <h3 class="mw-focus-h">Three things for you</h3>
+        <?php if (!$__focusRows): ?><p class="mw-focus-why">Nothing needs you right now.</p><?php endif; ?>
+        <ol class="mw-focus-list">
+          <?php foreach ($__focusRows as $__fr):
+              $__fk = (string)$__fr['kind'];
+              $__fl = $__fk === 'teach' ? 'Teach me' : ($__fk === 'month' ? 'Holds up ' . date('F', strtotime((string)$__fr['month'] . '-01')) : 'Money waiting');
+              $__fi = $__fk === 'teach' ? 'book-open' : ($__fk === 'month' ? 'calendar' : 'dollar-sign');
+              $__fu = $__fk === 'money' ? (string)($__fr['url'] ?? '') : '/crm/expenses_appstack.php?edit=' . (int)($__fr['expense_id'] ?? 0);
+          ?>
+          <li class="mw-focus-row is-<?= h($__fk) ?>">
+            <i class="mw-focus-ico" data-feather="<?= h($__fi) ?>" aria-hidden="true"></i>
+            <div class="mw-focus-body">
+              <span class="mw-focus-kind"><?= h($__fl) ?></span>
+              <span class="mw-focus-title"><?= h((string)$__fr['title']) ?></span>
+              <p class="mw-focus-why"><?= h((string)$__fr['why']) ?></p>
+            </div>
+            <?php if ($__fu !== ''): ?><a class="mw-focus-go" href="<?= h($__fu) ?>">Open</a><?php endif; ?>
+          </li>
+          <?php endforeach; ?>
+        </ol>
+      </section>
+      <details class="mw-penny-more">
+        <summary>Everything else — receipts to approve, bank lines, statements, checks</summary>
+      <?php endif; ?>
+      <div class="mw-head-stats">
+        <div class="mw-head-stat">
+          <div class="mw-k">Waiting for you</div>
+          <div class="mw-v"><?= (int)$ps['ready'] ?> <small>ready</small></div>
+          <div class="mw-head-bar"><span style="width: <?= $__readyPct ?>%"></span></div>
+          <div class="mw-n"><?= (int)$ps['waiting'] ?> submitted · <b><?= (int)$ps['drafts'] ?> draft<?= $ps['drafts'] === 1 ? '' : 's' ?></b> in the backlog</div>
+        </div>
+        <div class="mw-head-stat">
+          <div class="mw-k">Handled by code alone</div>
+          <div class="mw-v"><?= (int)$ps['code_alone_pct'] ?>% <small>/ goal 80%</small></div>
+          <div class="mw-head-bar"><span style="width: <?= min(100, (int)$ps['code_alone_pct']) ?>%"></span></div>
+          <div class="mw-n">Rises as I learn your vendors — no AI cost for those<?php
+            try {
+                $__kbF = APP_ROOT . '/Modules/Knowledge/Services/VendorKnowledgeService.php';
+                if (is_file($__kbF)) {
+                    require_once $__kbF;
+                    $__kb = (new VendorKnowledgeService(getDB()))->cardStats();
+                    if ($__kb['commons_vendors'] > 0) {
+                        echo ' · <b>' . (int)$__kb['commons_vendors'] . '</b> vendors in the commons';
+                        if ($__kb['shadow_n'] > 0) echo ' · code agrees with the model on <b>' . (int)$__kb['shadow_agree_pct'] . '%</b> of ' . (int)$__kb['shadow_n'] . ' shadow runs';
+                        if ($__kb['code_mode'] !== 'on') echo ' (' . h($__kb['code_mode']) . ')';
+                    }
+                }
+            } catch (Throwable $__e) { /* the commons is a bonus */ }
+          ?></div>
+        </div>
+        <div class="mw-head-stat">
+          <div class="mw-k">Right first time</div>
+          <div class="mw-v"><?= $ps['right_first_time'] === null ? '—' : (int)$ps['right_first_time'] . '%' ?></div>
+          <div class="mw-n">Category, judged on <?= h($ps['right_source']) ?></div>
+        </div>
+        <?php if (isset($ps['items_read'])): $__ir = $ps['items_read']; $__irp = $ps['items_read_prev'] ?? ['n' => 0, 'ok' => 0]; ?>
+        <div class="mw-head-stat">
+          <div class="mw-k">Items read</div>
+          <div class="mw-v"><?= $__ir['pct'] === null ? '—' : (int)$__ir['pct'] . '%' ?></div>
+          <div class="mw-n"><?= (int)$__ir['ok'] ?> of <?= (int)$__ir['n'] ?> receipts this week add up<?= $__irp['n'] ? ' · last week ' . (int)$__irp['ok'] . ' of ' . (int)$__irp['n'] : '' ?></div>
+        </div>
+        <?php endif; ?>
+        <div class="mw-head-stat is-money">
+          <div class="mw-k">Net saving this month</div>
+          <div class="mw-v"><?= $ps['net_saving_month'] === null ? '—' : h($__money($ps['net_saving_month'])) ?></div>
+          <div class="mw-n">
+            <?php if ($ps['net_saving_month'] === null): ?>
+              Starts with your first approvals · AI so far <?= h($__money($ps['ai_cost_month'])) ?>
+            <?php else: ?>
+              ~<?= h((string)$ps['hours_saved_month']) ?> h of your time, minus <?= h($__money($ps['ai_cost_month'])) ?> AI
+            <?php endif; ?>
+          </div>
+        </div>
+        <div class="mw-head-stat is-alert">
+          <div class="mw-k">GST to claim back</div>
+          <div class="mw-v"><?= h($__money($ps['gst_stuck'])) ?></div>
+          <div class="mw-n">Last 60 days, in unapproved receipts · <?= h($__money($ps['gst_confirmed'])) ?> already approved</div>
+        </div>
+        <div class="mw-head-stat">
+          <div class="mw-k">Job costing</div>
+          <div class="mw-v"><?= (int)$ps['job_costing_pct'] ?>% <small>on a job</small></div>
+          <div class="mw-head-bar"><span style="width: <?= min(100, (int)$ps['job_costing_pct']) ?>%"></span></div>
+          <div class="mw-n">Last 90 days — I match the rest by time &amp; place</div>
+        </div>
+      </div>
+
+      <?php if ($__vendors): ?>
+      <div class="mw-head-vendors">
+        <div class="mw-k">Vendors I know <small>— 5 in a row approved unchanged and I'm trusted with them</small></div>
+        <div class="mw-hv-list">
+          <?php foreach ($__vendors as $__v): ?>
+            <span class="mw-hv<?= $__v['trusted'] ? ' is-trusted' : '' ?>" title="<?= h($__v['vendor']) ?>: <?= (int)$__v['seen'] ?> receipt<?= $__v['seen'] === 1 ? '' : 's' ?>, <?= (int)$__v['right'] ?> approved unchanged (<?= (int)$__v['pct'] ?>%). Current run: <?= (int)$__v['run'] ?> of <?= (int)$__v['need'] ?>.">
+              <b><?= h(PennyQuestionService::tidy($__v['vendor'])) ?></b>
+              <i class="mw-hv-dots" aria-hidden="true"><?php for ($__i = 0; $__i < $__v['need']; $__i++): ?><em class="<?= $__i < $__v['run'] ? 'on' : '' ?>"></em><?php endfor; ?></i>
+              <small><?= $__v['trusted'] ? '✓ trusted' : (int)$__v['pct'] . '% · ' . (int)$__v['seen'] . ' seen' ?></small>
+            </span>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($__audit && (int)$__audit['checked'] > 0): ?>
+      <div class="mw-audit" title="<?= h(implode(' · ', array_map(fn($x) => $x['what'] . ': ' . implode(', ', $x['changed']), $__audit['examples'] ?? []))) ?>">
+        🔍 <b>My weekly self-check</b> (<?= h(date('M j', strtotime((string)$__audit['at']))) ?>):
+        I re-checked <?= (int)$__audit['checked'] ?> of my past calls you approved —
+        <?php if ((int)$__audit['wrong'] === 0): ?>none have been corrected since. ✓
+        <?php else: ?><b><?= (int)$__audit['wrong'] ?></b> were corrected later (<?= (int)$__audit['rate'] ?>% wrong). Hover to see which.<?php endif; ?>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($__tripMissing): ?>
+      <div class="mw-penny-trips" title="Otto saw the truck at these places. A receipt for that day whose vendor matches the place links itself.">
+        <?php foreach (array_slice($__tripMissing, 0, 3) as $__m): ?><div>🧾 <?= h(TripCostService::missingLine($__m)) ?></div><?php endforeach; ?>
+        <?php if (count($__tripMissing) > 3): ?><div><small>+<?= count($__tripMissing) - 3 ?> more runs without a receipt</small></div><?php endif; ?>
+      </div>
+      <?php endif; ?>
+
+      <?php include __DIR__ . '/penny-statements-strip.php'; ?>
+
+      <?php include __DIR__ . '/penny-missing-strip.php'; ?>
+      <?php if ($__lookback): ?>
+      <div class="mw-penny-trips" title="Everything booked in 2026, re-checked with what I know now. Nothing changes until you approve it.">
+        <div>🔎 <a href="/crm/accounting/lookback.php"><?= h($__lookback['text']) ?></a></div>
+      </div>
+      <?php endif; ?>
+      <?php if (!empty($__pm)): ?>
+      <a class="mw-penny-pm" href="<?= h($__pm['url']) ?>" title="Bank deposits I matched to the CRM and Jobber invoices they paid. Nothing is booked until you approve it.">
+        💳 <b><?= (int)$__pm['waiting'] ?> deposit<?= $__pm['waiting'] === 1 ? '' : 's' ?></b> matched to invoices waiting for you (<b><?= h($__money($__pm['waiting_total'])) ?></b>)<?php if ($__pm['high'] > 0): ?> · <?= (int)$__pm['high'] ?> high-confidence<?php endif; ?> →
+      </a>
+      <?php endif; ?>
+
+      <div class="mw-pq" id="mw-pq" hidden></div>
+
+      <div class="mw-rc" id="mw-rc" aria-live="polite" data-categories="<?= h(json_encode(array_values(EXPENSE_ACCOUNTING_CATEGORIES))) ?>" data-backlog="<?= (int)$__toReview ?>" data-name="<?= h($__hi) ?>">
+        <div class="mw-rc-empty">Loading receipts…</div>
+      </div>
+
+      <div class="mw-et" id="mw-et" hidden aria-live="polite"></div>
+      <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
+      <div class="mw-bl mw-pp" id="mw-pp" hidden aria-live="polite"></div>
+      <div class="mw-sc" id="mw-rb" hidden></div>
+      <div class="mw-sc" id="mw-sc" hidden></div>
+
+      <?php if ($__focusOn): ?></details><?php endif; ?>
+      <div class="mw-head-foot">
+        <span>Learning from every approval: store locations · item names · your fuel &amp; EGO rules</span>
+        <a class="btn btn-sm btn-success" href="/crm/expenses_appstack.php">All receipts →</a>
+      </div>
+    </div>
+  </section>
+
+  <?php $__live = array_values(array_filter(array_column($__team, 0), fn($__s) => is_file(__DIR__ . '/' . $__s . '-card.php'))); ?>
+  <?php if (count($__live) < count($__team)): ?>
+  <div class="mw-heads-side">
+    <?php foreach ($__team as [$__slug, $__name, $__role, $__items]): if (in_array($__slug, $__live, true)) continue; ?>
+    <section class="mw-head-card mw-head-soon">
+      <img class="mw-head-face" src="/crm/img/heads/<?= $__slug ?>.jpg" alt="<?= h($__name) ?>, <?= h($__role) ?>" width="96" height="96">
+      <div class="mw-head-nm"><?= h($__name) ?></div>
+      <div class="mw-head-role"><?= h($__role) ?></div>
+      <span class="mw-head-pill is-planned"><i></i>Planned</span>
+      <ul><?php foreach ($__items as $__it): ?><li><?= h($__it) ?></li><?php endforeach; ?></ul>
+    </section>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+  <?php if ($__live): ?>
+  <div class="mw-heads-live">
+    <?php foreach ($__live as $__slug) { include __DIR__ . '/' . $__slug . '-card.php'; } ?>
+  </div>
+  <?php endif; ?>
+</div>
+<script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-bank.js') : '/crm/js/penny-bank.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-products.js') : '/crm/js/penny-products.js' ?>" defer></script>

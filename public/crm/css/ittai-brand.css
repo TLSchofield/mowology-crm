@@ -1,0 +1,46 @@
+/* Ittai brand preview (Tim, 2026-11-04: "brand my iPhone and desktop to ittai all the way through to allow me
+ * to test it visually"). Loaded by appstack_head.php only when this browser carries the it_brand=ittai cookie
+ * (set from the account menu); body gets .it-brand-ittai. Crew, clients and the public site never see it.
+ *
+ * It re-points the business colour from Mowology's green to Ittai's navy — the same values the Android ittai
+ * build uses (ItTokens.kt: tenant #233A5E / soft #E6EFFE light; #9CB8E4 / #17263F dark). Gold (#C9A65A) stays a
+ * brand-moment colour, not a UI colour (design system v1.2). Status colours (complete = green, attention, blocked)
+ * are meanings, not brand, so they stay as they are.
+ *
+ * Known gap: rules that type the green hex directly instead of a variable (about 96 in mowology-brand.css)
+ * stay green; they are the list to fix while AppStack is retired.
+ */
+
+/* `html body…` outweighs `body:has(.it-design)` in ittai-tokens.css, which some pages load again after this file. */
+
+/* Classic CRM tokens (defined on :root in tokens.css and mowology-brand.css). */
+html body.it-brand-ittai {
+  --mw-green:  #233A5E;   /* primary */
+  --mw-dark:   #1A2C47;   /* hover / pressed */
+  --mw-lime:   #9CB8E4;   /* active accents on the dark sidebar */
+  --mw-light:  #E6EFFE;   /* tint */
+  --mw-forest: #16243B;   /* deepest dark: sidebar, headers */
+}
+
+/* Ittai v1.2 tokens: defined on these containers (ittai-tokens.css, penny-onboarding.css, mowology-brand.css). */
+html body.it-brand-ittai,
+html body.it-brand-ittai .it-design,
+html body.it-brand-ittai .it-shell,
+html body.it-brand-ittai .it-onboard,
+html body.it-brand-ittai .it-ts,
+html body.it-brand-ittai .it-mws,
+html body.it-brand-ittai .it-pf {
+  --it-tenant:      #233A5E;
+  --it-on-tenant:   #FFFFFF;
+  --it-tenant-mark: #233A5E;
+  --it-tenant-soft: #E6EFFE;
+}
+
+@media (prefers-color-scheme: dark) {
+  html body.it-brand-ittai .it-onboard {
+    --it-tenant:      #9CB8E4;
+    --it-on-tenant:   #0F1512;
+    --it-tenant-mark: #4F688F;
+    --it-tenant-soft: #17263F;
+  }
+}
