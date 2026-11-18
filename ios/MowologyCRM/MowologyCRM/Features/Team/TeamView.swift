@@ -832,7 +832,7 @@ private struct ItWorkspaceView<Content: View>: View {
             let strongest = brain.parts.max { lhs, rhs in
                 (brain.tiers.first { $0.slug == lhs.tier }?.n ?? 0) < (brain.tiers.first { $0.slug == rhs.tier }?.n ?? 0)
             }?.label.lowercased() ?? "the work you do most"
-            SpineNode(slug: member.id, id: "learned", title: "What \(member.name) has learned", symbol: "brain",
+            SpineNode(slug: member.id, id: "learned", title: "What \(member.name) has learned", symbol: "lightbulb",
                       waiting: HeadSpineLogic.count(brain.units, "learned")) {
                 VStack(alignment: .leading, spacing: ItSpace.s3) {
                     Text(brain.units == 0 ? "Nothing learned yet."

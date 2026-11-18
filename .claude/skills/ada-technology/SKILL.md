@@ -24,10 +24,11 @@ covers:
   - app/Modules/ChiefOfStaff/Services/CharlieUrgentService.php
   - public/crm/api/opcache-reset.php
   - public/crm/api/app-version.php
+  - public/crm/api/app-vitals.php
   - public/crm/downloads/app-version.json
   - scripts/*
 metadata:
-  version: 1.1.1
+  version: 1.2.0
   created: 2026-10-11
   status: built (phase 1, 2026-10-11)
   owner: Tim Schofield (Mowology)
@@ -73,6 +74,12 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 > reads the Mac's nightly dump read-back (heartbeat kind `verify`, `scripts/backup-nightly.sh`); `AdaRules::evidenceCheck()`
 > names findings without a time. `scripts/deploy-step.sh` and `scripts/deploy-file.sh` now record the deploy manifest —
 > until then every file shipped that way read as drift (99 ghosts by Nov 3).
+
+> **Built (2026-11-15, app vitals):** the iPhone (and, once its session lands it, Android) posts one batch format to
+> `/crm/api/app-vitals.php`; `AppVitalsService` groups events into issues by signature (cause + top frame + binary);
+> `AdaAppVitals` turns them into checks, including "no phone has reported" (a healthy install sends one
+> `daily_metrics` row per phone per day, so silence means the pipe is broken). Amber right after deploy is expected
+> until a phone runs the build that uploads.
 
 **Build order (agreed):** (1) scheduled jobs and (2) outside connections — BUILT; first security slice (unused logins) — BUILT. Next: apps, deploys, migrations never run, data soundness, the rest of security.
 
@@ -137,6 +144,7 @@ task to a developer session, or to Tim when it needs his login. She will have a 
 | App version offered to crew | `public/crm/api/app-version.php` reading `public/crm/downloads/app-version.json` | what we offer, not what they run |
 | TestFlight / Xcode Cloud | `/appstore-cloud` command (`~/.claude/scripts/appstore-cloud.py`, Mac-side) | |
 | iPhone crash reports | `pymobiledevice3 crash` off the paired phone (memory `reference_ios_crash_logs_from_device.md`) | Mac-side, manual |
+| What the phones report (crashes, freezes, slow launches, daily numbers; iPhone now, Android to follow) | tables `app_vitals_events` and `app_vitals_issues` (migration 1455), written by `AppVitalsService` through `public/crm/api/app-vitals.php`; read by `AdaAppVitals` ("App health" group): a new or growing issue is amber/red, and no report for 3 days is its own amber ("silent") | added 2026-11-15; lives on the hub install; plan `docs/plans/2026-11-15-app-vitals-automatic.md` |
 | OPcache reset | `public/crm/api/opcache-reset.php` (admin only; host runs validate_timestamps off) | |
 | Production vs repo | `scripts/prod-drift.sh` (directory), `scripts/prod-file.sh` (files), `scripts/deploy-checked.sh`, `scripts/deploy-merged.py` | Mac-side, FTP |
 | Queries on production | `scripts/prod-run.sh` (rolled back unless `--commit`) | Mac-side |

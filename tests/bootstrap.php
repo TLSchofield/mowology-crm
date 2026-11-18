@@ -49,6 +49,7 @@ require_once __DIR__ . '/../app/Services/Messaging/EmailLog.php';
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteLineChoiceService.php';
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteRecipientService.php';
+require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteIntakeDetails.php';
 
 // Department heads — shared brain
 require_once __DIR__ . '/../app/Services/HeadBrain.php';
@@ -123,6 +124,8 @@ require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureRules
 require_once __DIR__ . '/../app/Modules/Technology/Services/SecurityPostureService.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaFixedMarks.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaServerErrors.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AppVitalsService.php';
+require_once __DIR__ . '/../app/Modules/Technology/Services/AdaAppVitals.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseRules.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/PulseService.php';
 require_once __DIR__ . '/../app/Modules/Technology/Services/AdaRiskRegister.php';

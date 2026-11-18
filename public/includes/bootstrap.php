@@ -80,6 +80,12 @@ define('SITE_YEARS_IN_BUSINESS', max(1, (int)date('Y') - SITE_FOUNDED));
 define('SITE_GBP_URL', 'https://www.google.com/maps?cid=15220268177293590228');
 define('SITE_REVIEW_URL', 'https://g.page/r/CQx6tjUVhh6yEAI/review'); // GBP 'Ask for reviews' short link (owner, 2026-09-27)
 
+// Google rating as shown on the profile. Hand-kept: update all three together after reading the
+// profile. Values are from .agents/product-marketing-context.md (checked 2026-09-28); recheck.
+define('SITE_GOOGLE_RATING', '4.5');
+define('SITE_GOOGLE_REVIEW_COUNT', 56);
+define('SITE_GOOGLE_RATING_AS_OF', '2026-09-28');
+
 define('SITE_SAME_AS', [
     SITE_GBP_URL,
     'https://www.yelp.ca/biz/mowology-vancouver-2',

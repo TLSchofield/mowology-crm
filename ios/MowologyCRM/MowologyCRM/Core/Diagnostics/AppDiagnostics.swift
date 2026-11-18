@@ -35,7 +35,13 @@ final class AppDiagnostics: @unchecked Sendable {
         self.maxBytes = max(256, maxBytes)
     }
 
+    /// Set by `VitalsUploader`: sees every event (it filters by category itself). Nil in logic tests and Debug builds.
+    static var eventSink: (@Sendable (String, String) -> Void)?
+    /// Set by `VitalsUploader`: sees the breadcrumb list after each tap so it can keep the last run's trail on disk.
+    static var crumbSink: (@Sendable ([String]) -> Void)?
+
     func record(category: String, message: String) {
+        Self.eventSink?(category, message)
         queue.async { [self] in
             do {
                 try prepareDirectory()
@@ -235,7 +241,9 @@ extension AppDiagnostics {
     func crumb(_ what: String) {
         crumbLock.lock()
         breadcrumbs.append(what)
+        let trail = breadcrumbs.items
         crumbLock.unlock()
+        Self.crumbSink?(trail)
 
         let r = LogThrottle.shared.admit("crumb", limit: 60, interval: 60)
         guard r.admitted else { return }

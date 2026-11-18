@@ -12,6 +12,10 @@ declare(strict_types=1);
 // Allowed value whitelists
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Strata / commercial extra questions. On the server the app code sits beside this folder's parent (public_html/app);
+// in the repo it is one level higher. APP_ROOT knows.
+require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 2) . '/app') . '/Modules/Quotes/Services/QuoteIntakeDetails.php';
+
 const VALID_SERVICE_TYPES = [
     'maintenance',
     'cleanup',
@@ -162,7 +166,7 @@ function cleanServiceTypes(array $raw): array {
 function cleanText(string $text, int $maxLength = 2000): string {
     $text = strip_tags($text);
     $text = preg_replace('/\s+/', ' ', trim($text)) ?? '';
-    return substr($text, 0, $maxLength);
+    return function_exists('mb_substr') ? mb_substr($text, 0, $maxLength, 'UTF-8') : substr($text, 0, $maxLength);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,8 +200,14 @@ function validateQuoteForm(array $post): array {
     $urgency      = whitelistValue((string)($post['urgency'] ?? ''), VALID_URGENCY_VALUES, 'inquiring');
     $preferred    = whitelistValue((string)($post['preferred_contact'] ?? ''), VALID_PREFERRED_CONTACT, 'phone');
     $description  = cleanText((string)($post['description'] ?? ''), 2000);
+    $intake       = QuoteIntakeDetails::clean($post, $propertyType);
+    $description  = QuoteIntakeDetails::appendTo($description, $intake);
     $lawnSize     = whitelistValue((string)($post['lawn_size'] ?? ''), VALID_LAWN_SIZES, '');
     $hasIrrigation = !empty($post['has_irrigation']);
+    if (QuoteIntakeDetails::applies($propertyType)) { // hidden on the form for buildings; a stale residential answer must not ride along
+        $lawnSize = '';
+        $hasIrrigation = false;
+    }
 
     // Required field checks
     if ($firstName === '') $errors['first_name']    = 'Please enter your first name.';
@@ -228,6 +238,7 @@ function validateQuoteForm(array $post): array {
         'urgency'       => $urgency,
         'preferred_contact' => $preferred,
         'description'   => $description,
+        'intake'        => $intake,
         'lawn_size'     => $lawnSize,
         'has_irrigation'=> $hasIrrigation,
         'consent_quote'     => true,

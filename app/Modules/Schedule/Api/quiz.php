@@ -268,9 +268,11 @@ try {
 
     $method = $_SERVER['REQUEST_METHOD'];
 
-    // GET ?action=status — is the pre-shift quiz on for this crew member, and is today's done?
+    // GET ?mode=status — is the pre-shift quiz on for this crew member, and is today's done?
     // The apps gate the schedule on this, so a switched-on quiz with no questions never blocks anyone.
-    if ($method === 'GET' && ($_GET['action'] ?? '') === 'status') {
+    // `mode` (not `action`): under /api/ the .htaccess QSA rewrite owns `action`, so ?action=status was answered
+    // by the clock endpoint (2026-11-18 log: the quiz status returned clocked_in, not enabled). `action` kept for old builds.
+    if ($method === 'GET' && (($_GET['mode'] ?? $_GET['action'] ?? '') === 'status')) {
         $enabled = PreshiftGate::isRequiredFor($db, $userId);
         $done    = false;
         if ($enabled) {

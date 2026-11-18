@@ -45,7 +45,7 @@ return [
                 ['title' => '$5M Liability Coverage', 'desc' => 'Full commercial liability insurance and WCB compliance. Certificates provided on request.'],
                 ['title' => 'Predictable Annual Budgets', 'desc' => 'Fixed monthly pricing with no surprise fees. Annual service agreements make budgeting straightforward.'],
                 ['title' => 'Storm Damage Cleared Fast', 'desc' => 'A fallen branch across a walkway or debris blocking an entrance is a liability until it is gone. Call us and we respond within 24 hours.'],
-                ['title' => 'Detailed Monthly Reports', 'desc' => 'Service summaries, seasonal recommendations, and upcoming work schedules sent to your property manager every month.'],
+                ['title' => 'Extras Quoted Before We Start', 'desc' => 'Work outside the weekly scope, like one-off planting or a major cleanup, is quoted first and needs council approval before it begins.'],
             ],
         ],
         [

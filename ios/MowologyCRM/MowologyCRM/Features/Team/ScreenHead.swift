@@ -7,6 +7,8 @@ import Foundation
 
 /// Pure decisions for the two-line work-screen header. Kept free of SwiftUI so the
 /// command-line logic suite can prove role, dismissal, and select-mode behaviour.
+enum ScreenHeaderBriefStatus: Equatable { case loading, failed, loaded }
+
 struct ScreenHeaderRules: Equatable {
     let showsHeadLine: Bool
     let stateText: String?
@@ -18,11 +20,21 @@ struct ScreenHeaderRules: Equatable {
         isDemo ? demo : live
     }
 
+    /// The quiet line says "No decisions waiting" only once the brief has actually loaded.
+    private static func quietText(_ status: ScreenHeaderBriefStatus) -> String {
+        switch status {
+        case .loaded:  return "No decisions waiting"
+        case .loading: return "Checking decisions"
+        case .failed:  return "Decision status unavailable"
+        }
+    }
+
     static func resolve(
         isAdmin: Bool,
         reason: String?,
         dismissedReason: String?,
-        isSelecting: Bool
+        isSelecting: Bool,
+        briefStatus: ScreenHeaderBriefStatus = .loaded
     ) -> Self {
         guard isAdmin else {
             return Self(
@@ -38,7 +50,7 @@ struct ScreenHeaderRules: Equatable {
         let needsReview = readableReason?.isEmpty == false && readableReason != dismissedReason
         return Self(
             showsHeadLine: true,
-            stateText: needsReview ? readableReason : "All clear",
+            stateText: needsReview ? readableReason : quietText(briefStatus),
             showsReview: needsReview,
             showsTimeChip: !isSelecting,
             showsRefresh: !isSelecting
@@ -117,7 +129,8 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
                 isDemo: isDemo
             ),
             dismissedReason: isDemo ? nil : dismissed,
-            isSelecting: isSelecting
+            isSelecting: isSelecting,
+            briefStatus: isDemo || store.loaded && !store.failed ? .loaded : (store.failed ? .failed : .loading)
         )
     }
 
@@ -156,12 +169,6 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
                 Text(head.name)
                     .itText(.body14)
                     .foregroundStyle(it.text)
-                Text("AI")
-                    .font(appStyle.font(.caption2, weight: .semibold))
-                    .foregroundStyle(it.color(.brand))
-                    .padding(.horizontal, ItSpace.s2)
-                    .padding(.vertical, ItSpace.s1)
-                    .overlay { Capsule().stroke(it.color(.brand), lineWidth: ItStroke.hairline) }
             }
             .fixedSize(horizontal: true, vertical: false)
             .contentShape(Rectangle())
@@ -173,7 +180,7 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
 
     private var headState: some View {
         HStack(spacing: ItSpace.s1) {
-            Text(rules.stateText ?? "All clear")
+            Text(rules.stateText ?? "")
                 .font(appStyle.font(.caption, weight: .semibold))
                 .foregroundStyle(it.meta)
                 .fixedSize(horizontal: false, vertical: true)

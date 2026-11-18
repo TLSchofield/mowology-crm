@@ -44,6 +44,35 @@ struct VisitDetailView: View {
     @State private var isShowingWork = false
     @State private var scrollTarget: String?
     @Environment(\.dismiss) private var dismissDetail
+    /// Visits whose history calendar the user opened. Collapsed on open; kept across reloads of this screen.
+    @State private var expandedHistory: Set<Int> = []
+
+    private func historyBinding(for visitId: Int) -> Binding<Bool> {
+        Binding(
+            get: { expandedHistory.contains(visitId) },
+            set: { if $0 { expandedHistory.insert(visitId) } else { expandedHistory.remove(visitId) } }
+        )
+    }
+
+    /// The service name for the card heading: the plan's own name when it is a real name, else the service type.
+    private func cardHeading(for visit: Visit) -> String {
+        let plan = visit.planTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let street = stop.propertyAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if plan.isEmpty || plan.caseInsensitiveCompare(street) == .orderedSame
+            || street.localizedCaseInsensitiveContains(plan) || plan.localizedCaseInsensitiveContains(street) {
+            return visit.serviceTypeLabel
+        }
+        return plan
+    }
+
+    /// The service-type line, only when the heading does not already contain it.
+    private func cardServiceLine(for visit: Visit) -> String? {
+        let heading = cardHeading(for: visit)
+        let label = visit.serviceTypeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, !heading.localizedCaseInsensitiveContains(label),
+              !label.localizedCaseInsensitiveContains(heading) else { return nil }
+        return label
+    }
 
 
     // MARK: - Init
@@ -105,7 +134,7 @@ struct VisitDetailView: View {
                 Spacer(minLength: 24)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 16)
+            .padding(.top, 4)
         }
         .onChange(of: scrollTarget) { _, target in
             guard let target else { return }
@@ -488,12 +517,15 @@ struct VisitDetailView: View {
                 Text(srError).font(appStyle.font(.caption)).foregroundStyle(appStyle.color(.statusAttention, legacy: .orange))
             }
 
-            // Title + badge row
-            HStack {
-                Text(visit.planTitle ?? visit.serviceTypeLabel)
+            // Title + badge row. The heading names the service; a plan title that is just the street
+            // address (or repeats the service) is not shown again inside the card.
+            HStack(alignment: .firstTextBaseline) {
+                Text(cardHeading(for: visit))
                     .font(appStyle.font(.subheadline, weight: .bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 Text(statusLabelFor(currentStatus))
                     .font(appStyle.font(.caption, weight: .bold))
@@ -504,10 +536,12 @@ struct VisitDetailView: View {
                     .clipShape(Capsule())
             }
 
-            // Service type
-            Label(visit.serviceTypeLabel, systemImage: "tag")
-                .font(appStyle.font(.caption))
-                .foregroundStyle(appStyle.meta)
+            // Service type — only when the heading is a plan name that does not already say it.
+            if let extra = cardServiceLine(for: visit) {
+                Label(extra, systemImage: "tag")
+                    .font(appStyle.font(.caption))
+                    .foregroundStyle(appStyle.meta)
+            }
 
             // Meta row
             HStack(spacing: 16) {
@@ -530,7 +564,7 @@ struct VisitDetailView: View {
 
             // When was this last done — two calendar weeks of THIS service at this property.
             if let history = visit.history, !history.weeks.isEmpty {
-                ServiceHistoryGrid(history: history)
+                ServiceHistoryGrid(history: history, isExpanded: historyBinding(for: visit.visitId))
             }
 
             // Live elapsed timer
@@ -552,43 +586,6 @@ struct VisitDetailView: View {
             // MARK: Action CTA — Start Job / Mark Complete
             Divider()
             actionButtons(for: visit, currentStatus: currentStatus)
-
-            // MARK: Work Record — checklist, materials used, notes
-            // Open on completed visits too: materials and notes are often written
-            // up in the truck after the timer is stopped.
-            if ["scheduled", "in_progress", "completed"].contains(currentStatus.lowercased()) {
-                Divider()
-                NavigationLink {
-                    VisitWorkView(visitId: visit.visitId, authSession: authSession)
-                } label: {
-                    HStack {
-                        Label("Checklist, materials & notes", systemImage: "checklist")
-                            .font(appStyle.font(.subheadline, weight: .semibold))
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(appStyle.font(.footnote, weight: .semibold))
-                            .foregroundStyle(appStyle.meta)
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .tint(appStyle.text)
-            }
-
-            // MARK: Crew Service Recommendations
-            // Photograph work that needs doing and offer the client a quote for it.
-            //
-            // Deliberately NOT gated to scheduled/in_progress like the before/after
-            // proof below: crews spot sellable work while packing up and walking the
-            // property, which is usually after they have hit Finish. Gating this the
-            // same way removed the feature at the exact moment it gets used.
-            if ["scheduled", "in_progress", "completed"].contains(visit.visitStatus.lowercased()) {
-                Divider()
-                RecommendationSection(
-                    visitId:     visit.visitId,
-                    authSession: authSession
-                )
-            }
 
             // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
@@ -636,6 +633,57 @@ struct VisitDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
                 }
             }
+
+            // MARK: Work Record — checklist, materials used, notes
+            // Open on completed visits too: materials and notes are often written
+            // up in the truck after the timer is stopped.
+            if ["scheduled", "in_progress", "completed"].contains(currentStatus.lowercased()) {
+                Divider()
+                NavigationLink {
+                    VisitWorkView(visitId: visit.visitId, authSession: authSession)
+                } label: {
+                    HStack {
+                        Label("Checklist, materials & notes", systemImage: "checklist")
+                            .font(appStyle.font(.subheadline, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(appStyle.font(.footnote, weight: .semibold))
+                            .foregroundStyle(appStyle.meta)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .tint(appStyle.text)
+            }
+
+            // MARK: What is this plant? — grouped with the checklist and recommendations (Tim, 2026-11-18)
+            if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                JobPhotoSection(
+                    visitId:       visit.visitId,
+                    isActive:      isActive || currentStatus.lowercased() == "in_progress",
+                    authSession:   authSession,
+                    captureGate:   { specialRequestBlocks(visit.visitId) },
+                    photosLocked:  specialRequests.firstUnread(for: visit.visitId) != nil,
+                    part:          .plant
+                )
+            }
+
+            // MARK: Crew Service Recommendations
+            // Photograph work that needs doing and offer the client a quote for it.
+            //
+            // Deliberately NOT gated to scheduled/in_progress like the before/after
+            // proof above: crews spot sellable work while packing up and walking the
+            // property, which is usually after they have hit Finish. Gating this the
+            // same way removed the feature at the exact moment it gets used.
+            if ["scheduled", "in_progress", "completed"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                RecommendationSection(
+                    visitId:     visit.visitId,
+                    authSession: authSession
+                )
+            }
+
         }
         .padding(14)
         .background(

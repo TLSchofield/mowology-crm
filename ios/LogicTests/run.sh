@@ -137,6 +137,10 @@ cp "$ROOT/ios/LogicTests/MetricKitSummaryTests.swift" "$OUT/main.swift"
 swiftc -suppress-warnings -o "$OUT/metrickit" "$SRC/Core/Diagnostics/MetricKitSummary.swift" "$OUT/main.swift"
 "$OUT/metrickit" "$ROOT/ios/LogicTests/Fixtures"
 
+# App vitals upload (2026-11-15): log line -> server event (real MetricKit lines + HangWatchdog wording), the offline outbox, back-off.
+cp "$ROOT/ios/LogicTests/VitalsEventsTests.swift" "$OUT/main.swift"
+swiftc -suppress-warnings -o "$OUT/vitals" "$SRC/Core/Diagnostics/VitalsEvents.swift" "$SRC/Core/Diagnostics/MetricKitSummary.swift" "$OUT/main.swift"
+"$OUT/vitals" "$ROOT/ios/LogicTests/Fixtures"
 # Receipts empty-screen wording and the one-time Kaname welcome (2026-11-13).
 cp "$ROOT/ios/LogicTests/KanameWelcomeTests.swift" "$OUT/main.swift"
 run kanamewelcome "$SRC/Features/Receipts/ReceiptsEmptyWording.swift" "$SRC/Features/Splash/KanameWelcome.swift" "$OUT/main.swift"

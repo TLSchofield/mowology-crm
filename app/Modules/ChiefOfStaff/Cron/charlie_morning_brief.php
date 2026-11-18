@@ -148,6 +148,11 @@ try {
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
         $hbr = new HeadBriefReadyService($db);
+        // This run is what keeps the work-queue copy fresh for everyone else (HouseBriefAdapter::STALE_SECONDS).
+        require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+        HouseBriefAdapter::$refreshing = true;
+        // Rebuilt here on purpose: nothing else refreshes it, and whoever found it expired (Pulse every 5 min) paid the 6 s sweep.
+        try { (new HouseBriefAdapter($db))->brief($name); } catch (Throwable $e) { $parts[] = 'work-queue copy failed: ' . $e->getMessage(); }
         $hbr->rebuildCharlie($f, $name, $view);
         // The dashboard's copy of the same answer: "Needs you now" shows it with the page (speed pass, 2026-10-19).
         $hbr->keepToday(HeadBriefReadyService::todayPayload($card, $desk, $name));
