@@ -37,6 +37,7 @@ final class ReadyBriefStore: ObservableObject {
 
 struct MainTabView: View {
     @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
     @Environment(\.layoutDirection) private var layoutDirection
 
     @EnvironmentObject private var authSession: AuthSession
@@ -59,7 +60,7 @@ struct MainTabView: View {
     /// every tab (TimeChip); its screen is still a page of the TabView, so it keeps its state and the driver
     /// question can still open it. Add is not a page: it opens the AddDial over the current screen.
     private enum Tab: Hashable { case schedule, time, kaname, search, receipts, account, add }
-    @State private var selectedTab = Tab.schedule
+    @State private var selectedTab: Tab
     /// The AddDial is open: the bead sits on Add (showing ×) while the screen underneath stays as it was.
     @State private var addOpen = false
     /// The Schedule bead's view, and its long-press picker (Tim, 2026-11-07).
@@ -102,7 +103,8 @@ struct MainTabView: View {
                                      beadIcon: .system(scheduleViews.kind.icon),
                                      beadLabel: "Show \(scheduleViews.kind.next.title.lowercased()) view",
                                      longPressLabel: "Choose a view")
-            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35)
+            case .kaname:   return ItMeniscusItem(id: index, title: "Kaname", icon: .image(KanameTabIcon.image), iconScale: 1.35,
+                                                  beadColor: UIColor(it.color(.brand)))
             case .search:   return ItMeniscusItem(id: index, title: "Search", icon: .system("magnifyingglass"))
             // On Receipts the bead becomes the camera: a second tap snaps (Tim, 2026-11-05). Not while Time Clock
             // is showing: the bead is resting there and a tap only goes back (Codex 2026-11-05).
@@ -145,6 +147,14 @@ struct MainTabView: View {
     }
 
     init() {
+        // A new owner leaving onboarding lands on Receipts, once (OnboardingBarLogic.landing); everyone else on Schedule.
+        let d = UserDefaults.standard
+        let landing = OnboardingBarLogic.landing(stored: d.string(forKey: OnboardingBarLogic.landingKey),
+                                                 isAdmin: AuthSession.shared.user?.isAdmin == true, hasReceipts: true)
+        // Read only: a write here ran on every re-creation of this view and, because removeObject posts the
+        // defaults-changed notification even for an absent key, kept every @AppStorage view invalidating in a loop
+        // (build 627 black screen, 0x8BADF00D at launch). The key is cleared once, in onAppear.
+        _selectedTab = State(initialValue: landing == .receipts ? .receipts : (landing == .kaname ? .kaname : .schedule))
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
         UITabBar.appearance().isHidden = true
@@ -280,6 +290,29 @@ struct MainTabView: View {
             checkDriverQuestion()
         }
         // Measurement (2026-11-13): every ~60 s all five tabs redraw together; these name which shared object invalidated this view.
+        .onAppear {
+            if UserDefaults.standard.object(forKey: OnboardingBarLogic.landingKey) != nil {
+                UserDefaults.standard.removeObject(forKey: OnboardingBarLogic.landingKey)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .mwSnapLabel)) { _ in
+            addOpen = false
+            selectedTab = .receipts
+            // After the switch lands, so the camera presents from a Receipts that is on screen.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                NotificationCenter.default.post(name: .mwSnapLabelOnReceipts, object: nil)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .mwKanameWelcomeAction)) { note in
+            if (note.userInfo?["entry"] as? String) == KanameWelcome.Entry.books.rawValue {
+                selectedTab = .receipts
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    NotificationCenter.default.post(name: .mwSnapReceipt, object: nil)
+                }
+            } else {
+                add(.job)
+            }
+        }
         .onReceive(notificationRouter.objectWillChange) { _ in InvalidationLog.note("notificationRouter") }
         .onReceive(pullForward.objectWillChange) { _ in InvalidationLog.note("pullForward") }
         .onReceive(scheduleViews.objectWillChange) { _ in InvalidationLog.note("scheduleViews") }
@@ -437,7 +470,7 @@ struct MainTabView: View {
 }
 
 @MainActor
-private enum KanameTabIcon {
+enum KanameTabIcon {
     /// The Ittai hexagon, rendered once; the bar tints it.
     static let image: UIImage = {
         let renderer = ImageRenderer(content: ItSymbol(size: 28).environment(\.it, ItPalette(.light)))
@@ -577,6 +610,11 @@ extension EnvironmentValues {
 extension Notification.Name {
     /// The Receipts bead was tapped while Receipts is showing: open the receipt camera (ReceiptsView).
     static let mwSnapReceipt = Notification.Name("ca.mowology.snapReceipt")
+    /// Otto's "Snap a product label": MainTabView brings Receipts forward, then posts `mwSnapLabelOnReceipts`.
+    static let mwSnapLabel = Notification.Name("ca.mowology.snapLabel")
+    static let mwSnapLabelOnReceipts = Notification.Name("ca.mowology.snapLabelOnReceipts")
+    /// The welcome card's button (userInfo `entry`: "books" or "work"): the receipt camera, or Add a job.
+    static let mwKanameWelcomeAction = Notification.Name("ca.mowology.kanameWelcomeAction")
     static let mwKanameHome = Notification.Name("ca.mowology.kanameHome")
     /// Job or Client was picked from the bar's Add dial: Schedule opens "Add a job" (userInfo `startWithNewClient`).
     static let mwAddFromBar = Notification.Name("ca.mowology.addFromBar")

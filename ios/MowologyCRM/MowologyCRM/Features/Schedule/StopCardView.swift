@@ -126,22 +126,26 @@ struct StopCardView: View {
 
                 // Crew names (admin only)
                 if isAdmin && !stop.crewNames.isEmpty {
-                    Label(stop.crewNames.map(DisplayNameFormatter.string).joined(separator: ", "), systemImage: "person.2.fill")
+                    // Initials keep the crew line to one short row (audit 2026-11-17); full names stay for VoiceOver.
+                    Label(stop.crewNames.map(Self.crewInitials).joined(separator: " · "), systemImage: "person.2.fill")
+                        .accessibilityLabel(stop.crewNames.map(DisplayNameFormatter.string).joined(separator: ", "))
                         .font(appStyle.font(.caption))
                         .foregroundStyle(appStyle.meta)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                // Visit count badge
-                HStack(spacing: 3) {
-                    Image(systemName: "checkmark.circle")
-                        .font(appStyle.font(.caption2))
-                    Text("\(stop.visitCount) visit\(stop.visitCount == 1 ? "" : "s")")
-                        .font(appStyle.font(.caption).monospacedDigit())
+                // Visit count: shown only when a stop has several visits ("1 visit" adds nothing to a card).
+                if stop.visitCount > 1 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle")
+                            .font(appStyle.font(.caption2))
+                        Text("\(stop.visitCount) visits")
+                            .font(appStyle.font(.caption).monospacedDigit())
+                    }
+                    .foregroundStyle(appStyle.meta)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .foregroundStyle(appStyle.meta)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 12)
@@ -180,6 +184,13 @@ struct StopCardView: View {
         dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
             : AnyLayout(HStackLayout(alignment: .top))
+    }
+
+    /// "Nigel Casey" -> "NC". One word gives its first two letters.
+    static func crewInitials(_ name: String) -> String {
+        let parts = DisplayNameFormatter.string(name).split(separator: " ")
+        if parts.count >= 2 { return String(parts[0].prefix(1) + parts[parts.count - 1].prefix(1)).uppercased() }
+        return String(parts.first?.prefix(2) ?? "").uppercased()
     }
 
     private var statusPresentation: (label: String, icon: ItIconShape, color: Color)? {

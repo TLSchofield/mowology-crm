@@ -8,6 +8,7 @@ import Foundation
 struct Expense: Decodable, Identifiable {
     let id: Int
     let expenseDate: String
+    let vendorId: Int?
     let vendorName: String?
     let vendorNameRaw: String?
     let description: String?
@@ -18,6 +19,7 @@ struct Expense: Decodable, Identifiable {
     let accountingCategory: String?
     let paymentMethod: String?
     let status: String
+    let rejectionReason: String?
     let forwardedToAccounting: Int?
     let receiptMediaId: Int?
     let receiptUrl: String?
@@ -30,7 +32,9 @@ struct Expense: Decodable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, description, status
+        case rejectionReason         = "rejection_reason"
         case expenseDate            = "expense_date"
+        case vendorId               = "vendor_id"
         case vendorName             = "vendor_name"
         case vendorNameRaw          = "vendor_name_raw"
         case amount

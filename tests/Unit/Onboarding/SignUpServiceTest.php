@@ -22,7 +22,7 @@ final class SignUpServiceTest extends TestCase
 
     private function valid(string $code = ''): array
     {
-        $in = ['full_name' => 'Ada Lovelace', 'mobile' => '+1 604 555 0101', 'email' => 'OWNER@example.com', 'password' => str_repeat('p', 17), 'audience' => 'mobile'];
+        $in = ['full_name' => 'Ada Lovelace', 'mobile' => '+1 604 555 0101', 'email' => 'OWNER@example.com', 'password' => str_repeat('p', 17), 'audience' => 'mobile', 'terms_accepted' => true];
         if ($code !== '') $in['code'] = $code;
         return $in;
     }
@@ -37,8 +37,34 @@ final class SignUpServiceTest extends TestCase
         $this->assertNull(SignUpService::names(['first_name' => 'Mary', 'last_name' => '']));
         $this->assertSame(['last_name' => 'Enter your last name.'], array_intersect_key(SignUpService::validate(['first_name' => 'Mary']), ['first_name' => 1, 'last_name' => 1, 'full_name' => 1]));
         $this->assertSame('(604) 555-0101', SignUpService::mobile('+1 (604) 555-0101'));
-        $this->assertSame(['full_name' => 'Enter your full name.', 'mobile' => 'Enter your mobile number (10 digits).', 'email' => 'Enter a valid email address.', 'password' => $pw], SignUpService::validate([]));
+        $this->assertSame(['full_name' => 'Enter your full name.', 'mobile' => 'Enter your mobile number (10 digits).', 'email' => 'Enter a valid email address.', 'password' => $pw, 'terms' => 'Accept the terms and privacy policy to continue.'], SignUpService::validate([]));
         $this->assertSame(['code' => 'Enter the 6-digit code.'], SignUpService::validate($this->valid(), true));
+    }
+
+    public function test_terms_must_be_explicitly_accepted(): void
+    {
+        $msg = 'Accept the terms and privacy policy to continue.';
+        $in = $this->valid();
+        foreach ([true, 'true', 1, '1'] as $yes) $this->assertArrayNotHasKey('terms', SignUpService::validate(array_merge($in, ['terms_accepted' => $yes])), var_export($yes, true) . ' counts');
+        unset($in['terms_accepted']);
+        $this->assertSame($msg, SignUpService::validate($in)['terms'] ?? null, 'a missing field is a refusal (older apps cannot sign up)');
+        foreach ([false, 'false', 0, '0', '', null, 'yes please'] as $no) $this->assertSame($msg, SignUpService::validate(array_merge($in, ['terms_accepted' => $no]))['terms'] ?? null, var_export($no, true) . ' is a refusal');
+    }
+
+    public function test_request_and_confirm_refuse_without_the_terms_and_claim_records_them(): void
+    {
+        $db = $this->db(); $svc = new SignUpService($db, 'tenant');
+        $without = $this->valid(); unset($without['terms_accepted']);
+        // signup.php and signup-confirm.php both call validate() first and answer 400 with these fields, so no code is sent and nothing is claimed.
+        $this->assertArrayHasKey('terms', SignUpService::validate($without));
+        $this->assertArrayHasKey('terms', SignUpService::validate(array_merge($without, ['code' => '123456']), true));
+        $svc->requestCode($this->valid(), '123456', 1000);
+        $refused = $svc->confirm(array_merge($without, ['code' => '123456']), '127.0.0.1', static function (array $user): string { return 'token'; }, 1001);
+        $this->assertFalse($refused['ok'], 'the service itself refuses a claim without the terms');
+        $this->assertSame('validation', $refused['error']);
+        $r = $svc->confirm($this->valid('123456'), '127.0.0.1', static function (array $user): string { return 'token'; }, 1001);
+        $this->assertTrue($r['ok']);
+        $this->assertSame(OnboardingTermsModule::TERMS_VERSION, $db->query("SELECT setting_value FROM ops_settings WHERE setting_key='onboarding_terms_accepted'")->fetchColumn(), 'the same setting the Terms step writes, so that step shows as done');
     }
 
     public function test_request_replaces_code_and_claim_checks(): void

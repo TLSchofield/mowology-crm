@@ -295,6 +295,7 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefServic
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadStateService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameOpenRule.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadBriefReadyService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HeadNavService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/KanameWorkspaceService.php';
@@ -438,6 +439,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/RepeatAmountFinder.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TwinCheckService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/OwnerApprovalDefaultService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ClosedYearReceiptTrace.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
@@ -545,6 +547,7 @@ require_once __DIR__ . '/../app/Modules/Legal/Services/TermsService.php';
 // Quiz / Certification
 require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Quiz/Services/PreshiftGate.php';
 
 // Team
 require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
@@ -584,6 +587,7 @@ require_once __DIR__ . '/../app/Services/Push/DeviceTokenService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitGenerationService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanProfitabilityService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanMaterialsService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WebServiceCatalog.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanHelpersService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitLifecycleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/ClusterService.php';
@@ -667,6 +671,7 @@ require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboConnectionService
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboPhoneCallbackService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboSyncService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboExpenseSyncService.php';
+require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboAutoSetupService.php';
 require_once __DIR__ . '/../app/Modules/QuickBooks/Services/QboClientPayService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingService.php';
 require_once __DIR__ . '/../app/Modules/Onboarding/Services/OnboardingApiPresenter.php';

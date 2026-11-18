@@ -433,7 +433,8 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
 
         // Auto-create vendor from OCR hint when no match
         if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
-            $vendorName = strtoupper(trim($parsed['vendor_hint']));
+            $kb = kbCommonsVendorForCreation($ocrText, $db);
+            $vendorName = kbPickCreationName($parsed['vendor_hint'] ?? null, $kb);
             if (strlen($vendorName) >= 3) {
                 try {
                     $gateResult = gateVendorAutoCreation($vendorName, $db);
@@ -457,10 +458,18 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
                         } else {
                             $ins = $db->prepare("INSERT INTO vendors (name, aliases, is_active) VALUES (?, ?, 1)");
                             $ins->execute([$vendorName, strtolower($vendorName)]);
-                            $suggestions['vendor_id']           = (int)$db->lastInsertId();
+                            $newVendorId = (int)$db->lastInsertId();
+                            $suggestions['vendor_id']           = $newVendorId;
                             $suggestions['vendor_name']         = $vendorName;
                             $suggestions['vendor_confidence']   = 70;
                             $suggestions['vendor_auto_created'] = true;
+                            if ($kb !== null) {
+                                try {
+                                    (new VendorKnowledgeService($db))->linkLocalVendor($newVendorId, $kb['kb_vendor_id'], $kb['identity']);
+                                } catch (Throwable $ke) {
+                                    error_log('process_ocr_queue commons vendor link failed: ' . $ke->getMessage());
+                                }
+                            }
                         }
                     }
                 } catch (Throwable $e) {

@@ -57,6 +57,14 @@ function ittaiPageEnd(): void
 
 function ittaiLegalPage(string $kind): void
 {
+    if ($kind === 'delete-account') {   // 2026-11-14: the page Google Play asks for; not part of the versioned terms
+        ittaiPageStart('Delete your Ittai account', 'How to ask us to delete an account or personal information &bull; ' . ITTAI_LEGAL_ENTITY . ' (Vancouver, BC)');
+        echo '<div class="terms-layout">' . "\n";
+        require dirname(__DIR__) . '/includes/legal/ittai-delete-account-body.php';
+        echo "</div>\n";
+        ittaiPageEnd();
+        return;
+    }
     $isTerms = $kind === 'terms';
     $ittaiPrivacyHref = '/privacy/';
     ittaiPageStart($isTerms ? 'Terms of Service' : 'Privacy Policy',

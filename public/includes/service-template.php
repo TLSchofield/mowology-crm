@@ -155,6 +155,21 @@ require __DIR__ . '/header.php';
 
 $hero = $service['hero'] ?? [];
 $ctaBlock = $service['cta'] ?? [];
+
+// CRM service package for this page (web_slug = page slug). Null until migration 1458 is run and
+// Tim switches the package on in the CRM; then the price and points come from the CRM, not this file.
+$webPkg = null;
+if (function_exists('getDB') && defined('APP_ROOT')) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/WebServiceCatalog.php';
+    try {
+        $webPkg = WebServiceCatalog::findByWebSlug(getDB(), (string)($service['slug'] ?? ''));
+    } catch (Throwable $e) {
+        $webPkg = null;
+    }
+}
+$webPrice  = $webPkg ? WebServiceCatalog::priceLabel($webPkg) : '';
+$webPoints = $webPkg['web_bullets'] ?? [];
+$subText   = $webPkg['web_headline'] ?? ($hero['subheadline'] ?? '');
 ?>
 
   <!-- Service Hero — Above the Fold -->
@@ -163,8 +178,18 @@ $ctaBlock = $service['cta'] ?? [];
       <div class="slh-grid">
         <div class="slh-content">
           <h1><?= allowFormatting($hero['headline'] ?? $service['title']) ?></h1>
-          <?php if (!empty($hero['subheadline'])): ?>
-            <p class="slh-sub"><?= h($hero['subheadline']) ?></p>
+          <?php if ($subText !== ''): ?>
+            <p class="slh-sub"><?= h($subText) ?></p>
+          <?php endif; ?>
+          <?php if ($webPrice !== ''): ?>
+            <p class="slh-price"><?= h($webPrice) ?></p>
+          <?php endif; ?>
+          <?php if (!empty($webPoints)): ?>
+            <ul class="slh-points">
+              <?php foreach ($webPoints as $point): ?>
+                <li><?= h($point) ?></li>
+              <?php endforeach; ?>
+            </ul>
           <?php endif; ?>
           <?php if (!empty($hero['cta_text'])): ?>
             <a href="<?= h($hero['cta_url'] ?? '/quote') ?>" class="btn btn-primary-large"><?= h($hero['cta_text']) ?></a>

@@ -76,6 +76,7 @@ try {
                 'source'       => $_GET['source']       ?? '',
                 'needs_review' => $_GET['needs_review'] ?? '',
                 'job_id'       => $_GET['job_id']       ?? '',
+                'expense_id'   => $_GET['expense_id']   ?? '',
                 'search'       => $_GET['search']       ?? '',
             ];
             $page    = max(1, (int)($_GET['page'] ?? 1));
@@ -105,7 +106,16 @@ try {
         case 'sync':
             if ($method !== 'POST') throw new Exception('Sync changes the ledger — send it as a POST.', 405);
             if (!$canEdit) throw new Exception('Permission denied', 403);
-            $result = $svc->syncAll();
+            // MySQL 1615 (shared host evicting a table definition mid-run) is transient; the sync
+            // upserts, so one retry is safe — same as Cron/sync-ledger.php.
+            try {
+                $result = $svc->syncAll();
+            } catch (Throwable $syncErr) {
+                if (!AccountingService::isReprepareError($syncErr)) throw $syncErr;
+                error_log('ledger sync retry after 1615: ' . $syncErr->getMessage());
+                usleep(500000);
+                $result = $svc->syncAll();
+            }
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
 

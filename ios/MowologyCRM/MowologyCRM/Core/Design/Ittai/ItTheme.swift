@@ -36,6 +36,11 @@ struct ItPalette: Equatable {
         case .field: v = ItTokenHex.field
         }
         if brandIttai { v.merge(ItIttaiBrandHex.overlay(mode)) { _, ittai in ittai } }
+        if !ItTenantColours.enabled {
+            v[.tenant] = v[.brand]
+            v[.tenantMark] = v[.brand]
+            if let soft = ItIttaiBrandHex.overlay(mode)[.tenantSoft] { v[.tenantSoft] = soft }
+        }
         values = v
     }
 
@@ -186,4 +191,12 @@ enum ItIttaiBrandHex {
                     .selected: 0xE3E8EF]
         }
     }
+}
+
+/// Brand colours for all until the design is complete on every page and platform (owner 2026-11-14): while `enabled` is
+/// false every tenant colour token (tenant, tenantMark, tenantSoft; onTenant stays the contrasting ink) resolves to the
+/// Ittai brand indigo in light, dark and field modes. The tenant machinery is untouched: set this to true to bring each
+/// business's own colour back. Kaname's bead stays indigo either way (ItMeniscusItem.beadColor).
+enum ItTenantColours {
+    static let enabled = false
 }

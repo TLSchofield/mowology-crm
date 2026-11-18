@@ -11,6 +11,7 @@ import Foundation
 
 private let kQuizPassedDate   = "mw.quizPassedDate"
 private let kQuizAttemptedDate = "mw.quizAttemptedDate"
+private let kQuizServerEnabled = "mw.quizServerEnabled"
 
 @MainActor
 final class QuizViewModel: ObservableObject {
@@ -49,6 +50,19 @@ final class QuizViewModel: ObservableObject {
     }
 
     // MARK: - Public API
+
+    /// Asks the server whether the pre-shift quiz applies to this crew member today. The server answers "on"
+    /// only when the business switched it on AND has at least one question, so a quiz with no questions never
+    /// blocks the schedule. Offline, the last answer the server gave is used; before any answer, the quiz is off.
+    static func serverStatus(apiClient: APIClient) async -> (enabled: Bool, done: Bool) {
+        do {
+            let status: QuizStatusResponse = try await apiClient.request(.quizStatus)
+            UserDefaults.standard.set(status.enabled, forKey: kQuizServerEnabled)
+            return (status.enabled, status.done)
+        } catch {
+            return (UserDefaults.standard.bool(forKey: kQuizServerEnabled), false)
+        }
+    }
 
     /// True if the quiz was passed today (for UI badges / score display).
     static func hasPassedToday() -> Bool {

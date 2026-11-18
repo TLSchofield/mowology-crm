@@ -50,6 +50,7 @@
             <p>Your clients, jobs, invoices, photos and records stay yours. You give us permission to store, process and display them to run Ittai for you, and to meet legal obligations.</p>
             <p>Ittai may also learn from activity across businesses in an aggregated, de-identified form (for example, which products suppliers carry, or common price ranges) so that suggestions improve for everyone. We do not share your clients&rsquo; personal information or your private records with other businesses through this.</p>
             <p><strong>Keep your own backups.</strong> We take reasonable care to protect and back up the system, but Ittai is not your official record-keeping archive. Export what the law requires you to keep (for example tax records) on your own schedule.</p>
+            <p><strong>Your record-keeping duties stay with you.</strong> Canadian tax law requires a business to keep its books and records for at least six years after the end of the last tax year they relate to, and to keep them in Canada unless the Canada Revenue Agency agrees otherwise. Using Ittai does not change that. When your account ends you have 30 days to export your data, so that you can keep your own copy (section 14).</p>
             <p>You are responsible for having the right to put your clients&rsquo; information into Ittai and for handling their privacy requests under the laws that apply to you.</p>
         </section>
 
@@ -77,6 +78,8 @@
         <section class="terms-section" id="advice">
             <h2>8. No professional advice</h2>
             <p>Ittai, including its bookkeeping features, is a tool. It is not legal, tax, accounting, payroll or financial advice, and we are not your accountant. Tax rates, categories, remittances and filings remain your responsibility; confirm anything important with a qualified professional.</p>
+            <p><strong>The assistants are not advisers.</strong> Penny, the bookkeeper, and Kaname, the chief of staff, are AI assistants inside Ittai. They are not accountants, lawyers or financial advisers, and they do not give financial, tax, accounting, payroll or legal advice. They record, organise, match and ask; they propose entries and you decide. Anything they say about a category, a tax treatment or a deadline is a suggestion for you or your accountant to confirm.</p>
+            <p>Where Ittai points you to a government or other official web page (for example a Canada Revenue Agency page), that is a reference to where the rules are published, not advice, and we do not control that page.</p>
             <p><strong>Your books are yours to verify.</strong> Entries that Ittai or its bookkeeping assistant prepares are suggestions until you approve them. Before you rely on your books for a tax return, a GST/HST or PST filing, payroll remittances or a lender, you agree to have them reviewed by a qualified accountant or bookkeeper. We are not responsible for penalties, interest or reassessments that result from filing figures that were not reviewed.</p>
         </section>
 
@@ -108,7 +111,7 @@
 
         <section class="terms-section" id="ending">
             <h2>14. Ending the service</h2>
-            <p>You can cancel at any time from your account or by contacting us; cancelling does not cancel amounts already owing. We may suspend or end access for non-payment, breach of these terms, legal requirement, or risk to the service. After ending, you will have 30 days to export your data; after that we may delete it, subject to legal retention duties. Sections that by their nature should survive (fees owing, disclaimers, liability, indemnity, governing law) do.</p>
+            <p>You can cancel at any time from your account or by contacting us; cancelling does not cancel amounts already owing. We may suspend or end access for non-payment, breach of these terms, legal requirement, or risk to the service. After ending, you will have 30 days to export your data; after that we may delete it, subject to legal retention duties. To ask for your account or personal information to be deleted, follow the steps at <a href="https://ittai.ca/delete-account/">ittai.ca/delete-account</a>. Sections that by their nature should survive (fees owing, disclaimers, liability, indemnity, governing law) do.</p>
         </section>
 
         <section class="terms-section" id="changes">

@@ -35,10 +35,8 @@ $preshiftEnabled = false;
 $preshiftDone    = false;
 $preshiftLen     = 3;
 (function () use ($db, $user, &$preshiftEnabled, &$preshiftDone, &$preshiftLen) {
-    $row = $db->query(
-        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
-    )->fetch(PDO::FETCH_ASSOC);
-    if (!$row || $row['setting_value'] != '1') return;
+    require_once dirname(__DIR__, 3) . '/app/Modules/Quiz/Services/PreshiftGate.php';
+    if (!PreshiftGate::isRequiredFor($db, (int)$user['id'])) return;
     $preshiftEnabled = true;
     $lrow = $db->query(
         "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"

@@ -7,7 +7,7 @@
 
 import Foundation
 
-private let baseURLString = Server.api.absoluteString
+private var baseURLString: String { Server.api.absoluteString }
 
 /// Enumeration of every API endpoint the app communicates with.
 /// Each case resolves to a `URL` and declares whether it requires an
@@ -220,6 +220,10 @@ enum APIEndpoint {
     /// because the /api/ router's rewrite appends its own `action` param.
     case expenseLookup(query: [URLQueryItem])
 
+    /// GET /api/expenses/expense-lookup?type=vendor_items&vendor_id=N — a supplier's
+    /// learned receipt lines and active catalogue, for the offline item picker.
+    case vendorItems(vendorId: Int)
+
     /// POST /api/expenses/expense-delete — delete an own draft expense (JWT). Body: { id }
     case expenseDelete
 
@@ -238,6 +242,9 @@ enum APIEndpoint {
 
     /// GET /api/schedule/quiz?session_id=N&q=N — fetch a single quiz question.
     case quizQuestion(sessionId: Int, q: Int)
+
+    /// GET /api/schedule/quiz?action=status — is the pre-shift quiz on for this crew member, and is today's done.
+    case quizStatus
 
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
     /// GET /api/schedule/search — q (+ optional fix) | mode=nearby | mode=property&id.
@@ -515,7 +522,7 @@ enum APIEndpoint {
         case .teamHeadBriefReady(let head):
             var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
             components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head),
-                                      URLQueryItem(name: "ready", value: "1")]
+                                      URLQueryItem(name: "ready", value: "1")] + MorningBriefStore.shownQueryItems
             return components?.url
 
         case .teamHeadAction:
@@ -573,6 +580,14 @@ enum APIEndpoint {
             components?.queryItems = query
             return components?.url
 
+        case .vendorItems(let vendorId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
+            components?.queryItems = [
+                URLQueryItem(name: "type", value: "vendor_items"),
+                URLQueryItem(name: "vendor_id", value: "\(vendorId)"),
+            ]
+            return components?.url
+
         case .expenseDelete:
             return URL(string: "\(baseURLString)/expenses/expense-delete")
 
@@ -596,6 +611,11 @@ enum APIEndpoint {
                 URLQueryItem(name: "session_id", value: "\(sessionId)"),
                 URLQueryItem(name: "q",          value: "\(q)"),
             ]
+            return components?.url
+
+        case .quizStatus:
+            var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
+            components?.queryItems = [URLQueryItem(name: "action", value: "status")]
             return components?.url
 
         case .fieldSearch(let query, let lat, let lng):
@@ -806,12 +826,14 @@ enum APIEndpoint {
              .ottoMissedReview,
              .ottoMissedReviewAction,
              .expenseLookup,
+             .vendorItems,
              .expenseDelete,
              .expenseLineItems,
              .expenseLineItemAction,
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
+             .quizStatus,
              .scheduleJobPhoto,
              .plantId,
              .scheduleVisitPhotos,
@@ -912,6 +934,7 @@ enum APIEndpoint {
              .pennyKnowledgeItems,
              .ottoMissedReview,
              .expenseLookup,
+             .vendorItems,
              .expenseLineItems,
              .scheduleJobs,
              .scheduleInvoices,
@@ -928,7 +951,8 @@ enum APIEndpoint {
              .fieldSearchProperty,
              .ownerSearch,
              .ownerSearchContact,
-             .quizQuestion: return "GET"
+             .quizQuestion,
+             .quizStatus: return "GET"
 
         case .quizAction,
              .appVitals,

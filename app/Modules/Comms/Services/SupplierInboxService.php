@@ -26,6 +26,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 3) . '/Services/Mail/ImapReader.php';
 require_once dirname(__DIR__, 2) . '/Operations/Services/SupplierFormService.php';
 require_once dirname(__DIR__, 2) . '/Operations/Services/SupplierPriceListService.php';
+require_once dirname(__DIR__, 2) . '/Operations/Services/SupplierContactService.php';
 
 class SupplierInboxService
 {
@@ -288,6 +289,8 @@ class SupplierInboxService
         if (!$supplier) return;
         $dir->heardFrom($sid, date('Y-m-d H:i:s', $ts));
         $out['heard']++;
+        // Who wrote: a suggested contact with mailbox + date (headers only); Otto picks the obvious one (migration 1454).
+        (new SupplierContactService($this->db))->sawInMail($sid, $from, date('Y-m-d H:i:s', $ts), $label);
         $body = null;
         $listAuth = ImapReader::senderVerified($conn, $no, SupplierDirectoryService::addressOf($from));
         if (self::listImportAllowed($listAuth)) {

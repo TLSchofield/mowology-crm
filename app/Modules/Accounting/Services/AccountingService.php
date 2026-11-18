@@ -716,6 +716,12 @@ class AccountingService
         if (!empty($filters['needs_review'])) {
             $where[] = 't.needs_review = 1';
         }
+        if (isset($filters['expense_id'])
+            && is_numeric($filters['expense_id'])
+            && (int)$filters['expense_id'] > 0) {
+            $where[] = "t.reference_type = 'expense' AND t.reference_id = ?";
+            $params[] = (int)$filters['expense_id'];
+        }
         if (!empty($filters['job_id'])) {
             $where[] = 't.job_id = ?';
             $params[] = (int)$filters['job_id'];

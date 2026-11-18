@@ -682,11 +682,34 @@ struct SamCardView: View {
             if c.viewed { t += ". They opened it" }
             text = t + "."
         }
-        return Text(text)
-            .font(appStyle.font(.footnote))
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background((c.replied ? appStyle.attention : appStyle.tenant).opacity(0.1), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+        let reply = c.replied ? c.thread.first(where: { $0.inbound && !$0.snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) : nil
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(text)
+                .font(appStyle.font(.footnote))
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background((c.replied ? appStyle.attention : appStyle.tenant).opacity(0.1), in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(8)))
+            // What they actually said, right here (owner 2026-11-14: "What did she say? It doesn't tell me"): the latest message
+            // from them, so nobody has to open the thread to learn what the banner is about.
+            if let m = reply {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(m.by?.isEmpty == false ? m.by! : who) wrote \(SamCardViewModel.ago(m.at))")
+                        .font(appStyle.font(.caption, weight: .semibold))
+                        .foregroundStyle(appStyle.meta)
+                    Text("\u{201C}\(m.snippet.trimmingCharacters(in: .whitespacesAndNewlines))\u{201D}")
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.text)
+                        .lineLimit(8)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(appStyle.sunk, in: RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                .overlay(alignment: .leading) { Rectangle().fill(appStyle.attention).frame(width: 3) }
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
+                .accessibilityElement(children: .combine)
+            }
+        }
     }
 
     /// Orange opened, green accepted, red declined; nil = sent and not seen yet.

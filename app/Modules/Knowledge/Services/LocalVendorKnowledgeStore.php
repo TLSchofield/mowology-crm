@@ -118,6 +118,10 @@ final class LocalVendorKnowledgeStore implements VendorKnowledgeStore
             $this->db->beginTransaction();
             $id = $this->findVendorId($identity + ['name_key' => $nameKey]);
             if ($id === null) {
+                if (!self::mayCreateEntity($identity, $display)) {
+                    $this->db->rollBack();
+                    return false;
+                }
                 $this->db->prepare("INSERT INTO kb_vendors (name_key, display_name, gst_number, phone_digits, domain, kind, status, tenant_count) VALUES (?,?,?,?,?,?, 'candidate', 1)")
                     ->execute([$nameKey ?? 'unknown', $display !== '' ? $display : ($nameKey ?? 'Unknown'), $identity['gst_number'] ?? null, $identity['phone_digits'] ?? null, $identity['domain'] ?? null, $lesson['kind'] ?? null]);
                 $id = (int)$this->db->lastInsertId();
@@ -144,6 +148,21 @@ final class LocalVendorKnowledgeStore implements VendorKnowledgeStore
             error_log('kb contribute: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /** Pure gate for creating a new commons entity; existing matches are unaffected. */
+    public static function mayCreateEntity(array $identity, string $displayName): bool
+    {
+        if (!empty($identity['gst_number'])) return true;
+        return (!empty($identity['phone_digits']) || !empty($identity['domain']))
+            && VendorIdentity::usableAlias($displayName);
+    }
+
+    /** Prefer a trusted commons name, retaining the normalised OCR hint as fallback. */
+    public static function creationName(?string $hint, ?array $commons): string
+    {
+        if ($commons !== null) return strtoupper(trim((string)($commons['name'] ?? '')));
+        return strtoupper(trim((string)$hint));
     }
 
     private function upsertFact(int $vendorId, string $fact, $value, string $tenantHash): void

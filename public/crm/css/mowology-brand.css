@@ -25341,6 +25341,13 @@ textarea.mw-reco-ask-in { resize: vertical; line-height: 1.45; }
   font-size:13px;
 }
 .mw-acct-row-review { background:rgb(194 85 31 / .05)!important; }
+.mw-acct-row-highlight > td {
+  animation: mw-acct-row-highlight 2.4s ease-out;
+}
+@keyframes mw-acct-row-highlight {
+  0%, 35% { background:var(--mw-color-warning-bg); }
+  100% { background:transparent; }
+}
 .mw-acct-badge-income {
   background:rgb(45 134 89 / .1);
   color:#2D8659;

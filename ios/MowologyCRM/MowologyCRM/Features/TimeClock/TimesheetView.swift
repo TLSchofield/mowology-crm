@@ -52,6 +52,9 @@ struct TimesheetView: View {
         .itAppScreen()
         .navigationTitle("My Timesheet")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ScreenHeader(slug: "otto")
+        }
         .task { await viewModel.load() }
         .refreshable { await viewModel.load() }
     }

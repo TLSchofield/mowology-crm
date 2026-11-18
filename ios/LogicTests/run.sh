@@ -16,6 +16,26 @@ run() {
 
 python3 -B "$ROOT/ios/LogicTests/test_swift_bridge.py"
 
+# Receipt review: aligned values, missing/not-proposed states, and derived selection.
+cp "$ROOT/ios/LogicTests/ReceiptCompareTests.swift" "$OUT/main.swift"
+run receiptcompare "$SRC/Core/Models/BookkeeperModels.swift" "$OUT/main.swift"
+
+# Receipts list: conservative detection of OCR text that is not a merchant name.
+cp "$ROOT/ios/LogicTests/ReceiptRowTests.swift" "$OUT/main.swift"
+run receiptrow "$SRC/Features/Receipts/ReceiptRowRules.swift" "$OUT/main.swift"
+
+# Penny receipt card: optional one-question contract, floating-photo corner snap, zoom clamps and session memory.
+cp "$ROOT/ios/LogicTests/ReceiptCardTests.swift" "$OUT/main.swift"
+run receiptcard "$SRC/Core/Models/BookkeeperModels.swift" "$OUT/main.swift"
+
+# Shared two-line work-screen header: admin visibility, state copy, dismissal, and selection controls.
+cp "$ROOT/ios/LogicTests/ScreenHeaderTests.swift" "$OUT/main.swift"
+run screenheader -DSCREEN_HEADER_LOGIC_ONLY "$SRC/Features/Team/ScreenHead.swift" "$OUT/main.swift"
+
+# Supplier item lookup: 24-hour expiry, local filtering/ranking, merge and 60-row cap.
+cp "$ROOT/ios/LogicTests/VendorItemRulesTests.swift" "$OUT/main.swift"
+run vendoritems -DVENDOR_ITEM_RULES_ONLY "$SRC/Core/Offline/VendorItemCache.swift" "$OUT/main.swift"
+
 # Main-thread stall decisions and same-build crash-loop evaluation.
 cp "$ROOT/ios/LogicTests/CrashGuardTests.swift" "$OUT/main.swift"
 run crashguards -DCRASH_GUARD_LOGIC_ONLY "$SRC/Core/Diagnostics/HangWatchdog.swift" \
@@ -45,6 +65,10 @@ run createoutbox "$SRC/Core/Offline/CreateOutboxLogic.swift" "$OUT/main.swift"
 cp "$ROOT/ios/LogicTests/HeadSpineTests.swift" "$OUT/main.swift"
 run headspine "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
 
+# Penny's one next-decision rule: materials/job receipts first, then deposits, cheques, duplicates, receipts.
+cp "$ROOT/ios/LogicTests/PennyDecisionTests.swift" "$OUT/main.swift"
+run pennydecision "$SRC/Features/Team/HeadSpineLogic.swift" "$OUT/main.swift"
+
 cp "$ROOT/ios/LogicTests/MeniscusGeometryTests.swift" "$OUT/main.swift"
 run meniscus "$SRC/Core/Design/Ittai/ItMeniscusGeometry.swift" "$SRC/Core/Design/Ittai/ItTokens.swift" "$OUT/main.swift"
 
@@ -67,7 +91,7 @@ run businessidentity -O -parse-as-library "$SRC/Core/Models/KnowledgeModels.swif
   "$SRC/Core/Models/BusinessIdentityModels.swift" "$SRC/Core/Network/APIEndpoints.swift" "$SRC/Core/Network/Server.swift" \
   "$SRC/Core/Network/APIError.swift" "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
   "$SRC/Core/Diagnostics/ErrorDetails.swift" "$SRC/Core/Network/KnowledgeAPI.swift" \
-  "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"
+  "$SRC/Features/Team/BusinessIdentityViewModel.swift" "$ROOT/ios/LogicTests/MorningBriefStoreStub.swift" "$ROOT/ios/LogicTests/BusinessIdentityTests.swift"
 
 # Persisted diagnostics, rotation/redaction and exact HTTP/transport/decoding errors.
 run diagnostics -parse-as-library "$SRC/Core/Diagnostics/AppDiagnostics.swift" \
@@ -101,6 +125,9 @@ run schedulefilter "$SRC/Features/Schedule/ScheduleFilterRules.swift" "$OUT/main
 cp "$ROOT/ios/LogicTests/ServerTests.swift" "$OUT/main.swift"
 run server "$SRC/Core/Network/Server.swift" "$OUT/main.swift"
 
+# Runtime business host, directory routing and tenant separation (one-app step 7).
+run serverhost -parse-as-library "$SRC/Core/Network/Server.swift" "$ROOT/ios/LogicTests/ServerHostTests.swift"
+
 # Phone contacts onboarding (2026-11-11): display name, search, select-all-shown, batches of 100, resume point, result tally, wire payload, and the real onboarding map decoding.
 cp "$ROOT/ios/LogicTests/PhoneContactsLogicTests.swift" "$OUT/main.swift"
 run phonecontacts "$SRC/Features/Onboarding/PhoneContactsLogic.swift" "$SRC/Core/Models/PhoneContactsModels.swift" "$ROOT/ios/LogicTests/GoogleContactsLogicChecks.swift" "$OUT/main.swift"
@@ -114,3 +141,26 @@ swiftc -suppress-warnings -o "$OUT/metrickit" "$SRC/Core/Diagnostics/MetricKitSu
 cp "$ROOT/ios/LogicTests/VitalsEventsTests.swift" "$OUT/main.swift"
 swiftc -suppress-warnings -o "$OUT/vitals" "$SRC/Core/Diagnostics/VitalsEvents.swift" "$SRC/Core/Diagnostics/MetricKitSummary.swift" "$OUT/main.swift"
 "$OUT/vitals" "$ROOT/ios/LogicTests/Fixtures"
+# Receipts empty-screen wording and the one-time Kaname welcome (2026-11-13).
+cp "$ROOT/ios/LogicTests/KanameWelcomeTests.swift" "$OUT/main.swift"
+run kanamewelcome "$SRC/Features/Receipts/ReceiptsEmptyWording.swift" "$SRC/Features/Splash/KanameWelcome.swift" "$OUT/main.swift"
+
+# Ittai opening motion (2026-11-13): the Android ItOpeningMotionTest sample times, ported — Swift frames equal Android's.
+cp "$ROOT/ios/LogicTests/OpeningMotionTests.swift" "$OUT/main.swift"
+run openingmotion "$SRC/Core/Design/Ittai/ItOpeningMotion.swift" "$OUT/main.swift"
+
+# Phone sign-up + new-business onboarding (2026-11-13): validation, bodies, code rules, step order, what each step posts.
+cp "$ROOT/ios/LogicTests/SignUpLogicTests.swift" "$OUT/main.swift"
+run signuplogic "$SRC/Features/Onboarding/SignUpLogic.swift" "$SRC/Features/Onboarding/BusinessOnboardingLogic.swift" "$OUT/main.swift"
+
+# Sign-up directory host: strict tenant URLs, lookup response mapping, and owner-facing messages.
+run signuphost -parse-as-library "$SRC/Features/Onboarding/SignUpTransport.swift" \
+  "$SRC/Features/Onboarding/SignUpLogic.swift" "$ROOT/ios/LogicTests/SignUpHostTests.swift"
+
+# Onboarding bottom bar (2026-11-13): Kaname alone, no bar before the account exists, open on Kaname afterwards.
+cp "$ROOT/ios/LogicTests/OnboardingBarTests.swift" "$OUT/main.swift"
+run onboardingbar "$SRC/Features/Onboarding/OnboardingBarLogic.swift" "$OUT/main.swift"
+
+# Kaname's onboarding-spine brain: persisted done count, completion face, motion phases and screenshot demo states.
+cp "$ROOT/ios/LogicTests/BrainOnSpineTests.swift" "$OUT/main.swift"
+run brainonspine "$SRC/Features/Onboarding/BusinessOnboardingLogic.swift" "$OUT/main.swift"

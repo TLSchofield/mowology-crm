@@ -297,7 +297,10 @@ final class ScheduleViewModel: ObservableObject {
     func refresh() async {
         timerFetchForced = true   // pull-to-refresh and first load always ask for my timer
         ScheduleCache.shared.evictOlderThan()
-        quizRequired = !QuizViewModel.hasAttemptedToday()
+        // The gate needs the server's yes: switched on AND at least one question. Local "attempted today" only
+        // stops it re-showing after a pass.
+        let status = await QuizViewModel.serverStatus(apiClient: apiClient)
+        quizRequired = status.enabled && !status.done && !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))
         cacheEpoch += 1

@@ -89,6 +89,9 @@ final class CreateOutbox: ObservableObject {
 
     func mine(me: Int?) -> [Entry] { entries.filter { me != nil && $0.userId == me } }
 
+    /// The backing file has already been moved into the tenant quarantine.
+    func clearAfterTenantQuarantine() { running?.cancel(); running = nil; entries = [] }
+
     enum Outcome: Equatable {
         case sent, waiting, refused(String), notKept
     }

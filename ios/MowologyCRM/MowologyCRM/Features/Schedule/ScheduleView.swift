@@ -16,12 +16,10 @@ struct ScheduleView: View {
     @StateObject private var viewModel: ScheduleViewModel
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var ottoSuggestion: OttoSuggestion?
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
     /// Which view the day shows: chosen on the Schedule bead (tap = next, long press = pick), remembered.
     @ObservedObject private var views = ScheduleViewStore.shared
-    @State private var isOttoExpanded = false
     /// The month of the day on the carousel's line while it differs from the loaded day's.
     @State private var lineMonth: Date?
     /// The day's content fades in when another day lands (2026-11-08).
@@ -44,38 +42,6 @@ struct ScheduleView: View {
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
     private let impactMedium = UIImpactFeedbackGenerator(style: .medium)
 
-    /// Kept inside the navigation content so the calendar toolbar owns its safe area.
-    private func ottoPrompt(_ suggestion: OttoSuggestion) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                HeadFaceView(slug: "otto", name: "Otto", size: 28)
-                Text("Otto needs your attention")
-                    .font(appStyle.font(.caption, weight: .semibold))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Button(isOttoExpanded ? "Hide" : "Review") {
-                    withAnimation(.easeInOut(duration: 0.2)) { isOttoExpanded.toggle() }
-                }
-                .font(appStyle.font(.caption, weight: .semibold))
-                .frame(minHeight: 48)
-            }
-            if isOttoExpanded {
-                Text(suggestion.text)
-                    .font(appStyle.font(.subheadline))
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Open Otto’s desk") {
-                    notificationRouter.pendingHead = HeadRoute(head: "otto", quoteId: nil)
-                }
-                .font(appStyle.font(.caption, weight: .semibold))
-                .frame(minHeight: 48)
-            }
-        }
-        .foregroundStyle(appStyle.text)
-        .padding(.horizontal, 12)
-        .background(appStyle.surface)
-        .overlay(alignment: .bottom) { Rectangle().fill(appStyle.line).frame(height: 1) }
-    }
-
     // MARK: - Init
 
     init(authSession: AuthSession? = nil) {
@@ -91,10 +57,6 @@ struct ScheduleView: View {
         let _ = Self._printChanges()   // read by ChangeCapture; the redraw alarm names the property that changed
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
-
-                if let suggestion = ottoSuggestion, appStyle.isEnabled, authSession.user?.isAdmin == true {
-                    ottoPrompt(suggestion)
-                }
 
                 // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14). Above the days since 1.3.100 (Tim,
                 // 2026-11-06): the days sit straight on the list, so the centre line meets them with nothing between.
@@ -190,9 +152,36 @@ struct ScheduleView: View {
                     initialAction: pendingActions[stop.id],
                     onInitialActionRun: { pendingActions[stop.id] = nil }
                 )
+                // The head line leads the screen, as on Schedule (Tim, 2026-11-17): the system bar is hidden and
+                // the back button and address sit in their own row under it.
+                .toolbar(.hidden, for: .navigationBar)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        ScreenHeader(slug: "otto")
+                        VisitBackBar(title: stop.propertyAddress)
+                    }
+                }
+                .background(PopGestureEnabler())
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ScreenHeader(
+                    slug: "otto",
+                    isRefreshing: viewModel.isLoading,
+                    onRefresh: { Task { await viewModel.invalidateAndRefresh() } }
+                ) {
+                    Button {
+                        pickerDate = viewModel.selectedDate
+                        showDatePicker = true
+                    } label: {
+                        Text((lineMonth ?? viewModel.selectedDate).formatted(.dateTime.month(.abbreviated)))
+                            .font(appStyle.font(.headline, weight: .semibold))
+                            .foregroundStyle(appStyle.text)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
             .background(appStyle.page)
             .itAppScreen()
         }
@@ -201,27 +190,6 @@ struct ScheduleView: View {
             viewModel.startPolling()
             // Cold start from a notification tap: the route is already waiting.
             await follow(notificationRouter.pendingRoute)
-        }
-        .task(id: "\(scenePhase)-\(appStyle.isEnabled)") {
-            guard scenePhase == .active, authSession.user?.isAdmin == true, appStyle.isEnabled else {
-                ottoSuggestion = nil
-                return
-            }
-            ottoSuggestion = nil
-            do {
-                let response: HeadCardResponse = try await APIClient(authSession: authSession)
-                    .request(.teamHeadBrief(head: "otto"))
-                try Task.checkCancellation()
-                if response.ok {
-                    ottoSuggestion = response.otto?.scheduleAttention
-                } else {
-                    AppDiagnostics.shared.record(category: "schedule.otto", message: response.error ?? "team-mobile brief head=otto returned ok=false without an error field")
-                }
-            } catch is CancellationError {
-                // Leaving Schedule cancels the request; no stale prompt survives the next appearance.
-            } catch {
-                AppDiagnostics.shared.record(category: "schedule.otto", message: ErrorDetails.describe(error))
-            }
         }
         .onChange(of: notificationRouter.pendingRoute) { _, route in
             Task { await follow(route) }
@@ -236,7 +204,6 @@ struct ScheduleView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
-            ottoSuggestion = nil
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -446,40 +413,6 @@ struct ScheduleView: View {
         )
     }
 
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // Otto owns Schedule (Kaname spec §2). His attention banner is already on this screen, so no line.
-        ToolbarItem(placement: .navigationBarLeading) { ScreenHeadFace(slug: "otto") }
-
-        ToolbarItem(placement: .principal) {
-            Button {
-                pickerDate = viewModel.selectedDate
-                showDatePicker = true
-            } label: {
-                Text((lineMonth ?? viewModel.selectedDate).formatted(.dateTime.month(.abbreviated)))   // "Nov": "November" wrapped beside the Clock in chip (Tim, 2026-11-06)
-                    .font(appStyle.font(.headline, weight: .semibold))
-                    .foregroundStyle(appStyle.text)
-            }
-            .buttonStyle(.plain)
-        }
-
-        // Add moved to the bar's Add slot (Tim, 2026-11-05); the top right shows the shift instead.
-        ToolbarItem(placement: .navigationBarTrailing) { TimeChip() }
-
-        // The map / list switch moved onto the Schedule bead (Tim, 2026-11-07), which now cycles all four views.
-
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                Task { await viewModel.invalidateAndRefresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(appStyle.tenant)
-            }
-            .disabled(viewModel.isLoading)
-        }
-    }
 }
 
 #Preview {
@@ -492,4 +425,45 @@ struct ScheduleView: View {
 private enum AddForm: String, Identifiable {
     case task, quote, invoice
     var id: String { rawValue }
+}
+
+
+/// Back button + address for the visit screen, drawn under the head line now the system bar is hidden.
+private struct VisitBackBar: View {
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.itAppStyle) private var appStyle
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Back")
+            Text(title)
+                .font(appStyle.font(.headline, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(appStyle.text)
+        .padding(.horizontal, 8)
+        .background(appStyle.page)
+    }
+}
+
+/// Keeps the swipe-from-edge back gesture working while the navigation bar is hidden.
+private struct PopGestureEnabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController { Holder() }
+    func updateUIViewController(_ vc: UIViewController, context: Context) {}
+    private final class Holder: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+            navigationController?.interactivePopGestureRecognizer?.delegate = nil
+        }
+    }
 }

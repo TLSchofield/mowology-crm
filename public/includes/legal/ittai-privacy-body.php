@@ -31,9 +31,12 @@
                 <li><strong>Account details</strong> &mdash; names, email addresses, phone numbers and sign-in details of the owner and the staff they add.</li>
                 <li><strong>Business records you put in</strong> &mdash; clients and properties, quotes, jobs, schedules, invoices, payments, receipts and their photos, notes and messages.</li>
                 <li><strong>Crew time and location</strong> &mdash; clock-in and job times, and a phone&rsquo;s location while a crew member is clocked in, when the business switches this on and the person allows it on their phone.</li>
+                <li><strong>Location when you use a location feature</strong> &mdash; for example finding nearby properties, adding a client at your current position, or a photo that records where it was taken. This is only while the app is open, only if you allow it on your phone, and you can say no and still use the rest of Ittai.</li>
+                <li><strong>Phone contacts (optional)</strong> &mdash; if you choose to import clients from your phone&rsquo;s contacts, Ittai reads the contact list on the phone to show it to you, and sends us only the contacts you pick. We do not upload the rest and we do not message anyone because of it.</li>
                 <li><strong>Data from services you connect</strong> &mdash; for example QuickBooks Online (section 3) or a payment processor.</li>
                 <li><strong>Technical information</strong> &mdash; device type, app version, error reports and sign-in records, used to keep the service secure and working.</li>
             </ul>
+            <p>Ittai is for businesses and the adults who work in them. It is not meant for children, and we do not knowingly collect information from anyone under 18.</p>
         </section>
 
         <section class="terms-section" id="quickbooks">
@@ -77,8 +80,9 @@
                 <li><strong>Google</strong> &mdash; maps and routes, reading receipt images, Android notifications.</li>
                 <li><strong>Apple</strong> &mdash; iPhone notifications.</li>
                 <li><strong>Stripe</strong> &mdash; card payments, if you take them through Ittai.</li>
-                <li><strong>Pl@ntNet</strong> &mdash; identifying plants from photos, when used.</li>
+                <li><strong>Pl@ntNet</strong> &mdash; identifying plants from photos you choose to identify, when used. Pl@ntNet has its own privacy policy.</li>
             </ul>
+            <p><p><strong>AI and receipt reading.</strong> Anthropic (the assistants) and Google&rsquo;s receipt reading process your information to give us a result. Under the commercial terms we use with them, they do not use it to train their own models. This does not extend to QuickBooks data or to any other provider, which has its own terms.</p>
             <p>Some of these providers process information outside Canada, mainly in the United States, where it may be accessible to authorities under local law.</p>
         </section>
 
@@ -89,7 +93,8 @@
 
         <section class="terms-section" id="retention">
             <h2>8. Keeping and deleting data</h2>
-            <p>We keep your business&rsquo;s records while your account is open. If you close it, you have 30 days to export your data; after that we delete it, except what we must keep by law (for example, our own tax records of what you paid us).</p>
+            <p>We keep your business&rsquo;s records while your account is open. If you close it, you have 30 days to export your data; after that we delete it, except what we must keep by law (for example, our own tax records of what you paid us). Information you delete can remain in our backups for a short time until they are overwritten. The business, not Ittai, is responsible for keeping the records the law requires it to keep (generally six years), which is why you have 30 days to export.</p>
+            <p>To close your account or ask for your personal information to be deleted, follow the steps at <a href="https://ittai.ca/delete-account/">ittai.ca/delete-account</a>.</p>
         </section>
 
         <section class="terms-section" id="rights">

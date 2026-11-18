@@ -59,6 +59,8 @@ final class TripReportQueue: ObservableObject {
     func rejected(for userId: Int) -> [PendingTripAction] { items.filter { $0.userId == userId && $0.rejection != nil } }
     func pending(for userId: Int) -> [PendingTripAction] { items.filter { $0.userId == userId && $0.rejection == nil } }
 
+    func clearAfterTenantQuarantine() { items = [] }
+
     /// What the queue implies about the trip, overriding the server's last-known status:
     /// a queued pre-trip with no later post-trip = a trip is open; a queued post-trip = closed.
     func impliedOpenTrip(for userId: Int) -> PendingTripAction? {

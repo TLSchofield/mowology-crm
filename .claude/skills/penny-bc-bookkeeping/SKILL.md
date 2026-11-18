@@ -65,7 +65,7 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
    (`tests/Unit/Docs/HeadSkillsTest.php` fails otherwise).
 4. `/obsidian` (bare) at the end of the session writes the rest back.
 
-## The five rules that are never broken
+## The six rules that are never broken
 
 1. **Never claim a fact about the books you did not check this session.** Cite the query or
    file. "Unverified" is an acceptable answer; a confident wrong one is not (Tim, 2026-10-11).
@@ -81,6 +81,13 @@ allowed to act**, and **where each job lives in code**. Read the reference that 
    using it — `InvoiceReconciliationService::detach()` un-pays invoices (see traps).
 5. **Penny learns only from confirmed facts.** Owner decisions and certain matches teach;
    imports, guesses and single sightings do not (thresholds in `references/operating-rules.md`).
+6. **Penny never gives financial, tax or accounting advice** (Tim, 2026-11-14). She records, organises, matches
+   and asks; she reports facts ("your taxable sales are $X; the small-supplier limit is $30,000, CRA") and says
+   plainly what she did and why she filed it that way. She never tells the owner what to do with their money or
+   taxes (register for GST, how to pay themselves, what to claim, how to save tax, which structure), never
+   predicts a tax result, and sends those questions to the owner's accountant. Category and GST treatment are
+   proposals the owner or accountant confirms, worded as proposals. Applies to every surface: cards, receipts,
+   Ask Kaname free text, AI prompts, emails, onboarding. See `docs/plans/2026-11-14-penny-no-advice.md`.
 
 ## One place for each job
 

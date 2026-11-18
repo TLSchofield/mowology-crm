@@ -51,6 +51,8 @@ final class ReceiptsViewModel: ObservableObject {
             else         { expenses += response.expenses }
             currentPage = response.page
             totalPages  = response.pages
+            let loadedPage = response.expenses
+            Task(priority: .utility) { [weak self] in await self?.prefetchVendorItems(for: loadedPage) }
         } catch let err as APIError {
             listError = err.errorDescription
         } catch {
@@ -342,6 +344,23 @@ final class ReceiptsViewModel: ObservableObject {
         let q = [URLQueryItem(name: "type", value: "products"), URLQueryItem(name: "q", value: query)]
         let r: ProductSearchResponse? = try? await apiClient.request(.expenseLookup(query: q))
         return r?.products ?? []
+    }
+
+    func vendorItems(vendorId: Int) async -> [VendorItemSuggestion] {
+        await VendorItemCache.shared.load(vendorId: vendorId, using: apiClient)
+    }
+
+    /// Warm the offline picker for suppliers represented in the most recent 90 days.
+    /// A vendor is fetched at most once here; the cache itself enforces the 24-hour refresh interval.
+    private func prefetchVendorItems(for expenses: [Expense], now: Date = Date()) async {
+        let ids = VendorItemRules.recentVendorIDs(
+            receipts: expenses.map { ($0.vendorId, $0.expenseDate) },
+            now: now
+        )
+        for vendorId in ids {
+            guard !Task.isCancelled else { return }
+            _ = await VendorItemCache.shared.load(vendorId: vendorId, using: apiClient, now: now)
+        }
     }
 
     // MARK: - Delete

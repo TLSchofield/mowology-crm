@@ -35,3 +35,51 @@ enum HeadSpineLogic {
          "otto": "the orchestrator", "mia": "the voice", "ada": "the foundation"][slug] ?? ""
     }
 }
+
+/// Penny's single ordering rule. Views provide the decisions that are still open; this pure layer decides both what
+/// opens next and the words Kaname uses for it.
+struct PennyDecision: Equatable {
+    enum Kind: Int, CaseIterable {
+        case materialsReceipt
+        case depositMatch
+        case cheque
+        case duplicate
+        case receipt
+    }
+
+    let kind: Kind
+    let id: String
+    let name: String
+
+    var rowText: String {
+        switch kind {
+        case .materialsReceipt, .receipt: return "\(name.isEmpty ? "Receipt" : name) to review"
+        case .depositMatch: return "\(name.isEmpty ? "Deposit" : name) to match"
+        case .cheque: return "\(name.isEmpty ? "Cheque" : name) to match"
+        case .duplicate: return "Receipts to compare"
+        }
+    }
+}
+
+enum PennyDecisionLogic {
+    /// Stable within each kind: today's server order is retained after applying the owner's priority order.
+    static func ordered(_ decisions: [PennyDecision]) -> [PennyDecision] {
+        decisions.enumerated().sorted {
+            if $0.element.kind.rawValue != $1.element.kind.rawValue {
+                return $0.element.kind.rawValue < $1.element.kind.rawValue
+            }
+            return $0.offset < $1.offset
+        }.map(\.element)
+    }
+
+    static func nextDecision(_ decisions: [PennyDecision]) -> PennyDecision? {
+        ordered(decisions).first
+    }
+
+    /// The carousel position for the decision selected by the shared ordering rule.
+    /// Keeping this lookup pure makes reopening the workspace deterministic without changing swipe behaviour while it is open.
+    static func position(of decision: PennyDecision?, in ids: [String]) -> Int? {
+        guard let id = decision?.id else { return nil }
+        return ids.firstIndex(of: id)
+    }
+}
