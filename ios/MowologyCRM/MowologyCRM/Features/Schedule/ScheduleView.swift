@@ -60,7 +60,7 @@ struct ScheduleView: View {
 
                 // MARK: Whose jobs + job type (CrewViewScope, 2026-10-14). Above the days since 1.3.100 (Tim,
                 // 2026-11-06): the days sit straight on the list, so the centre line meets them with nothing between.
-                scopeBar   // always: Today lives here now
+                activeFilterChips   // only when something is filtered, so a partial day is never hidden
 
                 // MARK: Days — phones: one smooth strip, the chosen day on the line (1.3.101); wider: the week.
                 if horizontalSizeClass == .compact {
@@ -169,18 +169,11 @@ struct ScheduleView: View {
                 ScreenHeader(
                     slug: "otto",
                     isRefreshing: viewModel.isLoading,
-                    onRefresh: { Task { await viewModel.invalidateAndRefresh() } }
-                ) {
-                    Button {
-                        pickerDate = viewModel.selectedDate
-                        showDatePicker = true
-                    } label: {
-                        Text((lineMonth ?? viewModel.selectedDate).formatted(.dateTime.month(.abbreviated)))
-                            .font(appStyle.font(.headline, weight: .semibold))
-                            .foregroundStyle(appStyle.text)
-                    }
-                    .buttonStyle(.plain)
-                }
+                    showsRefreshButton: false,   // pull-to-refresh covers it (2026-11-18, one-row header)
+                    onRefresh: { Task { await viewModel.invalidateAndRefresh() } },
+                    title: { headerTitle },
+                    secondaryActions: { filterMenu }
+                )
             }
             .background(appStyle.page)
             .itAppScreen()
@@ -311,34 +304,55 @@ struct ScheduleView: View {
 
     // MARK: - Computed
 
-    /// Mine / All crews (when allowed) and the job type — remembered on the phone.
-    private var scopeBar: some View {
+    /// "Nov 18 ▾" opens the date jump; "Today" appears beside it only when another day is showing.
+    private var headerTitle: some View {
         HStack(spacing: 8) {
-            // Today moved down from the top bar (Tim, 2026-11-08): it sits with the filters it resets beside.
             Button {
-                impactLight.impactOccurred()
-                Task { await viewModel.selectDate(.now) }
+                pickerDate = viewModel.selectedDate
+                showDatePicker = true
             } label: {
-                Text("Today")
-                    .font(appStyle.font(.subheadline, weight: .medium))
-                    .foregroundStyle(appStyle.tenant)
-                    .frame(minHeight: 44)
+                HStack(spacing: 4) {
+                    Text(lineMonth.map { $0.formatted(.dateTime.month(.abbreviated)) }
+                         ?? viewModel.selectedDate.formatted(.dateTime.month(.abbreviated).day()))
+                        .font(appStyle.font(.headline, weight: .semibold))
+                        .foregroundStyle(appStyle.text)
+                    Image(systemName: "chevron.down").font(appStyle.font(.caption2)).foregroundStyle(appStyle.meta)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            // Whose jobs: a checklist like the job types (Tim, 2026-11-08: "same for all crews").
-            // Mine, All crews, or any set of people; the menu stays open while ticking.
-            if viewModel.canSwitchScope {
-                Menu {
-                    Toggle("Mine", isOn: Binding(
-                        get: { viewModel.scope == "mine" },
-                        set: { on in if on { Task { await viewModel.setCrews("", scope: "mine") } } }
-                    ))
-                    Toggle("All crews", isOn: Binding(
-                        get: { viewModel.scope == "all" && viewModel.selectedCrews.isEmpty },
-                        set: { on in if on { Task { await viewModel.setCrews("", scope: "all") } } }
-                    ))
-                    if !viewModel.crews.isEmpty {
-                        Divider()
+            .accessibilityLabel("Jump to date")
+            if !Calendar.current.isDateInToday(viewModel.selectedDate) {
+                Button {
+                    impactLight.impactOccurred()
+                    Task { await viewModel.selectDate(.now) }
+                } label: {
+                    Text("Today")
+                        .font(appStyle.font(.subheadline, weight: .semibold))
+                        .foregroundStyle(appStyle.tenant)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Crew people and job types in one checklist menu; it stays open while ticking. The icon carries a count.
+    @ViewBuilder
+    private var filterMenu: some View {
+        if viewModel.canSwitchScope || !viewModel.jobTypes.isEmpty {
+            Menu {
+                if viewModel.canSwitchScope {
+                    Section("Whose jobs") {
+                        Toggle("Mine", isOn: Binding(
+                            get: { viewModel.scope == "mine" },
+                            set: { on in if on { Task { await viewModel.setCrews("", scope: "mine") } } }
+                        ))
+                        Toggle("All crews", isOn: Binding(
+                            get: { viewModel.scope == "all" && viewModel.selectedCrews.isEmpty },
+                            set: { on in if on { Task { await viewModel.setCrews("", scope: "all") } } }
+                        ))
                         ForEach(viewModel.crews) { c in
                             Toggle(c.label, isOn: Binding(
                                 get: { viewModel.scope == "all" && viewModel.selectedCrews.contains(c.value) },
@@ -346,45 +360,81 @@ struct ScheduleView: View {
                             ))
                         }
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(crewFilterLabel).lineLimit(1)
-                        Image(systemName: "chevron.down").font(appStyle.font(.caption2))
-                    }
-                    .font(appStyle.font(.subheadline))
-                    .frame(minHeight: 44)
                 }
-                .menuActionDismissBehavior(.disabled)
-            }
-            if !viewModel.jobTypes.isEmpty {
-                // A checklist: tick as many job types as you like; the menu stays open while you tick.
-                Menu {
-                    Toggle("All job types", isOn: Binding(
-                        get: { viewModel.selectedJobTypes.isEmpty },
-                        set: { on in if on { Task { await viewModel.setJobType("") } } }
-                    ))
-                    Divider()
-                    ForEach(viewModel.jobTypes) { t in
-                        Toggle(t.label, isOn: Binding(
-                            get: { viewModel.selectedJobTypes.contains(t.value) },
-                            set: { _ in Task { await viewModel.toggleJobType(t.value) } }
+                if !viewModel.jobTypes.isEmpty {
+                    Section("Job types") {
+                        Toggle("All job types", isOn: Binding(
+                            get: { viewModel.selectedJobTypes.isEmpty },
+                            set: { on in if on { Task { await viewModel.setJobType("") } } }
                         ))
+                        ForEach(viewModel.jobTypes) { t in
+                            Toggle(t.label, isOn: Binding(
+                                get: { viewModel.selectedJobTypes.contains(t.value) },
+                                set: { _ in Task { await viewModel.toggleJobType(t.value) } }
+                            ))
+                        }
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(jobTypeFilterLabel)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down").font(appStyle.font(.caption2))
-                    }
-                    .font(appStyle.font(.subheadline))
-                    .frame(minHeight: 44)
                 }
-                .menuActionDismissBehavior(.disabled)
+            } label: {
+                Image(systemName: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(appStyle.tenant)
+                    .overlay(alignment: .topTrailing) {
+                        if activeFilterCount > 0 {
+                            Text("\(activeFilterCount)")
+                                .font(appStyle.font(.caption2, weight: .bold))
+                                .foregroundStyle(appStyle.onTenant)
+                                .padding(.horizontal, 5)
+                                .background(Capsule().fill(appStyle.tenant))
+                                .offset(x: 8, y: -6)
+                        }
+                    }
+                    .frame(minWidth: 48, minHeight: 48)
+                    .contentShape(Rectangle())
             }
-            Spacer(minLength: 0)
+            .menuActionDismissBehavior(.disabled)
+            .accessibilityLabel(activeFilterCount > 0 ? "Filters, \(activeFilterCount) on" : "Filters")
+            .accessibilityHint("Choose crews and job types")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+    }
+
+    private var crewFilterOn: Bool { viewModel.canSwitchScope && (viewModel.scope == "all" || !viewModel.selectedCrews.isEmpty) }
+    private var activeFilterCount: Int { (crewFilterOn ? 1 : 0) + (viewModel.selectedJobTypes.isEmpty ? 0 : 1) }
+
+    /// Removable chips for what is filtered; nothing at all when the day is unfiltered.
+    @ViewBuilder
+    private var activeFilterChips: some View {
+        if activeFilterCount > 0 {
+            HStack(spacing: 8) {
+                if crewFilterOn {
+                    filterChip(crewFilterLabel) { Task { await viewModel.setCrews("", scope: "mine") } }
+                }
+                if !viewModel.selectedJobTypes.isEmpty {
+                    filterChip(jobTypeFilterLabel) { Task { await viewModel.setJobType("") } }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func filterChip(_ text: String, clear: @escaping () -> Void) -> some View {
+        Button(action: clear) {
+            HStack(spacing: 6) {
+                Text(text).lineLimit(1)
+                Image(systemName: "xmark").font(appStyle.font(.caption2, weight: .bold))
+            }
+            .font(appStyle.font(.subheadline, weight: .medium))
+            .foregroundStyle(appStyle.text)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .background(Capsule().fill(appStyle.sunk))
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filter \(text). Tap to clear.")
     }
 
     /// "Mine", "All crews", the one person picked, or "Trevor James +1".

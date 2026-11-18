@@ -68,6 +68,8 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
     let isSelecting: Bool
     let isRefreshing: Bool
     let headOnly: Bool
+    /// Schedule drops the refresh icon (pull-to-refresh covers it) to make room for its filter button.
+    let showsRefreshButton: Bool
     let onRefresh: () -> Void
     let title: () -> Title
     let secondaryActions: () -> SecondaryActions
@@ -84,6 +86,7 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
         isSelecting: Bool = false,
         isRefreshing: Bool = false,
         headOnly: Bool = false,
+        showsRefreshButton: Bool = true,
         onRefresh: @escaping () -> Void,
         @ViewBuilder title: @escaping () -> Title,
         @ViewBuilder secondaryActions: @escaping () -> SecondaryActions
@@ -92,6 +95,7 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
         self.isSelecting = isSelecting
         self.isRefreshing = isRefreshing
         self.headOnly = headOnly
+        self.showsRefreshButton = showsRefreshButton
         self.onRefresh = onRefresh
         self.title = title
         self.secondaryActions = secondaryActions
@@ -218,7 +222,7 @@ struct ScreenHeader<Title: View, SecondaryActions: View>: View {
     private var controls: some View {
         HStack(spacing: ItSpace.s1) {
             if rules.showsTimeChip { TimeChip() }
-            if rules.showsRefresh {
+            if rules.showsRefresh && showsRefreshButton {
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
                         .foregroundStyle(it.color(.brand))

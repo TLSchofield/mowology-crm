@@ -82,7 +82,7 @@ struct TimeChip: View {
             if let icon = content.icon {
                 Image(systemName: icon).font(.system(size: 13, weight: .semibold))
             } else {
-                Circle().fill(appStyle.color(.stateWorking, legacy: .green)).frame(width: 9, height: 9)
+                LiveDot(color: appStyle.color(.stateWorking, legacy: .green))
             }
             Text(content.text)
                 .font(appStyle.font(.subheadline, weight: .semibold))
@@ -119,5 +119,30 @@ extension EnvironmentValues {
     var openTimeClock: () -> Void {
         get { self[OpenTimeClockKey.self] }
         set { self[OpenTimeClockKey.self] = newValue }
+    }
+}
+
+
+/// The clocked-in dot: a slow ring that breathes out about every two seconds, so the chip reads as live.
+/// Reduce Motion leaves a still dot. The chip's spoken label already says "Clocked in", so this is decoration.
+private struct LiveDot: View {
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle().fill(color).frame(width: 9, height: 9)
+            .overlay {
+                if !reduceMotion {
+                    Circle().stroke(color, lineWidth: 1.5)
+                        .scaleEffect(pulsing ? 2.1 : 1)
+                        .opacity(pulsing ? 0 : 0.7)
+                }
+            }
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) { pulsing = true }
+            }
+            .accessibilityHidden(true)
     }
 }
