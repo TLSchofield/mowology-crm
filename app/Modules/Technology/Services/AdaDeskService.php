@@ -13,7 +13,9 @@
  *       logins and sensitive changes (AdaSecurityWatch), and the nightly security-posture rows
  *       (SecurityPostureService::deskChecks(), cron security_posture) — all in the "Security" group;
  *   (4) server crashes — PHP fatal / parse errors in the server error log's last day, by file:line
- *       (AdaServerErrors, 2026-10-16: the Stripe webhook crashed on 189 payments and nothing said so).
+ *       (AdaServerErrors, 2026-10-16: the Stripe webhook crashed on 189 payments and nothing said so);
+ *   (4b) app health — what the iPhone/Android apps report (AdaAppVitals, 2026-11-15): new or growing crashes,
+ *       freezes and slow launches by build, and "no phone has reported" when the pipe goes quiet.
  * Each check fails on its own (logged, then shown as "can't tell") — one bad query never
  * blanks the page or Charlie's brief.
  *
@@ -166,7 +168,7 @@ class AdaDeskService
     {
         if ($this->checks !== null) return $this->checks;
         $all = [];
-        foreach (['pulseChecks', 'cronChecks', 'connectionChecks', 'securityChecks', 'serverErrorChecks'] as $part) {
+        foreach (['pulseChecks', 'cronChecks', 'connectionChecks', 'securityChecks', 'serverErrorChecks', 'appVitalsChecks'] as $part) {
             try {
                 $all = array_merge($all, $this->$part());
             } catch (Throwable $e) {
@@ -421,5 +423,12 @@ class AdaDeskService
     {
         require_once __DIR__ . '/AdaServerErrors.php';
         return (new AdaServerErrors(null, $this->now()))->checks();
+    }
+
+    /** What the phones report (AppVitalsService): new/growing crashes, freezes, slow launches, or silence. */
+    private function appVitalsChecks(): array
+    {
+        require_once __DIR__ . '/AdaAppVitals.php';
+        return (new AdaAppVitals($this->db, $this->now()))->checks();
     }
 }

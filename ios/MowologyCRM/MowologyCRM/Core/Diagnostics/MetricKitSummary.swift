@@ -16,6 +16,9 @@ enum MetricKitSummary {
         var foregroundSeconds: Double?
         var cellularUploadMB: Double?
         var cellularDownloadMB: Double?
+        /// How the app ended in the last day, by reason, counts above zero only ("normal" included): foreground and background.
+        var foregroundExits: [String: Int] = [:]
+        var backgroundExits: [String: Int] = [:]
     }
 
     static let appBinary = "MowologyCRM"
@@ -168,6 +171,12 @@ enum MetricKitSummary {
         ]
         if m.cellularUploadMB != nil || m.cellularDownloadMB != nil {
             parts.append("cellular up \(num(m.cellularUploadMB, " MB", digits: 1)) down \(num(m.cellularDownloadMB, " MB", digits: 1))")
+        }
+        for (label, exits) in [("fg", m.foregroundExits), ("bg", m.backgroundExits)] where !exits.isEmpty {
+            // Trouble first (anything but a normal exit), then the normal count.
+            let bad = exits.filter { $0.key != "normal" }.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }
+            let normal = exits["normal"].map { ["normal \($0)"] } ?? []
+            parts.append("exits \(label): " + (bad + normal).joined(separator: ", "))
         }
         if let cpu = m.cpuSeconds, let fg = m.foregroundSeconds, fg > 0 {
             parts.append("cpu per foreground hour \(String(format: "%.0f", cpu / fg * 3600)) s")

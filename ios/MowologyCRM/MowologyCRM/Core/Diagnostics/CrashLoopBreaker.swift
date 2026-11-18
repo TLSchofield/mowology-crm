@@ -51,6 +51,8 @@ final class CrashLoopBreaker: @unchecked Sendable {
         var strikes = isSameBuild ? storedStrikes() : []
         if isSameBuild, defaults.bool(forKey: Key.hasLaunched), !defaults.bool(forKey: Key.cleanExit) {
             strikes.append(CrashLoopStrike(date: now, build: currentBuild))
+            AppDiagnostics.shared.record(category: "vitals.unclean_exit",
+                                         message: "Previous run on build \(currentBuild) ended while the app was in the foreground (crash, watchdog or memory kill).")
         }
         let evaluation = CrashLoopRules.evaluate(strikes: strikes, now: now, build: currentBuild)
         store(evaluation.strikes)

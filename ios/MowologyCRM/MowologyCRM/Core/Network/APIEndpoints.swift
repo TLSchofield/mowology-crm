@@ -99,6 +99,9 @@ enum APIEndpoint {
     /// (admin/manager only; the server re-checks recipient and consent).
     case recommendationAskSend
 
+    /// POST /crm/api/app-vitals.php — crash/hang/speed reports batch (VitalsUploader).
+    case appVitals
+
     /// POST /crm/api/pow-actions.php — PoW visit lifecycle (start/end/notes).
     case powActions
 
@@ -418,6 +421,9 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "mode", value: "recipients"),
                                       URLQueryItem(name: "visit_id", value: "\(visitId)")]
             return components?.url
+
+        case .appVitals:
+            return Server.url("/crm/api/app-vitals.php")
 
         case .powActions:
             return Server.url("/crm/api/pow-actions.php")
@@ -781,6 +787,7 @@ enum APIEndpoint {
              .recommendationCreate,
              .recommendationRecipients,
              .recommendationAskSend,
+             .appVitals,
              .powActions,
              .powGpsSync,
              .scheduleJobs,
@@ -948,6 +955,7 @@ enum APIEndpoint {
              .quizStatus: return "GET"
 
         case .quizAction,
+             .appVitals,
              .recommendationCreate,
              .recommendationAskSend,
              .scheduleJobPhoto,

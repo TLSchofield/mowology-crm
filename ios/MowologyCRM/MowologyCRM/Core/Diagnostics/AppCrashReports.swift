@@ -87,8 +87,21 @@ final class AppCrashReports: NSObject, MXMetricManagerSubscriber {
         m.foregroundSeconds = seconds(p.applicationTimeMetrics?.cumulativeForegroundTime)
         m.cellularUploadMB = megabytes(p.networkTransferMetrics?.cumulativeCellularUpload)
         m.cellularDownloadMB = megabytes(p.networkTransferMetrics?.cumulativeCellularDownload)
+        if let exits = p.applicationExitMetrics {
+            let fg = exits.foregroundExitData
+            m.foregroundExits = nonZero(["normal": fg.cumulativeNormalAppExitCount, "watchdog": fg.cumulativeAppWatchdogExitCount,
+                                         "memory limit": fg.cumulativeMemoryResourceLimitExitCount, "bad access": fg.cumulativeBadAccessExitCount,
+                                         "illegal instruction": fg.cumulativeIllegalInstructionExitCount, "abnormal": fg.cumulativeAbnormalExitCount])
+            let bg = exits.backgroundExitData
+            m.backgroundExits = nonZero(["normal": bg.cumulativeNormalAppExitCount, "watchdog": bg.cumulativeAppWatchdogExitCount,
+                                         "memory limit": bg.cumulativeMemoryResourceLimitExitCount, "memory pressure": bg.cumulativeMemoryPressureExitCount,
+                                         "cpu limit": bg.cumulativeCPUResourceLimitExitCount, "bad access": bg.cumulativeBadAccessExitCount,
+                                         "illegal instruction": bg.cumulativeIllegalInstructionExitCount, "abnormal": bg.cumulativeAbnormalExitCount])
+        }
         return m
     }
+
+    private static func nonZero(_ counts: [String: Int]) -> [String: Int] { counts.filter { $0.value > 0 } }
 
     private func saveRaw(_ data: Data, name: String) -> Bool {
         let fm = FileManager.default

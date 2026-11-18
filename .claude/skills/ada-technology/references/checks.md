@@ -64,6 +64,15 @@ the one-line fix; she does not guess from symptoms.
 | Stripe | webhooks and payments still arriving | `public/api/stripe/webhook.php`, table `stripe_payments` | no key-health record; "last event age" is the proxy (unverified that age is meaningful in winter) |
 | Trackimo | truck positions arriving | newest `vehicle_location_pings` row | poller records no run |
 
+## (3a) Phone reports — BUILT 2026-11-15 (App health group)
+
+| Check | Source |
+|---|---|
+| New or growing crash, freeze, slow launch, watchdog or unclean exit (red at 10 reports in 24 h, or a crash-type issue on 2+ phones) | tables `app_vitals_issues` + `app_vitals_events`, `AdaAppVitals::checksFrom()` |
+| Silence: no phone has reported for 3 days (or ever) | `MAX(received_at)` of `app_vitals_events`; a working install sends one `daily_metrics` row per phone per day |
+
+Intake `public/crm/api/app-vitals.php` → `AppVitalsService` (50 events, 64 KB, 200 per phone per day, 90-day purge of events).
+
 ## (3) Apps — later
 
 | Check | Source |
