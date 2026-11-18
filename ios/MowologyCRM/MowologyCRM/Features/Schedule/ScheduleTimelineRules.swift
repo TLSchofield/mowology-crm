@@ -137,6 +137,11 @@ enum ScheduleTimelineRules {
     /// test finish shows up here as "9:00–8:13" (Tim, 2026-11-05). Outside these bounds: start time only.
     static let believableMinutes = 5...480
     static func bookedMinutes(_ stop: Stop) -> Int? {
+        // A booked window (8:30–4:00) beats the learned estimate: it is what the web schedule draws.
+        if let start = startMinutes(stop) {
+            let ends = stop.visits.compactMap { minutes(fromHHMM: $0.scheduledEnd) }.filter { $0 > start }
+            if let end = ends.max(), believableMinutes.contains(end - start) { return end - start }
+        }
         let sum = stop.visits.compactMap(\.estimatedDuration).filter { $0 > 0 }.reduce(0, +)
         return believableMinutes.contains(sum) ? sum : nil
     }

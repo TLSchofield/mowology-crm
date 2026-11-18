@@ -220,6 +220,9 @@ foreach ($dayStops as $stop) {
             'scheduled_start'    => isset($v['scheduled_time_start'])
                 ? substr((string)$v['scheduled_time_start'], 0, 5)
                 : null,
+            'scheduled_end'      => !empty($v['scheduled_time_end'])
+                ? substr((string)$v['scheduled_time_end'], 0, 5)
+                : null,
             // is_flagged is the CALLER's own heart once per-crew endorsements exist
             // (migration 1121); before that it is the single visit flag.
             'is_flagged'          => $perCrewEndorsements
