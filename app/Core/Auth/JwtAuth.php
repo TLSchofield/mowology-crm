@@ -68,7 +68,10 @@ function jwtCurrentUser(int $userId, ?array $payload = null): ?array
         $st = getDB()->prepare('SELECT id, email, full_name AS name, role, is_active, password_hash FROM users WHERE id = ? LIMIT 1');
         $st->execute([$userId]);
         $u = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-        $cache[$userId] = ($u && (int)($u['is_active'] ?? 0) === 1) ? $u : null;
+        // Active unless explicitly 0 — the same rule as the sign-in (PhoneSignIn / token.php), which lets NULL in.
+        // Strict === 1 here let a NULL-flagged user sign in and then get 401 on every call.
+        $active = $u !== null && (is_null($u['is_active']) || (int)$u['is_active'] !== 0);
+        $cache[$userId] = $active ? $u : null;
         // An outside accountant never holds a working app token (Ledger only, 2026-10-13).
         if ($cache[$userId] !== null && strtolower((string)($u['role'] ?? '')) === 'accountant') $cache[$userId] = null;
     }
@@ -210,8 +213,11 @@ function getJwtUser(): ?array
     try {
         $row = jwtCurrentUser((int)($payload['sub'] ?? 0), $payload);
     } catch (Throwable $e) {
+        // A database fault is not a bad token: answer 503 like requireJwt, never 401 (a 401 signs the phone out).
         error_log('getJwtUser: user check failed: ' . $e->getMessage());
-        return null;
+        http_response_code(503);
+        echo json_encode(['error' => 'Try again in a moment', 'code' => 'user_check_failed']);
+        exit;
     }
     return $row ? jwtUserFromPayload($payload, $row) : null;
 }

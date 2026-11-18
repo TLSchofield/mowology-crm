@@ -42,6 +42,9 @@ final class APIClient: ObservableObject {
 
     /// Signs out after a 401. Records which request was refused first (method, path, the server's
     /// `code`, and whether a Bearer token was sent). Never records the token itself.
+    /// True while a token is held. Background senders check this before posting.
+    var isSignedIn: Bool { authSession?.token != nil }
+
     private func logout(for request: URLRequest, data: Data?) {
         let code = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["code"] as? String
         let path = request.url?.path ?? "?"
@@ -99,7 +102,8 @@ final class APIClient: ObservableObject {
         body: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeout: TimeInterval? = nil,
-        faultsAreTransient: Bool = false
+        faultsAreTransient: Bool = false,
+        signsOutOn401: Bool = true
     ) async throws -> T {
         guard let url = endpoint.url else {
             throw APIError.invalidURL
@@ -147,8 +151,9 @@ final class APIClient: ObservableObject {
         // Inspect the HTTP status code.
         if let httpResponse = response as? HTTPURLResponse {
             if httpResponse.statusCode == 401 {
-                // Token is invalid or expired — sign out immediately.
-                logout(for: urlRequest, data: data)
+                // Token is invalid or expired — sign out immediately, unless the caller is a background
+                // report that must not end the session (the vitals upload, see VitalsUploader).
+                if signsOutOn401 { logout(for: urlRequest, data: data) }
                 throw APIError.unauthorized
             }
 
