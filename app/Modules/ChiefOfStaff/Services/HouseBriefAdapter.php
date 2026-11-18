@@ -17,6 +17,16 @@ class HouseBriefAdapter
     /** The work-queue sweep takes 6-7 seconds and dominated every AI Office card load (Pulse measured 9 s in all); its answer changes slowly. */
     public const CACHE_SECONDS = 600;
 
+    /**
+     * A copy up to this old is still served to everyone except the 15-minute Charlie cron (2026-11-17). With only
+     * CACHE_SECONDS the copy was expired for 5 of every 15 minutes, so about one Pulse run in three (and any card load
+     * in those minutes) paid the 6 s sweep again: Pulse saw 6-13 s. The cron refreshes it every 900 s, so 1500 leaves slack.
+     */
+    public const STALE_SECONDS = 1500;
+
+    /** The cron sets this so it rebuilds an expired copy instead of re-serving it. */
+    public static bool $refreshing = false;
+
     private ?PDO $db;
     /** @var callable|null fn(): array — the work-queue sweep (getWorkQueueItems); injected in tests */
     private $sweep;
@@ -39,7 +49,7 @@ class HouseBriefAdapter
             require_once __DIR__ . '/HeadBriefReadyService.php';
             $cache = new HeadBriefReadyService($this->db ?? getDB());
             $kept = $cache->get('house');
-            if ($kept && (time() - (int)strtotime((string)$kept['built_at'])) <= self::CACHE_SECONDS) return $kept['brief'];
+            if ($kept && (time() - (int)strtotime((string)$kept['built_at'])) <= self::maxAge(self::$refreshing)) return $kept['brief'];
         } catch (Throwable $e) {
             $cache = null;
         }
@@ -49,6 +59,12 @@ class HouseBriefAdapter
             if ($cache) $cache->put('house', $brief, (int)round((microtime(true) - $t) * 1000));
         } catch (Throwable $e) { /* the cache is a speed-up, never the reason a brief fails */ }
         return $brief;
+    }
+
+    /** Pure: how old a kept copy may be and still be served. The refreshing cron accepts only a fresh one. */
+    public static function maxAge(bool $refreshing): int
+    {
+        return $refreshing ? self::CACHE_SECONDS : self::STALE_SECONDS;
     }
 
     /** Pure: Work Queue rows → the shared brief shape (critical lane only). */
