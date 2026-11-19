@@ -22,6 +22,7 @@ struct VisitDetailView: View {
     /// Presented from THIS screen, never MainTabView, and only on that tap.
     @State private var gateRequest: SpecialRequest?
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// The visit being completed via the completion sheet (extras + invoice).
     @State private var completingVisit: Visit?
@@ -289,77 +290,61 @@ struct VisitDetailView: View {
 
     // MARK: - Compact Property Header
 
-    /// No "Property" header and no street address here — the nav title already shows the
-    /// address, so this card only adds what the title can't: building name/city, arrival,
-    /// directions, and a way to reach the client.
+    /// The street, city and Maps icon live in the header bar now. This card holds only what the header can't:
+    /// a building name when it is a different name from the people below (never the contact's own name twice),
+    /// the arrival time, and one contact row (the on-site contact first when the office set one).
     private var compactPropertySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let onsite  = stop.onsiteContact.flatMap { $0.name.isEmpty ? nil : $0 }
+        let client  = stop.contactName ?? stop.companyName
+        let sameWho = onsite != nil && client != nil && Self.sameName(onsite!.name, client!)
+        let shown   = [onsite?.name, sameWho ? nil : client].compactMap { $0 }
+        let place   = stop.propertyName?.trimmingCharacters(in: .whitespaces)
+        let placeName = (place?.isEmpty == false && !shown.contains(where: { Self.sameName($0, place!) })
+                         && !Self.sameName(place!, stop.propertyAddress)) ? place : nil
+        // The arrival sits beside the building name; with no name row it sits under the first contact's name.
+        let arrival = stop.estimatedArrival
+        var rows: [(name: String, tag: String?, icon: String, tint: Color, phone: String?, email: String?)] = []
+        if let osc = onsite {
+            rows.append((osc.name, "ON SITE", "figure.wave.circle.fill", appStyle.tenant,
+                         osc.phone?.isEmpty == false ? osc.phone : (sameWho ? stop.contactPhone : nil),
+                         osc.email?.isEmpty == false ? osc.email : (sameWho ? stop.contactEmail : nil)))
+        }
+        if let name = client, !sameWho {
+            rows.append((name, onsite == nil ? nil : "CLIENT", "person.circle.fill",
+                         appStyle.color(.meta, legacy: Color(.systemGray3)), stop.contactPhone, stop.contactEmail))
+        }
+        return VStack(alignment: .leading, spacing: 8) {
             VStack(spacing: 0) {
-
-                // Row 1: map-pin icon (tappable) + building name/city + arrival + Maps pill
-                HStack(spacing: 12) {
-                    Button { openInMaps() } label: {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(appStyle.font(.title2))
-                            .foregroundStyle(appStyle.tenant)
-                    }
-                    .buttonStyle(.plain)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        // Building name only — the client's name gets its own row below.
-                        if let name = stop.propertyName?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-                            Text(name)
-                                .font(appStyle.font(.subheadline, weight: .bold))
-                                .foregroundStyle(appStyle.text)
-                                .lineLimit(appStyle.isEnabled ? nil : 1)
-                            Text(stop.propertyCity)
-                                .font(appStyle.font(.caption))
-                                .foregroundStyle(appStyle.meta)
-                        } else {
-                            Text(stop.propertyCity)
-                                .font(appStyle.font(.subheadline, weight: .bold))
-                                .foregroundStyle(appStyle.text)
+                if let placeName {
+                    HStack(spacing: 12) {
+                        Text(placeName)
+                            .font(appStyle.font(.subheadline, weight: .bold))
+                            .foregroundStyle(appStyle.text)
+                            .lineLimit(appStyle.isEnabled ? nil : 1)
+                        Spacer()
+                        if let arrival {
+                            Text(arrival)
+                                .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
+                                .foregroundStyle(appStyle.tenant)
                         }
                     }
-
-                    Spacer()
-
-                    if let arrival = stop.estimatedArrival {
-                        Text(arrival)
-                            .font(appStyle.font(.subheadline, weight: .bold).monospacedDigit())
-                            .foregroundStyle(appStyle.tenant)
-                    }
-
-                    Button { openInMaps() } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
-                            Text("Maps")
-                        }
-                        .font(appStyle.font(.caption, weight: .bold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(appStyle.tenant.opacity(0.1))
-                        .foregroundStyle(appStyle.tenant)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-
-                // Row 2: who to call from the gate. The on-site contact leads when the
-                // office has set one; the billing client always follows so crew can still
-                // reach the account holder.
-                if let osc = stop.onsiteContact, !osc.name.isEmpty {
-                    Divider().padding(.leading, 52)
-                    contactRow(name: osc.name, tag: "ON SITE", icon: "figure.wave.circle.fill",
-                               iconTint: appStyle.tenant, phone: osc.phone, email: osc.email)
+                ForEach(rows.indices, id: \.self) { i in
+                    if placeName != nil || i > 0 { Divider().padding(.leading, 52) }
+                    let r = rows[i]
+                    contactRow(name: r.name, tag: r.tag, icon: r.icon, iconTint: r.tint, phone: r.phone, email: r.email,
+                               arrival: (placeName == nil && i == 0) ? arrival : nil)
                 }
-                if let name = stop.contactName ?? stop.companyName {
-                    Divider().padding(.leading, 52)
-                    contactRow(name: name, tag: stop.onsiteContact == nil ? nil : "CLIENT",
-                               icon: "person.circle.fill", iconTint: appStyle.color(.meta, legacy: Color(.systemGray3)),
-                               phone: stop.contactPhone, email: stop.contactEmail)
+                // Nothing else to hang the arrival on: it gets a row of its own.
+                if rows.isEmpty && placeName == nil, let arrival {
+                    HStack {
+                        Text("Arrival").font(appStyle.font(.subheadline)).foregroundStyle(appStyle.meta)
+                        Spacer()
+                        Text(arrival).font(appStyle.font(.subheadline, weight: .bold).monospacedDigit()).foregroundStyle(appStyle.tenant)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
                 }
             }
             .background(appStyle.surface)
@@ -367,14 +352,21 @@ struct VisitDetailView: View {
         }
     }
 
+    /// Same person or place: case, spacing and punctuation ignored.
+    private static func sameName(_ a: String, _ b: String) -> Bool {
+        func key(_ x: String) -> String { x.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let ka = key(a), kb = key(b)
+        return !ka.isEmpty && ka == kb
+    }
+
     /// One person line: avatar, name (+ optional small role tag), phone and email buttons.
     /// Phone + email are always drawn so every row reads the same; they only light up
     /// (and tap) when the office has the detail.
     private func contactRow(name: String, tag: String?, icon: String, iconTint: Color,
-                            phone: String?, email: String?) -> some View {
+                            phone: String?, email: String?, arrival: String? = nil) -> some View {
         let digits  = (phone ?? "").filter { $0.isNumber || $0 == "+" }
         let address = (email ?? "").trimmingCharacters(in: .whitespaces)
-        return HStack(spacing: 12) {
+        let identity = HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(appStyle.font(.title2))
                 .foregroundStyle(iconTint)
@@ -389,15 +381,28 @@ struct VisitDetailView: View {
                         .font(appStyle.font(.caption2, weight: .bold))
                         .foregroundStyle(appStyle.meta)
                 }
+                if let arrival {
+                    Text("Arrival \(arrival)")
+                        .font(appStyle.font(.caption, weight: .bold).monospacedDigit())
+                        .foregroundStyle(appStyle.tenant)
+                }
             }
-
-            Spacer()
-
+        }
+        let buttons = HStack(spacing: 12) {
             contactActionButton(icon: "phone.fill", label: "Call \(name)", enabled: !digits.isEmpty) {
                 if let url = URL(string: "tel:\(digits)") { openURL(url) }
             }
             contactActionButton(icon: "envelope.fill", label: "Email \(name)", enabled: !address.isEmpty) {
                 if let url = URL(string: "mailto:\(address)") { openURL(url) }
+            }
+        }
+        // Largest text sizes: the name gets the full width and Call / Email sit under it, so a name never breaks mid-word.
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) { identity; buttons }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 12) { identity; Spacer(); buttons }
             }
         }
         .padding(.horizontal, 16)
@@ -917,7 +922,12 @@ struct VisitDetailView: View {
 
     // MARK: - Actions
 
-    private func openInMaps() {
+    private func openInMaps() { StopDirections.open(stop, openURL: openURL) }
+}
+
+/// Opens Apple Maps with driving directions to a stop. Uses the original address and coordinates, never the shortened text.
+enum StopDirections {
+    static func open(_ stop: Stop, openURL: OpenURLAction) {
         if let lat = stop.latitude, let lon = stop.longitude {
             let mapItem = MKMapItem(
                 placemark: MKPlacemark(

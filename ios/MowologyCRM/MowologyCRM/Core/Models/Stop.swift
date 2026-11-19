@@ -96,6 +96,9 @@ struct Stop: Codable, Identifiable, Hashable {
         case stopNotes        = "stop_notes"
     }
 
+    /// The street as shown to people ("2188 W 14th Ave"); `propertyAddress` stays the original for routing and storage.
+    var displayAddress: String { ScheduleTimelineRules.abbreviatedStreet(propertyAddress) }
+
     /// Full single-line address for display.
     var fullAddress: String {
         "\(propertyAddress), \(propertyCity)"

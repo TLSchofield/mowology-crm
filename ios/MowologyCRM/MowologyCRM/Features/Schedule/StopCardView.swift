@@ -37,7 +37,7 @@ struct StopCardView: View {
                             .lineLimit(appStyle.isEnabled ? nil : 1)
                             .fixedSize(horizontal: false, vertical: appStyle.isEnabled)
                     } else {
-                        Text(stop.propertyAddress)
+                        Text(stop.displayAddress)
                             .font(appStyle.font(.body, weight: .bold))
                             .foregroundStyle(appStyle.text)
                             .lineLimit(appStyle.isEnabled ? nil : 1)

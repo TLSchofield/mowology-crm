@@ -202,6 +202,28 @@ enum ScheduleTimelineRules {
         return trimmed.isEmpty ? address : trimmed
     }
 
+    /// Street types shortened for display: "2188 W 14th Avenue" → "2188 W 14th Ave" (Tim, 2026-11-19).
+    /// Only the street-type word shortens: the LAST one, allowing a direction after it ("Main Street NW"),
+    /// so "St George Street" → "St George St" and "Avenue Road" → "Avenue Rd" keep their meaning.
+    /// Text after the first comma (city, postcode) is left alone. Display only: storage and routing keep the original.
+    static func abbreviatedStreet(_ address: String) -> String {
+        let types = ["street": "St", "avenue": "Ave", "road": "Rd", "boulevard": "Blvd", "drive": "Dr"]
+        let directions: Set<String> = ["n", "s", "e", "w", "ne", "nw", "se", "sw",
+                                       "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest"]
+        let parts = address.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let head = parts.first else { return address }
+        var tokens = head.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        var i = tokens.count - 1
+        while i > 0, directions.contains(tokens[i].trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()) { i -= 1 }
+        guard i >= 1 else { return address }   // never the only word: "Drive" alone is a name
+        let word = tokens[i].trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard let short = types[word.lowercased()] else { return address }
+        let shouting = word.count > 1 && word == word.uppercased()
+        tokens[i] = shouting ? short.uppercased() : short
+        let rest = parts.count > 1 ? "," + parts[1] : ""
+        return tokens.joined(separator: " ") + rest
+    }
+
     /// "20 min ago", "1 h 5 min ago", "just now".
     static func agoText(since: Date, now: Date) -> String {
         let minutes = max(0, Int(now.timeIntervalSince(since) / 60))

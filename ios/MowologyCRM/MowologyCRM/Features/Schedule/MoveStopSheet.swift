@@ -147,7 +147,7 @@ struct MoveStopSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(stop.headline ?? stop.propertyAddress)
+            Text(stop.headline ?? stop.displayAddress)
                 .font(appStyle.font(.headline))
             Text(stop.fullAddress)
                 .font(appStyle.font(.subheadline))

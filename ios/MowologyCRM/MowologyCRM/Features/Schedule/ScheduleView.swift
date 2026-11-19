@@ -159,7 +159,7 @@ struct ScheduleView: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
                         ScreenHeader(slug: "otto")
-                        VisitBackBar(title: stop.propertyAddress)
+                        VisitBackBar(stop: stop)
                     }
                 }
                 .background(PopGestureEnabler())
@@ -509,10 +509,13 @@ private enum AddForm: String, Identifiable {
 }
 
 
-/// Back button + address for the visit screen, drawn under the head line now the system bar is hidden.
-private struct VisitBackBar: View {
-    let title: String
+/// Back chevron, street address with the city beneath, and the Maps icon, drawn under the head line now the
+/// system bar is hidden. The address gets the width left after Back and Maps: full size when it fits, then about
+/// 90%, then it wraps to two lines (a lone line limit would truncate). Directions use the original address.
+struct VisitBackBar: View {
+    let stop: Stop
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(\.itAppStyle) private var appStyle
 
     var body: some View {
@@ -524,16 +527,39 @@ private struct VisitBackBar: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Back")
-            Text(title)
-                .font(appStyle.font(.headline, weight: .semibold))
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 1) {
+                ViewThatFits(in: .horizontal) {
+                    address(appStyle.font(.headline, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    address(appStyle.font(size: 14.4, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    address(appStyle.font(.headline, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                }
+                if !stop.propertyCity.isEmpty {
+                    Text(stop.propertyCity)
+                        .font(appStyle.font(.caption))
+                        .foregroundStyle(appStyle.meta)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Button { StopDirections.open(stop, openURL: openURL) } label: {
+                Image(systemName: "map")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(appStyle.tenant)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
         }
         .foregroundStyle(appStyle.text)
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        .padding(.trailing, 12)
         .padding(.vertical, 2)
         .background(appStyle.page)
+    }
+
+    private func address(_ font: Font) -> some View {
+        Text(stop.displayAddress).font(font)
     }
 }
 

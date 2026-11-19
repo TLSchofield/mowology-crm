@@ -713,7 +713,7 @@ struct DayTimeGridView: View {
                     Text(window).font(appStyle.font(.caption2)).lineLimit(1)
                 }
                 if !stop.propertyAddress.isEmpty, stop.propertyAddress != name {
-                    Text(stop.propertyAddress).font(appStyle.font(.caption2)).lineLimit(1).opacity(0.8)
+                    Text(stop.displayAddress).font(appStyle.font(.caption2)).lineLimit(1).opacity(0.8)
                 }
             }
             .clipped()

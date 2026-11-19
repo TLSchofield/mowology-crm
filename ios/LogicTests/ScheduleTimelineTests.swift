@@ -134,3 +134,19 @@ expect(ScheduleTimelineRules.street("3871 west 3rd avenue, Vancouver, Bc V6R 1M4
 expect(ScheduleTimelineRules.street("4377 West 11th Avenue") == "4377 West 11th Avenue", "no comma unchanged")
 
 print("Schedule timeline tests passed")
+
+// Street types shortened for display (Tim, 2026-11-19).
+expect(ScheduleTimelineRules.abbreviatedStreet("2188 W 14th Avenue") == "2188 W 14th Ave", "Avenue → Ave")
+expect(ScheduleTimelineRules.abbreviatedStreet("123 Oak Street") == "123 Oak St", "Street → St")
+expect(ScheduleTimelineRules.abbreviatedStreet("55 Granville Road") == "55 Granville Rd", "Road → Rd")
+expect(ScheduleTimelineRules.abbreviatedStreet("9 Marine Boulevard") == "9 Marine Blvd", "Boulevard → Blvd")
+expect(ScheduleTimelineRules.abbreviatedStreet("77 Lakeview Drive") == "77 Lakeview Dr", "Drive → Dr")
+expect(ScheduleTimelineRules.abbreviatedStreet("12 St George Street") == "12 St George St", "St George keeps its saint")
+expect(ScheduleTimelineRules.abbreviatedStreet("12 St George St") == "12 St George St", "already short is unchanged")
+expect(ScheduleTimelineRules.abbreviatedStreet("40 Avenue Road") == "40 Avenue Rd", "only the last type shortens")
+expect(ScheduleTimelineRules.abbreviatedStreet("300 Main Street NW") == "300 Main St NW", "a direction after the type")
+expect(ScheduleTimelineRules.abbreviatedStreet("300 MAIN STREET") == "300 MAIN ST", "capitals stay capitals")
+expect(ScheduleTimelineRules.abbreviatedStreet("3871 West 3rd Avenue, Vancouver, BC") == "3871 West 3rd Ave, Vancouver, BC", "the city part is left alone")
+expect(ScheduleTimelineRules.abbreviatedStreet("Drive") == "Drive", "a lone type word is a name")
+expect(ScheduleTimelineRules.abbreviatedStreet("1 Parkway") == "1 Parkway", "other types untouched")
+expect(ScheduleTimelineRules.abbreviatedStreet("") == "", "empty stays empty")

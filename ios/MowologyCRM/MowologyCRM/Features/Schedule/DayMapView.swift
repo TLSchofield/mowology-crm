@@ -467,7 +467,7 @@ private struct StopCarouselCard: View {
                             .foregroundStyle(appStyle.meta)
                     }
 
-                    Text(stop.headline.map(DisplayNameFormatter.string) ?? stop.propertyAddress)   // same case as the list
+                    Text(stop.headline.map(DisplayNameFormatter.string) ?? stop.displayAddress)   // same case as the list
                         .font(appStyle.font(.body, weight: .bold))
                         .foregroundStyle(appStyle.text)
                         .lineLimit(1)

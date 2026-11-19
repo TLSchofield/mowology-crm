@@ -395,14 +395,14 @@ struct TimelineStopRow: View {
     // MARK: Data helpers
 
     private var name: String {
-        stop.headline.map(ScheduleTimelineRules.displayName) ?? ScheduleTimelineRules.street(stop.propertyAddress)
+        stop.headline.map(ScheduleTimelineRules.displayName) ?? ScheduleTimelineRules.abbreviatedStreet(ScheduleTimelineRules.street(stop.propertyAddress))
     }
 
     /// Address (city only when it is not the usual one is left to the visit screen) · service types.
     private var detailLine: String {
         var seen = Set<String>()
         let services = stop.visits.map(\.serviceTypeLabel).filter { seen.insert($0).inserted }
-        let parts = [stop.headline == nil ? nil : ScheduleTimelineRules.street(stop.propertyAddress)] + services.map { Optional($0) }
+        let parts = [stop.headline == nil ? nil : ScheduleTimelineRules.abbreviatedStreet(ScheduleTimelineRules.street(stop.propertyAddress))] + services.map { Optional($0) }
         return parts.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
     }
 
@@ -475,6 +475,10 @@ struct ScheduleTimelineDemoOverlay: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(Color.white.ignoresSafeArea())
                 .itAppTheme(enabled: true, field: false)
+        } else if let i = args.firstIndex(of: "-mwVisitHeaderDemo") {
+            // The visit screen's header and contact block with synthetic stops: natalia | oakridge | long | bare.
+            VisitHeaderDemo(variant: i + 1 < args.count ? args[i + 1] : "natalia")
+                .itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwQuizDemo") {
             QuizView(authSession: AuthSession(), onPass: {}).itAppTheme(enabled: true, field: false)
         } else if args.contains("-mwAddTaskDemo") {
@@ -522,6 +526,46 @@ struct ScheduleTimelineDemoOverlay: View {
 
 #if DEBUG
 /// `-mwChaseDemo`: Penny's missing-receipt carousel with invented charges (no sign-in, no client data).
+#if DEBUG
+/// `-mwVisitHeaderDemo natalia|oakridge|long|bare`: the real visit screen on invented stops (no sign-in, no client data).
+private struct VisitHeaderDemo: View {
+    let variant: String
+    @StateObject private var auth = AuthSession()
+
+    private var stop: Stop {
+        func make(address: String, name: String?, contact: String?, company: String?, onsite: OnsiteContact? = nil, arrival: String? = "9:30") -> Stop {
+            Stop(stopId: 1, stopDate: "2026-11-19", stopStatus: "scheduled", routeOrder: 1, estimatedArrival: arrival,
+                 propertyId: nil, propertyAddress: address, propertyCity: "Vancouver", propertyName: name,
+                 latitude: nil, longitude: nil, contactId: nil, contactName: contact, contactPhone: "604 555 0100",
+                 contactEmail: "client@example.com", onsiteContact: onsite, companyName: company, lawnSqft: nil,
+                 crewIds: [], crewNames: [], visitCount: 1,
+                 visits: [Visit(visitId: 10, serviceType: "lawn", visitStatus: "scheduled", estimatedDuration: 60,
+                                scheduledStart: "09:30", history: nil)],
+                 propertyNotes: nil, stopNotes: nil)
+        }
+        switch variant {
+        case "oakridge": return make(address: "6015 Tisdall Street", name: "Oakridge Gardens", contact: "Ron Harvie", company: nil)
+        case "long":     return make(address: "3871 West Saint Catherine Boulevard NW", name: "Natalia Cornwall", contact: "Natalia Cornwall", company: nil)
+        case "bare":     return make(address: "123 Oak Street", name: nil, contact: nil, company: nil)
+        default:         return make(address: "2188 West 14th Avenue", name: "Natalia Cornwall", contact: "Natalia Cornwall", company: nil)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VisitDetailView(stop: stop, isAdmin: false, authSession: auth, initialAction: nil, onInitialActionRun: {})
+                .toolbar(.hidden, for: .navigationBar)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 44)   // where the Otto strip sits
+                        VisitBackBar(stop: stop)
+                    }
+                }
+        }
+    }
+}
+#endif
+
 private struct PennyChaseDemo: View {
     private struct DemoAPI: PennyChaseAPI {
         func mine() async throws -> PennyChaseMineResponse {
