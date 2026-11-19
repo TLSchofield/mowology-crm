@@ -191,7 +191,7 @@ switch ($action) {
             exit;
         }
 
-        $propertyName = trim($ct['first_name'] . ' ' . $ct['last_name']) . ' Property';
+        $propertyName = trim($ct['first_name'] . ' ' . $ct['last_name']);
 
         $stmt = $db->prepare("
             INSERT INTO properties (property_name, address, city, province, postal_code, property_type, site_contact_id, status)

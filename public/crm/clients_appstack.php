@@ -318,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                     $contactStmt = $db->prepare("SELECT first_name, last_name FROM contacts WHERE id = ?");
                     $contactStmt->execute([$contactId]);
                     $ct = $contactStmt->fetch(PDO::FETCH_ASSOC);
-                    $propertyName = trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '')) . ' Property';
+                    $propertyName = trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? ''));
                 }
 
                 $stmt = $db->prepare("
@@ -387,7 +387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                 echo json_encode(['success' => true, 'property_id' => (int)$existingProp['id'], 'linked_existing' => true]);
             } else {
                 if (empty($propertyName)) {
-                    $propertyName = trim($comp['company_name']) . ' Property';
+                    $propertyName = trim($comp['company_name']);
                 }
 
                 $stmt = $db->prepare("
@@ -677,7 +677,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 INSERT INTO properties (property_name, address, city, province, postal_code, latitude, longitude, site_contact_id, status)
                                 VALUES (?, ?, ?, 'BC', ?, ?, ?, ?, 'active')
                             ")->execute([
-                                $firstName . ' ' . $lastName . ' Property',
+                                trim($firstName . ' ' . $lastName),
                                 $propertyAddress,
                                 $propertyCity,
                                 $propertyPostalCode,
