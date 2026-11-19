@@ -70,6 +70,7 @@ if (!$error && $contact) {
                      vp.sort_order ASC, vp.uploaded_at ASC
             LIMIT 500
         ");
+        $stmt->execute([$contact['id']]); // execute is inside the try: an unknown column fails here, not at prepare (Codex review 2026-11-19)
     } catch (PDOException $e) {
         $stmt = $db->prepare("
             SELECT
@@ -98,8 +99,8 @@ if (!$error && $contact) {
                      vp.sort_order ASC, vp.uploaded_at ASC
             LIMIT 500
         ");
+        $stmt->execute([$contact['id']]);
     }
-    $stmt->execute([$contact['id']]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $ph) {

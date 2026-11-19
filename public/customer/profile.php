@@ -161,7 +161,7 @@ $portalUrl  = $token ? '/customer/portal.php?token=' . urlencode($token) : '/';
           status.innerHTML = '<span style="color:#2D8659;font-weight:600;">&#10003; Saved — thank you.</span>';
           setTimeout(function() { status.textContent = ''; }, 5000);
         } else {
-          status.innerHTML = '<span style="color:#dc3545;">Error: ' + (d.error || 'Unknown') + '</span>';
+          status.textContent = ''; var errSpan = document.createElement('span'); errSpan.style.color = '#dc3545'; errSpan.textContent = 'Error: ' + (d.error || 'Unknown'); status.appendChild(errSpan);
         }
       })
       .catch(function() {
