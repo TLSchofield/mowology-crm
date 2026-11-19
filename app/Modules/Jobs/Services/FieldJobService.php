@@ -45,6 +45,26 @@ class FieldJobService
         return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) && strtotime($date) !== false ? $date : $today;
     }
 
+    /**
+     * The staff the crew picked for a job: only ids that are active users, no repeats, in the
+     * order picked. Empty or nothing valid → the person creating it, so a job is never unassigned.
+     *
+     * @param mixed $requested  `crew_ids` from the request
+     * @param int[] $activeIds  ids of active users
+     * @return int[]
+     */
+    public static function resolveCrewIds($requested, array $activeIds, int $userId): array
+    {
+        $picked = [];
+        foreach ((array)$requested as $id) {
+            $id = (int)$id;
+            if ($id > 0 && in_array($id, $activeIds, true) && !in_array($id, $picked, true)) {
+                $picked[] = $id;
+            }
+        }
+        return $picked ?: [$userId];
+    }
+
     public static function resolveRadius($radius): int
     {
         $radius = (int)$radius;
@@ -56,8 +76,9 @@ class FieldJobService
      * creating it so it lands on their schedule; createJobPlan() generates the visit(s) itself.
      * Price is per visit, NET of GST, and optional — blank means the office prices it later.
      */
-    public static function buildPlanData(array $input, int $propertyId, int $userId, string $today): array
+    public static function buildPlanData(array $input, int $propertyId, int $userId, string $today, ?array $crewIds = null): array
     {
+        $crewIds = ($crewIds === null || !$crewIds) ? [$userId] : array_values($crewIds);
         $serviceType = trim((string)($input['service_type'] ?? ''));
         $title       = trim((string)($input['title'] ?? ''));
         if ($title === '') {
@@ -84,8 +105,8 @@ class FieldJobService
             'service_type'     => $serviceType,
             'description'      => trim((string)($input['notes'] ?? '')),
             'plan_start_date'  => $date,
-            'default_crew_id'  => $userId,
-            'crew_ids'         => [$userId],
+            'default_crew_id'  => $crewIds[0],
+            'crew_ids'         => $crewIds,
             'pricing_model'    => 'per_visit',
             'price_per_visit'  => $price,
             'estimated_amount' => $price,
@@ -113,6 +134,19 @@ class FieldJobService
     }
 
     // ── Lookups ──────────────────────────────────────────────────────────────
+
+    /** @return int[] ids of active users */
+    private function activeUserIds(): array
+    {
+        return array_map('intval', $this->db->query("SELECT id FROM users WHERE is_active = 1")->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /** Active staff for the "who is on this job" picker: id and name only. */
+    public function staff(): array
+    {
+        $rows = $this->db->query("SELECT id, full_name FROM users WHERE is_active = 1 ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
+        return array_map(static fn (array $r): array => ['id' => (int)$r['id'], 'name' => (string)$r['full_name']], $rows);
+    }
 
     /**
      * Properties near a GPS fix, nearest first. Each carries EVERY active plan on it (a property
@@ -240,7 +274,8 @@ class FieldJobService
         if ($propertyId <= 0 || ($missing = self::missingForJob($input, false)) !== null) {
             return ['success' => false, 'status' => 400, 'error' => $missing ?? 'Property and service are required.'];
         }
-        $result = createJobPlan(self::buildPlanData($input, $propertyId, $userId, date('Y-m-d')), $userId);
+        $result = createJobPlan(self::buildPlanData($input, $propertyId, $userId, date('Y-m-d'),
+            self::resolveCrewIds($input['crew_ids'] ?? [], $this->activeUserIds(), $userId)), $userId);
         if (empty($result['success'])) {
             return ['success' => false, 'status' => 422, 'error' => implode(' ', $result['errors'] ?? ['Could not create the job.'])];
         }
@@ -287,7 +322,8 @@ class FieldJobService
         $contactId  = $made['contact_id'];
         $propertyId = $made['property_id'];
 
-        $result = createJobPlan(self::buildPlanData($input, $propertyId, $userId, date('Y-m-d')), $userId);
+        $result = createJobPlan(self::buildPlanData($input, $propertyId, $userId, date('Y-m-d'),
+            self::resolveCrewIds($input['crew_ids'] ?? [], $this->activeUserIds(), $userId)), $userId);
         if (empty($result['success'])) {
             return ['success' => false, 'status' => 422, 'error' => implode(' ', $result['errors'] ?? ['Could not create the job.'])];
         }
