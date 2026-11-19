@@ -247,4 +247,137 @@ class OttoAutoPlaceTest extends TestCase
         $this->assertFalse($svc->borderOne(1)['ok'], 'already has one now');
         $this->assertSame('It needs a map pin first.', $svc->borderOne(2)['message']);
     }
+
+    /** A City of Vancouver record for 2188 W 14th Ave: a ~20 x 30 m lot, shifted north by $dLat. */
+    private static function cityRecord(string $site, float $dLat = 0.0): array
+    {
+        $ring = [[-123.15505, 49.22950 + $dLat], [-123.15475, 49.22950 + $dLat], [-123.15475, 49.22970 + $dLat],
+                 [-123.15505, 49.22970 + $dLat], [-123.15505, 49.22950 + $dLat]];
+        return ['civic_number' => '2188', 'streetname' => 'W 14TH AV', 'site_id' => $site,
+                'geom' => ['geometry' => ['type' => 'Polygon', 'coordinates' => [$ring]]]];
+    }
+
+    private function cityService(array $records, int &$calls = null): CityParcelService
+    {
+        return new CityParcelService(function (string $url) use ($records, &$calls): ?string {
+            $calls++;
+            return json_encode(['results' => $records]);
+        });
+    }
+
+    private function pinlessSvc(PDO $db, array $records, ?array $hit, int &$calls = null): OttoAutoPlaceService
+    {
+        return new OttoAutoPlaceService($db, fn() => $hit, new ParcelLotService(self::fetcher([])), '2026-11-19', $this->cityService($records, $calls));
+    }
+
+    private function pinlessDb(): PDO
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province) VALUES (1, '2188 W 14th Ave', 'Vancouver', 'BC')");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        return $db;
+    }
+
+    public function test_approximate_geocode_and_one_city_lot_gives_a_pin_inside_the_lot_and_a_border(): void
+    {
+        $db = $this->pinlessDb();
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1')], ['lat' => 49.2297, 'lng' => -123.1550, 'exact' => false, 'by' => 'osm']);
+        $r = $svc->run();
+        $this->assertSame(1, $r['pinned']);
+        $this->assertSame(1, $r['bordered']);
+        $row = $db->query('SELECT latitude, longitude FROM properties WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+        $lot = CityParcelService::ringOf(self::cityRecord('S1')['geom']['geometry']);
+        $this->assertTrue(PropertyBorderRules::inside([(float)$row['latitude'], (float)$row['longitude']], $lot));
+        $this->assertSame('city_lot', $svc->placedPin(1)['by']);
+        $this->assertSame('1', (string)$db->query("SELECT COUNT(*) FROM job_geofences WHERE property_id = 1")->fetchColumn());
+    }
+
+    public function test_an_approximate_hit_far_from_the_city_lot_draws_nothing(): void
+    {
+        $db = $this->pinlessDb();
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1')], ['lat' => 49.2296 + 0.018, 'lng' => -123.1549, 'exact' => false, 'by' => 'osm']);   // ~2 km
+        $r = $svc->run();
+        $this->assertSame(0, $r['pinned']);
+        $this->assertNull($db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn());
+        $this->assertSame('0', (string)$db->query("SELECT COUNT(*) FROM job_geofences")->fetchColumn());
+        $this->assertSame('pin_far', $svc->status(1)['border_reason']);
+    }
+
+    public function test_two_separate_city_lots_at_one_address_are_ambiguous(): void
+    {
+        $db = $this->pinlessDb();
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1'), self::cityRecord('S2', 0.0005)], ['lat' => 49.2297, 'lng' => -123.1550, 'exact' => false, 'by' => 'osm']);
+        $svc->run();
+        $this->assertNull($db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn());
+        $this->assertSame('ambiguous', $svc->status(1)['border_reason']);
+        $city = $this->cityService([self::cityRecord('S1'), self::cityRecord('S2', 0.0005)]);
+        $this->assertSame('ambiguous', $city->lotFor(['address' => '2188 W 14th Ave', 'city' => 'Vancouver'], null)['reason']);
+    }
+
+    public function test_the_city_lookup_without_a_pin_is_tried_once(): void
+    {
+        $db = $this->pinlessDb();
+        $calls = 0;
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1'), self::cityRecord('S2', 0.0005)], ['lat' => 49.2297, 'lng' => -123.1550, 'exact' => false, 'by' => 'osm'], $calls);
+        $svc->run();
+        $this->assertSame(1, $calls);
+        $svc->run();
+        $this->assertSame(1, $calls, 'city_tried stops repeats');
+    }
+
+    public function test_an_exact_geocode_still_pins_at_the_geocode_not_the_lot_centre(): void
+    {
+        $db = $this->pinlessDb();
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1')], ['lat' => 49.22952, 'lng' => -123.1549, 'exact' => true, 'by' => 'osm']);
+        $svc->run();
+        $this->assertEqualsWithDelta(49.22952, (float)$db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn(), 1e-9);
+        $this->assertSame('osm', $svc->placedPin(1)['by']);
+    }
+
+    public function test_let_otto_draw_a_pinless_property_from_the_city_map(): void
+    {
+        $db = $this->pinlessDb();
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1')], null);
+        $r = $svc->borderOne(1);
+        $this->assertTrue($r['ok']);
+        $this->assertNotNull($db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn());
+        $db->exec("INSERT INTO properties (id, address, city, province) VALUES (2, '5 Elm St', 'Burnaby', 'BC')");
+        $this->assertSame('It needs a map pin first.', $svc->borderOne(2)['message']);
+    }
+
+    public function test_interior_point_is_inside_even_for_a_concave_lot(): void
+    {
+        $l = [[49.0, -123.0], [49.0, -122.9997], [49.0001, -122.9997], [49.0001, -122.99985], [49.0003, -122.99985], [49.0003, -123.0]];
+        $this->assertTrue(PropertyBorderRules::inside(CityParcelService::interiorPoint($l), $l));
+        $u = [[49.0, -123.0], [49.0, -122.9990], [49.0010, -122.9990], [49.0010, -122.9993], [49.0002, -122.9993], [49.0002, -122.9997], [49.0010, -122.9997], [49.0010, -123.0]];
+        $this->assertTrue(PropertyBorderRules::inside(CityParcelService::interiorPoint($u), $u));
+    }
+
+    public function test_a_vancouver_named_property_outside_bc_is_never_pinned_from_the_city_map(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province) VALUES (1, '2188 W 14th Ave', 'Vancouver', 'WA')");
+        $db->exec("INSERT INTO job_plans VALUES (1, 1, 'active')");
+        $calls = 0;
+        $svc = $this->pinlessSvc($db, [self::cityRecord('S1')], null, $calls);
+        $svc->run();
+        $this->assertSame(0, $calls);
+        $this->assertNull($db->query('SELECT latitude FROM properties WHERE id = 1')->fetchColumn());
+        $this->assertSame('It needs a map pin first.', $svc->borderOne(1)['message']);
+    }
+
+    public function test_a_city_map_outage_is_retried_tomorrow_not_every_run(): void
+    {
+        $db = $this->pinlessDb();
+        $calls = 0;
+        $down = new CityParcelService(function (string $url) use (&$calls): ?string { $calls++; return null; });
+        $svc = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([])), '2026-11-19', $down);
+        $svc->run();
+        $this->assertSame(1, $calls);
+        $svc->run();
+        $this->assertSame(1, $calls, 'not again the same day');
+        $next = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([])), '2026-11-20', $down);
+        $next->run();
+        $this->assertSame(2, $calls, 'tried again the next day');
+    }
 }

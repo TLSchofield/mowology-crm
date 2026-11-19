@@ -115,13 +115,15 @@ class OttoAutoPlaceService
         $props = $new + $old;
         $r['new'] = count($new);
 
+        $cityPlaced = [];   // pinned from the city lot map this run: the border pass uses the new pin
         foreach ($props as $pid => $p) {
             if (PropertyBorderRules::pinOf($p)) {
                 // A person may have pinned it after Otto recorded an approximate/not-found result.
                 unset($state['pin_tried'][$pid], $state['pin_reason'][$pid]);
                 continue;
             }
-            if (self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)) continue;
+            $cityPinless = $this->cityPinlessEligible($p, $state, (int)$pid);
+            if (!$cityPinless && self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)) continue;
             $address = PropertyReadinessService::geocodeAddress($p);
             if (trim((string)($p['address'] ?? '')) === '' || trim($address) === '') {
                 if (isset($new[$pid])) {
@@ -139,15 +141,42 @@ class OttoAutoPlaceService
                 $props[$pid]['longitude'] = $hit['lng'];
                 unset($state['pin_tried'][$pid], $state['pin_reason'][$pid]);
             } else {
-                $r[$decision === 'approximate' ? 'approximate' : 'not_found']++;
-                $state['pin_tried'][$pid] = $this->today;
-                $state['pin_reason'][$pid] = $decision === 'approximate' ? 'approximate' : 'not_found';
+                $recent = self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today);
+                if (!$recent) {
+                    $r[$decision === 'approximate' ? 'approximate' : 'not_found']++;
+                    $state['pin_tried'][$pid] = $this->today;
+                    $state['pin_reason'][$pid] = $decision === 'approximate' ? 'approximate' : 'not_found';
+                }
+                // No exact geocode, but the city's lot map finds the lot by address: pin inside that lot.
+                if ($cityPinless) {
+                    $lot = $this->city->lotFor($p, null, $decision === 'approximate' ? $hit : null);
+                    // The city's server being down says nothing about the lot: try again next run.
+                    if ($lot !== null && !$lot['ok'] && ($lot['reason'] ?? '') === 'unavailable') {
+                        $state['pin_tried'][$pid] = $this->today;
+                        $state['pin_reason'][$pid] = 'city_unavailable';
+                    } else {
+                        $state['city_tried'][$pid] = $this->today;
+                    }
+                    if ($lot !== null && $lot['ok']) {
+                        $at = CityParcelService::interiorPoint($lot['ring']);
+                        if ($this->savePinIfMissing($pid, $at[0], $at[1])) {
+                            $r['pinned']++;
+                            $state['pins'][$pid] = ['by' => 'city_lot', 'at' => $this->today];
+                            $props[$pid]['latitude'] = $at[0];
+                            $props[$pid]['longitude'] = $at[1];
+                            $cityPlaced[$pid] = true;
+                            unset($state['pin_tried'][$pid], $state['pin_reason'][$pid]);
+                        }
+                    } elseif ($lot !== null) {
+                        $state['border_reason'][$pid] = (string)$lot['reason'];
+                    }
+                }
             }
         }
 
         foreach ($props as $pid => $p) {
             // The pin pass may have just placed this property.
-            if (isset($new[$pid])) $p = $props[$pid];
+            if (isset($new[$pid]) || isset($cityPlaced[$pid])) $p = $props[$pid];
             $pin = PropertyBorderRules::pinOf($p);
             if (!$pin) continue;
             $mode = self::borderMode($borders[$pid]['sources'] ?? null);
@@ -190,8 +219,10 @@ class OttoAutoPlaceService
         $out = [];
         foreach ($candidates as $pid => $p) {
             $pin = PropertyBorderRules::pinOf($p);
-            $needsPin = !$pin && !self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)
-                && ($isNew || trim((string)($p['address'] ?? '')) !== '');
+            $hasAddress = trim((string)($p['address'] ?? '')) !== '';
+            $cityPinless = !$pin && $hasAddress && $this->cityPinlessEligible($p, $state, (int)$pid);
+            $needsPin = $cityPinless || (!$pin && !self::recentlyTried($state['pin_tried'][$pid] ?? null, $this->today)
+                && ($isNew || $hasAddress));
             $mode = $pin ? self::borderMode($borders[$pid]['sources'] ?? null) : null;
             $cityNew = $pin && CityParcelService::sourceFor($p) !== null && !isset($state['city_tried'][$pid]);
             $needsBorder = $pin && $mode !== null && !isset($state['border_refused'][$pid])
@@ -302,11 +333,16 @@ class OttoAutoPlaceService
         $p = $s->fetch(PDO::FETCH_ASSOC);
         if (!$p) return ['ok' => false, 'message' => 'That property no longer exists.'];
         $pin = PropertyBorderRules::pinOf($p);
-        if (!$pin) return ['ok' => false, 'message' => 'It needs a map pin first.'];
+        $pinless = !$pin;
+        if ($pinless && (CityParcelService::sourceFor($p) === null || self::regionOf($p) !== 'BC' || CityParcelService::parseAddress((string)$p['address']) === null)) {
+            return ['ok' => false, 'message' => 'It needs a map pin first.'];
+        }
         $borders = (new PropertyBorderService($this->db, $this->today))->borders();
         $mode = self::borderMode($borders[$propertyId]['sources'] ?? null);
         if ($mode === null) return ['ok' => false, 'message' => 'It already has a border — open the zone editor to change it.'];
-        $lot = $this->findLot($p, $pin);
+        // No pin, but the city lot map finds the lot by address: the pin goes inside that lot, then the border.
+        $lot = $pinless ? $this->city->lotFor($p, null) : $this->findLot($p, $pin);
+        if ($lot === null) $lot = ['ok' => false, 'reason' => 'no_address_match'];
         if (!$lot['ok']) {
             // Remembered, so the card keeps saying why after a reload (Codex review 2026-11-03).
             $state = $this->state();
@@ -315,9 +351,23 @@ class OttoAutoPlaceService
             $this->saveState($state);
             return ['ok' => false, 'message' => self::reasonText((string)$lot['reason'])];
         }
+        if ($pinless) {
+            $at = CityParcelService::interiorPoint($lot['ring']);
+            if (!$this->savePinIfMissing($propertyId, $at[0], $at[1])) return ['ok' => false, 'message' => 'A pin was added meanwhile — reload the page.'];
+            $st = $this->state();
+            $st['pins'][$propertyId] = ['by' => 'city_lot', 'at' => $this->today];
+            $st['city_tried'][$propertyId] = $this->today;
+            unset($st['pin_tried'][$propertyId], $st['pin_reason'][$propertyId]);
+            $this->saveState($st);
+        }
         if (!$this->writeBorder($propertyId, $mode, $lot)) return ['ok' => false, 'message' => 'A border was added meanwhile — reload the page.'];
         $state = $this->state();
         unset($state['border_tried'][$propertyId], $state['border_reason'][$propertyId]);
+        if ($pinless) {
+            unset($state['pin_tried'][$propertyId], $state['pin_reason'][$propertyId]);
+            $state['pins'][$propertyId] = ['by' => 'city_lot', 'at' => $this->today];
+            $state['city_tried'][$propertyId] = $this->today;
+        }
         $this->saveState($state);
         return ['ok' => true, 'area_sqm' => (int)$lot['area_sqm'], 'ring' => array_slice(self::borderRing($lot['ring']), 0, -1),
                 'message' => 'Drawn from the ' . ($lot['map_name'] ?? 'city lot map') . ': ' . ($lot['class'] ?: 'lot') . ($lot['plan'] ? ' ' . $lot['plan'] : '') . ', '
@@ -412,6 +462,16 @@ class OttoAutoPlaceService
     // ─────────────────────────────────────────────────────────────────────────
     // Pure
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * May the city lot map place this unpinned property by address alone? BC only, once per property, and not again
+     * today after the city's server was down (Codex-stand-in review 2026-11-19).
+     */
+    private function cityPinlessEligible(array $p, array $state, int $pid): bool
+    {
+        if (CityParcelService::sourceFor($p) === null || self::regionOf($p) !== 'BC' || isset($state['city_tried'][$pid])) return false;
+        return !(($state['pin_reason'][$pid] ?? '') === 'city_unavailable' && ($state['pin_tried'][$pid] ?? '') === $this->today);
+    }
 
     /** 'save' | 'approximate' | 'none' */
     public static function pinDecision(?array $hit): string

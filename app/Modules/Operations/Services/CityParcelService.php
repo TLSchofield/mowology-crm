@@ -34,6 +34,7 @@ class CityParcelService
         ],
     ];
     public const PIN_MAX_M = 120.0;     // matched lots must be this close to the map pin
+    public const HINT_MAX_M = 400.0;    // pinless: the lot must be this close to an approximate geocode
     public const TOUCH_M   = 1.5;       // lots this close are neighbours sharing a line
     public const MAX_HITS  = 100;       // one civic number across the whole city
 
@@ -67,8 +68,10 @@ class CityParcelService
      * The lot at this property's address, from its city's map.
      * @return array|null null = no city map for this city (use the province); else the same shape as
      *         ParcelLotService::lotAt plus 'source' and 'attribution'.
+     * No pin (null): pinless mode — one lot, or touching lots, else 'ambiguous'; $hint (an approximate
+     * geocode ['lat','lng']) must be within HINT_MAX_M of the lot, else 'pin_far'.
      */
-    public function lotFor(array $property, array $pin): ?array
+    public function lotFor(array $property, ?array $pin, ?array $hint = null): ?array
     {
         $src = self::sourceFor($property);
         if ($src === null) return null;
@@ -83,6 +86,11 @@ class CityParcelService
 
         $lots = self::matchStreet($j['results'], $addr);
         if (!$lots) return ['ok' => false, 'reason' => 'no_address_match'];
+        if ($pin === null && $hint !== null && isset($hint['lat'], $hint['lng'])) {
+            foreach ($lots as $l) {
+                if (self::distanceToRing([(float)$hint['lat'], (float)$hint['lng']], $l['ring']) > self::HINT_MAX_M) return ['ok' => false, 'reason' => 'pin_far'];
+            }
+        }
         $lot = self::joinLots($lots, $pin);
         if (!$lot['ok']) return $lot;
         $lot += ['class' => 'City lot', 'plan' => '', 'municipality' => ucfirst($src), 'source' => $src,
@@ -171,10 +179,12 @@ class CityParcelService
      * One lot → it. Several touching lots → their outline, when it isn't much bigger than the lots.
      * Otherwise the lot under the pin. Every lot must be near the pin.
      */
-    public static function joinLots(array $lots, array $pin): array
+    public static function joinLots(array $lots, ?array $pin): array
     {
-        foreach ($lots as $l) {
-            if (self::distanceToRing($pin, $l['ring']) > self::PIN_MAX_M) return ['ok' => false, 'reason' => 'pin_far'];
+        if ($pin !== null) {
+            foreach ($lots as $l) {
+                if (self::distanceToRing($pin, $l['ring']) > self::PIN_MAX_M) return ['ok' => false, 'reason' => 'pin_far'];
+            }
         }
         $site = implode('+', array_filter(array_column($lots, 'site')));
         if (count($lots) === 1) {
@@ -189,12 +199,53 @@ class CityParcelService
                 return ['ok' => true, 'ring' => $hull, 'pid' => $site, 'area_sqm' => (int)round(PropertyBorderRules::area($hull))];
             }
         }
+        if ($pin === null) return ['ok' => false, 'reason' => 'ambiguous'];   // pinless: nothing says which lot
         foreach ($lots as $l) {
             if (PropertyBorderRules::inside($pin, $l['ring'])) {
                 return ['ok' => true, 'ring' => $l['ring'], 'pid' => $l['site'], 'area_sqm' => (int)round(PropertyBorderRules::area($l['ring']))];
             }
         }
         return ['ok' => false, 'reason' => 'ambiguous'];
+    }
+
+    /**
+     * A point inside an open [lat, lng] ring: the area centroid when it is inside, else the middle of the
+     * widest stretch of the ring along a horizontal line (a concave lot's centroid can fall outside).
+     */
+    public static function interiorPoint(array $ring): array
+    {
+        $n = count($ring);
+        $a = 0.0; $cx = 0.0; $cy = 0.0;
+        for ($i = 0; $i < $n; $i++) {
+            $p = $ring[$i]; $q = $ring[($i + 1) % $n];
+            $f = (float)$p[0] * (float)$q[1] - (float)$q[0] * (float)$p[1];
+            $a += $f;
+            $cx += ((float)$p[0] + (float)$q[0]) * $f;
+            $cy += ((float)$p[1] + (float)$q[1]) * $f;
+        }
+        if (abs($a) > 1e-18) {
+            $c = [$cx / (3 * $a), $cy / (3 * $a)];
+            if (PropertyBorderRules::inside($c, $ring)) return $c;
+        }
+        $lngs = array_column($ring, 1);
+        $lats = array_column($ring, 0);
+        $min = min($lats); $max = max($lats);
+        foreach ([0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8, 0.1, 0.9] as $f) {
+            $lat = $min + ($max - $min) * $f;
+            $xs = [];
+            for ($i = 0; $i < $n; $i++) {
+                $p = $ring[$i]; $q = $ring[($i + 1) % $n];
+                if (((float)$p[0] > $lat) === ((float)$q[0] > $lat)) continue;
+                $xs[] = (float)$p[1] + ($lat - (float)$p[0]) * ((float)$q[1] - (float)$p[1]) / ((float)$q[0] - (float)$p[0]);
+            }
+            sort($xs);
+            $best = null; $bestW = 0.0;
+            for ($k = 0; $k + 1 < count($xs); $k += 2) {
+                if ($xs[$k + 1] - $xs[$k] > $bestW) { $bestW = $xs[$k + 1] - $xs[$k]; $best = [$lat, ($xs[$k] + $xs[$k + 1]) / 2]; }
+            }
+            if ($best !== null && PropertyBorderRules::inside($best, $ring)) return $best;
+        }
+        return [(float)$ring[0][0], (float)$ring[0][1]];   // degenerate ring: nothing better exists
     }
 
     /** Every lot is linked to the others through shared lines (one connected group). */
