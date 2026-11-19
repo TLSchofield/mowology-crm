@@ -49,7 +49,7 @@ if (!class_exists('MwCsp', false)) {
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 "font-src 'self' https://fonts.gstatic.com",
                 "img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com https://*.tile.openstreetmap.org https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org https://server.arcgisonline.com",
-                "connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com",
+                "connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org",
                 "frame-src 'self' https://www.google.com https://www.recaptcha.net https://js.stripe.com",
                 "object-src 'none'",
                 "base-uri 'self'",
