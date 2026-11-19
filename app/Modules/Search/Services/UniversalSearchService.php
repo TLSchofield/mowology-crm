@@ -208,10 +208,10 @@ class UniversalSearchService
                 }
                 break;
             case 'property':
-                $s = $this->db->prepare("SELECT p.id,p.address,p.city,c.first_name,c.last_name FROM properties p LEFT JOIN contacts c ON c.id=p.site_contact_id WHERE p.status='active' AND $where ORDER BY $order LIMIT $limit"); $s->execute($p);
+                $s = $this->db->prepare("SELECT p.id,p.property_name,p.address,p.city,c.first_name,c.last_name FROM properties p LEFT JOIN contacts c ON c.id=p.site_contact_id WHERE p.status='active' AND $where ORDER BY $order LIMIT $limit"); $s->execute($p);
                 foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
                     $name = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
-                    $items[] = ['kind'=>'property','id'=>(int)$r['id'],'property_id'=>(int)$r['id'],'label'=>$r['address'],'sublabel'=>implode(' · ', array_filter([$r['city'] ?? '', $name])),'url'=>'/crm/properties/view.php?id='.(int)$r['id']];
+                    $items[] = ['kind'=>'property','id'=>(int)$r['id'],'property_id'=>(int)$r['id'],'label'=>($r['property_name'] ?? '') !== '' ? $r['property_name'] : $r['address'],'sublabel'=>implode(' · ', array_filter([($r['property_name'] ?? '') !== '' ? $r['address'] : '', $r['city'] ?? '', $name])),'url'=>'/crm/properties/view.php?id='.(int)$r['id']];
                 }
                 break;
             case 'quote':
@@ -344,7 +344,7 @@ class UniversalSearchService
         if ($on('properties') && $can('clients.view')) try {
             $conds = []; $p = [];
             if ($scope) { $sc = $this->scopeCond($scope, 'properties'); $conds[] = $sc[0]; $p = array_merge($p, $sc[1]); }
-            $conds[] = $this->where(['p.address','p.city','p.postal_code','c.first_name','c.last_name'], $tokens, $p);
+            $conds[] = $this->where(['p.property_name','p.billing_entity_name','p.address','p.city','p.postal_code','c.first_name','c.last_name'], $tokens, $p);
             if ($g = $this->group('properties', 'Properties', $this->fetch('property', implode(' AND ', $conds), $p, 'p.address', self::FETCH_MAX), $perGroup, $userId, $prefix)) $groups[] = $g;
         } catch (Throwable $e) { error_log('[search] properties failed: ' . $e->getMessage()); }
 
