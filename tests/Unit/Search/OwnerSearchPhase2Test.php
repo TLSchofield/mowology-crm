@@ -12,7 +12,7 @@ final class OwnerSearchPhase2Test extends TestCase
         $db->exec('CREATE TABLE contacts (id INTEGER PRIMARY KEY,first_name TEXT,last_name TEXT,email TEXT,phone TEXT,is_active INT,company_id INT)');
         $db->exec('CREATE TABLE companies (id INTEGER PRIMARY KEY,company_name TEXT,company_type TEXT,billing_city TEXT,billing_email TEXT,account_status TEXT)');
         $db->exec('CREATE TABLE search_picks (id INTEGER PRIMARY KEY,user_id INT,prefix TEXT,kind TEXT,entity_id INT,picks INT,last_at TEXT,UNIQUE(user_id,prefix,kind,entity_id))');
-        $db->exec('CREATE TABLE properties (id INTEGER PRIMARY KEY,address TEXT,city TEXT,postal_code TEXT,status TEXT,site_contact_id INT,client_id INT,company_id INT)');
+        $db->exec('CREATE TABLE properties (id INTEGER PRIMARY KEY,property_name TEXT,billing_entity_name TEXT,address TEXT,city TEXT,postal_code TEXT,status TEXT,site_contact_id INT,client_id INT,company_id INT)');
         $db->exec('CREATE TABLE property_contacts (property_id INT,contact_id INT)');
         $db->exec('CREATE TABLE quotes (id INTEGER PRIMARY KEY,quote_number TEXT,title TEXT,status TEXT,amount REAL,total_amount REAL,contact_id INT,company_id INT,property_id INT,sent_at TEXT,accepted_at TEXT,email_opened_at TEXT,viewed_at TEXT,created_at TEXT)');
         $db->exec('CREATE TABLE invoices (id INTEGER PRIMARY KEY,invoice_number TEXT,bill_to_name TEXT,service_address TEXT,total REAL,balance_due REAL,status TEXT,contact_id INT,company_id INT,due_date TEXT,paid_at TEXT,created_at TEXT)');
@@ -28,7 +28,7 @@ final class OwnerSearchPhase2Test extends TestCase
     {
         $db->exec("INSERT INTO contacts VALUES(1,'Linda','Jones','linda@example.test','604-555-1234',1,10),(2,'Linda','Smith',NULL,NULL,1,NULL),(3,'Bob','Jones',NULL,'604-555-9999',1,10)");
         $db->exec("INSERT INTO companies VALUES(10,'Acme Strata','strata','Burnaby','acme@example.test','active')");
-        $db->exec("INSERT INTO properties VALUES(1,'10 Main St','Van','V1A','active',1,NULL,NULL),(2,'20 Oak St','Van','V1B','active',NULL,NULL,10),(3,'30 Elm St','Van','V1C','active',2,NULL,NULL)");
+        $db->exec("INSERT INTO properties VALUES(1,'Laburnum Heights','VR738 Laburnum Heights','10 Main St','Van','V1A','active',1,NULL,NULL),(2,NULL,NULL,'20 Oak St','Van','V1B','active',NULL,NULL,10),(3,NULL,NULL,'30 Elm St','Van','V1C','active',2,NULL,NULL)");
         $db->exec("INSERT INTO quotes (id,quote_number,title,status,total_amount,contact_id,company_id,sent_at,created_at) VALUES
             (1,'QUO-1','Hedges','draft',100,1,NULL,NULL,'2026-11-01'),
             (2,'QUO-2','Mulch','sent',200,1,NULL,'2026-11-02','2026-11-02'),
@@ -203,5 +203,16 @@ final class OwnerSearchPhase2Test extends TestCase
         self::assertSame('Remind by text',$paid['actions'][4]['label']);
         self::assertSame('Remind by email',$paid['actions'][5]['label']);
         self::assertNull($a->command('remind bob jones',self::all()));   // nothing owing
+    }
+
+    public function test_property_found_by_its_name_and_shows_name_as_label(): void
+    {
+        $db=$this->db();$this->seed($db);
+        $r=(new UniversalSearchService($db,'2026-11-06'))->search('Laburnum',self::all(),7);
+        $props=null;foreach($r['groups'] as $g){if($g['key']==='properties')$props=$g;}
+        self::assertNotNull($props);
+        self::assertSame([1],array_column($props['items'],'id'));
+        self::assertSame('Laburnum Heights',$props['items'][0]['label']);
+        self::assertStringContainsString('10 Main St',$props['items'][0]['sublabel']);
     }
 }
