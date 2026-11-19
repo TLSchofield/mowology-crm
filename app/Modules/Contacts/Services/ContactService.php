@@ -644,7 +644,7 @@ class ContactService
                      latitude, longitude, site_contact_id, status)
                 VALUES (?, ?, ?, 'BC', ?, ?, ?, ?, 'active')
             ")->execute([
-                $contactName . ' Property',
+                $contactName,
                 $address,
                 $city,
                 $postalCode,
