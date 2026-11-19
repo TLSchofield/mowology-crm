@@ -1572,6 +1572,12 @@ async function submitReceiptExport() {
                         GST Exempt <small class="text-muted">(vendor does not charge GST, e.g. landfill)</small>
                     </label>
                 </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="vendorPstExempt">
+                    <label class="form-check-label" for="vendorPstExempt">
+                        PST Exempt <small class="text-muted">(vendor does not charge PST, e.g. landfill)</small>
+                    </label>
+                </div>
             </div>
             <div class="modal-footer d-flex">
                 <?php if ($canEdit): ?>
@@ -4699,6 +4705,7 @@ window.localDateYmd = function (date) {
         document.getElementById('vendorGstNumber').value = data?.gst_number || '';
         document.getElementById('vendorNotes').value = data?.notes || '';
         document.getElementById('vendorGstExempt').checked = !!(data?.gst_exempt && data.gst_exempt != '0');
+        document.getElementById('vendorPstExempt').checked = !!(data?.pst_exempt && data.pst_exempt != '0');
         // Populate address from preferred location (or first location)
         var locs = data?.locations || [];
         var preferred = locs.find(function(l) { return l.is_preferred == 1; }) || locs[0] || null;
@@ -4748,6 +4755,7 @@ window.localDateYmd = function (date) {
             gst_number: document.getElementById('vendorGstNumber').value,
             notes: document.getElementById('vendorNotes').value,
             gst_exempt: document.getElementById('vendorGstExempt').checked ? 1 : 0,
+            pst_exempt: document.getElementById('vendorPstExempt').checked ? 1 : 0,
         };
         if (id) data.id = parseInt(id);
 
@@ -4871,6 +4879,7 @@ window.localDateYmd = function (date) {
         if (v.default_accounting_category) badges += '<span class="badge bg-primary me-1">' + esc(v.default_accounting_category) + '</span>';
         if (v.default_gbp_category) badges += '<span class="badge bg-secondary me-1">' + esc(v.default_gbp_category) + '</span>';
         if (v.gst_exempt && v.gst_exempt !== '0') badges += '<span class="badge bg-warning text-dark me-1">GST Exempt</span>';
+        if (v.pst_exempt && v.pst_exempt !== '0') badges += '<span class="badge bg-warning text-dark me-1">PST Exempt</span>';
         document.getElementById('vdBadges').innerHTML = badges;
 
         // Spend summary
