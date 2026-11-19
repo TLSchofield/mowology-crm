@@ -58,6 +58,13 @@ function qbForwardExpense(int $expenseId, ?PDO $db = null): array
         return ['success' => true, 'message' => 'Already forwarded', 'log_id' => null, 'method' => 'already_done'];
     }
 
+    // Only approved receipts go to the accountant (review round 2, 2026-10-12: batch forward and
+    // retry sent drafts). One rule: ExpenseService::sendBlockReason().
+    require_once __DIR__ . '/../../Modules/Expenses/Services/ExpenseService.php';
+    if (($why = ExpenseService::sendBlockReason($expense)) !== null) {
+        return ['success' => false, 'message' => "Expense #{$expenseId}: {$why}", 'log_id' => null, 'method' => 'not_approved'];
+    }
+
     // Check for previous failed attempts — retry throttle
     $attempts = _qbGetRetryCount($expenseId, $db);
     if ($attempts >= QB_MAX_RETRIES) {

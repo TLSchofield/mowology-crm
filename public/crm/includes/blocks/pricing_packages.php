@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Pricing Packages Block Renderer — Monthly/Annual toggle, tiered plans
  *
@@ -154,7 +155,7 @@ $uid = 'pric-' . ($block['id'] ?? substr(md5(uniqid('', true)), 0, 8));
 @media(max-width:900px){.mw-pric__grid{grid-template-columns:1fr;max-width:420px;margin:0 auto}}
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function(){
   var uid = <?= json_encode($uid) ?>;
   var section = document.getElementById(uid);

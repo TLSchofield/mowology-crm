@@ -15,6 +15,8 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/loginAuth/auth.php';
 requireLogin();
+require_once APP_ROOT . '/Core/MigrationRunnerGuard.php';
+migrationRunnerGuard(); // admin only; GET shows a confirm button, the run needs POST + CSRF (2026-10-12)
 requirePermission('database.manage');
 
 $db  = getDB();
@@ -75,7 +77,7 @@ $log[] = mig1004_run($db, 'Add forgot_sms_sent_at to time_clock_entries',
 
 // ops_settings entry
 $log[] = mig1004_run($db, 'Seed forgot_clockout_sms_enabled in ops_settings',
-    "INSERT INTO `ops_settings` (`key`, `value`, `description`)
+    "INSERT INTO `ops_settings` (`setting_key`, `setting_value`, `description`)
      VALUES ('forgot_clockout_sms_enabled', '1', 'Send SMS reminder when employee GPS is near home but still clocked in')
      ON DUPLICATE KEY UPDATE `description` = VALUES(`description`)"
 );

@@ -28,6 +28,8 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 // ============================================================================
 // CONTEXT + SAFE JSON RESPONDER (prevents "empty response" in web mode)
@@ -102,10 +104,6 @@ if (!$isCli) {
         jsonRespond(false, 'Admin access required', [], 403);
     }
 
-    $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!function_exists('verifyCSRFToken') || !verifyCSRFToken($csrfToken)) {
-        jsonRespond(false, 'CSRF token invalid', [], 403);
-    }
 }
 
 // ============================================================================
@@ -140,6 +138,12 @@ try {
 
     if (!$snapshot) {
         $msg = "No GSC snapshot found in last 28 days. Run Sync Now first.";
+        // Every run is recorded in cron_runs (Ada, 2026-10-15: this early exit was the one path that wasn't).
+        try {
+            recordCronRun('seo_recommendations', 'error', 'No GSC snapshot in the last 28 days', (int)((time() - $startTime) * 1000), $msg, !$isCli);
+        } catch (Throwable $recErr) {
+            error_log('[seo_recommendations] could not record the run — ' . $recErr->getMessage());
+        }
         if ($isCli) {
             echo "[ERROR] $msg\n";
             exit(1);
@@ -208,6 +212,7 @@ try {
         VALUES
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW())
         ON DUPLICATE KEY UPDATE
+            rec_type = VALUES(rec_type),
             search_volume = VALUES(search_volume),
             clicks = VALUES(clicks),
             ctr = VALUES(ctr),
@@ -216,6 +221,14 @@ try {
             reason = VALUES(reason),
             updated_at = NOW()
     ");
+
+    // Self-heal: rows stored with a blank type (see selectRecType) have no page behind
+    // them, so they are 'create_page'. Cheap, idempotent, runs every night.
+    try {
+        $db->exec("UPDATE seo_recommendations SET rec_type = 'create_page' WHERE rec_type = '' OR rec_type IS NULL");
+    } catch (Throwable $healErr) {
+        error_log('[seo_recommendations] rec_type heal failed: ' . $healErr->getMessage());
+    }
 
     foreach ($queryRows as $row) {
         $stats['queries_analyzed']++;

@@ -18,6 +18,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -28,79 +29,32 @@ header('Content-Type: application/json');
 $action = $_GET['action'] ?? null;
 $db = getDB();
 
+// Read request body once — write actions pass their payload as JSON.
+// Tables (cost_factors, overhead_settings, overhead_items) are provisioned
+// by migration 996_cost_factors_schema.sql, not on every request.
+$rawBody = file_get_contents('php://input');
+$bodyData = json_decode($rawBody ?: '', true) ?? [];
+
+// CSRF guard on all state-mutating actions.
+$writingActions = ['save', 'delete', 'toggle-active', 'save-overhead', 'seed-defaults',
+                   'save-overhead-item', 'delete-overhead-item', 'toggle-overhead-item',
+                   'seed-overhead-items', 'link-expense-to-overhead'];
+if (in_array($action, $writingActions, true)) {
+    if (!verifyCSRFToken($bodyData['csrf_token'] ?? '')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+    // Cost factors feed quote prices: writes need products.edit (admins and managers), not any login
+    // (#16, Fable audit 2026-10-12).
+    if (!userHasPermission('products.edit')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Permission denied']);
+        exit;
+    }
+}
+
 try {
-    // Ensure cost_factors table exists
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS `cost_factors` (
-            `id` int NOT NULL AUTO_INCREMENT,
-            `factor_name` varchar(100) NOT NULL,
-            `factor_type` enum('labor','equipment','material','overhead','fuel','other') NOT NULL,
-            `rate` decimal(10,2) NOT NULL,
-            `rate_with_burden` decimal(10,2) DEFAULT NULL,
-            `unit` varchar(20) DEFAULT 'per hour',
-            `equipment_type` varchar(50) DEFAULT NULL,
-            `supplier` varchar(100) DEFAULT NULL,
-            `description` text,
-            `active` tinyint(1) DEFAULT 1,
-            `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `factor_name` (`factor_name`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
-    ");
-
-    // Ensure overhead_settings table exists
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS `overhead_settings` (
-            `id` int NOT NULL AUTO_INCREMENT,
-            `setting_key` varchar(50) NOT NULL,
-            `setting_value` decimal(10,2) NOT NULL,
-            `description` text,
-            `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `setting_key` (`setting_key`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
-    ");
-
-    // Ensure overhead_items table exists
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS `overhead_items` (
-            `id` int NOT NULL AUTO_INCREMENT,
-            `category` enum('fixed','variable','vehicle','insurance','admin') NOT NULL,
-            `item_name` varchar(100) NOT NULL,
-            `amount` decimal(10,2) NOT NULL,
-            `frequency` enum('weekly','monthly','quarterly','annual') NOT NULL DEFAULT 'monthly',
-            `notes` text,
-            `is_active` tinyint(1) NOT NULL DEFAULT 1,
-            `sort_order` int NOT NULL DEFAULT 0,
-            `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            KEY `idx_category` (`category`),
-            KEY `idx_active` (`is_active`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
-    ");
-
-    // Check if rate_with_burden column exists, add if missing
-    $cols = $db->query("SHOW COLUMNS FROM cost_factors LIKE 'rate_with_burden'")->rowCount();
-    if ($cols === 0) {
-        $db->exec("ALTER TABLE cost_factors ADD COLUMN `rate_with_burden` decimal(10,2) DEFAULT NULL AFTER `rate`");
-    }
-    $cols = $db->query("SHOW COLUMNS FROM cost_factors LIKE 'equipment_type'")->rowCount();
-    if ($cols === 0) {
-        $db->exec("ALTER TABLE cost_factors ADD COLUMN `equipment_type` varchar(50) DEFAULT NULL AFTER `unit`");
-    }
-    $cols = $db->query("SHOW COLUMNS FROM cost_factors LIKE 'supplier'")->rowCount();
-    if ($cols === 0) {
-        $db->exec("ALTER TABLE cost_factors ADD COLUMN `supplier` varchar(100) DEFAULT NULL AFTER `equipment_type`");
-    }
-
-    // Add overhead_item_id to expenses table if expenses table exists and column is missing
-    if ($db->query("SHOW TABLES LIKE 'expenses'")->rowCount() > 0 &&
-        $db->query("SHOW COLUMNS FROM expenses LIKE 'overhead_item_id'")->rowCount() === 0) {
-        $db->exec("ALTER TABLE expenses ADD COLUMN `overhead_item_id` int DEFAULT NULL AFTER `gbp_category`");
-    }
-
     // ── List all cost factors ──────────────────────────────────
     if ($action === 'list') {
         $type = $_GET['type'] ?? null;
@@ -142,7 +96,7 @@ try {
 
     // ── Save (create or update) ────────────────────────────────
     } elseif ($action === 'save') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
 
         if (empty($data['factor_name']) || !isset($data['rate'])) {
             throw new Exception('Name and rate are required');
@@ -201,7 +155,7 @@ try {
 
     // ── Delete ─────────────────────────────────────────────────
     } elseif ($action === 'delete') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
         if (empty($data['id'])) throw new Exception('Factor ID is required');
 
         $stmt = $db->prepare("DELETE FROM cost_factors WHERE id = ?");
@@ -211,7 +165,7 @@ try {
 
     // ── Toggle active status ───────────────────────────────────
     } elseif ($action === 'toggle-active') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
         if (empty($data['id'])) throw new Exception('Factor ID is required');
 
         $stmt = $db->prepare("UPDATE cost_factors SET active = NOT active WHERE id = ?");
@@ -244,7 +198,7 @@ try {
 
     // ── Save overhead settings ─────────────────────────────────
     } elseif ($action === 'save-overhead') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
 
         $validKeys = ['overhead_percent', 'profit_margin', 'gst_rate', 'estimated_monthly_revenue', 'estimated_jobs_per_month', 'overhead_mode', 'overhead_apply_mode', 'estimated_billable_hours'];
         $saved = 0;
@@ -329,6 +283,18 @@ try {
         echo json_encode(['success' => true, 'message' => 'Default cost factors seeded', 'count' => count($defaults)]);
 
     // ── List overhead items ────────────────────────────────────
+    // ── Penny's suggestions (read-only; Accept goes through save-overhead / save-overhead-item) ──
+    } elseif ($action === 'get-overhead-suggestions') {
+        // Exposes ledger totals, so it needs the same permission as editing the page.
+        if (!userHasPermission('products.edit')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Permission denied']);
+            exit;
+        }
+        require_once APP_ROOT . '/Modules/Accounting/Services/OverheadSuggestionService.php';
+        $suggestions = (new OverheadSuggestionService($db))->suggestions();
+        echo json_encode(['success' => true] + $suggestions);
+
     } elseif ($action === 'list-overhead-items') {
         $includeInactive = isset($_GET['inactive']) && $_GET['inactive'] === '1';
         $hasExpenseLink = $db->query("SHOW TABLES LIKE 'expenses'")->rowCount() > 0 &&
@@ -359,7 +325,7 @@ try {
 
     // ── Save overhead item ──────────────────────────────────────
     } elseif ($action === 'save-overhead-item') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
 
         if (empty($data['item_name']) || !isset($data['amount'])) {
             throw new Exception('Item name and amount are required');
@@ -417,7 +383,7 @@ try {
 
     // ── Delete overhead item ────────────────────────────────────
     } elseif ($action === 'delete-overhead-item') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
         if (empty($data['id'])) throw new Exception('Item ID is required');
 
         $stmt = $db->prepare("DELETE FROM overhead_items WHERE id = ?");
@@ -530,7 +496,7 @@ try {
 
     // ── Link / unlink an expense to an overhead item ───────────
     } elseif ($action === 'link-expense-to-overhead') {
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $bodyData;
         if (empty($data['expense_id'])) throw new Exception('Expense ID required');
 
         if ($db->query("SHOW TABLES LIKE 'expenses'")->rowCount() === 0 ||
@@ -554,6 +520,6 @@ try {
     http_response_code(400);
     echo json_encode([
         'success' => false,
-        'error' => $e->getMessage()
+        'error' => ApiResponse::message($e, 'api-cost-factors')
     ]);
 }

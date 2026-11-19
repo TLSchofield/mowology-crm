@@ -200,7 +200,7 @@ document.querySelectorAll('.mw-log-ctx-btn').forEach(function (btn) {
 
 function clearLog() {
     if (!confirm('Delete all system log entries? This cannot be undone.')) return;
-    fetch('/crm/api/system-log-clear.php', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    fetch('/crm/api/system-log-clear.php', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } })
         .then(function (r) { return r.json(); })
         .then(function (d) {
             if (d.ok) location.reload();

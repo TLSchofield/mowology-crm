@@ -33,6 +33,8 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
     throw new ErrorException($message, 0, $severity, $file, $line);
@@ -48,6 +50,18 @@ if (!$isCli) {
     $user = getCurrentUser();
     if (($user['role'] ?? '') !== 'admin') { http_response_code(403); exit; }
     header('Content-Type: application/json; charset=utf-8');
+    // "Run Now" (database_appstack runCron) sends the token as a header and in the JSON body.
+    $__csrf = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if ($__csrf === '') {
+        $__body = json_decode((string)file_get_contents('php://input'), true);
+        $__csrf = (string)(is_array($__body) ? ($__body['csrf_token'] ?? '') : ($_POST['csrf_token'] ?? ''));
+    }
+    if (!verifyCSRFToken($__csrf)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+    unset($__csrf, $__body);
 } else {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once PUBLIC_ROOT . '/crm/includes/functions.php';
@@ -59,6 +73,59 @@ $db       = getDB();
 $renewed  = [];
 $expired  = [];
 $errors   = [];
+$noticed  = [];
+
+// ── 0. Fire campaign events for contracts renewing in ≤30 days ───────────────
+// Fires once per contract per renewal window — skip if already fired this cycle.
+try {
+    $noticeWindow = date('Y-m-d', strtotime('+30 days'));
+    $noticeStmt   = $db->prepare("
+        SELECT c.id, c.contract_number, c.renewal_date, c.billing_amount,
+               c.billing_cycle, c.contact_id
+        FROM contracts c
+        WHERE c.status       = 'active'
+          AND c.contact_id  IS NOT NULL
+          AND c.renewal_date IS NOT NULL
+          AND c.renewal_date BETWEEN :today AND :window
+          AND c.id NOT IN (
+                SELECT entity_id FROM campaign_trigger_log
+                WHERE event_name  = 'contract_renewal_upcoming'
+                  AND entity_type = 'contract'
+                  AND fired_at   >= DATE_SUB(NOW(), INTERVAL 25 DAY)
+          )
+        ORDER BY c.renewal_date ASC
+    ");
+    $noticeStmt->execute([':today' => $today, ':window' => $noticeWindow]);
+    $noticeContracts = $noticeStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!empty($noticeContracts)) {
+        $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+        if (file_exists($__emitter)) {
+            require_once $__emitter;
+            foreach ($noticeContracts as $nc) {
+                $daysUntil = (int)((strtotime($nc['renewal_date']) - strtotime($today)) / 86400);
+                CampaignEventEmitter::fire(
+                    'contract_renewal_upcoming',
+                    'contract',
+                    (int)$nc['id'],
+                    (int)$nc['contact_id'],
+                    [
+                        'contract_number' => $nc['contract_number'],
+                        'renewal_date'    => $nc['renewal_date'],
+                        'days_until'      => $daysUntil,
+                        'billing_amount'  => (float)$nc['billing_amount'],
+                        'billing_cycle'   => $nc['billing_cycle'],
+                    ],
+                    'contracts'
+                );
+                $noticed[] = $nc['contract_number'] . ' (renews ' . $nc['renewal_date'] . ', ' . $daysUntil . 'd)';
+            }
+        }
+    }
+} catch (Throwable $e) {
+    $errors[] = 'Renewal notice scan failed: ' . $e->getMessage();
+    error_log('[contract_renewal] notice scan: ' . $e->getMessage());
+}
 
 // ── 1. Find contracts due for renewal ────────────────────────────────────────
 try {
@@ -111,8 +178,11 @@ foreach ($dueCtr as $ctr) {
         $newEndStr     = $newEnd   ? $newEnd->format('Y-m-d')   : null;
         $newRenewalStr = $newRenewal->format('Y-m-d');
 
-        // Update contract record
-        $db->prepare("
+        // Contract, plan prices and plan dates move together or not at all (Fable review
+        // 2026-10-12): a half-applied renewal raised the price but left the plans on the
+        // old term. The WHERE repeats the "not yet renewed" test so two runs can't both renew.
+        $db->beginTransaction();
+        $upd = $db->prepare("
             UPDATE contracts
             SET billing_amount  = ?,
                 start_date      = ?,
@@ -121,7 +191,14 @@ foreach ($dueCtr as $ctr) {
                 last_renewed_at = NOW(),
                 updated_at      = NOW()
             WHERE id = ?
-        ")->execute([$newAmount, $newStartStr, $newEndStr, $newRenewalStr, $contractId]);
+              AND status = 'active'
+              AND (last_renewed_at IS NULL OR last_renewed_at < renewal_date)
+        ");
+        $upd->execute([$newAmount, $newStartStr, $newEndStr, $newRenewalStr, $contractId]);
+        if ($upd->rowCount() === 0) {
+            $db->rollBack();
+            continue;
+        }
 
         // Recalculate plan prices from the new billing amount
         recalcContractPlanPrices($contractId, $newAmount, $billingCycle);
@@ -135,6 +212,8 @@ foreach ($dueCtr as $ctr) {
             WHERE contract_id = ?
               AND status != 'cancelled'
         ")->execute([$newStartStr, $newEndStr, $contractId]);
+
+        $db->commit();
 
         // Log activity (user_id = 0 for system action)
         logActivityExtended(
@@ -155,6 +234,7 @@ foreach ($dueCtr as $ctr) {
         $renewed[] = $ctr['contract_number'] . ' ($' . number_format($newAmount, 2) . ')';
 
     } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
         $errors[] = ($ctr['contract_number'] ?? "CTR-{$ctr['id']}") . ': ' . $e->getMessage();
         error_log('[contract_renewal] Error renewing ' . ($ctr['contract_number'] ?? $ctr['id']) . ': ' . $e->getMessage());
     }
@@ -188,8 +268,8 @@ try {
 
 // ── 4. Record cron run ────────────────────────────────────────────────────────
 $durationMs = (int)(microtime(true) * 1000) - $startMs;
-$summary    = count($renewed) . ' renewed, ' . count($expired) . ' expired, ' . count($errors) . ' errors';
-$status     = empty($errors) ? (empty($renewed) && empty($expired) ? 'success' : 'success') : 'warning';
+$summary    = count($renewed) . ' renewed, ' . count($expired) . ' expired, ' . count($noticed) . ' notices fired, ' . count($errors) . ' errors';
+$status     = empty($errors) ? 'success' : 'warning';
 $errorText  = empty($errors) ? null : implode('; ', array_slice($errors, 0, 5));
 
 recordCronRun('contract_renewal', $status, $summary, $durationMs, $errorText, !$isCli);
@@ -199,6 +279,7 @@ $result = [
     'success'  => empty($errors),
     'renewed'  => $renewed,
     'expired'  => $expired,
+    'noticed'  => $noticed,
     'errors'   => $errors,
     'summary'  => $summary,
     'duration' => $durationMs . 'ms',
@@ -208,6 +289,7 @@ if ($isCli) {
     echo "Contract Renewal Cron — {$today}\n";
     echo "  Renewed:  " . (empty($renewed) ? 'none' : implode(', ', $renewed)) . "\n";
     echo "  Expired:  " . (empty($expired) ? 'none' : implode(', ', $expired)) . "\n";
+    echo "  Noticed:  " . (empty($noticed) ? 'none' : implode(', ', $noticed)) . "\n";
     echo "  Errors:   " . (empty($errors)  ? 'none' : implode(', ', $errors))  . "\n";
     echo "  Duration: {$durationMs}ms\n";
 } else {

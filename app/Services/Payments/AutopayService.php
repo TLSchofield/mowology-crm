@@ -14,11 +14,14 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 require_once APP_ROOT . '/Core/paths.php';
 require_once PUBLIC_ROOT . '/vendor/autoload.php';
 require_once PUBLIC_ROOT . '/app_config/secrets.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
+require_once __DIR__ . '/AutopayEligibility.php';
+require_once __DIR__ . '/StripeErrorRules.php';
 
 class AutopayService
 {
@@ -28,7 +31,7 @@ class AutopayService
     {
         $this->db = $db;
         \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
-        \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
+        \Stripe\Stripe::setAppInfo(_idFromName() . ' CRM', '1.0', _idSiteUrl());
     }
 
     /**
@@ -42,36 +45,57 @@ class AutopayService
      */
     public function isAutopayEligible(int $invoiceId): bool
     {
-        $data = $this->loadInvoiceData($invoiceId);
-        if (!$data) {
-            return false;
-        }
+        // Cheap pre-check only — attemptCharge() repeats it under the invoice row lock.
+        return AutopayEligibility::blockReason(
+            $this->loadInvoiceData($invoiceId),
+            $this->hasOpenAttempt($invoiceId)
+        ) === null;
+    }
 
-        $payableStatuses = ['sent', 'viewed', 'partial', 'overdue'];
-        if (!in_array($data['invoice_status'], $payableStatuses, true)) {
-            return false;
+    /**
+     * Fire-and-log an autopay attempt when an invoice first transitions to 'sent'.
+     * Call this from EVERY code path that marks an invoice 'sent' for the first
+     * time — desktop send, visit invoicing, contract billing, bulk resend, any
+     * future one. Swallows all errors so a charge-trigger failure never blocks or
+     * breaks the caller's send flow. See Known-Failure-Patterns "Touching Autopay"
+     * for why this must not be duplicated inline per-caller again — that's exactly
+     * how the visit-invoicing and contract-billing paths silently never charged.
+     */
+    public static function triggerOnSend(\PDO $db, int $invoiceId, string $context = ''): void
+    {
+        try {
+            $autopay = new self($db);
+            if ($autopay->isAutopayEligible($invoiceId)) {
+                $result = $autopay->attemptCharge($invoiceId);
+                error_log('[Autopay] ' . $context . ' send invoice ' . $invoiceId . ' → '
+                    . ($result['status'] ?? '?') . ': ' . ($result['message'] ?? ''));
+            }
+        } catch (\Throwable $e) {
+            error_log('[Autopay] ' . $context . ' charge trigger failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
         }
+    }
 
-        if (empty($data['stripe_payment_method_id'])) {
-            return false;
+    /**
+     * Never charge a card while the client has credit on account (Codex review 2026-10-14):
+     * ClientCreditService::applyOnSend swallows a failure so the invoice still goes out, and the
+     * charge would then take the full balance with the credit sitting unused. Skip, say why, and
+     * leave it for the office: apply the credit, and the next run charges only what is left.
+     * A failure to read credit skips the charge too (fails closed; Codex review): the next run retries.
+     */
+    private function unappliedCreditReason(int $invoiceId): ?string
+    {
+        try {
+            if (!class_exists('ClientCreditService')) require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+            $c = (new \ClientCreditService($this->db))->getBalanceForInvoiceClient($invoiceId);
+            if ((float)$c['balance'] > 0.005) {
+                error_log(sprintf('[Autopay] invoice %d skipped — client %d has $%.2f credit not applied', $invoiceId, (int)$c['client_id'], (float)$c['balance']));
+                return sprintf('Client has $%.2f credit on account that was not applied — apply it on the invoice first; autopay charges only what is left', (float)$c['balance']);
+            }
+        } catch (\Throwable $e) {
+            error_log('[Autopay] credit check failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+            return 'Could not check the client\'s credit on account — not charged; the next run tries again';
         }
-
-        if (!$this->resolveAutopayFlag($data)) {
-            return false;
-        }
-
-        // Don't retry if already pending or succeeded
-        $existing = $this->db->prepare("
-            SELECT id FROM autopay_attempts
-            WHERE invoice_id = ? AND status IN ('pending', 'succeeded')
-            LIMIT 1
-        ");
-        $existing->execute([$invoiceId]);
-        if ($existing->fetch()) {
-            return false;
-        }
-
-        return true;
+        return null;
     }
 
     /**
@@ -84,6 +108,10 @@ class AutopayService
      */
     public function attemptCharge(int $invoiceId): array
     {
+        if (!\Tenant::takesCards()) {
+            return ['status' => 'skipped', 'message' => 'Card payments are not available for this business.'];
+        }
+
         // ── System-wide live-mode gate ────────────────────────────────────────
         // autopay_live_mode must be explicitly set to 1 in business_settings
         // before any real charges fire. While 0, every eligible invoice is
@@ -111,40 +139,50 @@ class AutopayService
             return ['status' => 'skipped', 'message' => 'Autopay live mode is disabled — no charge attempted'];
         }
 
-        $data = $this->loadInvoiceData($invoiceId);
-        if (!$data) {
-            return ['status' => 'skipped', 'message' => 'Invoice not found'];
+        // ── Reserve the attempt atomically (Fable review 2026-10-12) ──────────
+        // Lock the invoice row, re-check eligibility (including "no pending or
+        // succeeded attempt") and insert the 'pending' row in ONE transaction, so two
+        // callers (cron + a send, two sends) cannot both pass the check and both charge.
+        // If the caller already holds a transaction we join it; the lock lasts until
+        // the caller commits.
+        $ownTxn = !$this->db->inTransaction();
+        if ($ownTxn) {
+            $this->db->beginTransaction();
         }
+        try {
+            $this->db->prepare("SELECT id FROM invoices WHERE id = ? FOR UPDATE")->execute([$invoiceId]);
+            $data   = $this->loadInvoiceData($invoiceId);
+            $reason = AutopayEligibility::blockReason($data, $this->hasOpenAttempt($invoiceId))
+                   ?? $this->unappliedCreditReason($invoiceId);
+            if ($reason !== null) {
+                if ($ownTxn) {
+                    $this->db->rollBack();
+                }
+                return ['status' => 'skipped', 'message' => $reason];
+            }
 
-        $payableStatuses = ['sent', 'viewed', 'partial', 'overdue'];
-        if (!in_array($data['invoice_status'], $payableStatuses, true)) {
-            return ['status' => 'skipped', 'message' => 'Invoice not in payable status: ' . $data['invoice_status']];
+            $balanceDue  = (float) $data['balance_due'];
+            $amountCents = (int) round($balanceDue * 100);
+            $contactId   = (int) $data['contact_id'];
+            $attemptNum  = $this->nextAttemptNumber($invoiceId);
+
+            $insertStmt = $this->db->prepare("
+                INSERT INTO autopay_attempts
+                    (invoice_id, contact_id, amount_cents, status, attempt_number, created_at)
+                VALUES (?, ?, ?, 'pending', ?, NOW())
+            ");
+            $insertStmt->execute([$invoiceId, $contactId, $amountCents, $attemptNum]);
+            $attemptId = (int) $this->db->lastInsertId();
+
+            if ($ownTxn) {
+                $this->db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTxn && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
         }
-
-        if (empty($data['stripe_payment_method_id'])) {
-            return ['status' => 'skipped', 'message' => 'No payment method on file'];
-        }
-
-        if (!$this->resolveAutopayFlag($data)) {
-            return ['status' => 'skipped', 'message' => 'Autopay not enabled for this invoice'];
-        }
-
-        $balanceDue  = (float) $data['balance_due'];
-        if ($balanceDue <= 0) {
-            return ['status' => 'skipped', 'message' => 'No balance due'];
-        }
-        $amountCents = (int) round($balanceDue * 100);
-        $contactId   = (int) $data['contact_id'];
-        $attemptNum  = $this->nextAttemptNumber($invoiceId);
-
-        // Insert attempt row as pending
-        $insertStmt = $this->db->prepare("
-            INSERT INTO autopay_attempts
-                (invoice_id, contact_id, amount_cents, status, attempt_number, created_at)
-            VALUES (?, ?, ?, 'pending', ?, NOW())
-        ");
-        $insertStmt->execute([$invoiceId, $contactId, $amountCents, $attemptNum]);
-        $attemptId = (int) $this->db->lastInsertId();
 
         try {
             $intent = \Stripe\PaymentIntent::create([
@@ -154,8 +192,8 @@ class AutopayService
                 'payment_method' => $data['stripe_payment_method_id'],
                 'confirm'        => true,
                 'off_session'    => true,
-                'description'    => 'Invoice ' . $data['invoice_number'] . ' — Mowology Landscaping (autopay)',
-                'statement_descriptor_suffix' => 'MOWOLOGY',
+                'description'    => 'Invoice ' . $data['invoice_number'] . ' — ' . _idCompanyInfo()['company_name'] . ' (autopay)',
+                'statement_descriptor_suffix' => (strtoupper(substr(preg_replace('/[^A-Za-z0-9 ]/', '', _idFromName()), 0, 22)) ?: 'INVOICE'),
                 'metadata'       => [
                     'invoice_id'       => (string) $invoiceId,
                     'invoice_number'   => $data['invoice_number'],
@@ -163,6 +201,9 @@ class AutopayService
                     'autopay_attempt'  => (string) $attemptId,
                     'source'           => 'autopay',
                 ],
+            ], [
+                // One key per attempt: a network retry of this request can never charge twice.
+                'idempotency_key' => AutopayEligibility::idempotencyKey($invoiceId, $attemptNum),
             ]);
 
             // Payment succeeded synchronously (rare but possible for some card types)
@@ -231,18 +272,27 @@ class AutopayService
 
         } catch (\Stripe\Exception\ApiErrorException $e) {
             $errorMessage = $e->getMessage();
+            // Unknown outcome (lost connection, Stripe 5xx): the card may have been charged. Never
+            // auto-retry it three days later under a new idempotency key — that can charge twice.
+            // Staff check Stripe first; if it did go through, the webhook marks the invoice paid
+            // (Fable review 2026-10-13). A clear refusal still retries as before.
+            $unknown = StripeErrorRules::chargeOutcomeUnknown(get_class($e), $e->getHttpStatus());
 
             $this->db->prepare("
                 UPDATE autopay_attempts
                 SET status = 'failed',
-                    failure_code = 'api_error',
+                    failure_code = ?,
                     failure_message = ?,
-                    next_retry_at = DATE_ADD(NOW(), INTERVAL 3 DAY),
+                    next_retry_at = " . ($unknown ? "NULL" : "DATE_ADD(NOW(), INTERVAL 3 DAY)") . ",
                     updated_at = NOW()
                 WHERE id = ?
-            ")->execute([$errorMessage, $attemptId]);
+            ")->execute([$unknown ? 'api_unknown' : 'api_error', $errorMessage, $attemptId]);
 
-            error_log('[AutopayService] Stripe API error for invoice ' . $invoiceId . ': ' . $errorMessage);
+            if ($unknown) {
+                $this->notifyStaffPaymentFailed($data, $invoiceId, 'api_unknown',
+                    'Stripe did not answer clearly (' . $errorMessage . '). The card MAY have been charged — check Stripe for this invoice before charging again. No automatic retry.', 3);
+            }
+            error_log('[AutopayService] Stripe API error for invoice ' . $invoiceId . ($unknown ? ' (outcome unknown — no auto-retry)' : '') . ': ' . $errorMessage);
 
             return ['status' => 'failed', 'message' => $errorMessage, 'attempt_id' => $attemptId];
         }
@@ -293,10 +343,15 @@ class AutopayService
                 co.stripe_customer_id        AS co_stripe_customer_id,
                 co.stripe_payment_method_id  AS co_stripe_payment_method_id,
                 co.autopay_enabled           AS co_autopay_enabled,
+                co.company_name              AS co_company_name,
+                co.billing_email             AS co_billing_email,
+                cobc.email                   AS co_billing_contact_email,
+                cobc.first_name              AS co_billing_contact_first,
                 jp.autopay_override
             FROM invoices i
             LEFT JOIN contacts  ct ON i.contact_id  = ct.id
             LEFT JOIN companies co ON i.company_id  = co.id
+            LEFT JOIN contacts  cobc ON cobc.id     = co.billing_contact_id
             LEFT JOIN job_plans jp ON i.plan_id     = jp.id
             WHERE i.id = ?
             LIMIT 1
@@ -312,7 +367,10 @@ class AutopayService
             $row['stripe_customer_id']       = $row['co_stripe_customer_id'];
             $row['stripe_payment_method_id'] = $row['co_stripe_payment_method_id'];
             $row['autopay_enabled']          = $row['co_autopay_enabled'];
+            // Which card is being charged decides who can authenticate it.
+            $row['payment_source']           = 'company';
         } else {
+            $row['payment_source']           = 'contact';
             $row['stripe_customer_id']       = $row['ct_stripe_customer_id'];
             $row['stripe_payment_method_id'] = $row['ct_stripe_payment_method_id'];
             $row['autopay_enabled']          = $row['ct_autopay_enabled'];
@@ -326,10 +384,19 @@ class AutopayService
      */
     private function resolveAutopayFlag(array $data): bool
     {
-        if ($data['autopay_override'] !== null) {
-            return (bool) $data['autopay_override'];
-        }
-        return (bool) ($data['autopay_enabled'] ?? false);
+        return AutopayEligibility::autopayOn($data);
+    }
+
+    /** A 'pending' or 'succeeded' attempt exists — never start another charge. */
+    private function hasOpenAttempt(int $invoiceId): bool
+    {
+        $stmt = $this->db->prepare("
+            SELECT id FROM autopay_attempts
+            WHERE invoice_id = ? AND status IN ('pending', 'succeeded')
+            LIMIT 1
+        ");
+        $stmt->execute([$invoiceId]);
+        return (bool) $stmt->fetch();
     }
 
     /**
@@ -350,13 +417,32 @@ class AutopayService
      */
     private function notifyAuthRequired(array $data, int $invoiceId): void
     {
-        $email = $data['contact_email'] ?? null;
+        // 3DS can only be completed by whoever HOLDS the card, so this notice
+        // follows the payment source — NOT the invoice's billing recipient.
+        // Deliberate, and easy to "correct" wrongly: reminders were rerouted to
+        // the management firm's accounts inbox 2026-09-25, and this email looks
+        // like the same bug. It isn't. Sending a strata's property manager a
+        // prompt to authenticate a council member's personal card would be both
+        // useless and a disclosure of that person's card activity to a third
+        // party. What WAS wrong: a company-card charge still notified the
+        // individual contact, who may not hold that card at all.
+        if (($data['payment_source'] ?? 'contact') === 'company') {
+            $email     = $data['co_billing_contact_email'] ?: ($data['co_billing_email'] ?: null);
+            $firstName = $data['co_billing_contact_first']
+                ?: ($data['co_company_name'] ? $data['co_company_name'] . ' accounts' : 'there');
+        } else {
+            $email     = $data['contact_email'] ?? null;
+            $firstName = $data['contact_first'] ?? 'there';
+        }
         if (!$email) {
+            // No way to reach the cardholder — tell the office rather than
+            // emailing the wrong person or failing in silence.
+            error_log("[autopay] 3DS required on invoice {$invoiceId} but no cardholder email (source: "
+                      . ($data['payment_source'] ?? 'contact') . ')');
             return;
         }
 
-        $firstName = $data['contact_first'] ?? 'there';
-        $portalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($data['access_token'] ?? '');
+        $portalUrl = _idSiteUrl() . '/customer/invoice.php?token=' . urlencode($data['access_token'] ?? '');
 
         $subject = 'Action required: please complete payment for Invoice ' . htmlspecialchars($data['invoice_number'], ENT_QUOTES);
 
@@ -366,10 +452,22 @@ class AutopayService
         <p><strong>This only takes a moment.</strong> Please click the link below to complete the payment:</p>
         <p><a href="' . $portalUrl . '" style="background:#2D8659;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;display:inline-block;">Complete Payment</a></p>
         <p>Invoice: ' . htmlspecialchars($data['invoice_number'], ENT_QUOTES) . '</p>
-        <p>If you have questions, call us at (778) 846-9273.</p>
-        <p>— Mowology Landscaping</p>';
+        <p>If you have questions, ' . (_idPhone() !== '' ? 'call us at ' . htmlspecialchars(_idPhone()) . '.' : 'reply to this email.') . '</p>
+        <p>— ' . htmlspecialchars(_idCompanyInfo()['company_name']) . '</p>';
 
-        sendEmail($email, $subject, $body);
+        // Every customer email about an invoice carries the invoice PDF (owner rule
+        // 2026-10-06). No PDF → this notice is held and recorded; Charlie emails the
+        // owner (who also gets the authentication_required payment alert).
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+        $pdfGate    = new InvoicePdfGate($this->db);
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        if ($attachPath === null || !$pdfGate->isUsable($attachPath)) {
+            $pdfGate->recordBlocked($invoiceId, 'autopay_auth_notice');
+            error_log("[autopay] 3DS notice for invoice {$invoiceId} NOT sent — " . InvoicePdfGate::NOT_SENT_MESSAGE);
+            return;
+        }
+
+        sendEmail($email, $subject, $body, $attachPath);
     }
 
     /**
@@ -383,9 +481,9 @@ class AutopayService
             $adminEmailRow = $this->db->query(
                 "SELECT admin_email FROM business_settings LIMIT 1"
             )->fetch(\PDO::FETCH_ASSOC);
-            $adminEmail = !empty($adminEmailRow['admin_email']) ? $adminEmailRow['admin_email'] : 'office@mowology.ca';
+            $adminEmail = !empty($adminEmailRow['admin_email']) ? $adminEmailRow['admin_email'] : _idReplyTo();
         } catch (\Throwable $e) {
-            $adminEmail = 'office@mowology.ca';
+            $adminEmail = _idReplyTo();
         }
 
         $clientName = trim(($data['contact_first'] ?? '') . ' ' . ($data['contact_last'] ?? '')) ?: 'Unknown';

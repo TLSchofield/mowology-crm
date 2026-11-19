@@ -18,6 +18,7 @@ $error    = '';
 
 // ── Handle form submit ────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_tab'])) {
+    requireSiteWrite();
     $tab = $_POST['_tab'];
 
     if ($tab === 'theme') {
@@ -33,7 +34,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_tab'])) {
             'custom_css'    => trim($_POST['custom_css']    ?? ''),
         ]);
         $saved = $result;
-        if (!$result) $error = 'Failed to save theme. Please try again.';
+        if (!$result) {
+            $error = cms_customCssAllowed(trim($_POST['custom_css'] ?? ''))
+                ? 'Failed to save theme. Please try again.'
+                : 'Custom CSS can\'t contain the "<" character — remove it and save again.';
+        }
     }
 }
 
@@ -79,6 +84,7 @@ include __DIR__ . '/includes/nav.php';
 
 <form method="POST" id="themeForm">
     <input type="hidden" name="_tab" value="theme">
+    <?= siteCsrfField() ?>
 
     <div class="sa-settings-grid">
 

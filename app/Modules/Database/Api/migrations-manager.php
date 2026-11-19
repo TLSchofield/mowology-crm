@@ -31,6 +31,7 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Modules/Database/Services/SchemaUpdater.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -148,8 +149,11 @@ function handleListMigrations() {
                 'size' => filesize($file)
             ];
 
-            // Migrations with file dates before today are assumed already executed
-            if ($createdAt < $today) {
+            // Only files with done-/problem- prefix are assumed to have been applied
+            // before the migrations_log system existed. Numbered NNN_*.sql files are
+            // always treated as pending regardless of their file date, so a migration
+            // uploaded the night before doesn't silently vanish into assumedExecuted.
+            if (preg_match('/^(done-|problem-)/', $filename)) {
                 $entry['assumed'] = true;
                 $assumedExecuted[] = $entry;
             } else {
@@ -174,7 +178,9 @@ function handleListMigrations() {
  * Execute a single migration
  */
 function handleExecuteMigration($input, $user) {
-    $db = getDB();
+    // Schema changes run as the schema-owning MySQL user when secrets.php defines DB_DDL_*;
+    // otherwise this is the normal connection (Fable audit #27, 2026-10-12).
+    $db = Database::ddl();
     $filename = $input['filename'] ?? null;
 
     if (!$filename) {
@@ -223,7 +229,15 @@ function handleExecuteMigration($input, $user) {
         $statements = splitSqlStatements($sql);
         $executed = 0;
         foreach ($statements as $stmt) {
-            $db->exec($stmt);
+            // Use query() + closeCursor() instead of exec(): some migrations use
+            // dynamic SQL (PREPARE/EXECUTE/DEALLOCATE) whose EXECUTE branch can be
+            // a SELECT (e.g. an idempotency no-op like `SELECT "already exists"`).
+            // exec() doesn't drain a returned result set, which leaves the
+            // connection in MySQL's "unbuffered query" state and makes the NEXT
+            // statement in this loop fail with SQLSTATE[HY000] 2014. query() reads
+            // and closeCursor() releases the result regardless of statement type.
+            $result = $db->query($stmt);
+            $result->closeCursor();
             $executed++;
         }
 
@@ -234,6 +248,9 @@ function handleExecuteMigration($input, $user) {
             VALUES (?, ?, 'success', ?, 'sql')
         ");
         $logStmt->execute([$filename, $user['id'], $checksum]);
+        if (function_exists('logActivityExtended')) {   // Ada watches migration runs (#25d)
+            logActivityExtended((int)$user['id'], 'Migration run', 'Applied ' . $filename . ' (' . $executed . ' statements)');
+        }
 
         echo json_encode([
             'success' => true,
@@ -248,6 +265,9 @@ function handleExecuteMigration($input, $user) {
             VALUES (?, ?, 'failed', ?, 'sql')
         ");
         $logStmt->execute([$filename, $user['id'], $e->getMessage()]);
+        if (function_exists('logActivityExtended')) {
+            logActivityExtended((int)$user['id'], 'Migration run', 'FAILED ' . $filename . ': ' . mb_substr($e->getMessage(), 0, 300));
+        }
 
         http_response_code(500);
         echo json_encode([
@@ -301,76 +321,10 @@ function handleMigrationHistory($input) {
 }
 
 /**
- * Split a SQL string into individual statements, respecting quoted strings.
- * Handles single-quoted strings with escaped quotes ('it''s ok').
- * Strips SQL comments (-- line comments and block comments).
- * Returns only non-empty statements.
+ * Split a SQL string into individual statements (one copy, shared with the automatic updater).
  */
 function splitSqlStatements(string $sql): array {
-    $statements = [];
-    $current = '';
-    $len = strlen($sql);
-    $i = 0;
-
-    while ($i < $len) {
-        $ch = $sql[$i];
-
-        // Skip -- line comments
-        if ($ch === '-' && $i + 1 < $len && $sql[$i + 1] === '-') {
-            $end = strpos($sql, "\n", $i);
-            $i = ($end === false) ? $len : $end + 1;
-            continue;
-        }
-
-        // Skip /* block comments */
-        if ($ch === '/' && $i + 1 < $len && $sql[$i + 1] === '*') {
-            $end = strpos($sql, '*/', $i + 2);
-            $i = ($end === false) ? $len : $end + 2;
-            continue;
-        }
-
-        // Handle single-quoted strings (including '' escapes)
-        if ($ch === "'") {
-            $current .= $ch;
-            $i++;
-            while ($i < $len) {
-                if ($sql[$i] === "'" && $i + 1 < $len && $sql[$i + 1] === "'") {
-                    $current .= "''";
-                    $i += 2;
-                } elseif ($sql[$i] === "'") {
-                    $current .= "'";
-                    $i++;
-                    break;
-                } else {
-                    $current .= $sql[$i];
-                    $i++;
-                }
-            }
-            continue;
-        }
-
-        // Statement terminator
-        if ($ch === ';') {
-            $trimmed = trim($current);
-            if ($trimmed !== '') {
-                $statements[] = $trimmed;
-            }
-            $current = '';
-            $i++;
-            continue;
-        }
-
-        $current .= $ch;
-        $i++;
-    }
-
-    // Last statement (may not end with ;)
-    $trimmed = trim($current);
-    if ($trimmed !== '') {
-        $statements[] = $trimmed;
-    }
-
-    return $statements;
+    return SchemaUpdater::splitStatements($sql);
 }
 
 /**
@@ -381,7 +335,9 @@ function handleDatabaseVerify() {
 
     try {
         // Get database info
-        $dbInfo = $db->query("SELECT VERSION() as version, DATABASE() as current_db")->fetch(PDO::FETCH_ASSOC);
+        $verifyStmt = $db->query("SELECT VERSION() as version, DATABASE() as current_db");
+        $dbInfo = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+        $verifyStmt->closeCursor();
 
         echo json_encode([
             'success' => true,

@@ -125,13 +125,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_properties' && $_SERVER['
     // Get properties linked to this contact via site_contact_id
     if ($contactId) {
         $stmt = $db->prepare("
-            SELECT p.id, p.address, p.city, p.property_type, p.postal_code
+            SELECT p.id, p.property_name, p.address, p.city, p.property_type, p.postal_code
             FROM properties p
-            WHERE p.site_contact_id = ?
+            WHERE (p.site_contact_id = ?
+                   OR p.quote_contact_id = ?
+                   OR EXISTS (SELECT 1 FROM property_contacts pc
+                              WHERE pc.property_id = p.id AND pc.contact_id = ?
+                                AND (pc.ended_on IS NULL OR pc.ended_on >= CURDATE())))
               AND (p.status IS NULL OR p.status = 'active')
             ORDER BY p.address ASC
         ");
-        $stmt->execute([$contactId]);
+        $stmt->execute([$contactId, $contactId, $contactId]);
         $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -190,6 +194,27 @@ if ($urlContactId && $urlPropertyId) {
             'property_id'      => $cpData['property_id'],
             'property_address' => $cpData['address'] . ', ' . $cpData['city'],
         ];
+    }
+}
+
+// From the calendar's "More Options": only a property is known — take its site contact.
+if ($urlPropertyId && !$urlContactId && empty($prefill)) {
+    $pcStmt = $db->prepare("SELECT site_contact_id FROM properties WHERE id = ?");
+    $pcStmt->execute([$urlPropertyId]);
+    $siteContactId = (int)$pcStmt->fetchColumn();
+    if ($siteContactId) {
+        $cpStmt = $db->prepare("
+            SELECT c.id AS contact_id, c.first_name, c.last_name, p.id AS property_id, p.address, p.city
+            FROM contacts c, properties p WHERE c.id = ? AND p.id = ?");
+        $cpStmt->execute([$siteContactId, $urlPropertyId]);
+        if ($cpData = $cpStmt->fetch(PDO::FETCH_ASSOC)) {
+            $prefill = [
+                'contact_id'       => $cpData['contact_id'],
+                'contact_name'     => trim($cpData['first_name'] . ' ' . $cpData['last_name']),
+                'property_id'      => $cpData['property_id'],
+                'property_address' => $cpData['address'] . ', ' . $cpData['city'],
+            ];
+        }
     }
 }
 
@@ -591,12 +616,22 @@ $activePage = 'jobs';
                       <div class="mw-form-row three">
                           <div class="mw-form-group">
                               <label class="form-label">Plan Start Date</label>
-                              <input type="date" name="plan_start_date" class="form-control"
+                              <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#plan_start_date" aria-haspopup="true" aria-expanded="false">
+                                  <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                  <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                  <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                              </button>
+                              <input type="date" id="plan_start_date" name="plan_start_date" class="form-control" hidden
                                      value="<?php echo date('Y-m-d'); ?>">
                           </div>
                           <div class="mw-form-group">
                               <label class="form-label">Plan End Date</label>
-                              <input type="date" name="plan_end_date" class="form-control"
+                              <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#plan_end_date" aria-haspopup="true" aria-expanded="false">
+                                  <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                  <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                  <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                              </button>
+                              <input type="date" id="plan_end_date" name="plan_end_date" class="form-control" hidden
                                      value=""
                                      placeholder="Leave blank for ongoing">
                               <small class="text-muted">Leave blank for ongoing plans</small>
@@ -961,7 +996,9 @@ $activePage = 'jobs';
                               card.dataset.propertyId = prop.id;
 
                               var typeLabel = (prop.property_type || 'property').replace('_', ' ');
-                              var addrParts = [prop.address];
+                              var addrParts = [];
+                              if (prop.property_name) addrParts.push(prop.property_name);
+                              addrParts.push(prop.address);
                               if (prop.city) addrParts.push(prop.city);
 
                               card.innerHTML = '<i data-feather="map-pin"></i>'
@@ -1384,9 +1421,26 @@ $activePage = 'jobs';
                   if (!propertyIdInput.value) {
                       e.preventDefault();
                       alert('Please select a client and property before creating a plan.');
+                      return;
+                  }
+                  var btn = this.querySelector('[type="submit"]');
+                  if (btn && !btn.disabled) {
+                      btn.disabled = true;
+                      btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span> Creating…';
                   }
               });
           })();
           </script>
 
+<script>
+// Values typed in the calendar popover (schedule "More Options") — fill the matching fields once.
+(function () {
+  var q = new URLSearchParams(window.location.search);
+  function set(sel, v) { var el = document.querySelector(sel); if (el && v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); } }
+  set('input[name="title"]', q.get('cal_title'));
+  set('input[name="plan_start_date"]', q.get('cal_date'));
+  set('input[name="default_time_start"]', q.get('cal_start'));
+  set('input[name="default_time_end"]', q.get('cal_end'));
+})();
+</script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

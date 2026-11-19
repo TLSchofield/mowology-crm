@@ -208,6 +208,15 @@ $csrfToken = generateCSRFToken();
                     </div>
                   </div>
 
+                  <!-- B2. Penny's check: suggestions from the ledger (Accept uses the normal save paths) -->
+                  <div class="card mw-penny-check" id="pennyCheck" hidden>
+                    <div class="card-header">
+                      <h5 class="card-title mb-0">Penny's check</h5>
+                      <div class="mw-penny-sub" id="pennyCheckSub"></div>
+                    </div>
+                    <div class="card-body" id="pennyCheckBody"></div>
+                  </div>
+
                   <!-- C. Itemized Overhead Expenses -->
                   <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -731,6 +740,7 @@ function loadAllData() {
 
         recalcOverhead();
         populateCalculatorDropdowns();
+        loadPennySuggestions();
     }).catch(function(err) {
         showAlert('Error loading data: ' + err.message, 'danger');
     });
@@ -1133,7 +1143,7 @@ function saveOverheadSettings() {
         overhead_apply_mode: parseInt(overheadSettings.overhead_apply_mode) || 0
     };
 
-    fetch(API + '?action=save-overhead', {
+    return fetch(API + '?action=save-overhead', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -1550,6 +1560,162 @@ function refreshLinkPanel() {
             renderLinkPanel(results[1]);
         }
     });
+}
+
+// ── Penny's check ───────────────────────────────────────
+// Suggestions come from the ledger (OverheadSuggestionService). Accept goes through the same
+// save-overhead-item / saveOverheadSettings() paths as a hand edit, so nothing changes without a click.
+var pennySuggestions = null;
+var pennyDismissed = {};            // "Not now" lasts for this page view only
+function pennyMoney(n) {
+    return '$' + Number(n).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+var PENNY_PER = { weekly: '/wk', monthly: '/mo', quarterly: '/qtr', annual: '/yr' };
+var PENNY_SETTING = {
+    estimated_monthly_revenue: { input: 'estRevenue',       label: 'Estimated monthly revenue', money: true },
+    estimated_jobs_per_month:  { input: 'estJobs',          label: 'Estimated jobs per month',  money: false },
+    estimated_billable_hours:  { input: 'estBillableHours', label: 'Billable hours per month',  money: false }
+};
+
+function loadPennySuggestions() {
+    fetch(API + '?action=get-overhead-suggestions')
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+            if (d && d.success) { pennySuggestions = d; renderPennyCheck(); }
+        })
+        .catch(function() { /* the page works without Penny's check */ });
+}
+
+function pennyRow(key, title, change, source, acceptCall) {
+    return '<div class="mw-penny-row" id="pennyRow_' + key + '">' +
+        '<div class="mw-penny-main"><strong>' + esc(title) + '</strong> ' +
+        '<span class="mw-penny-change">' + esc(change) + '</span>' +
+        '<div class="mw-penny-src">' + esc(source) + '</div></div>' +
+        '<div class="mw-penny-actions">' +
+        '<button class="btn btn-primary btn-sm" onclick="' + acceptCall + '">Accept</button> ' +
+        '<button class="btn btn-outline-secondary btn-sm" onclick="pennyDismiss(\'' + key + '\')">Not now</button>' +
+        '</div></div>';
+}
+
+function renderPennyCheck() {
+    var d = pennySuggestions;
+    if (!d) return;
+    var html = '';
+    var shown = 0;
+
+    (d.settings || []).forEach(function(s, i) {
+        var meta = PENNY_SETTING[s.key];
+        if (!meta || pennyDismissed['s' + i]) return;
+        var show = function(n) { return meta.money ? pennyMoney(n) : String(Math.round(n)); };
+        html += pennyRow('s' + i, meta.label, show(s.current) + ' → ' + show(s.suggested), s.source, 'pennyAcceptSetting(' + i + ')');
+        shown++;
+    });
+
+    (d.items || []).forEach(function(s, i) {
+        if (pennyDismissed['i' + i]) return;
+        var per = PENNY_PER[s.frequency] || '/mo';
+        var change = pennyMoney(s.current_amount) + per + ' → ' + pennyMoney(s.suggested_amount) + per;
+        html += pennyRow('i' + i, s.item_name, change, s.source, 'pennyAcceptItem(' + i + ')');
+        shown++;
+    });
+
+    if (shown === 0) {
+        html += '<div class="mw-penny-clear">Nothing to change — the figures here match the ledger.</div>';
+    }
+
+    var mo = function(n) { return pennyMoney(n) + '/mo'; };
+    var amb = d.ambiguous || [];
+    if (amb.length) {
+        html += '<div class="mw-penny-note"><strong>Spend that could belong to several of your items (Penny won\'t guess):</strong><ul>' +
+            amb.map(function(a) { return '<li>' + esc(a.label) + ' ' + mo(a.monthly) + (a.vendors && a.vendors.length ? ' (incl. ' + esc(a.vendors.join(', ')) + ')' : '') + ' — could be ' + esc(a.candidates.join(' / ')) + '</li>'; }).join('') +
+            '</ul></div>';
+    }
+    var nv = d.new_vendors || [];
+    if (nv.length) {
+        html += '<div class="mw-penny-note"><strong>Regular vendors that are on none of your items:</strong> ' +
+            nv.map(function(v) { return esc(v.vendor) + ' ' + mo(v.monthly); }).join(', ') +
+            '. Check they aren\'t already inside a budget line (fuel, say) before adding one.</div>';
+    }
+    var ui = d.unitemised || [];
+    if (ui.length) {
+        html += '<div class="mw-penny-note"><strong>Posted with no vendor and not tied to any item:</strong> ' +
+            ui.map(function(v) { return esc(v.label) + ' ' + mo(v.monthly); }).join(', ') + '.</div>';
+    }
+    var unm = d.unmatched_items || [];
+    if (unm.length) {
+        html += '<div class="mw-penny-note"><strong>No ledger spend found behind:</strong> ' +
+            unm.map(function(u) { return esc(u.item_name) + ' (' + mo(u.current_monthly) + ')'; }).join(', ') +
+            '. Either it isn\'t posted to the ledger yet, it\'s sitting under Miscellaneous, or the figure is an estimate.</div>';
+    }
+    var unc = d.unclassified || [];
+    if (unc.length) {
+        html += '<div class="mw-penny-note"><strong>Accounts Penny can\'t sort into a category yet:</strong> ' +
+            unc.map(function(u) { return esc(u.code + ' ' + u.account) + ' (' + pennyMoney(u.total) + ' in the period)'; }).join(', ') + '.</div>';
+    }
+
+    var w = d.window || {};
+    document.getElementById('pennyCheckSub').textContent = w.months
+        ? 'Based on ' + w.months + ' month' + (w.months === 1 ? '' : 's') + ' of ledger (' + w.from + ' to ' + w.to + ')'
+        : '';
+    document.getElementById('pennyCheckBody').innerHTML = html;
+    document.getElementById('pennyCheck').hidden = false;
+}
+
+function pennyDismiss(key) {
+    pennyDismissed[key] = true;
+    renderPennyCheck();
+}
+
+function pennyAcceptSetting(i) {
+    var s = pennySuggestions.settings[i];
+    var meta = s && PENNY_SETTING[s.key];
+    if (!meta) return;
+    var el = document.getElementById(meta.input);
+    el.value = s.suggested;
+    el.dispatchEvent(new Event('input'));       // keep the calculator preview in step
+    var p = saveOverheadSettings();             // recalculates the overhead % and saves every setting
+    if (p) p.then(function() { pennyDismissed = {}; loadPennySuggestions(); });
+}
+
+function pennyAcceptItem(i) {
+    var s = pennySuggestions.items[i];
+    if (!s) return;
+    var existing = null;
+    if (s.item_id) {
+        overheadItems.forEach(function(it) { if (parseInt(it.id) === parseInt(s.item_id)) existing = it; });
+    }
+    var payload = {
+        csrf_token: CSRF,
+        id: s.item_id || null,
+        category: s.category,
+        item_name: s.item_name,
+        amount: s.suggested_amount,
+        frequency: s.frequency,
+        notes: existing ? (existing.notes || null) : null,
+        is_active: existing ? (parseInt(existing.is_active) ? 1 : 0) : 1
+    };
+    fetch(API + '?action=save-overhead-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) { alert('Error: ' + (data.error || 'Unknown error')); return; }
+        showAlert(data.message, 'success');
+        return fetch(API + '?action=list-overhead-items&inactive=1')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.success) {
+                    overheadItems = d.items;
+                    renderOverheadItemsTable();
+                    recalcOverhead();
+                }
+                pennyDismissed = {};
+                loadPennySuggestions();
+            });
+    })
+    .catch(function(err) { alert('Network error: ' + err.message); });
 }
 
 // ── Helpers ───────────────────────────────────────────────

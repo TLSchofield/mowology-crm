@@ -151,6 +151,7 @@
 <body>
 
 <?php
+if (!function_exists('_idFromName') && defined('APP_ROOT')) { require_once APP_ROOT . '/Services/Messaging/IdentityMail.php'; }
 // Helper
 function r($v, $fallback = '—') {
     $s = trim((string)$v);
@@ -168,7 +169,7 @@ $dateFormatted = !empty($d['report_date']) ? date('l, F j, Y', strtotime($d['rep
 <!-- ══ HEADER ══ -->
 <div class="doc-header">
     <div class="doc-header-left">
-        <div class="company-name">Mowology</div>
+        <div class="company-name"><?php echo htmlspecialchars(_idFromName()); ?></div>
         <div class="doc-title">Commercial Vehicle Trip Report</div>
         <div class="doc-subtitle">BC MVA 37.18.01(b) — Cycle 1 Daily Inspection Record</div>
     </div>
@@ -330,7 +331,7 @@ $dateFormatted = !empty($d['report_date']) ? date('l, F j, Y', strtotime($d['rep
 
 <!-- ══ FOOTER ══ -->
 <div class="doc-footer">
-    Mowology Landscaping &bull; (778) 846-9273 &bull; Generated: <?php echo date('F j, Y g:i a'); ?>
+    <?php echo htmlspecialchars(implode(' • ', array_filter([_idCompanyInfo()['company_name'], _idPhone()]))); ?> &bull; Generated: <?php echo date('F j, Y g:i a'); ?>
     &bull; Record retained minimum 6 months per BC MVA 37.18.01b)
 </div>
 

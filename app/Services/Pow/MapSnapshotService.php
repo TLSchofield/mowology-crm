@@ -13,6 +13,7 @@
  * - Stores PNG on server under /uploads/pow/maps/
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
 
 class MapSnapshotService
 {
@@ -40,7 +41,7 @@ class MapSnapshotService
     {
         $this->apiKey      = $apiKey;
         $this->storageRoot = rtrim($publicRoot, '/');
-        $this->storageDir  = $this->storageRoot . self::STORAGE_DIR;
+        $this->storageDir  = $this->storageRoot . rtrim(uploadsUrl('pow/maps'), '/') . '/';
 
         if (!is_dir($this->storageDir)) {
             mkdir($this->storageDir, 0755, true);
@@ -69,7 +70,7 @@ class MapSnapshotService
         $hash     = $this->computeHash($filtered);
         $filename = 'visit_' . $visitId . '_' . substr($hash, 0, 12) . '.png';
         $filepath = $this->storageDir . $filename;
-        $webPath  = self::STORAGE_DIR . $filename;
+        $webPath  = uploadsUrl('pow/maps') . '/' . $filename;
 
         if (file_exists($filepath)) {
             return $webPath; // Cache hit
@@ -308,11 +309,11 @@ class MapSnapshotService
 
     private function computeHash(array $points): string
     {
+        // Every point (Codex review 2026-10-15: count + first + last reused an old map after a replay changed
+        // the route in between, so the picture and the PDF's distance disagreed).
         $data = count($points) . '|';
-        if (!empty($points)) {
-            $first = $points[0];
-            $last  = $points[count($points) - 1];
-            $data .= $first['lat'] . $first['lng'] . $last['lat'] . $last['lng'];
+        foreach ($points as $p) {
+            $data .= ($p['lat'] ?? '') . ',' . ($p['lng'] ?? '') . ',' . ($p['ts'] ?? '') . ';';
         }
         return md5($data);
     }

@@ -27,6 +27,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -202,6 +203,7 @@ try {
             echo json_encode(['success' => false, 'error' => 'Invalid security token']);
             exit;
         }
+        session_write_close();
 
         $id = (int)($input['id'] ?? 0);
         if (!$id) throw new Exception('Measurement ID required');
@@ -228,7 +230,7 @@ try {
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'measurements')]);
 }
 
 

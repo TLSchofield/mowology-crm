@@ -1,0 +1,4 @@
+# The wordmark is not public before the trade-mark filing (Tim, 2026-10-10).
+<FilesMatch "^wordmark-">
+    Require all denied
+</FilesMatch>

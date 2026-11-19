@@ -5,6 +5,8 @@
  * Returns JSON.
  */
 
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
+
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 5; $__i++) {
@@ -18,6 +20,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -28,6 +31,19 @@ if (($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     echo json_encode(['success' => false, 'error' => 'Admin access required']);
     exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Most actions here send csrf_token inside the JSON body rather than as a
+    // form field or header, so check all three places it could arrive.
+    $rawBody = file_get_contents('php://input');
+    $jsonBody = json_decode($rawBody, true) ?? [];
+    $csrfToken = $jsonBody['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
 }
 
 header('Content-Type: application/json');
@@ -81,6 +97,16 @@ try {
         // Encode value as JSON if it's an array/object
         if (is_array($value)) {
             $value = json_encode($value);
+        }
+
+        // The pre-trip bypass PIN is stored hashed (#10, Fable audit 2026-10-12).
+        if ($key === 'manager_override_pin') {
+            require_once APP_ROOT . '/Modules/Settings/Services/ManagerPin.php';
+            try {
+                $value = ManagerPin::forStorage($value);
+            } catch (InvalidArgumentException $e) {
+                throw new Exception($e->getMessage());
+            }
         }
 
         $stmt = $db->prepare("
@@ -243,7 +269,7 @@ try {
         $htmlBody = "
             <div style='font-family:Arial,sans-serif;max-width:600px;'>
                 <h2 style='color:#1565c0;'>🧪 Test Weather Alert</h2>
-                <p>This is a <strong>test email</strong> from the Mowology Weather Operations system.</p>
+                <p>This is a <strong>test email</strong> from the " . htmlspecialchars(_idFromName()) . " Weather Operations system.</p>
                 <table style='width:100%;border-collapse:collapse;margin:16px 0;'>
                     <tr style='background:#e3f2fd;'>
                         <td style='padding:10px;font-weight:600;'>Type</td>
@@ -264,7 +290,7 @@ try {
                 </table>
                 <p style='color:#2D8659;'>✅ If you received this, email alerts are working correctly.</p>
                 <hr style='border:none;border-top:1px solid #eee;margin:20px 0;'>
-                <p style='color:#999;font-size:12px;'>Mowology Weather Guard — test message</p>
+                <p style='color:#999;font-size:12px;'>" . htmlspecialchars(_idFromName()) . " Weather Guard — test message</p>
             </div>
         ";
 
@@ -295,7 +321,7 @@ try {
             throw new Exception('Your user account has no phone number set. Add one on the Team page.');
         }
 
-        $msg = "Mowology test: Weather SMS alerts are working. " . date('M j, g:iA');
+        $msg = _idFromName() . " test: Weather SMS alerts are working. " . date('M j, g:iA');
 
         $result = sendSms($phone, $msg);
 
@@ -417,7 +443,7 @@ try {
 
 } catch (Exception $e) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => ApiResponse::message($e, 'ops-settings')]);
 }
 
 

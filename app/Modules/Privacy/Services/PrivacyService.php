@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 /**
  * PrivacyService
@@ -159,7 +160,9 @@ class PrivacyService
     /**
      * Anonymise a contact under PIPEDA right to erasure.
      *
-     * What IS anonymised: name, email, phone, GPS coordinates on visits.
+     * What IS anonymised: name, email, phone, notes, GPS coordinates on visits, and the
+     *   email copied onto invoice_contacts delivery rows.
+     * Not touched (for Tim): activity_log descriptions may still name the contact.
      * What IS NOT anonymised (legal hold): invoices, quotes, stripe_payments,
      *   consent_log (PIPEDA itself requires keeping consent proof).
      *
@@ -195,9 +198,22 @@ class PrivacyService
                     email      = CONCAT('anonymized-', id, '@deleted.invalid'),
                     phone      = '',
                     mobile     = '',
+                    notes      = NULL,
                     updated_at = NOW()
                 WHERE id = ?
             ")->execute([$contactId]);
+
+            // 1b — Invoice delivery rows keep their own copy of the address the invoice was
+            //      sent to; blank it for this contact and for any row sent to their old email
+            //      (Fable review 2026-10-12). The invoices themselves stay (legal hold).
+            $oldEmail = trim((string)($contact['email'] ?? ''));
+            $this->db->prepare("
+                UPDATE invoice_contacts
+                   SET email_address = CONCAT('anonymized-', ?, '@deleted.invalid'),
+                       bounce_reason = NULL
+                 WHERE contact_id = ?
+                    OR (? <> '' AND email_address = ?)
+            ")->execute([$contactId, $contactId, $oldEmail, $oldEmail]);
 
             // 2 — Null out GPS coordinates on job_visits for this contact's plans
             $this->db->prepare("
@@ -237,7 +253,7 @@ class PrivacyService
         // 5 — Unlink photo files from disk (best-effort, after commit)
         if (defined('PUBLIC_ROOT') && $photoFilenames) {
             foreach ($photoFilenames as $row) {
-                $path = PUBLIC_ROOT . '/uploads/photos/' . $row['filename'];
+                $path = uploadsDir('photos') . '/' . $row['filename'];
                 if (is_file($path)) {
                     @unlink($path);
                 }
@@ -245,7 +261,7 @@ class PrivacyService
                 foreach (['t', 'g', 'v'] as $variant) {
                     $ext      = pathinfo($row['filename'], PATHINFO_EXTENSION);
                     $base     = pathinfo($row['filename'], PATHINFO_FILENAME);
-                    $varPath  = PUBLIC_ROOT . '/uploads/photos/' . $variant . '/' . $base . '.webp';
+                    $varPath  = uploadsDir('photos') . '/' . $variant . '/' . $base . '.webp';
                     if (is_file($varPath)) {
                         @unlink($varPath);
                     }
@@ -271,29 +287,51 @@ class PrivacyService
         $gpsDays   = (int) ($settings['visit_gps_points']['retention_days']      ?? 180);
         $auditDays = (int) ($settings['visit_audit_log']['retention_days']        ?? 730);
 
-        // crew_location_history
-        $stmt = $this->db->prepare(
-            "DELETE FROM crew_location_history WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)"
-        );
-        $stmt->execute([$crewDays]);
-        $crewDeleted = $stmt->rowCount();
+        // Each table purge runs independently so one failure does not block the rest.
+        $crewDeleted  = -1;
+        $gpsDeleted   = -1;
+        $auditDeleted = -1;
+        $errors       = [];
 
-        // visit_gps_points
-        $stmt = $this->db->prepare(
-            "DELETE FROM visit_gps_points WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)"
-        );
-        $stmt->execute([$gpsDays]);
-        $gpsDeleted = $stmt->rowCount();
+        try {
+            $stmt = $this->db->prepare(
+                "DELETE FROM crew_location_history WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)"
+            );
+            $stmt->execute([$crewDays]);
+            $crewDeleted = $stmt->rowCount();
+        } catch (\Throwable $e) {
+            $errors['crew_location_history'] = $e->getMessage();
+            error_log(sprintf('[PrivacyService::purgeExpiredLocationData] purge crew_location_history failed — %s in %s:%d',
+                $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
-        // visit_audit_log — only purge rows from completed visits older than retention period
-        $stmt = $this->db->prepare("
-            DELETE val FROM visit_audit_log val
-            JOIN job_visits jv ON jv.id = val.visit_id
-            WHERE jv.status = 'completed'
-              AND val.created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
-        ");
-        $stmt->execute([$auditDays]);
-        $auditDeleted = $stmt->rowCount();
+        try {
+            $stmt = $this->db->prepare(
+                "DELETE FROM visit_gps_points WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)"
+            );
+            $stmt->execute([$gpsDays]);
+            $gpsDeleted = $stmt->rowCount();
+        } catch (\Throwable $e) {
+            $errors['visit_gps_points'] = $e->getMessage();
+            error_log(sprintf('[PrivacyService::purgeExpiredLocationData] purge visit_gps_points failed — %s in %s:%d',
+                $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
+
+        try {
+            // visit_audit_log — only purge rows from completed visits older than retention period
+            $stmt = $this->db->prepare("
+                DELETE val FROM visit_audit_log val
+                JOIN job_visits jv ON jv.id = val.visit_id
+                WHERE jv.status = 'completed'
+                  AND val.created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+            ");
+            $stmt->execute([$auditDays]);
+            $auditDeleted = $stmt->rowCount();
+        } catch (\Throwable $e) {
+            $errors['visit_audit_log'] = $e->getMessage();
+            error_log(sprintf('[PrivacyService::purgeExpiredLocationData] purge visit_audit_log failed — %s in %s:%d',
+                $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
         return [
             'crew_location_deleted'  => $crewDeleted,
@@ -305,6 +343,7 @@ class PrivacyService
                 'visit_gps_points'      => $gpsDays,
                 'visit_audit_log'       => $auditDays,
             ],
+            'errors'                 => $errors,
         ];
     }
 

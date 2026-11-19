@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * LEGACY SHIM — weather_schedule_guard.php
  * Real logic lives at /app/Modules/Jobs/Cron/weather_schedule_guard.php

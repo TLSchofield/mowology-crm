@@ -11,6 +11,7 @@ import Foundation
 
 private let kQuizPassedDate   = "mw.quizPassedDate"
 private let kQuizAttemptedDate = "mw.quizAttemptedDate"
+private let kQuizServerEnabled = "mw.quizServerEnabled"
 
 @MainActor
 final class QuizViewModel: ObservableObject {
@@ -48,7 +49,26 @@ final class QuizViewModel: ObservableObject {
         self.apiClient = APIClient(authSession: authSession)
     }
 
+    #if DEBUG
+    /// `-mwQuizDemo`: canned questions and answers, no server (see QuizDemo.swift).
+    var demoScript: [QuizDemoQuestion]?
+    private var demoSubmissions = 0
+    #endif
+
     // MARK: - Public API
+
+    /// Asks the server whether the pre-shift quiz applies to this crew member today. The server answers "on"
+    /// only when the business switched it on AND has at least one question, so a quiz with no questions never
+    /// blocks the schedule. Offline, the last answer the server gave is used; before any answer, the quiz is off.
+    static func serverStatus(apiClient: APIClient) async -> (enabled: Bool, done: Bool) {
+        do {
+            let status: QuizStatusResponse = try await apiClient.request(.quizStatus)
+            UserDefaults.standard.set(status.enabled, forKey: kQuizServerEnabled)
+            return (status.enabled, status.done)
+        } catch {
+            return (UserDefaults.standard.bool(forKey: kQuizServerEnabled), false)
+        }
+    }
 
     /// True if the quiz was passed today (for UI badges / score display).
     static func hasPassedToday() -> Bool {
@@ -65,6 +85,12 @@ final class QuizViewModel: ObservableObject {
 
     /// Start a new 10-question quiz session.
     func start() async {
+        #if DEBUG
+        if let demo = demoScript { sessionId = 1; totalQuestions = demo.count
+            let a = ProcessInfo.processInfo.arguments
+            currentNum = (a.firstIndex(of: "-mwQuizStart").flatMap { $0 + 1 < a.count ? Int(a[$0 + 1]) : nil }) ?? 1
+            await loadQuestion(num: currentNum); return }
+        #endif
         isLoading    = true
         errorMessage = nil
         phase        = .loading
@@ -79,7 +105,8 @@ final class QuizViewModel: ObservableObject {
             currentNum     = 1
             await loadQuestion(num: 1)
         } catch {
-            errorMessage = "Could not start quiz. Check your connection."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
             isLoading    = false
             phase        = .error   // FIX: was left as .loading, trapping the user forever
         }
@@ -88,10 +115,23 @@ final class QuizViewModel: ObservableObject {
     /// Submit the selected answer for the current question.
     func submitAnswer(optionId: Int?) async {
         guard let sid = sessionId,
-              let q   = currentQuestion else { return }
+              let q   = currentQuestion,
+              answerState == nil, !isLoading else { return }   // one answer per question: a repeat tap scores nothing
 
         let timeTaken = Int(Date().timeIntervalSince(questionStartTime))
         isLoading     = true
+        #if DEBUG
+        if let demo = demoScript {
+            let correct = currentNum * 10 + demo[currentNum - 1].correct
+            demoSubmissions += 1
+            print("QUIZDEMO submission #\(demoSubmissions) for question \(currentNum)")
+            try? await Task.sleep(nanoseconds: 120_000_000)   // a believable round trip
+            answerState = QuizAnswerState(optionId: optionId, isCorrect: optionId == correct, correctOptionId: correct)
+            phase = .feedback
+            isLoading = false
+            return
+        }
+        #endif
 
         do {
             var body: [String: Any] = [
@@ -112,7 +152,8 @@ final class QuizViewModel: ObservableObject {
             )
             phase = .feedback
         } catch {
-            errorMessage = "Could not submit answer. Try again."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
         }
 
         isLoading = false
@@ -133,6 +174,14 @@ final class QuizViewModel: ObservableObject {
     // MARK: - Private
 
     private func loadQuestion(num: Int) async {
+        #if DEBUG
+        if let demo = demoScript {
+            currentQuestion = demo[num - 1].response(num: num, total: demo.count)
+            phase = .question(num: num, of: demo.count)
+            isLoading = false
+            return
+        }
+        #endif
         guard let sid = sessionId else { return }
         isLoading     = true
         errorMessage  = nil
@@ -145,7 +194,8 @@ final class QuizViewModel: ObservableObject {
             questionStartTime = .now
             phase             = .question(num: num, of: totalQuestions)
         } catch {
-            errorMessage = "Could not load question. Try again."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
             phase        = .error
         }
 
@@ -153,6 +203,9 @@ final class QuizViewModel: ObservableObject {
     }
 
     private func finish() async {
+        #if DEBUG
+        if demoScript != nil { result = nil; phase = .finished(passed: true); isLoading = false; return }
+        #endif
         guard let sid = sessionId else { return }
         isLoading = true
 
@@ -170,7 +223,8 @@ final class QuizViewModel: ObservableObject {
 
             phase = .finished(passed: response.passed)
         } catch {
-            errorMessage = "Could not finalize quiz. Your answers are saved."
+            AppDiagnostics.shared.record(category: "QuizViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error) + " Your answers are saved."
             phase        = .finished(passed: false)
         }
 
@@ -178,8 +232,6 @@ final class QuizViewModel: ObservableObject {
     }
 
     private static func todayISO() -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withFullDate]
-        return f.string(from: .now)
+        VancouverDay.string()   // the Vancouver day, not GMT's (the gate reopened every evening)
     }
 }

@@ -11,6 +11,7 @@
  * Client Confidence Box is included as the last content section.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
@@ -18,6 +19,8 @@ if (!defined('APP_ROOT')) {
 
 // Load Composer autoloader (mPDF)
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/Core/Uploads.php';
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
 
 if (!class_exists('MapSnapshotService')) {
     require_once __DIR__ . '/MapSnapshotService.php';
@@ -40,15 +43,16 @@ class PowPdfGenerator
         $this->db          = $db;
         $this->publicRoot  = rtrim($publicRoot, '/');
         // Absolute path: sits alongside storage/pdfs/quotes/ and storage/pdfs/invoices/
+        // Per-business folder (PdfStore); the default business keeps storage/pdfs/pow
         $this->storageDir  = defined('STORAGE_ROOT')
-            ? STORAGE_ROOT . '/pdfs/pow'
+            ? PdfStore::dir('pow', false)
             : dirname($this->publicRoot) . '/storage/pdfs/pow';
         $this->siteUrl     = rtrim($siteUrl, '/');
-        $this->companyName = 'Mowology Landscaping';
+        $this->companyName = _idCompanyInfo()['company_name'];
         $this->logoPath    = $this->publicRoot . '/assets/img/mowology-logo.png';
 
         if (!is_dir($this->storageDir)) {
-            mkdir($this->storageDir, 0755, true);
+            mkdir($this->storageDir, 0750, true);
         }
     }
 
@@ -69,7 +73,8 @@ class PowPdfGenerator
 
         // Version number (existing + 1)
         $version  = 1;
-        if (!empty($data['visit']['pdf_path']) && !$forceRegen) {
+        // A stored path this business can't open (a pre-2026-11-06 flat path on a non-default business) counts as missing.
+        if (!empty($data['visit']['pdf_path']) && !$forceRegen && PdfStore::absoluteFromStored((string)$data['visit']['pdf_path']) !== null) {
             // PDF exists and not forcing — return cached
             return ['success' => true, 'path' => $data['visit']['pdf_path'], 'error' => null];
         }
@@ -95,7 +100,7 @@ class PowPdfGenerator
         // Determine output path
         $filename = 'visit_' . $visitId . '_v' . $version . '.pdf';
         $filepath = rtrim($this->storageDir, '/') . '/' . $filename;
-        $webPath  = self::RELATIVE_DIR . $filename;
+        $webPath  = PdfStore::relative('pow', $filename);
 
         // Render with mPDF
         $this->renderWithMpdf($html, $filepath);
@@ -139,7 +144,10 @@ class PowPdfGenerator
                 c.first_name AS contact_first, c.last_name AS contact_last,
                 c.email AS contact_email, c.phone AS contact_phone,
                 c.mobile AS contact_mobile,
-                u.full_name AS crew_name, u.phone AS crew_phone
+                -- CLIENT-FACING DOCUMENT: never the employee's name or phone. A stable crew
+                -- reference keeps the record evidential (the office can resolve it) without
+                -- telling the client who was on site. See TrackingConsentService::disclosure().
+                CONCAT('Crew #', LPAD(u.id, 3, '0')) AS crew_name
             FROM job_visits v
             JOIN job_plans p ON v.plan_id = p.id
             LEFT JOIN properties pr ON p.property_id = pr.id
@@ -165,12 +173,17 @@ class PowPdfGenerator
         ");
         $stmt->execute([$visitId]);
         $gpsPoints = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        // Only the points ON the property reach the client's map and distance — never the drive
+        // there, the fuel stop or the next client (same rule as the portal; Codex 2026-10-15).
+        require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+        $proof     = new \RouteProofService($this->db);
+        $gpsPoints = \RouteProofService::onSiteLatLng($gpsPoints, $proof->siteForVisit($visitId), $proof->radiusM());
 
         // Photos
         $stmt = $this->db->prepare("
             SELECT id, photo_type, filename, caption, uploaded_at
             FROM visit_photos
-            WHERE visit_id = ?
+            WHERE visit_id = ? AND deleted_at IS NULL   -- a deleted photo never goes to the client (as the salt report)
             ORDER BY photo_type, uploaded_at
         ");
         $stmt->execute([$visitId]);
@@ -213,10 +226,22 @@ class PowPdfGenerator
             $confBox = $this->generateConfidenceBox($v, $serviceType);
         }
 
-        $startedAt   = $v['started_at']    ? date('D, F j, Y g:i A', strtotime($v['started_at'])) : 'N/A';
+        // This PDF is what the client downloads. For contract work the visit length — duration
+        // and the start/finish clock times it can be worked out from — stays out of it unless the
+        // office has switched it on (Settings → Client Portal). The office has the CRM for hours.
+        $showLength = true;
+        try {
+            require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+            $showLength = (new ClientVisibilityService(getDB()))->forVisit((int)$v['id'])['length'];
+        } catch (Throwable $e) {
+            error_log('PowPdfGenerator: visibility check failed: ' . $e->getMessage());
+        }
+
+        $startedAt   = $v['started_at']
+            ? date($showLength ? 'D, F j, Y g:i A' : 'D, F j, Y', strtotime($v['started_at'])) : 'N/A';
         $completedAt = $v['completed_at']  ? date('g:i A', strtotime($v['completed_at']))           : 'N/A';
         $duration    = '';
-        if ($v['started_at'] && $v['completed_at']) {
+        if ($showLength && $v['started_at'] && $v['completed_at']) {
             $mins = (int)round((strtotime($v['completed_at']) - strtotime($v['started_at'])) / 60);
             $duration = ($mins >= 60 ? floor($mins/60) . 'h ' : '') . ($mins % 60) . 'm';
         }
@@ -237,7 +262,7 @@ class PowPdfGenerator
         $logoTag      = '';
         if (file_exists($this->logoPath)) {
             $logoData = base64_encode(file_get_contents($this->logoPath));
-            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="Mowology">';
+            $logoTag  = '<img src="data:image/png;base64,' . $logoData . '" class="logo" alt="' . htmlspecialchars(_idFromName()) . '">';
         }
 
         $mapTag = '';
@@ -396,10 +421,12 @@ class PowPdfGenerator
       <div class="label">Visit Date</div>
       <div class="value"><?= htmlspecialchars($startedAt) ?></div>
     </div>
+    <?php if ($showLength): ?>
     <div>
       <div class="label">Finished</div>
       <div class="value"><?= htmlspecialchars($completedAt) ?></div>
     </div>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -407,10 +434,12 @@ class PowPdfGenerator
 <div class="section">
   <div class="section-title">Visit Summary</div>
   <div class="stats-row">
+    <?php if ($showLength): ?>
     <div class="stat-box">
       <div class="stat-val"><?= htmlspecialchars($duration ?: 'N/A') ?></div>
       <div class="stat-lbl">Total Duration</div>
     </div>
+    <?php endif; ?>
     <div class="stat-box">
       <div class="stat-val"><?= htmlspecialchars($distKm) ?></div>
       <div class="stat-lbl">Distance Covered</div>
@@ -488,7 +517,7 @@ class PowPdfGenerator
   <div class="section-title">Site Photos</div>
   <div class="photos-grid">
     <?php foreach ($photos as $ph):
-        $imgPath = $this->publicRoot . '/uploads/photos/' . $ph['filename'];
+        $imgPath = $this->publicRoot . uploadsUrl('photos') . '/' . $ph['filename'];
         if (!file_exists($imgPath)) continue;
         $imgData = base64_encode(file_get_contents($imgPath));
         $ext     = strtolower(pathinfo($ph['filename'], PATHINFO_EXTENSION));

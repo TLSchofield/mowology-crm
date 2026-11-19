@@ -15,28 +15,37 @@
 import SwiftUI
 
 struct QuizView: View {
+    @Environment(\.itAppStyle) private var appStyle
 
     @StateObject private var viewModel: QuizViewModel
     let onPass: () -> Void
 
     init(authSession: AuthSession, onPass: @escaping () -> Void) {
-        _viewModel = StateObject(wrappedValue: QuizViewModel(authSession: authSession))
+        let model = QuizViewModel(authSession: authSession)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-mwQuizDemo") { model.demoScript = QuizDemoQuestion.script }
+        #endif
+        _viewModel = StateObject(wrappedValue: model)
         self.onPass = onPass
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground).ignoresSafeArea()
+                appStyle.page.ignoresSafeArea()
 
                 switch viewModel.phase {
                 case .loading:
                     loadingView
-                case .question(let num, let of):
-                    questionView(num: num, of: of)
-                case .feedback:
-                    if let q = viewModel.currentQuestion, let state = viewModel.answerState {
-                        feedbackView(question: q, state: state)
+                case .question, .feedback:
+                    // One screen for asking and answering, so nothing moves when the answer lands.
+                    if let q = viewModel.currentQuestion {
+                        QuizQuestionScreen(question: q,
+                                           state: viewModel.answerState,
+                                           isBusy: viewModel.isLoading,
+                                           onAnswer: { id in Task { await viewModel.submitAnswer(optionId: id) } },
+                                           onNext: { Task { await viewModel.advance() } })
+                            .id(q.question.id)
                     }
                 case .finished(let passed):
                     finishedView(passed: passed)
@@ -44,15 +53,7 @@ struct QuizView: View {
                     errorView
                 }
             }
-            .navigationTitle("Pre-Shift Quiz")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if viewModel.isLoading {
-                        ProgressView()
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)   // the quiz draws its own one-line header
             .alert("Error", isPresented: .init(
                 get: { viewModel.errorMessage != nil },
                 set: { if !$0 { viewModel.errorMessage = nil } }  // FIX: was a no-op, kept alert stuck open
@@ -73,8 +74,8 @@ struct QuizView: View {
             ProgressView()
                 .scaleEffect(1.4)
             Text("Loading your pre-shift quiz…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.meta)
         }
     }
 
@@ -85,16 +86,16 @@ struct QuizView: View {
             Spacer()
 
             Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 56))
-                .foregroundStyle(Color.orange)
+                .font(appStyle.font(size: 56))
+                .foregroundStyle(appStyle.attention)
 
             VStack(spacing: 8) {
                 Text("Could Not Load Quiz")
-                    .font(.title2.bold())
+                    .font(appStyle.font(.title2, weight: .bold))
 
                 Text("Check your connection and try again.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
                     .multilineTextAlignment(.center)
             }
 
@@ -102,12 +103,12 @@ struct QuizView: View {
                 Task { await viewModel.start() }
             } label: {
                 Label("Try Again", systemImage: "arrow.clockwise")
-                    .font(.headline)
+                    .font(appStyle.font(.headline))
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background(appStyle.tenant)
+                    .foregroundStyle(appStyle.onTenant)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .padding(.horizontal)
             .disabled(viewModel.isLoading)
@@ -117,165 +118,6 @@ struct QuizView: View {
         .padding()
     }
 
-    // MARK: - Question
-
-    private func questionView(num: Int, of total: Int) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                progressHeader(num: num, of: total)
-
-                if let q = viewModel.currentQuestion {
-                    questionCard(q: q)
-                    optionsStack(q: q)
-                }
-            }
-            .padding()
-        }
-    }
-
-    private func progressHeader(num: Int, of total: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Question \(num) of \(total)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.MW.green)
-                Spacer()
-                Text("\(Int(Double(num - 1) / Double(total) * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            ProgressView(value: Double(num - 1), total: Double(total))
-                .tint(Color.MW.green)
-        }
-    }
-
-    private func questionCard(q: QuizQuestionResponse) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let colour = q.question.categoryColour {
-                Text(q.question.categoryName)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color(hex: colour)?.opacity(0.15) ?? Color.MW.green.opacity(0.15))
-                    .foregroundStyle(Color(hex: colour) ?? Color.MW.green)
-                    .clipShape(Capsule())
-            }
-
-            Text(q.question.text)
-                .font(.title3.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func optionsStack(q: QuizQuestionResponse) -> some View {
-        VStack(spacing: 10) {
-            ForEach(q.options) { option in
-                Button {
-                    Task { await viewModel.submitAnswer(optionId: option.id) }
-                } label: {
-                    HStack {
-                        Text(option.optionText)
-                            .font(.body)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer()
-                    }
-                    .padding()
-                    .background(Color(.secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.MW.green.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isLoading)
-            }
-        }
-    }
-
-    // MARK: - Feedback
-
-    private func feedbackView(question: QuizQuestionResponse, state: QuizAnswerState) -> some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                feedbackBanner(correct: state.isCorrect)
-                questionCard(q: question)
-                answeredOptionsStack(q: question, state: state)
-
-                Button {
-                    Task { await viewModel.advance() }
-                } label: {
-                    Label("Next Question", systemImage: "arrow.right")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.MW.green)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .disabled(viewModel.isLoading)
-            }
-            .padding()
-        }
-    }
-
-    private func feedbackBanner(correct: Bool) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: correct ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.title2)
-            Text(correct ? "Correct!" : "Not quite — see below")
-                .font(.headline)
-        }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background((correct ? Color.MW.green : Color.red).opacity(0.15))
-        .foregroundStyle(correct ? Color.MW.green : Color.red)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func answeredOptionsStack(q: QuizQuestionResponse, state: QuizAnswerState) -> some View {
-        VStack(spacing: 10) {
-            ForEach(q.options) { option in
-                let isSelected = option.id == state.optionId
-                let isCorrect  = option.id == state.correctOptionId
-
-                HStack {
-                    Text(option.optionText)
-                        .font(.body)
-                        .multilineTextAlignment(.leading)
-                    Spacer()
-                    if isCorrect {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Color.MW.green)
-                    } else if isSelected {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.red)
-                    }
-                }
-                .padding()
-                .background(
-                    isCorrect ? Color.MW.green.opacity(0.12) :
-                    isSelected ? Color.red.opacity(0.10) :
-                    Color(.secondarySystemGroupedBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(
-                            isCorrect ? Color.MW.green :
-                            isSelected ? Color.red :
-                            Color.clear,
-                            lineWidth: 1.5
-                        )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-        }
-    }
-
     // MARK: - Finished
 
     private func finishedView(passed: Bool) -> some View {
@@ -283,17 +125,17 @@ struct QuizView: View {
             Spacer()
 
             Image(systemName: passed ? "rosette" : "arrow.clockwise.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(passed ? Color.MW.green : Color.orange)
+                .font(appStyle.font(size: 72))
+                .foregroundStyle(passed ? appStyle.complete : appStyle.attention)
 
             VStack(spacing: 8) {
                 Text(passed ? "Quiz Passed!" : "Not Quite")
-                    .font(.largeTitle.bold())
+                    .font(appStyle.font(.largeTitle, weight: .bold))
 
                 if let r = viewModel.result {
                     Text("\(r.correct) of \(r.total) correct (\(r.passMark) needed to pass)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(appStyle.font(.subheadline))
+                        .foregroundStyle(appStyle.meta)
                 }
             }
 
@@ -302,12 +144,12 @@ struct QuizView: View {
                     onPass()
                 } label: {
                     Label("Start My Day", systemImage: "calendar")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.MW.green)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .background(appStyle.tenant)
+                        .foregroundStyle(appStyle.onTenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
                 }
                 .padding(.horizontal)
             } else {
@@ -315,17 +157,17 @@ struct QuizView: View {
                     Task { await viewModel.start() }
                 } label: {
                     Label("Try Again", systemImage: "arrow.clockwise")
-                        .font(.headline)
+                        .font(appStyle.font(.headline))
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.orange)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .background(appStyle.attention)
+                        .foregroundStyle(appStyle.onTenant)
+                        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(14)))
                 }
                 .padding(.horizontal)
                 Button("Continue to Schedule", action: onPass)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.subheadline))
+                    .foregroundStyle(appStyle.meta)
                     .padding(.top, 4)
             }
 
@@ -349,3 +191,5 @@ private extension Color {
         self.init(red: r, green: g, blue: b)
     }
 }
+
+

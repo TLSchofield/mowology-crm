@@ -35,6 +35,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
@@ -149,8 +150,11 @@ try {
         }
     }
 
-    // ── Enqueue if scheduled ──────────────────────────────────────────────
-    if ($scheduledAt && !empty($platforms) && $status === 'scheduled') {
+    // ── Enqueue for publishing ────────────────────────────────────────────
+    // 'scheduled' posts use the chosen time; 'approved' posts publish immediately (NOW).
+    // 'pending_approval' posts are not enqueued — they wait for approval first.
+    if (!empty($platforms) && in_array($status, ['scheduled', 'approved'], true)) {
+        $effectiveSchedule = $scheduledAt ?? date('Y-m-d H:i:s'); // NOW for approved/immediate
         $qStmt = $db->prepare("
             INSERT INTO social_queue
                 (post_id, account_id, platform, scheduled_at, status)
@@ -158,7 +162,7 @@ try {
             FROM social_post_platforms spp
             WHERE spp.post_id = ?
         ");
-        $qStmt->execute([$scheduledAt, $postId]);
+        $qStmt->execute([$effectiveSchedule, $postId]);
     }
 
     // ── Audit log ─────────────────────────────────────────────────────────
@@ -195,6 +199,6 @@ try {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error'   => 'Failed to save post: ' . $e->getMessage()
+        'error'   => 'Failed to save post: ' . ApiResponse::message($e, 'social-post-save')
     ]);
 }

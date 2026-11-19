@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * FAQ Enhanced Block Renderer — with category filter tabs
  *
@@ -105,7 +106,7 @@ $uid = 'faqe-' . ($block['id'] ?? substr(md5(uniqid('', true)), 0, 8));
 .mw-faqe__a p{color:#4a6350;line-height:1.75;font-size:.9rem}
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function(){
   var uid = <?= json_encode($uid) ?>;
   var section = document.getElementById(uid);

@@ -3,22 +3,23 @@ Deploy the specified file(s) to production via FTP.
 Files to deploy: $ARGUMENTS
 
 Steps:
-1. Read the FTP password from git config: `git config git-ftp.password`
-2. For each file path provided, determine the correct FTP destination path:
+1. Minified-asset check: for each file in the list under `public/crm/js/` or `public/crm/css/` that is a source file (not already `.min.js`/`.min.css`), check whether a `.min` sibling exists and whether the source's mtime is newer than the manifest's recorded mtime for it (`scripts/.minify-manifest.json`). If any are stale or missing, run `php scripts/minify-assets.php --verbose` before deploying anything, then add every regenerated `.min.js`/`.min.css` sibling to the deploy list (and stage/commit them with the same commit as the source change, per the repo's commit-before-deploy workflow) so the stale-minified-asset drift documented in the Obsidian vault's Known-Failure-Patterns can't recur silently.
+2. Commit the files first. Then deploy with `scripts/deploy-safe.sh <file>...` (never raw lftp): it first runs the feature gate (`scripts/lib/feature-gate.sh`), which merges this branch into feature/language, runs the tests and pushes before anything is uploaded — so a deployed file is always on feature/language (Tim, 2026-11-06). If the gate refuses (uncommitted file, merge conflict, failing test), fix that; do not bypass it. `FEATURE_GATE=off` is only for an emergency, said in the chat. FTP host, password (Keychain first, then git config) and TLS verification all come from `scripts/lib/ftp.sh`; never set `ssl:verify-certificate no` and never put the password on the command line.
+3. For each file path provided, determine the correct FTP destination path:
    - Files under `public/` → strip `public/` prefix, upload to `/dirname/`
    - Files under `app/` → upload to `/app/dirname/` (app/ lives inside public_html on server)
    - Example: `public/crm/invoices/view.php` → FTP path `/crm/invoices/`
    - Example: `app/Modules/Team/Api/employees.php` → FTP path `/app/Modules/Team/Api/`
-3. Run lftp for each file (one connection per file):
+4. Upload (the gate runs inside it):
    ```bash
-   FTP_PASS=$(git config git-ftp.password)
-   lftp -u "claude@mowology.ca,$FTP_PASS" -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O /DEST_DIR/ FILE_PATH; quit" ftp://ftp.mowology.ca
+   scripts/deploy-safe.sh FILE_PATH [FILE_PATH...]
    ```
-4. After all files are deployed, update the remote .git-ftp.log:
+   Then hit `/crm/api/opcache-reset.php`.
+5. After all files are deployed, update the remote .git-ftp.log:
    ```bash
    echo $(git rev-parse HEAD) > /tmp/git-ftp-log.txt
-   lftp -u "claude@mowology.ca,$FTP_PASS" -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit" ftp://ftp.mowology.ca
+   mw_lftp "put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit"
    ```
-5. Report which files were deployed and confirm success.
+6. Report which files were deployed and confirm success (including which `.min` siblings, if any, were auto-regenerated and included).
 
 If no files are specified, run `git ftp push --dry-run` to list changed files since last deploy, then ask which ones to deploy.

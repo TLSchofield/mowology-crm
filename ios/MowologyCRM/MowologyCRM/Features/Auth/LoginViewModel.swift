@@ -32,7 +32,7 @@ final class LoginViewModel: ObservableObject {
     /// Validates input and calls the AuthSession login method.
     /// On success, `authSession.isAuthenticated` becomes true and RootView
     /// transitions automatically. On failure, `errorMessage` is set.
-    func login() async {
+    func login(business: String? = nil) async {
         let trimmedEmail    = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -55,13 +55,16 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            try await authSession.login(email: trimmedEmail, password: trimmedPassword)
+            try await authSession.login(email: trimmedEmail, password: trimmedPassword, business: business)
             // On success, authSession.isAuthenticated flips to true.
             // RootView handles the navigation — no action needed here.
+        } catch is DirectoryChoiceRequired {
+            // The published choices present the picker; the typed credentials stay here for the retry.
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
         } catch {
-            errorMessage = "An unexpected error occurred. Please try again."
+            AppDiagnostics.shared.record(category: "LoginViewModel", message: ErrorDetails.describe(error))
+            errorMessage = ErrorDetails.describe(error)
         }
 
         isLoading = false
