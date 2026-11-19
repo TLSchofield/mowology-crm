@@ -937,3 +937,6 @@ could empty the whole queue. **Rule:** only the app's own 413/415 are refusals, 
 - The `vendors` table holds receipt-OCR fragments as names/aliases ("STORE #: 43016", "SANS", "pnty", "city of"). Match a vendor only at the start of the merchant text, names 4+ letters, aliases 8+ (`BankLineEvidence::vendorFor()`).
 - Bank-line presses must say everything they do: Approve on a found receipt also links it and reverses the line's own entry (`BankDeskService::decide`), so the button reads "+ link receipt".
 
+
+## 2026-11-19 — "vendor doesn't charge PST" lives on the vendor, not in the parser
+A review screen that nags "PST is missing" for a vendor that never charges it (City of Vancouver landfill) is fixed with the vendor's `pst_exempt` flag (migration 1459), beside `gst_exempt`; `applyVendorPstExempt()` zeroes PST at intake. Emailed-receipt paths (`ReceiptInboxService`, `ReceiptInboxRereadService`) do not read it yet.

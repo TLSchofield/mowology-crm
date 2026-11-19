@@ -129,6 +129,20 @@ final class VisitPullForwardServiceTest extends TestCase
         $this->assertNotContains(2160, array_column($offer['others'], 'visit_id'));
     }
 
+    public function testOverdueVisitOfAPlanDoneTodayIsNotOffered(): void
+    {
+        // Plan 1 was completed today (visit 2150). An older, never-done visit of the same plan
+        // must not pop "was due ... Doing it now?" right after the crew marks today's job complete.
+        $this->db->exec("INSERT INTO job_visits VALUES (2130, 'PLN-1-V19', 1, NULL, '2026-09-28', 'scheduled', NULL, NULL, 10, NULL, 19)");
+        $offer = $this->svc()->offerForProperty(73);
+        $this->assertNotContains(2130, array_column(array_merge([$offer['primary']], $offer['others']), 'visit_id'));
+        $this->assertSame(2160, $offer['primary']['visit_id']);
+
+        // An overdue visit of a plan NOT done today is still offered.
+        $this->db->exec("INSERT INTO job_visits VALUES (2140, 'PLN-2-V8', 2, NULL, '2026-10-01', 'scheduled', NULL, NULL, 10, NULL, 8)");
+        $this->assertSame(2140, $this->svc()->offerForProperty(73)['primary']['visit_id']);
+    }
+
     public function testOverdueWording(): void
     {
         $this->db->exec("INSERT INTO job_visits VALUES (2140, 'PLN-2-V8', 2, NULL, '2026-10-01', 'scheduled', NULL, NULL, 10, NULL, 8)");

@@ -449,6 +449,7 @@ class ReceiptIntakeService
                     $parsed['total'] = $parsed['subtotal'];
                 }
             }
+            $parsed = applyVendorPstExempt($parsed, $suggestions);
 
             // Word-level confidence extraction
             if ($rawResponse) {

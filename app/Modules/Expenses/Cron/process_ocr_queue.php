@@ -418,6 +418,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
                 $parsed['total'] = $parsed['subtotal'];
             }
         }
+        $parsed = applyVendorPstExempt($parsed, $suggestions);
 
         // Per-field confidences (Vision word-level), if available
         if (function_exists('extractWordConfidenceMap') && function_exists('calculateFieldConfidences') && !empty($ocrResult['raw_response'])) {

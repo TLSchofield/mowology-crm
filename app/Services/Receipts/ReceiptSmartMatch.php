@@ -120,6 +120,7 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         $result['vendor_name']       = $vendorMatch['name'];
         $result['vendor_confidence'] = $vendorMatch['confidence'];
         $result['vendor_gst_exempt'] = !empty($vendorMatch['gst_exempt']);
+        $result['vendor_pst_exempt'] = !empty($vendorMatch['pst_exempt']);
         $result['match_details'][]   = $vendorMatch['reason'];
 
         // Use vendor defaults for categories
@@ -164,6 +165,7 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
             $result['vendor_name']       = $store['vendor_name'];
             $result['vendor_confidence'] = 55;
             $result['vendor_gst_exempt'] = !empty($store['gst_exempt']);
+            $result['vendor_pst_exempt'] = !empty($store['pst_exempt']);
             $result['match_details'][]   = sprintf('Store location: %d m away%s', $store['meters'],
                 $store['receipts_seen'] > 0 ? ", bought here {$store['receipts_seen']}×" : '');
             if (!empty($store['default_accounting_category'])) {
@@ -257,11 +259,31 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
  * @param PDO    $db
  * @return array|null Matched vendor data with confidence, or null
  */
+/**
+ * Vendor tax exemptions on a parsed receipt (Tim, 2026-11-19: City of Vancouver landfill charges no PST or GST).
+ * A vendor flagged pst_exempt gets PST 0.00; once no tax is left to find (GST exempt or printed, PST exempt or
+ * printed) a receipt with only a total gets subtotal = total, so the review screen can confirm it instead of asking
+ * for tax lines that cannot exist. Call after the GST-exempt override. Never overwrites a printed amount.
+ */
+function applyVendorPstExempt(array $parsed, array $suggestions): array
+{
+    if (empty($suggestions['vendor_pst_exempt'])) {
+        return $parsed;
+    }
+    $parsed['pst'] = '0.00';
+    $parsed['pst_exempt'] = true;
+    $gstDone = !empty($parsed['gst_exempt']) || (isset($parsed['gst']) && $parsed['gst'] !== null && $parsed['gst'] !== '' && empty($parsed['gst_estimated']));
+    if ($gstDone && empty($parsed['subtotal']) && !empty($parsed['total'])) {
+        $parsed['subtotal'] = number_format(max(0.0, (float)$parsed['total'] - (float)($parsed['gst'] ?? 0)), 2, '.', '');
+    }
+    return $parsed;
+}
+
 function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
 {
     try {
         $stmt = $db->query("
-            SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt
+            SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt, pst_exempt
             FROM vendors
             WHERE is_active = 1
             ORDER BY id
@@ -366,7 +388,7 @@ function kbResolveVendorFromOcr(string $ocrLower, array $ocrPhones, PDO $db): ?a
         if (!$kbv) return null;
         $localId = $kb->localVendorFor((int)$kbv['id']);
         if (!$localId) return null;
-        $s = $db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt FROM vendors WHERE id = ? AND is_active = 1");
+        $s = $db->prepare("SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt, pst_exempt FROM vendors WHERE id = ? AND is_active = 1");
         $s->execute([$localId]);
         $v = $s->fetch(PDO::FETCH_ASSOC);
         if (!$v) return null;
@@ -837,7 +859,7 @@ function nearestKnownStore(PDO $db, float $lat, float $lng, float $maxMeters = S
         $dLng = 0.004 / max(0.2, cos(deg2rad($lat)));
         $stmt = $db->prepare("
             SELECT vl.vendor_id, vl.lat, vl.lng, " . ($learned ? "vl.source, vl.receipts_seen" : "NULL AS source, 0 AS receipts_seen") . ",
-                   v.name AS vendor_name, v.default_accounting_category, v.default_gbp_category, v.gst_exempt
+                   v.name AS vendor_name, v.default_accounting_category, v.default_gbp_category, v.gst_exempt, v.pst_exempt
             FROM vendor_locations vl
             JOIN vendors v ON v.id = vl.vendor_id AND v.is_active = 1
             WHERE vl.lat BETWEEN ? AND ? AND vl.lng BETWEEN ? AND ?

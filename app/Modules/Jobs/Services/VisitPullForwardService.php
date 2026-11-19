@@ -250,11 +250,31 @@ class VisitPullForwardService
         $v->execute([$propertyId, $from, $to]);
         $rows = $v->fetchAll(PDO::FETCH_ASSOC);
 
+        // Plans already done today (live only). A visit of such a plan that was due BEFORE today is
+        // satisfied by today's work — a snow removal missed on Nov 12 and done on Nov 19 must not
+        // pop "was due Nov 12. Doing it now?" the moment the crew marks Nov 19 complete.
+        // Upcoming visits of the plan are still offered (Oakridge: finish Monday, do Tuesday's).
+        $donePlansToday = [];
+        if (!$historical) {
+            foreach ($rows as $r) {
+                if ((string)$r['status'] !== 'completed') {
+                    continue;
+                }
+                $doneOn = substr((string)($r['completed_at'] ?: ''), 0, 10);
+                if (substr((string)$r['scheduled_date'], 0, 10) === $day || $doneOn === $day) {
+                    $donePlansToday[(int)$r['plan_id']] = true;
+                }
+            }
+        }
+
         $todayVisits = [];
         $pool = [];
         foreach ($rows as $r) {
             $status = (string)$r['status'];
             $date   = substr((string)$r['scheduled_date'], 0, 10);
+            if ($date < $day && isset($donePlansToday[(int)$r['plan_id']])) {
+                continue;
+            }
             if ($historical && in_array($status, ['in_progress', 'completed'], true)) {
                 $touched = substr((string)($r['started_at'] ?: $r['completed_at'] ?: ''), 0, 10);
                 $r['open_as_of'] = $touched !== '' && $touched >= $day;
