@@ -799,6 +799,9 @@ function isSchedulePage(path) {
  * Detect Esri / OpenStreetMap map tile hosts for offline caching.
  * These are the tile sources used by the Zone Editor (Leaflet).
  */
+// The worker's own fetch of a tile is governed by connect-src of the CSP that service-worker.php was
+// served with (public/.htaccess). A worker keeps the CSP it was installed with, so after editing that
+// CSP this file must change too, or existing browsers keep the old policy (2026-11-19: OSM tiles grey).
 function isMapTile(hostname) {
   return hostname === 'server.arcgisonline.com' ||
          hostname.endsWith('.arcgisonline.com') ||
