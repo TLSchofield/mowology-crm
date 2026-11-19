@@ -29,9 +29,6 @@ struct MowologyCRMApp: App {
         requestNotificationPermission()
         // Announce reconnects from launch so every offline queue drains, clocked in or not.
         ConnectivityMonitor.shared.start()
-        // The clocked-in Live Activity (Dynamic Island + Lock Screen) follows ClockChipStore/BreakController;
-        // starting here also ends or re-attaches an activity left behind by a killed app.
-        LiveActivityController.shared.start()
     }
 
     // MARK: - Scene

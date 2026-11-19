@@ -220,13 +220,6 @@
 		C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */; };
 		70DFA209222DE10C2BE33F0A /* QuizQuestionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */; };
 		05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E465AAA0176426DA253EC733 /* QuizDemo.swift */; };
-		715B18A6F4D948DB4804FA49 /* ClockActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC022C65CD8CB1AA195215DA /* ClockActivityAttributes.swift */; };
-		7AB85B946C06AC07B4D3A868 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44F2493F0A50A154D140025 /* LiveActivityController.swift */; };
-		BD88B3C429D51DFF78171E72 /* ClockLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91DAA5880B834F3F14DF6582 /* ClockLiveActivity.swift */; };
-		5BEF5A8D0AD19F96A64C2D59 /* IttaiLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1145A580A84D74B0EBEFD4 /* IttaiLiveActivityBundle.swift */; };
-		2870E407F7A0FE26C52F717B /* LiveActivityTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A13C6461A0259B7C9D7271D /* LiveActivityTokens.swift */; };
-		D5AEB6119AC329042898D13D /* ClockActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC022C65CD8CB1AA195215DA /* ClockActivityAttributes.swift */; };
-		84B25B4BE386CAFA675E259D /* IttaiLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 95F2B5F3C3AAFD2DC722324E /* IttaiLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -445,38 +438,7 @@
 		FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptRowRules.swift; sourceTree = "<group>"; };
 		8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizQuestionScreen.swift; sourceTree = "<group>"; };
 		E465AAA0176426DA253EC733 /* QuizDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizDemo.swift; sourceTree = "<group>"; };
-		CC022C65CD8CB1AA195215DA /* ClockActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockActivityAttributes.swift; sourceTree = "<group>"; };
-		F44F2493F0A50A154D140025 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
-		91DAA5880B834F3F14DF6582 /* ClockLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockLiveActivity.swift; sourceTree = "<group>"; };
-		CB1145A580A84D74B0EBEFD4 /* IttaiLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IttaiLiveActivityBundle.swift; sourceTree = "<group>"; };
-		7A13C6461A0259B7C9D7271D /* LiveActivityTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityTokens.swift; sourceTree = "<group>"; };
-		95F2B5F3C3AAFD2DC722324E /* IttaiLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = IttaiLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		0C49FDFF5407F5705BE6A770 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXContainerItemProxy section */
-		13EDADD02EDB1AEBE4C746EC /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A5901657DFF6ED7CF58BBE11 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = E4F815A5D66327A0DEEED4CC;
-			remoteInfo = IttaiLiveActivity;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		DFCB806BF2F60AE4E1248136 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				84B25B4BE386CAFA675E259D /* IttaiLiveActivity.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXGroup section */
 		146DA49BE70A00338AC2B82B /* Offline */ = {
@@ -507,7 +469,6 @@
 			isa = PBXGroup;
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
-				E6CEA0282BA664E9517A216B /* IttaiLiveActivity */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
 );
 			sourceTree = "<group>";
@@ -568,7 +529,6 @@
 			isa = PBXGroup;
 			children = (
 				AC8522EE94548B7FD4F1982E /* MowologyCRM.app */,
-				95F2B5F3C3AAFD2DC722324E /* IttaiLiveActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -584,7 +544,6 @@
 							C6D4E0B37F8C9A0B12345678 /* Design */,
 				D79E2D6DC73D55246D8D2EEF /* Diagnostics */,
 				02C82BC0D05C12CA2715FF7C /* Contacts */,
-				3A08CC88A0B7D721BB975B8C /* LiveActivity */,
 );
 			path = Core;
 			sourceTree = "<group>";
@@ -610,7 +569,6 @@
 				EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */,
 				66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */,
 				3AA859B9B9B8B3298E09B786 /* TimeChip.swift */,
-				F44F2493F0A50A154D140025 /* LiveActivityController.swift */,
 			);
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -912,25 +870,6 @@
 			path = Onboarding;
 			sourceTree = "<group>";
 		};
-		3A08CC88A0B7D721BB975B8C /* LiveActivity */ = {
-			isa = PBXGroup;
-			children = (
-				CC022C65CD8CB1AA195215DA /* ClockActivityAttributes.swift */,
-			);
-			path = LiveActivity;
-			sourceTree = "<group>";
-		};
-		E6CEA0282BA664E9517A216B /* IttaiLiveActivity */ = {
-			isa = PBXGroup;
-			children = (
-				91DAA5880B834F3F14DF6582 /* ClockLiveActivity.swift */,
-				CB1145A580A84D74B0EBEFD4 /* IttaiLiveActivityBundle.swift */,
-				7A13C6461A0259B7C9D7271D /* LiveActivityTokens.swift */,
-				0C49FDFF5407F5705BE6A770 /* Info.plist */,
-			);
-			path = IttaiLiveActivity;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -940,32 +879,15 @@
 			buildPhases = (
 				ECA6CAB465C1A98FD53545D2 /* Sources */,
 				54576281ECFBCBA30CDC435B /* Resources */,
-				DFCB806BF2F60AE4E1248136 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				2CB3DD643A68E461539ADA20 /* PBXTargetDependency */,
 			);
 			name = MowologyCRM;
 			productName = MowologyCRM;
 			productReference = AC8522EE94548B7FD4F1982E /* MowologyCRM.app */;
 			productType = "com.apple.product-type.application";
-		};
-		E4F815A5D66327A0DEEED4CC /* IttaiLiveActivity */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 34CD3DE73B95F06CF315C2F0 /* Build configuration list for PBXNativeTarget "IttaiLiveActivity" */;
-			buildPhases = (
-				C6B7FEE937B9157BB906AFE8 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = IttaiLiveActivity;
-			productName = IttaiLiveActivity;
-			productReference = 95F2B5F3C3AAFD2DC722324E /* IttaiLiveActivity.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -977,9 +899,6 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					B894F8507D292A0047B6D7C1 = {
-						ProvisioningStyle = Automatic;
-					};
-					E4F815A5D66327A0DEEED4CC = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -997,7 +916,6 @@
 			projectRoot = "";
 			targets = (
 				B894F8507D292A0047B6D7C1 /* MowologyCRM */,
-				E4F815A5D66327A0DEEED4CC /* IttaiLiveActivity */,
 			);
 		};
 /* End PBXProject section */
@@ -1230,31 +1148,10 @@
 				C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */,
 				70DFA209222DE10C2BE33F0A /* QuizQuestionScreen.swift in Sources */,
 				05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */,
-				715B18A6F4D948DB4804FA49 /* ClockActivityAttributes.swift in Sources */,
-				7AB85B946C06AC07B4D3A868 /* LiveActivityController.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		C6B7FEE937B9157BB906AFE8 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				BD88B3C429D51DFF78171E72 /* ClockLiveActivity.swift in Sources */,
-				5BEF5A8D0AD19F96A64C2D59 /* IttaiLiveActivityBundle.swift in Sources */,
-				2870E407F7A0FE26C52F717B /* LiveActivityTokens.swift in Sources */,
-				D5AEB6119AC329042898D13D /* ClockActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		2CB3DD643A68E461539ADA20 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = E4F815A5D66327A0DEEED4CC /* IttaiLiveActivity */;
-			targetProxy = 13EDADD02EDB1AEBE4C746EC /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		676019409CEFA2C8658F7108 /* Release */ = {
@@ -1424,47 +1321,6 @@
 			};
 			name = Debug;
 		};
-		28098CCE724F8F664E757BDD /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = FFJBDJKQ9H;
-				INFOPLIST_FILE = IttaiLiveActivity/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field.LiveActivity";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Debug;
-		};
-		69AC0DC8338A3210F6DEB2A7 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = FFJBDJKQ9H;
-				INFOPLIST_FILE = IttaiLiveActivity/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field.LiveActivity";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = 1;
-				CODE_SIGN_IDENTITY = "Apple Development";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1482,15 +1338,6 @@
 			buildConfigurations = (
 				E5027AD2451C6F60AD91BE4B /* Debug */,
 				BB917324C54A805DFBC39327 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		34CD3DE73B95F06CF315C2F0 /* Build configuration list for PBXNativeTarget "IttaiLiveActivity" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				28098CCE724F8F664E757BDD /* Debug */,
-				69AC0DC8338A3210F6DEB2A7 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
