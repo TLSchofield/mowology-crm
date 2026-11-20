@@ -160,7 +160,9 @@ class InvoiceSnowTerms
                 continue;
             }
             if (self::isHeading($p)) {
-                $out .= '<div style="' . ($first ? '' : 'margin-top:6px; ') . 'font-size:6.5pt; font-weight:bold; letter-spacing:0.6px; color:#1e3a5f; border-bottom:0.4pt solid #cbd5e1; padding-bottom:1px; margin-bottom:2px;">' . $e($p) . '</div>';
+                // mPDF drops margin/padding/height between stacked divs, so the gap above a heading is a short blank text line
+                $out .= ($first ? '' : '<div style="font-size:5pt; line-height:5pt;">&nbsp;</div>')
+                    . '<div style="font-size:6.5pt; font-weight:bold; letter-spacing:0.6px; color:#1e3a5f; border-bottom:0.4pt solid #cbd5e1; padding-bottom:1px; margin-bottom:2px;">' . $e($p) . '</div>';
             } else {
                 $out .= '<div style="margin-top:2px;">' . nl2br($e($p)) . '</div>';
             }

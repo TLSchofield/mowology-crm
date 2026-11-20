@@ -226,8 +226,10 @@ class InvoiceSitePresence
         $h .= '<tr>';
         $mapFile = self::mapFile($p);
         if ($mapFile !== null) {
-            // Pinned in mm: an image at width:100% reports its pixel width to mPDF, which then shrinks the layout
-            $h .= '<td width="42%" valign="top" style="padding:0;"><img src="' . $e($mapFile) . '" style="width:76mm; display:block;"></td>';
+            // Pinned in mm (an image at width:100% reports its pixel width to mPDF, which then shrinks the layout). 90 mm = the width of the
+            // weather panel above (49% of the text width), and the text column starts where the amount-due panel starts (51%).
+            // The map file is always 640x230, so every property gets the same frame; only the zoom changes.
+            $h .= '<td width="51%" valign="top" style="padding:0;"><img src="' . $e($mapFile) . '" style="width:90mm; display:block;"></td>';
         }
         $h .= '<td valign="top" style="padding:6px 10px 4px 10px;">'
             . '<span style="background:#0d3b2e; color:#ffffff; font-weight:bold; font-size:8pt;">&nbsp;' . (int)$p['count'] . ' GPS ping' . ((int)$p['count'] === 1 ? '' : 's') . '&nbsp;</span> '
