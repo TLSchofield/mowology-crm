@@ -72,6 +72,35 @@ class ProximityAutoStartService
     }
 
     /**
+     * Salt & snow route stops are worked back to back, often on neighbouring properties inside
+     * each other's fence (2026-11-19: 4 of 9 hand-started stops were 23-115 m from the stop
+     * before, and the old timer or the 5-minute cooldown blocked the auto-start). While a
+     * timer is live or the cooldown is running, an arrival at ANOTHER route visit may still
+     * start: the caller ends the old timer first. Anything that is not route-to-route keeps
+     * the old rule — a live timer or the cooldown blocks the arrival.
+     *
+     * @param bool $blockedByLiveTimer  the user has a live job timer
+     * @param int  $liveVisitId         that timer's visit (0 when none)
+     * @param bool $liveIsRoute         that timer's visit is a salt/snow route visit
+     * @param bool $candidateIsRoute    the arrival candidate is a salt/snow route visit
+     */
+    public static function routeHandoverAllowed(
+        bool $blockedByLiveTimer,
+        int $liveVisitId,
+        bool $liveIsRoute,
+        bool $candidateIsRoute,
+        int $candidateVisitId
+    ): bool {
+        if (!$candidateIsRoute) {
+            return false;
+        }
+        if (!$blockedByLiveTimer) {
+            return true;   // only the cooldown is in the way
+        }
+        return $liveIsRoute && $liveVisitId > 0 && $liveVisitId !== $candidateVisitId;
+    }
+
+    /**
      * Order in-range candidates: inside a drawn arrival border beats a radius
      * match, then nearest first. Callers walk this list and take the first one
      * that passes the remaining guards — so an ineligible nearest visit no longer

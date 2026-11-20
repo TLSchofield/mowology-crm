@@ -42,6 +42,28 @@ function generateInvoiceNumber() {
 }
 
 /**
+ * Generate a unique Winter Service Record (salt report) number
+ * Format: SAL-YYYY-NNNN
+ * (SaltReportPdfGenerator called this, but it was never defined, so every new
+ * report died with a fatal that snowRunProof() swallowed — 2026-11-19.)
+ */
+if (!function_exists('generateSaltReportNumber')) {
+    function generateSaltReportNumber() {
+        $db = getDB();
+        $year = date('Y');
+        $stmt = $db->prepare("
+            SELECT MAX(CAST(SUBSTRING(report_number, 10) AS UNSIGNED)) as max_num
+            FROM salt_run_reports
+            WHERE report_number LIKE ?
+        ");
+        $stmt->execute(["SAL-{$year}-%"]);
+        $result = $stmt->fetch();
+        $nextNum = ($result['max_num'] ?? 0) + 1;
+        return sprintf("SAL-%s-%04d", $year, $nextNum);
+    }
+}
+
+/**
  * Generate a unique contract number
  * Format: CTR-YYYY-NNNN
  */

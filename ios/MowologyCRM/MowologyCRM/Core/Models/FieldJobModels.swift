@@ -44,9 +44,10 @@ struct FieldJobNearbyResponse: Decodable {
     let results: [FieldJobProperty]?
     let serviceTypes: [String]?
     let frequencies: [String]?
+    let staff: [TeamMember]?
 
     enum CodingKeys: String, CodingKey {
-        case success, results, frequencies
+        case success, results, frequencies, staff
         case serviceTypes = "service_types"
     }
 }
