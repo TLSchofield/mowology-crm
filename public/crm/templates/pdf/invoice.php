@@ -387,7 +387,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 
 <hr class="divider">
 
-<?php if ($invoiceHeaderMsg !== ''): ?>
+<?php if ($invoiceHeaderMsg !== '' && !$snowLayout): /* salt/snow invoices carry no thank-you box (Tim, 2026-11-19) */ ?>
 <div class="invoice-header-msg">
     <?php echo nl2br($esc($invoiceHeaderMsg)); ?>
 </div>
