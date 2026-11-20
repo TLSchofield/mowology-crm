@@ -78,7 +78,7 @@ $back = '/crm/homebase.php';
     <link href="/crm/css/crew-team.css?v=20261007a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20261119perm" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20261120perm" defer></script>
     <script src="/crm/js/crew-team.js?v=20261007a" defer></script>
 </head>
 <body class="ct-body">
