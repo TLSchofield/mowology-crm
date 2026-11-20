@@ -30,6 +30,7 @@ class InvoiceWeatherEvidence
                 $row = $s->fetch(PDO::FETCH_ASSOC);
                 if ($row) {
                     $row['grade'] = 'official';
+                    self::applyRecheck($db, $row);
                     return $row;
                 }
             }
@@ -53,6 +54,28 @@ class InvoiceWeatherEvidence
             error_log('InvoiceWeatherEvidence: ' . $e->getMessage());
         }
         return null;
+    }
+
+    /**
+     * The same-day recheck (migration 1460), when one was written: the invoice then shows the forecast as it stood
+     * on the service morning. Its own guarded query, so before the migration runs nothing changes. The original
+     * capture stays in the table untouched.
+     */
+    private static function applyRecheck(PDO $db, array &$row): void
+    {
+        try {
+            $s = $db->prepare("SELECT recheck_at, recheck_low_c, recheck_condition FROM salt_weather_decisions WHERE id = ?");
+            $s->execute([(int)$row['record_id']]);
+            $r = $s->fetch(PDO::FETCH_ASSOC);
+            if ($r && !empty($r['recheck_at']) && $r['recheck_low_c'] !== null) {
+                $row['overnight_low_c']   = $r['recheck_low_c'];
+                $row['weather_condition'] = $r['recheck_condition'] ?: $row['weather_condition'];
+                $row['decision_at']       = $r['recheck_at'];
+                $row['rechecked']         = true;
+            }
+        } catch (Throwable $e) {
+            // columns not there yet: show the original capture
+        }
     }
 
     /** The panel as mPDF-safe HTML (tables, no flex). Empty string when there is no evidence. */
@@ -88,7 +111,7 @@ class InvoiceWeatherEvidence
                 ['Condition', $ev['weather_condition'] ?: '—'],
                 ['Source', ($ev['data_source'] ?: 'Environment Canada')],
                 ['Station', $ev['source_station'] ?: '—'],
-                ['Forecast captured', $cap],
+                [!empty($ev['rechecked']) ? 'Forecast confirmed' : 'Forecast captured', $cap],
             ];
             if ($ref !== '') { $rows[] = ['Record reference', $ref]; }
             $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="' . $css . '">';
