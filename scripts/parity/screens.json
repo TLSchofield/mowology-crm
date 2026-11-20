@@ -1,0 +1,6 @@
+{
+  "_about": "Screens captured side by side each day. ios_args: launch arguments for the iPhone app (DEBUG demo flags show screens that need sign-in with synthetic data). android_start: the `adb shell` command that opens the same screen (default: launch the app). wait: seconds to let it settle. Add one entry per screen; use the same demo data on both.",
+  "screens": [
+    { "name": "launch", "ios_args": [], "wait": 8 }
+  ]
+}
