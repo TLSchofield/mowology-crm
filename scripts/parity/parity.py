@@ -28,7 +28,7 @@ IOS_SWIFT = "ios/MowologyCRM/MowologyCRM"
 MAX_PORTS = int(os.environ.get("PARITY_MAX", "2"))
 ADB = os.environ.get("ADB", os.path.join(HOME, "Library/Android/sdk/platform-tools/adb"))
 IOS_BUNDLE = "ca.mowology.crm-field"
-ANDROID_PKG = os.environ.get("PARITY_ANDROID_PKG", "ca.mowology.crew")
+ANDROID_PKG = os.environ.get("PARITY_ANDROID_PKG", "ca.mowology.crew.test")  # the local-tenant debug build the emulator runs
 VISIBLE = re.compile(r"^(feat|fix|perf)(\(|:|!)", re.I)
 
 
@@ -246,7 +246,7 @@ def cmd_shots(a):
                 sh(["xcrun", "simctl", "terminate", "booted", IOS_BUNDLE]); sh(["xcrun", "simctl", "launch", "booted", IOS_BUNDLE] + s.get("ios_args", []))
                 time.sleep(s.get("wait", 6)); sh(["xcrun", "simctl", "io", "booted", "screenshot", ip], check=True)
             if have_and:
-                sh([ADB, "shell", "am", "force-stop", ANDROID_PKG]); sh([ADB, "shell"] + s.get("android_start", f"monkey -p {ANDROID_PKG} -c android.intent.category.LAUNCHER 1").split())
+                sh([ADB, "shell", "am", "force-stop", ANDROID_PKG]); sh([ADB, "shell"] + s.get("android_start", f"monkey -p {{pkg}} -c android.intent.category.LAUNCHER 1").replace("{pkg}", ANDROID_PKG).split())
                 time.sleep(s.get("wait", 6))
                 with open(ap, "wb") as f:
                     f.write(subprocess.run([ADB, "exec-out", "screencap", "-p"], capture_output=True).stdout)
