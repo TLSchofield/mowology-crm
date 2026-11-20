@@ -92,3 +92,9 @@ Corrections to the audit:
 2. Fix the biggest items first (likely a few heavy queries or per-head work done on page load). Move what is slow to the existing precomputed-brief pattern (`head_brief_ready`) where the owner does not need it live.
 3. Re-time on production. Target: first byte under 1 s for dashboard and clients.
 4. Open question: how much of this is Mowology's data volume vs. what a brand-new tenant would see. Measure a new, empty tenant too, so the "new tenant" experience is judged on its own numbers.
+
+## Rule added 2026-11-20 (Tim): refactor each page once it is done
+A page is finished only after its refactor. Per page the order is: audit, simplify, speed up, **refactor**, check on production.
+- Refactor = business logic and SQL out of the page into `app/Modules/*/Services` with a test (CLAUDE.md rule 10); very large pages (`clients_appstack.php` 7,907 lines, `dashboard_appstack.php` 1,323) split into includes; dead and duplicated code removed. No change to layout, labels or behaviour.
+- Its own commit, after the page's simplify and speed work is proven, so it can be reverted alone. Proof: the same screenshots and timings before and after, phpunit, independent review.
+- The slow-query fixes in step 1b are the first slice of this for the dashboard and clients pages.
