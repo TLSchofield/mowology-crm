@@ -784,3 +784,6 @@ Measured read-only on prod: 31 of 618 GPS-tagged visit photos (60 days) sit >500
 
 ## Schedule "Filters" don't filter on the Samsung tablet (Tim, 2026-11-19)
 Screenshot from Nigel's tablet (Crew app, schedule day view for Thu Nov 19): Filters badge shows 1 and the chip "Salt Application" is active, yet the list still shows 14-day / 7-day Lawn Cut visits (Jane Buitenga, Marc Nelitz, Bcs 2106). The chip is applied but the list ignores it. Start at `public/crm/jobs/schedule.php` (`ServiceTypeFilter::parse`, `$serviceFilter`, remembered in `mw_sched_service`) and the JS that renders the mobile day list; check whether a stale remembered filter, a service-name mismatch ("Salt Application" vs the visit's service type), or an offline-cached list is the cause. Replay with the same tablet's day before changing anything.
+
+## Android permission guidance: what is still open after the 2026-11-19 web fix
+Native Compose day screens (`day/`, switch `native_day`) show no permission or quiet-tracker guidance at all; `last_fix_time` in `MwTrackingService` is never cleared on clock-in (web works around it with `mw_track_seen_since`); a deep link straight to Samsung's "Never sleeping apps" screen needs a plugin method and an APK. Check Nigel's `device_tracking_health` and fix count after his next shift.
