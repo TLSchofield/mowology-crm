@@ -539,7 +539,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
     </td></tr>
     <?php if ($invoicePaymentInstr !== ''): ?>
-    <tr><td style="background:#E8F3F0; border-left:3px solid #2D8659; padding:7px 16px; font-size:8.5pt; color:#0D3B2E; line-height:1.4;">
+    <tr><td style="background:#E8F3F0; padding:7px 16px; font-size:8.5pt; color:#0D3B2E; line-height:1.4;">
         <strong>How to pay</strong><br><?php echo nl2br($esc($invoicePaymentInstr)); ?>
     </td></tr>
     <?php endif; ?>
@@ -551,9 +551,14 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     if ($wPanel !== '') {
         // Row 1: weather record and the amount due, equal halves. Row 2: the GPS map (left) with its text (right).
         $snowRow = true;
-        echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>'
-           . '<td width="50%" valign="top" style="padding-right:4px;">' . $wPanel . '</td>'
-           . '<td width="50%" valign="top" style="padding-left:4px;">' . $payHtml . '</td>'
+        // Same height: the frame (weather's border, the amount panel's tint) is carried by the table CELLS,
+        // which stretch to the taller of the two; mPDF ignores a height set on the inner tables.
+        $wInner  = str_replace(['border:1.2pt solid #1e3a5f;', 'margin-top:8px;'], '', $wPanel);
+        $pInner  = str_replace('margin-top:6px;', 'margin-top:0;', $payHtml);
+        echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>'
+           . '<td width="49%" valign="top" style="border:1.2pt solid #1e3a5f; padding:0;">' . $wInner . '</td>'
+           . '<td width="2%"></td>'
+           . '<td width="49%" valign="top" style="background:#E8F3F0; padding:0;">' . $pInner . '</td>'
            . '</tr></table>';
         echo $gWide;
     } else {
