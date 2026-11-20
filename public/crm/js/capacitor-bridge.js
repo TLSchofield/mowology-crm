@@ -1089,16 +1089,21 @@
             _banner: function(text, buttonLabel, onClick) {
                 try {
                     if (!document.body) return;
+                    try {
+                        var hiddenUntil = parseInt(sessionStorage.getItem('mw_track_banner_hidden_until') || '0', 10);
+                        if (hiddenUntil && Date.now() < hiddenUntil) return;
+                    } catch (e) {}
                     if (!document.getElementById('mw-track-banner-css')) {
                         var css = document.createElement('style');
                         css.id = 'mw-track-banner-css';
                         css.textContent =
                             '#mw-track-banner{position:fixed;left:0;right:0;top:0;z-index:2147483640;display:flex;gap:10px;' +
-                            'align-items:center;padding:10px 12px;background:var(--mw-orange);color:var(--mw-light);' +
+                            'align-items:center;padding:calc(10px + env(safe-area-inset-top, 0px)) 12px 10px;background:var(--mw-orange);color:var(--mw-light);' +
                             'font-size:.88rem;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.25);}' +
                             '#mw-track-banner span{flex:1;}' +
                             '#mw-track-banner button{border:0;border-radius:8px;padding:8px 14px;font-weight:700;' +
-                            'background:var(--mw-forest);color:var(--mw-light);}';
+                            'background:var(--mw-forest);color:var(--mw-light);}' +
+                            '#mw-track-banner button.mw-tb-x{background:transparent;padding:8px 10px;}';
                         document.head.appendChild(css);
                     }
                     var el = document.getElementById('mw-track-banner');
@@ -1115,13 +1120,28 @@
                     btn.type = 'button';
                     btn.textContent = buttonLabel;
                     btn.addEventListener('click', function() { try { onClick(); } catch (e) {} });
+                    // A close button, so the banner can never keep covering a header or a clock-out button;
+                    // hidden for 30 min, then the next check may show it again.
+                    var x = document.createElement('button');
+                    x.type = 'button';
+                    x.className = 'mw-tb-x';
+                    x.setAttribute('aria-label', 'Hide for now');
+                    x.textContent = '\u2715';
+                    x.addEventListener('click', function() {
+                        try { sessionStorage.setItem('mw_track_banner_hidden_until', String(Date.now() + 30 * 60000)); } catch (e) {}
+                        window.MwNative.engine._bannerClear();
+                    });
                     el.appendChild(span);
                     el.appendChild(btn);
+                    el.appendChild(x);
+                    // Push the page down by the banner's height so nothing is covered (fixed headers aside — the X covers those).
+                    document.body.style.paddingTop = el.offsetHeight + 'px';
                 } catch (e) {}
             },
 
             _bannerClear: function() {
                 try {
+                    document.body.style.paddingTop = '';
                     var el = document.getElementById('mw-track-banner');
                     if (el && el.parentNode) el.parentNode.removeChild(el);
                 } catch (e) {}
@@ -1135,6 +1155,8 @@
              * and activity recognition.
              */
             startSession: function(userId, sessionId) {
+                // A new shift: forget when the last one was first seen, or its stale fix could look like a stopped tracker.
+                try { localStorage.removeItem('mw_track_seen_since'); } catch (e) {}
                 if (!MwTracking) {
                     console.warn('[MwNative] MwTracking plugin not available');
                     return Promise.resolve({ started: false });
