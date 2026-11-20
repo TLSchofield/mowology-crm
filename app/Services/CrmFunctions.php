@@ -2152,70 +2152,11 @@ function findDuplicateContacts() {
             }
         } catch (Exception $e) {}
 
-        $count = count($contacts);
-        $matched = [];
-
-        for ($i = 0; $i < $count; $i++) {
-            for ($j = $i + 1; $j < $count; $j++) {
-                $a = $contacts[$i];
-                $b = $contacts[$j];
-                $pairKey = $a['id'] . '-' . $b['id'];
-
-                if (isset($matched[$pairKey])) continue;
-
-                $isDuplicate = false;
-
-                // Tier 1: exact email match (non-empty)
-                if (!empty($a['email']) && !empty($b['email'])
-                    && strtolower(trim($a['email'])) === strtolower(trim($b['email']))) {
-                    $isDuplicate = true;
-                }
-
-                // Tier 1: exact phone/mobile match (digits-only)
-                if (!$isDuplicate) {
-                    $phonesA = array_filter([
-                        preg_replace('/\D/', '', $a['phone'] ?? ''),
-                        preg_replace('/\D/', '', $a['mobile'] ?? '')
-                    ], function($v) { return $v !== ''; });
-                    $phonesB = array_filter([
-                        preg_replace('/\D/', '', $b['phone'] ?? ''),
-                        preg_replace('/\D/', '', $b['mobile'] ?? '')
-                    ], function($v) { return $v !== ''; });
-
-                    foreach ($phonesA as $pa) {
-                        foreach ($phonesB as $pb) {
-                            if ($pa === $pb) { $isDuplicate = true; break 2; }
-                        }
-                    }
-                }
-
-                // Tier 2: same property address
-                if (!$isDuplicate) {
-                    $addrsA = $addressMap[(int)$a['id']] ?? [];
-                    $addrsB = $addressMap[(int)$b['id']] ?? [];
-                    foreach ($addrsA as $addrA) {
-                        if (in_array($addrA, $addrsB)) { $isDuplicate = true; break; }
-                    }
-                }
-
-                // Tier 3: exact name match (first + last, case-insensitive, last name required)
-                if (!$isDuplicate
-                    && trim($a['last_name'] ?? '') !== ''
-                    && trim($b['last_name'] ?? '') !== ''
-                    && strtolower(trim($a['first_name'])) === strtolower(trim($b['first_name']))
-                    && strtolower(trim($a['last_name'])) === strtolower(trim($b['last_name']))) {
-                    $isDuplicate = true;
-                }
-
-                if ($isDuplicate) {
-                    $matched[$pairKey] = true;
-                    if (!isset($duplicates[$a['id']])) $duplicates[$a['id']] = [];
-                    if (!isset($duplicates[$b['id']])) $duplicates[$b['id']] = [];
-                    if (!in_array($b['id'], $duplicates[$a['id']])) $duplicates[$a['id']][] = $b['id'];
-                    if (!in_array($a['id'], $duplicates[$b['id']])) $duplicates[$b['id']][] = $a['id'];
-                }
-            }
+        // Grouped in one pass (was an all-pairs loop: 5.9 s on production). Same result, same order.
+        if (!class_exists('ContactDuplicateFinder')) {
+            require_once __DIR__ . '/../Modules/Contacts/Services/ContactDuplicateFinder.php';
         }
+        $duplicates = ContactDuplicateFinder::buildMap($contacts, $addressMap);
     } catch (Exception $e) {
         error_log("findDuplicateContacts error: " . $e->getMessage());
     }
