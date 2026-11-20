@@ -192,6 +192,22 @@ class RouteProofService
         return $out;
     }
 
+    /** visit_id => [crew user ids] who worked it (non-void time entries + assigned crew). Ownership for the no-stamp fallback. */
+    public function crewForVisits(array $visitIds): array
+    {
+        $visitIds = array_values(array_unique(array_filter(array_map('intval', $visitIds))));
+        if (!$visitIds) return [];
+        $in = implode(',', array_fill(0, count($visitIds), '?'));
+        $out = [];
+        $s = $this->db->prepare("SELECT visit_id, user_id FROM job_time_entries WHERE visit_id IN ($in) AND status <> 'void' AND user_id IS NOT NULL");
+        $s->execute($visitIds);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(int)$r['visit_id']][(int)$r['user_id']] = (int)$r['user_id'];
+        $s = $this->db->prepare("SELECT id, assigned_crew_id FROM job_visits WHERE id IN ($in) AND assigned_crew_id IS NOT NULL");
+        $s->execute($visitIds);
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(int)$r['id']][(int)$r['assigned_crew_id']] = (int)$r['assigned_crew_id'];
+        return array_map('array_values', $out);
+    }
+
     public function radiusM(): int
     {
         try {
@@ -247,6 +263,7 @@ class RouteProofService
 
         $radius = $this->radiusM();
         $windows = $timeWindow ? $this->windowsForVisits($visitIds) : [];
+        $crews = $timeWindow ? $this->crewForVisits($visitIds) : [];
         if ($timeWindow) {
             foreach ($byVisit as $vid => $fixes) $byVisit[$vid] = self::inWindows($fixes, $windows[$vid] ?? []);
         }
@@ -260,7 +277,7 @@ class RouteProofService
         // rule, never the fuel stop or the lunch. Terry Baird's cuts showed "GPS data not
         // available" although the tablet sat on her lawn 13:01–13:13 on 9 Oct (2026-10-13).
         foreach ($sites as $vid => $site) {
-            if ($timeWindow && empty($windows[$vid])) continue;
+            if ($timeWindow && (empty($windows[$vid]) || empty($crews[$vid]))) continue;   // no window or no known crew = no proof
             if (isset($out[$vid]) || empty($site['day']) || !is_numeric($site['lat']) || !is_numeric($site['lng'])) continue;
             $lat = (float)$site['lat']; $lng = (float)$site['lng'];
             $dLat = ($radius + 50) / 111320; $dLng = ($radius + 50) / (111320 * max(0.2, cos(deg2rad($lat))));
@@ -269,6 +286,7 @@ class RouteProofService
                 FROM crew_location_history
                 WHERE timestamp >= ? AND timestamp < DATE_ADD(?, INTERVAL 1 DAY)
                   AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?
+                  " . ($timeWindow ? "AND crew_id IN (" . implode(',', array_map('intval', $crews[$vid])) . ")" : "") . "
                 ORDER BY timestamp ASC
                 LIMIT 500
             ");
