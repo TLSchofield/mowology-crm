@@ -347,7 +347,6 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                     $logoPath = $logoPath . '/public';
                 }
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
-                if ($snowLayout) { $logoPath = InvoiceSnowTerms::logoIndigo($logoPath); }   // one-colour indigo on the Ittai page
             ?>
             <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: <?php echo $snowLayout ? '30' : '50'; ?>px; margin-bottom: <?php echo $snowLayout ? '3' : '8'; ?>px;">
             <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
@@ -502,9 +501,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 </table>
 
 <!-- Totals — Subtotal + tax in a small table -->
-<?php if ($snowLayout && $amountPaid <= 0): /* subtotal + GST live inside the amount-due panel */ ?>
-<?php else: ?>
-<table class="totals-table">
+<table class="totals-table"<?php echo $snowLayout ? ' style="padding-right:3.5mm;"' : ''; ?>>
     <tr>
         <td class="label">Subtotal</td>
         <td class="value"><?php echo $fmt($subtotal); ?></td>
@@ -524,7 +521,6 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     </tr>
     <?php endif; ?>
 </table>
-<?php endif; ?>
 
 <!-- Primary amount callout — the one number the customer needs to see -->
 <?php
@@ -552,8 +548,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 ?>
 <!-- Payment decision in one place: amount, due date, how to pay -->
 <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px; page-break-inside:avoid;">
-    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:7px 16px 6px 16px; text-align:right;">
-        <?php if ($amountPaid <= 0): ?><div style="font-size:8pt; color:#D9DFDA; padding-bottom:7px;">Subtotal <?php echo $fmt($subtotal); ?> &nbsp;+&nbsp; GST (<?php echo round($taxRate * 100); ?>%) <?php echo $fmt($taxAmount); ?></div><?php endif; ?>
+    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:12px 16px 10px 16px; text-align:right;">
         <div style="font-size:8pt; letter-spacing:1px; color:#D9DFDA;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
         <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>

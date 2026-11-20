@@ -297,7 +297,7 @@ class InvoiceSnowTerms
             return '';
         }
         $e = function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
-        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:0.8pt solid #cbd5e1; font-size:7pt; color:#33413A; line-height:1.35;">';
+        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:0.8pt solid #cbd5e1; font-size:7pt; color:#33413A; line-height:1.55;">';
         $h .= '<tr><td style="background:#f1f5f9; padding:3px 10px;">'
             . '<span style="font-size:8pt; font-weight:bold; color:#1e3a5f; letter-spacing:1px;">SNOW &amp; ICE SERVICE TERMS</span>'
             . '<span style="color:#64748b;"> &nbsp;' . $e(self::sourceLine($terms)) . '</span></td></tr>';
@@ -307,7 +307,7 @@ class InvoiceSnowTerms
         $w = (int)floor(100 / max(1, count($cols)));
         $h .= '<tr><td style="padding:0;"><table width="100%" cellpadding="0" cellspacing="0"><tr>';
         foreach ($cols as $i => $c) {
-            $h .= '<td width="' . $w . '%" style="vertical-align:top; padding:6px ' . ($i === count($cols) - 1 ? '12' : '9') . 'px 6px ' . ($i === 0 ? '12' : '9') . 'px;' . ($i > 0 ? ' border-left:0.4pt solid #e2e8f0;' : '') . '">'
+            $h .= '<td width="' . $w . '%" style="vertical-align:top; padding:8px ' . ($i === count($cols) - 1 ? '12' : '9') . 'px 8px ' . ($i === 0 ? '12' : '9') . 'px;' . ($i > 0 ? ' border-left:0.4pt solid #e2e8f0;' : '') . '">'
                 . self::paragraphs($c, $e) . '</td>';
         }
         $h .= '</tr></table></td></tr>';

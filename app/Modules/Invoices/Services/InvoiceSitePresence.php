@@ -232,8 +232,8 @@ class InvoiceSitePresence
         }
 
         $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:1.2pt solid #1e3a5f; font-size:8pt; color:#1f2937; page-break-inside:avoid;">';
-        $h .= '<tr><td colspan="2" style="background:#1e3a5f; color:#ffffff; padding:5px 10px; font-weight:bold; letter-spacing:1px; font-size:8pt;">SITE PRESENCE'
-            . '<span style="color:#cbd5e1; font-weight:normal; letter-spacing:0; font-size:7pt;"> &nbsp;GPS record</span></td></tr>';
+        $h .= '<tr><td style="background:#1e3a5f; color:#ffffff; padding:5px 10px; font-weight:bold; letter-spacing:1px; font-size:8pt;">SITE PRESENCE</td>'
+            . '<td style="background:#1e3a5f; color:#cbd5e1; padding:5px 10px; text-align:right; font-size:7pt;">GPS record</td></tr>';
         $h .= '<tr>';
         $mapFile = self::mapFile($p, true);
         if ($mapFile !== null) {
