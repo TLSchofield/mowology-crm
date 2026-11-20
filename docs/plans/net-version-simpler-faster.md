@@ -150,3 +150,20 @@ Still slow, measured next (from the helper's static read, none yet timed):
 - Otto GPS subqueries on `crew_location_history.visit_id` (no index).
 - The head API calls after load (`charlie.php` 9.5 s, `bookkeeper.php` 2.7 s, `otto.php` 2.1 s).
 - The clients page sends about 3.9 MB of HTML (the whole list is in the page); a paged or lazy list belongs to its simplify step.
+
+## Step 1b result 2: dashboard time found with `?prof=1` (2026-11-20)
+
+Admins can add `?prof=1` to the dashboard: the page ends with an HTML comment of milliseconds per stage (marks in
+`dashboard_appstack.php` and `includes/dept-heads-deck.php`). Findings, production:
+
+- Weather, profit, work queue, Penny's services: all under 80 ms. The static read that blamed weather was wrong (it serves cached data).
+- The heads deck was 2.4 s of 2.9 s. Inside it: Otto's card 1.44 s, Ada's 0.64 s.
+- Otto: the clock-out lookup's location subquery made MySQL pick `idx_clh_point_uuid` and scan ~70,000 rows per shift
+  (0.9 s for 7 rows). `FORCE INDEX (crew_id)` gives the same result in ~0.15 s (falls back to no hint if the index is missing).
+- Ada: "slowest recent run" grouped all 300,000 `cron_runs` rows (0.6 s). One short keyed query per job takes 49 ms.
+- After: card:otto 1440 to ~740 ms, card:ada 640 to ~190 ms; dashboard first byte 2.9 s to ~1.9 s.
+
+Still open on the dashboard: Otto's card (~740 ms: unscheduled items 230 ms, clock-outs 175 ms, dispatch 73 ms), Ada (~190 ms),
+Penny's payment-match refresh (a one-off ~1.7 s on the first admin load every 4 h), and the head API calls after load
+(`charlie.php`, `bookkeeper.php`, `otto.php`). `crew_location_history` carries 13 index entries for 7 distinct needs:
+duplicate indexes to drop in a migration.
