@@ -686,6 +686,7 @@ require_once __DIR__ . '/../app/Modules/Payroll/Services/PayrollRules.php';
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayCalculator.php';
 require_once __DIR__ . '/../app/Modules/Payroll/Services/PayHours.php';
 require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoPositionService.php';
+require_once __DIR__ . '/../app/Modules/Photos/Services/PhotoRefileService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PruningPlanService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantWorkService.php';
 require_once __DIR__ . '/../app/Modules/Plants/Services/PlantLineInfoService.php';

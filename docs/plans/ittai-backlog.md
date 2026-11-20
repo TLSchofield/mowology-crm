@@ -778,3 +778,6 @@ The Crew list on the visit screen shows a person icon for every name, including 
 
 ## iOS: clocked-in Live Activity (Dynamic Island + Lock Screen) — Tim, 2026-11-18
 Jobber shows a green logo and a running timer in the Dynamic Island whenever you are clocked in, even with the app backgrounded. We have none (no ActivityKit anywhere in `ios/`). Needs: a widget-extension target (new bundle id, provisioning and the Xcode Cloud cert cap, see `project_ios_testflight_cert_limit`), `NSSupportsLiveActivities`, start on clock-in and end on clock-out (and on break: swap to a paused state), `Text(timerInterval:)` so the clock ticks without waking the app, and an end when the server says the shift is over. Must use the Ittai tokens and the clocked-in dot. Own chat: it touches the project file and signing.
+
+## Photos filed against the wrong property: detect + one-tap move with undo (Tim, 2026-11-19)
+Measured read-only on prod: 31 of 618 GPS-tagged visit photos (60 days) sit >500 m from their property; 19 are real (EXIF, inside another property's arrival border), 12 are the pre-2026-11-02 stale-browser-fix noise. Nothing in the CRM compares a photo to its property or can re-file one. Plan, numbers and open questions: side-session note `wrong-property-photos-plan.md`. Side find: `photo-queue.js` posts `gps_accuracy` but `visit-photo-upload.php` reads `gps_accuracy_m`.

@@ -42136,3 +42136,12 @@ body.mw-books {
 .mw-jc-profit.is-gain .mw-jc-amount { color: var(--it-status-complete, var(--mw-green)); }
 .mw-jc-profit.is-loss .mw-jc-amount { color: var(--it-status-blocked, var(--mw-orange)); }
 .mw-jc-note { margin: 0 var(--it-space-4, 16px) var(--it-space-3, 12px); padding: var(--it-space-2, 8px) var(--it-space-3, 12px); font-size: .8125rem; color: var(--it-status-attention, var(--mw-dark)); background: var(--it-sunk, var(--mw-light)); border-radius: var(--it-radius-sm, 6px); }
+
+/* Photos at another property (photos_refile_appstack.php, 2026-11-19) */
+.mw-refile-msg { background: var(--mw-light); border-left: 4px solid var(--mw-green); padding: 8px 12px; margin-bottom: 12px; }
+.mw-refile-group { margin-bottom: 12px; }
+.mw-refile-head { margin-bottom: 8px; }
+.mw-refile-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.mw-refile-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; }
+.mw-refile-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mw-refile-recent { padding: 4px 0; font-size: 13px; }
