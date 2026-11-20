@@ -61,46 +61,82 @@ class InvoiceSitePresence
         }
     }
 
-    /** Street map of the property with the readings joined in order (cached by content). Null on any failure. */
+    /**
+     * Street map of the property with the readings joined in order, drawn from OpenStreetMap tiles
+     * with GD (Google's key is refused for static maps on this host — 403). Tiles are cached; the
+     * finished picture is cached by content. Null on any failure, and the panel renders without it.
+     */
     public static function mapFile(array $p): ?string
     {
         try {
-            $key = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : (getenv('GOOGLE_MAPS_API_KEY') ?: '');
             $root = defined('STORAGE_ROOT') ? STORAGE_ROOT : '';
-            if ($key === '' || $root === '' || empty($p['points'])) {
+            if ($root === '' || empty($p['points']) || !function_exists('imagecreatetruecolor')) {
                 return null;
             }
             $dir = rtrim($root, '/') . '/invoice-maps';
-            if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+            if (!is_dir($dir . '/tiles') && !@mkdir($dir . '/tiles', 0755, true)) {
                 return null;
             }
             $coords = array_map(function ($r) { return round((float)$r['lat'], 6) . ',' . round((float)$r['lng'], 6); }, $p['points']);
-            $file = $dir . '/ping_' . substr(sha1(implode('|', $coords)), 0, 16) . '.png';
+            $file = $dir . '/ping2_' . substr(sha1(implode('|', $coords) . $p['prop_lat'] . $p['prop_lng']), 0, 16) . '.png';
             if (is_file($file) && filesize($file) > 1000) {
                 return $file;
             }
-            $qs = http_build_query([
-                'center'  => round((float)$p['prop_lat'], 6) . ',' . round((float)$p['prop_lng'], 6),
-                'zoom'    => 19,
-                'size'    => '640x400',
-                'scale'   => 2,
-                'maptype' => 'roadmap',
-                'key'     => $key,
-            ]);
-            if (count($coords) >= 2) {
-                $qs .= '&path=' . urlencode('color:0x2D8659ff|weight:4|' . implode('|', $coords));
+            $z = 18; $W = 640; $H = 400; $n = 2 ** $z;
+            $px = function (float $lat, float $lng) use ($n): array {
+                $x = ($lng + 180.0) / 360.0 * $n;
+                $y = (1 - asinh(tan(deg2rad($lat))) / M_PI) / 2 * $n;
+                return [$x * 256, $y * 256];
+            };
+            [$cx, $cy] = $px((float)$p['prop_lat'], (float)$p['prop_lng']);
+            $left = $cx - $W / 2; $top = $cy - $H / 2;
+            $img = imagecreatetruecolor($W, $H);
+            imagefill($img, 0, 0, imagecolorallocate($img, 226, 232, 240));
+            $ctx = stream_context_create(['http' => ['timeout' => 6, 'header' => "User-Agent: Mowology-CRM/1.0 (invoice site-presence maps)\r\n"]]);
+            $got = 0;
+            for ($tx = (int)floor($left / 256); $tx <= (int)floor(($left + $W) / 256); $tx++) {
+                for ($ty = (int)floor($top / 256); $ty <= (int)floor(($top + $H) / 256); $ty++) {
+                    $tf = $dir . "/tiles/{$z}_{$tx}_{$ty}.png";
+                    if (!is_file($tf)) {
+                        $data = @file_get_contents("https://tile.openstreetmap.org/{$z}/{$tx}/{$ty}.png", false, $ctx);
+                        if ($data === false || substr($data, 1, 3) !== 'PNG') { continue; }
+                        file_put_contents($tf, $data);
+                    }
+                    $tile = @imagecreatefrompng($tf);
+                    if ($tile) {
+                        imagecopy($img, $tile, (int)round($tx * 256 - $left), (int)round($ty * 256 - $top), 0, 0, 256, 256);
+                        imagedestroy($tile);
+                        $got++;
+                    }
+                }
             }
-            $qs .= '&markers=' . urlencode('size:small|color:0x7FD858|' . implode('|', $coords));
-            $qs .= '&markers=' . urlencode('size:mid|color:0x1A5F4A|' . $coords[0]);
-            $ctx = stream_context_create(['http' => ['timeout' => 15, 'header' => 'User-Agent: Mowology-CRM/1.0'],
-                                          'ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
-            $img = @file_get_contents('https://maps.googleapis.com/maps/api/staticmap?' . $qs, false, $ctx);
-            if ($img === false || substr($img, 1, 3) !== 'PNG') {
-                error_log('InvoiceSitePresence: static map failed: ' . substr((string)$img, 0, 200));
+            if ($got === 0) {
+                imagedestroy($img);
                 return null;
             }
-            file_put_contents($file, $img);
-            return $file;
+            imageantialias($img, true);
+            $green = imagecolorallocate($img, 45, 134, 89);
+            $lime  = imagecolorallocate($img, 127, 216, 88);
+            $white = imagecolorallocate($img, 255, 255, 255);
+            $dark  = imagecolorallocate($img, 26, 95, 74);
+            $pts = array_map(function ($r) use ($px, $left, $top) {
+                [$x, $y] = $px((float)$r['lat'], (float)$r['lng']);
+                return [(int)round($x - $left), (int)round($y - $top)];
+            }, $p['points']);
+            imagesetthickness($img, 4);
+            for ($i = 1; $i < count($pts); $i++) {
+                imageline($img, $pts[$i - 1][0], $pts[$i - 1][1], $pts[$i][0], $pts[$i][1], $green);
+            }
+            imagesetthickness($img, 1);
+            foreach ($pts as $i => [$x, $y]) {
+                imagefilledellipse($img, $x, $y, 16, 16, $white);
+                imagefilledellipse($img, $x, $y, 11, 11, $lime);
+            }
+            imagefilledellipse($img, $pts[0][0], $pts[0][1], 26, 26, $white);
+            imagefilledellipse($img, $pts[0][0], $pts[0][1], 20, 20, $dark);
+            imagepng($img, $file);
+            imagedestroy($img);
+            return is_file($file) ? $file : null;
         } catch (Throwable $e) {
             error_log('InvoiceSitePresence map: ' . $e->getMessage());
             return null;
