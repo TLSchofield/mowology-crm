@@ -23,7 +23,8 @@ while read -r key; do
     while busy; do sleep 30; done
     sleep 5
     log "$key: start"
-    (cd "$REPO" && bash scripts/codex-build.sh "parity-$key" "$CH/$key.md" "$CH/ref-$key" > "$CH/$key.log" 2>&1); rc=$?
+    # < /dev/null: Codex otherwise reads the job list from this loop's stdin and swallows the remaining jobs (2026-11-20)
+    (cd "$REPO" && bash scripts/codex-build.sh "parity-$key" "$CH/$key.md" "$CH/ref-$key" < /dev/null > "$CH/$key.log" 2>&1); rc=$?
     log "$key: exit $rc ($(tail -1 "$CH/$key.log" | cut -c1-100))"
     case $rc in
       0)  touch "$done_marker"; break ;;
