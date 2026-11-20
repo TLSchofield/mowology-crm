@@ -256,6 +256,10 @@ function handleVendorCreate(PDO $db, ?array $input): void
         (int)($input['gst_exempt'] ?? 0),
     ]);
     $newId = (int)$db->lastInsertId();
+    if (!empty($input['pst_exempt'])) {
+        try { $db->prepare("UPDATE vendors SET pst_exempt = 1 WHERE id = ?")->execute([$newId]); }
+        catch (Throwable $e) { error_log('Vendor PST exempt: ' . $e->getMessage()); }
+    }
     $gst = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', (string)($input['gst_number'] ?? '')));
     if ($gst !== '') {
         try { $db->prepare("UPDATE vendors SET gst_number = ? WHERE id = ?")->execute([mb_substr($gst, 0, 20), $newId]); }
@@ -301,6 +305,12 @@ function handleVendorUpdate(PDO $db, ?array $input): void
         isset($input['is_active']) ? (int)$input['is_active'] : 1,
         $id,
     ]);
+
+    // PST exempt (2026-11-19): only when the form sends it, and tolerant of a database that has not run migration 1459.
+    if (array_key_exists('pst_exempt', $input)) {
+        try { $db->prepare("UPDATE vendors SET pst_exempt = ? WHERE id = ?")->execute([(int)(!empty($input['pst_exempt'])), $id]); }
+        catch (Throwable $e) { error_log('Vendor PST exempt: ' . $e->getMessage()); }
+    }
 
     // GST number (2026-10-15): only when the form sends it, so an older form never blanks one Penny filled in.
     if (array_key_exists('gst_number', $input)) {

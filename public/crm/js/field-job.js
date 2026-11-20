@@ -30,6 +30,8 @@
         gps: null,           // {lat, lng, accuracy}
         nearby: [],          // results from nearby-properties.php
         selected: null,      // chosen property object
+        staff: [],           // [{id,name}] active staff for the picker
+        me: 0,               // the signed-in user's id (pre-ticked)
         newClient: null,     // {first_name,...} when creating a client
         busy: false
     };
@@ -140,8 +142,25 @@
                   '&lng=' + encodeURIComponent(gps.lng) + '&radius=250';
         return fetch(url, { credentials: 'include' })
             .then(function (r) { return r.json(); })
-            .then(function (d) { return (d && d.success) ? d.results : []; })
+            .then(function (d) {
+                if (d && d.success) { state.staff = d.staff || state.staff; state.me = d.me || state.me; }
+                return (d && d.success) ? d.results : [];
+            })
             .catch(function () { return []; });
+    }
+
+    // Staff for the picker when GPS was skipped (no nearby fetch ran).
+    function ensureStaff() {
+        if (state.staff.length) return Promise.resolve();
+        return fetch('/crm/api/nearby-properties.php', { credentials: 'include' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.success) { state.staff = d.staff || []; state.me = d.me || 0; } })
+            .catch(function () { /* picker simply stays hidden */ });
+    }
+
+    function todayIso() {
+        var d = new Date();
+        return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
     }
 
     // ── Step 2: Pick property — search + new client on top, list below ───────
@@ -370,7 +389,7 @@
             '</div>' +
             '<div class="mw-fj-section-label">How often</div>' +
             '<div class="mw-fj-seg" id="fjFreqSeg">' +
-                '<button type="button" class="mw-fj-seg-btn on" data-mode="once">One-off (today)</button>' +
+                '<button type="button" class="mw-fj-seg-btn on" data-mode="once">One-off</button>' +
                 '<button type="button" class="mw-fj-seg-btn" data-mode="recurring">Recurring</button>' +
             '</div>' +
             '<div class="mw-fj-freqwrap" id="fjFreqWrap" style="display:none">' +
@@ -380,6 +399,13 @@
                     '<button type="button" class="mw-fj-seg-btn" data-freq="monthly">Monthly</button>' +
                 '</div>' +
             '</div>' +
+            '<div class="mw-fj-section-label" id="fjDateLabel">Date</div>' +
+            '<button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#fjDate" aria-haspopup="true" aria-expanded="false">' +
+                '<span class="mw-datepicker-date" data-mw-dp-label></span>' +
+            '</button>' +
+            '<input type="date" id="fjDate" hidden value="' + todayIso() + '">' +
+            '<div class="mw-fj-section-label" id="fjStaffLabel" style="display:none">Staff</div>' +
+            '<div class="mw-fj-chips" id="fjStaff"></div>' +
             '<div class="mw-fj-section-label">Price per visit</div>' +
             '<div class="mw-fj-pricewrap">' +
                 '<span class="mw-fj-price-cur">$</span>' +
@@ -393,10 +419,37 @@
 
         var svc = SERVICE_TYPES[0];
         var mode = 'once', freq = 'weekly';
+        var crew = state.me ? [state.me] : [];
+
+        if (typeof window.mwInitDatePickers === 'function') window.mwInitDatePickers(panel);
+
+        function paintStaff() {
+            var box = document.getElementById('fjStaff');
+            if (!box) return;
+            document.getElementById('fjStaffLabel').style.display = state.staff.length ? '' : 'none';
+            box.innerHTML = state.staff.map(function (m) {
+                return '<button type="button" class="mw-fj-chip' + (crew.indexOf(m.id) !== -1 ? ' on' : '') +
+                       '" data-id="' + m.id + '">' + esc(m.id === state.me ? m.name + ' (you)' : m.name) + '</button>';
+            }).join('');
+            Array.prototype.forEach.call(box.querySelectorAll('.mw-fj-chip'), function (b) {
+                b.addEventListener('click', function () {
+                    var id = parseInt(b.getAttribute('data-id'), 10), i = crew.indexOf(id);
+                    if (i !== -1) { if (crew.length > 1) crew.splice(i, 1); }   // never leave nobody on it
+                    else crew.push(id);
+                    paintStaff();
+                });
+            });
+        }
+        paintStaff();
+        ensureStaff().then(function () {
+            if (!crew.length && state.me) crew = [state.me];
+            paintStaff();
+        });
 
         bindGroup('fjServices', '.mw-fj-chip', 'svc', function (v) { svc = v; });
         bindGroup('fjFreqSeg', '.mw-fj-seg-btn', 'mode', function (v) {
             mode = v;
+            document.getElementById('fjDateLabel').textContent = (v === 'recurring') ? 'Starts' : 'Date';
             document.getElementById('fjFreqWrap').style.display = (v === 'recurring') ? 'block' : 'none';
         });
         bindGroup('fjFreqPick', '.mw-fj-seg-btn', 'freq', function (v) { freq = v; });
@@ -410,6 +463,8 @@
                 service_type: svc,
                 recurring: mode === 'recurring' ? 1 : 0,
                 frequency: freq,
+                date: document.getElementById('fjDate').value || todayIso(),
+                crew_ids: crew,
                 price: priceRaw === '' ? '' : priceRaw,
                 notes: document.getElementById('fjNotes').value.trim()
             });
