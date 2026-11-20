@@ -229,6 +229,18 @@ def side_by_side(ios_png, and_png, out_png):
     return sum(abs(x - y) for x, y in zip(ga, gb)) / len(ga)
 
 
+def dismiss_android_overlays():
+    """Kaname's once-a-day opening card covers every screen on a fresh launch; tap it away when (and only when) it is showing."""
+    for text in ("Start the day",):
+        sh([ADB, "shell", "uiautomator", "dump", "/sdcard/u.xml"])
+        xml = sh([ADB, "shell", "cat", "/sdcard/u.xml"]).stdout
+        m = re.search(r'text="' + re.escape(text) + r'"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
+        if m:
+            a, b, c, d = map(int, m.groups())
+            sh([ADB, "shell", "input", "tap", str((a + c) // 2), str((b + d) // 2)])
+            time.sleep(4)
+
+
 def cmd_shots(a):
     manifest = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "screens.json")))
     outdir = os.path.join(STATE, "shots", today()); os.makedirs(outdir, exist_ok=True)
@@ -247,7 +259,7 @@ def cmd_shots(a):
                 time.sleep(s.get("wait", 6)); sh(["xcrun", "simctl", "io", "booted", "screenshot", ip], check=True)
             if have_and:
                 sh([ADB, "shell", "am", "force-stop", ANDROID_PKG]); sh([ADB, "shell"] + s.get("android_start", f"monkey -p {{pkg}} -c android.intent.category.LAUNCHER 1").replace("{pkg}", ANDROID_PKG).split())
-                time.sleep(s.get("wait", 6))
+                time.sleep(s.get("wait", 6)); dismiss_android_overlays()
                 with open(ap, "wb") as f:
                     f.write(subprocess.run([ADB, "exec-out", "screencap", "-p"], capture_output=True).stdout)
             if booted and have_and:
