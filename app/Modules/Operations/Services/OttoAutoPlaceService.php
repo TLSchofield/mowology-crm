@@ -389,6 +389,19 @@ class OttoAutoPlaceService
     }
 
     /**
+     * "Looks right": the owner has checked Otto's lot border. It becomes 'kept' (migration 1285: a border the owner said
+     * is fine) so Otto's own clean-ups never remove it and "Not right? Remove it" no longer applies. Approval is only a
+     * quality step: a 'parcel' border counts for arrival detection before and after it (Tim, 2026-11-20: a failsafe).
+     * Never touches a drawn, GPS or default border.
+     */
+    public function approveLotBorder(int $propertyId): bool
+    {
+        $s = $this->db->prepare("UPDATE job_geofences SET border_source = 'kept' WHERE property_id = ? AND zone_type = 'arrival_border' AND border_source = 'parcel'");
+        $s->execute([$propertyId]);
+        return $s->rowCount() > 0;
+    }
+
+    /**
      * One-off clean-up (2026-10-18): the lot borders the withdrawn "nearest lot" rule drew — their notes
      * say "m outside". They may be the neighbour's lot. Returns the property ids; each goes back to
      * "no border" (retried only through the building from its address).

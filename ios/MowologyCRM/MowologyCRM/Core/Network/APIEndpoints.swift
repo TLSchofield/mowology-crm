@@ -266,6 +266,10 @@ enum APIEndpoint {
     /// POST /api/schedule/field-job — add_visit | create_job | create_client_job.
     case fieldJobAction
 
+    /// POST /crm/api/otto-lot-border.php — Otto draws a new property's arrival border from the lot map; `action`
+    /// "approve" (Looks right) or "remove" (Not right). JWT Bearer, no CSRF.
+    case ottoLotBorder
+
     /// GET /api/tasks/tasks-mobile — who a task can go to, and the clients kept on the phone for no-signal use.
     case tasksMobile
     /// POST /api/tasks/tasks-mobile — create a task (Add → Task; sent through CreateOutbox).
@@ -690,6 +694,9 @@ enum APIEndpoint {
         case .fieldJobAction:
             return URL(string: "\(baseURLString)/schedule/field-job")
 
+        case .ottoLotBorder:
+            return Server.url("/crm/api/otto-lot-border.php")
+
         case .tasksMobile, .tasksMobileCreate:
             return URL(string: "\(baseURLString)/tasks/tasks-mobile")
 
@@ -842,6 +849,7 @@ enum APIEndpoint {
              .fieldJobNearby,
              .fieldJobLastPrice,
              .fieldJobAction,
+             .ottoLotBorder,
              .tasksMobile,
              .tasksMobileCreate,
              .quoteMobile,
@@ -962,6 +970,7 @@ enum APIEndpoint {
              .scheduleJobPhoto,
              .plantId,
              .fieldJobAction,
+             .ottoLotBorder,
              .scheduleInvoice,
              .pennyChaseAction,
              .ownerSearchPick,

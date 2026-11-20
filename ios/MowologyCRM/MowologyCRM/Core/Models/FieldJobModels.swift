@@ -65,10 +65,28 @@ struct FieldJobActionResponse: Decodable {
     let error: String?
     let visitNumber: String?
     let planNumber: String?
+    /// The property the server made or found (create_client / create_client_job) — Otto draws its border next.
+    let propertyId: Int?
 
     enum CodingKeys: String, CodingKey {
         case success, error
+        case propertyId  = "property_id"
         case visitNumber = "visit_number"
         case planNumber  = "plan_number"
+    }
+}
+
+
+/// Otto's answer when asked to draw (or approve / remove) a property's arrival border.
+struct OttoBorderResponse: Decodable {
+    let ok: Bool
+    let message: String?
+    let areaSqm: Int?
+    /// [[lat, lng], …], open ring.
+    let ring: [[Double]]?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, message, ring
+        case areaSqm = "area_sqm"
     }
 }

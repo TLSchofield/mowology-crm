@@ -129,7 +129,7 @@
   <?php if (empty($mwLedgerOnly)): /* the accountant's login never loads the clock / trip log / GPS bridge */ ?>
   <script src="/crm/js/time-clock-widget.min.js?v=20261103gps"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
-  <script src="/crm/js/capacitor-bridge.js?v=20261119perm"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20261120perm"></script>
   <?php endif; ?>
   <?php
   // On site at a property whose visit is booked another day → offer to do it now (field devices
