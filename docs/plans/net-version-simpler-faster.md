@@ -98,3 +98,23 @@ A page is finished only after its refactor. Per page the order is: audit, simpli
 - Refactor = business logic and SQL out of the page into `app/Modules/*/Services` with a test (CLAUDE.md rule 10); very large pages (`clients_appstack.php` 7,907 lines, `dashboard_appstack.php` 1,323) split into includes; dead and duplicated code removed. No change to layout, labels or behaviour.
 - Its own commit, after the page's simplify and speed work is proven, so it can be reverted alone. Proof: the same screenshots and timings before and after, phpunit, independent review.
 - The slow-query fixes in step 1b are the first slice of this for the dashboard and clients pages.
+
+## Drop the "appstack" naming from page files (added 2026-11-20, Tim asked)
+
+Size: 50 page files `public/crm/*_appstack.php`; 922 references to those names in about 290 files (154 in `public/crm`, 71 in `app/Modules`, 26 tests, about 27 docs/plans/skills, 4 migrations with stored links, 3 iPhone files, about 7 scripts/tools). The shared layout includes (`appstack_head.php`, `appstack_footer.php`, `appstack_sidebar.php`, `appstack_topbar.php`) are referenced from 245 files.
+
+Risks: bookmarks, sent emails and texts, stored links in the database, the iPhone and Android apps, and file-by-file deploys where a link and its target go live at different moments.
+
+How:
+1. One page at a time, inside that page's refactor (see the rule above); one small commit per rename. No big-bang rename.
+2. The old `*_appstack.php` stays as a three-line redirect to the new name (permanent redirect, query string kept), so nothing already sent or saved breaks. Redirect stubs are removed only after production logs show no hits for 60 days.
+3. Per rename: update every reference (links, nav keys' hrefs, services, tests, iPhone, docs), add a test that fails if the old name is still linked from code, deploy the new file and the references before the stub, check live.
+4. Leave the four layout includes alone. Nobody sees those names; renaming them touches 245 files for no visible gain, and CLAUDE.md names them. Revisit only if Tim wants them renamed too.
+
+Proposed names (drop the suffix), for Tim to approve or change:
+`dashboard`, `clients`, `tasks`, `expenses`, `messages`, `photos`, `photos_refile`, `users`, `sites`, `leaderboard`, `kaname`, `ada`, `agents`, `freedom`, `import`, `privacy`, `profitability`, `tax-report`, `trip-reports`, `zone-report`, `system-log`, `audit-trail`, `before-after`, `card-designer`, `certification`, `design-system`, `foreman_calendar`, `gps-lookup`, `icloud_tidy`, `mobile-preview`, `penny-onboarding`, `receipts-review`, the `cms-*` set (`cms-activity`, `cms-dashboard`, `cms-form-submissions`, `cms-media`, `cms-pages`, `cms-redirects`) and the `quiz*` set (`quiz`, `quiz-admin`, `quiz-learn`, `quiz-play`, `quiz-progress`).
+
+Names that need a decision:
+- `map`: `public/crm/map.php` already exists, so the AppStack map page needs a different name (for example `job-map`).
+- `accounting`, `contracts`, `database`, `mockups`, `quotes`, `reports`: a folder of the same name already exists (`/crm/quotes/` and so on). `quotes.php` next to `quotes/` works because URLs name the file, but it is easy to confuse. Either accept it or use `quotes-list`, `reports-home` and so on.
+- Names that mix styles (`foreman_calendar`, `icloud_tidy`, `photos_refile` use underscores; the rest use hyphens): CLAUDE.md allows both. Keep as is unless Tim wants one style.
