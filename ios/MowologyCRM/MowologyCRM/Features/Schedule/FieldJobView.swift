@@ -151,6 +151,14 @@ final class FieldJobViewModel: ObservableObject {
         }
     }
 
+    /// The pin for a new property. A picked suggestion wins; the phone's own position is used only while the
+    /// street is still the one filled in from it (a typed address elsewhere must never get the crew's position).
+    func pin(for client: FieldClientDraft) -> (lat: Double, lng: Double)? {
+        if let la = client.pickedLatitude, let lo = client.pickedLongitude { return (la, lo) }
+        if client.atMyLocation, let fix { return (fix.coordinate.latitude, fix.coordinate.longitude) }
+        return nil
+    }
+
     func createClientJob(client: FieldClientDraft, job: FieldJobDraft) async -> Bool {
         var body = job.payload
         body["action"]               = "create_client_job"
@@ -160,9 +168,9 @@ final class FieldJobViewModel: ObservableObject {
         body["property_address"]     = client.address.trimmingCharacters(in: .whitespaces)
         body["property_city"]        = client.city.trimmingCharacters(in: .whitespaces)
         body["property_postal_code"] = client.postalCode.trimmingCharacters(in: .whitespaces)
-        if let fix {
-            body["lat"] = fix.coordinate.latitude
-            body["lng"] = fix.coordinate.longitude
+        if let pin = pin(for: client) {
+            body["lat"] = pin.lat
+            body["lng"] = pin.lng
         }
         let who = [client.firstName, client.lastName].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
         return await send(body, title: "New client \(who) and job") { response in
@@ -183,9 +191,9 @@ final class FieldJobViewModel: ObservableObject {
         body["property_address"]     = client.address.trimmingCharacters(in: .whitespaces)
         body["property_city"]        = client.city.trimmingCharacters(in: .whitespaces)
         body["property_postal_code"] = client.postalCode.trimmingCharacters(in: .whitespaces)
-        if let fix {
-            body["lat"] = fix.coordinate.latitude
-            body["lng"] = fix.coordinate.longitude
+        if let pin = pin(for: client) {
+            body["lat"] = pin.lat
+            body["lng"] = pin.lng
         }
         let who = [client.firstName, client.lastName].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
         return await send(body, title: "New prospect \(who)") { _ in "Prospect saved" }
@@ -286,6 +294,11 @@ struct FieldClientDraft {
     /// Prospect only: optional email and what they asked for.
     var email      = ""
     var wants      = ""
+    /// Set when a suggestion was picked: the typed address's own coordinates.
+    var pickedLatitude: Double?
+    var pickedLongitude: Double?
+    /// True only while the street is still the one filled in from the phone's own position.
+    var atMyLocation = false
 
     var isValid: Bool {
         !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -579,6 +592,10 @@ private struct FieldJobNewClientView: View {
     @State private var prospectOnly = false
     /// Otto is drawing the new property's border (after a successful save).
     @State private var showOtto = false
+    @StateObject private var suggester = AddressSuggester()
+    @FocusState private var addressFocused: Bool
+    /// The street last set by code (prefill or a pick); a different string means the person typed.
+    @State private var autoAddress = ""
 
     private var canSave: Bool { client.isValid && (prospectOnly ? client.hasContactMethod : draft.isValid) }
 
@@ -616,13 +633,52 @@ private struct FieldJobNewClientView: View {
             Section {
                 TextField("Street address", text: $client.address)
                     .textContentType(.fullStreetAddress)
+                    .focused($addressFocused)
+                    .onChange(of: client.address) { _, new in
+                        guard new != autoAddress else { return }
+                        client.pickedLatitude = nil
+                        client.pickedLongitude = nil
+                        client.atMyLocation = false
+                        if addressFocused { suggester.update(query: new) }
+                    }
+                ForEach(addressFocused ? suggester.suggestions : [], id: \.self) { s in
+                    Button {
+                        Task {
+                            guard let a = await suggester.resolve(s) else { return }
+                            autoAddress = a.street
+                            client.address = a.street
+                            if !a.city.isEmpty { client.city = a.city }
+                            if !a.postalCode.isEmpty { client.postalCode = a.postalCode }
+                            client.pickedLatitude = a.latitude
+                            client.pickedLongitude = a.longitude
+                            client.atMyLocation = false
+                            suggester.clear()
+                            addressFocused = false
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.title).font(appStyle.font(.subheadline))
+                            if !s.subtitle.isEmpty {
+                                Text(s.subtitle).font(appStyle.font(.caption)).foregroundStyle(appStyle.meta)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let e = suggester.lookupError {
+                    Text(e).font(appStyle.font(.caption)).foregroundStyle(.red)
+                }
                 TextField("City", text: $client.city)
                 TextField("Postal code", text: $client.postalCode)
                     .textInputAutocapitalization(.characters)
             } header: {
                 Text("Property")
             } footer: {
-                Text("Filled in from where you're standing — check the street number. The map pin is set to your current location.")
+                Text(client.pickedLatitude != nil
+                     ? "Address picked from the suggestions — the map pin is set to that address."
+                     : client.atMyLocation
+                        ? "Filled in from where you're standing — check the street number. The map pin is set to your current location."
+                        : "Start typing the street and pick a suggestion so the map pin lands on that address.")
             }
 
             if !prospectOnly {
@@ -664,6 +720,9 @@ private struct FieldJobNewClientView: View {
             guard !prefilled else { return }
             prefilled = true
             client.address    = vm.addressHere
+            autoAddress       = vm.addressHere
+            client.atMyLocation = !vm.addressHere.isEmpty && vm.fix != nil
+            suggester.setRegion(near: vm.fix?.coordinate)
             client.city       = vm.cityHere.isEmpty ? "Vancouver" : vm.cityHere
             client.postalCode = vm.postalHere
         }
