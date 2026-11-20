@@ -15,3 +15,5 @@ iOS is the spec. Every user-visible iPhone change gets a native Android half. `s
 - `python3 ~/.mowology-parity/bin/parity.py mark <sha8> done "released 2.2.x"` — after Claude's review and release
 
 **Known limits:** a port task for a change Android already has costs one Codex run (the task says "if already present, change nothing"). Screenshot pairs differ in status bar and fonts, so the layout score is a pointer, not a verdict — look at the pair PNG.
+
+**Screenshots, one-time setup (2026-11-20):** iPhone `-mwTab <tab>` works with no sign-in. Android `--es mwTab <tab>` (on `codex/native`, debug builds only) opens a tab of the *signed-in* day screen, so sign in once on the emulator (`scripts/local-android.sh up`, logins from `scripts/local-android.sh logins`); the session persists, and the daily run then captures all six pairs. Until then Android shots are skipped and the report says so. Not yet proven end to end on an emulator.
