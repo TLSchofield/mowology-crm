@@ -220,6 +220,7 @@
 		C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */; };
 		70DFA209222DE10C2BE33F0A /* QuizQuestionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */; };
 		05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E465AAA0176426DA253EC733 /* QuizDemo.swift */; };
+		1FBB69D7B1C62988C150F79E /* OttoBorderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -438,6 +439,7 @@
 		FC226DAEF778E6A5331F4741 /* ReceiptRowRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptRowRules.swift; sourceTree = "<group>"; };
 		8E7FDF2AC692090BEA6F092A /* QuizQuestionScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizQuestionScreen.swift; sourceTree = "<group>"; };
 		E465AAA0176426DA253EC733 /* QuizDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizDemo.swift; sourceTree = "<group>"; };
+		5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttoBorderSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -618,6 +620,7 @@
 				B8F407692A30F808FD0F43EC /* DayCarouselRules.swift */,
 				AFFF3E815832DD170F0527EB /* DayCarouselView.swift */,
 				912E7F827568C5FA62BA12D1 /* ScheduleFilterRules.swift */,
+				5F4B182F4C19470BE5219F62 /* OttoBorderSheet.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -1148,6 +1151,7 @@
 				C658B46C4E4A3DEC38EA2D6D /* ReceiptRowRules.swift in Sources */,
 				70DFA209222DE10C2BE33F0A /* QuizQuestionScreen.swift in Sources */,
 				05FBBBE119DD1520F414451D /* QuizDemo.swift in Sources */,
+				1FBB69D7B1C62988C150F79E /* OttoBorderSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
