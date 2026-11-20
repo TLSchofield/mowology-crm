@@ -11,6 +11,22 @@ class TrackingHealthServiceTest extends TestCase
 {
     private const NOW = 1790000000;
 
+    public function test_battery_is_required_only_for_a_device_not_exempt_that_went_quiet_this_week(): void
+    {
+        $notExempt = ['battery_optimization_exempt' => 0];
+        $this->assertTrue(TrackingHealthService::batteryEnforced($notExempt, self::NOW - 3600, self::NOW));
+        $this->assertTrue(TrackingHealthService::batteryEnforced($notExempt, self::NOW - 6 * 86400, self::NOW));
+        // Alert older than a week: back to advisory.
+        $this->assertFalse(TrackingHealthService::batteryEnforced($notExempt, self::NOW - 8 * 86400, self::NOW));
+        // Never alerted: advisory (the Samsung-flag trap — a working device must not be blocked).
+        $this->assertFalse(TrackingHealthService::batteryEnforced($notExempt, null, self::NOW));
+        // Exempt, unknown, or no health row at all: advisory.
+        $this->assertFalse(TrackingHealthService::batteryEnforced(['battery_optimization_exempt' => 1], self::NOW - 60, self::NOW));
+        $this->assertFalse(TrackingHealthService::batteryEnforced(['battery_optimization_exempt' => null], self::NOW - 60, self::NOW));
+        $this->assertFalse(TrackingHealthService::batteryEnforced([], self::NOW - 60, self::NOW));
+        $this->assertFalse(TrackingHealthService::batteryEnforced(null, self::NOW - 60, self::NOW));
+    }
+
     public function test_just_clocked_in_is_not_silent_yet(): void
     {
         $this->assertFalse(TrackingHealthService::isSilent(self::NOW - 300, null, self::NOW, 15));

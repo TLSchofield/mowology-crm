@@ -84,9 +84,18 @@ try {
         exit;
     }
 
+    // Earned, not blanket: the crew app makes the battery step required only for a device that is
+    // not exempt AND went quiet in the last week (TrackingHealthService::batteryEnforced).
+    $batteryEnforce = false;
+    try {
+        require_once APP_ROOT . '/Modules/Team/Services/TrackingHealthService.php';
+        $batteryEnforce = (new TrackingHealthService(getDB()))->batteryEnforcedFor((int)$row['id']);
+    } catch (Throwable $e) { /* advisory is the safe default */ }
+
     echo json_encode([
         'success'          => true,
         'tracking_enabled' => true,
+        'battery_enforce'  => $batteryEnforce,
         'token'            => $appToken,
         'app_token'        => $appToken,
         'expires_at'       => time() + $ttl,
