@@ -858,6 +858,24 @@ function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): 
 }
 
 /**
+ * Is this visit part of a salt/snow route plan (snow_route_rates)? False when the table
+ * does not exist yet, so the proximity check never fails on an older schema.
+ */
+function visitIsSnowRoute(PDO $db, int $visitId): bool {
+    try {
+        $stmt = $db->prepare("
+            SELECT 1 FROM job_visits jv
+            JOIN snow_route_rates r ON r.plan_id = jv.plan_id
+            WHERE jv.id = ? LIMIT 1
+        ");
+        $stmt->execute([$visitId]);
+        return $stmt->fetchColumn() !== false;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
  * Check if user is within proximity of a scheduled visit and auto-start the timer.
  * Called by crew-location.php on GPS pings and by the one-shot proximity check.
  *
@@ -889,9 +907,20 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     }
 
     // Guard 3: no LIVE job timer (a stale one left running for days must not block arrivals)
-    $activeTimer = getLiveJobTimer($userId);
+    // Exception (2026-11-19): salt/snow route stops are worked back to back, so an arrival at
+    // another ROUTE visit may still start while the last route timer runs — it is ended below,
+    // once a candidate is chosen. Anything else is blocked exactly as before.
+    $activeTimer     = getLiveJobTimer($userId);
+    $handoverOnly    = false;
+    $liveVisitId     = 0;
+    $liveIsRoute     = false;
     if ($activeTimer) {
-        return null;
+        $liveVisitId = (int)($activeTimer['visit_id'] ?? 0);
+        $liveIsRoute = $liveVisitId > 0 && visitIsSnowRoute(getDB(), $liveVisitId);
+        if (!$liveIsRoute) {
+            return null;
+        }
+        $handoverOnly = true;
     }
 
     // Guard 4: cooldown — skip if auto-started in last 5 minutes
@@ -904,6 +933,18 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     ");
     $cooldownStmt->execute([$userId]);
     if ($cooldownStmt->fetch()) {
+        $handoverOnly = true;   // only a route arrival may start inside the cooldown
+    }
+
+    // Race guard for the route exception above: two pings a second apart must never start two
+    // stops. Any timer this user started in the last 20 s (any kind) blocks the arrival.
+    $raceStmt = $db->prepare("
+        SELECT id FROM job_time_entries
+        WHERE user_id = ? AND start_time > DATE_SUB(NOW(), INTERVAL 20 SECOND)
+        LIMIT 1
+    ");
+    $raceStmt->execute([$userId]);
+    if ($raceStmt->fetch()) {
         return null;
     }
 
@@ -1051,6 +1092,10 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         }
         if (!$inGlobalList && !$hasPerVisitFlag) continue;
 
+        // A live timer or the cooldown only yields to a route-to-route arrival.
+        if ($handoverOnly && !ProximityAutoStartService::routeHandoverAllowed(
+                (bool)$activeTimer, $liveVisitId, $liveIsRoute, visitIsSnowRoute($db, $vid), $vid)) continue;
+
         // Guard 9: visit not already auto-started today — unless this is a RETURN after an
         // auto-detected departure, which resumes it.
         if (!isset($resumable[$vid])) {
@@ -1119,6 +1164,17 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
             error_log("checkProximityAutoStart: rolled back auto clock-in {$newClockEntryId} for user {$userId} — " . $e->getMessage());
         }
         return null;
+    }
+
+    // Route handover: the new stop is running, so the previous route timer ends now (at this
+    // arrival). Started first, ended second — a failed start must never leave the crew with no
+    // timer. The old visit stays in_progress for the crew to finish and invoice (pause mode).
+    if ($activeTimer) {
+        try {
+            stopJobTimer($liveVisitId, $userId, $lat, $lng, 'Auto-ended: arrived at next route stop', false);
+        } catch (Throwable $e) {
+            error_log("checkProximityAutoStart: route handover could not end timer on visit {$liveVisitId} for user {$userId} — " . $e->getMessage());
+        }
     }
 
     // Invalidate session cache so next check sees the updated visit status
