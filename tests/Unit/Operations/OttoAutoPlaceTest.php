@@ -248,6 +248,20 @@ class OttoAutoPlaceTest extends TestCase
         $this->assertSame('It needs a map pin first.', $svc->borderOne(2)['message']);
     }
 
+    public function test_looks_right_keeps_otto_border_and_only_otto_lot_borders(): void
+    {
+        $db = $this->db();
+        $db->exec("INSERT INTO properties (id, address, city, province, latitude, longitude) VALUES (1, 'A St', 'Vancouver', 'BC', 49.2296, -123.1549)");
+        $svc = new OttoAutoPlaceService($db, fn() => null, new ParcelLotService(self::fetcher([self::lotFeature()])), '2026-10-18');
+        $this->assertTrue($svc->borderOne(1)['ok']);
+        $this->assertTrue($svc->approveLotBorder(1));
+        $this->assertSame('kept', $db->query("SELECT border_source FROM job_geofences WHERE property_id = 1")->fetchColumn());
+        $this->assertFalse($svc->approveLotBorder(1), 'nothing left to approve');
+        $this->assertFalse($svc->removeLotBorder(1), 'an approved border is no longer Otto\'s to remove');
+        $this->assertFalse($svc->borderOne(1)['ok'], 'still counts as having a border');
+        $this->assertFalse($svc->approveLotBorder(99), 'no such property');
+    }
+
     /** A City of Vancouver record for 2188 W 14th Ave: a ~20 x 30 m lot, shifted north by $dLat. */
     private static function cityRecord(string $site, float $dLat = 0.0): array
     {
