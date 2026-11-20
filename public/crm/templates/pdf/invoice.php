@@ -533,7 +533,6 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         <div style="font-size:8.5pt; letter-spacing:1px; color:#cbd5e1;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
         <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
-        <?php if ($snowTermsHtml !== ''): ?><div style="font-size:8pt; color:#cbd5e1; margin-top:2px;"><?php echo $esc(InvoiceSnowTerms::ACCEPTANCE); ?> Terms below.</div><?php endif; ?>
     </td></tr>
     <?php if ($invoicePaymentInstr !== ''): ?>
     <tr><td style="background:#E8F3F0; border-left:3px solid #2D8659; padding:7px 16px; font-size:8.5pt; color:#0D3B2E; line-height:1.4;">
@@ -629,8 +628,8 @@ endif; ?>
 </div>
 <?php endif; ?>
 
-<!-- Footer (salt/snow: the header already carries the company details, so no repeat) -->
-<?php if (!$snowLayout || ($invoiceFooterText !== '' && !$dropFooterText)): ?>
+<!-- Footer (salt/snow: none — the header already carries the company details) -->
+<?php if (!$snowLayout): ?>
 <div class="footer">
     <?php if ($invoiceFooterText !== '' && !$dropFooterText): ?>
         <?php echo nl2br($esc($invoiceFooterText)); ?>

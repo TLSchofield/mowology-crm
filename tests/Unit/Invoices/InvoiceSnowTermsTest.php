@@ -14,7 +14,7 @@ class InvoiceSnowTermsTest extends TestCase
         $this->assertSame('', InvoiceSnowTerms::html(null));
     }
 
-    public function test_block_shows_wording_signing_date_and_acceptance_line(): void
+    public function test_block_shows_wording_and_signing_date(): void
     {
         $html = InvoiceSnowTerms::html([
             'body' => "SCOPE\nCar park <b>only</b>", 'snapshot' => true,
@@ -23,8 +23,6 @@ class InvoiceSnowTermsTest extends TestCase
         $this->assertStringContainsString('SNOW &amp; ICE SERVICE TERMS', $html);
         $this->assertStringContainsString('signed October 2, 2026', $html);
         $this->assertStringContainsString('Car park &lt;b&gt;only&lt;/b&gt;', $html);   // escaped, not injected
-        // the acceptance line lives in the payment panel (and the customer page), not in this block
-        $this->assertSame('Payment of this invoice confirms acceptance of these terms.', InvoiceSnowTerms::ACCEPTANCE);
     }
 
     public function test_unproven_signing_date_is_never_claimed(): void

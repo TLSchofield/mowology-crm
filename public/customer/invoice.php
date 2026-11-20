@@ -393,7 +393,6 @@ function fmtDate(string $d): string {
             <div class="portal-info-card-body" style="font-size:0.8125rem;color:var(--p-text-mid);line-height:1.55;">
                 <div style="margin-bottom:8px;"><?php echo htmlspecialchars(InvoiceSnowTerms::sourceLine($snowTerms)); ?></div>
                 <div style="white-space:pre-line;"><?php echo htmlspecialchars(trim($snowTerms['body'])); ?></div>
-                <div style="margin-top:10px;font-weight:600;"><?php echo htmlspecialchars(InvoiceSnowTerms::ACCEPTANCE); ?></div>
             </div>
         </div>
     <?php endif; ?>
