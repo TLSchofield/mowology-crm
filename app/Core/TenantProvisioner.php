@@ -192,6 +192,15 @@ final class TenantProvisioner
             if ((int)$this->db->query('SELECT COUNT(*) FROM ' . $q($dbName) . '.`business_settings`')->fetchColumn() === 0) {
                 $this->db->prepare('INSERT INTO ' . $q($dbName) . '.`business_settings` (id, company_name, company_email) VALUES (1, ?, ?)')->execute([$name, $email]);
             }
+            // New businesses start on the short first-week view (net-version plan, step 2). Only on the first run: once a
+            // business is registered, re-provisioning never turns it on (Codex review 2026-11-20).
+            if (!$wasRegistered) try {
+                $this->db->prepare('INSERT INTO ' . $q($dbName) . '.`ops_settings` (setting_key, setting_value, description) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_key = setting_key')
+                    ->execute(['first_week_mode', '1', 'Show the short first-week CRM (simple dashboard, short menu)']);
+                $this->log[] = 'Turned on the first-week view.';
+            } catch (Throwable $e) {
+                $this->log[] = 'Could not turn on the first-week view (ops_settings): ' . $e->getMessage();
+            }
         } finally {
             $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');
             if ($ddl !== $this->db) $ddl->exec('SET FOREIGN_KEY_CHECKS = 1');

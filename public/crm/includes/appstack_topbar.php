@@ -150,6 +150,33 @@ if (!isset($user)) $user = ['name' => 'Admin'];
                 <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_design=<?php echo $__itOn ? '0' : '1'; ?>">
                     <i class="align-middle mr-1" data-feather="layout"></i> <?php echo $__itOn ? 'Back to the classic design' : 'Try the new design'; ?>
                 </a>
+                <?php
+                // First-week view switch (net-version plan, step 2). Admin only; per business (ops_settings). Steps 3-4 read it.
+                $__fwShow = false; $__fwOn = false;
+                if (($_SESSION['user_role'] ?? '') === 'admin' && defined('APP_ROOT')) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekService.php';
+                        $__fwOn = FirstWeekService::isOn(getDB());
+                        $__fwShow = true;
+                    } catch (Throwable $__fwE) { /* the switch is a bonus */ }
+                }
+                if ($__fwShow): ?>
+                <a class="dropdown-item" href="#" id="mw-first-week-toggle" data-on="<?php echo $__fwOn ? '1' : '0'; ?>">
+                    <i class="align-middle mr-1" data-feather="sunrise"></i> <?php echo $__fwOn ? 'First-week view: on (turn off)' : 'First-week view: off (turn on)'; ?>
+                </a>
+                <script>
+                document.getElementById('mw-first-week-toggle').addEventListener('click', function (e) {
+                    e.preventDefault();
+                    var next = this.getAttribute('data-on') === '1' ? '0' : '1';
+                    fetch('/crm/api/ops-settings.php?action=save', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: window.MW_CSRF_TOKEN, key: 'first_week_mode', value: next, description: 'Show the short first-week CRM (simple dashboard, short menu)' })
+                    }).then(function (r) { return r.json(); }).then(function (j) {
+                        if (j && j.success) { location.reload(); } else { alert('Could not change the first-week view.'); }
+                    }).catch(function () { alert('Could not change the first-week view.'); });
+                });
+                </script>
+                <?php endif; ?>
                 <?php $__brandIttai = ($_COOKIE['it_brand'] ?? '') === 'ittai'; // Ittai brand preview (dashboard_appstack.php sets it) ?>
                 <a class="dropdown-item" href="/crm/dashboard_appstack.php?it_brand=<?php echo $__brandIttai ? 'mowology' : 'ittai'; ?>">
                     <i class="align-middle mr-1" data-feather="droplet"></i> <?php echo $__brandIttai ? 'Back to Mowology colours' : 'Preview Ittai colours'; ?>
