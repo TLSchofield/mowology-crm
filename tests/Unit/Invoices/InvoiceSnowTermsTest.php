@@ -61,10 +61,12 @@ class InvoiceSnowTermsTest extends TestCase
     public function test_columns_split_between_paragraphs_and_lose_no_text(): void
     {
         $body = "TERM\n\nOne two three.\n\nSCOPE\n\nFour five six seven.\n\nLIMITS\n\nEight nine.";
-        [$l, $r] = InvoiceSnowTerms::twoColumns($body);
-        $this->assertNotSame('', $l);
-        $this->assertNotSame('', $r);
-        $this->assertSame($body, $l . "\n\n" . $r);
-        $this->assertSame([ 'One paragraph only', '' ], InvoiceSnowTerms::twoColumns('One paragraph only'));
+        foreach ([2, 3] as $n) {
+            $cols = InvoiceSnowTerms::columns($body, $n);
+            $this->assertCount($n, $cols);
+            $this->assertSame($body, implode("\n\n", $cols));
+        }
+        $this->assertSame(['One paragraph only'], InvoiceSnowTerms::columns('One paragraph only', 3));
+        $this->assertSame(['A', 'B'], InvoiceSnowTerms::columns("A\n\nB", 3)); // never an empty column
     }
 }

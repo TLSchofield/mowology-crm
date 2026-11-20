@@ -127,6 +127,11 @@ class InvoiceSnowTerms
         return [$name, $day];
     }
 
+    private static function isHeading(string $p): bool
+    {
+        return $p !== '' && strlen($p) <= 48 && $p === strtoupper($p);
+    }
+
     /** Paragraphs as tight blocks (not blank lines); ALL-CAPS one-liners are headings. */
     private static function paragraphs(string $text, callable $e): string
     {
@@ -136,8 +141,7 @@ class InvoiceSnowTerms
             if ($p === '') {
                 continue;
             }
-            $isHeading = strlen($p) <= 48 && $p === strtoupper($p);
-            $out .= $isHeading
+            $out .= self::isHeading($p)
                 ? '<div style="margin-top:3px; font-weight:bold; color:#334155;">' . $e($p) . '</div>'
                 : '<div style="margin-top:1px;">' . nl2br($e($p)) . '</div>';
         }
@@ -145,29 +149,50 @@ class InvoiceSnowTerms
     }
 
     /**
-     * Split a terms body into two balanced halves at a paragraph break (blank line).
+     * Split a terms body into $n balanced columns at paragraph breaks (blank lines). Joined with a blank
+     * line the columns give back the body exactly — no text is lost. Fewer than $n paragraphs → fewer columns.
      *
-     * @return array{0:string,1:string}
+     * @return string[]
      */
-    public static function twoColumns(string $body): array
+    public static function columns(string $body, int $n = 3): array
     {
-        $paras = preg_split('/\R{2,}/', $body) ?: [$body];
-        if (count($paras) < 2) {
-            return [$body, ''];
-        }
-        $total = strlen($body) + 70 * count($paras);
-        $left = [];
-        $acc = 0;
-        foreach ($paras as $i => $p) {
-            // Stop once the left column holds half the text, always leaving the right at least one paragraph.
-            if ($acc >= $total / 2 || $i === count($paras) - 1) {
-                break;
+        $raw = preg_split('/\R{2,}/', $body) ?: [$body];
+        // A heading never ends a column on its own: bind it to the paragraph after it.
+        $paras = [];
+        for ($i = 0; $i < count($raw); $i++) {
+            $p = trim($raw[$i]);
+            if (self::isHeading($p) && isset($raw[$i + 1])) {
+                $paras[] = $p . "\n\n" . trim($raw[$i + 1]);
+                $i++;
+            } else {
+                $paras[] = $raw[$i];
             }
-            $left[] = $p;
-            $acc += strlen($p) + 70;   // each paragraph also costs a line of spacing
         }
-        $right = array_slice($paras, count($left));
-        return [implode("\n\n", $left), implode("\n\n", $right)];
+        $n = max(1, min($n, count($paras)));
+        if ($n === 1) {
+            return [$body];
+        }
+        $weight = fn(string $p): int => strlen($p) + 70;   // each paragraph also costs a line of spacing
+        $total  = array_sum(array_map($weight, $paras));
+        $cols = [];
+        $cur = [];
+        $acc = 0;
+        $remaining = count($paras);
+        foreach ($paras as $p) {
+            $cur[] = $p;
+            $acc += $weight($p);
+            $remaining--;
+            $colsLeft = $n - count($cols) - 1;
+            // close this column once it holds its share, keeping at least one paragraph per column still to come
+            if ($colsLeft > 0 && $remaining >= $colsLeft && $acc >= $total * (count($cols) + 1) / $n) {
+                $cols[] = implode("\n\n", $cur);
+                $cur = [];
+            }
+        }
+        if ($cur) {
+            $cols[] = implode("\n\n", $cur);
+        }
+        return $cols;
     }
 
     /** Line under the heading: which agreement this is, only as precisely as we can prove. */
@@ -186,19 +211,21 @@ class InvoiceSnowTerms
             return '';
         }
         $e = function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
-        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:0.8pt solid #cbd5e1; font-size:7pt; color:#475569; line-height:1.35;">';
-        $h .= '<tr><td style="background:#f1f5f9; padding:5px 10px;">'
+        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:0.8pt solid #cbd5e1; font-size:7pt; color:#475569; line-height:1.25;">';
+        $h .= '<tr><td style="background:#f1f5f9; padding:3px 10px;">'
             . '<span style="font-size:8pt; font-weight:bold; color:#1e3a5f; letter-spacing:1px;">SNOW &amp; ICE SERVICE TERMS</span>'
             . '<span style="color:#64748b;"> &nbsp;' . $e(self::sourceLine($terms)) . '</span></td></tr>';
-        // Two columns (split between paragraphs at the half-way point) so the signed wording fits
-        // on the invoice page without shrinking the type.
-        [$left, $right] = self::twoColumns(trim($terms['body']));
-        $h .= '<tr><td style="padding:0;"><table width="100%" cellpadding="0" cellspacing="0"><tr>'
-            . '<td width="50%" style="vertical-align:top; padding:4px 8px 2px 10px;">' . self::paragraphs($left, $e) . '</td>'
-            . '<td width="50%" style="vertical-align:top; padding:4px 10px 2px 8px;">' . self::paragraphs($right, $e) . '</td>'
-            . '</tr></table></td></tr>';
-        $h .= '<tr><td style="padding:3px 10px 7px 10px; font-weight:bold; color:#1e3a5f; font-size:7.5pt;">'
-            . $e(self::ACCEPTANCE) . '</td></tr></table>';
+        // Columns (split between paragraphs) so the signed wording fits on the invoice page at a
+        // readable size instead of being shrunk.
+        $cols = self::columns(trim($terms['body']), 3);
+        $w = (int)floor(100 / max(1, count($cols)));
+        $h .= '<tr><td style="padding:0;"><table width="100%" cellpadding="0" cellspacing="0"><tr>';
+        foreach ($cols as $i => $c) {
+            $h .= '<td width="' . $w . '%" style="vertical-align:top; padding:3px ' . ($i === count($cols) - 1 ? '10' : '6') . 'px 1px ' . ($i === 0 ? '10' : '6') . 'px;">'
+                . self::paragraphs($c, $e) . '</td>';
+        }
+        $h .= '</tr></table></td></tr>';
+        $h .= '</table>';
         // A div (not the table) carries the keep-together: mPDF shrinks a table to fit a page break
         // instead of moving it, which made the signed wording unreadably small.
         return '<div style="page-break-inside:avoid;">' . $h . '</div>';

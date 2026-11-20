@@ -254,10 +254,9 @@ class PdfGenerator
             $evCompany = (string)($business['company_name'] ?? 'Mowology Landscaping');
             $weatherEv = InvoiceWeatherEvidence::forInvoice($this->db, $invoice);
             // Site presence only joins invoices that have weather evidence (salt/snow route runs)
-            $weatherEvidenceHtml = InvoiceSitePresence::sideBySide(
-                InvoiceWeatherEvidence::html($weatherEv, $evCompany),
-                $weatherEv !== null ? InvoiceSitePresence::html(InvoiceSitePresence::forInvoice($this->db, $invoice), $evCompany) : ''
-            );
+            $weatherPanelHtml  = InvoiceWeatherEvidence::html($weatherEv, $evCompany);
+            $presencePanelHtml = $weatherEv !== null ? InvoiceSitePresence::html(InvoiceSitePresence::forInvoice($this->db, $invoice), $evCompany) : '';
+            $weatherEvidenceHtml = InvoiceSitePresence::sideBySide($weatherPanelHtml, $presencePanelHtml);
 
             // Salt/snow route invoice: one-page payment-first layout + the signed snow terms
             require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSnowTerms.php';
@@ -270,6 +269,8 @@ class PdfGenerator
                 'lineItems' => $lineItems,
                 'business' => $business,
                 'weatherEvidenceHtml' => $weatherEvidenceHtml,
+                'weatherPanelHtml' => $weatherPanelHtml,
+                'presencePanelHtml' => $presencePanelHtml,
                 'snowLayout' => $snowLayout,
                 'snowTermsHtml' => $snowTermsHtml,
                 'projectRoot' => $this->projectRoot,

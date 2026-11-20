@@ -523,8 +523,9 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         $calloutValue = $fmt($total);
     }
 ?>
-<?php if ($snowLayout && !$isPaid):
+<?php $snowRow = false; if ($snowLayout && !$isPaid):
     $snowBg = $calloutClass === 'overdue' ? '#991b1b' : '#0D3B2E';
+    ob_start();
 ?>
 <!-- Payment decision in one place: amount, due date, how to pay -->
 <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px; page-break-inside:avoid;">
@@ -532,6 +533,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         <div style="font-size:8.5pt; letter-spacing:1px; color:#cbd5e1;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
         <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
+        <?php if ($snowTermsHtml !== ''): ?><div style="font-size:8pt; color:#cbd5e1; margin-top:2px;"><?php echo $esc(InvoiceSnowTerms::ACCEPTANCE); ?> Terms below.</div><?php endif; ?>
     </td></tr>
     <?php if ($invoicePaymentInstr !== ''): ?>
     <tr><td style="background:#E8F3F0; border-left:3px solid #2D8659; padding:7px 16px; font-size:8.5pt; color:#0D3B2E; line-height:1.4;">
@@ -539,7 +541,23 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     </td></tr>
     <?php endif; ?>
 </table>
-<?php endif; ?>
+<?php
+    $payHtml = ob_get_clean();
+    $wPanel  = (string)($weatherPanelHtml ?? '');
+    $pPanel  = (string)($presencePanelHtml ?? '');
+    if ($wPanel !== '') {
+        // Payment decision, weather record and GPS map share one row
+        $snowRow = true;
+        $three = $pPanel !== '';
+        echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>'
+           . '<td width="' . ($three ? '35' : '50') . '%" valign="top" style="padding-right:4px;">' . $payHtml . '</td>'
+           . '<td width="' . ($three ? '30' : '50') . '%" valign="top" style="padding:0 ' . ($three ? '2' : '0') . 'px 0 4px;">' . $wPanel . '</td>'
+           . ($three ? '<td width="35%" valign="top" style="padding-left:4px;">' . $pPanel . '</td>' : '')
+           . '</tr></table>';
+    } else {
+        echo $payHtml;
+    }
+endif; ?>
 <?php if (!$snowLayout || $isPaid): ?>
 <table class="total-callout <?php echo $calloutClass; ?>" cellpadding="0" cellspacing="0" style="width: 280px; margin-left: auto; margin-top: 10px;">
     <tr>
@@ -569,7 +587,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 <?php endif; ?>
 
 <!-- Weather authorization (salt/snow route invoices with a stored forecast record) -->
-<?php echo $weatherEvidenceHtml ?? ''; ?>
+<?php if (empty($snowRow)) { echo $weatherEvidenceHtml ?? ''; } ?>
 
 <!-- Signed snow & ice terms (salt/snow route invoices) -->
 <?php echo $snowTermsHtml; ?>

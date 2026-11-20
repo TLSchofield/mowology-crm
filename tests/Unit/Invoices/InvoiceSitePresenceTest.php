@@ -21,7 +21,9 @@ class InvoiceSitePresenceTest extends TestCase
         $html = InvoiceSitePresence::html($this->sample());
         $this->assertStringContainsString('SITE PRESENCE', $html);
         $this->assertStringContainsString('5 within 200 m of the property', $html);
-        $this->assertStringContainsString('2:24:47 PM', $html);
+        $this->assertStringContainsString('2:24:47 PM', $html);          // arrival is shown
+        $this->assertStringNotContainsString('2:25:31', $html);          // departure is not: no duration can be derived
+        $this->assertStringNotContainsString('First / last', $html);
         $this->assertStringContainsString('1965 West 4th Avenue &lt;x&gt;', $html);
         $this->assertStringContainsString('± 12 m', $html);
     }

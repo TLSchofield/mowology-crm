@@ -167,7 +167,9 @@ class InvoiceSitePresence
         $day = (new DateTime($p['first'], new DateTimeZone('America/Vancouver')))->format('l, F j, Y');
         $rows = [
             ['Readings', $p['count'] . ' within 200 m of the property'],
-            ['First / last', $fmt($p['first']) . ' – ' . $fmt($p['last'])],
+            // Arrival only. A last-reading time (or a first–last range) would let the client work out
+            // how long the crew was on site, which clients are deliberately not shown (Tim, 2026-11-19).
+            ['Arrived', $fmt($p['first'])],
         ];
         if ($p['best_accuracy_m'] !== null) {
             $rows[] = ['Best accuracy', '± ' . $p['best_accuracy_m'] . ' m · crew mobile device'];
