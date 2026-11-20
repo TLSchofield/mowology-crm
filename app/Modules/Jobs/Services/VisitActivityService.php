@@ -79,7 +79,7 @@ class VisitActivityService
             return [null, null];
         }
         $s = min($starts) - self::WINDOW_PAD_MIN * 60;
-        $eBase = $ends ? max($ends) : max($starts) + 3600;
+        $eBase = $ends ? max(max($ends), max($starts)) : max($starts) + 3600;
         $e = $eBase + self::WINDOW_PAD_MIN * 60;
         return [date('Y-m-d H:i:s', $s), date('Y-m-d H:i:s', $e)];
     }
@@ -96,33 +96,26 @@ class VisitActivityService
         }
         try {
             $st = $db->prepare("
-                SELECT lat, lng, speed_kph, recorded_at
+                SELECT COUNT(*) AS n, MIN(recorded_at) AS first_at,
+                       MAX(recorded_at) AS last_at, MAX(speed_kph) AS max_kph
                 FROM vehicle_location_pings
                 WHERE recorded_at BETWEEN ? AND ?
-                ORDER BY recorded_at ASC
-                LIMIT 500
             ");
             $st->execute([$start, $end]);
-            $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $row = $st->fetch(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
             error_log('VisitActivityService::truckPings ' . $e->getMessage());
             return $empty;
         }
-        if (!$rows) {
+        if (!$row || (int)$row['n'] === 0) {
             return $empty;
         }
-        $max = null;
-        foreach ($rows as $r) {
-            if ($r['speed_kph'] !== null && ($max === null || (float)$r['speed_kph'] > $max)) {
-                $max = (float)$r['speed_kph'];
-            }
-        }
         return [
-            'count'   => count($rows),
-            'first'   => $rows[0]['recorded_at'],
-            'last'    => $rows[count($rows) - 1]['recorded_at'],
-            'max_kph' => $max,
-            'points'  => $rows,
+            'count'   => (int)$row['n'],
+            'first'   => $row['first_at'],
+            'last'    => $row['last_at'],
+            'max_kph' => $row['max_kph'] !== null ? (float)$row['max_kph'] : null,
+            'points'  => [],
         ];
     }
 

@@ -33,6 +33,16 @@ class VisitActivityServiceTest extends TestCase
         $this->assertSame('2026-11-19 14:55:00', $e);
     }
 
+    public function testWindowCoversOpenLaterEntry(): void
+    {
+        $entries = [
+            ['start_time' => '2026-11-19 09:00:00', 'end_time' => '2026-11-19 10:00:00', 'status' => 'completed'],
+            ['start_time' => '2026-11-19 11:00:00', 'end_time' => null, 'status' => 'active'],
+        ];
+        [, $e] = VisitActivityService::window($entries, null, null);
+        $this->assertSame('2026-11-19 11:15:00', $e);
+    }
+
     public function testWindowEmptyWhenNothingKnown(): void
     {
         $this->assertSame([null, null], VisitActivityService::window([], null, null));
@@ -49,10 +59,9 @@ class VisitActivityServiceTest extends TestCase
     {
         $st = $this->createMock(PDOStatement::class);
         $st->method('execute')->willReturn(true);
-        $st->method('fetchAll')->willReturn([
-            ['lat' => '49.1', 'lng' => '-123.1', 'speed_kph' => '10.0', 'recorded_at' => '2026-11-19 10:00:00'],
-            ['lat' => '49.1', 'lng' => '-123.1', 'speed_kph' => '42.5', 'recorded_at' => '2026-11-19 10:10:00'],
-        ]);
+        $st->method('fetch')->willReturn(
+            ['n' => '2', 'first_at' => '2026-11-19 10:00:00', 'last_at' => '2026-11-19 10:10:00', 'max_kph' => '42.5']
+        );
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturn($st);
         $r = VisitActivityService::truckPings($db, '2026-11-19 09:45:00', '2026-11-19 11:00:00');
