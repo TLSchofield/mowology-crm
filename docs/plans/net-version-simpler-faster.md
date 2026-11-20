@@ -167,3 +167,11 @@ Still open on the dashboard: Otto's card (~740 ms: unscheduled items 230 ms, clo
 Penny's payment-match refresh (a one-off ~1.7 s on the first admin load every 4 h), and the head API calls after load
 (`charlie.php`, `bookkeeper.php`, `otto.php`). `crew_location_history` carries 13 index entries for 7 distinct needs:
 duplicate indexes to drop in a migration.
+
+## Step 2 result: the first-week switch (2026-11-20, deployed)
+
+- `FirstWeekService` (`app/Modules/Settings/Services/`) reads `ops_settings.first_week_mode` ('1' = on, no row = off). Per business database, so per tenant. Tests: `tests/Unit/Settings/FirstWeekServiceTest.php`.
+- Admin toggle in the account menu (top right): "First-week view: on/off". It saves through the existing `ops-settings.php?action=save` (admin only, CSRF).
+- New businesses start ON (`TenantProvisioner`, first run only, so re-provisioning never flips an existing business). Mowology stays OFF.
+- Nothing visible changes yet: steps 3 (simple dashboard) and 4 (short menu) read `FirstWeekService::isOn()`.
+- Checked live: dashboard renders in full, item shows "off (turn on)".
