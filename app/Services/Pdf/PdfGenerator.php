@@ -255,12 +255,19 @@ class PdfGenerator
                 (string)($business['company_name'] ?? 'Mowology Landscaping')
             );
 
+            // Salt/snow route invoice: one-page payment-first layout + the signed snow terms
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSnowTerms.php';
+            $snowLayout    = InvoiceSnowTerms::isSnowInvoice($this->db, $invoice);
+            $snowTermsHtml = $snowLayout ? InvoiceSnowTerms::html(InvoiceSnowTerms::forInvoice($this->db, $invoice)) : '';
+
             // Render HTML template
             $html = $this->renderTemplate('invoice.php', [
                 'invoice' => $invoice,
                 'lineItems' => $lineItems,
                 'business' => $business,
                 'weatherEvidenceHtml' => $weatherEvidenceHtml,
+                'snowLayout' => $snowLayout,
+                'snowTermsHtml' => $snowTermsHtml,
                 'projectRoot' => $this->projectRoot,
             ]);
 

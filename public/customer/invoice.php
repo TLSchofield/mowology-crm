@@ -16,6 +16,7 @@ require_once APP_ROOT . '/Core/Csp.php';
 MwCsp::send(); // nonce CSP for the customer portal (Fable #22, 2026-10-12)
 require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSnowTerms.php';
 
 $db    = getDB();
 $error = '';
@@ -108,6 +109,9 @@ if (!$error) {
         $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }
+
+// Salt/snow route invoice: the signed snow & ice terms travel with it (null for every other invoice)
+$snowTerms = $invoice ? InvoiceSnowTerms::forInvoice($db, $invoice) : null;
 
 $isPayable   = $invoice && in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
 $contactName = $invoice ? trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) : '';
@@ -380,6 +384,17 @@ function fmtDate(string $d): string {
         <div class="portal-info-card">
             <div class="portal-info-card-header">How to Pay</div>
             <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo htmlspecialchars($paymentInstructions); ?></div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($snowTerms): ?>
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">Snow &amp; Ice Service Terms</div>
+            <div class="portal-info-card-body" style="font-size:0.8125rem;color:var(--p-text-mid);line-height:1.55;">
+                <div style="margin-bottom:8px;"><?php echo htmlspecialchars(InvoiceSnowTerms::sourceLine($snowTerms)); ?></div>
+                <div style="white-space:pre-line;"><?php echo htmlspecialchars(trim($snowTerms['body'])); ?></div>
+                <div style="margin-top:10px;font-weight:600;"><?php echo htmlspecialchars(InvoiceSnowTerms::ACCEPTANCE); ?></div>
+            </div>
         </div>
     <?php endif; ?>
 

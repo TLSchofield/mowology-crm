@@ -19,8 +19,7 @@ class InvoiceWeatherEvidenceTest extends TestCase
         ]);
         $this->assertStringContainsString('WEATHER AUTHORIZATION', $html);
         $this->assertStringContainsString('Thursday, November 19, 2026', $html);
-        $this->assertStringContainsString('0 °C', $html);
-        $this->assertStringContainsString('Yes — service authorized', $html);
+        $this->assertStringContainsString('The forecast low of 0°C met the service threshold of 2°C or below.', $html);
         $this->assertStringContainsString('Environment Canada', $html);
         $this->assertStringNotContainsString('Supplementary', $html);
     }
@@ -32,7 +31,8 @@ class InvoiceWeatherEvidenceTest extends TestCase
             'trigger_threshold_c' => '0.00', 'weather_condition' => null, 'data_source' => null,
             'source_station' => null, 'decision_at' => '2026-11-17 18:00:33', 'has_raw' => 0,
         ]);
-        $this->assertStringNotContainsString('service authorized', $html);
+        $this->assertStringContainsString('did not meet the service threshold', $html);
+        $this->assertStringNotContainsString('met the service threshold', $html);
     }
 
     public function testPhotoFallbackIsLabelledSupplementaryNotOfficial(): void
