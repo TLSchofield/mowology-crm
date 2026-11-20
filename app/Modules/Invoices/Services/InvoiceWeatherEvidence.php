@@ -62,10 +62,10 @@ class InvoiceWeatherEvidence
             return '';
         }
         $e = function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
-        $css = 'margin-top:8px; border:1.2pt solid #1e3a5f; font-size:9.5pt; color:#1f2937; page-break-inside:avoid;';
+        $css = 'margin-top:8px; border:1.2pt solid #1e3a5f; font-size:8pt; color:#1f2937; page-break-inside:avoid;';
         $head = function (string $title, string $tag) use ($e): string {
-            return '<tr><td style="background:#1e3a5f; color:#ffffff; padding:7px 12px; font-weight:bold; letter-spacing:1px; font-size:8.5pt;">'
-                 . $e($title) . '</td><td style="background:#1e3a5f; color:#cbd5e1; padding:7px 12px; text-align:right; font-size:7.5pt;">'
+            return '<tr><td style="background:#1e3a5f; color:#ffffff; padding:5px 10px; font-weight:bold; letter-spacing:1px; font-size:8pt;">'
+                 . $e($title) . '</td><td style="background:#1e3a5f; color:#cbd5e1; padding:5px 10px; text-align:right; font-size:7pt;">'
                  . $e($tag) . '</td></tr>';
         };
 
@@ -78,28 +78,33 @@ class InvoiceWeatherEvidence
             if (!empty($ev['decision_at'])) {
                 // decision_at is stored in server time (America/Vancouver), not UTC
                 $dt  = new DateTime((string)$ev['decision_at'], new DateTimeZone('America/Vancouver'));
-                $cap = $dt->format('M j, Y \a\t g:i A') . ' ' . $dt->format('T');
+                $cap = $dt->format('M j, Y \a\t g:i A') . ' Pacific';
             }
             $ref = !empty($ev['record_id']) ? 'WX-' . str_pad((string)(int)$ev['record_id'], 5, '0', STR_PAD_LEFT) : '';
-            // Reason first, in one sentence; the evidence to check it sits together underneath.
-            $reason = $met
-                ? 'The forecast low of ' . $low . '°C met the service threshold of ' . $thr . '°C or below.'
-                : 'The forecast low of ' . $low . '°C did not meet the service threshold of ' . $thr . '°C or below.';
-            $evidence = array_filter([
-                $ev['data_source'] ?: 'Environment Canada',
-                !empty($ev['source_station']) ? 'Station: ' . $ev['source_station'] : '',
-                !empty($ev['weather_condition']) ? 'Condition: ' . $ev['weather_condition'] : '',
-                $cap !== '' ? 'Captured automatically ' . $cap : '',
-                $ref !== '' ? 'Record ' . $ref : '',
-                !empty($ev['has_raw']) ? 'Full unaltered forecast data kept on file' : '',
-            ], fn($x) => $x !== '');
+            $rows = [
+                ['Forecast overnight low', $low . ' °C'],
+                ['Service threshold', '≤ ' . $thr . ' °C'],
+                ['Threshold met', $met ? 'Yes — service authorized' : 'No'],
+                ['Condition', $ev['weather_condition'] ?: '—'],
+                ['Source', ($ev['data_source'] ?: 'Environment Canada')],
+                ['Station', $ev['source_station'] ?: '—'],
+                ['Forecast captured', $cap],
+            ];
+            if ($ref !== '') { $rows[] = ['Record reference', $ref]; }
             $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="' . $css . '">';
             $h .= $head('WEATHER AUTHORIZATION', 'Official forecast record');
-            $h .= '<tr><td colspan="2" style="padding:8px 12px 3px 12px;">'
-                . '<span style="font-size:7pt; color:#64748b; letter-spacing:1px;">NIGHT OF</span> <span style="font-size:8pt; color:#475569;">' . $e($date) . '</span><br>'
-                . '<span style="font-size:10.5pt; font-weight:bold; color:#1e3a5f;">' . $e($reason) . '</span></td></tr>';
-            $h .= '<tr><td colspan="2" style="padding:3px 12px 8px 12px; font-size:8.5pt; color:#475569;">'
-                . $e(implode(' · ', $evidence)) . '</td></tr></table>';
+            $h .= '<tr><td colspan="2" style="padding:6px 10px 2px 10px; font-size:7pt; color:#64748b; letter-spacing:1px;">NIGHT OF '
+                . '<span style="font-size:9.5pt; font-weight:bold; color:#1e3a5f; letter-spacing:0;">' . $e($date) . '</span></td></tr>';
+            $h .= '<tr><td colspan="2" style="padding:0 10px 4px 10px;"><table width="100%" cellpadding="0" cellspacing="0">';
+            foreach ($rows as $i => $r) {
+                $bg = $i % 2 ? '#f8fafc' : '#ffffff';
+                $h .= '<tr><td width="40%" style="background:' . $bg . '; padding:2px 6px; font-size:8pt; color:#64748b; border-bottom:0.4pt solid #e2e8f0;">' . $e($r[0])
+                    . '</td><td style="background:' . $bg . '; padding:2px 6px; font-size:8pt; font-weight:bold; border-bottom:0.4pt solid #e2e8f0;">' . $e($r[1]) . '</td></tr>';
+            }
+            $h .= '</table></td></tr>';
+            $h .= '<tr><td colspan="2" style="padding:3px 10px 6px 10px; font-size:6.5pt; color:#64748b; border-top:0.4pt solid #cbd5e1;">'
+                . 'Captured automatically' . (!empty($ev['has_raw']) ? '; full unaltered forecast data kept on file for verification.' : '.')
+                . '</td></tr></table>';
             return $h;
         }
 

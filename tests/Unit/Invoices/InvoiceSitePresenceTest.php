@@ -20,7 +20,7 @@ class InvoiceSitePresenceTest extends TestCase
     {
         $html = InvoiceSitePresence::html($this->sample());
         $this->assertStringContainsString('SITE PRESENCE', $html);
-        $this->assertStringContainsString('5 within 200 m', $html);
+        $this->assertStringContainsString('5 within 200 m of the property', $html);
         $this->assertStringContainsString('2:24:47 PM', $html);
         $this->assertStringContainsString('1965 West 4th Avenue &lt;x&gt;', $html);
         $this->assertStringContainsString('± 12 m', $html);
@@ -31,6 +31,6 @@ class InvoiceSitePresenceTest extends TestCase
         $this->assertSame('W', InvoiceSitePresence::sideBySide('W', ''));
         $this->assertSame('P', InvoiceSitePresence::sideBySide('', 'P'));
         $this->assertSame('', InvoiceSitePresence::sideBySide('', ''));
-        $this->assertStringContainsString('<td width="52%"', InvoiceSitePresence::sideBySide('W', 'P'));
+        $this->assertStringContainsString('<td width="44%"', InvoiceSitePresence::sideBySide('W', 'P'));
     }
 }
