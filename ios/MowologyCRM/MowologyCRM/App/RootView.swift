@@ -42,7 +42,7 @@ struct RootView: View {
 
     var body: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-mwSmokeTour") {
+        if ProcessInfo.processInfo.arguments.contains("-mwSmokeTour") || ProcessInfo.processInfo.arguments.contains("-mwTab") {
             MainTabView()
                 .environmentObject(authSession)
                 .itAppTheme(enabled: true, field: false)
