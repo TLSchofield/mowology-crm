@@ -311,6 +311,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     .two-col td { padding-right: 14px; }
     .items-table td { padding-top: 4px; padding-bottom: 4px; }
     .footer { margin-top: 6px; padding-top: 5px; }
+    .client-name { font-size: 11pt; }
+    .invoice-header-msg { padding: 3px 12px; margin-bottom: 4px; }
 </style>
 <?php endif; ?>
 
@@ -327,7 +329,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                 }
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
             ?>
-            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: <?php echo $snowLayout ? '36' : '50'; ?>px; margin-bottom: <?php echo $snowLayout ? '3' : '8'; ?>px;">
+            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: <?php echo $snowLayout ? '30' : '50'; ?>px; margin-bottom: <?php echo $snowLayout ? '3' : '8'; ?>px;">
             <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
             <?php if ($bizTagline !== ''): ?>
                 <div class="brand-tagline"><?php echo $esc($bizTagline); ?></div>
@@ -338,8 +340,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                     $contactBits = array_filter([$bizPhone, $bizEmail, $bizWebsite], fn($p) => $p !== '');
                     echo $esc(trim(preg_replace('/\s*[\r\n]+\s*/', ', ', $bizAddress)));
                 ?><br>
-                <?php echo $esc(implode(' · ', $contactBits)); ?>
-                <?php if ($bizGst !== ''): ?><br>GST Business #: <?php echo $esc($bizGst); ?><?php endif; ?>
+                <?php echo $esc(implode(' · ', $contactBits)); ?><?php if ($bizGst !== ''): ?> · GST #: <?php echo $esc($bizGst); ?><?php endif; ?>
             </div>
             <?php else: ?>
             <div class="brand-info">
@@ -477,6 +478,9 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 </table>
 
 <!-- Totals — Subtotal + tax in a small table -->
+<?php if ($snowLayout && $amountPaid <= 0): ?>
+<div style="text-align:right; font-size:9pt; color:#64748b; margin-top:3px;">Subtotal <?php echo $fmt($subtotal); ?> &nbsp;+&nbsp; GST (<?php echo round($taxRate * 100); ?>%) <?php echo $fmt($taxAmount); ?></div>
+<?php else: ?>
 <table class="totals-table">
     <tr>
         <td class="label">Subtotal</td>
@@ -497,6 +501,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     </tr>
     <?php endif; ?>
 </table>
+<?php endif; ?>
 
 <!-- Primary amount callout — the one number the customer needs to see -->
 <?php
@@ -523,7 +528,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 ?>
 <!-- Payment decision in one place: amount, due date, how to pay -->
 <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px; page-break-inside:avoid;">
-    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:10px 16px 8px 16px;">
+    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:7px 16px 6px 16px;">
         <div style="font-size:8.5pt; letter-spacing:1px; color:#cbd5e1;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
         <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
@@ -600,7 +605,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 </div>
 <?php endif; ?>
 
-<!-- Footer -->
+<!-- Footer (salt/snow: the header already carries the company details, so no repeat) -->
+<?php if (!$snowLayout || ($invoiceFooterText !== '' && !$dropFooterText)): ?>
 <div class="footer">
     <?php if ($invoiceFooterText !== '' && !$dropFooterText): ?>
         <?php echo nl2br($esc($invoiceFooterText)); ?>
@@ -616,3 +622,4 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         <?php echo $esc(implode(' · ', $footerParts)); ?>
     <?php endif; ?>
 </div>
+<?php endif; ?>

@@ -199,6 +199,8 @@ class InvoiceSnowTerms
             . '</tr></table></td></tr>';
         $h .= '<tr><td style="padding:3px 10px 7px 10px; font-weight:bold; color:#1e3a5f; font-size:7.5pt;">'
             . $e(self::ACCEPTANCE) . '</td></tr></table>';
-        return $h;
+        // A div (not the table) carries the keep-together: mPDF shrinks a table to fit a page break
+        // instead of moving it, which made the signed wording unreadably small.
+        return '<div style="page-break-inside:avoid;">' . $h . '</div>';
     }
 }
