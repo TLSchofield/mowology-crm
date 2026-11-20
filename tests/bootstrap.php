@@ -616,6 +616,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/CalendarCreateService.php'
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherActionGuard.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherSnapshotService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
 

@@ -103,4 +103,16 @@ class InvoiceWeatherEvidenceTest extends TestCase
         $this->assertContains('Forecast confirmed', $labels);
         $this->assertContains('Record reference', $labels);
     }
+
+    public function testStationRecordedLowShowsOnlyWhenWeHaveIt(): void
+    {
+        $base = ['grade' => 'official', 'trigger_date' => '2026-11-21', 'overnight_low_c' => '0.00', 'trigger_threshold_c' => '0.00',
+                 'weather_condition' => 'Clear', 'data_source' => 'Environment Canada', 'source_station' => 'Vancouver',
+                 'decision_at' => '2026-11-21 10:00:00', 'has_raw' => 1, 'record_id' => 40];
+        $without = InvoiceWeatherEvidence::html($base);
+        $this->assertStringNotContainsString('Station recorded low', $without);
+        $with = InvoiceWeatherEvidence::html($base + ['observed_low_c' => -1.0, 'observed_count' => 9]);
+        $this->assertStringContainsString('Station recorded low', $with);
+        $this->assertStringContainsString('-1 °C · 9 readings', $with);
+    }
 }
