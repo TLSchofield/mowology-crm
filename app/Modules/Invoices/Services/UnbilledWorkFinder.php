@@ -414,19 +414,23 @@ class UnbilledWorkFinder
      */
     public function retotalInvoice(int $invoiceId): array
     {
-        $s = $this->db->prepare("SELECT tax_rate FROM invoices WHERE id = ?");
+        $s = $this->db->prepare("SELECT tax_rate, COALESCE(amount_paid, 0) AS amount_paid FROM invoices WHERE id = ?");
         $s->execute([$invoiceId]);
-        $rate = (float)$s->fetchColumn();
+        $inv = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+        $rate = (float)($inv['tax_rate'] ?? 0);
+        $paid = (float)($inv['amount_paid'] ?? 0);
         if ($rate > 1) $rate = $rate / 100;   // tolerate a percentage stored by an older path
         $s = $this->db->prepare("SELECT COALESCE(SUM(line_total), 0) FROM invoice_line_items WHERE invoice_id = ?");
         $s->execute([$invoiceId]);
         $sub = round((float)$s->fetchColumn(), 2);
         $tax = round($sub * $rate, 2);
         $total = round($sub + $tax, 2);
+        // What is still owed is the new total less what has already been paid on this invoice.
+        $balance = max(0.0, round($total - $paid, 2));
         $this->db->prepare("
             UPDATE invoices SET subtotal = ?, tax_amount = ?, total_amount = ?, total = ?, balance_due = ?, pdf_path = NULL
             WHERE id = ?
-        ")->execute([$sub, $tax, $total, $total, $total, $invoiceId]);
+        ")->execute([$sub, $tax, $total, $total, $balance, $invoiceId]);
         return ['subtotal' => $sub, 'tax_amount' => $tax, 'total' => $total];
     }
 

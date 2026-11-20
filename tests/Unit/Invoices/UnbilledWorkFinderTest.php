@@ -36,7 +36,7 @@ class UnbilledWorkFinderTest extends TestCase
         $db->exec("CREATE TABLE contracts (id INTEGER PRIMARY KEY, status TEXT, billing_cycle TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, invoice_number TEXT, property_id INT, visit_id INT, status TEXT,
                    invoice_date TEXT, subtotal REAL DEFAULT 0, tax_rate REAL DEFAULT 0.05, tax_amount REAL, total_amount REAL,
-                   total REAL, balance_due REAL, pdf_path TEXT)");
+                   total REAL, balance_due REAL, amount_paid REAL DEFAULT 0, pdf_path TEXT)");
         $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, description TEXT, quantity REAL,
                    unit_price REAL, line_total REAL, visit_id INT, service_date TEXT, sort_order INT)");
         $db->exec("CREATE TABLE job_time_entries (id INTEGER PRIMARY KEY, visit_id INT, user_id INT, start_time TEXT, end_time TEXT,
@@ -245,6 +245,16 @@ class UnbilledWorkFinderTest extends TestCase
             'property_id' => 29, 'exclude_visit_ids' => [2500], 'can_mark_done' => true,
             'invoice_number' => 'INV-2026-0439', 'actor_name' => 'Tim',
         ]);
+    }
+
+    public function testRetotalKeepsWhatWasAlreadyPaidOutOfTheBalance(): void
+    {
+        $this->db->exec("UPDATE invoices SET amount_paid = 60 WHERE id = 439");
+        $this->db->exec("DELETE FROM invoice_line_items WHERE invoice_id = 439");
+        $this->db->exec("INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total) VALUES (439, 'x', 1, 100, 100)");
+        $tot = $this->finder()->retotalInvoice(439);
+        $this->assertSame(105.0, $tot['total']);
+        $this->assertEquals(45.0, (float)$this->db->query("SELECT balance_due FROM invoices WHERE id = 439")->fetchColumn());
     }
 
     public function testClaimingThePossiblyDoneVisitMarksItCompletedOnTheRealDayAtomically(): void

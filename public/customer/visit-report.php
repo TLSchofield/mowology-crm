@@ -828,7 +828,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
         ?>
       </div>
       <div class="pvr-footer-generated">
-        Report generated <?php echo htmlspecialchars($reportDate); ?> &mdash; This is a GPS-verified service record.
+        Report generated <?php echo htmlspecialchars($reportDate); ?> <?php if (!empty($pings)): ?>&mdash; This is a GPS-verified service record.<?php endif; ?>
       </div>
     </div>
 
