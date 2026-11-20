@@ -42,7 +42,7 @@
   <!-- Crew app, crew page: 3 KB shim (modal / tab / dismiss) instead of the 3.5 MB AppStack bundle -->
   <script src="<?= _av('/crm/js/mw-ui-shim.js') ?>"></script>
   <?php else: ?>
-  <script src="/crm/js/app.js"></script>
+  <script src="<?= function_exists('_amin') ? _amin('/crm/js/app.js') : '/crm/js/app.js' ?>"></script>
   <?php endif; ?>
 
   <!-- Global modal helpers: openMwModal(id) / closeMwModal(id)

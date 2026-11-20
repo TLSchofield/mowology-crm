@@ -66,7 +66,7 @@ class PaymentMatchService
     public const BUDGET = 150000;
     public const SNAPSHOT_HOURS = 4;
 
-    public const OUTCOMES = ['high', 'medium', 'low', 'needs_you', 'stripe', 'skipped'];
+    public const OUTCOMES = ['high', 'medium', 'low', 'needs_you', 'stripe', 'skipped', 'not_payment'];
     public const PROPOSED = ['high', 'medium', 'low'];
 
     /** Memo / name words that identify nobody. */
@@ -103,7 +103,7 @@ class PaymentMatchService
         $t0 = microtime(true);
         $data = $this->load();
         $lines = self::match($data['deposits'], $data['candidates'], $data['aliases'], [
-            'cutover' => self::CUTOVER, 'locked' => $data['locked'], 'skipped' => $data['skipped'],
+            'cutover' => self::CUTOVER, 'locked' => $data['locked'], 'skipped' => $data['skipped'], 'learned' => $data['learned'],
             'bbc' => $data['bbc'], 'bank_sync' => $data['bank_sync'], 'remittances' => $data['remittances'],
         ]);
         $open = self::openCoverage($data['candidates'], $lines);
@@ -394,7 +394,7 @@ class PaymentMatchService
         }
 
         return ['deposits' => $deposits, 'candidates' => $cands, 'aliases' => $this->aliases(), 'locked' => $this->lockedMonths(),
-                'skipped' => $this->skippedMap(), 'bbc' => $bbc, 'bank_sync' => $bankSync, 'remittances' => $this->remittances()];
+                'skipped' => $this->skippedMap(), 'learned' => $this->learnedSkips(), 'bbc' => $bbc, 'bank_sync' => $bankSync, 'remittances' => $this->remittances()];
     }
 
     /**
@@ -467,9 +467,64 @@ class PaymentMatchService
         return $out;
     }
 
+    /**
+     * Memos this business has left alone before and never booked: letters only, so the bank's squashed wording
+     * ("INTERESTCREDITEDTOACCOUNT(CREDITINTEREST)") and a spaced one read the same. Only the unnamed "other" kind
+     * learns — a cheque, e-Transfer or EFT names a client, and one skipped payment must never hide the next.
+     * Un-skip the first one and the lesson goes with it.
+     * @return array<string,true>
+     */
+    private function learnedSkips(): array
+    {
+        $out = [];
+        try {
+            $rows = $this->db->query("SELECT l.transaction_id, l.status, t.description FROM payment_match_log l
+                                      JOIN accounting_transactions t ON t.id = l.transaction_id
+                                      WHERE l.status IN ('skipped', 'booked') ORDER BY l.id")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { return []; }   // before migration 1260
+        $booked = [];
+        foreach ($rows as $r) {
+            $memo = (string)$r['description'];
+            if (InvoiceReconciliationService::depositKind($memo) !== 'other') continue;
+            $key = self::memoKey($memo);
+            if ($key === '') continue;
+            if ($r['status'] === 'booked') $booked[$key] = true; else $out[$key] = true;
+        }
+        return array_diff_key($out, $booked);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // PURE — identity, subset search, matching (unit tested)
     // ══════════════════════════════════════════════════════════════════════════
+
+    /** A bank memo as letters only, upper case: the same however the bank spaces it. Pure. */
+    public static function memoKey(string $memo): string
+    {
+        return strtoupper((string)preg_replace('/[^A-Za-z]/', '', $memo));
+    }
+
+    /**
+     * Why this credit is not a client paying an invoice, or null when it might be. Pure.
+     * Built in: bank interest (read on the squashed letters, since banks print it with no spaces) and what
+     * IncomeCleanupService already calls not income (transfers, loans, refunds, tax, owner money).
+     * Learned: a memo this business left alone before ($learned, from learnedSkips()).
+     * Only the unnamed "other" kind of deposit: a cheque, e-Transfer, EFT or Stripe line stays a client payment.
+     */
+    public static function notPaymentReason(string $memo, array $learned = []): ?string
+    {
+        if (InvoiceReconciliationService::depositKind($memo) !== 'other') return null;
+        $key = self::memoKey($memo);
+        if ($key === '') return null;
+        // Whole word on the raw memo, or one of the bank's squashed wordings: never a bare substring ("INTERESTING GARDENS").
+        $squashed = ['CREDITINTEREST', 'INTERESTCREDIT', 'INTERESTPAID', 'INTERESTPAYMENT', 'INTERESTEARNED', 'INTERESTDEPOSIT', 'BANKINTEREST', 'INTERESTONACCOUNT', 'INTERESTTOACCOUNT'];
+        $isInterest = (bool)preg_match('/\bINTEREST\b/i', $memo);
+        foreach ($squashed as $w) if (str_contains($key, $w)) $isInterest = true;
+        if ($isInterest) return 'Bank interest (other income, not sales) — not a client payment, so I leave it out of this list.';
+        $why = IncomeCleanupService::nonIncomeReason($memo);
+        if ($why !== null) return 'This looks like ' . $why . ', not a client payment, so I leave it out of this list.';
+        if (isset($learned[$key])) return 'You left this same kind of line alone before, so I do too. Bring the first one back and I will stop.';
+        return null;
+    }
 
     /** A candidate row. Pure. */
     public static function cand(string $kind, int $id, string $number, array $names, float $amount, string $date, array $extra = []): array
@@ -635,6 +690,13 @@ class PaymentMatchService
             $ident[$id] = self::identity((string)$d['description'], $aliases);
             $lines[$id] = self::line($d, $locked, $skipped);
             if ($lines[$id]['outcome'] === 'skipped') continue;
+            // Money that is not a client paying (bank interest, a transfer between accounts…) never goes looking for an invoice.
+            $notPay = self::notPaymentReason((string)$d['description'], $opts['learned'] ?? []);
+            if ($notPay !== null) {
+                $lines[$id]['outcome'] = 'not_payment';
+                $lines[$id]['why'] = $notPay;
+                continue;
+            }
             if ($d['date'] >= $cutover && preg_match('/\bSTRIPE\b/i', (string)$d['description'])) {
                 $lines[$id]['outcome'] = 'stripe';
                 $lines[$id]['why'] = 'Stripe payout after the cutover — the income clean-up books it from Stripe itself. Not touched here.';

@@ -127,6 +127,42 @@ final class PaymentMatchServiceTest extends TestCase
         $this->assertFalse(PaymentMatchService::bookable($l));
     }
 
+    public function testBankInterestNeverLooksForAnInvoice(): void
+    {
+        // A cent-exact open invoice must not pull a $0.01 interest credit onto it (INV-2026-0485 on prod, 2026-11-20).
+        $c = $this->cands([PaymentMatchService::cand('crm_open', 40, 'INV-0040', ['Bee'], 0.01, '2026-10-01', ['invoice_id' => 40, 'issued' => '2026-10-01', 'partial_ok' => true])]);
+        foreach (['INTERESTCREDITEDTOACCOUNT(CREDITINTEREST)', 'CREDIT INTEREST', 'Interest Paid'] as $i => $memo) {
+            $l = PaymentMatchService::match([$this->dep(50 + $i, '2026-10-31', 0.01, $memo)], $c)[0];
+            $this->assertSame('not_payment', $l['outcome'], $memo);
+            $this->assertSame([], $l['targets']);
+            $this->assertFalse(PaymentMatchService::bookable($l));
+        }
+    }
+
+    public function testAnInterestingNameIsNotBankInterest(): void
+    {
+        $this->assertNull(PaymentMatchService::notPaymentReason('DEPOSIT INTERESTING GARDENS LTD'));
+    }
+
+    public function testAClientPaymentIsStillMatchedWhateverTheAmount(): void
+    {
+        $c = $this->cands([PaymentMatchService::cand('crm_open', 41, 'INV-0041', ['Bee'], 0.01, '2026-10-01', ['invoice_id' => 41, 'issued' => '2026-10-01', 'partial_ok' => true])]);
+        $l = PaymentMatchService::match([$this->dep(60, '2026-10-31', 0.01, 'E-TRANSFER CREDIT Alexandra Bee')], $c)[0];
+        $this->assertNotSame('not_payment', $l['outcome']);
+    }
+
+    public function testALineThisBusinessLeftAloneBeforeIsLeftAloneAgain(): void
+    {
+        $memo = 'MISC CREDIT ACME HARVEST PROGRAM';   // wording no built-in rule knows
+        $this->assertNull(PaymentMatchService::notPaymentReason($memo));
+        $learned = [PaymentMatchService::memoKey($memo) => true];
+        $this->assertNotNull(PaymentMatchService::notPaymentReason('misc credit  acme harvest program 4471', $learned));
+        $this->assertNull(PaymentMatchService::notPaymentReason('MISC CREDIT OTHER SOURCE', $learned));
+        // A named kind never learns: a skipped e-Transfer must not hide the next one from the same client.
+        $et = 'E-TRANSFER CREDIT Alexandra Bee';
+        $this->assertNull(PaymentMatchService::notPaymentReason($et, [PaymentMatchService::memoKey($et) => true]));
+    }
+
     // ── DB: scan → book → re-scan → undo (SQLite, real paths) ───────────────
 
     public function testA2025JobberInvoicePaidIn2026IsNot2026IncomeAndUndoes(): void

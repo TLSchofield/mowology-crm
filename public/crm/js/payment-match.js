@@ -280,7 +280,10 @@
         }).join('');
         var stripe = data.lines.filter(function (l) { return l.outcome === 'stripe'; });
         var stripeNote = stripe.length ? '<li><div><b>' + stripe.length + ' Stripe payout' + (stripe.length === 1 ? '' : 's') + '</b> <span class="it-pm-meta">' + money(stripe.reduce(function (a, l) { return a + l.amount; }, 0)) + '</span><div>The income clean-up books these from Stripe itself, so I leave them alone.</div></div></li>' : '';
-        el.innerHTML = (booked || skipped || stripeNote) ? '<ul class="it-pm-hist">' + booked + skipped + stripeNote + '</ul>' : '<p class="it-pm-empty">Nothing booked yet.</p>';
+        var notPay = data.lines.filter(function (l) { return l.outcome === 'not_payment'; }).map(function (l) {
+            return '<li><div><b>' + money(l.amount) + '</b> <span class="it-pm-meta">' + esc(l.date) + ' · ' + esc(l.description) + '</span><div>' + esc(l.why) + '</div></div></li>';
+        }).join('');
+        el.innerHTML = (booked || skipped || stripeNote || notPay) ? '<ul class="it-pm-hist">' + booked + skipped + stripeNote + notPay + '</ul>' : '<p class="it-pm-empty">Nothing booked yet.</p>';
     }
 
     /* ── Loading and booking (unchanged rules) ──────────────────────────────────────────── */
