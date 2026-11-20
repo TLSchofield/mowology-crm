@@ -340,7 +340,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                     $contactBits = array_filter([$bizPhone, $bizEmail, $bizWebsite], fn($p) => $p !== '');
                     echo $esc(trim(preg_replace('/\s*[\r\n]+\s*/', ', ', $bizAddress)));
                 ?><br>
-                <?php echo $esc(implode(' · ', $contactBits)); ?><?php if ($bizGst !== ''): ?> · GST #: <?php echo $esc($bizGst); ?><?php endif; ?>
+                <?php echo $esc(implode(' · ', $contactBits)); ?><?php if ($bizGst !== ''): ?><br>GST&nbsp;#:&nbsp;<?php echo $esc($bizGst); ?><?php endif; ?>
             </div>
             <?php else: ?>
             <div class="brand-info">
@@ -599,7 +599,7 @@ endif; ?>
 <?php if (empty($snowRow)) { echo $weatherEvidenceHtml ?? ''; } ?>
 
 <!-- Signed snow & ice terms (salt/snow route invoices) -->
-<?php echo $snowTermsHtml; ?>
+<?php if (empty($snowTermsInFooter)) { echo $snowTermsHtml; } /* PdfGenerator pins it to the page footer */ ?>
 
 <!-- Notes -->
 <?php if (!empty($invoice['notes']) && !$snowLayout): ?>

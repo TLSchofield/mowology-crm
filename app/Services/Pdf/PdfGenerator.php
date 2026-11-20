@@ -273,11 +273,16 @@ class PdfGenerator
                 'presencePanelHtml' => $presencePanelHtml,
                 'snowLayout' => $snowLayout,
                 'snowTermsHtml' => $snowTermsHtml,
+                'snowTermsInFooter' => $snowTermsHtml !== '',
                 'projectRoot' => $this->projectRoot,
             ]);
 
             // Generate PDF
             $mpdf = $this->createMpdf();
+            if ($snowTermsHtml !== '') {
+                // The signed snow terms sit in the page footer, at the bottom of the page
+                $mpdf->SetHTMLFooter($snowTermsHtml);
+            }
             $mpdf->WriteHTML($html);
 
             // Save to disk + update DB
