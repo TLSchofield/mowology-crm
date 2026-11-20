@@ -17,8 +17,6 @@
  */
 class InvoiceSnowTerms
 {
-    public const ACCEPTANCE = 'Payment of this invoice confirms acceptance of these terms.';
-
     /** True when the invoice is for a salt/snow route plan. Never throws. */
     public static function isSnowInvoice(PDO $db, array $invoice): bool
     {
