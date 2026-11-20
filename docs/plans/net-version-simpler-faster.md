@@ -75,3 +75,20 @@ Step 1 first, shipped alone (measurable, safe). Then steps 2 and 3 together on t
 1. Approve this order (speed first).
 2. Approve the 8-item daily menu or change it (step 4).
 3. Approve the dashboard's first-screen content (step 3).
+
+## Step 1 results (2026-11-20, deployed 902cf302a) and what they changed
+
+Done: `mowology-brand.min.css` regenerated (the committed one was 9 days stale) and `app.min.js` now load through `_amin()`; `MinifiedAssetsFreshTest` fails if either goes stale; Ittai favicons restored into git. Checked: identical computed styles on 6 pages locally, same console errors as before (a pre-existing `SyntaxError: Invalid or unexpected token` and one 500 are on the page with the original files too), dashboard renders on production.
+
+Corrections to the audit:
+- Production already gzips. Real saving from the min files is about 46 KB (brand CSS) and 259 KB (app.js) over the wire, plus about 1.2 MB less JS to parse. Useful, not large.
+- The `favicon-ittai` 404s were local-only (production serves them); the files were just missing from git.
+- Loading each head's script only where needed was dropped: `head-brain.js` guards against double init, so repeats cost parse time only.
+
+**The real speed problem is the server, not the assets.** On production (signed in as Tim, one session, 2026-11-20): dashboard time to first byte 13.8 s and 17.2 s; clients page 11.5 s; quotes 0.3 s; tasks 0.3 s. The dashboard then fires slower API calls (`charlie.php` 9.5 s, `bookkeeper.php` 2.7 s, `otto.php` 2.1 s). A 95-request, 8 MB first load is secondary to that.
+
+### New step 1b: profile the slow pages (before any look change)
+1. Time the PHP work in `dashboard_appstack.php` and `clients_appstack.php` by section (queries and head cards) on a production-sized copy, or with read-only timing through `scripts/prod-run.sh`.
+2. Fix the biggest items first (likely a few heavy queries or per-head work done on page load). Move what is slow to the existing precomputed-brief pattern (`head_brief_ready`) where the owner does not need it live.
+3. Re-time on production. Target: first byte under 1 s for dashboard and clients.
+4. Open question: how much of this is Mowology's data volume vs. what a brand-new tenant would see. Measure a new, empty tenant too, so the "new tenant" experience is judged on its own numbers.
