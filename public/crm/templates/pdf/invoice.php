@@ -549,11 +549,16 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         // Payment decision, weather record and GPS map share one row
         $snowRow = true;
         $three = $pPanel !== '';
+        // Pin the map to its column (25% of the 186 mm text width). An image at width:100% reports its
+        // natural pixel width to mPDF, which then widens the column and SHRINKS the whole row.
+        if ($three) {
+            $pPanel = preg_replace('/(<img\b[^>]*style=")width:100%;/', '${1}width:44mm;', $pPanel);
+        }
         // Weather and GPS lead; the amount due sits at the far right, where the eye lands last
         echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>'
-           . '<td width="' . ($three ? '30' : '50') . '%" valign="top" style="padding-right:4px;">' . $wPanel . '</td>'
-           . ($three ? '<td width="35%" valign="top" style="padding:0 4px;">' . $pPanel . '</td>' : '')
-           . '<td width="' . ($three ? '35' : '50') . '%" valign="top" style="padding-left:4px;">' . $payHtml . '</td>'
+           . '<td width="' . ($three ? '25' : '33') . '%" valign="top" style="padding-right:4px;">' . $wPanel . '</td>'
+           . ($three ? '<td width="25%" valign="top" style="padding:0 4px;">' . $pPanel . '</td>' : '')
+           . '<td width="' . ($three ? '50' : '67') . '%" valign="top" style="padding-left:4px;">' . $payHtml . '</td>'
            . '</tr></table>';
     } else {
         echo $payHtml;
@@ -594,7 +599,7 @@ endif; ?>
 <?php echo $snowTermsHtml; ?>
 
 <!-- Notes -->
-<?php if (!empty($invoice['notes'])): ?>
+<?php if (!empty($invoice['notes']) && !$snowLayout): ?>
 <div class="notes-section">
     <div class="section-title">Notes</div>
     <?php require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php'; echo InvoiceNoteFormatter::html($invoice['notes']); ?>
