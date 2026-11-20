@@ -327,7 +327,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     .section-title.primary { font-size: 8pt; letter-spacing: 1px; }
     .items-table th { font-size: 8pt; letter-spacing: 1px; text-transform: uppercase; }
     .items-table { margin-top: 8px; }
-    .two-col td.sl { text-align: right; }
+    .two-col td.sl { text-align: right; padding-right: 0; }
     .client-name { font-size: 11pt; }
     .invoice-header-msg { padding: 3px 12px; margin-bottom: 4px; }
 </style>
@@ -437,7 +437,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             </div>
         </td>
         <?php if ($propertyLine && !$billToIsProperty): ?>
-        <td<?php echo $snowLayout ? ' class="sl" style="text-align:right;" align="right"' : ''; ?>>
+        <td<?php echo $snowLayout ? ' class="sl" style="text-align:right; padding-right:0;" align="right"' : ''; ?>>
             <div class="section-title primary"<?php echo $snowLayout ? ' style="text-align:right;"' : ''; ?>>Service Location</div>
             <div class="client-info">
                 <?php if ($propertyName !== ''): ?>
