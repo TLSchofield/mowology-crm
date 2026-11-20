@@ -362,13 +362,17 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             </div>
             <?php endif; ?>
         </td>
-        <td style="width: 50%; vertical-align: top;">
-            <div class="doc-title">Invoice</div>
-            <div class="doc-number"><?php echo $esc($invoice['invoice_number']); ?></div>
-            <div class="doc-meta">
+        <td style="width: 50%; vertical-align: top;<?php echo $snowLayout ? ' text-align: right;' : ''; ?>" <?php echo $snowLayout ? 'align="right"' : ''; ?>>
+            <?php $ra = $snowLayout ? ' style="text-align: right;"' : ''; ?>
+            <div class="doc-title"<?php echo $ra; ?>>Invoice</div>
+            <div class="doc-number"<?php echo $ra; ?>><?php echo $esc($invoice['invoice_number']); ?></div>
+            <div class="doc-meta"<?php echo $ra; ?>>
                 Date: <strong><?php echo $issueDate; ?></strong><br>
-                <?php if ($dueDate && !$snowLayout): ?>
+                <?php if ($dueDate): ?>
                     Due: <strong><?php echo $dueDate; ?></strong><br>
+                <?php endif; ?>
+                <?php if ($snowLayout && !empty($invoice['payment_terms'])): ?>
+                    Payment Terms: <strong><?php echo $esc($invoice['payment_terms']); ?></strong><br>
                 <?php endif; ?>
                 <?php
                     // Only show a status badge for outcomes the recipient cares about.
@@ -605,7 +609,7 @@ endif; ?>
 </div>
 <?php endif; ?>
 
-<?php if (!empty($invoice['payment_terms'])): ?>
+<?php if (!empty($invoice['payment_terms']) && !$snowLayout): ?>
 <div class="notes-section" style="margin-top: 8px;">
     <span style="font-size: 8pt; color: #94a3b8;">Payment Terms: <?php echo $esc($invoice['payment_terms']); ?></span>
 </div>
