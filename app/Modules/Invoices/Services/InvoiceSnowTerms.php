@@ -17,6 +17,25 @@
  */
 class InvoiceSnowTerms
 {
+    /**
+     * Ittai v1.2 brand colours (docs/design/ittai-v1.2/tokens.css, light mode) for the salt/snow invoice.
+     * The panels' own HTML (weather, GPS) is shared with other invoices and still carries the older
+     * navy / Mowology greens, so the salt/snow layout maps them onto the Ittai tokens at render time.
+     */
+    public static function ittai(string $html): string
+    {
+        return strtr($html, [
+            '#1e3a5f' => '#233A5E', '#1E3A5F' => '#233A5E',          // panel navy → --brand
+            '#0d3b2e' => '#233A5E', '#0D3B2E' => '#233A5E',          // dark green → --brand
+            '#2D8659' => '#233A5E', '#7FD858' => '#48534C',          // brand green / lime → --brand / --meta
+            '#E8F3F0' => '#EEF1EE', '#ecfdf5' => '#EEF1EE',          // mint → --sunk
+            '#991b1b' => '#982A1D',                                  // overdue → --status-blocked
+            '#cbd5e1' => '#D9DFDA', '#e2e8f0' => '#D9DFDA',          // slate hairlines → --line
+            '#64748b' => '#48534C', '#475569' => '#48534C', '#334155' => '#131D17', '#1f2937' => '#131D17', // text → --meta / --text
+            '#f1f5f9' => '#EEF1EE', '#f8fafc' => '#F4F5F3',          // tints → --sunk / --page
+        ]);
+    }
+
     /** True when the invoice is for a salt/snow route plan. Never throws. */
     public static function isSnowInvoice(PDO $db, array $invoice): bool
     {
@@ -237,6 +256,6 @@ class InvoiceSnowTerms
         $h .= '</table>';
         // A div (not the table) carries the keep-together: mPDF shrinks a table to fit a page break
         // instead of moving it, which made the signed wording unreadably small.
-        return '<div style="page-break-inside:avoid;">' . $h . '</div>';
+        return self::ittai('<div style="page-break-inside:avoid;">' . $h . '</div>');
     }
 }

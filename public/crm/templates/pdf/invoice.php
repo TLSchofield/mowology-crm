@@ -78,6 +78,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
 // Salt/snow route invoice: one-page, payment-first layout (set by PdfGenerator). Every other
 // invoice renders exactly as before.
 $snowLayout    = !empty($snowLayout);
+if ($snowLayout) { require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSnowTerms.php'; }
 $snowTermsHtml = (string)($snowTermsHtml ?? '');
 $dueDay        = !empty($invoice['due_date']) ? date('D, M j, Y', strtotime($invoice['due_date'])) : '';
 $payInstrInBox = $snowLayout && !$isPaid && $invoicePaymentInstr !== '';
@@ -311,6 +312,18 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     .two-col td { padding-right: 14px; }
     .items-table td { padding-top: 4px; padding-bottom: 4px; }
     .footer { margin-top: 6px; padding-top: 5px; }
+    /* Ittai v1.2 brand colours (--brand #233A5E, --text #131D17, --meta #48534C, --line #D9DFDA, --sunk #EEF1EE) */
+    body { color: #131D17; }
+    .brand-name { color: #233A5E; }
+    .brand-tagline { color: #48534C; }
+    .brand-info, .doc-title, .doc-meta { color: #48534C; }
+    .doc-meta strong { color: #131D17; }
+    .doc-number { color: #233A5E; }
+    .section-title.primary { color: #233A5E; border-bottom-color: #233A5E; }
+    .items-table th { background: #EEF1EE; color: #48534C; }
+    .items-table td.desc-col { color: #131D17; }
+    .divider { border-top-color: #D9DFDA; }
+    .client-name { color: #131D17; }
     .client-name { font-size: 11pt; }
     .invoice-header-msg { padding: 3px 12px; margin-bottom: 4px; }
 </style>
@@ -528,7 +541,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     }
 ?>
 <?php $snowRow = false; if ($snowLayout && !$isPaid):
-    $snowBg = $calloutClass === 'overdue' ? '#991b1b' : '#0D3B2E';
+    $snowBg = $calloutClass === 'overdue' ? '#982A1D' : '#233A5E';
     ob_start();
 ?>
 <!-- Payment decision in one place: amount, due date, how to pay -->
@@ -553,14 +566,14 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         $snowRow = true;
         // Same height: the frame (weather's border, the amount panel's tint) is carried by the table CELLS,
         // which stretch to the taller of the two; mPDF ignores a height set on the inner tables.
-        $wInner  = str_replace(['border:1.2pt solid #1e3a5f;', 'margin-top:8px;'], '', $wPanel);
-        $pInner  = str_replace('margin-top:6px;', 'margin-top:0;', $payHtml);
+        $wInner  = InvoiceSnowTerms::ittai(str_replace(['border:1.2pt solid #1e3a5f;', 'margin-top:8px;'], '', $wPanel));
+        $pInner  = InvoiceSnowTerms::ittai(str_replace('margin-top:6px;', 'margin-top:0;', $payHtml));
         echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>'
-           . '<td width="49%" valign="top" style="border:1.2pt solid #1e3a5f; padding:0;">' . $wInner . '</td>'
+           . '<td width="49%" valign="top" style="border:1.2pt solid #233A5E; padding:0;">' . $wInner . '</td>'
            . '<td width="2%"></td>'
-           . '<td width="49%" valign="top" style="background:#E8F3F0; padding:0;">' . $pInner . '</td>'
+           . '<td width="49%" valign="top" style="background:#EEF1EE; padding:0;">' . $pInner . '</td>'
            . '</tr></table>';
-        echo $gWide;
+        echo InvoiceSnowTerms::ittai($gWide);
     } else {
         echo $payHtml;
     }
