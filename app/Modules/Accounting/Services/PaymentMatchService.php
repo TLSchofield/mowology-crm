@@ -515,7 +515,11 @@ class PaymentMatchService
         if (InvoiceReconciliationService::depositKind($memo) !== 'other') return null;
         $key = self::memoKey($memo);
         if ($key === '') return null;
-        if (str_contains($key, 'INTEREST')) return 'Bank interest (other income, not sales) — not a client payment, so I leave it out of this list.';
+        // Whole word on the raw memo, or one of the bank's squashed wordings: never a bare substring ("INTERESTING GARDENS").
+        $squashed = ['CREDITINTEREST', 'INTERESTCREDIT', 'INTERESTPAID', 'INTERESTPAYMENT', 'INTERESTEARNED', 'INTERESTDEPOSIT', 'BANKINTEREST', 'INTERESTONACCOUNT', 'INTERESTTOACCOUNT'];
+        $isInterest = (bool)preg_match('/\bINTEREST\b/i', $memo);
+        foreach ($squashed as $w) if (str_contains($key, $w)) $isInterest = true;
+        if ($isInterest) return 'Bank interest (other income, not sales) — not a client payment, so I leave it out of this list.';
         $why = IncomeCleanupService::nonIncomeReason($memo);
         if ($why !== null) return 'This looks like ' . $why . ', not a client payment, so I leave it out of this list.';
         if (isset($learned[$key])) return 'You left this same kind of line alone before, so I do too. Bring the first one back and I will stop.';

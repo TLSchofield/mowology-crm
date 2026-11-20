@@ -139,6 +139,11 @@ final class PaymentMatchServiceTest extends TestCase
         }
     }
 
+    public function testAnInterestingNameIsNotBankInterest(): void
+    {
+        $this->assertNull(PaymentMatchService::notPaymentReason('DEPOSIT INTERESTING GARDENS LTD'));
+    }
+
     public function testAClientPaymentIsStillMatchedWhateverTheAmount(): void
     {
         $c = $this->cands([PaymentMatchService::cand('crm_open', 41, 'INV-0041', ['Bee'], 0.01, '2026-10-01', ['invoice_id' => 41, 'issued' => '2026-10-01', 'partial_ok' => true])]);
