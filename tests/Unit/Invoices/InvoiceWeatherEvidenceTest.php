@@ -89,4 +89,18 @@ class InvoiceWeatherEvidenceTest extends TestCase
         $this->assertSame('official', $ev['grade']);
         $this->assertStringContainsString('Nov 17, 2026', InvoiceWeatherEvidence::html($ev));
     }
+
+    public function testOfficialRowsFeedThePortalCard(): void
+    {
+        $f = InvoiceWeatherEvidence::official([
+            'trigger_date' => '2026-11-19', 'overnight_low_c' => '0.00', 'trigger_threshold_c' => '0.00', 'weather_condition' => 'Clear',
+            'data_source' => 'Environment Canada', 'source_station' => 'Vancouver / BC — station bc-74',
+            'decision_at' => '2026-11-19 10:00:29', 'rechecked' => true, 'record_id' => 27,
+        ]);
+        $this->assertSame('Thursday, November 19, 2026', $f['date']);
+        $this->assertTrue($f['met']);
+        $labels = array_column($f['rows'], 0);
+        $this->assertContains('Forecast confirmed', $labels);
+        $this->assertContains('Record reference', $labels);
+    }
 }
