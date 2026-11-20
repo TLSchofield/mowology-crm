@@ -178,6 +178,8 @@ class PowPdfGenerator
         require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
         $proof     = new \RouteProofService($this->db);
         $gpsPoints = \RouteProofService::onSiteLatLng($gpsPoints, $proof->siteForVisit($visitId), $proof->radiusM());
+        // …and only from this visit's own time window (back-to-back route stops share a day).
+        $gpsPoints = \RouteProofService::inWindows($gpsPoints, $proof->windowsForVisits([$visitId])[$visitId] ?? [], 'ts');
 
         // Photos
         $stmt = $this->db->prepare("

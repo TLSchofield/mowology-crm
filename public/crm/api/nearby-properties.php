@@ -34,14 +34,17 @@ try {
     require_once APP_ROOT . '/Modules/Jobs/Services/FieldJobService.php';
     $radius = FieldJobService::resolveRadius($_GET['radius'] ?? 0);
 
+    $service = new FieldJobService(getDB());
+    // `staff` + `me` feed the "who is on this job" picker; sent with every reply so the form
+    // has them even when GPS was skipped (no lat/lng).
+    $extra = ['staff' => $service->staff(), 'me' => (int)getCurrentUser()['id']];
+
     if ($lat === null || $lng === null) {
-        echo json_encode(['success' => true, 'results' => []]);
+        echo json_encode(['success' => true, 'results' => []] + $extra);
         exit;
     }
 
-    $results = (new FieldJobService(getDB()))->nearby($lat, $lng, $radius);
-
-    echo json_encode(['success' => true, 'results' => $results]);
+    echo json_encode(['success' => true, 'results' => $service->nearby($lat, $lng, $radius)] + $extra);
 
 } catch (Throwable $e) {
     error_log('nearby-properties.php error: ' . $e->getMessage());

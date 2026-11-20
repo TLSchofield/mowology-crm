@@ -4051,7 +4051,7 @@ if ($calEditOn && !$listMode): ?>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>
 <?php if ($canFieldCreate): ?>
-<script src="../js/field-job.js?v=20260716a" defer></script>
+<script src="../js/field-job.js?v=20261119a" defer></script>
 <?php endif; ?>
 <?php if ($view === 'day'): ?>
 <script>

@@ -140,8 +140,17 @@ $stmtAudit = $db->prepare("
 $stmtAudit->execute([$visitId]);
 $auditLog = $stmtAudit->fetchAll(PDO::FETCH_ASSOC);
 
+// Related activity: crew time, truck pings, invoice, proof-of-work emails
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitActivityService.php';
+$timeEntries  = VisitActivityService::timeEntries($db, $visitId);
+$totalMinutes = VisitActivityService::totalMinutes($timeEntries);
+[$truckFrom, $truckTo] = VisitActivityService::window($timeEntries, $visit['started_at'] ?? null, $visit['completed_at'] ?? null);
+$truck        = VisitActivityService::truckPings($db, $truckFrom, $truckTo);
+$visitInvoice = VisitActivityService::invoice($db, $visitId);
+$powEmails    = VisitActivityService::emails($db, $visitId);
+
 // Decode JSON fields
-$checklist   = !empty($visit['checklist_json'])     ? json_decode($visit['checklist_json'], true)     : [];
+$checklist  = !empty($visit['checklist_json'])     ? json_decode($visit['checklist_json'], true)     : [];
 $materials   = !empty($visit['materials_json'])     ? json_decode($visit['materials_json'], true)     : [];
 $svcData     = !empty($visit['service_data_json'])  ? json_decode($visit['service_data_json'], true)  : [];
 $confBox     = !empty($visit['confidence_box_json'])? json_decode($visit['confidence_box_json'], true): [];
@@ -312,6 +321,86 @@ $activePage = 'jobs';
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Crew Time Card ─────────────────────────────────────────────── -->
+    <div class="card mw-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0"><i data-feather="users" class="mr-2"></i>Crew Time</h5>
+        <span class="badge badge-<?= $timeEntries ? 'success' : 'secondary' ?>">
+          <?= floor($totalMinutes / 60) ?>h <?= $totalMinutes % 60 ?>m total
+        </span>
+      </div>
+      <div class="card-body p-0">
+        <?php if (!$timeEntries): ?>
+        <div class="text-muted text-center py-4">No timer entries for this visit.</div>
+        <?php else: ?>
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Crew</th><th>Start</th><th>End</th><th>Minutes</th><th>Start location</th><th>End location</th></tr></thead>
+          <tbody>
+          <?php foreach ($timeEntries as $te): ?>
+            <tr<?= $te['status'] === 'void' ? ' class="text-muted"' : '' ?>>
+              <td><?= htmlspecialchars($te['crew_name'] ?? 'Unknown') ?>
+                <?php if ((int)$te['auto_started']): ?><span class="badge badge-light">auto</span><?php endif; ?>
+                <?php if ($te['status'] !== 'completed'): ?><span class="badge badge-warning"><?= htmlspecialchars($te['status']) ?></span><?php endif; ?>
+              </td>
+              <td><?= date('g:i A', strtotime($te['start_time'])) ?></td>
+              <td><?= $te['end_time'] ? date('g:i A', strtotime($te['end_time'])) : '—' ?></td>
+              <td><?= $te['duration_minutes'] !== null ? (int)$te['duration_minutes'] : '—' ?></td>
+              <td class="small"><?= $te['start_lat'] !== null ? round((float)$te['start_lat'], 5) . ', ' . round((float)$te['start_lng'], 5) : '—' ?></td>
+              <td class="small"><?= $te['end_lat'] !== null ? round((float)$te['end_lat'], 5) . ', ' . round((float)$te['end_lng'], 5) : '—' ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- ── Truck Card ─────────────────────────────────────────────────── -->
+    <div class="card mw-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0"><i data-feather="truck" class="mr-2"></i>Truck Trail</h5>
+        <span class="badge badge-<?= $truck['count'] ? 'success' : 'secondary' ?>"><?= (int)$truck['count'] ?> pings</span>
+      </div>
+      <div class="card-body">
+        <?php if (!$truck['count']): ?>
+        <div class="text-muted">No truck pings during this visit's time window.</div>
+        <?php else: ?>
+        <div class="row text-center">
+          <div class="col-4"><div class="text-muted small">First ping</div><div class="font-weight-600"><?= date('g:i A', strtotime($truck['first'])) ?></div></div>
+          <div class="col-4"><div class="text-muted small">Last ping</div><div class="font-weight-600"><?= date('g:i A', strtotime($truck['last'])) ?></div></div>
+          <div class="col-4"><div class="text-muted small">Top speed</div><div class="font-weight-600"><?= $truck['max_kph'] !== null ? round($truck['max_kph']) . ' km/h' : '—' ?></div></div>
+        </div>
+        <div class="text-muted small mt-2">Window: <?= date('g:i A', strtotime($truckFrom)) ?>–<?= date('g:i A', strtotime($truckTo)) ?> (padded 15 min). Company truck only, not crew phones.</div>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- ── Invoice & Emails Card ──────────────────────────────────────── -->
+    <div class="card mw-card mb-4">
+      <div class="card-header"><h5 class="card-title mb-0"><i data-feather="file-text" class="mr-2"></i>Invoice &amp; Emails</h5></div>
+      <div class="card-body">
+        <?php if ($visitInvoice): ?>
+        <div class="mb-2">
+          <a href="/crm/invoices/view.php?id=<?= (int)$visitInvoice['id'] ?>"><?= htmlspecialchars($visitInvoice['invoice_number']) ?></a>
+          <span class="badge badge-secondary"><?= htmlspecialchars($visitInvoice['status']) ?></span>
+          — $<?= number_format((float)$visitInvoice['total'], 2) ?>, balance $<?= number_format((float)$visitInvoice['balance_due'], 2) ?>
+        </div>
+        <?php else: ?>
+        <div class="text-muted mb-2">Not invoiced yet.</div>
+        <?php endif; ?>
+        <?php if ($powEmails): ?>
+        <ul class="list-unstyled small mb-0">
+          <?php foreach ($powEmails as $em): ?>
+          <li>Proof of work sent to <?= htmlspecialchars($em['recipient']) ?> — <?= date('M j, g:i A', strtotime($em['sent_at'])) ?>
+            <?php if ($em['status'] === 'failed'): ?><span class="badge badge-danger">failed</span><?php endif; ?></li>
+          <?php endforeach; ?>
+        </ul>
+        <?php else: ?>
+        <div class="text-muted small">No proof-of-work emails sent.</div>
+        <?php endif; ?>
       </div>
     </div>
 

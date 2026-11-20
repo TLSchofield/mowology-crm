@@ -118,6 +118,39 @@ class ProximityAutoStartServiceTest extends TestCase
         $this->assertFalse(ProximityAutoStartService::hasDwell($fixes, $inside));
     }
 
+    // ---- routeHandoverAllowed: neighbouring salt stops (2026-11-19) -----------
+
+    public function test_arriving_at_the_next_route_stop_may_start_while_the_last_one_runs(): void
+    {
+        $this->assertTrue(ProximityAutoStartService::routeHandoverAllowed(true, 2665, true, true, 2725));
+    }
+
+    public function test_a_live_timer_on_an_ordinary_visit_still_blocks_a_route_arrival(): void
+    {
+        $this->assertFalse(ProximityAutoStartService::routeHandoverAllowed(true, 500, false, true, 2725));
+    }
+
+    public function test_an_ordinary_visit_arrival_never_hands_over(): void
+    {
+        $this->assertFalse(ProximityAutoStartService::routeHandoverAllowed(true, 2665, true, false, 900));
+        $this->assertFalse(ProximityAutoStartService::routeHandoverAllowed(false, 0, false, false, 900));
+    }
+
+    public function test_the_same_route_visit_never_hands_over_to_itself(): void
+    {
+        $this->assertFalse(ProximityAutoStartService::routeHandoverAllowed(true, 2725, true, true, 2725));
+    }
+
+    public function test_cooldown_alone_does_not_block_a_route_arrival(): void
+    {
+        $this->assertTrue(ProximityAutoStartService::routeHandoverAllowed(false, 0, false, true, 2725));
+    }
+
+    public function test_a_timer_with_no_visit_id_never_hands_over(): void
+    {
+        $this->assertFalse(ProximityAutoStartService::routeHandoverAllowed(true, 0, true, true, 2725));
+    }
+
     public function test_a_stale_fix_proves_nothing_about_this_arrival(): void
     {
         $inside = static fn (float $lat, float $lng): bool => true;

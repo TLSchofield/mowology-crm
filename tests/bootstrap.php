@@ -550,6 +550,9 @@ require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/PreshiftGate.php';
 
+// Jobs
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitActivityService.php';
+
 // Team
 require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetService.php';

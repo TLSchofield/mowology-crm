@@ -27,6 +27,8 @@ final class FieldJobViewModel: ObservableObject {
     @Published var phase: Phase = .locating
     @Published var nearby: [FieldJobProperty] = []
     @Published var serviceTypes: [String] = ["Lawn Cut", "Snow Removal", "Salt Application", "Other"]
+    /// Active staff for the "who is on this job" picker, and the signed-in user (pre-ticked).
+    @Published var staff: [TeamMember] = []
     @Published var isSaving = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
@@ -44,6 +46,7 @@ final class FieldJobViewModel: ObservableObject {
     private(set) var fix: CLLocation?
     private let apiClient: APIClient
     private let locationManager: LocationManager
+    let currentUserId: Int?
 
     /// Close enough that "you are AT this property" is a fair reading of the fix.
     static let atPropertyMetres = 60
@@ -51,6 +54,7 @@ final class FieldJobViewModel: ObservableObject {
     init(authSession: AuthSession,
          locationManager: LocationManager = GPSTrackingService.shared.locationManager) {
         self.apiClient       = APIClient(authSession: authSession)
+        self.currentUserId   = authSession.user?.id
         self.locationManager = locationManager
     }
 
@@ -73,6 +77,7 @@ final class FieldJobViewModel: ObservableObject {
             )
             nearby = response.results ?? []
             if let types = response.serviceTypes, !types.isEmpty { serviceTypes = types }
+            if let list = response.staff { staff = list }
             _ = await lookup
             phase = .ready
         } catch let err as APIError {
@@ -87,6 +92,18 @@ final class FieldJobViewModel: ObservableObject {
         } catch {
             AppDiagnostics.shared.record(category: "FieldJobView", message: ErrorDetails.describe(error))
             phase = .failed(ErrorDetails.describe(error))
+        }
+    }
+
+    /// For screens reached without the GPS lookup (the Search tab's property page).
+    func loadStaffIfNeeded() async {
+        guard staff.isEmpty else { return }
+        do {
+            let response: FieldJobNearbyResponse = try await apiClient.request(.fieldJobNearby(lat: 0, lng: 0))
+            if let list = response.staff { staff = list }
+            if let types = response.serviceTypes, !types.isEmpty { serviceTypes = types }
+        } catch {
+            // Non-fatal — the picker falls back to "You" until reopened.
         }
     }
 
@@ -195,8 +212,20 @@ struct FieldJobDraft {
     var notes       = ""
     var recurring   = false
     var frequency   = "weekly"
+    var date        = Date()
+    /// Who is on the job. Empty = just me (the server's default).
+    var crewIds: [Int] = []
 
     var isValid: Bool { !serviceType.isEmpty }
+
+    /// The server wants YYYY-MM-DD in the crew's own day, not UTC.
+    static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
 
     var payload: [String: Any] {
         var body: [String: Any] = [
@@ -206,6 +235,8 @@ struct FieldJobDraft {
             "recurring":    recurring ? 1 : 0,
         ]
         if recurring { body["frequency"] = frequency }
+        body["date"] = FieldJobDraft.dayFormatter.string(from: date)
+        if !crewIds.isEmpty { body["crew_ids"] = crewIds }
         let cleaned = price.replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
         if !cleaned.isEmpty { body["price"] = cleaned }
         return body
@@ -458,6 +489,7 @@ struct FieldJobPropertyView: View {
 
             FieldJobFormSections(draft: $draft, serviceTypes: vm.serviceTypes,
                                  header: property.plans.isEmpty ? "Create a job here" : "Or create a new job",
+                                 staff: vm.staff, currentUserId: vm.currentUserId,
                                  lastPrice: vm.lastPrice)
 
             Section {
@@ -476,6 +508,7 @@ struct FieldJobPropertyView: View {
         .onDisappear { vm.lastPrice = nil }
         .navigationTitle("This property")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await vm.loadStaffIfNeeded() }
         .confirmationDialog(confirmingPlan.map { "Add a visit to “\($0.title)” for today?" } ?? "",
                             isPresented: Binding(get: { confirmingPlan != nil },
                                                  set: { if !$0 { confirmingPlan = nil } }),
@@ -525,7 +558,8 @@ private struct FieldJobNewClientView: View {
                 Text("Filled in from where you're standing — check the street number. The map pin is set to your current location.")
             }
 
-            FieldJobFormSections(draft: $draft, serviceTypes: vm.serviceTypes, header: "Job")
+            FieldJobFormSections(draft: $draft, serviceTypes: vm.serviceTypes, header: "Job",
+                                 staff: vm.staff, currentUserId: vm.currentUserId)
 
             Section {
                 Button {
@@ -541,6 +575,7 @@ private struct FieldJobNewClientView: View {
         .itAppScreen()
         .navigationTitle("New client")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await vm.loadStaffIfNeeded() }
         .onAppear {
             guard !prefilled else { return }
             prefilled = true
@@ -559,7 +594,19 @@ private struct FieldJobFormSections: View {
     @Binding var draft: FieldJobDraft
     let serviceTypes: [String]
     let header: String
+    let staff: [TeamMember]
+    let currentUserId: Int?
     var lastPrice: FieldJobLastPrice? = nil
+
+    private var staffSummary: String {
+        let ids = draft.crewIds.isEmpty ? [currentUserId].compactMap { $0 } : draft.crewIds
+        let names = ids.map { id in id == currentUserId ? "You" : (staff.first { $0.id == id }?.name ?? "Staff") }
+        return names.isEmpty ? "You" : names.joined(separator: ", ")
+    }
+
+    private var dateText: String {
+        draft.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
 
     var body: some View {
         Section(header) {
@@ -593,6 +640,18 @@ private struct FieldJobFormSections: View {
         }
 
         Section {
+            DatePicker(draft.recurring ? "Starts" : "Date", selection: $draft.date, displayedComponents: .date)
+            NavigationLink {
+                FieldJobStaffPicker(staff: staff, currentUserId: currentUserId, selected: $draft.crewIds)
+            } label: {
+                HStack {
+                    Text("Staff")
+                    Spacer()
+                    Text(staffSummary)
+                        .foregroundStyle(appStyle.meta)
+                        .lineLimit(1)
+                }
+            }
             Toggle("Repeats", isOn: $draft.recurring)
                 .tint(appStyle.tenant)
             if draft.recurring {
@@ -605,9 +664,62 @@ private struct FieldJobFormSections: View {
             }
         } footer: {
             Text(draft.recurring
-                 ? "Starts today and repeats on this weekday. Assigned to you."
-                 : "A one-off job for today, assigned to you.")
+                 ? "Starts \(dateText) and repeats on this weekday."
+                 : "A one-off job on \(dateText).")
         }
+    }
+}
+
+// MARK: - Staff picker
+
+private struct FieldJobStaffPicker: View {
+    @Environment(\.itAppStyle) private var appStyle
+
+    let staff: [TeamMember]
+    let currentUserId: Int?
+    @Binding var selected: [Int]
+
+    /// Nothing picked yet means "just me" — show that as ticked.
+    private var effective: [Int] { selected.isEmpty ? [currentUserId].compactMap { $0 } : selected }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(staff) { member in
+                    Button {
+                        toggle(member.id)
+                    } label: {
+                        HStack {
+                            Text(member.id == currentUserId ? "\(member.name) (you)" : member.name)
+                                .foregroundStyle(appStyle.text)
+                            Spacer()
+                            if effective.contains(member.id) {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(appStyle.tenant)
+                            }
+                        }
+                        .frame(minHeight: appStyle.isEnabled ? 44 : nil)
+                    }
+                }
+            } footer: {
+                Text("The job goes on each ticked person's schedule. At least one person stays on it.")
+            }
+        }
+        .itAppForm()
+        .itAppScreen()
+        .navigationTitle("Staff")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func toggle(_ id: Int) {
+        var ids = effective
+        if let i = ids.firstIndex(of: id) {
+            guard ids.count > 1 else { return }   // never leave a job with nobody on it
+            ids.remove(at: i)
+        } else {
+            ids.append(id)
+        }
+        selected = ids
     }
 }
 

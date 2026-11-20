@@ -214,6 +214,11 @@ class SaltReportPdfGenerator
         ");
         $stmt->execute([$visitId]);
         $gpsPoints = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        // Client-facing: only points on this property AND inside this visit's own time window.
+        require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
+        $proof     = new \RouteProofService($this->db);
+        $gpsPoints = \RouteProofService::onSiteLatLng($gpsPoints, $proof->siteForVisit($visitId), $proof->radiusM());
+        $gpsPoints = \RouteProofService::inWindows($gpsPoints, $proof->windowsForVisits([$visitId])[$visitId] ?? [], 'ts');
 
         // Photos
         $stmt = $this->db->prepare("
