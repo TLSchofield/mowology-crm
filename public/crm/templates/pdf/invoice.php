@@ -74,6 +74,17 @@ $balanceDue = floatval($invoice['balance_due'] ?? ($total - $amountPaid));
 
 $isPaid = ($invoice['status'] === 'paid');
 $isOverdue = ($invoice['status'] === 'overdue');
+
+// Salt/snow route invoice: one-page, payment-first layout (set by PdfGenerator). Every other
+// invoice renders exactly as before.
+$snowLayout    = !empty($snowLayout);
+$snowTermsHtml = (string)($snowTermsHtml ?? '');
+$dueDay        = !empty($invoice['due_date']) ? date('D, M j, Y', strtotime($invoice['due_date'])) : '';
+$payInstrInBox = $snowLayout && !$isPaid && $invoicePaymentInstr !== '';
+$showGenericTerms = !($snowLayout && $snowTermsHtml !== '');
+// One thank-you: when the header message and the footer text both say it, the footer drops its copy.
+$dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText !== ''
+    && preg_match('/thank/i', $invoiceHeaderMsg) && preg_match('/thank/i', $invoiceFooterText);
 ?>
 <style>
     body {
@@ -287,6 +298,23 @@ $isOverdue = ($invoice['status'] === 'overdue');
         page-break-inside: avoid;
     }
 </style>
+<?php if ($snowLayout): ?>
+<style>
+    /* Salt/snow invoices fit one page: payment decision, weather record and signed terms together */
+    .divider { margin: 7px 0; }
+    .header-table { margin-bottom: 4px; }
+    .invoice-header-msg { margin-bottom: 6px; padding: 5px 12px; }
+    .items-table { margin-top: 4px; }
+    .items-table td { padding-top: 6px; padding-bottom: 6px; }
+    .totals-table { margin-top: 2px; }
+    .totals-table td { padding: 2px 0; }
+    .two-col td { padding-right: 14px; }
+    .items-table td { padding-top: 4px; padding-bottom: 4px; }
+    .footer { margin-top: 6px; padding-top: 5px; }
+    .client-name { font-size: 11pt; }
+    .invoice-header-msg { padding: 3px 12px; margin-bottom: 4px; }
+</style>
+<?php endif; ?>
 
 <!-- Header -->
 <table class="header-table" cellpadding="0" cellspacing="0">
@@ -301,11 +329,20 @@ $isOverdue = ($invoice['status'] === 'overdue');
                 }
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
             ?>
-            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: 50px; margin-bottom: 8px;">
+            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: <?php echo $snowLayout ? '30' : '50'; ?>px; margin-bottom: <?php echo $snowLayout ? '3' : '8'; ?>px;">
             <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
             <?php if ($bizTagline !== ''): ?>
                 <div class="brand-tagline"><?php echo $esc($bizTagline); ?></div>
             <?php endif; ?>
+            <?php if ($snowLayout): ?>
+            <div class="brand-info" style="line-height:1.4;">
+                <?php
+                    $contactBits = array_filter([$bizPhone, $bizEmail, $bizWebsite], fn($p) => $p !== '');
+                    echo $esc(trim(preg_replace('/\s*[\r\n]+\s*/', ', ', $bizAddress)));
+                ?><br>
+                <?php echo $esc(implode(' · ', $contactBits)); ?><?php if ($bizGst !== ''): ?> · GST #: <?php echo $esc($bizGst); ?><?php endif; ?>
+            </div>
+            <?php else: ?>
             <div class="brand-info">
                 <?php if ($bizAddress !== ''): ?>
                     <?php echo nl2br($esc($bizAddress)); ?><br>
@@ -323,13 +360,14 @@ $isOverdue = ($invoice['status'] === 'overdue');
                     GST Business #: <?php echo $esc($bizGst); ?>
                 <?php endif; ?>
             </div>
+            <?php endif; ?>
         </td>
         <td style="width: 50%; vertical-align: top;">
             <div class="doc-title">Invoice</div>
             <div class="doc-number"><?php echo $esc($invoice['invoice_number']); ?></div>
             <div class="doc-meta">
                 Date: <strong><?php echo $issueDate; ?></strong><br>
-                <?php if ($dueDate): ?>
+                <?php if ($dueDate && !$snowLayout): ?>
                     Due: <strong><?php echo $dueDate; ?></strong><br>
                 <?php endif; ?>
                 <?php
@@ -388,7 +426,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
                 <?php if (!empty($contactName) && trim($contactName) !== ''): ?>
                     Attn: <strong><?php echo $esc($contactName); ?></strong><br>
                 <?php endif; ?>
-                <?php if (!empty($invoice['plan_number'])): ?>
+                <?php if (!empty($invoice['plan_number']) && !$snowLayout): ?>
                     Job: <strong><?php echo $esc($invoice['plan_number']); ?></strong>
                     <?php if (!empty($invoice['job_title'])): ?>
                          — <?php echo $esc($invoice['job_title']); ?>
@@ -400,10 +438,12 @@ $isOverdue = ($invoice['status'] === 'overdue');
     </tr>
 </table>
 
+<?php if (!$snowLayout): ?>
 <hr class="divider">
 
 <!-- Line Items -->
 <div class="section-title primary">Services</div>
+<?php endif; ?>
 
 <table class="items-table">
     <thead>
@@ -417,7 +457,18 @@ $isOverdue = ($invoice['status'] === 'overdue');
     <tbody>
         <?php foreach ($lineItems as $item): ?>
         <tr>
-            <td class="desc-col"><?php if (!empty($item['plan_title'])): ?><strong><?php echo $esc($item['plan_title']); ?></strong><br><?php endif; ?><?php echo $esc($item['description']); ?><?php if (!empty($item['service_date'])): ?><br><span style="color:#64748b; font-size:9pt; font-weight:normal;">Service date: <?php echo $esc(date('M j, Y', strtotime((string)$item['service_date']))); ?></span><?php endif; ?></td>
+            <?php if ($snowLayout):
+                // Name the work, show the date once; the route/job stays as a small reference.
+                require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSnowTerms.php';
+                [$snowDesc, $snowDay] = InvoiceSnowTerms::workAndDay(
+                    (string)$item['description'],
+                    !empty($item['service_date']) ? (string)$item['service_date'] : null
+                );
+            ?>
+            <td class="desc-col"><strong><?php echo $esc($snowDesc); ?></strong><?php if ($snowDay !== ''): ?><br><span style="color:#475569; font-size:9pt;"><?php echo $esc($snowDay); ?></span><?php endif; ?><?php if (!empty($item['plan_title'])): ?><br><span style="color:#94a3b8; font-size:8pt;">Job: <?php echo $esc($item['plan_title']); ?></span><?php endif; ?></td>
+            <?php else: ?>
+                        <td class="desc-col"><?php if (!empty($item['plan_title'])): ?><strong><?php echo $esc($item['plan_title']); ?></strong><br><?php endif; ?><?php echo $esc($item['description']); ?><?php if (!empty($item['service_date'])): ?><br><span style="color:#64748b; font-size:9pt; font-weight:normal;">Service date: <?php echo $esc(date('M j, Y', strtotime((string)$item['service_date']))); ?></span><?php endif; ?></td>
+            <?php endif; ?>
             <td class="right"><?php echo rtrim(rtrim(number_format(floatval($item['quantity']), 2), '0'), '.'); ?></td>
             <td class="right"><?php echo $fmt($item['unit_price']); ?></td>
             <td class="right"><?php echo $fmt($item['line_total']); ?></td>
@@ -427,6 +478,9 @@ $isOverdue = ($invoice['status'] === 'overdue');
 </table>
 
 <!-- Totals — Subtotal + tax in a small table -->
+<?php if ($snowLayout && $amountPaid <= 0): ?>
+<div style="text-align:right; font-size:9pt; color:#64748b; margin-top:3px;">Subtotal <?php echo $fmt($subtotal); ?> &nbsp;+&nbsp; GST (<?php echo round($taxRate * 100); ?>%) <?php echo $fmt($taxAmount); ?></div>
+<?php else: ?>
 <table class="totals-table">
     <tr>
         <td class="label">Subtotal</td>
@@ -447,6 +501,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
     </tr>
     <?php endif; ?>
 </table>
+<?php endif; ?>
 
 <!-- Primary amount callout — the one number the customer needs to see -->
 <?php
@@ -468,6 +523,24 @@ $isOverdue = ($invoice['status'] === 'overdue');
         $calloutValue = $fmt($total);
     }
 ?>
+<?php if ($snowLayout && !$isPaid):
+    $snowBg = $calloutClass === 'overdue' ? '#991b1b' : '#0D3B2E';
+?>
+<!-- Payment decision in one place: amount, due date, how to pay -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px; page-break-inside:avoid;">
+    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:7px 16px 6px 16px;">
+        <div style="font-size:8.5pt; letter-spacing:1px; color:#cbd5e1;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
+        <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
+        <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
+    </td></tr>
+    <?php if ($invoicePaymentInstr !== ''): ?>
+    <tr><td style="background:#E8F3F0; border-left:3px solid #2D8659; padding:7px 16px; font-size:8.5pt; color:#0D3B2E; line-height:1.4;">
+        <strong>How to pay</strong><br><?php echo nl2br($esc($invoicePaymentInstr)); ?>
+    </td></tr>
+    <?php endif; ?>
+</table>
+<?php endif; ?>
+<?php if (!$snowLayout || $isPaid): ?>
 <table class="total-callout <?php echo $calloutClass; ?>" cellpadding="0" cellspacing="0" style="width: 280px; margin-left: auto; margin-top: 10px;">
     <tr>
         <td style="padding: 14px 18px; background: <?php
@@ -479,6 +552,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
         </td>
     </tr>
 </table>
+<?php endif; ?>
 
 <!-- Payment info (if paid) -->
 <?php if ($isPaid && !empty($invoice['payment_date'])): ?>
@@ -497,6 +571,9 @@ $isOverdue = ($invoice['status'] === 'overdue');
 <!-- Weather authorization (salt/snow route invoices with a stored forecast record) -->
 <?php echo $weatherEvidenceHtml ?? ''; ?>
 
+<!-- Signed snow & ice terms (salt/snow route invoices) -->
+<?php echo $snowTermsHtml; ?>
+
 <!-- Notes -->
 <?php if (!empty($invoice['notes'])): ?>
 <div class="notes-section">
@@ -511,15 +588,15 @@ $isOverdue = ($invoice['status'] === 'overdue');
 </div>
 <?php endif; ?>
 
-<?php if ($invoicePaymentInstr !== '' || $invoiceTerms !== ''): ?>
+<?php if (($invoicePaymentInstr !== '' && !$payInstrInBox) || ($invoiceTerms !== '' && $showGenericTerms)): ?>
 <div class="invoice-messaging">
-    <?php if ($invoicePaymentInstr !== ''): ?>
+    <?php if ($invoicePaymentInstr !== '' && !$payInstrInBox): ?>
     <div class="block payment">
         <span class="label">How to Pay</span>
         <?php echo nl2br($esc($invoicePaymentInstr)); ?>
     </div>
     <?php endif; ?>
-    <?php if ($invoiceTerms !== ''): ?>
+    <?php if ($invoiceTerms !== '' && $showGenericTerms): ?>
     <div class="block">
         <span class="label">Terms &amp; Conditions</span>
         <?php echo nl2br($esc($invoiceTerms)); ?>
@@ -528,9 +605,10 @@ $isOverdue = ($invoice['status'] === 'overdue');
 </div>
 <?php endif; ?>
 
-<!-- Footer -->
+<!-- Footer (salt/snow: the header already carries the company details, so no repeat) -->
+<?php if (!$snowLayout || ($invoiceFooterText !== '' && !$dropFooterText)): ?>
 <div class="footer">
-    <?php if ($invoiceFooterText !== ''): ?>
+    <?php if ($invoiceFooterText !== '' && !$dropFooterText): ?>
         <?php echo nl2br($esc($invoiceFooterText)); ?>
     <?php else: ?>
         <?php
@@ -544,3 +622,4 @@ $isOverdue = ($invoice['status'] === 'overdue');
         <?php echo $esc(implode(' · ', $footerParts)); ?>
     <?php endif; ?>
 </div>
+<?php endif; ?>
