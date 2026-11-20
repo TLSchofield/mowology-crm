@@ -15,12 +15,15 @@ class InvoiceWeatherEvidenceTest extends TestCase
         $html = InvoiceWeatherEvidence::html([
             'grade' => 'official', 'trigger_date' => '2026-11-19', 'overnight_low_c' => '0.00',
             'trigger_threshold_c' => '2.00', 'weather_condition' => 'Clear', 'data_source' => 'Environment Canada',
-            'source_station' => 'Vancouver', 'decision_at' => '2026-11-17 18:00:33', 'has_raw' => 1,
+            'source_station' => 'Vancouver', 'decision_at' => '2026-11-17 10:00:33', 'has_raw' => 1, 'record_id' => 33,
         ]);
         $this->assertStringContainsString('WEATHER AUTHORIZATION', $html);
         $this->assertStringContainsString('Thursday, November 19, 2026', $html);
         $this->assertStringContainsString('The forecast low of 0°C met the service threshold of 2°C or below.', $html);
         $this->assertStringContainsString('Environment Canada', $html);
+        $this->assertStringContainsString('10:00 AM PST', $html);
+        $this->assertStringNotContainsString('UTC', $html);
+        $this->assertStringContainsString('WX-00033', $html);
         $this->assertStringNotContainsString('Supplementary', $html);
     }
 

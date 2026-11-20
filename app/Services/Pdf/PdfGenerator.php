@@ -250,9 +250,13 @@ class PdfGenerator
 
             // Weather authorization panel (empty unless a forecast record exists for the visit)
             require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceWeatherEvidence.php';
-            $weatherEvidenceHtml = InvoiceWeatherEvidence::html(
-                InvoiceWeatherEvidence::forInvoice($this->db, $invoice),
-                (string)($business['company_name'] ?? 'Mowology Landscaping')
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSitePresence.php';
+            $evCompany = (string)($business['company_name'] ?? 'Mowology Landscaping');
+            $weatherEv = InvoiceWeatherEvidence::forInvoice($this->db, $invoice);
+            // Site presence only joins invoices that have weather evidence (salt/snow route runs)
+            $weatherEvidenceHtml = InvoiceSitePresence::sideBySide(
+                InvoiceWeatherEvidence::html($weatherEv, $evCompany),
+                $weatherEv !== null ? InvoiceSitePresence::html(InvoiceSitePresence::forInvoice($this->db, $invoice), $evCompany) : ''
             );
 
             // Salt/snow route invoice: one-page payment-first layout + the signed snow terms
