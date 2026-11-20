@@ -78,6 +78,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php';
 
@@ -104,6 +105,20 @@ try {
             http_response_code(403);
             echo json_encode(['error' => 'Invalid CSRF token.']);
             exit;
+        }
+    }
+
+    // Visit-keyed actions: only the office or crew on that visit (same rule as sync_samples) - a crew login
+    // with jobs.view could otherwise read or recompute any visit's tracking by id (Codex nightly crew-02).
+    if (in_array($action, ['resolve', 'compute_session', 'get_session', 'get_zone_sessions', 'compute_zone_sessions'], true)) {
+        $guardVisitId = (int)(($method === 'GET' ? ($_GET['visit_id'] ?? 0) : ($input['visit_id'] ?? 0)));
+        if ($guardVisitId > 0 && !$canEdit) {
+            require_once CRM_INCLUDES . '/timeclock-functions.php';
+            if (!userIsCrewOnVisit($guardVisitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['error' => 'You are not on this visit.']);
+                exit;
+            }
         }
     }
 
@@ -251,6 +266,21 @@ try {
             $visit = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$visit) throw new RuntimeException('Visit not found.');
 
+            // Only crew on the visit (or the office) may add location samples to it.
+            require_once CRM_INCLUDES . '/timeclock-functions.php';
+            if (!$canEdit && !userIsCrewOnVisit($visitId, (int)$user['id'])) {
+                http_response_code(403);
+                echo json_encode(['error' => 'You are not on this visit.']);
+                break;
+            }
+
+            // Device time within bounds; a sample already stored (same second) is a duplicate.
+            require_once APP_ROOT . '/Modules/Geofence/Services/GeofenceSampleFilter.php';
+            $have = $db->prepare("SELECT sampled_at FROM job_location_samples WHERE visit_id = ? AND sampled_at >= ?");
+            $have->execute([$visitId, date('Y-m-d H:i:s', time() - GeofenceSampleFilter::MAX_AGE_SECONDS)]);
+            $filtered = GeofenceSampleFilter::filter($samples, time(), $have->fetchAll(PDO::FETCH_COLUMN));
+            $samples  = $filtered['keep'];
+
             $geofenceId = $visit['active_geofence_id']
                 ? (int)$visit['active_geofence_id']
                 : null;
@@ -277,7 +307,9 @@ try {
             echo json_encode([
                 'success'     => true,
                 'inserted'    => $result['inserted'],
-                'skipped'     => $result['skipped'],
+                'skipped'     => $result['skipped'] + $filtered['rejected'] + $filtered['duplicates'],
+                'rejected'    => $filtered['rejected'],
+                'duplicates'  => $filtered['duplicates'],
                 'geofence_id' => $geofenceId,
             ]);
             break;
@@ -467,6 +499,24 @@ try {
             echo json_encode(['success' => true, 'zones' => $out]);
             break;
 
+        // ── POST: update a zone's polygon (node drag/insert/remove) ──────────
+        case 'update_zone':
+            if (!$canEdit) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Permission denied.']);
+                break;
+            }
+
+            $geofenceId = (int)($input['geofence_id'] ?? 0);
+            $ring       = $input['ring'] ?? [];
+            if (!$geofenceId) throw new InvalidArgumentException('geofence_id required');
+            if (count($ring) < 3) throw new InvalidArgumentException('Polygon must have at least 3 vertices.');
+
+            geofenceUpdateZonePolygon($geofenceId, $ring);
+
+            echo json_encode(['success' => true, 'geofence_id' => $geofenceId, 'message' => 'Zone updated.']);
+            break;
+
         // ── POST: delete a zone by ID ────────────────────────────────────────
         case 'delete_zone':
             if (!$canEdit) {
@@ -540,14 +590,14 @@ try {
                     'resolve', 'get_polygon', 'save_polygon', 'delete_polygon',
                     'sync_samples', 'compute_session', 'get_session',
                     'get_settings', 'save_settings', 'set_visit_override', 'set_plan_override',
-                    'save_zone', 'get_zones', 'delete_zone', 'get_zone_sessions', 'compute_zone_sessions',
+                    'save_zone', 'update_zone', 'get_zones', 'delete_zone', 'get_zone_sessions', 'compute_zone_sessions',
                 ],
             ]);
     }
 
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => ApiResponse::message($e, 'GeofenceApi')]);
 } catch (Throwable $e) {
     http_response_code(500);
     error_log('[GeofenceApi] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());

@@ -1,0 +1,167 @@
+/**
+ * Crew app — "My team" (/crm/my-team.php) and the team badge on homebase.php.
+ * Standalone crew pages: loaded by <link> after /crm/css/tokens.css (no AppStack chain).
+ * Colours come from tokens (--mw-*); no hex values here.
+ */
+
+.ct-body {
+    margin: 0;
+    min-height: 100dvh;
+    font-family: var(--mw-font-sans);
+    background: var(--mw-ink-100);
+    color: var(--mw-ink-900);
+    -webkit-font-smoothing: antialiased;
+}
+.ct-body * { box-sizing: border-box; }
+:where(.ct-body a, .ct-body button, .ct-badge):focus-visible {
+    outline: 2px solid var(--mw-green);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* ── Top bar ─────────────────────────────────────────────── */
+.ct-bar {
+    position: sticky; top: 0; z-index: var(--mw-z-sticky);
+    display: flex; align-items: center; gap: var(--mw-space-3);
+    background: var(--mw-forest);
+    color: var(--mw-ink-0);
+    padding: var(--mw-space-3) var(--mw-space-4);
+    padding-top: calc(var(--mw-space-3) + var(--mw-safe-top));
+}
+.ct-back {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: var(--mw-radius-md);
+    color: var(--mw-ink-0); text-decoration: none;
+    background: rgba(255, 255, 255, 0.08);
+}
+.ct-bar-title { font-weight: var(--mw-weight-bold); font-size: var(--mw-text-lg); letter-spacing: -0.2px; }
+.ct-bar-sub { font-size: var(--mw-text-xs); opacity: 0.6; margin-top: 1px; }
+
+.ct-main {
+    padding: var(--mw-space-4) var(--mw-space-4) calc(var(--mw-space-8) + var(--mw-safe-bottom));
+    display: flex; flex-direction: column; gap: var(--mw-space-4);
+    max-width: 640px; margin: 0 auto;
+}
+
+/* ── A department head ───────────────────────────────────── */
+.ct-head {
+    background: var(--mw-ink-0);
+    border-radius: var(--mw-radius-lg);
+    box-shadow: var(--mw-shadow-sm);
+    padding: var(--mw-space-4);
+}
+.ct-head-top { display: flex; align-items: center; gap: var(--mw-space-3); }
+.ct-face {
+    width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+    box-shadow: 0 0 0 3px var(--mw-light), 0 0 0 5px var(--mw-lime);
+}
+.ct-head-id { flex: 1; min-width: 0; }
+.ct-head-name { font-weight: var(--mw-weight-black); font-size: var(--mw-text-xl); letter-spacing: -0.3px; }
+.ct-head-role { color: var(--mw-ink-500); font-size: var(--mw-text-sm); }
+.ct-count {
+    min-width: 28px; height: 28px; padding: 0 8px; border-radius: var(--mw-radius-pill);
+    background: var(--mw-orange); color: var(--mw-ink-0);
+    font-weight: var(--mw-weight-bold); font-size: var(--mw-text-sm);
+    display: inline-flex; align-items: center; justify-content: center;
+}
+
+.ct-asks { list-style: none; margin: var(--mw-space-4) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--mw-space-3); }
+.ct-ask {
+    position: relative;
+    background: var(--mw-light);
+    border-radius: var(--mw-radius-md);
+    padding: var(--mw-space-4);
+    border: 2px solid transparent;
+    transition: border-color var(--mw-dur-base) var(--mw-ease-out), opacity var(--mw-dur-slow) var(--mw-ease-out), transform var(--mw-dur-slow) var(--mw-ease-out);
+}
+/* Penny's speech-bubble tail, pointing up at her face */
+.ct-asks > .ct-ask:first-child::before {
+    content: ''; position: absolute; top: -8px; left: 26px;
+    border: 8px solid transparent; border-top: 0; border-bottom-color: var(--mw-light);
+}
+.ct-ask.is-focus { border-color: var(--mw-green); box-shadow: var(--mw-shadow-ring); }
+.ct-ask.is-done { opacity: 0; transform: translateX(24px); }
+
+.ct-say { margin: 0; font-size: var(--mw-text-md); line-height: var(--mw-leading-body); font-weight: var(--mw-weight-medium); }
+.ct-say-done { margin-top: var(--mw-space-3); color: var(--mw-ink-700); }
+.ct-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    margin-top: var(--mw-space-2); font-size: var(--mw-text-sm); color: var(--mw-ink-500);
+}
+.ct-amount { font-weight: var(--mw-weight-bold); color: var(--mw-forest); }
+.ct-why { flex-basis: 100%; font-size: var(--mw-text-xs); }
+.ct-why::before { content: 'Why you? '; font-weight: var(--mw-weight-semibold); }
+
+.ct-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--mw-space-2); margin-top: var(--mw-space-3); }
+.ct-actions .ct-btn-primary { grid-column: 1 / -1; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.ct-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: var(--mw-touch-min);
+    padding: 0 var(--mw-space-4);
+    border-radius: var(--mw-radius-md);
+    border: 1px solid var(--mw-ink-200);
+    background: var(--mw-ink-0); color: var(--mw-ink-900);
+    font: inherit; font-size: var(--mw-text-base); font-weight: var(--mw-weight-semibold);
+    text-decoration: none; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.ct-btn:active { transform: scale(0.98); }
+.ct-btn[disabled] { opacity: 0.55; }
+.ct-btn-primary { background: var(--mw-green); border-color: var(--mw-green); color: var(--mw-ink-0); font-size: var(--mw-text-md); }
+.ct-btn-primary:active { background: var(--mw-dark); }
+.ct-btn-quiet { background: transparent; color: var(--mw-ink-700); }
+
+/* ── Bottom sheet ────────────────────────────────────────── */
+.ct-sheet { position: fixed; inset: 0; z-index: var(--mw-z-modal); }
+.ct-sheet[hidden] { display: none; }
+.ct-sheet-scrim { position: absolute; inset: 0; background: rgba(13, 59, 46, 0.45); }
+.ct-sheet-panel {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    max-height: 80dvh; overflow-y: auto;
+    background: var(--mw-ink-0);
+    border-radius: var(--mw-radius-2xl) var(--mw-radius-2xl) 0 0;
+    padding: var(--mw-space-3) var(--mw-space-4) calc(var(--mw-space-4) + var(--mw-safe-bottom));
+    box-shadow: var(--mw-shadow-lg);
+}
+.ct-sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: var(--mw-ink-300); margin: 0 auto var(--mw-space-3); }
+.ct-sheet-title { margin: 0 0 var(--mw-space-3); font-size: var(--mw-text-lg); font-weight: var(--mw-weight-bold); }
+.ct-sheet-body { display: flex; flex-direction: column; gap: var(--mw-space-2); }
+.ct-sheet-cancel { width: 100%; margin-top: var(--mw-space-3); }
+.ct-pick {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--mw-space-3);
+    width: 100%; text-align: left;
+}
+.ct-pick small { display: block; color: var(--mw-ink-500); font-weight: var(--mw-weight-regular); }
+.ct-pick.is-same { border-color: var(--mw-green); }
+.ct-note {
+    width: 100%; min-height: 72px; padding: var(--mw-space-3);
+    border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md);
+    font: inherit; font-size: var(--mw-text-md);
+}
+.ct-hint { margin: 0; font-size: var(--mw-text-sm); color: var(--mw-ink-500); line-height: var(--mw-leading-normal); }
+
+/* ── Toast ───────────────────────────────────────────────── */
+.ct-toast {
+    position: fixed; left: 50%; bottom: calc(var(--mw-space-6) + var(--mw-safe-bottom)); transform: translateX(-50%);
+    z-index: var(--mw-z-toast);
+    background: var(--mw-forest); color: var(--mw-ink-0);
+    padding: var(--mw-space-3) var(--mw-space-5); border-radius: var(--mw-radius-pill);
+    font-size: var(--mw-text-base); font-weight: var(--mw-weight-semibold);
+    box-shadow: var(--mw-shadow-md); max-width: calc(100vw - 32px); text-align: center;
+}
+.ct-toast.is-bad { background: var(--mw-color-danger); }
+
+/* ── Team badge on homebase (Penny's face + count) ───────── */
+.ct-badge {
+    display: flex; align-items: center; gap: var(--mw-space-3);
+    background: var(--mw-ink-0); border-radius: var(--mw-radius-lg); box-shadow: var(--mw-shadow-sm);
+    padding: var(--mw-space-3) var(--mw-space-4);
+    color: var(--mw-ink-900); text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.ct-badge img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--mw-lime); flex-shrink: 0; }
+.ct-badge-text { flex: 1; min-width: 0; font-size: var(--mw-text-base); line-height: var(--mw-leading-normal); }
+.ct-badge-text b { display: block; font-size: var(--mw-text-md); }
+.ct-badge .ct-count { flex-shrink: 0; }

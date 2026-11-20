@@ -23,6 +23,8 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
+require_once dirname(__DIR__, 2) . '/Core/PdfStore.php';
+
 class TripReportPdf
 {
     /**
@@ -79,16 +81,13 @@ class TripReportPdf
             $mpdf->WriteHTML($html);
 
             // Save to storage
-            $dir = STORAGE_ROOT . '/pdfs/trip-reports';
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0755, true);
-            }
+            $dir = PdfStore::dir('trip-reports'); // this business's own folder
 
             $date     = $report['report_date'];
             $driverId = $report['driver_id'];
             $filename = 'trip_' . $driverId . '_' . $date . '.pdf';
             $fullPath = $dir . '/' . $filename;
-            $relPath  = 'app/Storage/pdfs/trip-reports/' . $filename;
+            $relPath  = PdfStore::relative('trip-reports', $filename, 'app/Storage');
 
             $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);
 

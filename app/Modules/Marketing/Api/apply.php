@@ -12,6 +12,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -28,6 +29,7 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/seo-functions.php';
 
 requireLogin();
@@ -84,9 +86,9 @@ try {
     $seoContent = generateSEOContent($rec['query_text'], $rec['suggested_slug'], $target);
     $pageContent = generatePageContent($rec['query_text'], $target);
     $portolioImages = selectPortfolioImages($db, $target, $rec['query_text']);
-    $schema = generateSchema($target ?? [], $seoContent['title'], "https://mowology.ca/" . $rec['suggested_slug'], [
-        'phone' => '(778) 999-0000', // Get from settings
-        'email' => 'office@mowology.ca'
+    $schema = generateSchema($target ?? [], $seoContent['title'], _idSiteUrl() . "/" . $rec['suggested_slug'], [
+        'phone' => _idPhone(),
+        'email' => _idCompanyInfo()['company_email']
     ]);
 
     // Build sections JSON
@@ -100,7 +102,7 @@ try {
         ],
         [
             'type' => 'features',
-            'heading' => 'Why Choose Mowology?',
+            'heading' => 'Why Choose ' . _idFromName() . '?',
             'items' => [
                 'Professional service in ' . ($target['city'] ?? 'your area'),
                 'Free, no-obligation quotes',
@@ -201,6 +203,6 @@ try {
     http_response_code(500);
     die(json_encode([
         'success' => false,
-        'message' => 'Failed to apply recommendation: ' . $e->getMessage()
+        'message' => 'Failed to apply recommendation: ' . ApiResponse::message($e, 'apply')
     ]));
 }

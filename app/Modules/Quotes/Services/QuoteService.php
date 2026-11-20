@@ -21,6 +21,7 @@
  * All callers must requireLogin() + verifyCSRFToken() before calling mutations.
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 class QuoteService
 {
@@ -40,9 +41,11 @@ class QuoteService
      *
      * Contact resolution priority:
      *   1. quote_requests contact (the person who submitted the online form)
-     *   2. Company primary contact (from company_properties junction)
-     *   3. Property site contact
-     *   4. Company billing fields
+     *   2. The property's manager, when the site contact works for the quoting
+     *      company (see preferManagingContact())
+     *   3. Company primary contact (from company_properties junction)
+     *   4. Property site contact
+     *   5. Company billing fields
      *
      * Returns null if the quote does not exist.
      */
@@ -56,6 +59,7 @@ class QuoteService
                 p.postal_code   AS property_postal,
                 p.property_type,
                 p.site_contact_id,
+                NULLIF(p.billing_entity_name, '') AS property_billing_entity,
                 c.company_name,
                 c.billing_email,
                 c.billing_phone,
@@ -74,6 +78,12 @@ class QuoteService
                 pc.last_name    AS prop_contact_last,
                 pc.email        AS prop_contact_email,
                 pc.phone        AS prop_contact_phone,
+                pc.employer_company_id AS prop_contact_employer_id,
+                q.contact_id    AS quote_contact_id,
+                rc.first_name   AS rc_first_name,
+                rc.last_name    AS rc_last_name,
+                rc.email        AS rc_email,
+                rc.phone        AS rc_phone,
                 u.full_name     AS created_by_name
             FROM quotes q
             LEFT JOIN properties p           ON q.property_id = p.id
@@ -83,12 +93,75 @@ class QuoteService
             LEFT JOIN quote_requests qr      ON qr.quote_id = q.id
             LEFT JOIN contacts qrc           ON qr.contact_id = qrc.id
             LEFT JOIN contacts pc            ON p.site_contact_id = pc.id
+            LEFT JOIN contacts rc            ON q.contact_id = rc.id
             LEFT JOIN users u               ON q.created_by = u.id
             WHERE q.id = ?
         ");
         $stmt->execute([$quoteId]);
         $quote = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $quote ?: null;
+        return $quote ? self::applyChosenRecipient(self::preferManagingContact($quote)) : null;
+    }
+
+    /**
+     * A recipient chosen for this quote (the "Send to" picker, or the property/company
+     * "Quotes go to" setting at creation — migration 1186) beats every other source,
+     * including the online-request contact. It becomes the contact_* fields, so send,
+     * follow-up, the customer box and the PDF all follow it.
+     *
+     * Chosen = quotes.recipient_chosen = 1. Before 1186 runs (no such column), a
+     * quotes.contact_id that differs from the billing (site) contact counts as chosen.
+     * Legacy quotes whose contact_id is just the billing contact keep the old ladder.
+     */
+    public static function applyChosenRecipient(array $quote): array
+    {
+        $qc = (int)($quote['quote_contact_id'] ?? 0);
+        $contactExists = ($quote['rc_first_name'] ?? null) !== null || ($quote['rc_email'] ?? null) !== null;
+        if ($qc <= 0 || !$contactExists) {
+            return $quote;
+        }
+        $chosen = array_key_exists('recipient_chosen', $quote)
+            ? (int)$quote['recipient_chosen'] === 1
+            : $qc !== (int)($quote['site_contact_id'] ?? 0);
+        if (!$chosen) {
+            return $quote;
+        }
+
+        $quote['contact_id']    = $qc;
+        $quote['contact_first'] = $quote['rc_first_name'];
+        $quote['contact_last']  = $quote['rc_last_name'];
+        $quote['contact_email'] = $quote['rc_email'];
+        $quote['contact_phone'] = $quote['rc_phone'];
+        foreach (['qr_contact_id', 'qr_first_name', 'qr_last_name', 'qr_email', 'qr_phone'] as $k) {
+            $quote[$k] = null;
+        }
+        $quote['recipient_is_chosen'] = true;
+        return $quote;
+    }
+
+    /**
+     * A managed building's quote goes to the property manager who runs it, not
+     * to the management company's primary contact (often an accounts inbox).
+     *
+     * When the property's site contact is employed by the quoting company, their
+     * details replace the company-contact fields, so send, the on-screen
+     * customer box and the PDF all resolve to the manager. A site contact who
+     * does not work for the company (an onsite caretaker, a tenant) never
+     * displaces the company contact.
+     */
+    public static function preferManagingContact(array $quote): array
+    {
+        $companyId  = (int)($quote['company_id'] ?? 0);
+        $employerId = (int)($quote['prop_contact_employer_id'] ?? 0);
+        if (!$companyId || $employerId !== $companyId || empty($quote['prop_contact_id'])) {
+            return $quote;
+        }
+
+        $quote['contact_id']    = $quote['prop_contact_id'];
+        $quote['contact_first'] = $quote['prop_contact_first'] ?? null;
+        $quote['contact_last']  = $quote['prop_contact_last'] ?? null;
+        $quote['contact_email'] = $quote['prop_contact_email'] ?? null;
+        $quote['contact_phone'] = $quote['prop_contact_phone'] ?? null;
+        return $quote;
     }
 
     /**
@@ -176,14 +249,26 @@ class QuoteService
     public function create(array $data, array $lineItems, int $userId, ?int $quoteRequestId = null): int
     {
         $propertyId = (int)$data['property_id'];
-        $totals     = $this->calculateTotals($lineItems);
+        // A caller that knows the business's own rate passes it as a fraction (the phone: TaxEngine); others get the default.
+        $totals     = $this->calculateTotals($lineItems, isset($data['tax_fraction']) ? (float)$data['tax_fraction'] : null);
 
         [$companyId, $siteContactId] = $this->lookupPropertyRelations($propertyId);
+
+        // Quotes go to the building's / company's quote contact, not the billing contact
+        // (migration 1186). Falls back to the site contact exactly as before.
+        require_once __DIR__ . '/QuoteRecipientService.php';
+        $recipients = new QuoteRecipientService($this->db);
+        $resolved   = $recipients->forProperty($propertyId);
+        $explicitContactId = (int)($data['contact_id'] ?? 0);
+        $quoteContactId = $explicitContactId > 0 ? $explicitContactId : ($resolved['contact_id'] ?? $siteContactId);
 
         $quoteNumber = $this->generateQuoteNumber();
         $accessToken = $this->generateAccessToken();
 
-        $this->db->beginTransaction();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
         try {
             $stmt = $this->db->prepare("
                 INSERT INTO quotes (
@@ -199,7 +284,7 @@ class QuoteService
                 )
             ");
             $stmt->execute([
-                $quoteNumber, $propertyId, $companyId, $siteContactId,
+                $quoteNumber, $propertyId, $companyId, $quoteContactId,
                 $data['title'], $data['service_type'] ?? 'landscaping',
                 $totals['total'], $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
                 $data['valid_until'] ?: null, $data['terms'] ?? '',
@@ -211,15 +296,23 @@ class QuoteService
 
             $this->insertLineItems($quoteId, $lineItems);
 
+            // An explicit contact (Sam's request: the person who asked) is a chosen recipient too, or the quote's
+            // "Send to" would fall back to the property's contact (Codex review 2026-11-05).
+            if ($explicitContactId > 0 || in_array($resolved['source'], ['property', 'company'], true)) {
+                $recipients->markChosen($quoteId);
+            }
+
             if ($quoteRequestId) {
                 $this->db->prepare(
                     "UPDATE quote_requests SET quote_id = ?, status = 'quoted' WHERE id = ?"
                 )->execute([$quoteId, $quoteRequestId]);
             }
 
-            $this->db->commit();
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
         } catch (\Throwable $e) {
-            if ($this->db->inTransaction()) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             throw $e;
@@ -324,9 +417,76 @@ class QuoteService
      */
     public function markSent(int $quoteId, string $sentVia): void
     {
+        // Only a draft/sent/viewed quote becomes 'sent'. Re-sending the link of an accepted,
+        // declined or expired quote records the send but never undoes the client's answer
+        // (Fable review 2026-10-12: "Resend Link" on an accepted quote reset it to sent).
         $this->db->prepare(
-            "UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?"
+            "UPDATE quotes SET status = CASE WHEN status IN ('draft','sent','viewed') THEN 'sent' ELSE status END,
+                    sent_at = NOW(), sent_via = ? WHERE id = ?"
         )->execute([$sentVia, $quoteId]);
+        $this->pipelineStage($quoteId);
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/SamRequestService.php';
+            (new SamRequestService($this->db))->recordOutcome($quoteId);
+        } catch (\Throwable $e) {
+            error_log('Sam request outcome hook (' . $quoteId . '): ' . $e->getMessage());
+        }
+    }
+
+    /** The status a quote has after a send: draft/sent/viewed → sent; any answer stays. */
+    public static function statusAfterSend(string $current): string
+    {
+        return in_array($current, ['draft', 'sent', 'viewed', ''], true) ? 'sent' : $current;
+    }
+
+    /** A verbal yes is recorded once, and not over a decline (re-send the quote first). */
+    public static function canApproveVerbally(string $current): bool
+    {
+        return !in_array($current, ['accepted', 'declined'], true);
+    }
+
+    /**
+     * Whether the client may accept online: the quote was sent (or opened) and has not run out.
+     * valid_until is the last day it is good for (inclusive).
+     */
+    public static function canAcceptOnline(string $status, ?string $validUntil, DateTimeImmutable $today): bool
+    {
+        if (!in_array($status, ['sent', 'viewed'], true)) return false;
+        if ($validUntil !== null && $validUntil !== '' && $validUntil < $today->format('Y-m-d')) return false;
+        return true;
+    }
+
+    /**
+     * The hidden form nonce for the client's accept/decline POST, bound to this quote and its link
+     * token. A cross-site form cannot know it; a stale page after a token change cannot reuse it.
+     */
+    public static function acceptNonce(int $quoteId, string $accessToken, string $secret): string
+    {
+        if ($secret === '' || $accessToken === '' || $quoteId <= 0) return '';
+        return hash_hmac('sha256', 'quote-accept|' . $quoteId . '|' . $accessToken, $secret);
+    }
+
+    public static function formSecret(): string
+    {
+        if (defined('QUOTE_FORM_SECRET') && strlen((string)QUOTE_FORM_SECRET) >= 32) return (string)QUOTE_FORM_SECRET;
+        // A fallback secret is never used raw: derive a quote-accept sub-key so this nonce shares no key
+        // with unsubscribe links or JWTs (Fable audit 2026-10-12).
+        foreach (['UNSUBSCRIBE_SECRET', 'BLUEMOON_JWT_SECRET'] as $c) {
+            if (defined($c) && strlen((string)constant($c)) >= 32) return self::derivedFormSecret((string)constant($c));
+        }
+        return '';
+    }
+
+    public static function derivedFormSecret(string $master): string
+    {
+        return hash_hmac('sha256', 'quote-accept-nonce', $master);
+    }
+
+    /** The quote-ready text: no link, check your email, the office phone (CLAUDE.md rule 11). */
+    public static function quoteSentSms(string $quoteNumber): string
+    {
+        $n = preg_replace('/[^A-Za-z0-9-]/', '', $quoteNumber);
+        return _idFromName() . ": your quote {$n} is ready. Check your email (and junk folder)." . (_idPhone() !== '' ? ' Questions? Call ' . _idPhone() . '.' : '') . ' Reply STOP to opt out.';
     }
 
     /**
@@ -346,6 +506,88 @@ class QuoteService
             $remoteAddr,
             $quoteId,
         ]);
+        $this->pipelineStage($quoteId);
+    }
+
+    /** Why a quote was lost, as the owner picks it (quotes.lost_reason). */
+    public const LOST_REASONS = [
+        'price'          => 'Price',
+        'timing'         => 'Timing',
+        'went_elsewhere' => 'Went elsewhere',
+        'no_response'    => 'No response',
+        'other'          => 'Other',
+    ];
+
+    /** The owner can decline a quote the client has not answered (sent or opened). Nothing is sent. */
+    public static function canDecline(string $current): bool
+    {
+        return in_array($current, ['sent', 'viewed'], true);
+    }
+
+    /** Only a declined quote reopens, back to sent. */
+    public static function canReopen(string $current): bool
+    {
+        return $current === 'declined';
+    }
+
+    /**
+     * The owner declines a quote on the client's behalf, with an optional reason from LOST_REASONS (anything else is
+     * stored as null). Same state the client's own decline produces, so lists, the pipeline and Sam's follow-ups
+     * (which only read sent/viewed) stop on it. Sends nothing. Returns false when the quote was not open.
+     */
+    public function decline(int $quoteId, string $reason = ''): bool
+    {
+        $reason = isset(self::LOST_REASONS[$reason]) ? $reason : null;
+        // Like the pipeline board's "closed lost": stage and probability follow the status.
+        $n = $this->moveOpenStatus(
+            "UPDATE quotes SET status = 'declined', lost_reason = ?, pipeline_stage = 'closed_lost', probability = 0,
+                    stage_entered_at = NOW(), updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
+            "UPDATE quotes SET status = 'declined', updated_at = NOW() WHERE id = ? AND status IN ('sent','viewed')",
+            [$reason, $quoteId]
+        );
+        if ($n === 0) return false;
+        try {
+            $this->db->prepare("UPDATE quote_requests SET status = 'declined', updated_at = NOW() WHERE quote_id = ?")
+                ->execute([$quoteId]);
+        } catch (\Throwable $e) {
+            error_log('[QuoteService] decline → quote_requests: ' . $e->getMessage());
+        }
+        $this->pipelineStage($quoteId);
+        return true;
+    }
+
+    /** Undo a decline: back to sent, reason cleared. Sends nothing. Returns false when it was not declined. */
+    public function reopen(int $quoteId): bool
+    {
+        $n = $this->moveOpenStatus(
+            "UPDATE quotes SET status = 'sent', lost_reason = NULL, pipeline_stage = 'quoted', probability = 50,
+                    stage_entered_at = NOW(), updated_at = NOW() WHERE id = ? AND status = 'declined'",
+            "UPDATE quotes SET status = 'sent', updated_at = NOW() WHERE id = ? AND status = 'declined'",
+            [$quoteId]
+        );
+        if ($n === 0) return false;
+        try {
+            $this->db->prepare("UPDATE quote_requests SET status = 'quoted', updated_at = NOW() WHERE quote_id = ? AND status = 'declined'")
+                ->execute([$quoteId]);
+        } catch (\Throwable $e) {
+            error_log('[QuoteService] reopen → quote_requests: ' . $e->getMessage());
+        }
+        $this->pipelineStage($quoteId);
+        return true;
+    }
+
+    /** Runs the update with the pipeline columns; a business without them (pre-1110) gets the plain one. Rows changed. */
+    private function moveOpenStatus(string $withStage, string $plain, array $args): int
+    {
+        try {
+            $s = $this->db->prepare($withStage);
+            $s->execute($args);
+        } catch (\PDOException $e) {
+            // a business without migration 1110 has no stage or reason columns: status only
+            $s = $this->db->prepare($plain);
+            $s->execute(array_slice($args, -1));
+        }
+        return $s->rowCount();
     }
 
     /**
@@ -355,6 +597,18 @@ class QuoteService
     {
         $this->db->prepare("UPDATE quotes SET status = ?, updated_at = NOW() WHERE id = ?")
             ->execute([$status, $quoteId]);
+        $this->pipelineStage($quoteId);
+    }
+
+    /** Sam's pipeline stage for everyone this quote touches. Never blocks the status change. */
+    private function pipelineStage(int $quoteId): void
+    {
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent($this->db, 'quote', $quoteId);
+        } catch (Throwable $e) {
+            error_log('[pipeline] quote#' . $quoteId . ': ' . $e->getMessage());
+        }
     }
 
     /**
@@ -429,6 +683,113 @@ class QuoteService
         ];
     }
 
+    /**
+     * Colour a quote by where it stands (owner, 2026-10-08): green accepted, red declined,
+     * orange opened (viewed on the portal or the email was opened), '' = sent, not seen yet.
+     */
+    public static function colourState(array $q): string
+    {
+        $status = strtolower((string)($q['status'] ?? ''));
+        if ($status === 'accepted') return 'accepted';
+        if ($status === 'declined') return 'declined';
+        if ($status === 'viewed' || (int)($q['view_count'] ?? 0) > 0
+            || !empty($q['viewed_at']) || !empty($q['email_opened_at'])) {
+            return 'opened';
+        }
+        return '';
+    }
+
+    /**
+     * Every quote email subject names the property (owner rule 2026-10-08): a
+     * property manager receiving a dozen quotes must tell them apart from the
+     * inbox. Appended only when the editable template subject doesn't already
+     * contain the address. The address leads, so it survives a truncated inbox list.
+     */
+    public static function subjectWithAddress(string $subject, ?string $address): string
+    {
+        $subject = trim($subject);
+        $address = trim((string)$address);
+        if ($address === '' || stripos($subject, $address) !== false) {
+            return $subject;
+        }
+        // Address FIRST: inbox lists (Outlook) cut long subjects off, and a property
+        // manager scanning a dozen emails reads the start (Joann at Dorset, 2026-10-08).
+        return $subject === '' ? $address : $address . ' - ' . $subject;
+    }
+
+    /**
+     * The block a contract quote's email carries below the template text.
+     *
+     * A contract quote is the seasonal agreement itself, and signing it online
+     * IS signing the contract: the client draws a signature and ticks that they
+     * agree to the terms, and the contract made from it inherits that signature
+     * (ContractService::adoptQuoteSignature). No paper copy is asked for (owner
+     * decision 2026-10-04). The full terms are printed in the body so a manager
+     * can read them before opening the link; the attached PDF is for their files.
+     *
+     * Fixed in code rather than in the editable Settings template, so editing the
+     * general "Quote Sent" wording can never drop the signing requirement.
+     */
+    public static function contractSigningHtml(string $terms, string $signUrl, string $questionsEmail): string
+    {
+        $p   = "margin:0 0 16px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.75;color:#0D3B2E;";
+        $esc = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        $html = '<div style="border:2px solid #2D8659;border-radius:6px;padding:16px 18px;margin:8px 0 20px;background:#E8F3F0;">'
+              . '<p style="' . $p . 'margin-bottom:10px;"><strong>This quote is a seasonal service contract, and it must be signed online before service starts.</strong></p>'
+              . '<p style="' . $p . 'margin-bottom:6px;"><a href="' . $esc($signUrl) . '" style="color:#1A5F4A;">Open the quote</a>, read the Terms &amp; Conditions, tick that you agree, and sign. Your online signature is your signature on the contract; there is nothing to print or send back.</p>'
+              . '<p style="' . $p . 'margin-bottom:0;">The full terms are below, and a PDF copy is attached for your records. Questions? Reply to this email or write to '
+              . '<a href="mailto:' . $esc($questionsEmail) . '" style="color:#1A5F4A;">' . $esc($questionsEmail) . '</a>.</p>'
+              . '</div>';
+
+        $terms = trim(str_replace(["\r\n", "\r"], "\n", $terms));
+        if ($terms !== '') {
+            $html .= '<p style="' . $p . 'margin-bottom:8px;"><strong>Terms &amp; Conditions</strong></p>'
+                   . '<div style="border-top:1px solid #e5ede9;padding-top:12px;font-size:13px;">';
+            foreach (preg_split('/\n{2,}/', $terms) as $para) {
+                $para = trim($para);
+                if ($para === '') {
+                    continue;
+                }
+                $html .= '<p style="' . str_replace('font-size:15px', 'font-size:13px', $p) . '">' . nl2br($esc($para)) . '</p>';
+            }
+            $html .= '</div>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Resolve the display name shown on the quote ("who is this for").
+     *
+     * Precedence:
+     *   1. Strata / managed property — the property billing entity (e.g.
+     *      "Strata Plan VR15/40") IS the customer, so it's shown ALONE and ahead
+     *      of any on-site individual. No "C/O company" suffix.
+     *   2. Individual person — quote-request contact → company primary contact
+     *      → property site contact (residential quotes resolve here).
+     *   3. Company name (commercial, no strata entity).
+     *   4. Nothing resolvable → 'N/A'.
+     *
+     * Requires the quote row from getWithContact() (provides property_billing_entity).
+     */
+    public function resolveDisplayName(array $quote): string
+    {
+        $entity = trim((string)($quote['property_billing_entity'] ?? ''));
+        if ($entity !== '') {
+            return $entity;
+        }
+
+        $person = trim(($quote['qr_first_name'] ?? '') . ' ' . ($quote['qr_last_name'] ?? ''))
+            ?: trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''))
+            ?: trim(($quote['prop_contact_first'] ?? '') . ' ' . ($quote['prop_contact_last'] ?? ''));
+        if ($person !== '') {
+            return $person;
+        }
+
+        return trim((string)($quote['company_name'] ?? '')) ?: 'N/A';
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // TOTALS
     // ══════════════════════════════════════════════════════════════════════════
@@ -442,11 +803,21 @@ class QuoteService
      * @param array $lineItems  Each item must have 'line_total', optionally 'tax_rate'.
      * @return array [subtotal, tax_rate, tax_amount, total]
      */
-    public function calculateTotals(array $lineItems): array
+    public function calculateTotals(array $lineItems, ?float $taxFraction = null): array
     {
         // If the legacy helper is loaded, delegate to it for consistency
+        // Not registered for GST: no tax on any line, whatever the lines or the legacy default say.
+        if (!$this->gstRegistered()) {
+            $totals = function_exists('calculateQuoteTotals') ? calculateQuoteTotals($lineItems, 0.0) : null;
+            if ($totals === null) {
+                $sub = 0.0;
+                foreach ($lineItems as $item) $sub += (float)($item['line_total'] ?? 0);
+                $totals = ['subtotal' => round($sub, 2), 'total' => round($sub, 2)];
+            }
+            return ['subtotal' => $totals['subtotal'], 'tax_rate' => 0.0, 'tax_amount' => 0.0, 'total' => $totals['total']];
+        }
         if (function_exists('calculateQuoteTotals')) {
-            return calculateQuoteTotals($lineItems);
+            return $taxFraction === null ? calculateQuoteTotals($lineItems) : calculateQuoteTotals($lineItems, $taxFraction);
         }
 
         $subtotal = 0.0;
@@ -466,6 +837,17 @@ class QuoteService
             'tax_amount' => $taxAmount,
             'total'      => $total,
         ];
+    }
+
+    /** False only for a business that said in onboarding it is not registered for GST. */
+    private function gstRegistered(): bool
+    {
+        try {
+            if (!class_exists('TaxEngine')) require_once dirname(__DIR__, 2) . '/Accounting/Services/TaxEngine.php';
+            return TaxEngine::gstRegistered($this->db);
+        } catch (Throwable $e) {
+            return true;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════

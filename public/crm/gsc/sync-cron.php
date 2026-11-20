@@ -121,6 +121,7 @@ try {
                 continue;
             }
 
+            gscRefreshFailureReason('');
             $tokenResponse = refreshAccessToken($refreshToken);
             if ($tokenResponse && !empty($tokenResponse['access_token'])) {
                 $accessEnc   = encryptToken((string)$tokenResponse['access_token']);
@@ -132,6 +133,8 @@ try {
                 $property['access_token_encrypted'] = $accessEnc;
             } else {
                 $msg = "Failed to refresh token for property {$siteUrl}";
+                $why = gscRefreshFailureReason();
+                if ($why !== '') $msg .= " — {$why}";
                 error_log("GSC: $msg");
                 $errors[] = ['property' => $siteUrl, 'reason' => $msg];
                 $failedProps++;
@@ -398,6 +401,26 @@ function fetchGSCData(string $accessToken, string $siteUrl): ?array
 }
 
 /**
+ * Remembers why the last token refresh failed, in plain words, so sync history names the cause
+ * (Tim 2026-10-21: cron failures name the cause). Only Google's error code is kept, never a token.
+ * unauthorized_client (2026-10-26): GOOGLE_CLIENT_ID was changed to a new OAuth client and the
+ * stored refresh token belongs to the old one.
+ */
+function gscRefreshFailureReason(?string $set = null): string
+{
+    static $last = '';
+    if ($set === null) return $last;
+    $set = trim($set);
+    if (strpos($set, 'unauthorized_client') !== false) {
+        $set .= ' (the saved Search Console login was made with a different Google OAuth client than the one in secrets.php: reconnect Search Console)';
+    } elseif (strpos($set, 'invalid_grant') !== false) {
+        $set .= ' (Google revoked or expired the saved login: reconnect Search Console)';
+    }
+    $last = $set;
+    return $last;
+}
+
+/**
  * Refresh access token using refresh token
  */
 function refreshAccessToken(string $refreshToken): ?array
@@ -426,10 +449,13 @@ function refreshAccessToken(string $refreshToken): ?array
 
     if ($response === false) {
         error_log("Token refresh cURL error: " . $curlErr);
+        gscRefreshFailureReason("network error: {$curlErr}");
         return null;
     }
     if ($httpCode !== 200) {
         error_log("Token refresh failed ($httpCode): $response");
+        $err = json_decode((string)$response, true);
+        gscRefreshFailureReason("Google said HTTP {$httpCode} " . (is_array($err) ? (string)($err['error'] ?? '') : ''));
         return null;
     }
 

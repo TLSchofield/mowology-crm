@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Enhanced Hero Block Renderer — Parallax with word-by-word reveal
  *
@@ -250,7 +251,7 @@ $uid = 'mw-hero-' . ($block['id'] ?? uniqid());
 }
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
   var section = document.getElementById('<?= h($uid) ?>');
   if (!section) return;

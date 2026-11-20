@@ -21,8 +21,10 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/cms-functions.php';
+require_once dirname(__DIR__, 3) . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -87,15 +89,23 @@ if ($file['size'] > $maxSizes[$mediaType]) {
 }
 
 // Generate unique stored filename
-$uploadDir = PUBLIC_ROOT . '/uploads/cms/';
+$uploadDir = uploadsDir('cms') . '/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
 
-$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+// Derive the extension from the validated MIME type, never from the client-supplied
+// filename (prevents extension-spoofing / polyglot uploads).
+$extByMime = [
+    'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
+    'video/mp4' => 'mp4', 'video/webm' => 'webm',
+    'application/pdf' => 'pdf', 'application/msword' => 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+];
+$ext = $extByMime[$mimeType] ?? 'bin';
 $storedName = uniqid('media-') . '.' . $ext;
 $filePath = $uploadDir . $storedName;
-$webPath = '/uploads/cms/' . $storedName;
+$webPath = uploadsUrl('cms') . '/' . $storedName;
 
 // Move uploaded file
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
@@ -146,6 +156,6 @@ try {
     ]);
 } catch (PDOException $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Database error: ' . ApiResponse::message($e, 'upload-media')]);
     exit;
 }

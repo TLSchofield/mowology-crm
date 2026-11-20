@@ -5,6 +5,7 @@
  * GET ?action=live: Get latest position for all tracked, clocked-in employees (admin/manager)
  */
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 header('Content-Type: application/json');
 
 if (!defined('APP_ROOT')) {
@@ -21,6 +22,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
@@ -45,7 +47,7 @@ try {
         if ($action === 'live') {
             // Admin/manager only — get latest position for all tracked employees
             if (!in_array($user['role'], ['admin', 'manager'])) {
-                throw new Exception('Access denied');
+                throw new Exception('Access denied', 403);
             }
 
             // Get latest location per tracked, clocked-in user.
@@ -97,7 +99,7 @@ try {
         } elseif ($action === 'day_routes') {
             // Admin/manager only — get all location points for a given date, grouped by crew
             if (!in_array($user['role'], ['admin', 'manager'])) {
-                throw new Exception('Access denied');
+                throw new Exception('Access denied', 403);
             }
 
             $date = $_GET['date'] ?? (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d');
@@ -209,6 +211,18 @@ try {
         // Report position — employee sends this every 30 seconds
         $input = json_decode(file_get_contents('php://input'), true);
 
+        // Must run before session_write_close() below — verifyCSRFToken() reads
+        // $_SESSION, which session_write_close() clears from memory. The JS widget
+        // (time-clock-widget.js) already sends this header on every ping via
+        // window.MW_CSRF_TOKEN, set globally in appstack_head.php — this was
+        // previously the only session-authed timeclock endpoint not checking it.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+
         $lat = isset($input['lat']) ? (float)$input['lat'] : null;
         $lng = isset($input['lng']) ? (float)$input['lng'] : null;
         $accuracy = isset($input['accuracy']) ? (int)round((float)$input['accuracy']) : null;
@@ -219,12 +233,27 @@ try {
             throw new Exception('Latitude and longitude required');
         }
 
-        // For proximity-only checks, skip tracking flag entirely — no location is stored,
-        // so the user's opt-out preference doesn't apply to this read-only geofence test.
+        // A desktop browser is not where the crew member is. Someone clocked in on the office
+        // computer AND their phone had the desk reported as their position all day — and those
+        // rows can cancel genuine phone fixes as duplicates and drag the client-facing route
+        // back to the office. New clients declare `field_device`; for older cached JavaScript
+        // the user agent decides. Answer success so old clients don't queue and retry forever.
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $looksMobile = (bool)preg_match('/Android|iPhone|iPad|iPod|Mobile|Capacitor/i', $ua);
+        $isFieldDevice = array_key_exists('field_device', $input) ? !empty($input['field_device']) : $looksMobile;
+        if (!$isFieldDevice) {
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'desktop_ignored']);
+            exit;
+        }
+
+        // One-shot check fired when the crew member opens the app on site. It is NOT
+        // read-only — a match clocks them in and starts a timer — so
+        // checkProximityAutoStart() enforces the tracking opt-in itself. Dwell is
+        // waived: there is no ping history yet, and opening the app is deliberate.
         if ($isProximityOnly) {
             require_once CRM_INCLUDES . '/plan-functions.php';
             $autoStartResult = checkProximityAutoStart(
-                (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50)
+                (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50), null, false
             );
             echo json_encode([
                 'success' => true,
@@ -243,44 +272,54 @@ try {
         }
 
         $isTruck = ($trackRow['device_type'] === 'truck');
-        $isDriver = !empty($user['is_driver']);
 
-        // Truck devices and driver-flagged users can report GPS without being clocked in.
-        // Regular personal devices must be clocked in.
-        if (!$isTruck && !$isDriver) {
+        // A truck TABLET is a company asset bolted into a vehicle and reports whenever it is on.
+        // A PERSON is only ever tracked while clocked in — including someone who drives. The old
+        // users.is_driver exemption tracked a flagged employee's personal phone off the clock,
+        // which the location disclosure ("only between clock-in and clock-out") does not allow.
+        // (Since 2026-10-12 a tablet's fix is also kept only inside a clock entry — the same
+        // TrackingIngestService boundary its native engine already obeyed.)
+        if (!$isTruck) {
             $clockEntry = getActiveClockEntry($user['id']);
             if (!$clockEntry) {
                 throw new Exception('Not clocked in');
             }
         }
 
-        // Rate limit: reject if last entry < 10 seconds ago (use UNIX_TIMESTAMP for tz-agnostic comparison)
-        $rateStmt = $db->prepare("
-            SELECT (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) as seconds_ago
-            FROM crew_location_history
-            WHERE crew_id = ?
-            ORDER BY timestamp DESC LIMIT 1
-        ");
-        $rateStmt->execute([$user['id']]);
-        $lastRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
-        if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
-            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
+        // Stored through TrackingIngestService like every other GPS path (2026-10-12). This
+        // endpoint used to stamp NOW(), keep its own 10 s receipt-time rate limit and skip the
+        // consent check. Now: the fix's own time when the client sends `t`, the shift boundary
+        // and consent judged on the server, and the duplicate guard on FIX time.
+        require_once APP_ROOT . '/Modules/Team/Services/TrackingIngestService.php';
+        $ingest = new TrackingIngestService($db);
+        if (!$ingest->consentOk((int)$user['id'])) {
+            session_write_close();
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'consent_required']);
             exit;
         }
-
-        // Office classification: a home-geofence heartbeat with no active job is
-        // kept but flagged is_office=1 so route-tracing can exclude it (the marker
-        // shows separately). A job in progress counts as route work.
+        $nowTs  = time();
+        $points = TrackingIngestService::normalizePoints([
+            'lat' => $lat, 'lng' => $lng, 'accuracy' => $accuracy,
+            't' => $input['t'] ?? null, 'speed' => $input['speed'] ?? null, 'heading' => $input['heading'] ?? null,
+        ], $nowTs);
+        // Office classification: a home-geofence heartbeat with no active job is kept but
+        // flagged is_office=1 so route-tracing can exclude it. This client sends no visit id.
         $geofence = new GeofenceService($db);
-        $isOffice = $geofence->isOfficePing((int)$user['id'], $lat, $lng) ? 1 : 0;
-
-        // Insert location — MySQL NOW() is Pacific (session TZ set in Database::pdo()).
-        $stmt = $db->prepare("
-            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
-            VALUES (?, ?, ?, ?, NULL, ?, NOW())
-        ");
-        $stmt->execute([$user['id'], $lat, $lng, $accuracy, $isOffice]);
-        $insertId = (int)$db->lastInsertId();
+        $uid      = (int)$user['id'];
+        $result   = $ingest->ingest(
+            $uid, $points, $nowTs,
+            static fn (int $visitId): bool => false,
+            static fn (float $a, float $b): bool => $geofence->isOfficePing($uid, $a, $b)
+        );
+        if ($result['stored'] === 0) {
+            session_write_close();
+            $why = $result['rejected'][0]['reason'] ?? (!empty($result['accepted'][0]['duplicate']) ? 'rate_limited' : 'not_stored');
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => $why]);
+            exit;
+        }
+        $insertId = (int)$result['last_id'];
+        // A fix the device took a while ago is not "now": no arrival or departure from it.
+        $isQueued = $isQueued || ($result['newest'] !== null && ($nowTs - (int)$result['newest']['ts']) > TrackingIngestService::FRESH_SECONDS);
 
         // Proximity auto-start check (skip for stale offline-queued pings)
         $autoStartResult = null;
@@ -321,10 +360,24 @@ try {
             }
         }
 
+        // Departure — the other half of auto-arrival. If this person has a live AUTO-started
+        // timer and has clearly been away from the site for a few minutes, stop the timer at
+        // the moment they left. The visit is not completed: that stays the crew's call.
+        $autoStopResult = null;
+        if (!$isQueued && !$autoStartResult) {
+            try {
+                require_once APP_ROOT . '/Modules/Team/Services/DepartureAutoStopService.php';
+                $autoStopResult = DepartureAutoStopService::check($db, (int)$user['id'], time());
+            } catch (Throwable $e) {
+                error_log('[crew-location] departure check error: ' . $e->getMessage());
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'id' => $insertId,
-            'auto_started' => $autoStartResult
+            'auto_started' => $autoStartResult,
+            'auto_stopped' => $autoStopResult
         ]);
 
     } else {
@@ -337,8 +390,9 @@ try {
     http_response_code(500);
     echo json_encode(['error' => 'Database error']);
 } catch (Exception $e) {
-    http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 400;
+    http_response_code($code);
+    echo json_encode(['error' => ApiResponse::message($e, 'crew-location')]);
 }
 
 /**
@@ -439,7 +493,7 @@ function checkTruckDepartureAlert(PDO $db, int $truckId, float $lat, float $lng)
         // Build message (≤160 chars, no URLs, plain text)
         $addr = $v['property_address'] ?? 'a property';
         if (strlen($addr) > 40) $addr = substr($addr, 0, 37) . '...';
-        $msg = "Mowology: {$addr} not clocked in. Did you complete it? (778) 846-9273";
+        $msg = _idFromName() . ": {$addr} not clocked in. Did you complete it?" . (_idPhone() !== '' ? ' ' . _idPhone() : '');
 
         try {
             $msgService = APP_ROOT . '/Services/Messaging/MessagingService.php';

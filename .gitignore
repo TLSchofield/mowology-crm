@@ -1,6 +1,8 @@
 # Sensitive files & secrets
 crm/config.php
 public/app_config/secrets.php
+public/app_config/tenants.php
+public/app_config/qa-test-credentials.php
 .env
 *.log
 
@@ -18,6 +20,13 @@ crm/backup/
 
 # Composer vendor directory — committed to repo for cPanel hosting (no CLI access)
 # /public/vendor/
+
+# Root dev-tooling Composer world (PHPUnit, Panther) — never deployed, not committed
+/vendor/
+/drivers/
+
+# QA crawler output (local scan artifacts, may include page snapshots/errors)
+/tools/output/
 
 # Generated PDFs (keep directory structure via .gitkeep)
 /storage/pdfs/quotes/*.pdf
@@ -56,3 +65,19 @@ public/app_config/*.json
 
 # Quarantined debug/diagnostic endpoints (moved out of web root, kept for reference)
 /quarantine/
+
+# App Store Connect API config (credentials)
+.appstore-cloud.json
+
+# PHP session files hold user and client data; never commit them (Gitleaks, 2026-10-12)
+public/sessions/sess_*
+public/app_config/sessions/
+
+# Local test site (scripts/local-site.sh) — generated fake logins; never commit
+scripts/local/.credentials.local
+
+# Ada backup heartbeat token (scripts/lib/heartbeat.sh) — never commit
+scripts/.backup-heartbeat-token
+scripts/local/app-version.local.json
+public/uploads/t/
+public/app_config/tenants.php.lock

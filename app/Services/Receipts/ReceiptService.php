@@ -20,6 +20,7 @@
  */
 
 declare(strict_types=1);
+require_once dirname(__DIR__, 2) . '/Services/Messaging/IdentityMail.php';
 
 if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
@@ -41,13 +42,40 @@ require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
  *   @type string|null $client_name  Client/property name for reference
  *   @type string|null $description  Optional description
  * }
+ * @param int|null $userIdOverride  Explicit user id for the email log's created_by column.
+ *   Defaults to getCurrentUser() when null, which requires an active PHP session — pass
+ *   this explicitly for JWT-authenticated callers (no session), e.g. app/Modules/Expenses/Api/receipt-actions.php.
  * @return array ['success' => bool, 'message' => string, 'log_id' => int|null]
  */
-function sendReceiptToAccounting(array $opts): array
+function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): array
+{
+    // One send per receipt at a time (Codex review 2026-10-14): two taps both saw "not sent yet" and
+    // both emailed. The second waits, then finds the first one's 'sent' log and only finishes the books.
+    $expenseId = (int)($opts['expense_id'] ?? 0);
+    $db = getDB();
+    if ($expenseId <= 0 || $db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
+        return sendReceiptToAccountingOnce($opts, $userIdOverride);
+    }
+    $lock = 'mw_receipt_send_' . $expenseId;
+    if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($lock) . ", 30)")->fetchColumn() !== 1) {
+        return ['success' => false, 'message' => 'This receipt is already being sent — try again in a moment.', 'log_id' => null];
+    }
+    try {
+        return sendReceiptToAccountingOnce($opts, $userIdOverride);
+    } finally {
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($lock) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+    }
+}
+
+function sendReceiptToAccountingOnce(array $opts, ?int $userIdOverride = null): array
 {
     $db = getDB();
-    $user = getCurrentUser();
-    $userId = $user['id'] ?? 0;
+    if ($userIdOverride !== null) {
+        $userId = $userIdOverride;
+    } else {
+        $user = getCurrentUser();
+        $userId = $user['id'] ?? 0;
+    }
 
     // 1. Check if forwarding is enabled
     $config = getReceiptForwardingConfig($db);
@@ -89,8 +117,20 @@ function sendReceiptToAccounting(array $opts): array
     // 4. Build email body
     $body = buildReceiptEmailBody($opts, $config);
 
-    // 5. Create log entry (queued status)
-    $logId = createEmailLog($db, [
+    // 4b. Already emailed, but the books step after it failed (Codex review 2026-10-14)? Finish that
+    //     step only — a retry must never email the same receipt twice.
+    $alreadySent = false;
+    if (!empty($opts['expense_id'])) {
+        $chk = $db->prepare("SELECT id FROM receipt_email_log WHERE expense_id = ? AND status = 'sent' ORDER BY id DESC LIMIT 1");
+        $chk->execute([(int)$opts['expense_id']]);
+        $prevLog = $chk->fetchColumn();
+        if ($prevLog) { $alreadySent = true; $logId = (int)$prevLog; }
+    }
+
+    // 5. Create log entry (queued status) — single-row autocommit write,
+    //    intentionally NOT wrapped in a transaction so the SMTP call below
+    //    does not hold a long-lived DB transaction across network I/O.
+    if (!$alreadySent) $logId = createEmailLog($db, [
         'expense_id' => $opts['expense_id'] ?? null,
         'media_id'   => $mediaId,
         'to_email'   => $toEmail,
@@ -99,30 +139,45 @@ function sendReceiptToAccounting(array $opts): array
         'created_by' => $userId,
     ]);
 
-    // 6. Send the email with attachment
-    $fromName = $config['from_name'] ?: 'Mowology Receipts';
-    $result = sendEmail($toEmail, $subject, $body, $filePath, $fromName);
+    // 6. Send the email with attachment (outside any transaction)
+    $fromName = $config['from_name'] ?: _idFromName() . ' Receipts';
+    $result = $alreadySent ? ['success' => true] : sendEmail($toEmail, $subject, $body, $filePath, $fromName);
 
-    // 7. Update log entry
+    // 7. The send is recorded the moment it happens, in its own write, so a failure in the books
+    //    step below can't make a retry send it again (4b). Then the expense is marked forwarded.
     if ($result['success']) {
-        updateEmailLog($db, $logId, 'sent');
+        if (!$alreadySent) updateEmailLog($db, $logId, 'sent');
+        // On success, the log row and the expense row must update together —
+        // the UI uses expense.status='forwarded' as the "this was sent"
+        // signal, and a partial write would leave them out of sync.
+        $db->beginTransaction();
+        try {
 
-        // Mark expense as forwarded
-        if (!empty($opts['expense_id'])) {
-            $stmt = $db->prepare("
-                UPDATE expenses
-                SET forwarded_to_accounting = 1, forwarded_at = NOW(), status = 'forwarded'
-                WHERE id = ?
-            ");
-            $stmt->execute([$opts['expense_id']]);
+            if (!empty($opts['expense_id'])) {
+                // Through the expense gate (migration 1233): the audited 'forward' transition.
+                // A draft can be sent without a separate approve step ("Save & Send"), so sending
+                // is also a confirmation — the gate teaches it once (learnFromConfirmedExpense).
+                require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseGate.php';
+                (new ExpenseGate($db))->apply((int)$opts['expense_id'], [
+                    'forwarded_to_accounting' => 1, 'forwarded_at' => 'now', 'status' => 'forwarded',
+                ], ['id' => $userId ?: null, 'kind' => 'user'], 'send_to_accounting', ['transition' => 'forward', 'allow_locked' => true]);
+            }
+
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log('sendReceiptToAccounting post-send commit failed: ' . $e->getMessage());
+            throw $e;
         }
 
         return [
             'success' => true,
-            'message' => 'Receipt sent to ' . $toEmail,
+            'message' => $alreadySent ? 'Receipt was already emailed to ' . $toEmail . ' — now marked as sent' : 'Receipt sent to ' . $toEmail,
             'log_id'  => $logId,
         ];
     } else {
+        // Single-row failure marker — no transaction needed.
+        // Expense status is intentionally left untouched.
         updateEmailLog($db, $logId, 'failed', $result['error'] ?? 'Unknown error');
 
         return [
@@ -141,7 +196,7 @@ function getReceiptForwardingConfig(PDO $db): array
     $defaults = [
         'enabled'          => false,
         'accounting_email' => '',
-        'from_name'        => 'Mowology Receipts',
+        'from_name'        => '',
         'auto_send'        => false,
     ];
 
@@ -153,7 +208,7 @@ function getReceiptForwardingConfig(PDO $db): array
         return [
             'enabled'          => !empty($rows['receipt_forwarding_enabled']) && $rows['receipt_forwarding_enabled'] !== 'false' && $rows['receipt_forwarding_enabled'] !== '0',
             'accounting_email' => $rows['receipt_accounting_email'] ?? '',
-            'from_name'        => $rows['receipt_from_name'] ?? 'Mowology Receipts',
+            'from_name'        => $rows['receipt_from_name'] ?? '',
             'auto_send'        => !empty($rows['receipt_auto_send']) && $rows['receipt_auto_send'] !== 'false' && $rows['receipt_auto_send'] !== '0',
         ];
     } catch (Throwable $e) {
@@ -217,9 +272,10 @@ function buildReceiptEmailBody(array $opts, array $config): string
 
     $crmLink = '';
     if ($expenseId) {
-        $crmLink = '<p><a href="https://mowology.ca/crm/expenses_appstack.php?id=' . (int)$expenseId . '">View in CRM</a></p>';
+        $crmLink = '<p><a href="' . _idSiteUrl() . '/crm/expenses_appstack.php?id=' . (int)$expenseId . '">View in CRM</a></p>';
     }
 
+    $brand = htmlspecialchars(_idFromName());
     $jobRef = $jobId ? "Job #" . (int)$jobId : 'n/a';
     $clientRef = $clientName ? " ({$clientName})" : '';
 
@@ -243,7 +299,7 @@ function buildReceiptEmailBody(array $opts, array $config): string
 
     <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
     <p style="font-size: 12px; color: #999;">
-        Sent from Mowology CRM &bull; Receipt image attached
+        Sent from {$brand} CRM &bull; Receipt image attached
     </p>
 </body>
 </html>

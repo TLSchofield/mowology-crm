@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 header('Content-Type: application/json');
 
@@ -25,6 +26,7 @@ if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     echo json_encode(['success' => false, 'error' => 'CSRF token invalid']);
     exit;
 }
+session_write_close();
 
 // Validate file upload
 if (empty($_FILES['file'])) {
@@ -40,11 +42,15 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
     exit;
 }
 
-// Validate MIME type
-$allowedMimes = ['image/png', 'image/jpeg', 'image/svg+xml'];
-$mimeType = mime_content_type($file['tmp_name']);
-if (!in_array($mimeType, $allowedMimes)) {
-    echo json_encode(['success' => false, 'error' => 'Only PNG, JPG, and SVG files are allowed.']);
+// Validate type from the CONTENT (finfo), never the name or the browser's type. SVG is refused
+// (Fable review 2026-10-12): an SVG can carry script, and the old sanitiser had bypasses — an
+// SVG logo must be exported to PNG first. The stored extension comes from the detected type.
+$allowed  = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
+$mimeType = (string)(new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+if (!isset($allowed[$mimeType]) || @getimagesize($file['tmp_name']) === false) {
+    echo json_encode(['success' => false, 'error' => $mimeType === 'image/svg+xml'
+        ? 'SVG logos are not accepted — please export it as a PNG.'
+        : 'Only PNG and JPG files are allowed.']);
     exit;
 }
 
@@ -56,21 +62,15 @@ if ($file['size'] > $maxSize) {
 }
 
 // Determine upload directory
-$uploadDir = dirname(__DIR__) . '/../uploads/';
+$uploadDir = uploadsDir('') . '/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
 
-// Generate filename
-$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-if (!in_array($ext, ['png', 'jpg', 'jpeg', 'svg'])) {
-    $ext = 'png'; // fallback
-}
-$storedName = 'logo-' . time() . '.' . $ext;
+$storedName = 'logo-' . time() . '.' . $allowed[$mimeType];
 $filePath = $uploadDir . $storedName;
-$webPath = '/uploads/' . $storedName;
+$webPath = uploadsUrl('') . '/' . $storedName;
 
-// Move the uploaded file
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
     echo json_encode(['success' => false, 'error' => 'Failed to save file.']);
     exit;

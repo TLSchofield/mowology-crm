@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Seasonal Services Calendar Block Renderer
  *
@@ -183,7 +184,7 @@ $seasonKeys = ['spring','summer','fall','winter'];
 @media(max-width:768px){.mw-seas__grid{grid-template-columns:1fr}.mw-seas__desc-card{position:static}.mw-seas__tab{font-size:.8rem;padding:.75rem .5rem}}
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function(){
   var uid = <?= json_encode($uid) ?>;
   var section = document.getElementById(uid);

@@ -75,12 +75,22 @@ $activePage = 'accounting';
             <div class="col-md-4" id="preset-col">
                 <label class="form-label small fw-semibold">Bank / Format</label>
                 <select id="preset" class="form-select" onchange="updatePresetHint()">
-                    <option value="td">TD Bank</option>
-                    <option value="rbc">RBC</option>
-                    <option value="bmo">BMO</option>
-                    <option value="cibc">CIBC</option>
-                    <option value="scotiabank">Scotiabank</option>
-                    <option value="generic">Generic (single amount column)</option>
+                    <option value="auto" selected>Auto-detect from file</option>
+                    <optgroup label="Bank accounts">
+                        <option value="td">TD Bank</option>
+                        <option value="rbc">RBC</option>
+                        <option value="bmo">BMO</option>
+                        <option value="cibc">CIBC</option>
+                        <option value="scotiabank">Scotiabank</option>
+                        <option value="vancity">Vancity (Bank)</option>
+                        <option value="generic">Generic bank (single amount column)</option>
+                        <option value="generic_dc">Generic bank (debit/credit columns)</option>
+                    </optgroup>
+                    <optgroup label="Credit cards">
+                        <option value="td_cc">TD Credit Card</option>
+                        <option value="vancity_cc">Vancity Credit Card</option>
+                        <option value="generic_cc">Generic credit card</option>
+                    </optgroup>
                     <option value="custom">Custom column mapping…</option>
                 </select>
                 <div id="preset-hint" class="form-text mt-1"></div>
@@ -112,6 +122,13 @@ $activePage = 'accounting';
             <i data-feather="camera" style="width:16px;height:16px;flex-shrink:0;margin-top:1px"></i>
             <div><strong>Image detected.</strong> The statement will be scanned with OCR.
             For best results: flat, well-lit, text in focus.</div>
+        </div>
+        <div id="cc-notice" class="mw-bi-notice mw-bi-notice--info d-none">
+            <i data-feather="credit-card" style="width:16px;height:16px;flex-shrink:0;margin-top:1px"></i>
+            <div><strong>Credit card statement.</strong> Charges import as expenses and refunds as
+            expense reversals. The monthly card payment is flagged <em>“reconcile against CC statement”</em>
+            instead of being counted as an expense, so it isn’t double-counted. Choose your
+            <strong>Credit Card Payable</strong> account above.</div>
         </div>
 
         <!-- Custom mapping -->
@@ -272,13 +289,26 @@ $activePage = 'accounting';
             <h4 class="mt-3 mb-1" id="done-title">Import Complete</h4>
             <p class="text-muted" id="done-body"></p>
             <div class="d-flex justify-content-center gap-3 mt-3">
-                <button class="btn btn-outline-secondary" onclick="undoImport()">Undo Import</button>
+                <button class="btn btn-outline-secondary mw-acct-undo" onclick="undoImport()">Undo Import</button>
                 <a href="/crm/accounting/transactions.php" class="btn btn-primary">View Transactions</a>
                 <button class="btn btn-outline-primary" onclick="resetUpload()">Import Another File</button>
             </div>
         </div>
     </div>
 </div>
+
+<!-- ── Statements check (StatementCoverageService, migration 1231) ───────── -->
+<?php
+$__scReport = null;
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/StatementCoverageService.php';
+    $__scs = new StatementCoverageService(getDB());
+    if ($__scs->ready()) $__scReport = $__scs->latest();
+} catch (Throwable $__e) {
+    error_log('Statements check: ' . $__e->getMessage());
+}
+include dirname(__DIR__) . '/includes/statements-check-section.php';
+?>
 
 <!-- ── Import History ─────────────────────────────────────────────────────── -->
 <div class="card">
@@ -306,6 +336,30 @@ $activePage = 'accounting';
     </div>
 </div>
 
+<!-- ── Duplicate Transactions (already-committed rows imported more than once) ── -->
+<div class="card" id="duplicates-card" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Duplicate Transactions</h5>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadDuplicates()">Refresh</button>
+    </div>
+    <div class="card-body">
+        <div class="mw-verify-box mb-3">
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleVerifyBox()">Verify against a real statement export</button>
+            <div id="verify-box" style="display:none; margin-top:10px;">
+                <p class="small text-muted mb-2">
+                    Paste the raw "Date,Description,Debits,Credits,Balance" statement CSV (e.g. a Vancity export).
+                    This confirms exactly how many times each (date, amount) transaction really happened — so a
+                    payer sending several separate same-amount payments on one day (e.g. a property manager
+                    paying multiple units the same fee) is never mistaken for a duplicate.
+                </p>
+                <textarea id="verify-csv" class="form-control" rows="6" placeholder="Date,Description,Debits,Credits,Balance&#10;19-Mar-2026,Preauthorized credit DORSET REALTY GROUP,,409.92,..."></textarea>
+                <button type="button" class="btn btn-sm btn-primary mt-2" onclick="submitVerification()">Verify</button>
+            </div>
+        </div>
+        <div id="duplicates-body"></div>
+    </div>
+</div>
+
 <script>
 const API     = '/crm/api/accounting-bank-import.php';
 const API_ACC = '/crm/api/accounting-accounts.php';
@@ -314,22 +368,62 @@ let previewRows      = [];
 let lastSessionId    = null;
 let allAccounts      = [];
 let lastBalanceCheck = null;
+let lastSections = [];   // preview.statement_sections — every account section of a PDF statement (migration 1360)
+let resolvedPreset   = '';   // preset the server actually used (auto-detect resolves it)
 
 const PRESET_HINTS = {
-    td:         'Columns: Date, Description, Debit, Credit, Balance',
-    rbc:        'Columns: AccType, AccNum, Date, ChequeNum, Desc1, Desc2, CAD$, USD$',
-    bmo:        'Columns: Date, Description, Withdrawal, Deposit, Balance',
-    cibc:       'Columns: Date, Description, Debit, Credit',
-    scotiabank: 'Columns: Date, Description, Withdrawal, Deposit, Balance',
-    generic:    'Columns: Date, Description, Amount (positive=income, negative=expense)',
-    custom:     'Enter your column numbers below',
+    auto:        'We detect Vancity / TD / bank vs credit card from the file header.',
+    td:          'Columns: Date, Description, Debit, Credit, Balance',
+    rbc:         'Columns: AccType, AccNum, Date, ChequeNum, Desc1, Desc2, CAD$, USD$',
+    bmo:         'Columns: Date, Description, Withdrawal, Deposit, Balance',
+    cibc:        'Columns: Date, Description, Debit, Credit',
+    scotiabank:  'Columns: Date, Description, Withdrawal, Deposit, Balance',
+    vancity:     'Columns: Date, Description, Withdrawal, Deposit, Balance',
+    generic:     'Columns: Date, Description, Amount (positive=income, negative=expense)',
+    generic_dc:  'Columns: Date, Description, Debit, Credit, Balance',
+    td_cc:       'Credit card — charges import as expenses; the monthly payment is flagged to reconcile.',
+    vancity_cc:  'Credit card — charges import as expenses; the monthly payment is flagged to reconcile.',
+    generic_cc:  'Credit card — Date, Description, Amount (charge positive, payment/credit negative).',
+    custom:      'Enter your column numbers below',
 };
+
+// Preset keys that route as credit-card statements.
+const CC_PRESETS = ['td_cc', 'vancity_cc', 'generic_cc'];
 
 document.addEventListener('DOMContentLoaded', () => {
     loadAccounts();
     loadSessions();
+    loadDuplicates();
     updatePresetHint();
     initDropZone();
+});
+
+// Statements check — save an account's name / expected / closing day.
+document.addEventListener('click', async e => {
+    const btn = e.target.closest('.mw-sc-save');
+    if (!btn) return;
+    const tr = btn.closest('tr[data-sc-id]');
+    const day = tr.querySelector('.mw-sc-day').value.trim();
+    btn.disabled = true;
+    try {
+        const r = await fetch(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({
+                action:        'statement_account_save',
+                id:            parseInt(tr.dataset.scId, 10),
+                label:         tr.querySelector('.mw-sc-label').value,
+                expected:      tr.querySelector('.mw-sc-expected').checked,
+                statement_day: day === '' ? null : parseInt(day, 10),
+            }),
+        });
+        const d = await r.json();
+        mwToast(d.ok ? 'Saved — the check re-runs on the next page load.' : 'Not saved: ' + (d.error || d.message), d.ok ? 'success' : 'error');
+    } catch (err) {
+        mwToast('Not saved: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
 });
 
 function initDropZone() {
@@ -353,9 +447,10 @@ async function loadAccounts() {
     if (!d.ok) return;
     allAccounts = d.accounts;
     const sel = document.getElementById('bank-account-id');
-    d.accounts.filter(a => a.sub_type === 'bank').forEach(a => {
+    // Bank accounts AND credit-card liability accounts can be a statement source.
+    d.accounts.filter(a => a.sub_type === 'bank' || a.sub_type === 'credit_card').forEach(a => {
         sel.insertAdjacentHTML('beforeend',
-            `<option value="${a.id}">${a.code} – ${a.name}</option>`);
+            `<option value="${a.id}" data-subtype="${a.sub_type}">${a.code} – ${a.name}</option>`);
     });
 }
 
@@ -387,6 +482,10 @@ function updatePresetHint() {
     const preset = document.getElementById('preset').value;
     document.getElementById('preset-hint').textContent = PRESET_HINTS[preset] || '';
     document.getElementById('custom-mapping').style.display = preset === 'custom' ? '' : 'none';
+    // Show the credit-card guidance whenever a CC format is explicitly chosen.
+    const ccNotice = document.getElementById('cc-notice');
+    if (ccNotice) ccNotice.classList.toggle('d-none', !CC_PRESETS.includes(preset));
+    if (typeof feather !== 'undefined') feather.replace();
 }
 
 function onFileSelected() {
@@ -408,22 +507,29 @@ function onFileSelected() {
 
     document.getElementById('pdf-notice').classList.toggle('d-none', !isPdf);
     document.getElementById('image-notice').classList.toggle('d-none', !isImg);
-    document.getElementById('preset-col').style.display = isAuto ? 'none' : '';
+    // Keep the format selector visible for PDFs/images too — it carries the
+    // bank-vs-credit-card choice that drives routing (column mapping is skipped).
+    document.getElementById('preset-col').style.display = '';
 
     if (isAuto) {
         document.getElementById('custom-mapping').style.display = 'none';
-        if (typeof feather !== 'undefined') feather.replace();
-        return;
     }
 
-    const keys = ['td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
-    for (const k of keys) {
-        if (name.includes(k)) {
-            document.getElementById('preset').value = k;
-            updatePresetHint();
-            return;
+    // Filename hint — only overrides when the user is still on "Auto-detect"
+    // so an explicit choice is never clobbered.
+    const presetEl = document.getElementById('preset');
+    if (presetEl.value === 'auto') {
+        const isCard = /(visa|mastercard|master_?card|amex|credit_?card|_cc\b|\bcc_)/.test(name);
+        const banks = ['vancity', 'td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
+        for (const k of banks) {
+            if (name.includes(k)) {
+                presetEl.value = isCard ? (k === 'td' || k === 'vancity' ? k + '_cc' : 'generic_cc') : k;
+                break;
+            }
         }
+        if (presetEl.value === 'auto' && isCard) presetEl.value = 'generic_cc';
     }
+    updatePresetHint();
 }
 
 async function uploadAndPreview() {
@@ -478,7 +584,7 @@ async function uploadAndPreview() {
     }, 1000);
 
     try {
-        const r = await fetch(API, { method: 'POST', body: form });
+        const r = await fetch(API, { method: 'POST', body: form, headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } });
         if (!r.ok && r.status === 0) throw new Error('Network error — check your connection.');
         const text = await r.text();
         let d;
@@ -493,7 +599,8 @@ async function uploadAndPreview() {
         barEl.style.width = '100%';
         statusEl.textContent = 'Done — loading preview…';
 
-        previewRows = d.preview.rows;
+        previewRows    = d.preview.rows;
+        resolvedPreset = d.preset || preset;
         renderPreview(d.preview);
 
         // Auto-detect bank account from statement account number
@@ -535,11 +642,13 @@ function setFilter(filter, btn) {
 
 function renderPreview(preview) {
     const totals    = preview.totals;
-    const matched   = totals.matched  || 0;
-    const dupes     = totals.duplicates || 0;
-    const unmatched = totals.rows - dupes - matched;
+    // Counts come from the rows themselves (the server's totals could disagree with the per-row
+    // flags — 2026-10-07 the tabs said "Unmatched 4" for lines that were already in the CRM).
+    const rows      = preview.rows || [];
+    const dupes     = rows.filter(r => r.is_duplicate).length;
+    const matched   = rows.filter(r => !r.is_duplicate && r.match_candidate).length;
+    const unmatched = rows.length - dupes - matched;
 
-    const rows           = preview.rows || [];
     const receiptMatches   = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_expense).length;
     const etransferMatches = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_invoice && r.match_method === 'etransfer').length;
     const processorMatches = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_invoice && r.match_method !== 'etransfer').length;
@@ -558,6 +667,7 @@ function renderPreview(preview) {
 
     // Balance self-check
     lastBalanceCheck = preview.balance_check || null;
+    lastSections     = Array.isArray(preview.statement_sections) ? preview.statement_sections : [];
     const bc    = preview.balance_check || {};
     const bcOk  = document.getElementById('balance-check-ok');
     const bcW   = document.getElementById('balance-check-warn');
@@ -619,7 +729,13 @@ function renderPreviewTable(rows) {
         if (row.manual) {
             return `<tr class="mw-bi-manual-row" data-idx="${i}">
                 <td><input type="checkbox" class="row-check" data-idx="${i}" checked onchange="updateSelectedCount()"></td>
-                <td><input type="date" class="form-control form-control-sm" value="${esc(row.date||'')}" oninput="updateManualRow(${i},'date',this.value)"></td>
+                <td>
+                    <button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#bi-manual-date-${i}" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    </button>
+                    <input type="date" id="bi-manual-date-${i}" class="form-control form-control-sm" hidden value="${esc(row.date||'')}" oninput="updateManualRow(${i},'date',this.value)">
+                </td>
                 <td><input type="text" class="form-control form-control-sm" placeholder="Description" value="${esc(row.description||'')}" oninput="updateManualRow(${i},'description',this.value)"></td>
                 <td>
                     <select class="form-select form-select-sm" onchange="updateManualRow(${i},'type',this.value)">
@@ -644,13 +760,42 @@ function renderPreviewTable(rows) {
         if (activeFilter === 'duplicate' && !isDupe)               return '';
         if (activeFilter === 'unmatched' && (isDupe || isMatched)) return '';
 
-        const typeClass = row.type === 'income' ? 'mw-acct-badge-income' : 'mw-acct-badge-expense';
+        const isRefund  = row.type === 'expense' && (parseFloat(row.amount) < 0 || row.cc_role === 'refund');
+        const typeLabel = row.cc_payment ? 'transfer' : (isRefund ? 'refund' : row.type);
+        const typeClass = row.type === 'income' ? 'mw-acct-badge-income'
+                        : row.cc_payment       ? 'bg-secondary'
+                        : 'mw-acct-badge-expense';
         const autoTag   = row.auto_cat ? '<span class="badge bg-light text-secondary" style="font-size:9px;border:1px solid #dee2e6">auto</span>' : '';
-        const amtClass  = row.type === 'income' ? 'mw-acct-color-income' : 'mw-acct-color-expense';
+        const amtClass  = row.type === 'income' ? 'mw-acct-color-income'
+                        : row.cc_payment       ? 'text-muted'
+                        : 'mw-acct-color-expense';
+
+        // A line printed for another account on the same statement (Vancity savings sections):
+        // its own bank account, preselected when the statement named the account.
+        let otherAcct = '';
+        if (row.other_account) {
+            const oa = row.other_account;
+            const bankOpts = allAccounts.filter(a => a.sub_type === 'bank')
+                .map(a => `<option value="${a.id}" ${String(row.bank_account_id || '') === String(a.id) ? 'selected' : ''}>${a.code} – ${esc(a.name)}</option>`).join('');
+            otherAcct = `<div class="mt-1"><span class="badge bg-info text-dark" style="font-size:9px">Belongs to ${esc(oa.label || '')}</span>
+                <select class="form-select form-select-sm mt-1" onchange="updateRowBank(${i}, this.value)" ${isDupe ? 'disabled' : ''}>
+                    <option value="">this statement's account</option>${bankOpts}
+                </select></div>`;
+        }
 
         let statusCell = '';
-        if (isDupe) {
+        if (row.internal_transfer) {
+            statusCell = row.internal_transfer.side === 'savings'
+                ? '<span class="badge bg-secondary" style="font-size:9px">↔ Transfer with chequing</span><div class="small text-muted mt-1" style="font-size:10px">Recorded once, on the chequing line</div>'
+                : `<span class="badge bg-secondary" style="font-size:9px">↔ Transfer with ${esc(row.internal_transfer.with || 'savings')}</span>`;
+            if (isDupe) statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
+        } else if (isDupe) {
             statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
+        } else if (row.cc_payment) {
+            statusCell = `<span class="badge bg-secondary" style="font-size:9px">↔ Card payment</span>
+                          <div class="small text-muted mt-1" style="font-size:10px">Reconcile against CC statement</div>`;
+        } else if (isRefund) {
+            statusCell = '<span class="badge bg-info text-dark" style="font-size:9px">↩ Refund / reversal</span>';
         } else if (isMatched && row.matched_invoice) {
             const inv    = row.matched_invoice;
             const conf   = row.match_confidence || 0;
@@ -699,10 +844,10 @@ function renderPreviewTable(rows) {
             <td class="small">${row.date}</td>
             <td>
                 <div class="small fw-bold">${esc(row.description)}</div>
-                <div class="d-flex gap-1 mt-1">${autoTag}</div>
+                <div class="d-flex gap-1 mt-1">${autoTag}</div>${otherAcct}
             </td>
-            <td><span class="badge ${typeClass}">${row.type}</span></td>
-            <td class="text-end small fw-bold ${amtClass}">${fmtMoney(row.amount)}</td>
+            <td><span class="badge ${typeClass}">${typeLabel}</span></td>
+            <td class="text-end small fw-bold ${amtClass}">${isRefund ? '+' : ''}${fmtMoney(Math.abs(row.amount))}</td>
             <td>
                 <select class="form-select form-select-sm account-sel" data-idx="${i}" onchange="updateRowAccount(this)" ${isDupe ? 'disabled' : ''}>
                     ${accountOptions}
@@ -717,6 +862,7 @@ function renderPreviewTable(rows) {
         sel.value = previewRows[idx]?.account_id || '';
     });
 
+    if (window.mwInitDatePickers) window.mwInitDatePickers(tbody);
     if (typeof feather !== 'undefined') feather.replace();
 }
 
@@ -726,6 +872,10 @@ function updateRowAccount(sel) {
         previewRows[idx].account_id = parseInt(sel.value);
         previewRows[idx].auto_cat   = false;
     }
+}
+
+function updateRowBank(idx, value) {
+    if (previewRows[idx]) previewRows[idx].bank_account_id = parseInt(value) || null;
 }
 
 function updateManualRow(idx, field, value) {
@@ -739,6 +889,7 @@ function updateBalanceStrip() {
     const fmt = v => '$' + parseFloat(v).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
     let computed = parseFloat(bc.opening);
     for (const r of previewRows) {
+        if (r.other_account) continue;   // another account's line (a savings section) — not in this balance
         const amt = parseFloat(r.amount) || 0;
         computed += r.type === 'income' ? amt : -amt;
     }
@@ -797,20 +948,30 @@ function updateSelectedCount() {
 async function commitImport() {
     const selectedIdxs = [];
     document.querySelectorAll('.row-check:checked').forEach(cb => selectedIdxs.push(parseInt(cb.dataset.idx)));
-    if (!selectedIdxs.length) { mwToast('Select at least one transaction to import.', 'warning'); return; }
+    if (!selectedIdxs.length) {
+        // Every line already in: the statement can still be recorded, so the statements check
+        // knows its accounts' months are in (quiet accounts included).
+        if (!lastSections.length) { mwToast('Select at least one transaction to import.', 'warning'); return; }
+        if (!confirm('No new lines to import. Record this statement (' + lastSections.length + ' account section' + (lastSections.length === 1 ? '' : 's') + ') so the Statements check counts its months as in?')) return;
+    }
 
     const rowsToImport   = selectedIdxs.map(i => previewRows[i]).filter(Boolean);
     const skipDuplicates = document.getElementById('skip-duplicates').checked;
+    // Lines the preview found already in the CRM and left unticked never reach commit — count them.
+    const alreadyInCrm   = previewRows.filter((r, i) => r && r.is_duplicate && !selectedIdxs.includes(i)).length;
 
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({
             action:          'commit',
             rows:            rowsToImport,
-            bank_name:       document.getElementById('preset').value,
+            bank_name:       resolvedPreset || document.getElementById('preset').value,
             bank_account_id: parseInt(document.getElementById('bank-account-id').value) || 0,
             skip_duplicates: skipDuplicates,
+            already_in_crm:  alreadyInCrm,
+            balance_check:   lastBalanceCheck || null,
+            statement_sections: lastSections,
         }),
     });
     const d = await r.json();
@@ -827,7 +988,7 @@ async function commitImport() {
         ? ` &nbsp;·&nbsp; <strong class="text-success">${res.reconciled} reconciled ✓</strong>` : '';
     document.getElementById('done-title').textContent   = 'Import Complete';
     document.getElementById('done-body').innerHTML =
-        `<strong>${res.imported}</strong> transactions imported${reconciledLine} &nbsp;·&nbsp; <strong>${res.duplicates}</strong> skipped<br>
+        `<strong>${res.imported}</strong> transactions imported${reconciledLine} &nbsp;·&nbsp; <strong>${res.already_in_crm ?? res.duplicates}</strong> line${(res.already_in_crm ?? res.duplicates) === 1 ? '' : 's'} already in the CRM ${(res.already_in_crm ?? res.duplicates) === 1 ? 'was' : 'were'} skipped<br>
          <a href="/crm/accounting/transactions.php" class="text-muted small">View all transactions →</a>`;
 
     loadSessions();
@@ -837,7 +998,7 @@ async function undoImport() {
     if (!lastSessionId || !confirm('Undo this import? All imported transactions will be deleted.')) return;
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'rollback', session_id: lastSessionId }),
     });
     const d = await r.json();
@@ -896,12 +1057,124 @@ async function rollbackSession(sessionId) {
     if (!confirm('Undo this import batch? All imported transactions will be deleted.')) return;
     const r = await fetch(API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
         body: JSON.stringify({ action: 'rollback', session_id: sessionId }),
     });
     const d = await r.json();
     mwToast(d.ok ? `Rolled back — ${d.deleted} transactions removed.` : 'Error: ' + d.error, d.ok ? 'success' : 'error');
     loadSessions();
+}
+
+async function loadDuplicates() {
+    const r = await fetch(API + '?action=find_duplicates');
+    const d = await r.json();
+    const card = document.getElementById('duplicates-card');
+    card.style.display = '';
+
+    const body = document.getElementById('duplicates-body');
+    if (!d.ok || !d.groups.length) {
+        body.innerHTML = '<p class="text-muted small mb-0">No duplicate transactions found.</p>';
+        return;
+    }
+
+    body.innerHTML = d.groups.map(g => {
+        const rows = g.candidates.map(c => {
+            let statusBadge = '';
+            let action;
+            if (c.verified_phantom) {
+                statusBadge = '<span class="badge bg-danger ml-2">No match in verified statement</span>';
+                action = `<span class="small text-muted" title="This (date, amount) doesn't match any real transaction in the verified statement — likely a parsing error, not a duplicate. Needs manual investigation.">Needs manual review</span>`;
+            } else if (c.removable) {
+                action = `<button class="btn btn-xs btn-outline-danger" onclick="removeDuplicate(${c.row_id}, this)">Remove duplicate</button>`;
+            } else {
+                statusBadge = '<span class="badge bg-warning text-dark ml-2">Needs review</span>';
+                action = `<span class="small text-muted" title="Not type=transfer and not verified against a real statement — remove manually if you're sure.">Can't auto-remove</span>`;
+            }
+            return `
+            <div class="d-flex justify-content-between align-items-center py-2 px-3" style="border-top:1px solid #eee;">
+                <span class="small text-muted">
+                    Row #${c.row_id} · imported ${esc((c.created_at||'').substring(0,10))}${statusBadge}
+                </span>
+                ${action}
+            </div>`;
+        }).join('');
+        const verifiedNote = g.verified
+            ? `<span class="badge bg-success ml-2" title="Confirmed against a real statement export">Verified: ${g.real_count} real</span>`
+            : '<span class="badge bg-secondary ml-2" title="Not yet checked against a real statement">Unverified</span>';
+        return `
+            <div class="mb-2">
+                <div class="d-flex justify-content-between align-items-center py-2 px-3" style="background:#f8f9fa;">
+                    <strong class="small">${esc(g.transaction_date)} · ${fmtMoney(g.amount)} · ${esc(g.description)}${verifiedNote}</strong>
+                    <span class="small text-success">Row #${g.keep.row_id} kept (original)</span>
+                </div>
+                ${rows}
+            </div>`;
+    }).join('');
+}
+
+function toggleVerifyBox() {
+    const box = document.getElementById('verify-box');
+    box.style.display = box.style.display === 'none' ? '' : 'none';
+}
+
+async function submitVerification() {
+    const csv = document.getElementById('verify-csv').value;
+    if (!csv.trim()) { mwToast('Paste the statement CSV first.', 'error'); return; }
+    const r = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+        body: JSON.stringify({ action: 'verify_statement', csv }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+        mwToast(`Verified ${d.recorded} (date, amount) combinations.`, 'success');
+        document.getElementById('verify-csv').value = '';
+        loadDuplicates();
+    } else {
+        mwToast('Error: ' + d.error, 'error');
+    }
+}
+
+async function removeDuplicate(rowId, btn) {
+    // Inline confirm instead of a native confirm() dialog — native dialogs
+    // block silently (no dialog rendered, no error, page just freezes) inside
+    // some embedded/webview browser contexts this app runs in.
+    if (btn.dataset.confirming !== '1') {
+        btn.dataset.confirming = '1';
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = 'Confirm remove?';
+        btn.classList.add('btn-danger');
+        btn.classList.remove('btn-outline-danger');
+        setTimeout(() => {
+            if (btn.dataset.confirming === '1' && document.body.contains(btn)) {
+                btn.dataset.confirming = '0';
+                btn.textContent = btn.dataset.originalText;
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-outline-danger');
+            }
+        }, 4000);
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+    const r = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+        body: JSON.stringify({ action: 'remove_duplicate', row_id: rowId }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+        mwToast('Removed.', 'success');
+        loadDuplicates();
+    } else {
+        mwToast('Error: ' + d.error, 'error');
+        btn.disabled = false;
+        btn.dataset.confirming = '0';
+        btn.textContent = btn.dataset.originalText;
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-outline-danger');
+    }
 }
 
 function fmtMoney(v) {
@@ -934,7 +1207,7 @@ async function runDebugOcr() {
 
     let data;
     try {
-        const resp = await fetch(API, { method: 'POST', body: fd });
+        const resp = await fetch(API, { method: 'POST', body: fd, headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } });
         data = await resp.json();
     } catch (err) {
         loading.classList.add('d-none');

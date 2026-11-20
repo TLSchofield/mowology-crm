@@ -23,8 +23,26 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/app_config/config.php';
+require_once APP_ROOT . '/Services/PortalBrand.php';
 require_once APP_ROOT . '/Services/MeasurementService.php';
 require_once APP_ROOT . '/Services/QuoteCalculator.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteLineChoiceService.php';
+require_once APP_ROOT . '/Modules/Sales/Services/QuoteApprovalService.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteUpsellRules.php';
+
+/** Exactly this bundle (not 1 matching 10, 12…): read the snapshot in PHP, no JSON_EXTRACT (MySQL 5.7). */
+function upsellBundleLineIds(PDO $db, int $quoteId, int $bundleId, bool $postAcceptOnly = false): array {
+    $st = $db->prepare("SELECT id, pricing_snapshot" . ($postAcceptOnly ? ", added_post_accept" : "") . " FROM quote_line_items WHERE quote_id = ? AND is_upsell = 1");
+    $st->execute([$quoteId]);
+    $ids = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $snap = json_decode((string)($r['pricing_snapshot'] ?? ''), true);
+        if (is_array($snap) && (int)($snap['bundle_id'] ?? 0) === $bundleId && (!$postAcceptOnly || !empty($r['added_post_accept']))) {
+            $ids[] = (int)$r['id'];
+        }
+    }
+    return $ids;
+}
 
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
@@ -33,6 +51,77 @@ $db = getDB();
 $action = $_GET['action'] ?? ($_POST['action'] ?? null);
 $token  = $_GET['token'] ?? ($_POST['token'] ?? '');
 
+/**
+ * Calculate a bundle's total price for a specific property:
+ * applies each component product's pricing rule against property measurements,
+ * then applies the bundle's discount.
+ */
+function calculateBundlePriceForProperty(int $bundleId, int $propertyId, PDO $db): float {
+    $bStmt = $db->prepare("SELECT discount_type, discount_value FROM product_bundles WHERE id = ?");
+    $bStmt->execute([$bundleId]);
+    $bundle = $bStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$bundle) return 0.0;
+
+    $itemsStmt = $db->prepare("
+        SELECT bi.product_id, bi.override_price, bi.quantity_multiplier,
+               p.name, p.base_price
+        FROM product_bundle_items bi
+        JOIN products p ON bi.product_id = p.id
+        WHERE bi.bundle_id = ?
+    ");
+    $itemsStmt->execute([$bundleId]);
+    $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($items)) return 0.0;
+
+    $measurementTotals = getMeasurementTotalsForProperty($propertyId);
+    $total = 0.0;
+
+    foreach ($items as $item) {
+        if ($item['override_price'] !== null) {
+            $total += (float)$item['override_price'];
+            continue;
+        }
+
+        $ruleStmt = $db->prepare("
+            SELECT r.*, mg.group_key
+            FROM product_pricing_rules r
+            JOIN measurement_groups mg ON r.measurement_group_id = mg.id
+            WHERE r.product_id = ? AND r.is_active = 1
+            ORDER BY r.priority DESC LIMIT 1
+        ");
+        $ruleStmt->execute([$item['product_id']]);
+        $rule = $ruleStmt->fetch(PDO::FETCH_ASSOC);
+
+        $itemPrice = (float)$item['base_price']; // fallback
+
+        if ($rule && isset($measurementTotals[$rule['group_key']])) {
+            $groupKey = $rule['group_key'];
+            $totalUnits = ($groupKey === 'hedge_linear')
+                ? $measurementTotals[$groupKey]['linear_ft']
+                : $measurementTotals[$groupKey]['sqft'];
+
+            $productArr = [
+                'id'         => (int)$item['product_id'],
+                'name'       => $item['name'],
+                'base_price' => (float)$item['base_price'],
+            ];
+            $calcItem = calculateLineItemFromRule($rule, $totalUnits, $productArr);
+            $itemPrice = (float)$calcItem['line_total'];
+        }
+
+        $qtyMult = (float)($item['quantity_multiplier'] ?? 1);
+        if ($qtyMult <= 0) $qtyMult = 1;
+        $total += $itemPrice * $qtyMult;
+    }
+
+    $dv = (float)$bundle['discount_value'];
+    $total = ($bundle['discount_type'] === 'percentage')
+        ? $total * (1 - $dv / 100)
+        : $total - $dv;
+
+    return max(0, round($total, 2));
+}
+
 try {
     // Validate token
     if (empty($token)) {
@@ -40,7 +129,7 @@ try {
     }
 
     $quoteStmt = $db->prepare("
-        SELECT q.id, q.property_id, q.status, q.subtotal, q.tax_rate, q.tax_amount, q.amount
+        SELECT q.*
         FROM quotes q
         WHERE q.access_token = ? AND q.token_expires_at > NOW()
     ");
@@ -55,12 +144,21 @@ try {
     if (!in_array($quote['status'], ['sent', 'accepted'])) {
         throw new Exception('This quote can no longer be modified');
     }
+    // A signed contract is the agreed terms: nothing can be added to it afterwards.
+    if ($quote['status'] === 'accepted' && !empty($quote['is_contract'])) {
+        throw new Exception('This contract has been signed and can no longer be changed');
+    }
     $isPostAccept = ($quote['status'] === 'accepted');
 
     $quoteId    = (int)$quote['id'];
     $propertyId = (int)$quote['property_id'];
 
     if ($action === 'get-upsells') {
+        // No cards once the quote is approved (QuoteUpsellRules, Fable review 2026-10-12).
+        if (!QuoteUpsellRules::offerCards((string)$quote['status'], !empty($quote['is_contract']))) {
+            echo json_encode(['success' => true, 'upsells' => []]);
+            exit;
+        }
         // Get product IDs from this quote's line items
         $productIds = $db->prepare("
             SELECT DISTINCT product_id FROM quote_line_items
@@ -75,14 +173,25 @@ try {
         }
 
         // Get upsells for these products — products AND bundles (migration 1020 + 1021)
+        // product_bundles uses bundle_name (not name) and has no bundle_price column —
+        // price is calculated from product_bundle_items with discount applied.
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         try {
             $upsellStmt = $db->prepare("
                 SELECT u.*,
-                       COALESCE(p.name, b.name) as upsell_product_name,
-                       COALESCE(p.base_price, b.bundle_price) as upsell_price,
-                       COALESCE(p.description, b.description) as upsell_description,
-                       CASE WHEN u.upsell_bundle_id IS NOT NULL THEN 1 ELSE 0 END AS is_bundle
+                       COALESCE(p.name, b.bundle_name) AS upsell_product_name,
+                       COALESCE(p.base_price, 0) AS upsell_price,
+                       COALESCE(p.description, b.description) AS upsell_description,
+                       CASE WHEN u.upsell_bundle_id IS NOT NULL THEN 1 ELSE 0 END AS is_bundle,
+                       b.discount_type AS bundle_discount_type,
+                       b.discount_value AS bundle_discount_value,
+                       COALESCE(
+                           (SELECT SUM(COALESCE(bi.override_price, p2.base_price))
+                            FROM product_bundle_items bi
+                            JOIN products p2 ON bi.product_id = p2.id
+                            WHERE bi.bundle_id = b.id),
+                           0
+                       ) AS bundle_items_total
                 FROM product_upsells u
                 LEFT JOIN products p ON u.upsell_product_id = p.id AND p.active = 1 AND p.is_archived = 0
                 LEFT JOIN product_bundles b ON u.upsell_bundle_id = b.id AND b.is_active = 1
@@ -93,8 +202,19 @@ try {
             ");
             $upsellStmt->execute($ids);
             $upsells = $upsellStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // For bundle upsells, calculate real price by applying each component's
+            // pricing rule against this property's measurements, then bundle discount.
+            foreach ($upsells as &$row) {
+                if (!empty($row['is_bundle'])) {
+                    $row['upsell_price'] = calculateBundlePriceForProperty(
+                        (int)$row['upsell_bundle_id'], $propertyId, $db
+                    );
+                }
+            }
+            unset($row);
         } catch (PDOException $e) {
-            // Fallback for envs without migration 1021 (no upsell_bundle_id)
+            // Fallback for envs without migration 1021 (no upsell_bundle_id column)
             $upsellStmt = $db->prepare("
                 SELECT u.*, p.name as upsell_product_name, p.base_price as upsell_price,
                        p.description as upsell_description, 0 AS is_bundle
@@ -200,30 +320,64 @@ try {
         ]);
 
     } elseif ($action === 'add-upsell') {
+        // One add at a time per quote (Codex review 2026-10-14): a double-tap passed the "already
+        // added" check twice and inserted the line twice. Held until the response is sent.
+        $upLock = 'mw_quote_upsell_' . (int)$quoteId;
+        if ((int)$db->query("SELECT GET_LOCK(" . $db->quote($upLock) . ", 10)")->fetchColumn() !== 1) {
+            throw new Exception('Still adding the last one — please try again in a moment.');
+        }
+        register_shutdown_function(function () use ($db, $upLock) {
+            try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($upLock) . ")"); } catch (Throwable $e) { /* lock ends with the connection */ }
+        });
         $upsellProductId = intval($_POST['upsell_product_id'] ?? 0);
         $upsellBundleId  = intval($_POST['upsell_bundle_id'] ?? 0);
 
         if (!$upsellProductId && !$upsellBundleId) throw new Exception('Upsell product or bundle ID required');
 
+        // Fable review 2026-10-12: only before approval, and only an upsell actually offered for a
+        // product on THIS quote — priced from that offer (any product id used to be accepted).
+        if (!QuoteUpsellRules::addAllowed((string)$quote['status'], !empty($quote['is_contract']))) {
+            throw new Exception('This quote has been approved. To add work, please ' . PortalBrand::callPhrase() . '.');
+        }
+        $baseSql = "SELECT DISTINCT product_id FROM quote_line_items WHERE quote_id = ? AND product_id IS NOT NULL AND is_upsell = 0";
+        try {
+            $offStmt = $db->prepare("SELECT upsell_product_id, upsell_bundle_id, bundled_price FROM product_upsells
+                                     WHERE is_active = 1 AND base_product_id IN ($baseSql)");
+            $offStmt->execute([$quoteId]);
+        } catch (PDOException $e) { // before migration 1021 (no upsell_bundle_id)
+            $offStmt = $db->prepare("SELECT upsell_product_id, NULL AS upsell_bundle_id, bundled_price FROM product_upsells
+                                     WHERE is_active = 1 AND base_product_id IN ($baseSql)");
+            $offStmt->execute([$quoteId]);
+        }
+        $offer = QuoteUpsellRules::matchOffer($offStmt->fetchAll(PDO::FETCH_ASSOC), $upsellProductId, $upsellBundleId);
+        if ($offer === null) {
+            throw new Exception('That item is not offered with this quote.');
+        }
+
         $isBundle = $upsellBundleId > 0;
 
         if ($isBundle) {
-            // Load bundle as the "product" for this line item
-            $bStmt = $db->prepare("SELECT id, name, description, bundle_price AS base_price FROM product_bundles WHERE id = ? AND is_active = 1");
-            $bStmt->execute([$upsellBundleId]);
-            $product = $bStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$product) throw new Exception('Bundle not found or inactive');
-            // Prevent duplicate bundle adds
-            $dupStmt = $db->prepare("
-                SELECT id FROM quote_line_items
-                WHERE quote_id = ? AND is_upsell = 1
-                  AND JSON_EXTRACT(pricing_snapshot, '$.bundle_id') = ?
+            // Load bundle — bundle_name is the name column; price is derived from items + discount
+            $bStmt = $db->prepare("
+                SELECT id, bundle_name AS name, description, discount_type, discount_value
+                FROM product_bundles WHERE id = ? AND is_active = 1
             ");
-            try {
-                $dupStmt->execute([$quoteId, $upsellBundleId]);
-                if ($dupStmt->fetch()) throw new Exception('This bundle is already added to the quote');
-            } catch (PDOException $e) {
-                // JSON_EXTRACT may not work on MySQL 5.7 — skip uniqueness if so
+            $bStmt->execute([$upsellBundleId]);
+            $bundleRow = $bStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$bundleRow) throw new Exception('Bundle not found or inactive');
+
+            // Calculate bundle price by applying each component's pricing rule to this property's measurements
+            $calcBundlePrice = calculateBundlePriceForProperty($upsellBundleId, $propertyId, $db);
+
+            $product = [
+                'id'          => (int)$bundleRow['id'],
+                'name'        => $bundleRow['name'],
+                'description' => $bundleRow['description'],
+                'base_price'  => $calcBundlePrice,
+            ];
+            // Prevent duplicate bundle adds (exact bundle id, checked in PHP)
+            if (upsellBundleLineIds($db, $quoteId, $upsellBundleId)) {
+                throw new Exception('This bundle is already added to the quote');
             }
         } else {
             // Verify product exists and is active
@@ -244,23 +398,8 @@ try {
             }
         }
 
-        // Look up the product_upsells row for admin-set bundled_price (product OR bundle)
-        if ($isBundle) {
-            $upsellMetaStmt = $db->prepare("
-                SELECT bundled_price FROM product_upsells
-                WHERE upsell_bundle_id = ? AND is_active = 1
-                LIMIT 1
-            ");
-            $upsellMetaStmt->execute([$upsellBundleId]);
-        } else {
-            $upsellMetaStmt = $db->prepare("
-                SELECT bundled_price FROM product_upsells
-                WHERE upsell_product_id = ? AND is_active = 1
-                LIMIT 1
-            ");
-            $upsellMetaStmt->execute([$upsellProductId]);
-        }
-        $upsellMeta = $upsellMetaStmt->fetch(PDO::FETCH_ASSOC);
+        // Admin-set bundled_price from the matching offer row (not any row naming this product).
+        $upsellMeta = $offer;
         $adminBundledPrice = $upsellMeta && $upsellMeta['bundled_price'] !== null
             ? (float)$upsellMeta['bundled_price'] : null;
 
@@ -395,13 +534,26 @@ try {
             ]);
         }
 
+        $newLineId = $db->lastInsertId();
+
         // Recalculate quote totals
         $newTotals = recalculateQuoteTotals($quoteId);
+        // The line is in: let the next add through now, not after the office notice below.
+        try { $db->query("SELECT RELEASE_LOCK(" . $db->quote($upLock) . ")"); } catch (Throwable $e) { /* shutdown releases it */ }
+
+        // After approval the job already exists: tell the office instead of changing the quote silently.
+        if ($isPostAccept) {
+            try {
+                (new QuoteApprovalService($db))->afterPostAcceptChange($quoteId, (string)$lineItem['service_type'], (float)$lineItem['line_total']);
+            } catch (Throwable $e) {
+                error_log('[quote-upsell] post-accept notice: ' . $e->getMessage());
+            }
+        }
 
         echo json_encode([
             'success'        => true,
             'message'        => 'Upsell added',
-            'line_item_id'   => $db->lastInsertId(),
+            'line_item_id'   => $newLineId,
             'totals'         => $newTotals,
             'is_post_accept' => $isPostAccept,
             'line_total'     => (float)$lineItem['line_total'],
@@ -409,29 +561,59 @@ try {
             'savings_applied'=> $isPostAccept ? 0 : round($regularTotal - (float)$lineItem['line_total'], 2),
         ]);
 
+    } elseif ($action === 'line-choice') {
+        // The client ticks / unticks one of the quote's own lines (QuoteLineChoiceService).
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') throw new Exception('POST required');
+        $r = (new QuoteLineChoiceService($db))->setDeclined($quote, (int)($_POST['line_item_id'] ?? 0),
+                                                          !empty($_POST['declined']), (string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        if (empty($r['success'])) {
+            http_response_code(400);
+        }
+        echo json_encode($r);
+
     } elseif ($action === 'remove-upsell') {
         $upsellProductId = intval($_POST['upsell_product_id'] ?? 0);
         $upsellBundleId  = intval($_POST['upsell_bundle_id'] ?? 0);
         if (!$upsellProductId && !$upsellBundleId) throw new Exception('Upsell product or bundle ID required');
 
+        // After approval only the client's own post-approval extras can be taken back (the undo);
+        // the lines they approved stay (Fable review 2026-10-12).
+        $removedLabel = '';
         if ($upsellBundleId > 0) {
-            // Remove bundle upsell — match via pricing_snapshot JSON
-            $stmt = $db->prepare("
-                DELETE FROM quote_line_items
-                WHERE quote_id = ? AND is_upsell = 1
-                  AND pricing_snapshot LIKE ?
-            ");
-            $stmt->execute([$quoteId, '%\"bundle_id\":' . $upsellBundleId . '%']);
+            // Exact bundle id from the snapshot (a LIKE on "bundle_id":1 also matched 10, 12, …)
+            $ids = upsellBundleLineIds($db, $quoteId, $upsellBundleId, $isPostAccept);
+            $removed = 0;
+            if ($ids) {
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $lbl = $db->prepare("SELECT service_type FROM quote_line_items WHERE id IN ($in) LIMIT 1");
+                $lbl->execute($ids);
+                $removedLabel = (string)$lbl->fetchColumn();
+                $stmt = $db->prepare("DELETE FROM quote_line_items WHERE quote_id = ? AND id IN ($in)");
+                $stmt->execute(array_merge([$quoteId], $ids));
+                $removed = $stmt->rowCount();
+            }
         } else {
+            $lbl = $db->prepare("SELECT service_type FROM quote_line_items WHERE quote_id = ? AND product_id = ? AND is_upsell = 1"
+                . ($isPostAccept ? " AND added_post_accept = 1" : "") . " LIMIT 1");
+            $lbl->execute([$quoteId, $upsellProductId]);
+            $removedLabel = (string)$lbl->fetchColumn();
             $stmt = $db->prepare("
                 DELETE FROM quote_line_items
-                WHERE quote_id = ? AND product_id = ? AND is_upsell = 1
+                WHERE quote_id = ? AND product_id = ? AND is_upsell = 1" . ($isPostAccept ? " AND added_post_accept = 1" : "") . "
             ");
             $stmt->execute([$quoteId, $upsellProductId]);
+            $removed = $stmt->rowCount();
         }
 
-        if ($stmt->rowCount() === 0) {
-            throw new Exception('Upsell not found on this quote');
+        if ($removed === 0) {
+            throw new Exception($isPostAccept ? 'Only extras added after approval can be removed here. ' . ucfirst(PortalBrand::callPhrase()) . '.' : 'Upsell not found on this quote');
+        }
+        if ($isPostAccept) {
+            try {
+                (new QuoteApprovalService($db))->afterPostAcceptChange($quoteId, $removedLabel, 0.0, true);
+            } catch (Throwable $e) {
+                error_log('[quote-upsell] post-accept removal notice: ' . $e->getMessage());
+            }
         }
 
         // Recalculate totals
@@ -461,13 +643,14 @@ function recalculateQuoteTotals(int $quoteId): array {
     $stmt = $db->prepare("
         SELECT SUM(line_total) as subtotal
         FROM quote_line_items
-        WHERE quote_id = ? AND is_optional = 0
+        WHERE quote_id = ? AND is_optional = 0" . QuoteLineChoiceService::notDeclinedSql($db) . "
     ");
     $stmt->execute([$quoteId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     $subtotal  = round((float)$row['subtotal'], 2);
-    $taxRate   = 0.05;
+    require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+    $taxRate   = TaxEngine::chargedRate($db, 0.05);   // 0 when the business is not registered for GST
     $taxAmount = round($subtotal * $taxRate, 2);
     $total     = $subtotal + $taxAmount;
 

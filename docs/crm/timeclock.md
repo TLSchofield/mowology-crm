@@ -1,0 +1,121 @@
+# Timeclock & Payroll — Shift-Bounded Job Time
+
+Last updated: 2026-05-15
+
+## Overview
+
+Payroll operates on a strict source-of-truth hierarchy:
+
+```
+1. SHIFT CLOCK     time_clock_entries.clock_in → clock_out
+                   Hard outer bound per day per user. Pay cannot exceed this.
+
+2. SCHEDULE        job_visits.scheduled_date + assigned_crew_id
+                   Validates that timers fire on real assigned visits.
+
+3. JOB TIMER       job_time_entries — valid only when bounded within shift window
+                   Per-visit segments; sum = actual_duration_minutes for billing.
+
+4. GPS (advisory)  gps_dwell_minutes, route-reconciliation
+                   Anomaly detection only. Never overrides shift or timer for pay.
+```
+
+## Components
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| Core functions | [`app/Modules/Team/Services/TimeclockFunctions.php`](../../app/Modules/Team/Services/TimeclockFunctions.php) | `stopJobTimer()`, `recalculateTimesheetTotals()`, `getJobTimeEntriesForRange()` |
+| Orphaned timer cron | [`app/Modules/Team/Cron/stop_orphaned_job_timers.php`](../../app/Modules/Team/Cron/stop_orphaned_job_timers.php) | Hourly: stops any active job timer running > 12h, caps to shift |
+| Job entry edit API | [`app/Modules/Team/Api/job-time-entry-edit.php`](../../app/Modules/Team/Api/job-time-entry-edit.php) | Admin: void or set_duration on individual job_time_entries |
+| OT calculator | [`app/Modules/Team/Services/OvertimeCalculator.php`](../../app/Modules/Team/Services/OvertimeCalculator.php) | BC Employment Standards Act (daily 8h/12h + weekly 40h; the overtime week runs **Sunday–Saturday**, ESA s.1 — Monday until 2026-10-21; only the first 8 h of each day count toward the 40) |
+| Timesheet detail | [`public/crm/timeclock/timesheet-detail.php`](../../public/crm/timeclock/timesheet-detail.php) | UI: per-day breakdown, anomaly warnings, admin void/correct |
+| Migration | [`database/migrations/1031_job_time_entry_anomaly_flags.sql`](../../database/migrations/1031_job_time_entry_anomaly_flags.sql) | Adds `flagged_anomaly`, `auto_stopped` columns to `job_time_entries` |
+
+## Key Behaviours
+
+### stopJobTimer()
+
+When a job timer stops (manually or auto-stopped on clock-out):
+
+1. Compute raw duration via `TIMESTAMPDIFF(MINUTE, start_time, NOW())`
+2. Look up the crew's shift for the day the timer *started*
+3. If `raw_duration > shift_total`: cap to `shift_total`, set `flagged_anomaly = 1`
+4. Update `job_time_entries.duration_minutes` and `job_visits.actual_duration_minutes`
+
+### recalculateTimesheetTotals()
+
+Called after every clock-out, job timer stop, or admin correction. Uses a JOIN-based per-day cap:
+
+- Aggregate job entries per day (`dj`)
+- Aggregate shift clock entries per day (`ds`)
+- For each day: `capped = (shift IS NULL or 0) ? job : min(job, shift)`
+- Sum capped daily totals → `timesheets.total_job_minutes`
+- `total_travel_minutes = max(0, total_shift_minutes - total_job_minutes)`
+
+The per-day cap prevents a single runaway timer from inflating the weekly job total above the weekly shift total.
+
+### Orphaned Timer Cron
+
+Runs hourly via cPanel:
+```
+0 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Team/Cron/stop_orphaned_job_timers.php
+```
+
+Finds any `job_time_entries` with `status='active'` and `start_time < NOW() - INTERVAL 12 HOUR`. For each:
+- Sets `end_time = NOW()`
+- Caps duration to shift (or 720min fallback if no shift found)
+- Sets `auto_stopped = 1`, `flagged_anomaly = 1`
+- Logs to `visit_audit_log`
+- Calls `recalculateTimesheetTotals()`
+
+### Anomaly Detection (UI)
+
+`timesheet-detail.php` flags any day where `total_job_min > total_shift_min` as an anomaly. Shows an orange warning bar above the day's entries. Admin can void or correct individual entries inline without leaving the page.
+
+### Breaks (2026-10-13, migration 1358)
+- **Start break / End break** on the Time Clock screen (iPhone break card; web/Android topbar widget
+  and the My Timesheet panel). People only — the truck login gets no button. `BreakService::start()` /
+  `BreakService::end()` via `time-clock.php` (session) and `clock.php` (JWT), actions `break_start` /
+  `break_end` with `client_time` (the tap) so an offline-queued tap files at the right time.
+- A tapped break is a `time_clock_breaks` row (`source = 'manual'`, `break_end` NULL while running).
+  Location sharing pauses and the server refuses fixes inside it. Clock-out ends a running break.
+- GPS-found breaks (`source = 'gps'`, nightly) are the backup; one that overlaps a tap is dropped.
+- **Pay:** `ops_settings.breaks_paid` (Time Clock Settings → Breaks). Paid (Mowology) = no change.
+  Unpaid = tapped break minutes come off each day **before** the BC daily/weekly overtime split —
+  payroll summary + CSV, timesheet detail, `recalculateTimesheetTotals()`, My Timesheet.
+- **BC flag:** a shift over 5 h with no 30-min break → `time_clock_entries.break_note` at clock-out
+  and nightly; shown on Otto's card (`break_flags_enabled` = 1).
+
+## Schema
+
+```sql
+-- job_time_entries (relevant columns added 2026-05-15, migration 1031)
+flagged_anomaly  TINYINT NOT NULL DEFAULT 0  -- 1 = capped or auto-stopped
+auto_stopped     TINYINT NOT NULL DEFAULT 0  -- 1 = stopped by orphan cron, not user
+
+-- timesheets
+total_shift_minutes   INT  -- from time_clock_entries (source of truth)
+total_job_minutes     INT  -- per-day capped from job_time_entries
+total_travel_minutes  INT  -- shift - job (approximation of non-job time)
+```
+
+## Root Cause: The PLN-2026-0046-V023 Incident (May 12, 2026)
+
+GPS auto-start fired when the crew entered the 150m geofence. The job timer ran
+unattended from 2026-05-12 09:25 to 2026-05-13 16:29 (next day clock-out), giving
+`duration_minutes = 1863` (31h 3m) for an 8h 43m shift day.
+
+**Fixes applied:**
+1. Entry #96 corrected to 482min (shift 523min − other same-day jobs 41min)
+2. `stopJobTimer()` now caps at shift time for all future stops
+3. Orphaned timer cron catches any still-running timers hourly
+4. `recalculateTimesheetTotals()` uses per-day ceiling so stored totals can never exceed shift
+5. Anomaly warning UI surfaces shift/job mismatches before approval
+
+## Clock-in GPS: slow fix is not "location off" (2026-11-03)
+
+The truck tablet, permissions all granted, got "Location is required to clock in. Enable location services" at 9:51 with location last accessed at 9:49. Cause: `MwTimeClock.getGPS` capped the native fix at 4 s (the bridge itself at 10 s, high accuracy, no cached position allowed); on timeout the page posted lat/lng = null and the server's only message blamed location services.
+
+Now: `MwNative.geo.getCurrentPosition()` tries a fresh fix (10 s) → any OS fix ≤ 5 min old (8 s) → the tracker's last accepted position (≤ 5 min) → rejects with `code` LOCATION_OFF / PERMISSION / NO_FIX. `my-schedule.php` calls the bridge directly (22 s guard), and on refusal shows an inline notice with Try again and a settings button matching the code. The widget cap is 20 s. Server text: "Couldn't get a GPS fix for this clock-in. Move into the open and try again."
+
+Trap: the crew app does not ship `@capacitor/app`, so `MwNative.openAppSettings()` (App.openUrl) had never worked; both openers now fall back to `BackgroundGeolocation.openSettings()`, which reaches the app's own settings page only. The device Location switch (Settings → Location) is one level up and cannot be opened from the web layer without a native method.

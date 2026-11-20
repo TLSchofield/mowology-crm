@@ -28,6 +28,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 requireLogin();
 $user    = getCurrentUser();
 $isAdmin = ($user['role'] ?? '') === 'admin';
@@ -116,12 +117,12 @@ $ext      = in_array($mimeType, ['image/jpeg', 'image/jpg']) ? 'jpg'
           : (($mimeType === 'image/png') ? 'png'
           : (($mimeType === 'image/webp') ? 'webp' : 'jpg'));
 $filename = 'plant_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-$destDir  = PUBLIC_ROOT . '/uploads/quiz';
+$destDir  = uploadsDir('quiz');
 if (!is_dir($destDir)) mkdir($destDir, 0755, true);
 
 $imagePath = null;
 if (move_uploaded_file($file['tmp_name'], $destDir . '/' . $filename)) {
-    $imagePath = '/uploads/quiz/' . $filename;
+    $imagePath = uploadsUrl('quiz') . '/' . $filename;
 }
 
 // ── 6. Build suggested quiz questions ────────────────────────────────────────

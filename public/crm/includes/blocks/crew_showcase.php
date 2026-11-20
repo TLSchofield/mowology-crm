@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Crew Showcase Block Renderer — Team member cards with avatar, bio, and stats
  *
@@ -123,7 +124,7 @@ $uid = 'crew-' . ($block['id'] ?? substr(md5(uniqid('', true)), 0, 8));
 @media(max-width:440px){.mw-crew__grid{grid-template-columns:1fr}}
 </style>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function(){
   var uid = <?= json_encode($uid) ?>;
   var section = document.getElementById(uid);

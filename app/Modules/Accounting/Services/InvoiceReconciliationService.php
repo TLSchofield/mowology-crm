@@ -1,0 +1,1759 @@
+<?php
+/**
+ * InvoiceReconciliationService — attach imported bank deposits to unpaid invoices.
+ *
+ * Scenario: a customer pays (e-Transfer / processor / cheque deposit) and the deposit
+ * lands on the Vancity statement as an `accounting_transactions` row
+ * (reference_type='bank_import', type='income'), but the invoice is still unpaid.
+ * This service lets an admin SEE the likely match and ATTACH it — recording the payment
+ * and reconciling the books without double-counting income.
+ *
+ * ── Accounting model (income recognized exactly once) ────────────────────────
+ *  • Income is recognized on the INVOICE ledger row (reference_type='invoice'),
+ *    carrying the invoice's own job_id (plan_id) + contact_id — so a deposit split
+ *    across several invoices attributes per-job correctly.
+ *  • The bank-deposit ledger row's `amount` always equals its UNALLOCATED remainder
+ *    (original amount comes from the bank_import_rows staging row). While a remainder
+ *    exists it stays type='income'; once fully allocated it flips to type='transfer'
+ *    (a cash-clearing entry). Every report sums `type IN ('income','expense')`, so the
+ *    transfer is excluded automatically — no report query changes, every dollar counted
+ *    once for full, split, and partial allocations.
+ *  • Fully reversible: detach() removes allocations and restores invoice + deposit state.
+ *
+ * All amounts are CAD DECIMAL(10,2). Pure PDO — no global helpers (unit-testable).
+ */
+declare(strict_types=1);
+
+class InvoiceReconciliationService
+{
+    private PDO $db;
+
+    private const DEFAULT_INCOME_CODE = '4900';   // Other Services (fallback revenue account)
+    private const MATCH_THRESHOLD     = 55;        // minimum confidence to surface a candidate
+    private const MAX_DAYS_AFTER_DUE  = 120;       // deposits later than this are a different payment
+    private const PAYABLE_STATUSES    = ['sent', 'viewed', 'partial', 'overdue'];
+
+    /**
+     * Hand-recorded payment methods whose bank deposit is linked automatically (same payer, exact sum).
+     * Cheques and EFTs joined e-Transfers on 2026-10-13 (Kanco: 4 cheques recorded, deposit left as income).
+     */
+    public const LINKABLE_METHODS = ['e_transfer', 'cheque', 'eft', 'bank_transfer'];
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CANDIDATE MATCHING (description-aware scoring)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Candidate deposits for a single invoice, scored & sorted high→low.
+     */
+    public function candidatesForInvoice(int $invoiceId, int $limit = 6): array
+    {
+        $invoices = $this->loadInvoicesForScoring([$invoiceId]);
+        if (empty($invoices)) return [];
+        $invoice = $invoices[0];
+
+        $out = [];
+        foreach ($this->loadUnmatchedDeposits() as $dep) {
+            $score = $this->scoreDeposit($dep, $invoice);
+            if ($score === null) continue;
+            $out[] = $this->candidatePayload($dep, $invoice, $score);
+        }
+        usort($out, fn($a, $b) => [(int)$a['mismatch'], $b['confidence']] <=> [(int)$b['mismatch'], $a['confidence']]);
+        return array_slice($out, 0, $limit);
+    }
+
+    /**
+     * Best candidate deposits for many invoices at once (drives the list-page pills
+     * with one deposit query — no per-row N+1).
+     *
+     * @return array<int, array> invoiceId => [candidate, ...] (best `$per` each)
+     */
+    public function topCandidatesForInvoiceIds(array $invoiceIds, int $per = 4): array
+    {
+        $invoiceIds = array_values(array_filter(array_map('intval', $invoiceIds)));
+        if (empty($invoiceIds)) return [];
+
+        $invoices = $this->loadInvoicesForScoring($invoiceIds);
+        if (empty($invoices)) return [];
+
+        $deposits = $this->loadUnmatchedDeposits();
+        if (empty($deposits)) return [];
+
+        $map = [];
+        foreach ($invoices as $invoice) {
+            $hits = [];
+            foreach ($deposits as $dep) {
+                $score = $this->scoreDeposit($dep, $invoice);
+                if ($score === null) continue;
+                $hits[] = $this->candidatePayload($dep, $invoice, $score);
+            }
+            if ($hits) {
+                usort($hits, fn($a, $b) => [(int)$a['mismatch'], $b['confidence']] <=> [(int)$b['mismatch'], $a['confidence']]);
+                $map[(int)$invoice['id']] = $hits;
+            }
+        }
+        return array_map(fn($hits) => array_slice($hits, 0, $per), self::dropShadowHits($map));
+    }
+
+    /**
+     * A deposit that is exactly one invoice's balance is not also a "partial amount" of the same
+     * payer's other invoices: VML's $1,195.36 cheque (= INV-2026-0415 / -0477) was also pinned to
+     * their $1,640.94 invoices (2026-11-06). Exact hits on several invoices all stay (only one can be it).
+     * @param array<int, array> $map invoiceId => candidates
+     */
+    public static function dropShadowHits(array $map): array
+    {
+        $exact = [];
+        foreach ($map as $hits) {
+            foreach ($hits as $h) {
+                // A remittance that names another invoice (mismatch) doesn't make the deposit this one's.
+                if (empty($h['mismatch']) && in_array('Exact amount', $h['reasons'], true)) $exact[(int)$h['tx_id']] = true;
+            }
+        }
+        foreach ($map as $iid => $hits) {
+            $hits = array_values(array_filter($hits, fn($h) => !isset($exact[(int)$h['tx_id']]) || in_array('Exact amount', $h['reasons'], true)));
+            if ($hits) $map[$iid] = $hits; else unset($map[$iid]);
+        }
+        return $map;
+    }
+
+    /** What the bank memo says a deposit is: cheque | e_transfer | stripe | eft | other (DepositBackfillService::kindOf). */
+    public static function depositKind(string $memo): string
+    {
+        require_once __DIR__ . '/DepositBackfillService.php';
+        return DepositBackfillService::kindOf($memo);
+    }
+
+    /** Only processor payouts (Stripe and the unnamed rest) arrive net of a fee; cheques, e-Transfers and EFTs arrive whole. */
+    public static function mayCarryFee(string $memo): bool
+    {
+        return in_array(self::depositKind($memo), ['stripe', 'other'], true);
+    }
+
+    /** The words for a deposit's kind, the same on the invoices list and Penny's card. */
+    public static function kindLabel(string $kind): string
+    {
+        return ['cheque' => 'Cheque deposit', 'e_transfer' => 'e-Transfer', 'stripe' => 'Stripe payout', 'eft' => 'EFT'][$kind] ?? 'Bank deposit';
+    }
+
+    /** The invoices list chip: "Likely cheque" when the best match is a cheque, else "2 likely matches". */
+    public static function chipText(array $matches): string
+    {
+        $n = count($matches);
+        if ($n === 0) return '';
+        if (($matches[0]['kind'] ?? '') === 'cheque') return 'Likely cheque' . ($n > 1 ? ' +' . ($n - 1) : '');
+        return $n . ' likely match' . ($n > 1 ? 'es' : '');
+    }
+
+    /**
+     * Penny's "likely cheques": every unlinked cheque deposit that likely pays an open invoice, best invoice
+     * first, from the same scoring as the invoices list (topCandidatesForInvoiceIds), so both say the same.
+     * Suggests only: recording stays a person's tap (BankInvoiceMatchService::record()).
+     */
+    public function likelyCheques(int $limit = 10): array
+    {
+        $ids = $this->db->query("
+            SELECT id FROM invoices
+            WHERE balance_due > 0.005 AND status IN ('sent','viewed','partial','overdue')
+        ")->fetchAll(PDO::FETCH_COLUMN);
+        $map = $this->topCandidatesForInvoiceIds($ids, 4);
+        if (!$map) return [];
+        $info = [];
+        foreach ($this->loadInvoicesForScoring(array_keys($map)) as $inv) $info[(int)$inv['id']] = $inv;
+        return self::chequeCards($map, $info, $limit);
+    }
+
+    /**
+     * Pure: list candidates (invoiceId => [candidate…]) + invoice rows → one card per cheque deposit.
+     * @param array<int, array> $info invoiceId => loadInvoicesForScoring() row
+     */
+    public static function chequeCards(array $map, array $info, int $limit = 10): array
+    {
+        $byTx = [];
+        foreach ($map as $iid => $hits) {
+            if (!isset($info[(int)$iid])) continue;
+            foreach ($hits as $h) {
+                if (($h['kind'] ?? '') !== 'cheque' || !empty($h['mismatch'])) continue;
+                $byTx[(int)$h['tx_id']][] = ['hit' => $h, 'inv' => $info[(int)$iid]];
+            }
+        }
+        $cards = [];
+        foreach ($byTx as $txId => $rows) {
+            // Exact-amount invoices first, OLDEST first: a payment goes on the oldest open invoice it pays, and
+            // closeness to an issue date says nothing (Tim, 2026-11-06: VML's Nov 2 cheque was put on INV-0477,
+            // issued Nov 1, at 95% while INV-0415 for the same $1,195.36 sat overdue since October). Then best score.
+            $isExact = fn($r) => in_array('Exact amount', $r['hit']['reasons'], true) ? 0 : 1;
+            usort($rows, fn($a, $b) => [$isExact($a), $isExact($a) ? -$a['hit']['confidence'] : 0, (string)$a['inv']['invoice_date'], (int)$a['inv']['id']]
+                                   <=> [$isExact($b), $isExact($b) ? -$b['hit']['confidence'] : 0, (string)$b['inv']['invoice_date'], (int)$b['inv']['id']]);
+            $best = $rows[0]; $h = $best['hit']; $inv = $best['inv'];
+            $payer = $h['payer'] ?? null;
+            $invPayer = self::invoicePayer($inv);
+            $money = '$' . number_format((float)$h['amount'], 2);
+            $balance = round((float)$inv['balance_due'], 2);
+            $others = array_map(fn($r) => [
+                'invoice_id' => (int)$r['inv']['id'], 'invoice_number' => (string)$r['inv']['invoice_number'],
+                'balance_due' => round((float)$r['inv']['balance_due'], 2), 'confidence' => (int)$r['hit']['confidence'],
+                'apply' => (float)$r['hit']['suggested_amount'],
+            ], array_slice($rows, 1, 3));
+            $alsoSame = array_values(array_filter($others, fn($o) => abs($o['balance_due'] - $balance) < 0.005));
+            $named = (bool)array_filter($h['reasons'], fn($r) => str_starts_with((string)$r, 'Memo names'));
+            $cards[] = [
+                'tx_id'          => $txId,
+                'date'           => $h['date'],
+                'amount'         => (float)$h['amount'],
+                'payer'          => $payer,
+                'memo'           => $h['description'],
+                'label'          => $h['label'],
+                'confidence'     => (int)$h['confidence'],
+                'invoice'        => [
+                    'id' => (int)$inv['id'], 'number' => (string)$inv['invoice_number'], 'payer' => $invPayer,
+                    'date' => substr((string)$inv['invoice_date'], 0, 10), 'balance_due' => $balance,
+                ],
+                'apply'          => (float)$h['suggested_amount'],
+                'verdict'        => 'This ' . $money . ' cheque' . ($payer ? ' from ' . $payer : '') . ' likely pays ' . $inv['invoice_number'] . '.',
+                'confidence_line'=> $h['confidence'] . '% · ' . strtolower(implode(' · ', $h['reasons']))
+                                    . ($alsoSame ? ' · ' . implode(', ', array_column($alsoSame, 'invoice_number')) . ' is the same amount — oldest first' : ''),
+                'facts'          => [
+                    ['label' => 'Amount', 'cheque' => $money, 'invoice' => '$' . number_format($balance, 2) . ' owing',
+                     'state' => abs((float)$h['amount'] - $balance) < 0.005 ? 'same' : 'differs'],
+                    ['label' => 'Name', 'cheque' => $payer ?: 'not on the memo', 'invoice' => $invPayer ?: '—',
+                     'state' => $named ? 'same' : ($payer ? 'differs' : 'missing')],
+                    ['label' => 'Date', 'cheque' => 'Banked ' . date('M j', strtotime((string)$h['date'])),
+                     'invoice' => 'Issued ' . date('M j', strtotime((string)$inv['invoice_date'])), 'state' => 'info'],
+                ],
+                'others'         => $others,
+            ];
+        }
+        usort($cards, fn($a, $b) => [$b['confidence'], $b['date']] <=> [$a['confidence'], $a['date']]);
+        return array_slice($cards, 0, $limit);
+    }
+
+    private static function invoicePayer(array $inv): string
+    {
+        foreach (['bill_to_name', 'company_name', 'contact_name', 'property_name'] as $k) {
+            $v = trim((string)($inv[$k] ?? ''));
+            if ($v !== '') return $v;
+        }
+        return '';
+    }
+
+    /** Remaining unallocated amount on a deposit. */
+    public function remainingForDeposit(int $transactionId): float
+    {
+        $dep = $this->getDeposit($transactionId);
+        if (!$dep) return 0.0;
+        $original = $this->originalDepositAmount($dep);
+        return round($original - $this->allocatedTotal($transactionId), 2);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ATTACH / DETACH
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Attach a bank deposit to one or more invoices.
+     *
+     * @param array $allocations  [ ['invoice_id'=>int, 'amount'=>float], ... ]
+     * @return array  summary: recorded[], deposit_remaining, fully_allocated
+     */
+    public function attach(int $transactionId, array $allocations, int $userId, bool $force = false): array
+    {
+        if (!$force && ($named = $this->emailNamesOtherInvoice($transactionId, array_column($allocations, 'invoice_id')))) {
+            throw new InvalidArgumentException("The Interac email for this deposit says it pays {$named} — record it against {$named} instead.");
+        }
+        $clean = [];
+        foreach ($allocations as $a) {
+            $iid = (int)($a['invoice_id'] ?? 0);
+            $amt = round((float)($a['amount'] ?? 0), 2);
+            if ($iid > 0 && $amt > 0) {
+                $clean[] = ['invoice_id' => $iid, 'amount' => $amt];
+            }
+        }
+        if (empty($clean)) {
+            throw new InvalidArgumentException('No valid allocations provided.');
+        }
+
+        $dep = $this->getDeposit($transactionId, true); // require income deposit
+        if (!$dep) {
+            throw new RuntimeException('Bank deposit not found, or it is already fully reconciled.');
+        }
+
+        $original  = $this->originalDepositAmount($dep);
+        $remaining = round($original - $this->allocatedTotal($transactionId), 2);
+        $sum       = round(array_sum(array_column($clean, 'amount')), 2);
+        if ($sum > $remaining + 0.005) {
+            throw new InvalidArgumentException(sprintf(
+                'Allocation total $%.2f exceeds the deposit\'s remaining $%.2f.', $sum, $remaining
+            ));
+        }
+
+        $method  = $this->deriveMethod($dep['description'] ?? '');
+        $ref     = $this->deriveReference($dep);
+        $payDate = substr((string)$dep['transaction_date'], 0, 10);
+
+        $ownTx = !$this->db->inTransaction();   // join a caller's transaction (income clean-up)
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            // Lock the deposit and re-check what's left INSIDE the transaction: two "Record" clicks
+            // (or two tabs) both read the remainder above and could each spend it (review 2026-10-12).
+            $this->db->prepare("SELECT id FROM accounting_transactions WHERE id = ? FOR UPDATE")->execute([$transactionId]);
+            $remaining = round($original - $this->allocatedTotal($transactionId), 2);
+            if ($sum > $remaining + 0.005) {
+                throw new InvalidArgumentException(sprintf(
+                    'Allocation total $%.2f exceeds the deposit\'s remaining $%.2f.', $sum, $remaining
+                ));
+            }
+            $recorded = [];
+            foreach ($clean as $a) {
+                $result = $this->applyAllocation(
+                    $a['invoice_id'], $a['amount'], $method, $ref, $payDate, $transactionId, $userId
+                );
+                if ($result) {
+                    $recorded[] = $result;
+                }
+            }
+
+            $singleInvoiceId = count($clean) === 1 ? $clean[0]['invoice_id'] : null;
+            $this->recomputeDepositRow($transactionId, $original, $userId, $singleInvoiceId);
+
+            if ($ownTx) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($ownTx && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        $remainingAfter = $this->remainingForDeposit($transactionId);
+        return [
+            'recorded'          => $recorded,
+            'deposit_remaining' => $remainingAfter,
+            'fully_allocated'   => $remainingAfter <= 0.005,
+        ];
+    }
+
+    /**
+     * The Interac email for this deposit names, by invoice number, an open invoice that is not
+     * among $invoiceIds — returns that number, else null. A payer who sends the same amount every
+     * month (strata BCS4079, $262.50) let amount-and-name matching put the Oct 8 deposit on last
+     * month's invoice while the email said "invoice 2026 0425" (2026-10-13). The email is the one
+     * linked to this deposit, or else the nearest same-amount one sent in the 21 days before it.
+     */
+    public function emailNamesOtherInvoice(int $transactionId, array $invoiceIds): ?string
+    {
+        $ids = array_map('intval', $invoiceIds);
+        try {
+            $s = $this->db->prepare("
+                SELECT n.matched_invoice_id, i.invoice_number
+                  FROM accounting_transactions at
+                  JOIN etransfer_notifications n
+                    ON n.status <> 'dismissed'
+                   AND n.match_confidence = 'high' AND n.match_method IN ('invoice_number', 'reference_number')
+                   AND (n.bank_transaction_id = at.id
+                        OR (n.bank_transaction_id IS NULL AND ABS(n.amount - at.amount) < 0.01
+                            AND n.email_date BETWEEN DATE_SUB(at.transaction_date, INTERVAL 21 DAY) AND DATE_ADD(at.transaction_date, INTERVAL 2 DAY)))
+                  JOIN invoices i ON i.id = n.matched_invoice_id AND i.balance_due > 0.005
+                 WHERE at.id = ?
+              ORDER BY (n.bank_transaction_id = at.id) DESC, ABS(DATEDIFF(n.email_date, at.transaction_date)) ASC
+                 LIMIT 1");
+            $s->execute([$transactionId]);
+            $row = $s->fetch(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return null;   // before the e-Transfer columns exist — never blocks a recording
+        }
+        if (!$row || in_array((int)$row['matched_invoice_id'], $ids, true)) return null;
+        return (string)$row['invoice_number'];
+    }
+
+    /**
+     * Apply one payment amount to one invoice: caps to the invoice's remaining
+     * balance_due, writes an invoice_payment_allocations row, updates the invoice,
+     * and upserts its income ledger row. Caller must already be inside a
+     * transaction (this locks the invoice row via FOR UPDATE).
+     *
+     * Shared by attach() (bank-deposit reconciliation, $transactionId set) and
+     * EtransferInboxService (e-Transfer inbox, $transactionId null — no bank
+     * deposit exists yet) so both "record a payment" paths write to the same
+     * allocation ledger instead of maintaining two.
+     *
+     * @return array|null  allocation summary, or null if the invoice was already
+     *                      settled and nothing was applied (not an error — caller
+     *                      should just skip it, mirroring attach()'s prior behaviour).
+     */
+    public function applyAllocation(
+        int $invoiceId,
+        float $requestedAmount,
+        string $method,
+        ?string $reference,
+        string $paymentDate,
+        ?int $transactionId,
+        int $userId,
+        ?int $etransferNotificationId = null
+    ): ?array {
+        $inv = $this->lockInvoice($invoiceId);
+        if (!$inv) {
+            throw new RuntimeException("Invoice #{$invoiceId} not found.");
+        }
+
+        $balance = round((float)$inv['balance_due'], 2);
+        $applied = round(min($requestedAmount, max(0, $balance)), 2);
+        if ($applied <= 0) {
+            // Invoice already settled — skip rather than create a negative payment
+            return null;
+        }
+
+        $this->db->prepare("
+            INSERT INTO invoice_payment_allocations
+                (invoice_id, transaction_id, etransfer_notification_id, amount, payment_date, method, reference, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ")->execute([
+            $invoiceId, $transactionId, $etransferNotificationId, $applied, $paymentDate, $method, $reference, $userId,
+        ]);
+
+        $newPaid    = round((float)$inv['amount_paid'] + $applied, 2);
+        $newBalance = round(max(0, $balance - $applied), 2);
+        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
+
+        $this->db->prepare("
+            UPDATE invoices SET
+                amount_paid       = ?,
+                balance_due       = ?,
+                status            = ?,
+                payment_method    = ?,
+                payment_reference = COALESCE(NULLIF(payment_reference, ''), ?),
+                paid_at           = COALESCE(paid_at, ?),
+                pdf_path          = NULL,
+                pdf_version       = NULL,
+                pdf_generated_at  = NULL
+            WHERE id = ?
+        ")->execute([
+            $newPaid, $newBalance, $newStatus, $method, $reference,
+            $paymentDate . ' 12:00:00', $invoiceId,
+        ]);
+
+        // Recognize income on the invoice ledger row (per-job attribution)
+        $this->upsertInvoiceIncomeRow($invoiceId);
+
+        // Sam's pipeline stage (a paid invoice makes a client). Never blocks the payment.
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent($this->db, 'invoice', $invoiceId);
+        } catch (Throwable $e) {
+            error_log('[pipeline] invoice#' . $invoiceId . ': ' . $e->getMessage());
+        }
+
+        return [
+            'invoice_id'     => $invoiceId,
+            'invoice_number' => $inv['invoice_number'],
+            'requested'      => round($requestedAmount, 2),
+            'applied'        => $applied,
+            'capped'         => $applied < $requestedAmount - 0.005,
+            'status'         => $newStatus,
+            'fully_paid'     => $newStatus === 'paid',
+        ];
+    }
+
+    /**
+     * Reverse an attachment. Detaches every allocation of the deposit, or just the
+     * allocation(s) for one invoice when $invoiceId is given.
+     */
+    public function detach(int $transactionId, ?int $invoiceId, int $userId): array
+    {
+        $sql = "SELECT id, invoice_id, amount FROM invoice_payment_allocations WHERE transaction_id = ?";
+        $params = [$transactionId];
+        if ($invoiceId) {
+            $sql .= " AND invoice_id = ?";
+            $params[] = $invoiceId;
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $allocs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($allocs)) {
+            throw new RuntimeException('No allocation found to detach.');
+        }
+
+        $dep      = $this->getDeposit($transactionId);
+        $original = $dep ? $this->originalDepositAmount($dep) : 0.0;
+
+        $this->db->beginTransaction();
+        try {
+            $reversed = [];
+            foreach ($allocs as $alloc) {
+                $inv = $this->lockInvoice((int)$alloc['invoice_id']);
+                if ($inv) {
+                    $total      = round((float)$inv['total'], 2);
+                    $newPaid    = round(max(0, (float)$inv['amount_paid'] - (float)$alloc['amount']), 2);
+                    $newBalance = round(max(0, $total - $newPaid), 2);
+
+                    if ($newPaid <= 0.005) {
+                        $newStatus = $this->unpaidStatusFor($inv);
+                        $this->db->prepare("
+                            UPDATE invoices SET amount_paid = 0, balance_due = ?, status = ?,
+                                   paid_at = NULL, payment_reference = NULL
+                            WHERE id = ?
+                        ")->execute([$total, $newStatus, $alloc['invoice_id']]);
+                        // Remove the invoice income ledger row entirely
+                        $this->db->prepare("
+                            DELETE FROM accounting_transactions
+                            WHERE reference_type = 'invoice' AND reference_id = ?
+                        ")->execute([$alloc['invoice_id']]);
+                    } else {
+                        $newStatus = $newBalance <= 0.005 ? 'paid' : 'partial';
+                        $this->db->prepare("
+                            UPDATE invoices SET amount_paid = ?, balance_due = ?, status = ?
+                            WHERE id = ?
+                        ")->execute([$newPaid, $newBalance, $newStatus, $alloc['invoice_id']]);
+                        $this->upsertInvoiceIncomeRow((int)$alloc['invoice_id']);
+                    }
+                    $reversed[] = [
+                        'invoice_id'     => (int)$alloc['invoice_id'],
+                        'invoice_number' => (string)$inv['invoice_number'],
+                        'amount'         => (float)$alloc['amount'],
+                        // Before → after for the audit trail (Fable audit #25, 2026-10-12).
+                        'before'         => ['status' => $inv['status'], 'amount_paid' => $inv['amount_paid'], 'balance_due' => $inv['balance_due']],
+                        'after'          => ['status' => $newStatus, 'amount_paid' => $newPaid <= 0.005 ? 0 : $newPaid, 'balance_due' => $newPaid <= 0.005 ? $total : $newBalance],
+                    ];
+                }
+
+                $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE id = ?")
+                    ->execute([$alloc['id']]);
+            }
+
+            if ($dep && $original > 0) {
+                $this->recomputeDepositRow($transactionId, $original, $userId, null);
+            }
+
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        // Audit after commit: every caller (Reconcile page, income clean-up undo) is covered.
+        foreach ($reversed as $r) {
+            self::audit($userId, 'Payment detached', self::detachAuditLine($transactionId, $r), (int)$r['invoice_id']);
+        }
+
+        return ['reversed' => $reversed, 'deposit_remaining' => $this->remainingForDeposit($transactionId)];
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // LINK HAND-RECORDED PAYMENTS TO A LATER BANK DEPOSIT
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Payments recorded before the bank statement arrives (Record Payment, the
+     * e-Transfer inbox) write invoice_payment_allocations rows with
+     * transaction_id = NULL. When the matching deposit is imported later, nothing
+     * links them, so the deposit sits as unmatched income, double-counts revenue,
+     * and is offered as a "likely match" forever.
+     *
+     * This finds unlinked e-Transfer allocations from the same payer, dated within
+     * a window around the deposit, whose amounts sum EXACTLY to the deposit, links
+     * them, and books the deposit as a cash-clearing transfer. Caller manages the
+     * DB transaction (bank import runs it inside its own).
+     *
+     * @return array{allocation_ids:int[],invoice_numbers:string[],amount:float}|null  null = nothing matched
+     */
+    public function linkRecordedPaymentsToDeposit(int $transactionId, int $userId): ?array
+    {
+        $dep = $this->getDeposit($transactionId, true);
+        if (!$dep || $this->allocatedTotal($transactionId) > 0.005) return null;
+
+        $amount = round((float)$dep['amount'], 2);
+        $words  = self::bankMemoWords((string)$dep['description']);
+        $date   = substr((string)$dep['transaction_date'], 0, 10);
+        if ($amount <= 0) return null;
+        // Jobber-era deposits are the only record of that income — never link them away.
+        if ($date < self::CUTOVER) return null;
+        // Another unlinked deposit of the same amount nearby: which one is the payment is a
+        // guess — leave it for a person (review 2026-10-12: a non-customer credit took a payment).
+        if ($this->competingDeposits($transactionId, $amount, $date) > 0) return null;
+
+        // TD e-Transfer memos carry only OUR name, so the payer words below never
+        // match. The Interac email does: payments recorded from an email of exactly
+        // this amount, a few days from the deposit, are this deposit.
+        $viaEmail = $this->paymentsRecordedFromEmail($amount, $date);
+        if ($viaEmail) {
+            return $this->linkAllocationsToDeposit($transactionId, $viaEmail, $userId);
+        }
+        if (empty($words)) return null;
+
+        $stmt = $this->db->prepare("
+            SELECT a.id, a.invoice_id, a.amount, i.invoice_number,
+                   COALESCE(NULLIF(i.bill_to_name, ''), co.company_name,
+                            NULLIF(CONCAT(COALESCE(ct.first_name,''), ' ', COALESCE(ct.last_name,'')), ' '),
+                            p.property_name, '') AS payer_name
+            FROM invoice_payment_allocations a
+            JOIN invoices i ON i.id = a.invoice_id
+            LEFT JOIN companies  co ON co.id = i.company_id
+            LEFT JOIN contacts   ct ON ct.id = i.contact_id
+            LEFT JOIN properties p  ON p.id  = i.property_id
+            WHERE a.transaction_id IS NULL
+              AND a.method IN ('" . implode("','", self::LINKABLE_METHODS) . "')
+              AND a.amount > 0
+              AND a.payment_date BETWEEN DATE_SUB(?, INTERVAL 5 DAY) AND DATE_ADD(?, INTERVAL 60 DAY)
+            ORDER BY a.payment_date ASC, a.id ASC
+            LIMIT 200
+        ");
+        $stmt->execute([$date, $date]);
+
+        $pool = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (self::payerMatchesWords((string)$row['payer_name'], $words)) {
+                $pool[] = $row;
+            }
+        }
+        if (empty($pool)) return null;
+
+        $picked = self::exactSubset(array_map(fn($r) => (float)$r['amount'], $pool), $amount);
+        if ($picked === null) return null;
+
+        return $this->linkAllocationsToDeposit($transactionId, array_map(fn($i) => (int)$pool[$i]['id'], $picked), $userId);
+    }
+
+    /**
+     * Allocation ids of payments recorded from ONE Interac email whose amount is this
+     * deposit's and whose date is within 10 days of it, summing to it exactly; the
+     * closest email wins. [] when none.
+     *
+     * @return int[]
+     */
+    public function paymentsRecordedFromEmail(float $amount, string $date): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT a.id, a.amount, a.etransfer_notification_id AS n
+                FROM invoice_payment_allocations a
+                JOIN etransfer_notifications en ON en.id = a.etransfer_notification_id
+                WHERE a.transaction_id IS NULL AND a.amount > 0
+                  AND ABS(en.amount - ?) < 0.005
+                  AND en.email_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 4 DAY)
+                ORDER BY ABS(DATEDIFF(en.email_date, ?)), a.id
+            ");
+            $stmt->execute([$amount, $date, $date, $date]);
+        } catch (PDOException $e) {
+            return [];   // before migrations 995 / 1107
+        }
+        $groups = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $groups[(int)($r['n'] ?? 0)][] = $r;
+        unset($groups[0]);
+        $fits = [];
+        foreach ($groups as $n => $rows) {
+            // An e-Transfer part recorded, the rest kept as credit, adds up to its deposit too.
+            $credit = array_sum($this->creditsFromEmails([$n]));
+            if (abs(round(array_sum(array_column($rows, 'amount')) + $credit, 2) - $amount) < 0.005) {
+                $fits[] = array_map(fn($r) => (int)$r['id'], $rows);
+            }
+        }
+        // Exactly one email fits, or none: two same-amount emails in the window is a guess.
+        return count($fits) === 1 ? $fits[0] : [];
+    }
+
+    /** Jobber → CRM cutover: deposits before it stay income (operating rules). */
+    public const CUTOVER = '2026-02-25';
+
+    /** Other unlinked bank deposits of exactly this amount within 3 days of this one. */
+    private function competingDeposits(int $transactionId, float $amount, string $date): int
+    {
+        $s = $this->db->prepare("SELECT COUNT(*) FROM accounting_transactions
+                                 WHERE id <> ? AND reference_type = 'bank_import' AND type = 'income'
+                                   AND ABS(amount - ?) < 0.005
+                                   AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)");
+        $s->execute([$transactionId, $amount, $date, $date]);
+        return (int)$s->fetchColumn();
+    }
+
+    /**
+     * Link payments that were recorded without a bank deposit (transaction_id NULL)
+     * to this deposit, and book the deposit as a cash-clearing transfer. The
+     * allocations must sum EXACTLY to the deposit's unallocated amount. Caller
+     * manages the DB transaction. Used by linkRecordedPaymentsToDeposit() and by
+     * Penny's bank card ("Already recorded — link"), which finds the payments by
+     * the Interac email instead of the bank memo.
+     *
+     * @param int[] $allocationIds
+     * @return array{allocation_ids:int[],invoice_numbers:string[],amount:float}
+     */
+    public function linkAllocationsToDeposit(int $transactionId, array $allocationIds, int $userId): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $allocationIds))));
+        if (!$ids) throw new InvalidArgumentException('No payments to link.');
+        $dep = $this->getDeposit($transactionId, true);
+        if (!$dep) throw new RuntimeException('Bank deposit not found, or it is already reconciled.');
+        $original = $this->originalDepositAmount($dep);
+        $remaining = round($original - $this->allocatedTotal($transactionId), 2);
+
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare("
+            SELECT a.id, a.invoice_id, a.amount, a.etransfer_notification_id, i.invoice_number
+            FROM invoice_payment_allocations a JOIN invoices i ON i.id = a.invoice_id
+            WHERE a.id IN ({$in}) AND a.transaction_id IS NULL
+        ");
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($rows) !== count($ids)) throw new RuntimeException('A payment is already linked to another deposit.');
+        // Credit kept from the same e-Transfers comes with them: it arrived in the same deposit (2026-10-14).
+        $credits = $this->creditsFromEmails(array_column($rows, 'etransfer_notification_id'));
+        $sum = round(array_sum(array_map(fn($r) => (float)$r['amount'], $rows)) + array_sum($credits), 2);
+        if (abs($sum - $remaining) >= 0.005) {
+            throw new RuntimeException(sprintf('Those payments total $%.2f but the deposit has $%.2f to account for.', $sum, $remaining));
+        }
+
+        $this->db->prepare("UPDATE invoice_payment_allocations SET transaction_id = ? WHERE id IN ({$in}) AND transaction_id IS NULL")
+            ->execute(array_merge([$transactionId], $ids));
+        if ($credits) {
+            $cin = implode(',', array_fill(0, count($credits), '?'));
+            $this->db->prepare("UPDATE client_credits SET bank_transaction_id = ? WHERE id IN ({$cin}) AND bank_transaction_id IS NULL")
+                ->execute(array_merge([$transactionId], array_keys($credits)));
+        }
+        $invoiceIds = array_values(array_unique(array_map(fn($r) => (int)$r['invoice_id'], $rows)));
+        $this->recomputeDepositRow($transactionId, $original, $userId, count($invoiceIds) === 1 ? $invoiceIds[0] : null);
+
+        return ['allocation_ids' => $ids, 'invoice_numbers' => array_values(array_unique(array_column($rows, 'invoice_number'))), 'amount' => $sum];
+    }
+
+    /**
+     * Run linkRecordedPaymentsToDeposit() over every unmatched imported deposit
+     * (one-off backfill / periodic sweep). Each deposit is its own transaction.
+     *
+     * @return array{checked:int,linked:array<int,array>}
+     */
+    public function linkOrphanDeposits(int $userId, int $limit = 500): array
+    {
+        $out = ['checked' => 0, 'linked' => [], 'unlinked_allocations' => 0];
+        try {
+            $out['unlinked_allocations'] = (int)$this->db->query(
+                "SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id IS NULL AND method = 'e_transfer'"
+            )->fetchColumn();
+        } catch (Throwable $e) { /* diagnostic only */ }
+        foreach ($this->loadUnmatchedDeposits($limit) as $dep) {
+            $out['checked']++;
+            $txId = (int)$dep['id'];
+            try {
+                $this->db->beginTransaction();
+                $res = $this->linkRecordedPaymentsToDeposit($txId, $userId);
+                $this->db->commit();
+                if ($res) $out['linked'][$txId] = $res + ['description' => (string)$dep['description']];
+            } catch (Throwable $e) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                error_log('[InvoiceReconciliationService] linkOrphanDeposits tx ' . $txId . ': ' . $e->getMessage());
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Name-ish tokens from a bank memo. Splits on ANY non-alphanumeric run so the
+     * concatenated Vancity format "ETRANSFERCREDIT(JOHNHUGHES)" yields "johnhughes"
+     * (which payerMatchesWords() compares against first+last name), and drops
+     * banking noise, numbers and stopwords.
+     *
+     * @return string[]
+     */
+    public static function bankMemoWords(string $description): array
+    {
+        $out = [];
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($description)) ?: [] as $t) {
+            if (strlen($t) < 3 || is_numeric($t)) continue;
+            if (preg_match('/^(etransfer|etrf|trf|interac|transfer|credit|deposit|ref|from|idp|purchase)/', $t)) continue;
+            if (in_array($t, self::NAME_STOPWORDS, true)) continue;
+            $out[] = $t;
+        }
+        return array_values(array_unique($out));
+    }
+
+    /** Does a bank-memo word list name this payer? ("john hughes" ~ "John Ellen Hughes", "johnhughes" ~ first+last) */
+    public static function payerMatchesWords(string $payer, array $words): bool
+    {
+        $payerLower = strtolower(trim($payer));
+        if ($payerLower === '') return false;
+        $parts = preg_split('/\s+/', preg_replace('/[^a-z0-9 ]/', '', $payerLower)) ?: [];
+        $parts = array_values(array_filter($parts, fn($p) => $p !== ''));
+        $firstLast = count($parts) >= 2 ? $parts[0] . end($parts) : ($parts[0] ?? '');
+        $joined    = implode('', $parts);
+        foreach ($words as $w) {
+            $w = strtolower((string)$w);
+            if (strlen($w) < 3) continue;
+            if (in_array($w, $parts, true)) return true;
+            if ($w === $firstLast || $w === $joined) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Is this sender name the same payer as this name on file? Stricter than the memo
+     * test: every DISTINCTIVE word of the sender must be in the name ("STRATA PLAN
+     * BCS-2106" ~ "The Owners, Strata Plan BCS 2106", not "… BCS 4079"), or the words
+     * run together ("alaninglis" ~ "Alan Inglis").
+     */
+    public static function namesAgree(string $sender, string $onFile): bool
+    {
+        $generic = array_merge(self::NAME_STOPWORDS, ['strata', 'plan', 'owners', 'owner', 'mr', 'mrs', 'ms', 'dr']);
+        $words = function (string $s) use ($generic): array {
+            $all = array_values(array_filter(preg_split('/[^a-z0-9]+/', strtolower($s)) ?: [], fn($w) => $w !== ''));
+            return [$all, array_values(array_filter($all, fn($w) => !in_array($w, $generic, true)))];
+        };
+        [$sAll, $sKey] = $words($sender);
+        [$fAll, $fKey] = $words($onFile);
+        if (!$sAll || !$fAll) return false;
+        $sJoined = implode('', $sAll);
+        if (strlen($sJoined) >= 5 && ($sJoined === implode('', $fAll) || (count($fAll) >= 2 && $sJoined === $fAll[0] . end($fAll)))) return true;
+        if (!$sKey) return false;
+        foreach ($sKey as $w) if (!in_array($w, $fAll, true)) return false;
+        return count($sKey) >= 2 || preg_match('/\d/', $sKey[0]) || (count($fKey) === 1 && $fKey[0] === $sKey[0]);
+    }
+
+    /**
+     * Indices of a subset of $amounts summing to $target (±0.5¢), or null.
+     * Prefers the whole pool, then a single item, then a bitmask search over at
+     * most 14 items (16k combos) — enough for one payer's recent payments.
+     *
+     * @return int[]|null
+     */
+    public static function exactSubset(array $amounts, float $target): ?array
+    {
+        $n = count($amounts);
+        if ($n === 0) return null;
+        $eq = fn(float $a, float $b) => abs($a - $b) < 0.005;
+        if ($eq(round(array_sum($amounts), 2), $target)) return range(0, $n - 1);
+        foreach ($amounts as $i => $a) {
+            if ($eq((float)$a, $target)) return [$i];
+        }
+        $n = min($n, 14);
+        for ($mask = 1; $mask < (1 << $n); $mask++) {
+            $sum = 0.0; $idx = [];
+            for ($i = 0; $i < $n; $i++) {
+                if ($mask & (1 << $i)) { $sum += (float)$amounts[$i]; $idx[] = $i; }
+            }
+            if ($eq(round($sum, 2), $target)) return $idx;
+        }
+        return null;
+    }
+
+    /**
+     * exactSubset() with bounds, for pre-ticking a client's invoices on a deposit
+     * (Penny's bank card, 2026-10-07): only the first $maxPool amounts (pass them oldest
+     * first), at most $maxItems in the set. Preference, same tolerance as exactSubset():
+     *   1. the same amount several times (Dorset $804.04 = 2 × $402.02) — the oldest ones;
+     *   2. the fewest invoices, oldest first (earliest indices).
+     * At most C(12,2..4) = 781 sums.
+     * @return int[]|null indices into $amounts
+     */
+    public static function exactSubsetBounded(array $amounts, float $target, int $maxItems = 4, int $maxPool = 12): ?array
+    {
+        $amounts = array_slice(array_values(array_map('floatval', $amounts)), 0, $maxPool);
+        $n = count($amounts);
+        if ($n === 0 || $target <= 0) return null;
+        $eq = fn(float $a, float $b) => abs($a - $b) < 0.005;
+        // 1. Same-amount multiples.
+        $byAmount = [];
+        foreach ($amounts as $i => $a) $byAmount[number_format(round($a, 2), 2, '.', '')][] = $i;
+        foreach ($byAmount as $amt => $idx) {
+            if ((float)$amt <= 0) continue;
+            $k = (int)round($target / (float)$amt);
+            if ($k >= 2 && $k <= min($maxItems, count($idx)) && $eq(round($k * (float)$amt, 2), $target)) {
+                return array_slice($idx, 0, $k);
+            }
+        }
+        // 2. Fewest invoices, oldest first.
+        for ($size = 1; $size <= min($maxItems, $n); $size++) {
+            $pick = self::firstCombination($amounts, $target, $size, 0, [], 0.0, $eq);
+            if ($pick !== null) return $pick;
+        }
+        return null;
+    }
+
+    /** Lexicographically first combination of $size indices from $start summing to $target. */
+    private static function firstCombination(array $amounts, float $target, int $size, int $start, array $chosen, float $sum, callable $eq): ?array
+    {
+        if (count($chosen) === $size) return $eq(round($sum, 2), $target) ? $chosen : null;
+        for ($i = $start; $i < count($amounts); $i++) {
+            if ($sum + $amounts[$i] > $target + 0.005) continue;   // amounts are positive: too big already
+            $r = self::firstCombination($amounts, $target, $size, $i + 1, array_merge($chosen, [$i]), $sum + $amounts[$i], $eq);
+            if ($r !== null) return $r;
+        }
+        return null;
+    }
+
+    /**
+     * The deposit's money was already recorded against invoices by hand (e.g. via
+     * Record Payment or the e-Transfer inbox before the bank statement was imported),
+     * so no allocation rows point at it and the matcher keeps offering it.
+     *
+     * Flips the bank row to a cash-clearing transfer: excluded from income (the
+     * invoices' own ledger rows already recognise the revenue) and no longer a
+     * candidate. Reversible via unmarkDepositAlreadyRecorded().
+     *
+     * @return array{transaction_id:int,amount:float}
+     */
+    public function markDepositAlreadyRecorded(int $transactionId, int $userId, string $note = ''): array
+    {
+        $dep = $this->getDeposit($transactionId, true);
+        if (!$dep) {
+            throw new RuntimeException('Bank deposit not found, or it is already reconciled.');
+        }
+        if ($this->allocatedTotal($transactionId) > 0.005) {
+            throw new RuntimeException('This deposit already has payments attached — detach them first.');
+        }
+        $amount = round((float)$dep['amount'], 2);
+        $stamp  = 'Marked as already recorded on ' . date('Y-m-d') . ' by user #' . $userId
+                . ($note !== '' ? ' — ' . trim($note) : '');
+
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+                type = 'transfer', status = 'reconciled',
+                matched_at = NOW(), matched_by = ?,
+                notes = CONCAT_WS('\n', NULLIF(TRIM(notes), ''), ?)
+            WHERE id = ?
+        ")->execute([(string)$userId, $stamp, $transactionId]);
+        $this->setStagingMatchStatus($transactionId, 'manually_matched');
+
+        return ['transaction_id' => $transactionId, 'amount' => $amount];
+    }
+
+    /** Reverse markDepositAlreadyRecorded(): restore the row as unmatched income. */
+    public function unmarkDepositAlreadyRecorded(int $transactionId): array
+    {
+        $dep = $this->getDeposit($transactionId);
+        if (!$dep || ($dep['type'] ?? '') !== 'transfer') {
+            throw new RuntimeException('Bank deposit not found, or it is not marked as already recorded.');
+        }
+        if ($this->allocatedTotal($transactionId) > 0.005) {
+            throw new RuntimeException('This deposit has payments attached — use detach instead.');
+        }
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+                type = 'income', status = 'cleared',
+                matched_invoice_id = NULL, match_confidence = NULL, matched_at = NULL, matched_by = NULL
+            WHERE id = ?
+        ")->execute([$transactionId]);
+        $this->setStagingMatchStatus($transactionId, 'unmatched');
+        return ['transaction_id' => $transactionId, 'amount' => round((float)$dep['amount'], 2)];
+    }
+
+    /**
+     * Correct a previously-recorded payment amount on an invoice that was paid
+     * via the legacy direct-entry path (no bank deposit / e-Transfer allocation
+     * behind it) — e.g. a data-entry slip like $756.32 recorded for a $378.16
+     * invoice. Deliberately narrow: refuses on any invoice tracked through
+     * invoice_payment_allocations (bank-deposit attach / e-Transfer recording),
+     * since editing amount_paid directly there would desync the allocation
+     * ledger — those must be corrected via detach()/unmerge() instead.
+     *
+     * @return array{invoice_id:int,invoice_number:string,old_amount_paid:float,new_amount_paid:float,old_status:string,new_status:string,old_balance_due:float,new_balance_due:float}
+     */
+    public function correctManualPayment(int $invoiceId, float $newAmountPaid, string $reason, int $userId): array
+    {
+        if (trim($reason) === '') {
+            throw new InvalidArgumentException('A reason is required to correct a payment.');
+        }
+        if ($newAmountPaid < 0) {
+            throw new InvalidArgumentException('Corrected amount cannot be negative.');
+        }
+
+        $allocCheck = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE invoice_id = ?");
+        $allocCheck->execute([$invoiceId]);
+        if ((int) $allocCheck->fetchColumn() > 0) {
+            throw new RuntimeException(
+                'This invoice is reconciled against a bank deposit or e-Transfer allocation — '
+                . 'use unmerge/detach on that record instead of a manual correction.'
+            );
+        }
+        // A card payment lives in stripe_payments, not allocations — "correcting" it here desynced the
+        // invoice from Stripe (review 2026-10-12).
+        try {
+            $st = $this->db->prepare("SELECT COUNT(*) FROM stripe_payments WHERE invoice_id = ? AND status = 'succeeded'");
+            $st->execute([$invoiceId]);
+            $byCard = (int)$st->fetchColumn() > 0;
+        } catch (PDOException $e) { $byCard = false; }   // no stripe_payments table
+        if ($byCard) {
+            throw new RuntimeException('This invoice was paid by card through Stripe — refunds and corrections are done in Stripe, not here.');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $inv = $this->lockInvoice($invoiceId);
+            if (!$inv) {
+                throw new RuntimeException("Invoice #{$invoiceId} not found.");
+            }
+
+            $total      = round((float) $inv['total'], 2);
+            $newPaid    = round($newAmountPaid, 2);
+            $newBalance = round(max(0, $total - $newPaid), 2);
+            $newStatus  = $newBalance <= 0.005
+                ? 'paid'
+                : ($newPaid > 0 ? 'partial' : $this->unpaidStatusFor($inv));
+
+            $this->db->prepare("
+                UPDATE invoices SET amount_paid = ?, balance_due = ?, status = ?
+                WHERE id = ?
+            ")->execute([$newPaid, $newBalance, $newStatus, $invoiceId]);
+
+            if ($newPaid > 0) {
+                $this->upsertInvoiceIncomeRow($invoiceId);
+            } else {
+                // Nothing paid anymore — remove the invoice income ledger row entirely,
+                // same as detach()'s full-reversal branch.
+                $this->db->prepare("
+                    DELETE FROM accounting_transactions
+                    WHERE reference_type = 'invoice' AND reference_id = ?
+                ")->execute([$invoiceId]);
+            }
+
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+        // A person corrected a recorded payment (head_lessons, migration 1348).
+        require_once __DIR__ . '/PennyLessons.php';
+        PennyLessons::subject($this->db, 'invoice', (string)$inv['invoice_number'], 'amount_paid', round((float)$inv['amount_paid'], 2), $newPaid,
+                              'invoice_correct_payment', $userId, 'invoice', $invoiceId, $reason);
+
+        return [
+            'invoice_id'       => $invoiceId,
+            'invoice_number'   => $inv['invoice_number'],
+            'old_amount_paid'  => round((float) $inv['amount_paid'], 2),
+            'new_amount_paid'  => $newPaid,
+            'old_status'       => $inv['status'],
+            'new_status'       => $newStatus,
+            'old_balance_due'  => round((float) $inv['balance_due'], 2),
+            'new_balance_due'  => $newBalance,
+        ];
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SCORING INTERNALS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Score a deposit against an invoice. Blends amount, date proximity, and the
+     * deposit's description text. Returns null below the surface threshold.
+     *
+     * @return array{confidence:int, reasons:string[]}|null
+     */
+    /** @var array<int,array{amount:float,date:string,invoice_number:string}>|null Yardi remittances, loaded once per request (or injected by tests) */
+    private ?array $remittances = null;
+
+    /** Test seam: inject the Yardi remittances instead of reading etransfer_notifications. */
+    public function setRemittances(array $remittances): void
+    {
+        $this->remittances = $remittances;
+    }
+
+    /**
+     * Yardi/Tribe EFT remittances the inbox poller parsed. A remittance names the exact invoice
+     * a property manager paid, so it is the strongest evidence a deposit has.
+     */
+    private function loadRemittances(): array
+    {
+        if ($this->remittances !== null) return $this->remittances;
+        $this->remittances = [];
+        try {
+            $q = $this->db->query("
+                SELECT n.amount, n.email_date, n.invoice_hint, i.invoice_number AS matched_number
+                FROM etransfer_notifications n
+                LEFT JOIN invoices i ON i.id = COALESCE(n.recorded_invoice_id, n.matched_invoice_id)
+                WHERE n.source = 'yardi_eft' AND n.status IN ('pending', 'recorded') AND n.amount > 0.005 AND n.email_date IS NOT NULL
+            ");
+            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $num = trim((string)($r['matched_number'] ?: $r['invoice_hint']));
+                if ($num === '') continue;
+                $this->remittances[] = ['amount' => round((float)$r['amount'], 2), 'date' => substr((string)$r['email_date'], 0, 10), 'invoice_number' => $num];
+            }
+        } catch (Throwable $e) {
+            error_log('[invoice-reconciliation] remittances: ' . $e->getMessage());
+        }
+        return $this->remittances;
+    }
+
+    /** The remittance for this deposit: same amount, emailed 0–7 days after the deposit (closest wins). */
+    private function remittanceFor(array $deposit): ?array
+    {
+        $best = null; $bestGap = 99;
+        $on = strtotime(substr((string)$deposit['transaction_date'], 0, 10) . ' 12:00:00');
+        foreach ($this->loadRemittances() as $r) {
+            if (abs($r['amount'] - round((float)$deposit['amount'], 2)) > 0.01) continue;
+            $gap = (int)round((strtotime($r['date'] . ' 12:00:00') - $on) / 86400);
+            if ($gap < 0 || $gap > 7 || $gap >= $bestGap) continue;
+            $best = $r; $bestGap = $gap;
+        }
+        return $best;
+    }
+
+    public function scoreDeposit(array $deposit, array $invoice): ?array
+    {
+        $depAmt  = round((float)$deposit['amount'], 2);
+        $balance = round((float)$invoice['balance_due'], 2);
+        if ($balance <= 0.005) return null;
+
+        $reasons = [];
+
+        // Strongest evidence first: the property manager's own remittance names the invoice.
+        $remit = $this->remittanceFor($deposit);
+        $remitText = $remit ? 'Yardi remittance names ' . $remit['invoice_number'] . ' (' . date('M j', strtotime($remit['date'])) . ')' : '';
+        if ($remit && strcasecmp($remit['invoice_number'], (string)($invoice['invoice_number'] ?? '')) === 0) {
+            $reasons = [$remitText];
+            if (abs($depAmt - $balance) <= 0.01) $reasons[] = 'Exact amount';
+            return ['confidence' => 100, 'reasons' => $reasons, 'mismatch' => false, 'evidence' => self::evidence($reasons, $remit, false)];
+        }
+
+        // ── Amount (max 50) ──────────────────────────────────────────────
+        $total = round((float)($invoice['total'] ?? 0), 2);
+        if (abs($depAmt - $balance) <= 0.01) {
+            $score = 50; $reasons[] = 'Exact amount';
+        } elseif ($total > 0 && abs($depAmt - $total) <= 0.01) {
+            $score = 40; $reasons[] = 'Matches the invoice total';
+        } elseif ($balance >= $depAmt && $balance <= $depAmt * 1.065 && self::mayCarryFee((string)($deposit['description'] ?? ''))) {
+            // Only a card processor keeps a fee. A cheque, e-Transfer or EFT a few % short is a different
+            // payment: VML's $1,195.36 cheque was offered for VCHA's $1,235.44 invoices (2026-11-06).
+            $score = 42; $reasons[] = 'Amount matches (net of fee)';
+        } elseif ($depAmt > $balance) {
+            $score = 28; $reasons[] = 'Deposit covers this invoice';
+        } elseif ($depAmt >= $balance * 0.5) {
+            $score = 16; $reasons[] = 'Partial amount';
+        } else {
+            return null; // amounts unrelated
+        }
+
+        // ── Date proximity (max 20) ──────────────────────────────────────
+        $dep  = strtotime((string)$deposit['transaction_date']);
+        // Money doesn't arrive before the invoice exists. A deposit dated before the
+        // invoice's issue date (1-day slack for bank posting/timezone) is not a match.
+        $issued = !empty($invoice['invoice_date']) ? strtotime((string)$invoice['invoice_date']) : null;
+        if ($issued && $dep < $issued - 86400) return null;
+        $iRef = strtotime((string)($invoice['invoice_date'] ?: $invoice['due_date'] ?: $deposit['transaction_date']));
+        $dRef = strtotime((string)($invoice['due_date'] ?: $invoice['invoice_date'] ?: $deposit['transaction_date']));
+        $dayDiff = min(abs($dep - $iRef), abs($dep - $dRef)) / 86400;
+        if ($dayDiff <= 1)        { $score += 20; }
+        elseif ($dayDiff <= 2)    { $score += 14; }
+        elseif ($dayDiff <= 7)    { $score += 10; $reasons[] = 'Within a week'; }
+        elseif ($dayDiff <= 21)   { $score += 5; }
+        elseif ($dayDiff <= 60)   { $score += 2; }
+
+        // ── Description text (max 35) ────────────────────────────────────
+        $descScore = 0;
+        $descRaw   = (string)($deposit['description'] ?? '');
+
+        if (self::memoNamesInvoice($descRaw, (string)($invoice['invoice_number'] ?? ''))) {
+            $descScore = 35; $reasons[] = 'Invoice # in memo';
+        } else {
+            // Match memo words against each name field separately so the reason names
+            // the field that actually matched (e.g. the company), not just the contact.
+            $fields = [
+                'company_name'  => trim((string)($invoice['company_name'] ?? '')),
+                'contact_name'  => trim((string)($invoice['contact_name'] ?? '')),
+                'property_name' => trim((string)($invoice['property_name'] ?? '')),
+            ];
+            $words = self::bankMemoWords($descRaw);
+            foreach ($fields as $value) {
+                if ($value !== '' && self::payerMatchesWords($value, $words)) {
+                    $descScore = 25;
+                    $reasons[] = 'Memo names ' . $value;
+                    break;
+                }
+            }
+            // Names known from outside the memo (TD e-Transfer memos carry only OUR
+            // name): the Interac email's sender, or a payer learned for that sender.
+            if ($descScore === 0) {
+                foreach ((array)($deposit['payer_names'] ?? []) as $why => $name) {
+                    $name = trim((string)$name);
+                    if ($name === '') continue;
+                    foreach ($fields + ['bill_to_name' => trim((string)($invoice['bill_to_name'] ?? ''))] as $value) {
+                        if ($value !== '' && self::namesAgree($name, $value)) {
+                            $descScore = 25;
+                            $reasons[] = (is_string($why) ? $why : 'Paid by') . ' ' . $name;
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Stripe / processor reference in memo
+        if ($descScore < 35) {
+            foreach (['stripe_payment_intent_id', 'stripe_charge_id'] as $k) {
+                $v = trim((string)($invoice[$k] ?? ''));
+                if ($v !== '' && stripos($descRaw, $v) !== false) {
+                    $descScore = max($descScore, 40);
+                    $reasons[] = 'Payment reference matches';
+                    break;
+                }
+            }
+        }
+
+        // Too long after the due date to be this invoice's payment (late payers
+        // still land well inside this; 4 months out is a different transaction).
+        if ($dep > $dRef + self::MAX_DAYS_AFTER_DUE * 86400) return null;
+
+        // A deposit LARGER than the balance is only worth suggesting when something
+        // besides the amount ties it to this invoice (memo name / invoice #) and it
+        // arrived close to the invoice. Otherwise one big payment from a regular
+        // client gets pinned to every open invoice they have. Never above 70%.
+        $coversMore = $depAmt > $balance + 0.005;
+        if ($coversMore) {
+            if ($descScore < 25 || $dayDiff > 30) return null;
+            $score = min($score, 70 - $descScore);
+        }
+
+        $score = min(100, $score + $descScore);
+        $mismatch = false;
+        if ($remit) {
+            $mismatch = true;
+            // The remittance says this money paid a different invoice: still listed (hand-pick stays possible), but demoted and flagged.
+            $score = min($score, self::MATCH_THRESHOLD + 1);
+            array_unshift($reasons, 'Yardi remittance names ' . $remit['invoice_number'] . ' instead');
+        }
+        if ($score < self::MATCH_THRESHOLD) return null;
+
+        return ['confidence' => (int)$score, 'reasons' => $reasons, 'mismatch' => $mismatch, 'evidence' => self::evidence($reasons, $remit, $mismatch)];
+    }
+
+    /**
+     * One record per piece of evidence for the invoice page's cards. Only two states: 'ok' fits, 'bad' is a real
+     * mismatch. 'strong' marks the Yardi remittance that names this invoice (the best evidence there is).
+     * @return array<int,array{state:string,strong:bool,kind:string,label:string,detail:string}>
+     */
+    private static function evidence(array $reasons, ?array $remit, bool $mismatch): array
+    {
+        $out = [];
+        foreach ($reasons as $r) {
+            $r = (string)$r;
+            if (strpos($r, 'Yardi remittance') === 0) {
+                $when = $remit ? date('M j', strtotime($remit['date'])) : '';
+                $out[] = $mismatch
+                    ? ['state' => 'bad', 'strong' => true, 'kind' => 'remittance', 'label' => preg_replace('/ instead$/', '', $r) . ', not this invoice', 'detail' => 'Emailed ' . $when . ' for $' . number_format((float)$remit['amount'], 2)]
+                    : ['state' => 'ok', 'strong' => true, 'kind' => 'remittance', 'label' => preg_replace('/ \(.*\)$/', '', $r), 'detail' => 'Emailed ' . $when . ' for $' . number_format((float)$remit['amount'], 2)];
+                continue;
+            }
+            $out[] = ['state' => 'ok', 'strong' => false, 'kind' => 'match', 'label' => $r, 'detail' => ''];
+        }
+        return $out;
+    }
+
+    /**
+     * Every open invoice scored against one deposit, best first — the reverse of
+     * candidatesForInvoice(), for a bank line asking "which invoice is this?".
+     * $deposit: id, transaction_date, amount, description, optional payer_names.
+     */
+    public function invoicesForDeposit(array $deposit, int $limit = 6): array
+    {
+        $ids = $this->db->query("
+            SELECT id FROM invoices
+            WHERE balance_due > 0.005 AND status IN ('sent','viewed','partial','overdue')
+        ")->fetchAll(PDO::FETCH_COLUMN);
+        $out = [];
+        foreach ($this->loadInvoicesForScoring($ids) as $inv) {
+            $score = $this->scoreDeposit($deposit, $inv);
+            if ($score === null) continue;
+            $out[] = [
+                'invoice_id'     => (int)$inv['id'],
+                'invoice_number' => (string)$inv['invoice_number'],
+                'payer'          => trim((string)($inv['bill_to_name'] ?: $inv['company_name'] ?: $inv['contact_name'] ?: $inv['property_name'] ?: '')),
+                'invoice_date'   => $inv['invoice_date'],
+                'balance_due'    => round((float)$inv['balance_due'], 2),
+                'total'          => round((float)$inv['total'], 2),
+                'apply'          => round(min((float)$deposit['amount'], (float)$inv['balance_due']), 2),
+                'confidence'     => $score['confidence'],
+                'reasons'        => $score['reasons'],
+            ];
+        }
+        usort($out, fn($a, $b) => [$b['confidence'], $a['invoice_date']] <=> [$a['confidence'], $b['invoice_date']]);
+        return array_slice($out, 0, $limit);
+    }
+
+    /**
+     * The payer's name as the bank prints it, or null: "CHEQUE DEPOSIT - BRANCH (MCR ITF S TRATA …)"
+     * → "MCR ITF S TRATA …"; "Preauthorized credit DORSET REALTY GROUP CANADA LTD" → "DORSET REALTY
+     * GROUP CANADA LTD". e-Transfer lines carry only OUR name (TD), so they give none.
+     * Learned payers are keyed by it (etransfer_sender_payers) — DepositBackfillService teaches,
+     * BankInvoiceMatchService reads (2026-10-11).
+     */
+    public static function memoPayer(string $memo): ?string
+    {
+        $m = trim(preg_replace('/\s+/', ' ', $memo));
+        if ($m === '') return null;
+        if (preg_match('/\(([^)]+)\)/', $m, $x)) {
+            $name = $x[1];
+        } else {
+            $name = preg_replace('/^(cheque\s*deposit\s*-?\s*branch|chequedeposit-branch|preauthori[sz]ed\s*credit|preauthorizedcredit|mobile\s*deposit|atm\s*cheque(\s*deposit)?|e-?transfer\s*credit)\s*/i', '', $m);
+            if ($name === $m) return null;   // not a deposit wording we know
+        }
+        $name = trim((string)preg_replace('/\b(ref|reference)\b.*$/i', '', (string)$name), " -");
+        // Repeated names ("OBSIDIAN PROPERTY MANAGEMENT OBSIDIAN PROPERTY MANAGEMENT") → once.
+        $words = preg_split('/\s+/', $name);
+        $half = intdiv(count($words), 2);
+        for ($k = $half; $k >= 2; $k--) {
+            if (implode(' ', array_slice($words, 0, $k)) === implode(' ', array_slice($words, $k, $k))) { $words = array_slice($words, 0, $k); break; }
+        }
+        $name = trim(implode(' ', $words), " -");
+        $key = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', $name));
+        if (strlen($key) < 4 || str_contains($key, 'MOWOLOGY') || preg_match('/^\d+$/', $key)) return null;
+        return $name;
+    }
+
+    /**
+     * Does the memo name this invoice? Full number ("INV-2026-0036", separators
+     * optional) or its sequence as a standalone token ("0036"/"36"). Digit runs
+     * inside longer numbers never count — Interac refs begin with the date
+     * (20260720…), which otherwise reads as INV-2026-0720.
+     */
+    public static function memoNamesInvoice(string $memo, string $invoiceNumber): bool
+    {
+        if ($memo === '' || $invoiceNumber === '') return false;
+        if (stripos($memo, $invoiceNumber) !== false) return true;
+        if (!preg_match('/^([A-Z]+)[-\s]?(\d{4})[-\s]?(\d+)$/i', $invoiceNumber, $m)) return false;
+        [, $prefix, $year, $seq] = $m;
+        $seqNoZeros = ltrim($seq, '0');
+        $full = '/(?<![A-Z0-9])' . preg_quote($prefix, '/') . '[-\s]?' . $year . '[-\s]?0*' . $seqNoZeros . '(?![0-9])/i';
+        if (preg_match($full, $memo)) return true;
+        // Bare sequence token, e.g. "e-Transfer 0036" / "inv 36" — must be its own number
+        $bare = '/(?<![0-9])0*' . $seqNoZeros . '(?![0-9])/';
+        return strlen($seq) >= 3 && (bool)preg_match($bare, $memo);
+    }
+
+    private function candidatePayload(array $dep, array $invoice, array $score): array
+    {
+        $depAmt  = round((float)$dep['amount'], 2);
+        $balance = round((float)$invoice['balance_due'], 2);
+        return [
+            'tx_id'            => (int)$dep['id'],
+            'date'             => substr((string)$dep['transaction_date'], 0, 10),
+            'description'      => (string)$dep['description'],
+            'kind'             => ($kind = self::depositKind((string)$dep['description'])),
+            'label'            => self::kindLabel($kind),
+            'payer'            => self::memoPayer((string)$dep['description']),
+            'bank_account'     => (string)($dep['bank_account'] ?? ''),
+            'amount'           => $depAmt,           // remaining unallocated on the deposit
+            'suggested_amount' => round(min($depAmt, $balance), 2),
+            'covers_more'      => $depAmt > $balance + 0.005,
+            'confidence'       => $score['confidence'],
+            'reasons'          => $score['reasons'],
+            'evidence'         => $score['evidence'] ?? [],
+            'mismatch'         => !empty($score['mismatch']),
+            // Set when e-Transfer payments from the same payer, recorded after this
+            // deposit's date, already sum to exactly its amount — i.e. the money was
+            // most likely recorded by hand before the bank statement was imported.
+            'likely_recorded'  => $this->likelyAlreadyRecorded($dep),
+        ];
+    }
+
+    /** @var array<int, array|null> per-request cache: tx id => duplicate signal */
+    private array $likelyRecordedCache = [];
+
+    /**
+     * Duplicate-payment signal for a deposit: reuses EtransferInboxService's
+     * same-payer / same-amount / same-window check so the invoice matcher and the
+     * e-Transfer inbox agree on what "probably already recorded" means.
+     *
+     * @return array{pay_date:string,invoice_numbers:string[]}|null
+     */
+    private function likelyAlreadyRecorded(array $dep): ?array
+    {
+        $txId = (int)($dep['id'] ?? 0);
+        if (array_key_exists($txId, $this->likelyRecordedCache)) {
+            return $this->likelyRecordedCache[$txId];
+        }
+        $result = null;
+        try {
+            $words = $this->extractNameWords((string)($dep['description'] ?? ''));
+            if (count($words) >= 2) {
+                $file = __DIR__ . '/EtransferInboxService.php';
+                if (is_file($file)) {
+                    require_once $file;
+                    $dupe = (new EtransferInboxService($this->db))->findLikelyDuplicatePayment(
+                        implode(' ', $words),
+                        (float)$dep['amount'],
+                        substr((string)$dep['transaction_date'], 0, 10)
+                    );
+                    if ($dupe) {
+                        $result = [
+                            'pay_date'        => (string)$dupe['pay_date'],
+                            'invoice_numbers' => array_values($dupe['invoice_numbers']),
+                        ];
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            $result = null; // advisory only — never block candidate listing
+        }
+        return $this->likelyRecordedCache[$txId] = $result;
+    }
+
+    /**
+     * Generic banking / business-suffix words that must NOT count as a name match —
+     * otherwise "...PROPERTY MANAGEMENT" in a memo falsely matches "Smith Property".
+     */
+    private const NAME_STOPWORDS = [
+        'property','properties','management','mgmt','branch','deposit','transfer',
+        'payment','cheque','cheq','chq','check','interac','etransfer','holdings',
+        'holding','limited','ltd','inc','incorporated','corp','corporation','company',
+        'services','service','group','account','online','banking','mobile','vancity',
+        'credit','union','the','and','from','for','bill','invoice','llc','enterprises',
+        'contracting','landscaping','lawn','care','maintenance',
+    ];
+
+    /** Split a bank description into candidate name words (≥3 chars, non-numeric, non-stopword). */
+    private function extractNameWords(string $description): array
+    {
+        $clean = preg_replace(
+            '/\b(INTERAC|E-TRANSFER|ETRANSFER|E-TRF|ETRF|IDP\s+PURCHASE|FROM|DEPOSIT|TRANSFER|PAYMENT|REF#?\s*\w+|STRIPE|PAYPAL|SQUARE|MONERIS|PAYMENTECH|\d+)\b/i',
+            ' ',
+            $description
+        );
+        $clean = trim((string)preg_replace('/\s+/', ' ', (string)$clean));
+        $words = [];
+        foreach (preg_split('/\s+/', strtolower($clean)) as $w) {
+            // Strip surrounding punctuation, e.g. "(obsidian" → "obsidian", "management)" → "management"
+            $w = preg_replace('/[^a-z0-9]/', '', $w);
+            if (strlen($w) >= 3 && !is_numeric($w) && !in_array($w, self::NAME_STOPWORDS, true)) {
+                $words[] = $w;
+            }
+        }
+        return array_values(array_unique($words));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // LEDGER INTERNALS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Recompute the bank-deposit ledger row from its allocations:
+     *  • remaining ≈ 0  → type='transfer', amount=original, status='reconciled' (excluded from P&L)
+     *  • remaining > 0  → type='income',   amount=remaining, status='cleared'
+     *  • no allocations → restore original income deposit (detach to empty)
+     */
+    /**
+     * After payments were recorded WITH this deposit's id (an inbox reader that found the money in the
+     * bank): settle the deposit — fully covered → cash-clearing transfer, so it isn't income a second
+     * time beside the invoice. applyAllocation() alone never does this (review 2026-10-12).
+     */
+    public function settleDeposit(int $txId, int $userId, ?int $singleInvoiceId = null): void
+    {
+        $s = $this->db->prepare("SELECT * FROM accounting_transactions WHERE id = ?");
+        $s->execute([$txId]);
+        $dep = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$dep) return;
+        $this->recomputeDepositRow($txId, $this->originalDepositAmount($dep), $userId, $singleInvoiceId);
+    }
+
+    private function recomputeDepositRow(int $txId, float $original, int $userId, ?int $singleInvoiceId): void
+    {
+        // No payments left on the deposit: credit kept with them lets go of it too (it stays the client's).
+        $pay = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id = ?");
+        $pay->execute([$txId]);
+        if ((int)$pay->fetchColumn() === 0) {
+            require_once __DIR__ . '/ClientCreditService.php';
+            ClientCreditService::unlinkDeposits($this->db, [$txId]);
+        }
+        $allocated = $this->allocatedTotal($txId);
+        $remaining = round($original - $allocated, 2);
+
+        if ($allocated <= 0.005) {
+            // Fully detached — restore the standalone income deposit
+            $this->db->prepare("
+                UPDATE accounting_transactions SET
+                    type = 'income', amount = ?, status = 'cleared',
+                    matched_invoice_id = NULL, match_confidence = NULL,
+                    matched_at = NULL, matched_by = NULL
+                WHERE id = ?
+            ")->execute([$original, $txId]);
+            $this->setStagingMatchStatus($txId, 'unmatched');
+            return;
+        }
+
+        if ($remaining <= 0.005) {
+            // Fully allocated — becomes a cash-clearing transfer (excluded from income)
+            $this->db->prepare("
+                UPDATE accounting_transactions SET
+                    type = 'transfer', amount = ?, status = 'reconciled',
+                    matched_invoice_id = ?, matched_at = NOW(), matched_by = ?
+                WHERE id = ?
+            ")->execute([$original, $singleInvoiceId, (string)$userId, $txId]);
+            $this->setStagingMatchStatus($txId, 'matched_invoice');
+        } else {
+            // Partially allocated — income for the remainder
+            $this->db->prepare("
+                UPDATE accounting_transactions SET
+                    type = 'income', amount = ?, status = 'cleared',
+                    matched_invoice_id = ?, matched_at = NOW(), matched_by = ?
+                WHERE id = ?
+            ")->execute([$remaining, $singleInvoiceId, (string)$userId, $txId]);
+            $this->setStagingMatchStatus($txId, 'manually_matched');
+        }
+    }
+
+    /** Upsert the invoice's income ledger row (mirrors AccountingService::syncFromInvoices). */
+    private function upsertInvoiceIncomeRow(int $invoiceId): void
+    {
+        // SELECT * so this still works before migration 1380 adds amount_refunded.
+        $stmt = $this->db->prepare("
+            SELECT *, COALESCE(paid_at, updated_at) AS td,
+                   COALESCE(amount_paid, total, 0)   AS amt,
+                   COALESCE(tax_amount, 0)           AS gst
+            FROM invoices WHERE id = ?
+        ");
+        $stmt->execute([$invoiceId]);
+        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$inv) return;
+
+        // Net of refunds: income is what we kept, GST scaled to match (unchanged when nothing refunded).
+        $refunded = (float)($inv['amount_refunded'] ?? 0);
+        if ($refunded > 0) {
+            $paid  = (float)($inv['amount_paid'] ?? 0);
+            $net   = max(0.0, $paid - $refunded);
+            $total = (float)($inv['total'] ?? 0);
+            // Same rule as AccountingService::syncFromInvoices: tax in proportion to what was kept.
+            $inv['gst'] = $total > 0 ? round((float)$inv['gst'] * min(1.0, $net / $total), 2) : 0.0;
+            $inv['amt'] = $net;
+        }
+        if ((float)$inv['amt'] <= 0) return;
+
+        $accountId = $this->getDefaultIncomeAccountId();
+        $desc = 'Invoice payment';
+        if (!empty($inv['notes'])) {
+            $desc .= ' — ' . mb_substr(strip_tags((string)$inv['notes']), 0, 120);
+        }
+
+        $this->db->prepare("
+            INSERT INTO accounting_transactions
+                (transaction_date, type, account_id, amount, gst_amount, pst_amount,
+                 description, reference_type, reference_id, job_id, contact_id,
+                 status, needs_review, is_auto_categorized)
+            VALUES (?, 'income', ?, ?, ?, 0, ?, 'invoice', ?, ?, ?, 'reconciled', 0, 0)
+            ON DUPLICATE KEY UPDATE
+                transaction_date = VALUES(transaction_date),
+                amount           = VALUES(amount),
+                gst_amount       = VALUES(gst_amount),
+                description      = VALUES(description),
+                account_id       = VALUES(account_id),
+                job_id           = VALUES(job_id),
+                contact_id       = VALUES(contact_id),
+                status           = 'reconciled',
+                updated_at       = CURRENT_TIMESTAMP
+        ")->execute([
+            substr((string)$inv['td'], 0, 10),
+            $accountId,
+            (float)$inv['amt'],
+            (float)$inv['gst'],
+            $desc,
+            $invoiceId,
+            $inv['plan_id']    ? (int)$inv['plan_id']    : null,
+            $inv['contact_id'] ? (int)$inv['contact_id'] : null,
+        ]);
+    }
+
+    private function setStagingMatchStatus(int $txId, string $status): void
+    {
+        try {
+            $this->db->prepare("UPDATE bank_import_rows SET match_status = ? WHERE transaction_id = ?")
+                ->execute([$status, $txId]);
+        } catch (PDOException $e) {
+            // Staging row may not exist (manually-created deposit) — non-fatal
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // QUERIES / HELPERS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private function loadInvoicesForScoring(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (empty($ids)) return [];
+        $place = implode(',', array_fill(0, count($ids), '?'));
+
+        $stmt = $this->db->prepare("
+            SELECT
+                i.id, i.invoice_number, i.balance_due, i.total, i.amount_paid,
+                i.invoice_date, i.due_date, i.status, i.contact_id, i.plan_id,
+                i.stripe_payment_intent_id, i.stripe_charge_id, i.bill_to_name,
+                TRIM(CONCAT(COALESCE(ct.first_name,''),' ',COALESCE(ct.last_name,''))) AS contact_name,
+                co.company_name, p.property_name
+            FROM invoices i
+            LEFT JOIN contacts   ct ON ct.id = i.contact_id
+            LEFT JOIN companies  co ON co.id = i.company_id
+            LEFT JOIN properties p  ON p.id  = i.property_id
+            WHERE i.id IN ($place)
+              AND i.balance_due > 0.005
+              AND i.status IN ('sent','viewed','partial','overdue')
+        ");
+        $stmt->execute($ids);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function loadUnmatchedDeposits(int $limit = 500): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, transaction_date, amount, description, bank_account
+            FROM accounting_transactions
+            WHERE reference_type = 'bank_import'
+              AND type = 'income'
+              AND amount > 0.005
+              AND transaction_date >= '" . self::CUTOVER . "'
+            ORDER BY transaction_date DESC, id DESC
+            LIMIT ?
+        ");
+        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function getDeposit(int $txId, bool $requireIncome = false): ?array
+    {
+        $sql = "SELECT id, type, amount, transaction_date, description, account_id
+                FROM accounting_transactions
+                WHERE id = ? AND reference_type = 'bank_import'";
+        if ($requireIncome) {
+            $sql .= " AND type = 'income' AND amount > 0.005";
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$txId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    /** Original (pre-allocation) deposit amount — from staging row, else reconstructed. */
+    private function originalDepositAmount(array $dep): float
+    {
+        $stmt = $this->db->prepare(
+            "SELECT amount FROM bank_import_rows WHERE transaction_id = ? ORDER BY id LIMIT 1"
+        );
+        $stmt->execute([(int)$dep['id']]);
+        $staged = $stmt->fetchColumn();
+        if ($staged !== false && $staged !== null) {
+            return round((float)$staged, 2);
+        }
+        // No staging row: a 'transfer' row already holds the full amount; an 'income'
+        // row holds the remainder, so reconstruct original = remainder + allocated.
+        if (($dep['type'] ?? '') === 'transfer') {
+            return round((float)$dep['amount'], 2);
+        }
+        return round((float)$dep['amount'] + $this->allocatedTotal((int)$dep['id']), 2);
+    }
+
+    private function allocatedTotal(int $txId): float
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM invoice_payment_allocations WHERE transaction_id = ?"
+        );
+        $stmt->execute([$txId]);
+        return round((float)$stmt->fetchColumn() + $this->creditOnDeposit($txId), 2);
+    }
+
+    /**
+     * Overpayment kept as client credit that arrived on this deposit (client_credits.bank_transaction_id,
+     * migration 1363): it accounts for the deposit like a payment does, so the line settles as a transfer
+     * and the extra is never income (2026-10-14). 0 before 1363.
+     */
+    private function creditOnDeposit(int $txId): float
+    {
+        try {
+            $s = $this->db->prepare("SELECT COALESCE(SUM(amount),0) FROM client_credits WHERE type = 'deposit' AND bank_transaction_id = ?");
+            $s->execute([$txId]);
+            return round((float)$s->fetchColumn(), 2);
+        } catch (Throwable $e) {
+            return 0.0;
+        }
+    }
+
+    /** Unlinked credit rows kept from these e-Transfers: [id => amount]. [] before 1363. */
+    private function creditsFromEmails(array $notificationIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $notificationIds))));
+        if (!$ids) return [];
+        try {
+            $in = implode(',', array_fill(0, count($ids), '?'));
+            $s = $this->db->prepare("SELECT id, amount FROM client_credits WHERE type = 'deposit' AND bank_transaction_id IS NULL AND etransfer_notification_id IN ({$in})");
+            $s->execute($ids);
+            $out = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $out[(int)$r['id']] = round((float)$r['amount'], 2);
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Pure: the activity_log line for one unapplied allocation, before → after. */
+    public static function detachAuditLine(int $transactionId, array $r): string
+    {
+        require_once dirname(__DIR__, 2) . '/Technology/Services/AuditDiff.php';
+        $f = ['status', 'amount_paid', 'balance_due'];
+        $diff = AuditDiff::describe(AuditDiff::changes($r['before'] ?? [], $r['after'] ?? [], $f, ['amount_paid', 'balance_due']));
+        return 'Bank deposit #' . $transactionId . ' detached from invoice ' . ($r['invoice_number'] ?? ('#' . $r['invoice_id']))
+             . ': $' . number_format((float)$r['amount'], 2) . ' unapplied' . ($diff !== '' ? ' — ' . $diff : '');
+    }
+
+    /** Writes an activity_log row when the CRM's logger is loaded (it is not in unit tests). */
+    private static function audit(int $userId, string $action, string $details, ?int $invoiceId): void
+    {
+        if (function_exists('logActivityExtended')) {
+            logActivityExtended($userId, $action, $details, null, null, null, $invoiceId);
+        }
+    }
+
+    private function lockInvoice(int $invoiceId): ?array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, invoice_number, total, amount_paid, balance_due, status, due_date
+            FROM invoices WHERE id = ? FOR UPDATE
+        ");
+        $stmt->execute([$invoiceId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    /** Status to restore an invoice to when a payment is fully removed. */
+    private function unpaidStatusFor(array $inv): string
+    {
+        $due = $inv['due_date'] ?? null;
+        if ($due && strtotime((string)$due) < strtotime('today')) {
+            return 'overdue';
+        }
+        return 'sent';
+    }
+
+    private function deriveMethod(string $description): string
+    {
+        // No trailing word boundary on the e-Transfer forms: one bank prints them run
+        // together ("ETRANSFERCREDIT(KAMALJEETSINGH)"), which a whole-word match missed.
+        if (preg_match('/\b(INTERAC\b|E-TRANSFER|E\s*TRF|ETRANSFER|ETRF\b|IDP\s+PURCHASE\b)/i', $description)) {
+            return 'e_transfer';
+        }
+        if (preg_match('/\bSTRIPE\b/i', $description)) return 'stripe';
+        if (preg_match('/\b(PAYPAL|SQUARE|MONERIS|PAYMENTECH|VISA|MASTERCARD|CREDIT)\b/i', $description)) {
+            return 'credit_card';
+        }
+        if (preg_match('/\b(CHEQUE|CHEQ|CHQ|CHECK)\b/i', $description)) return 'cheque';
+        if (preg_match('/\b(CASH|DEPOSIT)\b/i', $description)) return 'cash';
+        return 'other';
+    }
+
+    private function deriveReference(array $dep): string
+    {
+        $desc = (string)($dep['description'] ?? '');
+        if (preg_match('/\b(pi_[A-Za-z0-9]{10,}|ch_[A-Za-z0-9]{10,})\b/', $desc, $m)) {
+            return $m[1];
+        }
+        if (preg_match('/REF#?\s*([A-Za-z0-9]{4,})/i', $desc, $m)) {
+            return strtoupper($m[1]);
+        }
+        return 'BANK-TXN-' . (int)$dep['id'];
+    }
+
+    private function getDefaultIncomeAccountId(): int
+    {
+        $stmt = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE code = ? LIMIT 1");
+        $stmt->execute([self::DEFAULT_INCOME_CODE]);
+        $id = $stmt->fetchColumn();
+        if (!$id) {
+            throw new RuntimeException("Income account '" . self::DEFAULT_INCOME_CODE . "' not found.");
+        }
+        return (int)$id;
+    }
+}

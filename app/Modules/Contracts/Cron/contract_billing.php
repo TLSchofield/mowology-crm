@@ -14,13 +14,22 @@
  *   2. Create an invoice: subtotal = billing_amount, 5% GST, due = last day of current month
  *   3. Insert a single line item describing the monthly service period
  *   4. Insert invoice_contacts for the contract's primary contact
- *   5. Send the invoice email using the 'invoice_sent' template + EmailWrapper
+ *   5. Send the invoice email using the 'invoice_sent' template + EmailWrapper,
+ *      WITH the invoice PDF (ContractInvoiceSender + InvoicePdfGate). No PDF → the
+ *      email is NOT sent, the invoice stays 'draft', Charlie alerts the owner, and
+ *      the invoice is retried at the start of the next run (step 0).
  *   6. Send an SMS notification if the contact has SMS consent
  *   7. Mark invoice status = 'sent'
  *   8. Log the action to activity_log
+ *   0. (every run, first) Retry contract invoices held for a missing PDF.
  *
  * cPanel cron:
  *   0 6 1 * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php
+ * Optional daily retry of held invoices (creates nothing new):
+ *   15 7 * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php retry-only
+ *
+ * Other businesses: run per business by app/Core/Cron/business_crons.php (BusinessCrons::REGISTRY
+ * 'contract_billing' and 'contract_billing_retry'); a test business ('test' => true) makes drafts, sends nothing.
  *
  * Can also be triggered manually by an admin via HTTP POST (same auth as other crons).
  */
@@ -38,6 +47,8 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
     throw new ErrorException($message, 0, $severity, $file, $line);
@@ -60,17 +71,74 @@ if (!$isCli) {
 
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
+require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // resolveManagementBillingRecipient()
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingPolicy.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboConnectionService.php';
+require_once APP_ROOT . '/Modules/QuickBooks/Services/QboRecurringService.php';
 
 $startMs    = (int)(microtime(true) * 1000);
+// Every run is recorded in cron_runs (Ada, 2026-10-15: this cron never was, so its runs couldn't be checked).
+$logRun = static function (string $status, string $summary, ?string $error = null) use ($startMs, $isCli): void {
+    if (!function_exists('recordCronRun')) return;
+    try {
+        recordCronRun('contract_billing', $status, $summary, (int)(microtime(true) * 1000) - $startMs, $error, !$isCli);
+    } catch (Throwable $e) {
+        error_log('[contract_billing] could not record the run — ' . $e->getMessage());
+    }
+};
+$retryOnly = $isCli
+    ? in_array('retry-only', array_slice($argv ?? [], 1), true)
+    : !empty($_POST['retry_only']);
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
 $dueDate    = date('Y-m-t');         // last day of current month (Y-m-t = last day)
-$taxRate    = 0.05;
-
 $db       = getDB();
+// GST from Settings (the one source) — the visit path already read it; this was a second 5%.
+require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
+$taxRate  = TaxEngine::gstRate($db);
+// One run at a time: an admin "Run now" during the cron could make two invoices for a contract
+// (the idempotency check is a plain SELECT before the INSERT; review 2026-10-12).
+$lockName = 'mw_contract_billing_' . Tenant::key();
+$lockStmt = $db->prepare('SELECT GET_LOCK(?, 0)');
+$lockStmt->execute([$lockName]);
+if ((int)$lockStmt->fetchColumn() !== 1) {
+    $msg = 'contract_billing: another run is in progress — nothing done.';
+    $logRun('success', $msg);
+    if ($isCli) { echo $msg . "\n"; exit(0); }
+    echo json_encode(['success' => false, 'error' => $msg]);
+    exit;
+}
 $created  = [];
 $skipped  = [];
 $errors   = [];
+$held     = [];   // not sent: the invoice PDF could not be made (retried next run)
+$retried  = [];   // held invoices from earlier runs, sent now
+$testMade = [];   // created as drafts in a test business; deliberately never sent
+$recurring = null;
+$recurringUnavailable = null;
+if (class_exists('Tenant') && !Tenant::isDefault()) {
+    try {
+        $qboConnection = new QboConnectionService($db);
+        if ($qboConnection->tablesReady() && $qboConnection->company() !== null) {
+            $recurring = new QboRecurringService($db, $qboConnection, 1);
+            $recurring->read(); // before any contract row is locked
+        }
+    } catch (Throwable $e) {
+        $recurring = null;
+        $recurringUnavailable = 'QuickBooks recurring check unavailable: ' . get_class($e);
+    }
+}
+
+// retry-only: just re-send invoices held for a missing PDF; create nothing new.
+// Safe to schedule daily (the monthly line still creates the invoices on the 1st):
+//   15 7 * * * /usr/local/bin/php .../contract_billing.php retry-only
+$sendAllowed = ContractBillingPolicy::sendAllowed(Tenant::isTest());
+
+$sender = new ContractInvoiceSender($db, new InvoicePdfGate($db));
 
 // ── 1. Check migration 1007 has been applied ─────────────────────────────────
 try {
@@ -78,7 +146,8 @@ try {
     if (empty($colCheck)) {
         $msg = 'Migration 1007 not applied — invoices.contract_id column missing. Run /crm/api/run-migration-1007.php first.';
         error_log("[contract_billing] {$msg}");
-        if ($isCli) { echo $msg . PHP_EOL; exit(1); }
+        $logRun('error', 'Migration 1007 not applied', $msg);
+            if ($isCli) { echo $msg . PHP_EOL; exit(1); }
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
     }
@@ -103,6 +172,36 @@ try {
 $propertyBillingEntitySelect = $hasPropertyBillingEntity
     ? "NULLIF(p.billing_entity_name, '') AS property_billing_entity,"
     : "NULL AS property_billing_entity,";
+
+// ── 1b. Retry invoices held for a missing PDF on an earlier run ─────────────
+// A held invoice is a draft that already exists, so the "already invoiced this
+// month" check below would skip it forever — it is retried here instead.
+$heldIds = [];
+try {
+    $heldIds = $sender->heldInvoiceIds();
+} catch (Throwable $e) {
+    error_log('[contract_billing] held-invoice lookup failed: ' . $e->getMessage());
+    $errors[] = 'Held-invoice lookup failed: ' . $e->getMessage();
+}
+foreach ($heldIds as $heldId) {
+    try {
+        if (!$sendAllowed) {
+            continue;
+        }
+        $res = $sender->send($heldId);
+        if ($res['status'] === 'sent') {
+            $retried[] = 'retry: ' . $res['message'];
+        } elseif ($res['status'] === 'held') {
+            $held[]   = $res['message'];
+            $errors[] = 'retry: ' . $res['message'];
+        } else {
+            $errors[] = 'retry: ' . $res['message'];
+        }
+    } catch (Throwable $e) {
+        error_log("[contract_billing] retry of invoice {$heldId} failed: " . $e->getMessage());
+        $errors[] = "retry: invoice {$heldId} failed: " . $e->getMessage();
+    }
+}
 
 // ── 2. Fetch active monthly contracts with contact + property info ────────────
 try {
@@ -129,7 +228,7 @@ try {
                -- Billing entity for the Bill To line.
                -- Priority: property.billing_entity_name → contract.title (when it
                -- looks like a strata/entity, not a service description).
-               -- Formatted as "{entity} C/O {company_name}" when a company is set.
+               -- Formatted as entity C/O company_name when a company is set.
                {$propertyBillingEntitySelect}
                c.title          AS contract_title,
                p.address        AS service_address,
@@ -142,11 +241,21 @@ try {
         -- Priority 1: explicit billing company on the property
         LEFT JOIN companies cb ON cb.id = p.billing_company_id
         -- Priority 2: company linked via contact (primary or billing contact)
-        LEFT JOIN companies co ON (co.primary_contact_id = con.id
-                                 OR co.billing_contact_id = con.id)
+        -- One company per contact, by rule: primary-contact link first, then lowest id (a contact on
+        -- two companies used to get whichever row GROUP BY kept).
+        LEFT JOIN companies co ON co.id = (SELECT c2.id FROM companies c2
+                                            WHERE c2.primary_contact_id = con.id OR c2.billing_contact_id = con.id
+                                            ORDER BY (c2.primary_contact_id = con.id) DESC, c2.id ASC LIMIT 1)
         LEFT JOIN contacts  bc ON bc.id = COALESCE(cb.billing_contact_id, co.billing_contact_id)
         WHERE c.status        = 'active'
           AND c.billing_cycle = 'monthly'
+          -- A contract with no active service plan has no real work behind a flat
+          -- monthly charge — billing it here would duplicate whatever per-visit
+          -- invoicing its plan(s) generate once set up. (Root-caused a real
+          -- incident: a plan-less contract auto-billed a phantom flat invoice
+          -- with no linked plan/visit, on top of a prepayment the client had
+          -- already made.)
+          AND EXISTS (SELECT 1 FROM job_plans jp WHERE jp.contract_id = c.id AND jp.status = 'active')
         GROUP BY c.id
         ORDER BY c.id ASC
     ");
@@ -155,13 +264,14 @@ try {
 } catch (Throwable $e) {
     $msg = 'Failed to query contracts: ' . $e->getMessage();
     error_log("[contract_billing] {$msg}");
+    $logRun('error', 'Could not query contracts', $msg);
     if ($isCli) { echo $msg . PHP_EOL; exit(1); }
     echo json_encode(['success' => false, 'error' => $msg]);
     exit;
 }
 
 // ── 3. Process each contract ──────────────────────────────────────────────────
-foreach ($contracts as $ctr) {
+foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothing new
     $contractId = (int)$ctr['contract_id'];
     $contactId  = (int)$ctr['contact_id'];
 
@@ -181,41 +291,64 @@ foreach ($contracts as $ctr) {
         }
 
         // ── 3b. Resolve the preferred billing email ──────────────────────────
-        // Priority: companies.billing_email → billing_contact.email → contact.email
-        $billingEmail = $ctr['company_billing_email']
-            ?: $ctr['billing_contact_email']
-            ?: $ctr['contact_email'];
+        // PM-managed properties (properties.property_manager_id set) must bill
+        // the management company's accounts contact, honoring its
+        // invoice_routing_method — same rule the manual invoice-creation UI
+        // uses (InvoiceRouting::resolveManagementBillingRecipient). This cron
+        // previously only checked p.billing_company_id / the contact's own
+        // company links, which never matches a property_manager_id-based
+        // relationship, so PM-managed contracts fell through to the on-site
+        // contact's personal email instead of the firm's.
+        $billingContactId = $contactId;
+        $pmRecipients = !empty($ctr['property_id'])
+            ? resolveManagementBillingRecipient((int)$ctr['property_id'])
+            : [];
+
+        if (!empty($pmRecipients)) {
+            $billingContactId = $pmRecipients[0]['contact_id'] ?: null; // null = contactless (email_address routing)
+            $billingEmail     = $pmRecipients[0]['email_address'];
+        } else {
+            // Priority: companies.billing_email → billing_contact.email → contact.email
+            $billingEmail = $ctr['company_billing_email']
+                ?: $ctr['billing_contact_email']
+                ?: $ctr['contact_email'];
+        }
 
         if (empty($billingEmail)) {
             $skipped[] = $ctr['contract_number'] . ' (no email on contact)';
             continue;
         }
 
-        // ── 3b.2 Resolve the Bill To heading ──────────────────────────────────
-        // Priority:
-        //   1. property.billing_entity_name  — explicit strata/entity set on property
-        //   2. contract.title                — used as entity when a company is also
-        //                                      present (e.g. "VR15-40" on a strata contract)
-        //   3. company.company_name alone    — commercial / PM company, no strata entity
-        //   4. null                          — view.php falls back to contact full name
-        $propertyEntity = $ctr['property_billing_entity'] ?? null;
-        $contractTitle  = trim((string)($ctr['contract_title'] ?? ''));
-        $companyName    = $ctr['company_name']             ?? null;
-
-        // Use contract title as entity only when a billing company is present
-        // (otherwise it's a service description like "Full Service", not an entity name)
-        $entity = $propertyEntity ?: (!empty($companyName) ? $contractTitle : null) ?: null;
-
+        // ── 3b.2 Bill To heading ──────────────────────────────────────────────
+        // Resolved at RENDER time (PdfGenerator / view.php), which composes
+        // "{billing_entity_name} C/O {management firm}" for PM-managed strata from
+        // live property + property_manager_id data. We deliberately store NULL here
+        // rather than a computed name: the old company resolution missed the
+        // property_manager_id link, so it stored a partial entity ("VR1450") that
+        // overrode the correct render-time heading.
         $billToName = null;
-        if (!empty($entity) && !empty($companyName)) {
-            $billToName = $entity . ' C/O ' . $companyName;
-        } elseif (!empty($entity)) {
-            $billToName = $entity;
-        } elseif (!empty($companyName)) {
-            $billToName = $companyName;
-        }
 
         $db->beginTransaction();
+
+        // ── 3b'. Re-check the contract NOW, locked: still active, has an active plan, and in force this month (started,
+        //         not ended). It may have been paused, cancelled or ended since the list was read (Codex contract review 2026-10-16).
+        $now = $db->prepare("SELECT status, billing_cycle, start_date, end_date, billing_amount FROM contracts WHERE id = ? FOR UPDATE");
+        $now->execute([$contractId]);
+        $fresh = $now->fetch(PDO::FETCH_ASSOC);
+        $plan = $db->prepare("SELECT 1 FROM job_plans WHERE contract_id = ? AND status = 'active' LIMIT 1");
+        $plan->execute([$contractId]);
+        require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+        $why = !$fresh || $fresh['status'] !== 'active' ? 'no longer active'
+             : ($fresh['billing_cycle'] !== 'monthly' ? 'no longer billed monthly'
+             : (!$plan->fetchColumn() ? 'no active plan'
+             : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')'
+             : ($recurring ? $recurring->holdReason(['contact_id' => $contactId, 'property_id' => (int)$ctr['property_id'], 'company_id' => $ctr['company_id'] !== null ? (int)$ctr['company_id'] : null, 'billing_amount' => $fresh['billing_amount']]) : null))));
+        if ($why !== null) {
+            $db->rollBack();
+            $skipped[] = $ctr['contract_number'] . " ({$why})";
+            continue;
+        }
+        $ctr['billing_amount'] = $fresh['billing_amount'];   // the amount as it stands now
 
         // ── 3c. Create invoice ────────────────────────────────────────────────
         $subtotal    = round((float)$ctr['billing_amount'], 2);
@@ -228,7 +361,7 @@ foreach ($contracts as $ctr) {
         // Build the INSERT dynamically so older databases without
         // invoices.bill_to_name still work. Migration 1010 adds it.
         $insertCols = [
-            'invoice_number','contract_id','contact_id','property_id',
+            'invoice_number','contract_id','contact_id','company_id','property_id',
             'invoice_date','issue_date','due_date',
             'subtotal','tax_rate','tax_amount',
             'total_amount','total','balance_due',
@@ -237,7 +370,7 @@ foreach ($contracts as $ctr) {
             'status','created_by',
         ];
         $insertPlaceholders = [
-            '?','?','?','?',
+            '?','?','?','?','?',
             'CURDATE()','CURDATE()','?',
             '?','?','?',
             '?','?','?',
@@ -249,6 +382,7 @@ foreach ($contracts as $ctr) {
             $invoiceNumber,
             $contractId,
             $contactId,
+            $ctr['company_id'] ?: null,
             $ctr['property_id'] ?: null,
             $dueDate,
             $subtotal, $taxRate, $taxAmount,
@@ -281,94 +415,34 @@ foreach ($contracts as $ctr) {
             VALUES (?, ?, 1, ?, ?)
         ")->execute([$invoiceId, $lineDesc, $subtotal, $subtotal]);
 
-        // ── 3e. Invoice contact — use the resolved billing email so the
+        // ── 3e. Invoice contact — use the resolved billing email/contact so the
         //       view.php recipients table shows where it actually went.
+        //       contact_id is nullable (migration 211) for contactless
+        //       email_address-routing recipients (e.g. a PM firm's ingestion inbox).
         $db->prepare("
             INSERT INTO invoice_contacts
                 (invoice_id, contact_id, contact_role, email_address)
             VALUES (?, ?, 'primary_recipient', ?)
-        ")->execute([$invoiceId, $contactId, $billingEmail]);
+        ")->execute([$invoiceId, $billingContactId, $billingEmail]);
 
         $db->commit();
 
-        // ── 3f. Send email ────────────────────────────────────────────────────
-        $recipientName  = trim($ctr['first_name'] . ' ' . $ctr['last_name']) ?: 'Valued Customer';
-        $firstName      = $ctr['first_name'] ?: 'there';
-        $companyInfo    = EmailWrapper::getCompanyInfo();
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($accessToken);
-
-        $tplVars = [
-            '{{customer_first_name}}' => $firstName,
-            '{{customer_name}}'       => $recipientName,
-            '{{invoice_number}}'      => $invoiceNumber,
-            '{{amount_due}}'          => formatCurrency($total),
-            '{{due_date}}'            => formatDate($dueDate),
-            '{{company_name}}'        => $companyInfo['company_name'],
-            '{{company_phone}}'       => $companyInfo['company_phone'],
-        ];
-
-        $tpl = loadEmailTemplate('invoice_sent', $tplVars);
-
-        $billSummary  = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:460px;margin:0 0 20px;font-size:14px;font-family:\'Helvetica Neue\',Arial,sans-serif;">';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;width:120px;">Invoice #</td><td style="padding:6px 0;color:#0D3B2E;font-weight:700;">' . htmlspecialchars($invoiceNumber) . '</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Period</td><td style="padding:6px 0;color:#0D3B2E;">' . htmlspecialchars($monthLabel) . '</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Amount Due</td><td style="padding:6px 0;color:#0D3B2E;font-size:18px;font-weight:700;">' . formatCurrency($total) . ' CAD</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Due Date</td><td style="padding:6px 0;color:#0D3B2E;">' . formatDate($dueDate) . '</td></tr>';
-        $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;vertical-align:top;">Bill To</td><td style="padding:6px 0;color:#0D3B2E;">' . htmlspecialchars($recipientName) . '</td></tr>';
-        $billSummary .= '</table>';
-
-        $emailBody = EmailWrapper::wrap(
-            $billSummary . $tpl['body_html'],
-            'View &amp; Pay Invoice Online',
-            $invoiceViewUrl,
-            $companyInfo
-        );
-
-        $emailSent = sendCrmEmail($billingEmail, $tpl['subject'], $emailBody);
-
-        if ($emailSent) {
-            // Mark sent
-            $db->prepare("
-                UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?
-            ")->execute([$invoiceId]);
-
-            $db->prepare("
-                UPDATE invoice_contacts SET invoice_sent_at = NOW()
-                WHERE invoice_id = ? AND contact_id = ?
-            ")->execute([$invoiceId, $contactId]);
-
-            // ── 3g. SMS ───────────────────────────────────────────────────────
-            if (!empty($ctr['receive_sms']) && !empty($ctr['contact_mobile'])) {
-                sendInvoiceNotificationSms(
-                    $ctr['contact_mobile'],
-                    $invoiceNumber,
-                    $total
-                );
-            }
-
-            // ── 3h. Activity log ──────────────────────────────────────────────
-            logActivityExtended(
-                0,
-                'contract_invoice_generated',
-                json_encode([
-                    'invoice_id'      => $invoiceId,
-                    'invoice_number'  => $invoiceNumber,
-                    'contract_id'     => $contractId,
-                    'contract_number' => $ctr['contract_number'],
-                    'amount'          => $total,
-                    'period'          => $monthLabel,
-                    'sent_to'         => $billingEmail,
-                ]),
-                null,
-                null, null,
-                $invoiceId
-            );
-
-            $created[] = "{$ctr['contract_number']} → {$invoiceNumber} ({$billingEmail})";
+        // ── 3f. Send email (PDF required) ─────────────────────────────────────
+        // ContractInvoiceSender: no PDF → NOT sent, stays draft, recorded for
+        // Charlie + retried at the start of the next run. Sent → status 'sent',
+        // autopay, SMS, activity log (same as the old inline code).
+        if (!$sendAllowed) {
+            $testMade[] = $invoiceNumber;
         } else {
-            // Email failed — invoice exists as draft; log it so it can be resent manually
-            error_log("[contract_billing] Email failed for invoice {$invoiceNumber} (contract {$ctr['contract_number']}, email {$billingEmail})");
-            $errors[] = "{$ctr['contract_number']}: invoice {$invoiceNumber} created but email failed — resend manually";
+            $res = $sender->send($invoiceId);
+            if ($res['status'] === 'sent') {
+                $created[] = $res['message'];
+            } elseif ($res['status'] === 'held') {
+                $held[]   = $res['message'];
+                $errors[] = "{$ctr['contract_number']}: " . $res['message'];
+            } else {
+                $errors[] = $res['message'];
+            }
         }
 
     } catch (Throwable $e) {
@@ -383,32 +457,53 @@ foreach ($contracts as $ctr) {
 
 // ── 4. Report ─────────────────────────────────────────────────────────────────
 $elapsedMs = (int)(microtime(true) * 1000) - $startMs;
+$testSummary = Tenant::isTest()
+    ? 'test business: ' . count($testMade) . ' invoices made, not sent'
+    : '';
+$summaryParts = [
+    count($created) . ' created, ' . count($retried) . ' retried, ' . count($held) . ' held, '
+        . count($skipped) . ' skipped, ' . count($errors) . ' error(s)',
+];
+if ($testSummary !== '') $summaryParts[] = $testSummary;
+if ($recurringUnavailable !== null) $summaryParts[] = $recurringUnavailable;
+$runSummary = implode('; ', $summaryParts);
 
 $report = [
     'success'    => true,
     'run_date'   => $today,
     'period'     => $monthLabel,
     'created'    => count($created),
+    'retried'    => count($retried),
+    'held'       => count($held),
     'skipped'    => count($skipped),
     'errors'     => count($errors),
+    'test_made'  => count($testMade),
+    'summary'    => $runSummary,
     'elapsed_ms' => $elapsedMs,
     'detail'     => [
-        'created' => $created,
+        'created' => array_merge($created, $retried),
+        'held'    => $held,
         'skipped' => $skipped,
         'errors'  => $errors,
     ],
 ];
 
+$logRun(count($errors) > 0 ? 'warning' : 'success', $runSummary,
+    count($errors) > 0 ? implode(' | ', array_slice($errors, 0, 5)) : null);
+
 if ($isCli) {
     echo "Contract billing complete [{$monthLabel}]\n";
     echo "  Created : " . count($created) . "\n";
+    echo "  Retried : " . count($retried) . " (held for PDF earlier, sent now)\n";
+    echo "  Held    : " . count($held) . " (NOT sent — invoice PDF could not be made)\n";
     echo "  Skipped : " . count($skipped) . "\n";
     echo "  Errors  : " . count($errors) . "\n";
+    if ($testSummary !== '') echo "  " . $testSummary . "\n";
     if ($errors) {
         foreach ($errors as $err) { echo "  ERROR: {$err}\n"; }
     }
-    if ($created) {
-        foreach ($created as $c) { echo "  OK: {$c}\n"; }
+    if ($created || $retried) {
+        foreach (array_merge($created, $retried) as $c) { echo "  OK: {$c}\n"; }
     }
     exit(count($errors) > 0 ? 1 : 0);
 } else {

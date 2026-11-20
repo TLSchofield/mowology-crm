@@ -17,6 +17,22 @@ class ContractService
 
     public function __construct(private PDO $db) {}
 
+    private ?ContractTermsService $terms = null;
+
+    /**
+     * Terms are resolved through their own service. Lazy because most callers
+     * of ContractService never touch them, and it keeps the constructor
+     * signature stable for the pages that already `new ContractService($db)`.
+     */
+    private function terms(): ContractTermsService
+    {
+        if ($this->terms === null) {
+            require_once __DIR__ . '/ContractTermsService.php';
+            $this->terms = new ContractTermsService($this->db);
+        }
+        return $this->terms;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // E-SIGNATURE — Send
     // ─────────────────────────────────────────────────────────────────────────
@@ -118,14 +134,30 @@ class ContractService
     // E-SIGNATURE — Record
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** The name recorded as having signed: what they typed, else the name the request went to. */
+    public static function signedByName(string $typed, ?string $requested): string
+    {
+        $typed = trim(preg_replace('/\s+/u', ' ', $typed) ?? '');
+        $name  = $typed !== '' ? $typed : trim((string)$requested);
+        return function_exists('mb_substr') ? mb_substr($name, 0, 255) : substr($name, 0, 255);
+    }
+
     /**
      * Record a successful signature.
      *
      * @param string $signatureData base64 PNG from SignaturePad canvas
+     * @param string $typedName     the full name the signer typed on the form — stored as the
+     *                              version's signed_by_name (Fable review 2026-10-12: it was
+     *                              discarded and the name the request was SENT to was stored)
      * @return bool true if saved; false if token was invalid/already used
      */
-    public function recordSignature(string $token, string $signatureData, string $signerIp): bool
-    {
+    public function recordSignature(
+        string $token,
+        string $signatureData,
+        string $signerIp,
+        bool   $termsAcknowledged = false,
+        string $typedName = ''
+    ): bool {
         $row = $this->getSignatureRequest($token);
         if (!$row) {
             return false;
@@ -141,6 +173,29 @@ class ContractService
                 WHERE signature_token = ?
             ")->execute([$signatureData, $now, $signerIp, $token]);
 
+            // Fingerprint the wording they were shown. Storing the hash rather
+            // than a second copy means the signature row proves the terms were
+            // not edited afterwards, without duplicating the document.
+            try {
+                $sealed = $this->terms()->termsForVersion(
+                    (int)$row['contract_id'],
+                    (int)$row['contract_version']
+                );
+                $this->db->prepare("
+                    UPDATE contract_signatures
+                    SET terms_acknowledged = ?, terms_body_hash = ?
+                    WHERE signature_token = ?
+                ")->execute([
+                    $termsAcknowledged ? 1 : 0,
+                    $sealed ? ContractTermsService::hashBody($sealed['body']) : null,
+                    $token,
+                ]);
+            } catch (\Throwable $e) {
+                // Migration 1119 not applied here. Never fail a signature over
+                // the audit trail for it — the signature itself is the record.
+                error_log('[ContractService] terms acknowledgement not stored: ' . $e->getMessage());
+            }
+
             $this->db->prepare("
                 UPDATE contracts
                 SET signature_status = 'signed', updated_at = NOW()
@@ -152,7 +207,206 @@ class ContractService
                 UPDATE contract_versions
                 SET signature_status = 'signed', signed_at = ?, signed_by_name = ?
                 WHERE contract_id = ? AND version_number = ?
-            ")->execute([$now, $row['signer_name'], $row['contract_id'], $row['contract_version']]);
+            ")->execute([$now, self::signedByName($typedName, $row['signer_name'] ?? null), $row['contract_id'], $row['contract_version']]);
+
+            $this->db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Carry the client's online quote signature onto the contract made from it.
+     *
+     * A contract quote is accepted with a drawn signature and a ticked "I agree"
+     * against the terms printed on it — the same act the contract signing page
+     * asks for. Asking a second time produced a step that was never taken, so
+     * the contract inherits the first one instead.
+     *
+     * The version is sealed with the wording the client actually saw: the
+     * quote's own terms text. The template revision is kept only when that text
+     * matches it; otherwise it is cleared so the record never claims a revision
+     * the client did not see.
+     *
+     * Returns false (and changes nothing) when there is no online signature to
+     * carry — a verbal approval, an unaccepted quote, a contract already signed.
+     */
+    public function adoptQuoteSignature(int $contractId, int $quoteId, int $userId): bool
+    {
+        $stmt = $this->db->prepare("SELECT * FROM quotes WHERE id = ?");
+        $stmt->execute([$quoteId]);
+        $quote = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        $signature = trim((string)($quote['signature_data'] ?? ''));
+        if (!$quote || ($quote['status'] ?? '') !== 'accepted'
+            || $signature === '' || $signature === 'data:,'
+            || trim((string)($quote['accepted_by_name'] ?? '')) === '') {
+            return false;
+        }
+
+        $contract = $this->getContract($contractId);
+        if (!$contract || ($contract['signature_status'] ?? '') === 'signed') {
+            return false;
+        }
+
+        $signedAt = $quote['signature_timestamp'] ?: ($quote['accepted_at'] ?: date('Y-m-d H:i:s'));
+        $signer   = trim((string)$quote['accepted_by_name']);
+
+        $this->db->beginTransaction();
+        try {
+            if ($this->getVersionCount($contractId) === 0) {
+                $this->snapshotVersion($contractId, $userId, 'Signed online on quote ' . ($quote['quote_number'] ?? $quoteId));
+            }
+            $version = (int)($this->getContract($contractId)['current_version'] ?? 1);
+
+            $quoteTerms = trim((string)($quote['terms'] ?? ''));
+            $sealed     = null;
+            try {
+                $sealed = $this->terms()->termsForVersion($contractId, $version);
+                if ($quoteTerms !== '') {
+                    $matches = $sealed && ContractTermsService::hashBody($sealed['body']) === ContractTermsService::hashBody($quoteTerms);
+                    if (!$matches) {
+                        $this->db->prepare("
+                            UPDATE contract_versions
+                               SET terms_body = ?, terms_template_version = NULL
+                             WHERE contract_id = ? AND version_number = ?
+                        ")->execute([$quoteTerms, $contractId, $version]);
+                    }
+                    $sealed = ['body' => $quoteTerms];
+                }
+            } catch (\Throwable $e) {
+                // Migration 1119 not applied — the signature is still the record.
+                error_log('[ContractService] quote terms not sealed onto contract: ' . $e->getMessage());
+            }
+
+            $this->db->prepare("
+                INSERT INTO contract_signatures
+                    (contract_id, contract_version, signature_token, token_expires_at,
+                     signer_name, signer_email, status, signature_data, signed_at, signed_ip, sent_by)
+                VALUES (?, ?, ?, ?, ?, ?, 'signed', ?, ?, ?, ?)
+            ")->execute([
+                $contractId, $version, $this->generateToken(), $signedAt,
+                $signer, (string)($quote['accepted_by_email'] ?? ''),
+                $signature, $signedAt, (string)($quote['accepted_ip_address'] ?? ''), $userId,
+            ]);
+            $sigId = (int)$this->db->lastInsertId();
+
+            try {
+                // The quote page refuses acceptance until "I agree" is ticked.
+                $this->db->prepare("
+                    UPDATE contract_signatures SET terms_acknowledged = 1, terms_body_hash = ? WHERE id = ?
+                ")->execute([$sealed ? ContractTermsService::hashBody($sealed['body']) : null, $sigId]);
+            } catch (\Throwable $e) {
+                error_log('[ContractService] terms acknowledgement not stored: ' . $e->getMessage());
+            }
+
+            $this->db->prepare("
+                UPDATE contracts SET signature_status = 'signed', updated_at = NOW() WHERE id = ?
+            ")->execute([$contractId]);
+            $this->db->prepare("
+                UPDATE contract_versions
+                   SET signature_status = 'signed', signed_at = ?, signed_by_name = ?
+                 WHERE contract_id = ? AND version_number = ?
+            ")->execute([$signedAt, $signer, $contractId, $version]);
+
+            $this->db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * File a countersigned paper copy against a contract.
+     *
+     * The electronic path proves what was on screen, when, and from where. A
+     * scan proves none of that — so the one thing that CAN be tied to it, the
+     * terms revision printed in the PDF footer, is required rather than
+     * optional. A filed scan with no revision is a signature with no provable
+     * link to the disclaimers, which is worse than no record at all because it
+     * looks like one.
+     *
+     * @param int $mediaId       media_assets.id of the uploaded scan
+     * @param int $termsVersion  revision number printed on the returned copy
+     * @return bool
+     */
+    public function recordWetSignature(
+        int    $contractId,
+        int    $mediaId,
+        int    $termsVersion,
+        string $signerName,
+        string $signedDate,
+        int    $filedByUserId
+    ): bool {
+        if ($contractId <= 0 || $mediaId <= 0) {
+            throw new \InvalidArgumentException('A filed copy needs both a contract and an uploaded scan.');
+        }
+        if ($termsVersion <= 0) {
+            throw new \InvalidArgumentException(
+                'Record which terms revision the signed copy carries — it is printed in the PDF footer.'
+            );
+        }
+
+        $contract = $this->getContract($contractId);
+        if (!$contract) {
+            return false;
+        }
+        $version = (int)($contract['current_version'] ?? 1);
+        if ($version < 1) {
+            $this->snapshotVersion($contractId, $filedByUserId, 'Sealed when filing a signed paper copy');
+            $version = 1;
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $now = date('Y-m-d H:i:s');
+
+            $this->db->prepare("
+                INSERT INTO contract_signatures
+                    (contract_id, contract_version, signature_token, token_expires_at,
+                     signer_name, status, signature_method, terms_acknowledged,
+                     wet_terms_version, wet_media_id, wet_filed_by, wet_filed_at,
+                     signed_at, sent_by)
+                VALUES (?, ?, ?, ?, ?, 'signed', 'wet', 1, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $contractId,
+                $version,
+                // Never a usable link: a filed paper copy must not hand anyone a
+                // signing URL. Random, unique, and already spent.
+                bin2hex(random_bytes(32)),
+                $now,
+                $signerName,
+                $termsVersion,
+                $mediaId,
+                $filedByUserId,
+                $now,
+                $signedDate ?: $now,
+                $filedByUserId,
+            ]);
+
+            $this->db->prepare(
+                "UPDATE contracts SET signature_status = 'signed', updated_at = NOW() WHERE id = ?"
+            )->execute([$contractId]);
+
+            $this->db->prepare("
+                UPDATE contract_versions
+                SET signature_status = 'signed', signed_at = ?, signed_by_name = ?
+                WHERE contract_id = ? AND version_number = ?
+            ")->execute([$signedDate ?: $now, $signerName, $contractId, $version]);
+
+            // Link the scan into the unified media system rather than a
+            // contract-specific table (migration 300's context/category model).
+            try {
+                $this->db->prepare("
+                    INSERT INTO media_links (media_id, context_type, context_id, category, visibility, linked_by)
+                    VALUES (?, 'contract', ?, 'signed_copy', 'internal', ?)
+                ")->execute([$mediaId, $contractId, $filedByUserId]);
+            } catch (\Throwable $e) {
+                error_log('[ContractService] signed copy not linked to media: ' . $e->getMessage());
+            }
 
             $this->db->commit();
             return true;
@@ -295,6 +549,11 @@ class ContractService
             $contract['signature_status'],
         ]);
 
+        // The wording goes in with the numbers. A version that records the
+        // price but not the terms cannot answer the only question that matters
+        // after an incident: what did the client actually agree to.
+        $this->terms()->snapshotOntoVersion($contractId, $nextVersion);
+
         $this->db->prepare(
             "UPDATE contracts SET current_version = ?, updated_at = NOW() WHERE id = ?"
         )->execute([$nextVersion, $contractId]);
@@ -320,6 +579,117 @@ class ContractService
     }
 
     /**
+     * Is a contract in force at some point in this billing month: started by the month's last day and not ended before its
+     * first day (null start/end = open). The monthly billing used to ignore both dates (Codex contract review 2026-10-16). Pure.
+     */
+    public static function inForceForMonth(?string $start, ?string $end, string $monthFirst, string $monthLast): bool
+    {
+        $s = $start ? substr($start, 0, 10) : null;
+        $e = $end ? substr($end, 0, 10) : null;
+        if ($s !== null && $s > $monthLast) return false;
+        if ($e !== null && $e < $monthFirst) return false;
+        return true;
+    }
+
+    /**
+     * A contract already running (active, started over a week ago) with no signature: its PDF is a copy for the
+     * client's records, with no lines to sign — asking a running client to sign reads as "you don't have to keep
+     * paying" (Tim 2026-10-16). A new contract (not started, or started this week) still prints the sign lines. Pure.
+     */
+    public static function isRunningCopy(array $contract, string $today): bool
+    {
+        if (($contract['status'] ?? '') !== 'active' || ($contract['signature_status'] ?? '') === 'signed') return false;
+        $start = (string)($contract['start_date'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}/', $start)) return false;
+        return substr($start, 0, 10) <= date('Y-m-d', strtotime($today . ' -7 days'));
+    }
+
+    /** Tim: contracts rise 5% each March/April. Overridable by ops_settings.contract_renewal_increase_pct. */
+    public const DEFAULT_RENEWAL_INCREASE_PCT = 5.0;
+
+    /**
+     * The renewal increase a new contract starts with: ops_settings
+     * `contract_renewal_increase_pct` when set, else 5%. Clamped to 0–50 like the edit form.
+     */
+    public static function defaultRenewalIncreasePct(PDO $db): float
+    {
+        try {
+            $stmt = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ? LIMIT 1");
+            $stmt->execute(['contract_renewal_increase_pct']);
+            $v = $stmt->fetchColumn();
+            if ($v !== false && $v !== null && trim((string)$v) !== '' && is_numeric(trim((string)$v))) {
+                return self::clampRenewalIncreasePct((float)$v);
+            }
+        } catch (Throwable $e) {
+            // no ops_settings table / row — fall through to the default
+        }
+        return self::DEFAULT_RENEWAL_INCREASE_PCT;
+    }
+
+    public static function clampRenewalIncreasePct(float $pct): float
+    {
+        return round(max(0.0, min(50.0, $pct)), 2);
+    }
+
+    /** Fields a client agrees to when they sign; an edit to any of them is recorded. */
+    public const SIGNED_TERMS_FIELDS = [
+        'title', 'billing_cycle', 'billing_amount', 'start_date', 'end_date',
+        'renewal_date', 'auto_renew', 'renewal_increase_pct', 'notes', 'contact_id',
+    ];
+
+    /**
+     * Which agreed fields an edit would change. Absent / null contact_id means "unchanged"
+     * (updateContract only writes contact_id when one is given). Amounts compare to the cent.
+     *
+     * @return string[]
+     */
+    public static function changedSignedFields(array $current, array $new): array
+    {
+        $changed = [];
+        foreach (self::SIGNED_TERMS_FIELDS as $f) {
+            if (!array_key_exists($f, $new)) continue;
+            $a = $current[$f] ?? null;
+            $b = $new[$f];
+            if ($f === 'contact_id' && ($b === null || $b === '' || (int)$b === 0)) continue;
+            if (in_array($f, ['billing_amount', 'renewal_increase_pct'], true)) {
+                $na = ($a === null || $a === '') ? null : round((float)$a, 2);
+                $nb = ($b === null || $b === '') ? null : round((float)$b, 2);
+                if ($f === 'renewal_increase_pct') { $na = (float)$na; $nb = (float)$nb; }
+                if ($na !== $nb) $changed[] = $f;
+            } elseif (in_array($f, ['auto_renew', 'contact_id'], true)) {
+                if ((int)$a !== (int)$b) $changed[] = $f;
+            } else {
+                $sa = trim((string)$a);
+                $sb = trim((string)$b);
+                if ($sa !== $sb) $changed[] = $f;
+            }
+        }
+        return $changed;
+    }
+
+    /**
+     * Before a SIGNED contract is edited, keep what the client signed as a version
+     * (Fable review 2026-10-12: signed-contract edits left no record). Does nothing for
+     * unsigned contracts or when nothing agreed changes. The signature status is left as is —
+     * whether an edit needs re-signing is Tim's call (amendContract() does that when asked).
+     *
+     * @return bool true when a version was written
+     */
+    public function snapshotSignedBeforeEdit(int $contractId, array $new, int $userId): bool
+    {
+        $contract = $this->getContract($contractId);
+        if (!$contract || ($contract['signature_status'] ?? '') !== 'signed') {
+            return false;
+        }
+        $changed = self::changedSignedFields($contract, $new);
+        if (!$changed) {
+            return false;
+        }
+        $this->snapshotVersion($contractId, $userId, 'Signed terms before edit: ' . implode(', ', $changed));
+        return true;
+    }
+
+    /**
      * Get all version history for a contract (most recent first).
      */
     public function getVersions(int $contractId): array
@@ -333,6 +703,73 @@ class ContractService
         ");
         $stmt->execute([$contractId]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BILLING ELIGIBILITY
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * True if the given job_plan is currently billed under a formal, active
+     * contract (i.e. NOT per-visit). Source of truth is job_plans.contract_id
+     * joined to the live contracts row — NOT job_plans.pricing_model, which
+     * can go stale relative to the contract (e.g. a plan created before the
+     * contract's billing_cycle changed, or before pricing_model was correctly
+     * derived at creation time).
+     *
+     * A plan is contract-billed only while the contract is 'active' and its
+     * billing_cycle isn't itself 'per_visit' — a paused/cancelled contract or
+     * a per-visit-billed contract must allow normal per-visit invoicing.
+     */
+    /**
+     * The cycles contract_billing.php actually bills (it bills monthly only). Any other cycle
+     * (seasonal/annual/custom) was treated as "billed by contract" here, so its visits could not be
+     * invoiced either — billed by nobody (review 2026-10-12).
+     */
+    public const CRON_BILLED_CYCLES = ['monthly'];
+
+    public function isPlanContractBilled(int $planId): bool
+    {
+        if ($planId < 1) return false;
+
+        $stmt = $this->db->prepare("
+            SELECT c.status, c.billing_cycle
+            FROM job_plans jp
+            JOIN contracts c ON jp.contract_id = c.id
+            WHERE jp.id = ?
+        ");
+        $stmt->execute([$planId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if (!$row) return false; // no contract_id, or contract row missing
+
+        return $row['status'] === 'active' && in_array($row['billing_cycle'], self::CRON_BILLED_CYCLES, true);
+    }
+
+    /**
+     * Batch version of isPlanContractBilled() to avoid N+1 queries.
+     *
+     * @param int[] $planIds
+     * @return array<int,bool> plan_id => is contract-billed
+     */
+    public function getContractBilledPlanIds(array $planIds): array
+    {
+        $planIds = array_values(array_unique(array_filter(array_map('intval', $planIds))));
+        $result  = array_fill_keys($planIds, false);
+        if (!$planIds) return $result;
+
+        $placeholders = implode(',', array_fill(0, count($planIds), '?'));
+        $stmt = $this->db->prepare("
+            SELECT jp.id AS plan_id, c.status, c.billing_cycle
+            FROM job_plans jp
+            JOIN contracts c ON jp.contract_id = c.id
+            WHERE jp.id IN ($placeholders)
+        ");
+        $stmt->execute($planIds);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int)$row['plan_id']] = ($row['status'] === 'active' && in_array($row['billing_cycle'], self::CRON_BILLED_CYCLES, true));
+        }
+        return $result;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

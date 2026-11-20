@@ -133,10 +133,10 @@ function buildImageStackHtml(images) {
     if (images.length === 1) {
         return `<div class="mw-quiz-img-wrap">
             <img src="${escHtml(images[0].image_path)}" alt="Question image" class="mw-quiz-img">
-        </div>`;
+        </div>${images[0].caption ? `<div class="mw-quiz-img-caption">${escHtml(images[0].caption)}</div>` : ''}`;
     }
     const items = images.map((img, i) =>
-        `<div class="mw-img-stack-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+        `<div class="mw-img-stack-item${i === 0 ? ' active' : ''}" data-idx="${i}" data-caption="${escHtml(img.caption || '')}">
             <img src="${escHtml(img.image_path)}" alt="Image ${i+1}" class="mw-img-stack-img">
         </div>`
     ).join('');
@@ -155,6 +155,7 @@ function buildImageStackHtml(images) {
             <div class="mw-img-stack-dots">${dots}</div>
             <div class="mw-img-stack-counter">1 / ${images.length}</div>
         </div>
+        <div class="mw-quiz-img-caption">${escHtml(images[0].caption || '')}</div>
     </div>`;
 }
 
@@ -167,6 +168,8 @@ function stackGoTo(stack, idx) {
     items.forEach((el, i) => el.classList.toggle('active', i === idx));
     dots.forEach((el, i)  => el.classList.toggle('active', i === idx));
     if (counter) counter.textContent = `${idx + 1} / ${count}`;
+    const cap = stack.querySelector('.mw-quiz-img-caption');   // where our own site photo was taken
+    if (cap && items[idx]) cap.textContent = items[idx].dataset.caption || '';
     stack.dataset.current = idx;
 }
 

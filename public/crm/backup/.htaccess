@@ -1,0 +1,7 @@
+# Emergency block (2026-10-12): this folder held Jobber client exports reachable without login.
+# Files here are read by PHP only; nothing in it may be served over HTTP.
+Require all denied
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

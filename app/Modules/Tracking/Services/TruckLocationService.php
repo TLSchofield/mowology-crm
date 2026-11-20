@@ -30,7 +30,8 @@ class TruckLocationService
         $this->db = $db;
         if ($cachePath === null) {
             $base = defined('STORAGE_ROOT') ? STORAGE_ROOT : sys_get_temp_dir();
-            $cachePath = $base . '/cache/trackimo_last_position.json';
+            // One file per business (security review 2026-11-06, #8); the original business keeps its old name.
+            $cachePath = $base . '/cache/trackimo_last_position' . (class_exists('Tenant') && !Tenant::isDefault() ? '_' . Tenant::key() : '') . '.json';
         }
         $this->cachePath = $cachePath;
     }

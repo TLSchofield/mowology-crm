@@ -38,6 +38,8 @@ $config = json_decode($snippet['content_json'], true) ?: [];
 // Resolve tokens using defaults (no page context for snippets)
 $tokens = cms_getTokenDefaults();
 $config = cms_processBlockConfig($config, $tokens, false);
+require_once APP_ROOT . '/Modules/CMS/Services/CmsHtmlSanitizer.php';
+$config = CmsHtmlSanitizer::cleanConfigUrls($config, '#'); // Fable #7
 
 // Find the block renderer
 $rendererPath = dirname(__DIR__) . '/includes/blocks/' . $blockType . '.php';
