@@ -78,6 +78,43 @@ class TrackingHealthService
         return 'The app may have been closed, or the phone has no signal.';
     }
 
+    /** How long a quiet-phone alert keeps a device "proven fragile". */
+    public const FRAGILE_DAYS = 7;
+
+    /**
+     * Should the crew app's setup screen treat the battery exemption as REQUIRED for this device?
+     *
+     * Battery is advisory by design: on 2026-09-25 a correctly set-up truck tablet was trapped by a
+     * hard block because Samsung's "Unrestricted" does not always flip the flag the app reads. So the
+     * block is earned by evidence, not applied to everyone: the device says it is NOT exempt AND the
+     * office was alerted that it went quiet within FRAGILE_DAYS. A device that reports "not exempt"
+     * but has never gone quiet keeps the advisory screen. Nigel (2026-11-19): exempt = 0, tapped
+     * "sort it later" five times in a week, sent 16 fixes in a shift. The screen's 45 s
+     * "clock me out" escape still applies, so this can never trap anyone. PURE.
+     *
+     * @param ?array $health newest device_tracking_health row, or null
+     */
+    public static function batteryEnforced(?array $health, ?int $lastAlertTs, int $nowTs, int $days = self::FRAGILE_DAYS): bool
+    {
+        if (!$health || !array_key_exists('battery_optimization_exempt', $health) || $health['battery_optimization_exempt'] === null) {
+            return false;
+        }
+        if ((int)$health['battery_optimization_exempt'] !== 0) {
+            return false;
+        }
+        return $lastAlertTs !== null && $nowTs - $lastAlertTs <= max(1, $days) * 86400;
+    }
+
+    /** DB wrapper for batteryEnforced(); never throws (a failure means "advisory", the old behaviour). */
+    public function batteryEnforcedFor(int $userId, ?int $nowTs = null): bool
+    {
+        try {
+            return self::batteryEnforced($this->latestHealth($userId), $this->lastAlertTs($userId), $nowTs ?? time());
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     /**
      * Someone who withdrew tracking consent — or, once consent is required, has no current
      * consent — is SUPPOSED to be silent: the server stores none of their fixes. Alerting on

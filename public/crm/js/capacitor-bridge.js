@@ -731,7 +731,12 @@
              */
             _setupBlocking: function(p) {
                 if (p && p.gpsEnabled === false) return true;
-                return !(p && p.location && p.background);
+                if (!(p && p.location && p.background)) return true;
+                // Battery is advisory EARNED-ONLY: the server sets battery_enforce on the tracking
+                // token when this device reports "not exempt" AND went quiet in the last 7 days
+                // (TrackingHealthService::batteryEnforced). The 45 s clock-out escape still applies,
+                // so a Samsung that misreports the flag (2026-09-25 truck tablet) is never trapped.
+                return !!(this._batteryEnforce && !p.batteryOptimizationIgnored);
             },
 
             _setupGate: function() {
@@ -844,7 +849,11 @@
                     row.innerHTML = 'The pop-up did not appear, or the setting did not take. '
                         + 'Set it by hand: <b>Settings &rarr; Apps &rarr; Mowology Crew &rarr; Battery &rarr; Unrestricted</b>. '
                         + 'On Samsung this is NOT the same as "Background usage limits" — that screen can already look fine '
-                        + 'while the app is still optimised. Come back here afterwards and it will tick itself.';
+                        + 'while the app is still optimised. Also on Samsung: <b>Settings &rarr; Battery &rarr; Background usage limits '
+                        + '&rarr; Never sleeping apps &rarr; add Mowology Crew</b> (a sleeping app is stopped after a few minutes '
+                        + 'with the screen off, which is how tracking goes silent mid-shift). '
+                        + 'Come back here afterwards and it will tick itself.'
+                        + '<br><button type="button" class="mw-sg-btn" data-fix="appsettings" style="margin-top:8px">Open app settings</button>';
                 }
                 function check() {
                     if (closed) return;
@@ -892,6 +901,11 @@
                         setTimeout(function() {
                             if (!closed && last && !last.batteryOptimizationIgnored) showManualBatteryPath();
                         }, 3000);
+                    } else if (fix === 'appsettings') {
+                        // The app's own Settings page: Battery and permissions are one tap away.
+                        try {
+                            if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                        } catch (e) {}
                     } else if (fix === 'continue') {
                         // Not a skip: everything that decides whether a position can be
                         // obtained is already granted, so the shift stays on the clock and
@@ -969,6 +983,7 @@
                 this._token().then(function(t) {
                     if (!t || !t.success) { console.warn('[MwNative] no tracking token — native tracking not started'); return null; }
                     if (!t.token) return null;                          // tracking is off for this user — nothing to do
+                    self._batteryEnforce = !!t.battery_enforce;         // see _setupBlocking
                     return self._ensureDisclosed(t.token).then(function(ok) {
                         if (!ok) return null;
                         return MwTracking.requestTrackingPermissions().then(function(perms) {
@@ -992,6 +1007,124 @@
                 }).catch(function(e) {
                     console.warn('[MwNative] engine start failed:', e);
                 }).then(function() { self._starting = false; });
+            },
+
+            /**
+             * Called every time the app comes back to the front (Capacitor 'resume' and
+             * visibilitychange). Until 2026-11-19 the gate only ran at page load, so a phone
+             * the OS had put to sleep mid-shift was never looked at again when the crew member
+             * picked it up (Nigel, 2026-11-19: 16 fixes all day, shift still open at 18:30).
+             *
+             * Does two things, only while a tracking session is active (clocked in):
+             *   1. the engine should be running but is not → start it again;
+             *   2. a BLOCKING shortfall (location, "all the time", device Location switch) →
+             *      bring the setup gate back. Battery stays advisory here: it already respects
+             *      the "later means later" ack (mw_setup_gate_advisory_ack) so this never nags
+             *      through a Continue the crew member just tapped.
+             * Throttled to once per 15 s, never overlapping, never throws.
+             */
+            resumeCheck: function() {
+                var self = this;
+                if (!MwTracking || typeof MwTracking.getHealth !== 'function') return;
+                if (typeof MwTracking.checkTrackingPermissions !== 'function') return;
+                var now = Date.now();
+                if (self._resumeBusy || now - (self._resumeAt || 0) < 15000) return;
+                self._resumeAt = now;
+                self._resumeBusy = true;
+                MwTracking.getHealth().then(function(h) {
+                    if (!h || !h.isTrackingActive) {                      // not clocked in
+                        self._bannerClear();
+                        try { localStorage.removeItem('mw_track_seen_since'); } catch (e) {}
+                        return null;
+                    }
+                    // When this page first saw the session active. last_fix_time on the phone is
+                    // never cleared, so without this a fix from before this clock-in (a lunch
+                    // clock-out, or yesterday) would read as "tracking stopped" at once.
+                    var seenSince = Date.now();
+                    try {
+                        var stored = parseInt(localStorage.getItem('mw_track_seen_since') || '0', 10);
+                        if (stored > 0) seenSince = stored; else localStorage.setItem('mw_track_seen_since', String(seenSince));
+                    } catch (e) {}
+                    if (h.serviceRunning === false && !self._starting) {
+                        console.warn('[MwNative] resume: tracking engine was not running — restarting');
+                        self.start();
+                    }
+                    return MwTracking.checkTrackingPermissions().then(function(p) {
+                        if (self._setupBlocking(p)) { self._bannerClear(); self._setupGate(); return; }
+                        // Nothing heard for 15 min while clocked in (the office alert fires at the same
+                        // threshold), counted from the newer of the last fix and when this session was
+                        // first seen — the same rule as TrackingHealthService::isSilent.
+                        var heardAt = Math.max(h.lastFixTime > 0 ? h.lastFixTime : 0, seenSince);
+                        var ageMin = (Date.now() - heardAt) / 60000;
+                        if (ageMin >= 15) {
+                            self._banner('Location tracking has stopped for ' + Math.floor(ageMin) + ' min. Tap Fix to check your phone settings.',
+                                'Fix', function() { self._setupGate(); self._starting = false; self.start(); });
+                        } else if (p && p.notifications === false) {
+                            self._banner('Notifications are off, so Android may stop tracking when the screen is off.', 'Turn on', function() {
+                                var before = JSON.stringify(p);
+                                MwTracking.requestTrackingPermissions().then(function(q) {
+                                    if (JSON.stringify(q || {}) === before && BackgroundGeolocation && BackgroundGeolocation.openSettings) {
+                                        BackgroundGeolocation.openSettings();
+                                    }
+                                }, function() {
+                                    if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                                });
+                            });
+                        } else {
+                            self._bannerClear();
+                        }
+                        // Camera: offered again when the app is brought back, not only at launch.
+                        // cameraCheck itself stays quiet for a day after "Later".
+                        if (p && p.camera === false && typeof window.MwNative.cameraCheck === 'function') {
+                            try { sessionStorage.removeItem('mw_camera_check_done'); } catch (e) {}
+                            window.MwNative.cameraCheck();
+                        }
+                    });
+                }).catch(function(e) {
+                    console.warn('[MwNative] resume check failed:', e);
+                }).then(function() { self._resumeBusy = false; });
+            },
+
+            /** One slim banner at the top of the page for a tracking problem; replaced, never stacked. */
+            _banner: function(text, buttonLabel, onClick) {
+                try {
+                    if (!document.body) return;
+                    if (!document.getElementById('mw-track-banner-css')) {
+                        var css = document.createElement('style');
+                        css.id = 'mw-track-banner-css';
+                        css.textContent =
+                            '#mw-track-banner{position:fixed;left:0;right:0;top:0;z-index:2147483640;display:flex;gap:10px;' +
+                            'align-items:center;padding:10px 12px;background:var(--mw-orange);color:var(--mw-light);' +
+                            'font-size:.88rem;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.25);}' +
+                            '#mw-track-banner span{flex:1;}' +
+                            '#mw-track-banner button{border:0;border-radius:8px;padding:8px 14px;font-weight:700;' +
+                            'background:var(--mw-forest);color:var(--mw-light);}';
+                        document.head.appendChild(css);
+                    }
+                    var el = document.getElementById('mw-track-banner');
+                    if (!el) {
+                        el = document.createElement('div');
+                        el.id = 'mw-track-banner';
+                        el.setAttribute('role', 'alert');
+                        document.body.appendChild(el);
+                    }
+                    el.textContent = '';
+                    var span = document.createElement('span');
+                    span.textContent = text;
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = buttonLabel;
+                    btn.addEventListener('click', function() { try { onClick(); } catch (e) {} });
+                    el.appendChild(span);
+                    el.appendChild(btn);
+                } catch (e) {}
+            },
+
+            _bannerClear: function() {
+                try {
+                    var el = document.getElementById('mw-track-banner');
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                } catch (e) {}
             }
         },
 
@@ -1307,6 +1440,12 @@
         if (!MwTracking || typeof MwTracking.requestCameraPermission !== 'function') return;
         if (/\/loginAuth\//.test(location.pathname)) return;           // not signed in yet
         try { if (sessionStorage.getItem('mw_camera_check_done')) return; } catch (e) {}
+        if (document.getElementById('mw-setup-gate')) return;         // one prompt at a time
+        // "Later" holds for a day, so being offered again on every app resume never turns into nagging.
+        try {
+            var laterAt = parseInt(localStorage.getItem('mw_camera_later_at') || '0', 10);
+            if (laterAt && Date.now() - laterAt < 24 * 3600000) return;
+        } catch (e) {}
 
         function done() { try { sessionStorage.setItem('mw_camera_check_done', '1'); } catch (e) {} }
 
@@ -1356,10 +1495,17 @@
 
             el.addEventListener('click', function(ev) {
                 var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-cc');
-                if (act === 'later') { done(); close(); return; }
+                if (act === 'later') {
+                    done();
+                    try { localStorage.setItem('mw_camera_later_at', String(Date.now())); } catch (e) {}
+                    close();
+                    return;
+                }
                 if (act !== 'allow') return;
                 MwTracking.requestCameraPermission().then(function(q) {
                     if (q && q.camera) { granted(); return; }
+                    // Refused: hold the re-offer for a day, same as "Later".
+                    try { localStorage.setItem('mw_camera_later_at', String(Date.now())); } catch (e) {}
                     // Android stops showing the prompt after two refusals — the only way
                     // left is the app's own Settings page.
                     var how = el.querySelector('.mw-cc-how');
@@ -1367,6 +1513,7 @@
                         'Permissions &rarr; Camera &rarr; Allow only while using the app</b>, then come back.';
                     if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
                 }, function() {
+                    try { localStorage.setItem('mw_camera_later_at', String(Date.now())); } catch (e) {}
                     if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
                 });
             });
@@ -1388,8 +1535,21 @@
     if (App && App.addListener) {
         App.addListener('resume', function () {
             window.MwNative.push.reregister();
+            try { window.MwNative.engine.resumeCheck(); } catch (e) {}
         });
     }
+    // Same check when the WebView itself becomes visible again (covers builds where the
+    // Capacitor 'resume' event is not delivered); resumeCheck throttles the two together.
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState !== 'visible') return;
+        try { window.MwNative.engine.resumeCheck(); } catch (e) {}
+    });
+    // And every 2 min while the app is open and in front, so a tracker that dies during use
+    // shows the banner without waiting for the next resume. No-op when not clocked in.
+    setInterval(function () {
+        if (document.visibilityState !== 'visible') return;
+        try { window.MwNative.engine.resumeCheck(); } catch (e) {}
+    }, 120000);
 
     // Listen for activity changes and adjust the BG plugin's distance filter
     if (MwTracking && MwTracking.addListener) {
