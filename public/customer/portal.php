@@ -743,7 +743,6 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <div class="portal-visit-map"
                        id="vmap-<?php echo (int)$v['id']; ?>"
                        data-pings="<?php echo htmlspecialchars($pingJson, ENT_QUOTES); ?>"
-                       data-start="<?php echo htmlspecialchars($startTime); ?>"
                        data-count="<?php echo $pingCount; ?>"
                        <?php if (!empty($v['property_lat']) && !empty($v['property_lng'])): ?>
                        data-property-lat="<?php echo htmlspecialchars((string)$v['property_lat']); ?>"
@@ -919,7 +918,6 @@ function mwRebookVisit(visitId, serviceLabel) {
 (function() {
   document.querySelectorAll('.portal-visit-map[data-pings]').forEach(function(el) {
     var pings  = JSON.parse(el.dataset.pings || '[]');
-    var start  = el.dataset.start || '';
     var count  = el.dataset.count || '';
     if (!pings.length) return;
 
@@ -944,12 +942,11 @@ function mwRebookVisit(visitId, serviceLabel) {
       }).addTo(map);
     });
 
-    if (start) {
+    if (count) {
       var icon = L.divIcon({
         className: 'portal-map-label-icon',
         html: '<div class="portal-map-start-bubble">'
-            + (count ? count + ' GPS pings &middot; ' : '')
-            + 'Started ' + start + '</div>',
+            + count + ' GPS pings</div>',
         iconAnchor: [-8, 6],
       });
       L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
