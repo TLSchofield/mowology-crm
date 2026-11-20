@@ -75,3 +75,64 @@ Step 1 first, shipped alone (measurable, safe). Then steps 2 and 3 together on t
 1. Approve this order (speed first).
 2. Approve the 8-item daily menu or change it (step 4).
 3. Approve the dashboard's first-screen content (step 3).
+
+## Step 1 results (2026-11-20, deployed 902cf302a) and what they changed
+
+Done: `mowology-brand.min.css` regenerated (the committed one was 9 days stale) and `app.min.js` now load through `_amin()`; `MinifiedAssetsFreshTest` fails if either goes stale; Ittai favicons restored into git. Checked: identical computed styles on 6 pages locally, same console errors as before (a pre-existing `SyntaxError: Invalid or unexpected token` and one 500 are on the page with the original files too), dashboard renders on production.
+
+Corrections to the audit:
+- Production already gzips. Real saving from the min files is about 46 KB (brand CSS) and 259 KB (app.js) over the wire, plus about 1.2 MB less JS to parse. Useful, not large.
+- The `favicon-ittai` 404s were local-only (production serves them); the files were just missing from git.
+- Loading each head's script only where needed was dropped: `head-brain.js` guards against double init, so repeats cost parse time only.
+
+**The real speed problem is the server, not the assets.** On production (signed in as Tim, one session, 2026-11-20): dashboard time to first byte 13.8 s and 17.2 s; clients page 11.5 s; quotes 0.3 s; tasks 0.3 s. The dashboard then fires slower API calls (`charlie.php` 9.5 s, `bookkeeper.php` 2.7 s, `otto.php` 2.1 s). A 95-request, 8 MB first load is secondary to that.
+
+### New step 1b: profile the slow pages (before any look change)
+1. Time the PHP work in `dashboard_appstack.php` and `clients_appstack.php` by section (queries and head cards) on a production-sized copy, or with read-only timing through `scripts/prod-run.sh`.
+2. Fix the biggest items first (likely a few heavy queries or per-head work done on page load). Move what is slow to the existing precomputed-brief pattern (`head_brief_ready`) where the owner does not need it live.
+3. Re-time on production. Target: first byte under 1 s for dashboard and clients.
+4. Open question: how much of this is Mowology's data volume vs. what a brand-new tenant would see. Measure a new, empty tenant too, so the "new tenant" experience is judged on its own numbers.
+
+## Rule added 2026-11-20 (Tim): refactor each page once it is done
+A page is finished only after its refactor. Per page the order is: audit, simplify, speed up, **refactor**, check on production.
+- Refactor = business logic and SQL out of the page into `app/Modules/*/Services` with a test (CLAUDE.md rule 10); very large pages (`clients_appstack.php` 7,907 lines, `dashboard_appstack.php` 1,323) split into includes; dead and duplicated code removed. No change to layout, labels or behaviour.
+- Its own commit, after the page's simplify and speed work is proven, so it can be reverted alone. Proof: the same screenshots and timings before and after, phpunit, independent review.
+- The slow-query fixes in step 1b are the first slice of this for the dashboard and clients pages.
+
+## Drop the "appstack" naming from page files (added 2026-11-20, Tim asked)
+
+Size: 50 page files `public/crm/*_appstack.php`; 922 references to those names in about 290 files (154 in `public/crm`, 71 in `app/Modules`, 26 tests, about 27 docs/plans/skills, 4 migrations with stored links, 3 iPhone files, about 7 scripts/tools). The shared layout includes (`appstack_head.php`, `appstack_footer.php`, `appstack_sidebar.php`, `appstack_topbar.php`) are referenced from 245 files.
+
+Risks: bookmarks, sent emails and texts, stored links in the database, the iPhone and Android apps, and file-by-file deploys where a link and its target go live at different moments.
+
+How:
+1. One page at a time, inside that page's refactor (see the rule above); one small commit per rename. No big-bang rename.
+2. The old `*_appstack.php` stays as a three-line redirect to the new name (permanent redirect, query string kept), so nothing already sent or saved breaks. Redirect stubs are removed only after production logs show no hits for 60 days.
+3. Per rename: update every reference (links, nav keys' hrefs, services, tests, iPhone, docs), add a test that fails if the old name is still linked from code, deploy the new file and the references before the stub, check live.
+4. Leave the four layout includes alone. Nobody sees those names; renaming them touches 245 files for no visible gain, and CLAUDE.md names them. Revisit only if Tim wants them renamed too.
+
+Proposed names (drop the suffix), for Tim to approve or change:
+`dashboard`, `clients`, `tasks`, `expenses`, `messages`, `photos`, `photos_refile`, `users`, `sites`, `leaderboard`, `kaname`, `ada`, `agents`, `freedom`, `import`, `privacy`, `profitability`, `tax-report`, `trip-reports`, `zone-report`, `system-log`, `audit-trail`, `before-after`, `card-designer`, `certification`, `design-system`, `foreman_calendar`, `gps-lookup`, `icloud_tidy`, `mobile-preview`, `penny-onboarding`, `receipts-review`, the `cms-*` set (`cms-activity`, `cms-dashboard`, `cms-form-submissions`, `cms-media`, `cms-pages`, `cms-redirects`) and the `quiz*` set (`quiz`, `quiz-admin`, `quiz-learn`, `quiz-play`, `quiz-progress`).
+
+Names that need a decision:
+- `map`: `public/crm/map.php` already exists, so the AppStack map page needs a different name (for example `job-map`).
+- `accounting`, `contracts`, `database`, `mockups`, `quotes`, `reports`: a folder of the same name already exists (`/crm/quotes/` and so on). `quotes.php` next to `quotes/` works because URLs name the file, but it is easy to confuse. Either accept it or use `quotes-list`, `reports-home` and so on.
+- Names that mix styles (`foreman_calendar`, `icloud_tidy`, `photos_refile` use underscores; the rest use hyphens): CLAUDE.md allows both. Keep as is unless Tim wants one style.
+
+## Retire old styling as we go (Tim, 2026-11-20)
+
+Each page that moves to the Ittai look gives up its old styling in the same piece of work, so the CSS shrinks instead of growing a second layer.
+
+Per page, after it is on Ittai v1.2 and checked:
+1. List the page's old `.mw-*` classes and any page-specific blocks in `mowology-brand.css` (and its inline or page CSS files).
+2. For each, search the whole repo (PHP, JS, other CSS, emails, the iPhone WebView pages) for other users of that class. Remove only classes nothing else uses; a class still used elsewhere stays and is noted as "retire when X is migrated".
+3. Remove the matching rules, regenerate `mowology-brand.min.css` (the freshness test enforces this), and compare before/after screenshots and computed styles on that page and on two pages that share the shell.
+4. Record the bytes removed per page in this plan, so the saving is visible.
+
+Fences:
+- `classic.css`, `corporate.css`, `app.js` and `/crinum/` are vendor files and are never edited (CLAUDE.md rule 1). They stop being loaded only when the last classic page is gone; until then the classic look stays for pages not yet migrated.
+- The `it_design` choice stays for Tim's own account while any page is still classic. A page is retired from classic only when Tim has seen the Ittai version of it.
+- The crew app has its own slim CSS (`crew-base.css`, `crew-brand.css`); retiring rules there is a separate check, never a side effect.
+- Colours stay on tokens (`--mw-*`, `--it-*`); old hex literals are removed when found, not re-added.
+
+End state: when every page is on Ittai, `classic.css` and the `.mw-*` layer for retired pages are dropped from the head, and `mowology-brand.css` holds only what is still used.
