@@ -494,6 +494,9 @@ $isOverdue = ($invoice['status'] === 'overdue');
 </div>
 <?php endif; ?>
 
+<!-- Weather authorization (salt/snow route invoices with a stored forecast record) -->
+<?php echo $weatherEvidenceHtml ?? ''; ?>
+
 <!-- Notes -->
 <?php if (!empty($invoice['notes'])): ?>
 <div class="notes-section">

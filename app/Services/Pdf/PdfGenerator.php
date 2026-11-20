@@ -248,11 +248,19 @@ class PdfGenerator
                 // business_settings table may not exist on some envs — ignore
             }
 
+            // Weather authorization panel (empty unless a forecast record exists for the visit)
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceWeatherEvidence.php';
+            $weatherEvidenceHtml = InvoiceWeatherEvidence::html(
+                InvoiceWeatherEvidence::forInvoice($this->db, $invoice),
+                (string)($business['company_name'] ?? 'Mowology Landscaping')
+            );
+
             // Render HTML template
             $html = $this->renderTemplate('invoice.php', [
                 'invoice' => $invoice,
                 'lineItems' => $lineItems,
                 'business' => $business,
+                'weatherEvidenceHtml' => $weatherEvidenceHtml,
                 'projectRoot' => $this->projectRoot,
             ]);
 
