@@ -33,6 +33,9 @@ require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/CertificationService.php';
 require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php';
 
+// Jobs
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitActivityService.php';
+
 // Team
 require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
 

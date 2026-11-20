@@ -1536,9 +1536,9 @@ if ($hasPropCoords) {
                                     ?>
                                         <tr class="<?php echo $rowClass; ?>" data-visit-status="<?php echo htmlspecialchars($visit['status']); ?>">
                                             <td>
-                                                <span class="font-weight-bold">
+                                                <a class="font-weight-bold" href="visit-detail.php?id=<?php echo (int)$visit['id']; ?>" title="Open everything for this visit">
                                                     <?php echo htmlspecialchars($visit['visit_number']); ?>
-                                                </span>
+                                                </a>
                                                 <br>
                                                 <small class="text-muted">#<?php echo (int)$visit['sequence_index']; ?></small>
                                             </td>
