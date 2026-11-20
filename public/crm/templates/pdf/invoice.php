@@ -385,7 +385,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             <div class="doc-number"<?php echo $ra; ?>><?php echo $esc($invoice['invoice_number']); ?></div>
             <div class="doc-meta"<?php echo $ra; ?>>
                 Date: <strong><?php echo $issueDate; ?></strong><br>
-                <?php if ($dueDate): ?>
+                <?php if ($dueDate && !$snowLayout): /* salt/snow: the due date is in the amount panel, once */ ?>
                     Due: <strong><?php echo $dueDate; ?></strong><br>
                 <?php endif; ?>
                 <?php if ($snowLayout && !empty($invoice['payment_terms'])): ?>
