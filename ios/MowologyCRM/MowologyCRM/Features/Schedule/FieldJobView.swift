@@ -159,6 +159,27 @@ final class FieldJobViewModel: ObservableObject {
         }
     }
 
+    /// A prospect: someone met on site who has no job yet. Saved as a client the office can quote later.
+    func createProspect(client: FieldClientDraft) async -> Bool {
+        var body: [String: Any] = [:]
+        body["action"]               = "create_client"
+        body["prospect"]             = 1
+        body["first_name"]           = client.firstName.trimmingCharacters(in: .whitespaces)
+        body["last_name"]            = client.lastName.trimmingCharacters(in: .whitespaces)
+        body["phone"]                = client.phone.trimmingCharacters(in: .whitespaces)
+        body["email"]                = client.email.trimmingCharacters(in: .whitespaces)
+        body["prospect_notes"]       = client.wants.trimmingCharacters(in: .whitespacesAndNewlines)
+        body["property_address"]     = client.address.trimmingCharacters(in: .whitespaces)
+        body["property_city"]        = client.city.trimmingCharacters(in: .whitespaces)
+        body["property_postal_code"] = client.postalCode.trimmingCharacters(in: .whitespaces)
+        if let fix {
+            body["lat"] = fix.coordinate.latitude
+            body["lng"] = fix.coordinate.longitude
+        }
+        let who = [client.firstName, client.lastName].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+        return await send(body, title: "New prospect \(who)") { _ in "Prospect saved" }
+    }
+
     /// One id per attempt: a retry after a dropped response must not create a second job.
     private var requestId = UUID().uuidString
 
@@ -250,10 +271,19 @@ struct FieldClientDraft {
     var address    = ""
     var city       = ""
     var postalCode = ""
+    /// Prospect only: optional email and what they asked for.
+    var email      = ""
+    var wants      = ""
 
     var isValid: Bool {
-        !firstName.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !address.trimmingCharacters(in: .whitespaces).isEmpty
+        !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// A prospect has no job to bring the office back to them, so they need a way to be reached.
+    var hasContactMethod: Bool {
+        !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        email.contains("@")
     }
 }
 
@@ -533,9 +563,25 @@ private struct FieldJobNewClientView: View {
     @State private var client = FieldClientDraft()
     @State private var draft  = FieldJobDraft()
     @State private var prefilled = false
+    /// "Prospect only": save the person and place with no job.
+    @State private var prospectOnly = false
+
+    private var canSave: Bool { client.isValid && (prospectOnly ? client.hasContactMethod : draft.isValid) }
 
     var body: some View {
         Form {
+            Section {
+                Picker("Save as", selection: $prospectOnly) {
+                    Text("Client + job").tag(false)
+                    Text("Prospect only").tag(true)
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                if prospectOnly {
+                    Text("Saves their details and the place, with no job. Add a phone or email so the office can reach them.")
+                }
+            }
+
             Section("Client") {
                 TextField("First name", text: $client.firstName)
                     .textContentType(.givenName)
@@ -544,6 +590,13 @@ private struct FieldJobNewClientView: View {
                 TextField("Phone", text: $client.phone)
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
+                if prospectOnly {
+                    TextField("Email (optional)", text: $client.email)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                    TextField("What they want (optional)", text: $client.wants, axis: .vertical)
+                }
             }
 
             Section {
@@ -558,17 +611,24 @@ private struct FieldJobNewClientView: View {
                 Text("Filled in from where you're standing — check the street number. The map pin is set to your current location.")
             }
 
-            FieldJobFormSections(draft: $draft, serviceTypes: vm.serviceTypes, header: "Job",
-                                 staff: vm.staff, currentUserId: vm.currentUserId)
+            if !prospectOnly {
+                FieldJobFormSections(draft: $draft, serviceTypes: vm.serviceTypes, header: "Job",
+                                     staff: vm.staff, currentUserId: vm.currentUserId)
+            }
 
             Section {
                 Button {
-                    Task { if await vm.createClientJob(client: client, job: draft) { finish() } }
+                    Task {
+                        let ok = prospectOnly
+                            ? await vm.createProspect(client: client)
+                            : await vm.createClientJob(client: client, job: draft)
+                        if ok { finish() }
+                    }
                 } label: {
-                    saveLabel("Create client and job", saving: vm.isSaving, appStyle: appStyle)
+                    saveLabel(prospectOnly ? "Save prospect" : "Create client and job", saving: vm.isSaving, appStyle: appStyle)
                 }
-                .disabled(!(client.isValid && draft.isValid) || vm.isSaving)
-                .listRowBackground(client.isValid && draft.isValid ? appStyle.tenant : (appStyle.isEnabled ? appStyle.sunk : Color(.systemGray4)))
+                .disabled(!canSave || vm.isSaving)
+                .listRowBackground(canSave ? appStyle.tenant : (appStyle.isEnabled ? appStyle.sunk : Color(.systemGray4)))
             }
         }
         .itAppForm()

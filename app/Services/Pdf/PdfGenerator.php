@@ -255,7 +255,9 @@ class PdfGenerator
             $weatherEv = InvoiceWeatherEvidence::forInvoice($this->db, $invoice);
             // Site presence only joins invoices that have weather evidence (salt/snow route runs)
             $weatherPanelHtml  = InvoiceWeatherEvidence::html($weatherEv, $evCompany);
-            $presencePanelHtml = $weatherEv !== null ? InvoiceSitePresence::html(InvoiceSitePresence::forInvoice($this->db, $invoice), $evCompany) : '';
+            $presenceData      = $weatherEv !== null ? InvoiceSitePresence::forInvoice($this->db, $invoice) : null;
+            $presencePanelHtml = InvoiceSitePresence::html($presenceData, $evCompany);
+            $presenceWideHtml  = InvoiceSitePresence::htmlWide($presenceData, $evCompany);
             $weatherEvidenceHtml = InvoiceSitePresence::sideBySide($weatherPanelHtml, $presencePanelHtml);
 
             // Salt/snow route invoice: one-page payment-first layout + the signed snow terms
@@ -271,13 +273,19 @@ class PdfGenerator
                 'weatherEvidenceHtml' => $weatherEvidenceHtml,
                 'weatherPanelHtml' => $weatherPanelHtml,
                 'presencePanelHtml' => $presencePanelHtml,
+                'presenceWideHtml' => $presenceWideHtml,
                 'snowLayout' => $snowLayout,
                 'snowTermsHtml' => $snowTermsHtml,
+                'snowTermsInFooter' => $snowTermsHtml !== '',
                 'projectRoot' => $this->projectRoot,
             ]);
 
             // Generate PDF
             $mpdf = $this->createMpdf();
+            if ($snowTermsHtml !== '') {
+                // The signed snow terms sit in the page footer, at the bottom of the page
+                $mpdf->SetHTMLFooter($snowTermsHtml);
+            }
             $mpdf->WriteHTML($html);
 
             // Save to disk + update DB
@@ -538,7 +546,7 @@ class PdfGenerator
             }
         }
 
-        return new \Mpdf\Mpdf([
+        $config = [
             'mode' => 'utf-8',
             'format' => 'Letter',
             'margin_left' => 15,
@@ -549,7 +557,22 @@ class PdfGenerator
             'margin_footer' => 10,
             'default_font' => 'helvetica',
             'tempDir' => $tmpDir,
-        ]);
+        ];
+
+        // Inter (SIL OFL, licence beside the files) for the Ittai-styled invoices. Registered only when the
+        // files are present; a document that asks for 'inter' without them falls back to the default font.
+        $interDir = __DIR__ . '/fonts';
+        if (is_file($interDir . '/inter_regular.ttf') && is_file($interDir . '/inter_semibold.ttf')) {
+            $fontDirs  = (new \Mpdf\Config\ConfigVariables())->getDefaults()['fontDir'];
+            $fontData  = (new \Mpdf\Config\FontVariables())->getDefaults()['fontdata'];
+            $config['fontDir']  = array_merge($fontDirs, [$interDir]);
+            $config['fontdata'] = $fontData + ['inter' => [
+                'R' => 'inter_regular.ttf', 'B' => 'inter_semibold.ttf',
+                'I' => 'inter_regular.ttf', 'BI' => 'inter_semibold.ttf',
+            ]];
+        }
+
+        return new \Mpdf\Mpdf($config);
     }
 
     /**

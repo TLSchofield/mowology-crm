@@ -67,5 +67,10 @@ class InvoiceSnowTermsTest extends TestCase
         }
         $this->assertSame(['One paragraph only'], InvoiceSnowTerms::columns('One paragraph only', 3));
         $this->assertSame(['one a', 'two b'], InvoiceSnowTerms::columns("one a\n\ntwo b", 3)); // never an empty column
+        // a section (heading + its paragraphs) is never split across columns
+        $sections = "TERM\n\nfirst.\n\nSCOPE\n\nsecond a.\n\nsecond b.\n\nWEATHER\n\nthird.";
+        foreach (InvoiceSnowTerms::columns($sections, 3) as $col) {
+            $this->assertSame(1, preg_match_all('/^[A-Z]+$/m', $col));
+        }
     }
 }

@@ -30,6 +30,7 @@ class InvoiceWeatherEvidence
                 $row = $s->fetch(PDO::FETCH_ASSOC);
                 if ($row) {
                     $row['grade'] = 'official';
+                    self::applyRecheck($db, $row);
                     return $row;
                 }
             }
@@ -55,6 +56,58 @@ class InvoiceWeatherEvidence
         return null;
     }
 
+    /**
+     * The same-day recheck (migration 1460), when one was written: the invoice then shows the forecast as it stood
+     * on the service morning. Its own guarded query, so before the migration runs nothing changes. The original
+     * capture stays in the table untouched.
+     */
+    private static function applyRecheck(PDO $db, array &$row): void
+    {
+        try {
+            $s = $db->prepare("SELECT recheck_at, recheck_low_c, recheck_condition FROM salt_weather_decisions WHERE id = ?");
+            $s->execute([(int)$row['record_id']]);
+            $r = $s->fetch(PDO::FETCH_ASSOC);
+            if ($r && !empty($r['recheck_at']) && $r['recheck_low_c'] !== null) {
+                $row['overnight_low_c']   = $r['recheck_low_c'];
+                $row['weather_condition'] = $r['recheck_condition'] ?: $row['weather_condition'];
+                $row['decision_at']       = $r['recheck_at'];
+                $row['rechecked']         = true;
+            }
+        } catch (Throwable $e) {
+            // columns not there yet: show the original capture
+        }
+    }
+
+    /**
+     * The facts of an official record as label/value rows, shared by the invoice PDF panel and the client portal.
+     * @return array{date:string, met:bool, rows:array<int,array{0:string,1:string}>}
+     */
+    public static function official(array $ev): array
+    {
+        $date  = !empty($ev['trigger_date']) ? date('l, F j, Y', strtotime((string)$ev['trigger_date'])) : '';
+        $low   = rtrim(rtrim(number_format((float)$ev['overnight_low_c'], 1), '0'), '.');
+        $thr   = rtrim(rtrim(number_format((float)$ev['trigger_threshold_c'], 1), '0'), '.');
+        $met   = (float)$ev['overnight_low_c'] <= (float)$ev['trigger_threshold_c'];
+        $cap   = '';
+        if (!empty($ev['decision_at'])) {
+            // decision_at is stored in server time (America/Vancouver), not UTC
+            $dt  = new DateTime((string)$ev['decision_at'], new DateTimeZone('America/Vancouver'));
+            $cap = $dt->format('M j, Y');   // date only — no clock time on the invoice (Tim, 2026-11-19)
+        }
+        $ref = !empty($ev['record_id']) ? 'WX-' . str_pad((string)(int)$ev['record_id'], 5, '0', STR_PAD_LEFT) : '';
+        $rows = [
+            ['Forecast overnight low', $low . ' °C'],
+            ['Service threshold', '≤ ' . $thr . ' °C'],
+            ['Threshold met', $met ? 'Yes — service authorized' : 'No'],
+            ['Condition', $ev['weather_condition'] ?: '—'],
+            ['Source', ($ev['data_source'] ?: 'Environment Canada')],
+            ['Station', $ev['source_station'] ?: '—'],
+            [!empty($ev['rechecked']) ? 'Forecast confirmed' : 'Forecast captured', $cap],
+        ];
+        if ($ref !== '') { $rows[] = ['Record reference', $ref]; }
+        return ['date' => $date, 'met' => $met, 'rows' => $rows];
+    }
+
     /** The panel as mPDF-safe HTML (tables, no flex). Empty string when there is no evidence. */
     public static function html(?array $ev, string $companyName = 'Mowology Landscaping'): string
     {
@@ -70,27 +123,9 @@ class InvoiceWeatherEvidence
         };
 
         if ($ev['grade'] === 'official') {
-            $date  = !empty($ev['trigger_date']) ? date('l, F j, Y', strtotime((string)$ev['trigger_date'])) : '';
-            $low   = rtrim(rtrim(number_format((float)$ev['overnight_low_c'], 1), '0'), '.');
-            $thr   = rtrim(rtrim(number_format((float)$ev['trigger_threshold_c'], 1), '0'), '.');
-            $met   = (float)$ev['overnight_low_c'] <= (float)$ev['trigger_threshold_c'];
-            $cap   = '';
-            if (!empty($ev['decision_at'])) {
-                // decision_at is stored in server time (America/Vancouver), not UTC
-                $dt  = new DateTime((string)$ev['decision_at'], new DateTimeZone('America/Vancouver'));
-                $cap = $dt->format('M j, Y');   // date only — no clock time on the invoice (Tim, 2026-11-19)
-            }
-            $ref = !empty($ev['record_id']) ? 'WX-' . str_pad((string)(int)$ev['record_id'], 5, '0', STR_PAD_LEFT) : '';
-            $rows = [
-                ['Forecast overnight low', $low . ' °C'],
-                ['Service threshold', '≤ ' . $thr . ' °C'],
-                ['Threshold met', $met ? 'Yes — service authorized' : 'No'],
-                ['Condition', $ev['weather_condition'] ?: '—'],
-                ['Source', ($ev['data_source'] ?: 'Environment Canada')],
-                ['Station', $ev['source_station'] ?: '—'],
-                ['Forecast captured', $cap],
-            ];
-            if ($ref !== '') { $rows[] = ['Record reference', $ref]; }
+            $f = self::official($ev);
+            $date = $f['date'];
+            $rows = $f['rows'];
             $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="' . $css . '">';
             $h .= $head('WEATHER AUTHORIZATION', 'Official forecast record');
             $h .= '<tr><td colspan="2" style="padding:6px 10px 2px 10px; font-size:7pt; color:#64748b; letter-spacing:1px;">NIGHT OF '

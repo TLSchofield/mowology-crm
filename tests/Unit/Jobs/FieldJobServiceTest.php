@@ -126,4 +126,26 @@ final class FieldJobServiceTest extends TestCase
         $this->assertFalse($res['success']);
         $this->assertSame(400, $res['status']);
     }
+
+    public function testProspectNoteSaysNoJobAndCarriesWhatTheyWant(): void
+    {
+        $note = FieldJobService::contactNote(['prospect' => true, 'prospect_notes' => ' hedge trim + lawn '], 'Tim');
+        $this->assertStringContainsString('Prospect met in the field by Tim', $note);
+        $this->assertStringContainsString('Wants: hedge trim + lawn', $note);
+    }
+
+    public function testClientNoteStaysTheOldWordingWhenNotAProspect(): void
+    {
+        $this->assertSame(
+            'Created in the field by crew — please review.',
+            FieldJobService::contactNote([], '')
+        );
+    }
+
+    public function testEmailOnlyProspectPrefersEmail(): void
+    {
+        $this->assertSame('email', FieldJobService::preferredMethod(['email' => 'a@b.ca']));
+        $this->assertSame('phone', FieldJobService::preferredMethod(['phone' => '778', 'email' => 'a@b.ca']));
+        $this->assertSame('phone', FieldJobService::preferredMethod([]));
+    }
 }

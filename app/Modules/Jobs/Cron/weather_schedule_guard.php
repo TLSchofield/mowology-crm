@@ -577,7 +577,59 @@ function runSaltAlerts(PDO $db): array
         }
     }
 
+    // Same-day recheck: the first capture can be days old, so on the service morning (this cron runs before the
+    // noon cut-off) the fresh forecast is written once beside it. Never throws.
+    try {
+        $rc = recheckSaltWeatherDecisions($db, $weekForecast ?? [], (float)($triggerTemp ?? 0));
+        $saltResults['rechecked'] = $rc['rechecked'];
+        if (!empty($rc['errors'])) {
+            $saltResults['errors'] = array_merge($saltResults['errors'], $rc['errors']);
+        }
+    } catch (Throwable $e) {
+        $saltResults['errors'][] = 'Recheck error: ' . $e->getMessage();
+    }
+
     return $saltResults;
+}
+
+/**
+ * Same-day recheck of today's salt decisions. The original capture (INSERT IGNORE) is never touched; the fresh
+ * forecast goes into the recheck_* columns once (WHERE recheck_at IS NULL), so a cron retry cannot overwrite it.
+ * Before migration 1460 runs the UPDATE fails and is reported, nothing else changes.
+ */
+function recheckSaltWeatherDecisions(PDO $db, array $weekForecast, float $globalTriggerTemp, ?string $today = null): array
+{
+    $result = ['rechecked' => 0, 'errors' => []];
+    $today = $today ?: date('Y-m-d');
+    $day = $weekForecast[$today] ?? null;
+    if (!is_array($day) || !isset($day['temp_low'])) {
+        return $result;
+    }
+    try {
+        $ecIdentifier = getEnvironmentCanadaIdentifier('Vancouver', 'BC') ?? 'bc-74';
+        $low  = (float)$day['temp_low'];
+        $cond = (string)($day['condition'] ?? 'Unknown');
+        $raw  = json_encode([
+            'source'          => 'Environment Canada',
+            'ec_identifier'   => $ecIdentifier,
+            'captured_at_utc' => gmdate('Y-m-d H:i:s') . ' UTC',
+            'trigger_date'    => $today,
+            'forecast_day'    => $day,
+            'global_trigger_threshold_c' => $globalTriggerTemp,
+        ]);
+        $st = $db->prepare("UPDATE salt_weather_decisions
+                            SET recheck_at = ?, recheck_low_c = ?, recheck_condition = ?, recheck_source = 'Environment Canada', recheck_raw = ?
+                            WHERE trigger_date = ? AND recheck_at IS NULL");
+        $st->execute([date('Y-m-d H:i:s'), $low, $cond, $raw, $today]);
+        $result['rechecked'] = $st->rowCount();
+        if ($result['rechecked'] > 0 && $low > $globalTriggerTemp) {
+            error_log("Salt recheck {$today}: fresh low {$low} is ABOVE the threshold {$globalTriggerTemp} - the morning forecast no longer supports service");
+        }
+    } catch (Throwable $e) {
+        $result['errors'][] = 'Salt recheck ' . $today . ': ' . $e->getMessage();
+        error_log('recheckSaltWeatherDecisions: ' . $e->getMessage());
+    }
+    return $result;
 }
 
 /**

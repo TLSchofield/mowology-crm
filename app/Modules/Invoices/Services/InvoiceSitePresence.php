@@ -66,7 +66,7 @@ class InvoiceSitePresence
      * with GD (Google's key is refused for static maps on this host — 403). Tiles are cached; the
      * finished picture is cached by content. Null on any failure, and the panel renders without it.
      */
-    public static function mapFile(array $p): ?string
+    public static function mapFile(array $p, bool $muted = false): ?string
     {
         try {
             $root = defined('STORAGE_ROOT') ? STORAGE_ROOT : '';
@@ -78,7 +78,7 @@ class InvoiceSitePresence
                 return null;
             }
             $coords = array_map(function ($r) { return round((float)$r['lat'], 6) . ',' . round((float)$r['lng'], 6); }, $p['points']);
-            $file = $dir . '/ping2_' . substr(sha1(implode('|', $coords) . 'v4'), 0, 16) . '.png';
+            $file = $dir . '/ping2' . ($muted ? 'm' : '') . '_' . substr(sha1(implode('|', $coords) . 'v4' . ($muted ? 'muted' : '')), 0, 16) . '.png';
             if (is_file($file) && filesize($file) > 1000) {
                 return $file;
             }
@@ -126,10 +126,21 @@ class InvoiceSitePresence
                 return null;
             }
             imageantialias($img, true);
-            $green = imagecolorallocate($img, 45, 134, 89);
-            $lime  = imagecolorallocate($img, 127, 216, 88);
-            $white = imagecolorallocate($img, 255, 255, 255);
-            $dark  = imagecolorallocate($img, 26, 95, 74);
+            if ($muted) {
+                // Premium treatment: the street map recedes (soft greyscale) so the trail is the only colour
+                imagefilter($img, IMG_FILTER_GRAYSCALE);
+                imagefilter($img, IMG_FILTER_CONTRAST, -12);
+                imagefilter($img, IMG_FILTER_BRIGHTNESS, 28);
+                $green = imagecolorallocate($img, 35, 58, 94);     // Ittai --brand
+                $lime  = imagecolorallocate($img, 35, 58, 94);
+                $white = imagecolorallocate($img, 255, 255, 255);
+                $dark  = imagecolorallocate($img, 35, 58, 94);
+            } else {
+                $green = imagecolorallocate($img, 45, 134, 89);
+                $lime  = imagecolorallocate($img, 127, 216, 88);
+                $white = imagecolorallocate($img, 255, 255, 255);
+                $dark  = imagecolorallocate($img, 26, 95, 74);
+            }
             $pts = array_map(function ($r) use ($px, $left, $top) {
                 [$x, $y] = $px((float)$r['lat'], (float)$r['lng']);
                 return [(int)round($x - $left), (int)round($y - $top)];
@@ -195,6 +206,55 @@ class InvoiceSitePresence
         $h .= '</table></td></tr>';
         $h .= '<tr><td colspan="2" style="padding:3px 10px 6px 10px; font-size:6.5pt; color:#64748b; border-top:0.4pt solid #cbd5e1;">'
             . 'Recorded automatically by ' . $e($companyName) . ' while the visit was open; mock locations excluded. Map &copy; OpenStreetMap contributors.'
+            . '</td></tr></table>';
+        return $h;
+    }
+
+    /**
+     * The same panel laid out as a full-width strip: the map on the left, its text (address, readings,
+     * arrival, accuracy) to the right. Used on salt/snow invoices, where it sits on its own row.
+     * Same facts as html(): arrival only, never a departure time or a duration.
+     */
+    public static function htmlWide(?array $p, string $companyName = 'Mowology Landscaping'): string
+    {
+        if (!$p) {
+            return '';
+        }
+        $e = function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
+        $arrived = (new DateTime($p['first'], new DateTimeZone('America/Vancouver')))->format('g:i:s A') . ' Pacific';
+        $day = (new DateTime($p['first'], new DateTimeZone('America/Vancouver')))->format('l, F j, Y');
+        $rows = [
+            ['Readings', $p['count'] . ' within 200 m of the property'],
+            ['Arrived', $arrived],
+        ];
+        if ($p['best_accuracy_m'] !== null) {
+            $rows[] = ['Best accuracy', '± ' . $p['best_accuracy_m'] . ' m · crew mobile device'];
+        }
+
+        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:1.2pt solid #1e3a5f; font-size:8pt; color:#1f2937; page-break-inside:avoid;">';
+        $h .= '<tr><td style="background:#1e3a5f; color:#ffffff; padding:5px 10px; font-weight:bold; letter-spacing:1px; font-size:8pt;">SITE PRESENCE</td>'
+            . '<td style="background:#1e3a5f; color:#cbd5e1; padding:5px 10px; text-align:right; font-size:7pt;">GPS record</td></tr>';
+        $h .= '<tr>';
+        $mapFile = self::mapFile($p, true);
+        if ($mapFile !== null) {
+            // Pinned in mm (an image at width:100% reports its pixel width to mPDF, which then shrinks the layout). 90 mm = the width of the
+            // weather panel above (49% of the text width), and the text column starts where the amount-due panel starts (51%).
+            // The map file is always 640x230, so every property gets the same frame; only the zoom changes.
+            $h .= '<td width="51%" valign="top" style="padding:0;"><img src="' . $e($mapFile) . '" style="width:90mm; display:block;"></td>';
+        }
+        $h .= '<td valign="top" style="padding:6px 10px 4px 10px;">'
+            . '<span style="background:#0d3b2e; color:#ffffff; font-weight:bold; font-size:8pt;">&nbsp;' . (int)$p['count'] . ' GPS ping' . ((int)$p['count'] === 1 ? '' : 's') . '&nbsp;</span> '
+            . '<span style="font-size:9.5pt; font-weight:bold; color:#1e3a5f;">' . $e($p['address'] ?: 'Service property') . '</span><br>'
+            . '<span style="font-size:7.5pt; color:#64748b;">' . $e($day) . '</span>'
+            . '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;">';
+        foreach ($rows as $i => $r) {
+            $bg = $i % 2 ? '#f8fafc' : '#ffffff';
+            $h .= '<tr><td width="30%" style="background:' . $bg . '; padding:3px 6px; font-size:8pt; color:#64748b; border-bottom:0.4pt solid #e2e8f0;">' . $e($r[0])
+                . '</td><td style="background:' . $bg . '; padding:3px 6px; font-size:8pt; font-weight:bold; border-bottom:0.4pt solid #e2e8f0;">' . $e($r[1]) . '</td></tr>';
+        }
+        $h .= '</table>'
+            . '<div style="margin-top:5px; font-size:6.5pt; color:#64748b;">Recorded automatically by ' . $e($companyName)
+            . ' while the visit was open; mock locations excluded. Map &copy; OpenStreetMap contributors.</div>'
             . '</td></tr></table>';
         return $h;
     }
