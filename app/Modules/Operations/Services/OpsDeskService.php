@@ -321,13 +321,16 @@ class OpsDeskService
     private function clockOutItems(): array
     {
         try {
-            $s = $this->db->prepare("
+            // On production MySQL chose idx_clh_point_uuid for the location subquery and scanned ~70,000 rows per shift
+            // (0.9 s for 7 rows, 2026-11-20); the crew_id index gives the same answer in about 0.15 s. Fall back to the
+            // optimiser's own choice on a database without that index.
+            $sql = "
                 SELECT tce.id, tce.user_id, tce.clock_in, tce.clock_out, tce.status, u.full_name,
                        UNIX_TIMESTAMP(tce.clock_in) AS in_ts,
                        (SELECT UNIX_TIMESTAMP(MAX(jte.end_time)) FROM job_time_entries jte
                          WHERE jte.user_id = tce.user_id AND jte.auto_stopped = 0
                            AND jte.end_time > tce.clock_in AND jte.end_time <= DATE_ADD(tce.clock_in, INTERVAL ? HOUR)) AS timer_ts,
-                       (SELECT UNIX_TIMESTAMP(MAX(clh.timestamp)) FROM crew_location_history clh
+                       (SELECT UNIX_TIMESTAMP(MAX(clh.timestamp)) FROM crew_location_history clh {INDEX_HINT}
                          WHERE clh.crew_id = tce.user_id AND clh.visit_id IS NOT NULL
                            AND clh.timestamp > tce.clock_in AND clh.timestamp <= DATE_ADD(tce.clock_in, INTERVAL ? HOUR)) AS fix_ts
                 FROM time_clock_entries tce
@@ -338,10 +341,16 @@ class OpsDeskService
                      OR (tce.status = 'completed' AND tce.notes LIKE '%auto-completed by cron%')
                   )
                 ORDER BY tce.clock_in DESC
-                LIMIT " . self::LIMIT
-            );
+                LIMIT " . self::LIMIT;
             $h = OttoRules::MAX_SHIFT_HOURS;
-            $s->execute([$h, $h, $this->since(), $this->today . ' 00:00:00']);
+            $args = [$h, $h, $this->since(), $this->today . ' 00:00:00'];
+            try {
+                $s = $this->db->prepare(str_replace('{INDEX_HINT}', 'FORCE INDEX (crew_id)', $sql));
+                $s->execute($args);
+            } catch (Throwable $e) {
+                $s = $this->db->prepare(str_replace('{INDEX_HINT}', '', $sql));
+                $s->execute($args);
+            }
             $rows = $s->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
             error_log('Otto clock-outs: ' . $e->getMessage());

@@ -1,0 +1,11 @@
+{
+  "_about": "Screens photographed side by side each day. ios_args: launch arguments for the DEBUG iPhone app. android_start: the `adb shell` command that opens the same screen (the DEBUG Android build reads --es mwTab). wait: seconds to settle. IMPORTANT: -mwTab runs in the iPhone's credential-free debug host, so these show chrome + empty states (headers, bar, spine, cards, typography), not live data. Data screens need both apps signed in to the same local test tenant (scripts/local-android.sh) — add those entries once that is wired.",
+  "screens": [
+    { "name": "schedule", "ios_args": ["-mwTab", "schedule"], "android_start": "am start -n {pkg}/ca.mowology.crew.MainActivity --es mwTab schedule", "wait": 15 },
+    { "name": "time",     "ios_args": ["-mwTab", "time"],     "android_start": "am start -n {pkg}/ca.mowology.crew.MainActivity --es mwTab time",     "wait": 15 },
+    { "name": "kaname",   "ios_args": ["-mwTab", "kaname"],   "android_start": "am start -n {pkg}/ca.mowology.crew.MainActivity --es mwTab kaname",   "wait": 15 },
+    { "name": "search",   "ios_args": ["-mwTab", "search"],   "android_start": "am start -n {pkg}/ca.mowology.crew.MainActivity --es mwTab search",   "wait": 15 },
+    { "name": "receipts", "ios_args": ["-mwTab", "receipts"], "android_start": "am start -n {pkg}/ca.mowology.crew.MainActivity --es mwTab receipts", "wait": 15 },
+    { "name": "account",  "ios_args": ["-mwTab", "account"],  "android_start": "am start -n {pkg}/ca.mowology.crew.MainActivity --es mwTab account",  "wait": 15 }
+  ]
+}

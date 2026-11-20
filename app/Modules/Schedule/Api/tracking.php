@@ -61,7 +61,15 @@ try {
         switch (trim((string)($_GET['mode'] ?? 'status'))) {
 
             case 'status':
-                echo json_encode(['success' => true, 'policy' => $policy()]);
+                // battery_enforce sits beside `policy`, not inside it (iOS parses policy strictly): the
+                // Android app makes the battery step required only for a device that went quiet this week.
+                // Any failure means "advisory", the old behaviour.
+                $batteryEnforce = false;
+                try {
+                    require_once APP_ROOT . '/Modules/Team/Services/TrackingHealthService.php';
+                    $batteryEnforce = (new TrackingHealthService($db))->batteryEnforcedFor($userId);
+                } catch (Throwable $e) { /* advisory */ }
+                echo json_encode(['success' => true, 'policy' => $policy(), 'battery_enforce' => $batteryEnforce]);
                 break;
 
             case 'consent':

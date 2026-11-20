@@ -154,7 +154,24 @@ struct MainTabView: View {
         // Read only: a write here ran on every re-creation of this view and, because removeObject posts the
         // defaults-changed notification even for an absent key, kept every @AppStorage view invalidating in a loop
         // (build 627 black screen, 0x8BADF00D at launch). The key is cleared once, in onAppear.
-        _selectedTab = State(initialValue: landing == .receipts ? .receipts : (landing == .kaname ? .kaname : .schedule))
+        var firstTab: Tab = landing == .receipts ? .receipts : (landing == .kaname ? .kaname : .schedule)
+        #if DEBUG
+        // `-mwTab <schedule|time|kaname|search|receipts|account>` opens that tab (read-only launch argument; used by
+        // scripts/parity/parity.py to photograph the same screen on iPhone and Android).
+        let launchArgs = ProcessInfo.processInfo.arguments
+        if let i = launchArgs.firstIndex(of: "-mwTab"), i + 1 < launchArgs.count {
+            switch launchArgs[i + 1] {
+            case "schedule": firstTab = .schedule
+            case "time": firstTab = .time
+            case "kaname": firstTab = .kaname
+            case "search": firstTab = .search
+            case "receipts": firstTab = .receipts
+            case "account": firstTab = .account
+            default: break
+            }
+        }
+        #endif
+        _selectedTab = State(initialValue: firstTab)
         // Belt and braces with `.toolbar(.hidden, for: .tabBar)` on each tab: the meniscus bar replaces the
         // system tab bar, so it must never show as a second bar (no simulator on this Mac to prove every screen).
         UITabBar.appearance().isHidden = true

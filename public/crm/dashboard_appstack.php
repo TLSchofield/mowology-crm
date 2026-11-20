@@ -9,6 +9,12 @@ require_once 'includes/error-handler.php';
 requireLogin();
 $user = getCurrentUser();
 
+// Timing marks, admin only: add ?prof=1 and the page ends with an HTML comment listing where the time went (ms since the
+// previous mark). Added 2026-11-20 for the dashboard speed work; harmless otherwise (a few microtime() calls).
+$__profOn = isset($_GET['prof']) && ($user['role'] ?? '') === 'admin';
+$__prof = [['request_start_to_here', microtime(true), $_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true)]];
+$__mark = function (string $label) use (&$__prof) { $__prof[] = [$label, microtime(true)]; };
+
 // Ittai design, opt-in per browser (owner, 2026-10-18): ?it_design=1|0 flips it, then back to the clean URL.
 // A look-only preference, so a cookie is enough; off is the classic page, unchanged.
 if (isset($_GET['it_design'])) {
@@ -34,6 +40,7 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Get 7-day weather forecast for dashboard (today + 6 days forward)
 $weekWeather = getWeekForecast('Vancouver', 'BC');
+$__mark('weather');
 
 // Winter seasonal outlook (Nov-Mar freeze/snow expectations). Null out of season,
 // so the card simply disappears in summer rather than showing a dead panel.
@@ -48,6 +55,7 @@ try {
 $profitStart = date('Y-m-d', strtotime('-3 days'));
 $profitEnd = date('Y-m-d', strtotime('+3 days'));
 $dailyProfit = getDailyProfitability($profitStart, $profitEnd);
+$__mark('profit');
 
 // Get dashboard statistics
 $db = getDB();
@@ -117,6 +125,7 @@ try {
 
     // Work queue items
     $workQueueItems = getWorkQueueItems();
+    $__mark('workQueue');
 
     // Crew Today: clock-in status + app install status + active jobs
     $crewToday = [];
@@ -194,8 +203,10 @@ if ($itDesign) {
         $extraHead .= '<link href="/crm/css/' . $__itCss . '?v=' . (int)@filemtime(__DIR__ . '/css/' . $__itCss) . '" rel="stylesheet">';
     }
 }
+$__mark('queries_done');
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+<?php $__mark('head_include'); ?>
 <?php if ($itDesign): ?><div class="it-design"><?php endif; ?>
 
           <!-- Session Alert Display -->
@@ -237,7 +248,8 @@ if ($itDesign) {
           }
           ?>
 
-          <?php include __DIR__ . '/includes/dept-heads-deck.php'; // Penny + the department heads ?>
+          <?php $__mark('action_board'); include __DIR__ . '/includes/dept-heads-deck.php'; // Penny + the department heads ?>
+          <?php $__mark('heads_deck'); ?>
 
           <?php
           // Pending e-Transfers awaiting recording (billing users only — links to
@@ -1320,4 +1332,15 @@ function mwReconsentSendBatch() {
 </script>
 
 <?php if ($itDesign): ?></div><!-- /.it-design --><?php endif; ?>
+<?php
+$__mark('body_rest');
+if ($__profOn) {
+    $__prev = null; $__line = [];
+    foreach ($__prof as $__p) {
+        $__line[] = $__p[0] . '=' . (int)round(($__p[1] - ($__p[2] ?? $__prev ?? $__p[1])) * 1000);
+        $__prev = $__p[1];
+    }
+    echo '<!-- prof(ms): ' . implode(' ', $__line) . ' -->';
+}
+?>
 <?php include 'includes/appstack_footer.php'; ?>
