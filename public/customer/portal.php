@@ -653,7 +653,9 @@ function statusBadge(string $status, bool $overdue = false): string {
               }
               $vSees    = $adminMode ? ['report' => true, 'length' => true]
                                      : $mwClientVisibility->forContractId($v['contract_id'] ?? null);
-              $durMins  = $vSees['length'] ? (int)($v['actual_duration_minutes'] ?? 0) : 0;
+              // Visit length is never shown to a client (Tim, 2026-11-19; same rule as the visit
+              // report, 2026-11-02). Office preview (adminMode) still shows it.
+              $durMins  = ($adminMode && $vSees['length']) ? (int)($v['actual_duration_minutes'] ?? 0) : 0;
               if ($durMins > 0) {
                   $durHrs  = intdiv($durMins, 60);
                   $durRem  = $durMins % 60;
