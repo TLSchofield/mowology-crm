@@ -66,7 +66,7 @@ class InvoiceSitePresence
      * with GD (Google's key is refused for static maps on this host — 403). Tiles are cached; the
      * finished picture is cached by content. Null on any failure, and the panel renders without it.
      */
-    public static function mapFile(array $p): ?string
+    public static function mapFile(array $p, bool $muted = false): ?string
     {
         try {
             $root = defined('STORAGE_ROOT') ? STORAGE_ROOT : '';
@@ -78,7 +78,7 @@ class InvoiceSitePresence
                 return null;
             }
             $coords = array_map(function ($r) { return round((float)$r['lat'], 6) . ',' . round((float)$r['lng'], 6); }, $p['points']);
-            $file = $dir . '/ping2_' . substr(sha1(implode('|', $coords) . 'v4'), 0, 16) . '.png';
+            $file = $dir . '/ping2' . ($muted ? 'm' : '') . '_' . substr(sha1(implode('|', $coords) . 'v4' . ($muted ? 'muted' : '')), 0, 16) . '.png';
             if (is_file($file) && filesize($file) > 1000) {
                 return $file;
             }
@@ -126,10 +126,21 @@ class InvoiceSitePresence
                 return null;
             }
             imageantialias($img, true);
-            $green = imagecolorallocate($img, 45, 134, 89);
-            $lime  = imagecolorallocate($img, 127, 216, 88);
-            $white = imagecolorallocate($img, 255, 255, 255);
-            $dark  = imagecolorallocate($img, 26, 95, 74);
+            if ($muted) {
+                // Premium treatment: the street map recedes (soft greyscale) so the trail is the only colour
+                imagefilter($img, IMG_FILTER_GRAYSCALE);
+                imagefilter($img, IMG_FILTER_CONTRAST, -12);
+                imagefilter($img, IMG_FILTER_BRIGHTNESS, 28);
+                $green = imagecolorallocate($img, 35, 58, 94);     // Ittai --brand
+                $lime  = imagecolorallocate($img, 35, 58, 94);
+                $white = imagecolorallocate($img, 255, 255, 255);
+                $dark  = imagecolorallocate($img, 35, 58, 94);
+            } else {
+                $green = imagecolorallocate($img, 45, 134, 89);
+                $lime  = imagecolorallocate($img, 127, 216, 88);
+                $white = imagecolorallocate($img, 255, 255, 255);
+                $dark  = imagecolorallocate($img, 26, 95, 74);
+            }
             $pts = array_map(function ($r) use ($px, $left, $top) {
                 [$x, $y] = $px((float)$r['lat'], (float)$r['lng']);
                 return [(int)round($x - $left), (int)round($y - $top)];
@@ -224,7 +235,7 @@ class InvoiceSitePresence
         $h .= '<tr><td colspan="2" style="background:#1e3a5f; color:#ffffff; padding:5px 10px; font-weight:bold; letter-spacing:1px; font-size:8pt;">SITE PRESENCE'
             . '<span style="color:#cbd5e1; font-weight:normal; letter-spacing:0; font-size:7pt;"> &nbsp;GPS record</span></td></tr>';
         $h .= '<tr>';
-        $mapFile = self::mapFile($p);
+        $mapFile = self::mapFile($p, true);
         if ($mapFile !== null) {
             // Pinned in mm (an image at width:100% reports its pixel width to mPDF, which then shrinks the layout). 90 mm = the width of the
             // weather panel above (49% of the text width), and the text column starts where the amount-due panel starts (51%).

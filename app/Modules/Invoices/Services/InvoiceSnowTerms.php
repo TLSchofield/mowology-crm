@@ -36,6 +36,62 @@ class InvoiceSnowTerms
         ]);
     }
 
+    /**
+     * Premium treatment for the weather and GPS panels on the salt/snow invoice: the navy header bars and
+     * heavy frames become hairlines on white, the zebra stripes go, and the amount-due panel is the only solid
+     * block on the page. Run BEFORE ittai() (it maps the light header text colours too).
+     */
+    public static function quiet(string $html): string
+    {
+        return strtr($html, [
+            'background:#1e3a5f; color:#ffffff;' => 'background:#ffffff; color:#233A5E; border-bottom:0.6pt solid #D9DFDA;',
+            'background:#1e3a5f; color:#cbd5e1;' => 'background:#ffffff; color:#48534C; border-bottom:0.6pt solid #D9DFDA;',
+            '<span style="color:#cbd5e1; font-weight:normal;' => '<span style="color:#48534C; font-weight:normal;',
+            'border:1.2pt solid #1e3a5f' => 'border:0.6pt solid #D9DFDA',
+            'background:#f8fafc' => 'background:#ffffff',
+        ]);
+    }
+
+    /**
+     * The company logo redrawn in Ittai indigo (white stays white), cached in the temp dir. The shipped logo is
+     * a green gradient M that is the only green object on the indigo page. Falls back to the original file.
+     */
+    public static function logoIndigo(string $path): string
+    {
+        try {
+            if (!is_file($path) || !function_exists('imagecreatefromjpeg')) {
+                return $path;
+            }
+            $out = sys_get_temp_dir() . '/mw-logo-indigo-' . md5($path . filemtime($path)) . '.png';
+            if (is_file($out) && filesize($out) > 200) {
+                return $out;
+            }
+            $src = @imagecreatefromstring((string)file_get_contents($path));
+            if (!$src) {
+                return $path;
+            }
+            $w = imagesx($src); $h = imagesy($src);
+            $dst = imagecreatetruecolor($w, $h);
+            for ($y = 0; $y < $h; $y++) {
+                for ($x = 0; $x < $w; $x++) {
+                    $c = imagecolorat($src, $x, $y);
+                    $r = ($c >> 16) & 255; $g = ($c >> 8) & 255; $b = $c & 255;
+                    $l = (0.299 * $r + 0.587 * $g + 0.114 * $b) / 255;       // 1 = white background, lower = ink
+                    $t = max(0.0, min(1.0, ($l - 0.35) / 0.60));             // push mid-greens toward solid indigo
+                    $dst_r = (int)round(35 + (255 - 35) * $t);
+                    $dst_g = (int)round(58 + (255 - 58) * $t);
+                    $dst_b = (int)round(94 + (255 - 94) * $t);
+                    imagesetpixel($dst, $x, $y, ($dst_r << 16) | ($dst_g << 8) | $dst_b);
+                }
+            }
+            imagepng($dst, $out);
+            return is_file($out) ? $out : $path;
+        } catch (Throwable $e) {
+            error_log('InvoiceSnowTerms logo: ' . $e->getMessage());
+            return $path;
+        }
+    }
+
     /** True when the invoice is for a salt/snow route plan. Never throws. */
     public static function isSnowInvoice(PDO $db, array $invoice): bool
     {

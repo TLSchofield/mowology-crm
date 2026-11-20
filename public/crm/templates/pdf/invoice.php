@@ -312,6 +312,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     .two-col td { padding-right: 14px; }
     .items-table td { padding-top: 4px; padding-bottom: 4px; }
     .footer { margin-top: 6px; padding-top: 5px; }
+    /* Ittai type: Inter (registered in PdfGenerator::createMpdf; falls back to the default font if absent) */
+    body, td, th { font-family: inter, helvetica, sans-serif; }
     /* Ittai v1.2 brand colours (--brand #233A5E, --text #131D17, --meta #48534C, --line #D9DFDA, --sunk #EEF1EE) */
     body { color: #131D17; }
     .brand-name { color: #233A5E; }
@@ -345,6 +347,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                     $logoPath = $logoPath . '/public';
                 }
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
+                if ($snowLayout) { $logoPath = InvoiceSnowTerms::logoIndigo($logoPath); }   // one-colour indigo on the Ittai page
             ?>
             <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: <?php echo $snowLayout ? '30' : '50'; ?>px; margin-bottom: <?php echo $snowLayout ? '3' : '8'; ?>px;">
             <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
@@ -570,15 +573,15 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         $snowRow = true;
         // Same height: the frame (weather's border, the amount panel's tint) is carried by the table CELLS,
         // which stretch to the taller of the two; mPDF ignores a height set on the inner tables.
-        $wInner  = InvoiceSnowTerms::ittai(str_replace(['border:1.2pt solid #1e3a5f;', 'margin-top:8px;'], '', $wPanel));
+        $wInner  = InvoiceSnowTerms::ittai(InvoiceSnowTerms::quiet(str_replace(['border:1.2pt solid #1e3a5f;', 'margin-top:8px;'], '', $wPanel)));
         $wInner  = str_replace('Yes — service authorized', '<span style="background:#DCEBE2; color:#1A5A39; font-weight:bold;">&nbsp;Yes — service authorized&nbsp;</span>', $wInner);
         $pInner  = InvoiceSnowTerms::ittai(str_replace('margin-top:6px;', 'margin-top:0;', $payHtml));
-        echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>'
-           . '<td width="49%" valign="top" style="border:1.2pt solid #233A5E; padding:0;">' . $wInner . '</td>'
+        echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;"><tr>'
+           . '<td width="49%" valign="top" style="border:0.6pt solid #D9DFDA; padding:0;">' . $wInner . '</td>'
            . '<td width="2%"></td>'
            . '<td width="49%" valign="top" style="background:#EEF1EE; padding:0;">' . $pInner . '</td>'
            . '</tr></table>';
-        echo InvoiceSnowTerms::ittai($gWide);
+        echo InvoiceSnowTerms::ittai(InvoiceSnowTerms::quiet($gWide));
     } else {
         echo $payHtml;
     }

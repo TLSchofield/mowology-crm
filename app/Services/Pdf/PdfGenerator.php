@@ -546,7 +546,7 @@ class PdfGenerator
             }
         }
 
-        return new \Mpdf\Mpdf([
+        $config = [
             'mode' => 'utf-8',
             'format' => 'Letter',
             'margin_left' => 15,
@@ -557,7 +557,22 @@ class PdfGenerator
             'margin_footer' => 10,
             'default_font' => 'helvetica',
             'tempDir' => $tmpDir,
-        ]);
+        ];
+
+        // Inter (SIL OFL, licence beside the files) for the Ittai-styled invoices. Registered only when the
+        // files are present; a document that asks for 'inter' without them falls back to the default font.
+        $interDir = __DIR__ . '/fonts';
+        if (is_file($interDir . '/inter_regular.ttf') && is_file($interDir . '/inter_semibold.ttf')) {
+            $fontDirs  = (new \Mpdf\Config\ConfigVariables())->getDefaults()['fontDir'];
+            $fontData  = (new \Mpdf\Config\FontVariables())->getDefaults()['fontdata'];
+            $config['fontDir']  = array_merge($fontDirs, [$interDir]);
+            $config['fontdata'] = $fontData + ['inter' => [
+                'R' => 'inter_regular.ttf', 'B' => 'inter_semibold.ttf',
+                'I' => 'inter_regular.ttf', 'BI' => 'inter_semibold.ttf',
+            ]];
+        }
+
+        return new \Mpdf\Mpdf($config);
     }
 
     /**
