@@ -182,7 +182,7 @@ $pings = [];
 if (!$error && $visit) {
     try {
         require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
-        $pings = (new RouteProofService($db))->forVisits([$visitId])[$visitId] ?? [];
+        $pings = (new RouteProofService($db))->forVisits([$visitId], true)[$visitId] ?? [];
     } catch (Throwable $e) {
         $pings = [];
     }

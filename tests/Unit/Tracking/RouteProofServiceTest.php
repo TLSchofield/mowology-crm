@@ -55,4 +55,36 @@ final class RouteProofServiceTest extends TestCase
         $this->assertSame([$pts[1], $pts[2]], $kept);
         $this->assertSame([], RouteProofService::onSiteLatLng($pts, [], 150), 'no property pin → no map');
     }
+
+    // ── Time window (2026-11-19: back-to-back salt stops drew the whole day's trail) ──
+
+    public function testWindowIsTheTimerPaddedAMinute(): void
+    {
+        $w = RouteProofService::windows([['start' => '2026-11-19 14:19:12', 'end' => '2026-11-19 14:21:31']], null, null, 0);
+        $this->assertSame([[strtotime('2026-11-19 14:18:12'), strtotime('2026-11-19 14:22:31')]], $w);
+    }
+
+    public function testOverlappingEntriesMergeAndOpenEntryRunsToCompletion(): void
+    {
+        $w = RouteProofService::windows([
+            ['start' => '2026-11-19 12:00:00', 'end' => '2026-11-19 12:05:00'],
+            ['start' => '2026-11-19 12:03:00', 'end' => null],
+        ], null, '2026-11-19 12:10:00', 0, 0);
+        $this->assertSame([[strtotime('2026-11-19 12:00:00'), strtotime('2026-11-19 12:10:00')]], $w);
+    }
+
+    public function testNoEntriesFallsBackToVisitTimesOnlyWhenSane(): void
+    {
+        $this->assertCount(1, RouteProofService::windows([], '2026-11-19 12:00:00', '2026-11-19 12:10:00', 0));
+        $this->assertSame([], RouteProofService::windows([], '2026-11-19 06:00:00', '2026-11-19 18:00:00', 0));
+        $this->assertSame([], RouteProofService::windows([], null, null, 0));
+    }
+
+    public function testFixesOutsideTheWindowAreDroppedAndNoWindowHidesEverything(): void
+    {
+        $rows = [['timestamp' => '2026-11-19 12:00:00'], ['timestamp' => '2026-11-19 12:40:00']];
+        $w = RouteProofService::windows([['start' => '2026-11-19 11:59:00', 'end' => '2026-11-19 12:01:00']], null, null, 0);
+        $this->assertSame([$rows[0]], RouteProofService::inWindows($rows, $w));
+        $this->assertSame([], RouteProofService::inWindows($rows, []));
+    }
 }

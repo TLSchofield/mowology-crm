@@ -276,7 +276,7 @@ if ($contact && !$error) {
     if (!empty($completedVisits)) {
         try {
             require_once APP_ROOT . '/Modules/Tracking/Services/RouteProofService.php';
-            $visitPings = (new RouteProofService($db))->forVisits(array_column($completedVisits, 'id'));
+            $visitPings = (new RouteProofService($db))->forVisits(array_column($completedVisits, 'id'), true);
         } catch (Throwable $e) {
             // pings unavailable
         }
