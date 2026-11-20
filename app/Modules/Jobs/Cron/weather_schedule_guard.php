@@ -458,6 +458,19 @@ function runSaltAlerts(PDO $db): array
             }
         }
 
+        // Same-day recheck FIRST: when the forecast has warmed and no day needs salt, this function returns just
+        // below, and that is exactly the case where the morning forecast must still be written beside the old
+        // capture (found 2026-11-20: the 10:00 run skipped it). Never throws.
+        try {
+            $rc = recheckSaltWeatherDecisions($db, $weekForecast, (float)$triggerTemp);
+            $saltResults['rechecked'] = $rc['rechecked'];
+            if (!empty($rc['errors'])) {
+                $saltResults['errors'] = array_merge($saltResults['errors'] ?? [], $rc['errors']);
+            }
+        } catch (Throwable $e) {
+            $saltResults['errors'][] = 'Recheck error: ' . $e->getMessage();
+        }
+
         if (empty($saltDays)) {
             $saltResults['salt_days'] = 0;
             return $saltResults;
@@ -575,18 +588,6 @@ function runSaltAlerts(PDO $db): array
         if (!empty($decisionResults['errors'])) {
             $saltResults['errors'] = array_merge($saltResults['errors'], $decisionResults['errors']);
         }
-    }
-
-    // Same-day recheck: the first capture can be days old, so on the service morning (this cron runs before the
-    // noon cut-off) the fresh forecast is written once beside it. Never throws.
-    try {
-        $rc = recheckSaltWeatherDecisions($db, $weekForecast ?? [], (float)($triggerTemp ?? 0));
-        $saltResults['rechecked'] = $rc['rechecked'];
-        if (!empty($rc['errors'])) {
-            $saltResults['errors'] = array_merge($saltResults['errors'], $rc['errors']);
-        }
-    } catch (Throwable $e) {
-        $saltResults['errors'][] = 'Recheck error: ' . $e->getMessage();
     }
 
     return $saltResults;
