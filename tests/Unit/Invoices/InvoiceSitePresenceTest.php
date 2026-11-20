@@ -35,4 +35,14 @@ class InvoiceSitePresenceTest extends TestCase
         $this->assertSame('', InvoiceSitePresence::sideBySide('', ''));
         $this->assertStringContainsString('<td width="44%"', InvoiceSitePresence::sideBySide('W', 'P'));
     }
+
+    public function testWideStripKeepsTheSameFactsAndNoDeparture(): void
+    {
+        $html = InvoiceSitePresence::htmlWide($this->sample());
+        $this->assertStringContainsString('SITE PRESENCE', $html);
+        $this->assertStringContainsString('5 within 200 m of the property', $html);
+        $this->assertStringContainsString('2:24:47 PM', $html);        // arrival
+        $this->assertStringNotContainsString('2:25:31', $html);        // never a departure time
+        $this->assertSame('', InvoiceSitePresence::htmlWide(null));
+    }
 }

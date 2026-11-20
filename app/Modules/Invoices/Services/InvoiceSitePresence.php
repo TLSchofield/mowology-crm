@@ -199,6 +199,53 @@ class InvoiceSitePresence
         return $h;
     }
 
+    /**
+     * The same panel laid out as a full-width strip: the map on the left, its text (address, readings,
+     * arrival, accuracy) to the right. Used on salt/snow invoices, where it sits on its own row.
+     * Same facts as html(): arrival only, never a departure time or a duration.
+     */
+    public static function htmlWide(?array $p, string $companyName = 'Mowology Landscaping'): string
+    {
+        if (!$p) {
+            return '';
+        }
+        $e = function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
+        $arrived = (new DateTime($p['first'], new DateTimeZone('America/Vancouver')))->format('g:i:s A') . ' Pacific';
+        $day = (new DateTime($p['first'], new DateTimeZone('America/Vancouver')))->format('l, F j, Y');
+        $rows = [
+            ['Readings', $p['count'] . ' within 200 m of the property'],
+            ['Arrived', $arrived],
+        ];
+        if ($p['best_accuracy_m'] !== null) {
+            $rows[] = ['Best accuracy', '± ' . $p['best_accuracy_m'] . ' m · crew mobile device'];
+        }
+
+        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:1.2pt solid #1e3a5f; font-size:8pt; color:#1f2937; page-break-inside:avoid;">';
+        $h .= '<tr><td colspan="2" style="background:#1e3a5f; color:#ffffff; padding:5px 10px; font-weight:bold; letter-spacing:1px; font-size:8pt;">SITE PRESENCE'
+            . '<span style="color:#cbd5e1; font-weight:normal; letter-spacing:0; font-size:7pt;"> &nbsp;GPS record</span></td></tr>';
+        $h .= '<tr>';
+        $mapFile = self::mapFile($p);
+        if ($mapFile !== null) {
+            // Pinned in mm: an image at width:100% reports its pixel width to mPDF, which then shrinks the layout
+            $h .= '<td width="42%" valign="top" style="padding:0;"><img src="' . $e($mapFile) . '" style="width:76mm; display:block;"></td>';
+        }
+        $h .= '<td valign="top" style="padding:6px 10px 4px 10px;">'
+            . '<span style="background:#0d3b2e; color:#ffffff; font-weight:bold; font-size:8pt;">&nbsp;' . (int)$p['count'] . ' GPS ping' . ((int)$p['count'] === 1 ? '' : 's') . '&nbsp;</span> '
+            . '<span style="font-size:9.5pt; font-weight:bold; color:#1e3a5f;">' . $e($p['address'] ?: 'Service property') . '</span><br>'
+            . '<span style="font-size:7.5pt; color:#64748b;">' . $e($day) . '</span>'
+            . '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;">';
+        foreach ($rows as $i => $r) {
+            $bg = $i % 2 ? '#f8fafc' : '#ffffff';
+            $h .= '<tr><td width="30%" style="background:' . $bg . '; padding:3px 6px; font-size:8pt; color:#64748b; border-bottom:0.4pt solid #e2e8f0;">' . $e($r[0])
+                . '</td><td style="background:' . $bg . '; padding:3px 6px; font-size:8pt; font-weight:bold; border-bottom:0.4pt solid #e2e8f0;">' . $e($r[1]) . '</td></tr>';
+        }
+        $h .= '</table>'
+            . '<div style="margin-top:5px; font-size:6.5pt; color:#64748b;">Recorded automatically by ' . $e($companyName)
+            . ' while the visit was open; mock locations excluded. Map &copy; OpenStreetMap contributors.</div>'
+            . '</td></tr></table>';
+        return $h;
+    }
+
     /** Weather and site-presence panels side by side; one alone fills the width; neither → ''. */
     public static function sideBySide(string $weatherHtml, string $presenceHtml): string
     {

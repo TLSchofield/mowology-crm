@@ -255,7 +255,9 @@ class PdfGenerator
             $weatherEv = InvoiceWeatherEvidence::forInvoice($this->db, $invoice);
             // Site presence only joins invoices that have weather evidence (salt/snow route runs)
             $weatherPanelHtml  = InvoiceWeatherEvidence::html($weatherEv, $evCompany);
-            $presencePanelHtml = $weatherEv !== null ? InvoiceSitePresence::html(InvoiceSitePresence::forInvoice($this->db, $invoice), $evCompany) : '';
+            $presenceData      = $weatherEv !== null ? InvoiceSitePresence::forInvoice($this->db, $invoice) : null;
+            $presencePanelHtml = InvoiceSitePresence::html($presenceData, $evCompany);
+            $presenceWideHtml  = InvoiceSitePresence::htmlWide($presenceData, $evCompany);
             $weatherEvidenceHtml = InvoiceSitePresence::sideBySide($weatherPanelHtml, $presencePanelHtml);
 
             // Salt/snow route invoice: one-page payment-first layout + the signed snow terms
@@ -271,6 +273,7 @@ class PdfGenerator
                 'weatherEvidenceHtml' => $weatherEvidenceHtml,
                 'weatherPanelHtml' => $weatherPanelHtml,
                 'presencePanelHtml' => $presencePanelHtml,
+                'presenceWideHtml' => $presenceWideHtml,
                 'snowLayout' => $snowLayout,
                 'snowTermsHtml' => $snowTermsHtml,
                 'snowTermsInFooter' => $snowTermsHtml !== '',

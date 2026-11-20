@@ -547,22 +547,15 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 <?php
     $payHtml = ob_get_clean();
     $wPanel  = (string)($weatherPanelHtml ?? '');
-    $pPanel  = (string)($presencePanelHtml ?? '');
+    $gWide   = (string)($presenceWideHtml ?? '');
     if ($wPanel !== '') {
-        // Payment decision, weather record and GPS map share one row
+        // Row 1: weather record and the amount due, equal halves. Row 2: the GPS map (left) with its text (right).
         $snowRow = true;
-        $three = $pPanel !== '';
-        // Pin the map to its column (30% of the 186 mm text width, less cell padding and border). An image at width:100% reports its
-        // natural pixel width to mPDF, which then widens the column and SHRINKS the whole row.
-        if ($three) {
-            $pPanel = preg_replace('/(<img\b[^>]*style=")width:100%;/', '${1}width:60mm;', $pPanel);
-        }
-        // Weather and GPS lead; the amount due sits at the far right, where the eye lands last
         echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>'
-           . '<td width="' . ($three ? '30' : '40') . '%" valign="top" style="padding-right:4px;">' . $wPanel . '</td>'
-           . ($three ? '<td width="30%" valign="top" style="padding:0 4px;">' . $pPanel . '</td>' : '')
-           . '<td width="' . ($three ? '40' : '60') . '%" valign="top" style="padding-left:4px;">' . $payHtml . '</td>'
+           . '<td width="50%" valign="top" style="padding-right:4px;">' . $wPanel . '</td>'
+           . '<td width="50%" valign="top" style="padding-left:4px;">' . $payHtml . '</td>'
            . '</tr></table>';
+        echo $gWide;
     } else {
         echo $payHtml;
     }
