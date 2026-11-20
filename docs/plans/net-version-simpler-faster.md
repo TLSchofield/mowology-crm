@@ -136,3 +136,17 @@ Fences:
 - Colours stay on tokens (`--mw-*`, `--it-*`); old hex literals are removed when found, not re-added.
 
 End state: when every page is on Ittai, `classic.css` and the `.mw-*` layer for retired pages are dropped from the head, and `mowology-brand.css` holds only what is still used.
+
+## Step 1b result 1: the duplicate-contact scan (2026-11-20, deployed 2e1941853)
+
+Cause: `findDuplicateContacts()` compared every contact with every other (about 1.2 million pairs): 6.2 s on production, run on every clients page load and again by `getWorkQueueItems()` for the dashboard. Fixed with `ContactDuplicateFinder` (groups by email, phone digits, address, name). Proven: the new result is identical to the old on all 1,520 production contacts (same map, same order), 6.2 s becomes 9 ms; a test keeps the old loop as the reference. One deliberate difference: numeric-only addresses ("0" vs "00") no longer count as the same place.
+
+Production time to first byte, same session, before then after: clients 11.5 s then 0.3 s (1.0 s on the cold request); dashboard 13.8–17.2 s then 2.8–4.7 s; quotes 0.3 s unchanged.
+
+Still slow, measured next (from the helper's static read, none yet timed):
+- Dashboard weather on a cold or failing cache (Environment Canada 15 s and Open-Meteo 10 s timeouts, nothing cached on failure).
+- Payment-match refresh in `dept-heads-deck.php` (first admin load every 4 hours).
+- `TripCostService` and `CharlieDeskService` each built twice per dashboard load.
+- Otto GPS subqueries on `crew_location_history.visit_id` (no index).
+- The head API calls after load (`charlie.php` 9.5 s, `bookkeeper.php` 2.7 s, `otto.php` 2.1 s).
+- The clients page sends about 3.9 MB of HTML (the whole list is in the page); a paged or lazy list belongs to its simplify step.
