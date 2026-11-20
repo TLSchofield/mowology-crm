@@ -549,10 +549,11 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         // Payment decision, weather record and GPS map share one row
         $snowRow = true;
         $three = $pPanel !== '';
+        // Weather and GPS lead; the amount due sits at the far right, where the eye lands last
         echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr>'
-           . '<td width="' . ($three ? '35' : '50') . '%" valign="top" style="padding-right:4px;">' . $payHtml . '</td>'
-           . '<td width="' . ($three ? '30' : '50') . '%" valign="top" style="padding:0 ' . ($three ? '2' : '0') . 'px 0 4px;">' . $wPanel . '</td>'
-           . ($three ? '<td width="35%" valign="top" style="padding-left:4px;">' . $pPanel . '</td>' : '')
+           . '<td width="' . ($three ? '30' : '50') . '%" valign="top" style="padding-right:4px;">' . $wPanel . '</td>'
+           . ($three ? '<td width="35%" valign="top" style="padding:0 4px;">' . $pPanel . '</td>' : '')
+           . '<td width="' . ($three ? '35' : '50') . '%" valign="top" style="padding-left:4px;">' . $payHtml . '</td>'
            . '</tr></table>';
     } else {
         echo $payHtml;

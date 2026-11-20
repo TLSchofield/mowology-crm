@@ -184,7 +184,8 @@ class InvoiceSnowTerms
             $remaining--;
             $colsLeft = $n - count($cols) - 1;
             // close this column once it holds its share, keeping at least one paragraph per column still to come
-            if ($colsLeft > 0 && $remaining >= $colsLeft && $acc >= $total * (count($cols) + 1) / $n) {
+            if ($colsLeft > 0 && $remaining >= $colsLeft
+                && ($acc >= $total * (count($cols) + 1) / $n || $remaining === $colsLeft)) {
                 $cols[] = implode("\n\n", $cur);
                 $cur = [];
             }

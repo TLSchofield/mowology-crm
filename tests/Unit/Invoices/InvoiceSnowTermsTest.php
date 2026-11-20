@@ -23,7 +23,8 @@ class InvoiceSnowTermsTest extends TestCase
         $this->assertStringContainsString('SNOW &amp; ICE SERVICE TERMS', $html);
         $this->assertStringContainsString('signed October 2, 2026', $html);
         $this->assertStringContainsString('Car park &lt;b&gt;only&lt;/b&gt;', $html);   // escaped, not injected
-        $this->assertStringContainsString('Payment of this invoice confirms acceptance of these terms.', $html);
+        // the acceptance line lives in the payment panel (and the customer page), not in this block
+        $this->assertSame('Payment of this invoice confirms acceptance of these terms.', InvoiceSnowTerms::ACCEPTANCE);
     }
 
     public function test_unproven_signing_date_is_never_claimed(): void
@@ -67,6 +68,6 @@ class InvoiceSnowTermsTest extends TestCase
             $this->assertSame($body, implode("\n\n", $cols));
         }
         $this->assertSame(['One paragraph only'], InvoiceSnowTerms::columns('One paragraph only', 3));
-        $this->assertSame(['A', 'B'], InvoiceSnowTerms::columns("A\n\nB", 3)); // never an empty column
+        $this->assertSame(['one a', 'two b'], InvoiceSnowTerms::columns("one a\n\ntwo b", 3)); // never an empty column
     }
 }
