@@ -118,3 +118,21 @@ Names that need a decision:
 - `map`: `public/crm/map.php` already exists, so the AppStack map page needs a different name (for example `job-map`).
 - `accounting`, `contracts`, `database`, `mockups`, `quotes`, `reports`: a folder of the same name already exists (`/crm/quotes/` and so on). `quotes.php` next to `quotes/` works because URLs name the file, but it is easy to confuse. Either accept it or use `quotes-list`, `reports-home` and so on.
 - Names that mix styles (`foreman_calendar`, `icloud_tidy`, `photos_refile` use underscores; the rest use hyphens): CLAUDE.md allows both. Keep as is unless Tim wants one style.
+
+## Retire old styling as we go (Tim, 2026-11-20)
+
+Each page that moves to the Ittai look gives up its old styling in the same piece of work, so the CSS shrinks instead of growing a second layer.
+
+Per page, after it is on Ittai v1.2 and checked:
+1. List the page's old `.mw-*` classes and any page-specific blocks in `mowology-brand.css` (and its inline or page CSS files).
+2. For each, search the whole repo (PHP, JS, other CSS, emails, the iPhone WebView pages) for other users of that class. Remove only classes nothing else uses; a class still used elsewhere stays and is noted as "retire when X is migrated".
+3. Remove the matching rules, regenerate `mowology-brand.min.css` (the freshness test enforces this), and compare before/after screenshots and computed styles on that page and on two pages that share the shell.
+4. Record the bytes removed per page in this plan, so the saving is visible.
+
+Fences:
+- `classic.css`, `corporate.css`, `app.js` and `/crinum/` are vendor files and are never edited (CLAUDE.md rule 1). They stop being loaded only when the last classic page is gone; until then the classic look stays for pages not yet migrated.
+- The `it_design` choice stays for Tim's own account while any page is still classic. A page is retired from classic only when Tim has seen the Ittai version of it.
+- The crew app has its own slim CSS (`crew-base.css`, `crew-brand.css`); retiring rules there is a separate check, never a side effect.
+- Colours stay on tokens (`--mw-*`, `--it-*`); old hex literals are removed when found, not re-added.
+
+End state: when every page is on Ittai, `classic.css` and the `.mw-*` layer for retired pages are dropped from the head, and `mowology-brand.css` holds only what is still used.
