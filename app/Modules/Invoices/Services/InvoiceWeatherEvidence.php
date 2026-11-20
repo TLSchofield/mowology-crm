@@ -78,7 +78,7 @@ class InvoiceWeatherEvidence
             if (!empty($ev['decision_at'])) {
                 // decision_at is stored in server time (America/Vancouver), not UTC
                 $dt  = new DateTime((string)$ev['decision_at'], new DateTimeZone('America/Vancouver'));
-                $cap = $dt->format('M j, Y \a\t g:i A') . ' Pacific';
+                $cap = $dt->format('M j, Y');   // date only — no clock time on the invoice (Tim, 2026-11-19)
             }
             $ref = !empty($ev['record_id']) ? 'WX-' . str_pad((string)(int)$ev['record_id'], 5, '0', STR_PAD_LEFT) : '';
             $rows = [

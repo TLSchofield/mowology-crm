@@ -24,7 +24,8 @@ class InvoiceWeatherEvidenceTest extends TestCase
         $this->assertStringContainsString('≤ 2 °C', $html);
         $this->assertStringContainsString('Yes — service authorized', $html);
         $this->assertStringContainsString('Environment Canada', $html);
-        $this->assertStringContainsString('10:00 AM Pacific', $html);
+        $this->assertStringContainsString('Nov 17, 2026', $html);   // capture shows the date only
+        $this->assertStringNotContainsString('10:00', $html);
         $this->assertStringNotContainsString('UTC', $html);
         $this->assertStringContainsString('WX-00033', $html);
         $this->assertStringNotContainsString('Supplementary', $html);

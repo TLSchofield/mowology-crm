@@ -529,7 +529,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 ?>
 <!-- Payment decision in one place: amount, due date, how to pay -->
 <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px; page-break-inside:avoid;">
-    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:7px 16px 6px 16px;">
+    <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:7px 16px 6px 16px; text-align:right;">
         <div style="font-size:8.5pt; letter-spacing:1px; color:#cbd5e1;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
         <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
