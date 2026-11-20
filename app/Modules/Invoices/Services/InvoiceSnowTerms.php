@@ -130,66 +130,76 @@ class InvoiceSnowTerms
         return $p !== '' && strlen($p) <= 48 && $p === strtoupper($p);
     }
 
-    /** Paragraphs as tight blocks (not blank lines); ALL-CAPS one-liners are headings. */
+    /** Section headings and text with clear spacing; ALL-CAPS one-liners are headings. */
     private static function paragraphs(string $text, callable $e): string
     {
         $out = '';
+        $first = true;
         foreach (preg_split('/\R{2,}/', trim($text)) ?: [] as $p) {
             $p = trim($p);
             if ($p === '') {
                 continue;
             }
-            $out .= self::isHeading($p)
-                ? '<div style="margin-top:3px; font-weight:bold; color:#334155;">' . $e($p) . '</div>'
-                : '<div style="margin-top:1px;">' . nl2br($e($p)) . '</div>';
+            if (self::isHeading($p)) {
+                $out .= '<div style="' . ($first ? '' : 'margin-top:6px; ') . 'font-size:6.5pt; font-weight:bold; letter-spacing:0.6px; color:#1e3a5f; border-bottom:0.4pt solid #cbd5e1; padding-bottom:1px; margin-bottom:2px;">' . $e($p) . '</div>';
+            } else {
+                $out .= '<div style="margin-top:2px;">' . nl2br($e($p)) . '</div>';
+            }
+            $first = false;
         }
         return $out;
     }
 
     /**
-     * Split a terms body into $n balanced columns at paragraph breaks (blank lines). Joined with a blank
-     * line the columns give back the body exactly — no text is lost. Fewer than $n paragraphs → fewer columns.
+     * Split a terms body into up to $n balanced columns. A section (an ALL-CAPS heading plus the paragraphs
+     * under it) is never split across columns; with no headings every paragraph is its own unit. Joined with
+     * a blank line the columns give back the body exactly, so no text is lost. Fewer units than $n → fewer columns.
      *
      * @return string[]
      */
     public static function columns(string $body, int $n = 3): array
     {
-        $raw = preg_split('/\R{2,}/', $body) ?: [$body];
-        // A heading never ends a column on its own: bind it to the paragraph after it.
-        $paras = [];
-        for ($i = 0; $i < count($raw); $i++) {
-            $p = trim($raw[$i]);
-            if (self::isHeading($p) && isset($raw[$i + 1])) {
-                $paras[] = $p . "\n\n" . trim($raw[$i + 1]);
-                $i++;
+        $raw = array_values(array_filter(array_map('trim', preg_split('/\R{2,}/', $body) ?: [$body]), fn($p) => $p !== ''));
+        $hasHeading = (bool)array_filter($raw, fn($p) => self::isHeading($p));
+        $units = [];
+        foreach ($raw as $p) {
+            if (!$hasHeading || self::isHeading($p) || !$units) {
+                $units[] = [$p];
             } else {
-                $paras[] = $raw[$i];
+                $units[count($units) - 1][] = $p;
             }
         }
-        $n = max(1, min($n, count($paras)));
-        if ($n === 1) {
-            return [$body];
+        $n = max(1, min($n, 3, count($units)));
+        $weight = function (array $u): int {
+            $w = 0;
+            foreach ($u as $p) { $w += strlen($p) + 70; }   // every paragraph also costs a line of spacing
+            return $w;
+        };
+        $w = array_map($weight, $units);
+        $count = count($units);
+        $groups = [range(0, $count - 1)];
+        if ($n === 2) {
+            $best = null;
+            for ($i = 1; $i < $count; $i++) {
+                $m = max(array_sum(array_slice($w, 0, $i)), array_sum(array_slice($w, $i)));
+                if ($best === null || $m < $best[0]) { $best = [$m, $i]; }
+            }
+            $groups = [range(0, $best[1] - 1), range($best[1], $count - 1)];
+        } elseif ($n === 3) {
+            $best = null;
+            for ($i = 1; $i < $count - 1; $i++) {
+                for ($j = $i + 1; $j < $count; $j++) {
+                    $m = max(array_sum(array_slice($w, 0, $i)), array_sum(array_slice($w, $i, $j - $i)), array_sum(array_slice($w, $j)));
+                    if ($best === null || $m < $best[0]) { $best = [$m, $i, $j]; }
+                }
+            }
+            $groups = [range(0, $best[1] - 1), range($best[1], $best[2] - 1), range($best[2], $count - 1)];
         }
-        $weight = fn(string $p): int => strlen($p) + 70;   // each paragraph also costs a line of spacing
-        $total  = array_sum(array_map($weight, $paras));
         $cols = [];
-        $cur = [];
-        $acc = 0;
-        $remaining = count($paras);
-        foreach ($paras as $p) {
-            $cur[] = $p;
-            $acc += $weight($p);
-            $remaining--;
-            $colsLeft = $n - count($cols) - 1;
-            // close this column once it holds its share, keeping at least one paragraph per column still to come
-            if ($colsLeft > 0 && $remaining >= $colsLeft
-                && ($acc >= $total * (count($cols) + 1) / $n || $remaining === $colsLeft)) {
-                $cols[] = implode("\n\n", $cur);
-                $cur = [];
-            }
-        }
-        if ($cur) {
-            $cols[] = implode("\n\n", $cur);
+        foreach ($groups as $g) {
+            $paras = [];
+            foreach ($g as $idx) { $paras = array_merge($paras, $units[$idx]); }
+            $cols[] = implode("\n\n", $paras);
         }
         return $cols;
     }
@@ -210,7 +220,7 @@ class InvoiceSnowTerms
             return '';
         }
         $e = function ($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); };
-        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:0.8pt solid #cbd5e1; font-size:7pt; color:#475569; line-height:1.25;">';
+        $h  = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px; border:0.8pt solid #cbd5e1; font-size:7pt; color:#475569; line-height:1.35;">';
         $h .= '<tr><td style="background:#f1f5f9; padding:3px 10px;">'
             . '<span style="font-size:8pt; font-weight:bold; color:#1e3a5f; letter-spacing:1px;">SNOW &amp; ICE SERVICE TERMS</span>'
             . '<span style="color:#64748b;"> &nbsp;' . $e(self::sourceLine($terms)) . '</span></td></tr>';
@@ -220,7 +230,7 @@ class InvoiceSnowTerms
         $w = (int)floor(100 / max(1, count($cols)));
         $h .= '<tr><td style="padding:0;"><table width="100%" cellpadding="0" cellspacing="0"><tr>';
         foreach ($cols as $i => $c) {
-            $h .= '<td width="' . $w . '%" style="vertical-align:top; padding:3px ' . ($i === count($cols) - 1 ? '10' : '6') . 'px 1px ' . ($i === 0 ? '10' : '6') . 'px;">'
+            $h .= '<td width="' . $w . '%" style="vertical-align:top; padding:6px ' . ($i === count($cols) - 1 ? '12' : '9') . 'px 6px ' . ($i === 0 ? '12' : '9') . 'px;' . ($i > 0 ? ' border-left:0.4pt solid #e2e8f0;' : '') . '">'
                 . self::paragraphs($c, $e) . '</td>';
         }
         $h .= '</tr></table></td></tr>';
