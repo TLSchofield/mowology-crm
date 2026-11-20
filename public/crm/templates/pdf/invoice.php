@@ -324,6 +324,10 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     .items-table td.desc-col { color: #131D17; }
     .divider { border-top-color: #D9DFDA; }
     .client-name { color: #131D17; }
+    .section-title.primary { font-size: 8pt; letter-spacing: 1px; }
+    .items-table th { font-size: 8pt; letter-spacing: 1px; text-transform: uppercase; }
+    .items-table { margin-top: 8px; }
+    .two-col td.sl { text-align: right; }
     .client-name { font-size: 11pt; }
     .invoice-header-msg { padding: 3px 12px; margin-bottom: 4px; }
 </style>
@@ -433,8 +437,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             </div>
         </td>
         <?php if ($propertyLine && !$billToIsProperty): ?>
-        <td>
-            <div class="section-title primary">Service Location</div>
+        <td<?php echo $snowLayout ? ' class="sl" style="text-align:right;" align="right"' : ''; ?>>
+            <div class="section-title primary"<?php echo $snowLayout ? ' style="text-align:right;"' : ''; ?>>Service Location</div>
             <div class="client-info">
                 <?php if ($propertyName !== ''): ?>
                     <div class="client-name"><?php echo $esc($propertyName); ?></div>
@@ -465,10 +469,10 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 <table class="items-table">
     <thead>
         <tr>
-            <th style="width: 50%;">Description</th>
-            <th class="right" style="width: 15%;">Qty</th>
+            <th style="width: <?php echo $snowLayout ? '62' : '50'; ?>%;">Description</th>
+            <th class="right" style="width: <?php echo $snowLayout ? '8' : '15'; ?>%;">Qty</th>
             <th class="right" style="width: 15%;">Price</th>
-            <th class="right" style="width: 20%;">Total</th>
+            <th class="right" style="width: <?php echo $snowLayout ? '15' : '20'; ?>%;">Total</th>
         </tr>
     </thead>
     <tbody>
@@ -495,8 +499,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 </table>
 
 <!-- Totals — Subtotal + tax in a small table -->
-<?php if ($snowLayout && $amountPaid <= 0): ?>
-<div style="text-align:right; font-size:9pt; color:#64748b; margin-top:3px;">Subtotal <?php echo $fmt($subtotal); ?> &nbsp;+&nbsp; GST (<?php echo round($taxRate * 100); ?>%) <?php echo $fmt($taxAmount); ?></div>
+<?php if ($snowLayout && $amountPaid <= 0): /* subtotal + GST live inside the amount-due panel */ ?>
 <?php else: ?>
 <table class="totals-table">
     <tr>
@@ -547,7 +550,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 <!-- Payment decision in one place: amount, due date, how to pay -->
 <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px; page-break-inside:avoid;">
     <tr><td style="background:<?php echo $snowBg; ?>; color:#ffffff; padding:7px 16px 6px 16px; text-align:right;">
-        <div style="font-size:8.5pt; letter-spacing:1px; color:#cbd5e1;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
+        <?php if ($amountPaid <= 0): ?><div style="font-size:8pt; color:#D9DFDA; padding-bottom:7px;">Subtotal <?php echo $fmt($subtotal); ?> &nbsp;+&nbsp; GST (<?php echo round($taxRate * 100); ?>%) <?php echo $fmt($taxAmount); ?></div><?php endif; ?>
+        <div style="font-size:8pt; letter-spacing:1px; color:#D9DFDA;"><?php echo strtoupper($esc($calloutLabel)); ?></div>
         <div style="font-size:30pt; font-weight:bold; line-height:1.1;"><?php echo $calloutValue; ?></div>
         <?php if ($dueDay !== ''): ?><div style="font-size:11pt; font-weight:bold;">Due <?php echo $esc($dueDay); ?></div><?php endif; ?>
     </td></tr>
@@ -567,6 +571,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         // Same height: the frame (weather's border, the amount panel's tint) is carried by the table CELLS,
         // which stretch to the taller of the two; mPDF ignores a height set on the inner tables.
         $wInner  = InvoiceSnowTerms::ittai(str_replace(['border:1.2pt solid #1e3a5f;', 'margin-top:8px;'], '', $wPanel));
+        $wInner  = str_replace('Yes — service authorized', '<span style="background:#DCEBE2; color:#1A5A39; font-weight:bold;">&nbsp;Yes — service authorized&nbsp;</span>', $wInner);
         $pInner  = InvoiceSnowTerms::ittai(str_replace('margin-top:6px;', 'margin-top:0;', $payHtml));
         echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>'
            . '<td width="49%" valign="top" style="border:1.2pt solid #233A5E; padding:0;">' . $wInner . '</td>'
