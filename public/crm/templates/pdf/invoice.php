@@ -362,7 +362,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             </div>
             <?php endif; ?>
         </td>
-        <td style="width: 50%; vertical-align: top;<?php echo $snowLayout ? ' text-align: right;' : ''; ?>" <?php echo $snowLayout ? 'align="right"' : ''; ?>>
+        <td style="width: 50%; vertical-align: top;<?php echo $snowLayout ? ' text-align: right; padding-top: 3mm;' : ''; ?>" <?php echo $snowLayout ? 'align="right"' : ''; ?>>
             <?php $ra = $snowLayout ? ' style="text-align: right;"' : ''; ?>
             <div class="doc-title"<?php echo $ra; ?>>Invoice</div>
             <div class="doc-number"<?php echo $ra; ?>><?php echo $esc($invoice['invoice_number']); ?></div>
