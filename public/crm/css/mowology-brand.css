@@ -42098,7 +42098,7 @@ body.mw-books {
 .mw-sl-dayhead a { color: var(--mw-forest); }
 .mw-sl-today { background: var(--mw-green); color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
 .mw-sl-count { margin-left: auto; font-size: 12px; font-weight: 500; opacity: .6; }
-.mw-sl-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) minmax(140px, 220px); gap: 14px; padding: 12px 14px; background: #fff; border: 1px solid var(--mw-light); border-radius: 8px; margin-bottom: 8px; }
+.mw-sl-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) minmax(140px, 220px); gap: 14px; padding: 12px 14px; border: 1px solid var(--mw-light); border-radius: 8px; margin-bottom: 8px; }
 .mw-sl-row--attn { border-left: 4px solid var(--mw-orange); }
 .mw-sl-row--done { opacity: .65; }
 .mw-sl-time { font-weight: 600; font-size: 13px; color: var(--mw-dark); }
@@ -42146,6 +42146,18 @@ body.mw-books {
 .mw-refile-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .mw-refile-recent { padding: 4px 0; font-size: 13px; }
 
+/* ── First-week short menu (classic shell): the closed "More" ── */
+.mw-fw-more summary { cursor: pointer; list-style: none; }
+.mw-fw-more summary::-webkit-details-marker { display: none; }
+.mw-fw-more-list { padding-left: 1.75rem; }
+
+/* ── First-week dashboard: the one thing that matters, and a closed More ── */
+.mw-fw-focus { max-width: 720px; margin: 2rem auto 2.5rem; padding: 2rem; border: 1px solid var(--mw-light); border-radius: 8px; }
+.mw-fw-greeting { margin: 0 0 .5rem; color: var(--mw-dark); font-size: 1rem; }
+.mw-fw-headline { margin: 0 0 .5rem; font-size: 1.75rem; line-height: 1.25; }
+.mw-fw-detail { margin: 0 0 1.5rem; color: var(--mw-dark); }
+.mw-fw-fold > summary { cursor: pointer; padding: .75rem 0; font-weight: 600; color: var(--mw-dark); }
+.mw-fw-fold:not([open]) > summary { text-align: center; }
 /* Invoice create: main column + sticky total, Sam's card, collapsed dates (invoices/create.php, 2026-11-20) */
 #invoiceForm { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
 #invoiceForm > input[type="hidden"] { display: none; }

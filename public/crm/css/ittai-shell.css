@@ -720,3 +720,12 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 /* the frame takes the spare width right of its content (up to the Ledger), spreading the text, age and buttons instead of leaving the gap there */
 .it-job-rail .it-job-split { flex: 1 0 auto; justify-content: space-between; }
 .it-job-rail .it-job-split > .it-job-sides { max-width: 340px; }
+
+/* ── First-week short menu: a flat list of eight days' items and a closed More (no head spine, no live line) ── */
+body.it-shell.it-shell .it-fwl { padding: 0; }
+body.it-shell.it-shell .it-fwl .it-pg[aria-current="page"]::after { display: none; }
+body.it-shell.it-shell .it-fw-more > summary { cursor: pointer; list-style: none; }
+body.it-shell.it-shell .it-fw-more > summary::-webkit-details-marker { display: none; }
+body.it-shell.it-shell .it-fw-more > summary::after { content: "+"; margin-left: auto; color: var(--it-meta); }
+body.it-shell.it-shell .it-fw-more[open] > summary::after { content: "\2212"; }
+body.it-shell.it-shell .it-fwl-more .it-pg { padding-left: 28px; }

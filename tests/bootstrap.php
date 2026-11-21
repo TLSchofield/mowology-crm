@@ -475,6 +475,8 @@ require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTimelineService
 require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactDuplicateFinder.php';
 require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekService.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekMenu.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekFocus.php';
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';

@@ -43,6 +43,27 @@ if (!empty($mwLedgerOnly)): ?>
 
 require_once __DIR__ . '/nav-items.php';   // $navItems + badge counts, shared with the phone menu (mobile-nav.php)
 
+// First-week view (2026-11-20, step 4): a business that has it on sees eight daily items and a closed "More"
+// instead of the full menu. Same permissions: items this login can't open are left out of both lists.
+$__fwMenu = null;
+try {
+    if (defined('APP_ROOT')) {
+        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekService.php';
+        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekMenu.php';
+        if (FirstWeekService::isOn(getDB())) {
+            $__fwFlat = [];
+            foreach (mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, false) as $__fwB) {
+                foreach ($__fwB['items'] as $__fwI) $__fwFlat[] = $__fwI;
+            }
+            if (!function_exists('userHasPermission') || userHasPermission('expenses.view')) {
+                $__fwFlat[] = ['key' => 'receipts-review', 'label' => 'Receipts', 'icon' => 'camera', 'href' => '/crm/receipts-review_appstack.php'];
+            }
+            $__fwMenu = FirstWeekMenu::build($__fwFlat);
+            unset($__fwFlat, $__fwB, $__fwI);
+        }
+    }
+} catch (Throwable $__e) { $__fwMenu = null; }   // anything wrong: the full menu, as before
+
 // ── Ittai design: the seven AI heads ARE the navigation (round 6, owner 2026-11-10) ──────────────────
 // With the it_design choice on ($itShell, appstack_head.php) each head is a row (portrait ringed by its
 // state, name, AI tag, the state in words), opening that head's pages; a square card beside the row says
@@ -102,7 +123,21 @@ if (!empty($itShell)):
         </div>
         <?php /* No search box here (Tim, 2026-11-10): the one search is top right, in Kaname's band. */ ?>
         <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
-        <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
+        <?php if ($__fwMenu): ?>
+            <li class="it-fw"><ul class="it-fwl">
+            <?php foreach ($__fwMenu['main'] as $__item): $__on = ($activePage === $__item['key']); ?>
+                <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
+            <?php endforeach; ?>
+            <?php if ($__fwMenu['more']): $__moreOpen = in_array($activePage, array_column($__fwMenu['more'], 'key'), true); ?>
+                <li><details class="it-fw-more"<?php echo $__moreOpen ? ' open' : ''; ?>><summary class="it-pg"><span class="it-pl">More</span></summary>
+                    <ul class="it-fwl it-fwl-more">
+                    <?php foreach ($__fwMenu['more'] as $__item): $__on = ($activePage === $__item['key']); ?>
+                        <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
+                    <?php endforeach; ?>
+                    </ul></details></li>
+            <?php endif; ?>
+            </ul></li>
+        <?php else: foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
             $__hd    = (array)(($__itNav['heads'] ?? [])[$__slug] ?? []);
             $__st    = in_array($__hd['state'] ?? '', $__itStates, true) ? $__hd['state'] : '';
             $__word  = (string)($__hd['word'] ?? '');
@@ -154,7 +189,7 @@ if (!empty($itShell)):
                     <ul class="it-subs"><?php echo $__pages; ?></ul>
                 </div>
             </li>
-        <?php endforeach; ?>
+        <?php endforeach; endif; ?>
         </ul></nav>
         <div class="it-prof">
             <a class="it-pcard" href="/crm/settings.php" aria-label="<?php echo $__h($__itBiz . ', ' . $__itUser . ', ' . $__itRole . '. Business settings'); ?>"><span class="it-disc"><?php echo $__h($__itInit); ?></span><span class="it-pt2"><b><?php echo $__h($__itBiz); ?></b><span><?php echo $__h($__itUser . ' · ' . $__itRole); ?></span></span><svg class="it-ch it-ic" width="16" height="16" aria-hidden="true"><use href="#it-i-updown"/></svg></a>
@@ -170,6 +205,27 @@ if (!empty($itShell)):
         </a>
 
         <ul class="sidebar-nav">
+
+            <?php if ($__fwMenu): ?>
+            <?php foreach ($__fwMenu['main'] as $item): ?>
+            <li class="sidebar-item<?php echo ($activePage === $item['key']) ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="<?php echo htmlspecialchars($item['href']); ?>">
+                    <i class="align-middle" data-feather="<?php echo htmlspecialchars((string)($item['icon'] ?? 'circle')); ?>"></i>
+                    <span class="align-middle"><?php echo htmlspecialchars($item['label']); ?></span>
+                    <?php if (!empty($item['badge']) && (int)$item['badge'] > 0): ?><span class="mw-sidebar-badge"><?php echo (int)$item['badge']; ?></span><?php endif; ?>
+                </a>
+            </li>
+            <?php endforeach; ?>
+            <?php if ($__fwMenu['more']): $__moreOpen = in_array($activePage, array_column($__fwMenu['more'], 'key'), true); ?>
+            <li class="sidebar-item mw-fw-more"><details<?php echo $__moreOpen ? ' open' : ''; ?>>
+                <summary class="sidebar-link"><i class="align-middle" data-feather="more-horizontal"></i> <span class="align-middle">More</span></summary>
+                <ul class="list-unstyled mw-fw-more-list">
+                <?php foreach ($__fwMenu['more'] as $item): ?>
+                    <li class="sidebar-item<?php echo ($activePage === $item['key']) ? ' active' : ''; ?>"><a class="sidebar-link" href="<?php echo htmlspecialchars($item['href']); ?>"><span class="align-middle"><?php echo htmlspecialchars($item['label']); ?></span></a></li>
+                <?php endforeach; ?>
+                </ul></details></li>
+            <?php endif; ?>
+            <?php else: ?>
 
             <?php foreach ($navItems as $item):
 
@@ -267,6 +323,8 @@ if (!empty($itShell)):
                 </a>
             </li>
             <?php endif; ?>
+
+            <?php endif; /* first-week menu or full menu */ ?>
 
             <!-- Install App (PWA) — hidden when already installed or on desktop -->
             <li class="sidebar-item" id="mw-pwa-sidebar-item">
