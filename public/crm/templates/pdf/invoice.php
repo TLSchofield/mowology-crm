@@ -346,7 +346,11 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
     .items-table { margin-top: 8px; }
     .two-col td.sl { text-align: right; padding-right: 0; }
     .client-name { font-size: 11pt; }
-    .invoice-header-msg { padding: 3px 12px; margin-bottom: 4px; }
+    .invoice-header-msg { padding: 5px 12px; margin-bottom: 12px; background: #EEF1EE; border-left: 3px solid #233A5E; color: #131D17; }
+    /* Terms / payment blocks in the same indigo family (no green labels) */
+    .invoice-messaging .block { border-left-color: #233A5E; color: #48534C; }
+    .invoice-messaging .block .label { color: #233A5E; }
+    .invoice-messaging .block.payment { background: #EEF1EE; border-left-color: #233A5E; }
 </style>
 <?php endif; ?>
 
@@ -454,8 +458,8 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
             </div>
         </td>
         <?php if ($propertyLine && !$billToIsProperty): ?>
-        <td class="sl" style="text-align:right; padding-right:0;" align="right">
-            <div class="section-title primary" style="text-align:right;">Service Location</div>
+        <td<?php echo $snowLayout ? ' class="sl" style="text-align:right; padding-right:0;" align="right"' : ' style="padding-left:14px;"'; ?>>
+            <div class="section-title primary"<?php echo $snowLayout ? ' style="text-align:right;"' : ''; ?>>Service Location</div>
             <div class="client-info">
                 <?php if ($propertyName !== ''): ?>
                     <div class="client-name"><?php echo $esc($propertyName); ?></div>
@@ -631,7 +635,7 @@ endif; ?>
 <?php if (!empty($invoice['notes']) && !$snowLayout): ?>
 <div class="notes-section">
     <div class="section-title">Notes</div>
-    <?php require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php'; echo InvoiceNoteFormatter::html($invoice['notes']); ?>
+    <?php require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceNoteFormatter.php'; echo InvoiceNoteFormatter::html(preg_replace('/\\R\\s*\\R(?=(?:thanks|thank you|cheers|regards|best|sincerely)\\b[^\\r\\n]{0,40}\\s*$)/i', "\n", trim((string)$invoice['notes']))); /* the sign-off sits right under the note */ ?>
 </div>
 <?php endif; ?>
 
