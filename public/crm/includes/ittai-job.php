@@ -290,12 +290,6 @@ itIconSprite();
 ?>
 <?php if (!empty($__ijInv) && !$__ij): /* nothing to decide on Invoices: the invoice graphs */ ?>
 <div class="it-job-outer"><section class="it-inv-viz" aria-label="Invoice graphs">
-  <aside class="it-inv-intro" aria-label="About Penny">
-    <img class="it-inv-face" src="/crm/img/heads/penny.jpg" width="56" height="56" alt="" loading="lazy">
-    <p class="it-inv-name"><b>Penny</b> <span class="it-tag">AI</span></p>
-    <p class="it-inv-role">Finance</p>
-    <p class="it-inv-line">I match e-Transfers to your invoices and keep the books. When one needs your decision, it appears here.</p>
-  </aside>
   <?= $__ijInvViz($__ijIns, true) ?></section></div>
 <?php return; endif; ?>
 <div class="it-job-outer"><div class="it-job-wrap">
