@@ -137,13 +137,14 @@ if (!empty($itShell)):
         <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
         <?php if ($__fwMenu): ?>
             <li class="it-fw it-fw-flat"><ul class="it-fwl">
-            <?php foreach ($__fwMenu['main'] as $__item): $__on = ($activePage === $__item['key']); if ($__on) echo $__fwCard; ?>
+            <?php echo $__fwCard; ?>
+            <?php foreach ($__fwMenu['main'] as $__item): $__on = ($activePage === $__item['key']); ?>
                 <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
             <?php endforeach; ?>
             <?php if ($__fwMenu['more']): $__moreOpen = in_array($activePage, array_column($__fwMenu['more'], 'key'), true); ?>
                 <li><details class="it-fw-more"<?php echo $__moreOpen ? ' open' : ''; ?>><summary class="it-pg"><span class="it-pl">More</span></summary>
                     <ul class="it-fwl it-fwl-more">
-                    <?php foreach ($__fwMenu['more'] as $__item): $__on = ($activePage === $__item['key']); if ($__on) echo $__fwCard; ?>
+                    <?php foreach ($__fwMenu['more'] as $__item): $__on = ($activePage === $__item['key']); ?>
                         <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
                             <?php endforeach; ?>
                     </ul></details></li>
