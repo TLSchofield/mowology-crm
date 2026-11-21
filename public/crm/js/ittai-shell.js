@@ -122,6 +122,17 @@
                 g.classList.add('is-live');
             });
         }
+        // Follow the moving row: while the fold and the spacer run (about 300 ms) the card and the line are placed again every frame.
+        var followUntil = 0, following = false;
+        function follow() {
+            followUntil = Date.now() + 320;
+            if (following) return;
+            following = true;
+            (function tick() {
+                replaceOpenCards(); measureLive();
+                if (Date.now() < followUntil) requestAnimationFrame(tick); else following = false;
+            })();
+        }
         function setChev(g, open) {
             var use = g.querySelector('.it-grow > .it-ch use');
             if (use) use.setAttribute('href', open ? '#it-i-down' : '#it-i-right');
@@ -156,6 +167,7 @@
             measureLive();
             if (typeof placeLink === 'function') placeLink();
             if (typeof placeKanLink === 'function') placeKanLink();
+            follow();
         }
         function closeFlies() {
             clearTimeout(flyTimer);
@@ -274,6 +286,7 @@
             g.classList.add('has-card');
             placeCard(g);
             measureLive();
+            follow();
         }
 
         /** Is the page already the one at ws? Compared on the path alone, so a query or fragment never causes a reload. */
@@ -300,8 +313,7 @@
             openCard(g);
             // The other group folds over 180 ms and the row moves with it: place the card again once it has
             // settled (the fold's transitionend below does it too; these are the fallback for a slow frame).
-            setTimeout(function () { replaceOpenCards(); measureLive(); }, 220);
-            setTimeout(function () { replaceOpenCards(); measureLive(); }, 600);
+            follow();
             if (ws !== '' && !herePath(ws)) window.location.href = ws;
         }
 
@@ -545,7 +557,10 @@
         if (i) i.setAttribute('aria-hidden', open ? 'false' : 'true');
     });
     window.addEventListener('resize', measureFw);
-    document.addEventListener('toggle', measureFw, true);
+    document.addEventListener('toggle', function () {
+        var until = Date.now() + 320;
+        (function t() { measureFw(); if (Date.now() < until) requestAnimationFrame(t); })();
+    }, true);
     window.addEventListener('load', measureFw);
     document.addEventListener('scroll', measureFw, true);
     window.ItShell = { posture: posture, setBar: setBar };
