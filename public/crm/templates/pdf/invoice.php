@@ -78,14 +78,29 @@ $isOverdue = ($invoice['status'] === 'overdue');
 // Salt/snow route invoice: one-page, payment-first layout (set by PdfGenerator). Every other
 // invoice renders exactly as before.
 $snowLayout    = !empty($snowLayout);
+// Layout (compact, payment-first, blocks kept whole) is for every invoice; $snowLayout only switches the
+// route-specific content (signed terms, weather/GPS panels, work-and-day lines, no notes).
+$modern        = true;
 if ($snowLayout) { require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceSnowTerms.php'; }
 $snowTermsHtml = (string)($snowTermsHtml ?? '');
 $dueDay        = !empty($invoice['due_date']) ? date('D, M j, Y', strtotime($invoice['due_date'])) : '';
-$payInstrInBox = $snowLayout && !$isPaid && $invoicePaymentInstr !== '';
+$payInstrInBox = $modern && !$isPaid && $invoicePaymentInstr !== '';
 $showGenericTerms = !($snowLayout && $snowTermsHtml !== '');
 // One thank-you: when the header message and the footer text both say it, the footer drops its copy.
-$dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText !== ''
+$dropFooterText = $modern && $invoiceHeaderMsg !== '' && $invoiceFooterText !== ''
     && preg_match('/thank/i', $invoiceHeaderMsg) && preg_match('/thank/i', $invoiceFooterText);
+// A footer that only repeats the company line already in the header (name, address, phone, site, email, GST)
+// adds a line, not information. Anything else in it (a note, a licence number, a call-to-action) is kept.
+if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
+    $known = [];
+    foreach ([$bizName, $bizAddress, $bizWebsite, $bizEmail, $bizGst, $bizPhone] as $src) {
+        foreach (preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower((string)$src), -1, PREG_SPLIT_NO_EMPTY) as $w) { $known[$w] = true; }
+    }
+    $rest = array_filter(preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($invoiceFooterText), -1, PREG_SPLIT_NO_EMPTY), function ($w) use ($known) {
+        return !isset($known[$w]) && !in_array($w, ['and', 'gst', 'www', 'http', 'https', 'ca', 'com', 'bc', 'canada', 'tel', 'phone', 'email'], true);
+    });
+    if (!$rest) { $dropFooterText = true; }
+}
 ?>
 <style>
     body {
@@ -285,7 +300,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     .status-overdue { background: #fee2e2; color: #991b1b; }
     .status-partial { background: #fef3c7; color: #92400e; }
 
-    .notes-section { margin-top: 16px; font-size: 9pt; color: #475569; line-height: 1.6; }
+    .notes-section { margin-top: 16px; font-size: 9pt; color: #475569; line-height: 1.6; page-break-inside: avoid; }
 
     .payment-info {
         margin-top: 20px; padding: 16px 20px;
@@ -299,9 +314,9 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         page-break-inside: avoid;
     }
 </style>
-<?php if ($snowLayout): ?>
+<?php if ($modern): ?>
 <style>
-    /* Salt/snow invoices fit one page: payment decision, weather record and signed terms together */
+    /* Compact, payment-first invoice layout (all invoices). Not limited to one page: blocks stay whole and flow to the next. */
     .divider { margin: 7px 0; }
     .header-table { margin-bottom: 4px; }
     .invoice-header-msg { margin-bottom: 6px; padding: 5px 12px; }
@@ -348,12 +363,12 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                 }
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
             ?>
-            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: <?php echo $snowLayout ? '30' : '50'; ?>px; margin-bottom: <?php echo $snowLayout ? '3' : '8'; ?>px;">
+            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: 30px; margin-bottom: 3px;">
             <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
             <?php if ($bizTagline !== ''): ?>
                 <div class="brand-tagline"><?php echo $esc($bizTagline); ?></div>
             <?php endif; ?>
-            <?php if ($snowLayout): ?>
+            <?php if ($modern): ?>
             <div class="brand-info" style="line-height:1.4;">
                 <?php
                     $contactBits = array_filter([$bizPhone, $bizEmail, $bizWebsite], fn($p) => $p !== '');
@@ -381,16 +396,16 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             </div>
             <?php endif; ?>
         </td>
-        <td style="width: 50%; vertical-align: top;<?php echo $snowLayout ? ' text-align: right; padding-top: 3mm;' : ''; ?>" <?php echo $snowLayout ? 'align="right"' : ''; ?>>
-            <?php $ra = $snowLayout ? ' style="text-align: right;"' : ''; ?>
+        <td style="width: 50%; vertical-align: top; text-align: right; padding-top: 3mm;" align="right">
+            <?php $ra = ' style="text-align: right;"'; ?>
             <div class="doc-title"<?php echo $ra; ?>>Invoice</div>
             <div class="doc-number"<?php echo $ra; ?>><?php echo $esc($invoice['invoice_number']); ?></div>
             <div class="doc-meta"<?php echo $ra; ?>>
                 Date: <strong><?php echo $issueDate; ?></strong><br>
-                <?php if ($dueDate && !$snowLayout): /* salt/snow: the due date is in the amount panel, once */ ?>
+                <?php if ($dueDate && ($isPaid || !$modern)): /* unpaid: the due date is in the amount panel, once */ ?>
                     Due: <strong><?php echo $dueDate; ?></strong><br>
                 <?php endif; ?>
-                <?php if ($snowLayout && !empty($invoice['payment_terms'])): ?>
+                <?php if ($modern && !empty($invoice['payment_terms'])): ?>
                     Payment Terms: <strong><?php echo $esc($invoice['payment_terms']); ?></strong><br>
                 <?php endif; ?>
                 <?php
@@ -439,8 +454,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
             </div>
         </td>
         <?php if ($propertyLine && !$billToIsProperty): ?>
-        <td<?php echo $snowLayout ? ' class="sl" style="text-align:right; padding-right:0;" align="right"' : ''; ?>>
-            <div class="section-title primary"<?php echo $snowLayout ? ' style="text-align:right;"' : ''; ?>>Service Location</div>
+        <td class="sl" style="text-align:right; padding-right:0;" align="right">
+            <div class="section-title primary" style="text-align:right;">Service Location</div>
             <div class="client-info">
                 <?php if ($propertyName !== ''): ?>
                     <div class="client-name"><?php echo $esc($propertyName); ?></div>
@@ -449,7 +464,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
                 <?php if (!empty($contactName) && trim($contactName) !== ''): ?>
                     Attn: <strong><?php echo $esc($contactName); ?></strong><br>
                 <?php endif; ?>
-                <?php if (!empty($invoice['plan_number']) && !$snowLayout): ?>
+                <?php if (!empty($invoice['plan_number']) && !$snowLayout): /* route invoices carry the job as a small line item reference */ ?>
                     Job: <strong><?php echo $esc($invoice['plan_number']); ?></strong>
                     <?php if (!empty($invoice['job_title'])): ?>
                          — <?php echo $esc($invoice['job_title']); ?>
@@ -461,20 +476,15 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
     </tr>
 </table>
 
-<?php if (!$snowLayout): ?>
-<hr class="divider">
-
-<!-- Line Items -->
-<div class="section-title primary">Services</div>
-<?php endif; ?>
+<!-- Line Items (the table header names the columns; no separate heading) -->
 
 <table class="items-table">
     <thead>
         <tr>
-            <th style="width: <?php echo $snowLayout ? '62' : '50'; ?>%;">Description</th>
-            <th class="right" style="width: <?php echo $snowLayout ? '8' : '15'; ?>%;">Qty</th>
+            <th style="width: 62%;">Description</th>
+            <th class="right" style="width: 8%;">Qty</th>
             <th class="right" style="width: 15%;">Price</th>
-            <th class="right" style="width: <?php echo $snowLayout ? '15' : '20'; ?>%;">Total</th>
+            <th class="right" style="width: 15%;">Total</th>
         </tr>
     </thead>
     <tbody>
@@ -501,7 +511,8 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
 </table>
 
 <!-- Totals — Subtotal + tax in a small table -->
-<table class="totals-table"<?php echo $snowLayout ? ' style="padding-right:3.5mm;"' : ''; ?>>
+<?php if (!$snowLayout): ?><div style="page-break-inside: avoid;"><?php endif; /* totals, amount due and how to pay stay together */ ?>
+<table class="totals-table" style="padding-right:3.5mm;">
     <tr>
         <td class="label">Subtotal</td>
         <td class="value"><?php echo $fmt($subtotal); ?></td>
@@ -542,7 +553,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         $calloutValue = $fmt($total);
     }
 ?>
-<?php $snowRow = false; if ($snowLayout && !$isPaid):
+<?php $snowRow = false; if ($modern && !$isPaid):
     $snowBg = $calloutClass === 'overdue' ? '#982A1D' : '#233A5E';
     ob_start();
 ?>
@@ -581,7 +592,7 @@ $dropFooterText = $snowLayout && $invoiceHeaderMsg !== '' && $invoiceFooterText 
         echo $payHtml;
     }
 endif; ?>
-<?php if (!$snowLayout || $isPaid): ?>
+<?php if ($isPaid): ?>
 <table class="total-callout <?php echo $calloutClass; ?>" cellpadding="0" cellspacing="0" style="width: 280px; margin-left: auto; margin-top: 10px;">
     <tr>
         <td style="padding: 14px 18px; background: <?php
@@ -595,6 +606,7 @@ endif; ?>
 </table>
 <?php endif; ?>
 
+<?php if (!$snowLayout): ?></div><?php endif; ?>
 <!-- Payment info (if paid) -->
 <?php if ($isPaid && !empty($invoice['payment_date'])): ?>
 <div class="payment-info">
@@ -623,15 +635,16 @@ endif; ?>
 </div>
 <?php endif; ?>
 
-<?php if (!empty($invoice['payment_terms']) && !$snowLayout): ?>
+<?php if (!empty($invoice['payment_terms']) && !$modern): /* modern: shown once, in the header */ ?>
 <div class="notes-section" style="margin-top: 8px;">
     <span style="font-size: 8pt; color: #94a3b8;">Payment Terms: <?php echo $esc($invoice['payment_terms']); ?></span>
 </div>
 <?php endif; ?>
 
-<?php if (($invoicePaymentInstr !== '' && !$payInstrInBox) || ($invoiceTerms !== '' && $showGenericTerms)): ?>
+<div style="page-break-inside: avoid;"><!-- terms and footer travel together, so the footer never sits alone on a page -->
+<?php if (($invoicePaymentInstr !== '' && !$payInstrInBox && !$isPaid) || ($invoiceTerms !== '' && $showGenericTerms)): ?>
 <div class="invoice-messaging">
-    <?php if ($invoicePaymentInstr !== '' && !$payInstrInBox): ?>
+    <?php if ($invoicePaymentInstr !== '' && !$payInstrInBox && !$isPaid): ?>
     <div class="block payment">
         <span class="label">How to Pay</span>
         <?php echo nl2br($esc($invoicePaymentInstr)); ?>
@@ -646,8 +659,8 @@ endif; ?>
 </div>
 <?php endif; ?>
 
-<!-- Footer (salt/snow: none — the header already carries the company details) -->
-<?php if (!$snowLayout): ?>
+<!-- Footer (only a custom footer text; the header already carries the company details) -->
+<?php if (!$modern || ($invoiceFooterText !== '' && !$dropFooterText)): ?>
 <div class="footer">
     <?php if ($invoiceFooterText !== '' && !$dropFooterText): ?>
         <?php echo nl2br($esc($invoiceFooterText)); ?>
@@ -664,3 +677,4 @@ endif; ?>
     <?php endif; ?>
 </div>
 <?php endif; ?>
+</div>
