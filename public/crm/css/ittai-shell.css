@@ -740,11 +740,6 @@ body.it-shell.it-shell .it-job-viz .it-viz-late { fill: var(--it-status-attentio
 /* The strip's charts are drawn 288 wide and scaled to the card (about 1.5x): size the labels to land near 12 px. */
 body.it-shell.it-shell .it-inv-viz .it-viz-lbl { font-size: 8px; line-height: 10px; }
 
-/* First-week short menu: the page's head keeps her card under the page's row; introduction left of the face, card runs left from the spine */
-body.it-shell.it-shell .it-fw-card { display: flex; align-items: center; gap: 12px; margin: 4px 12px 10px 12px; padding: 12px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); box-shadow: var(--it-shadow-menu); font-size: 13px; line-height: 18px; }
-body.it-shell.it-shell .it-fwc-t { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; text-align: left; }
-body.it-shell.it-shell .it-fwc-n { display: flex; align-items: center; gap: 6px; font-size: 14px; line-height: 20px; }
-body.it-shell.it-shell .it-fwc-r { color: var(--it-meta); }
-body.it-shell.it-shell .it-fwc-i { margin-top: 4px; }
-body.it-shell.it-shell .it-fw-card .it-pt-lg { flex: none; margin: 0; }
-body.it-shell.it-shell .sidebar.collapsed .it-fw-card { display: none; }
+/* First-week short menu: the heads stay as the menu and the active card stays; the small row faces go (Tim, 2026-11-20) */
+body.it-shell.it-shell .it-fw-on .it-grow .it-pt { display: none; }
+body.it-shell.it-shell .it-fw-on .it-grow .it-gt { padding-right: 12px; }

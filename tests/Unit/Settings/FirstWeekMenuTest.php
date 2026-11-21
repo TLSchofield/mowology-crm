@@ -36,11 +36,4 @@ class FirstWeekMenuTest extends TestCase
         $this->assertCount(1, $m['main']);
         $this->assertCount(1, $m['more']);
     }
-
-    public function testEveryHeadHasAnIntroduction(): void
-    {
-        foreach (['charlie', 'sam', 'penny', 'otto', 'mia', 'yui', 'ada'] as $slug) {
-            $this->assertNotSame('', FirstWeekMenu::INTRO[$slug] ?? '', $slug);
-        }
-    }
 }

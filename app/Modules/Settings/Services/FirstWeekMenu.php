@@ -23,17 +23,6 @@ final class FirstWeekMenu
         'settings'        => null,
     ];
 
-    /** One plain sentence each head says about herself on the short menu's card (the head the page belongs to). */
-    public const INTRO = [
-        'charlie' => 'I pull the day together and tell you what needs you.',
-        'sam'     => 'I follow up your quotes and keep an eye on your clients.',
-        'penny'   => 'I match e-Transfers to your invoices and keep the books.',
-        'otto'    => 'I plan the schedule and look after the crews.',
-        'mia'     => 'I look after your marketing and your reviews.',
-        'yui'     => 'I read your mail and keep client messages in order.',
-        'ada'     => 'I keep the systems running.',
-    ];
-
     /**
      * @param array<int, array<string, mixed>> $items every item this login may open
      * @return array{main: array<int, array<string, mixed>>, more: array<int, array<string, mixed>>}
