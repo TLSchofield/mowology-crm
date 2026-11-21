@@ -346,11 +346,19 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
     .items-table { margin-top: 8px; }
     .two-col td.sl { text-align: right; padding-right: 0; }
     .client-name { font-size: 11pt; }
-    .invoice-header-msg { padding: 5px 12px; margin-bottom: 12px; background: #EEF1EE; border-left: 3px solid #233A5E; color: #131D17; }
-    /* Terms / payment blocks in the same indigo family (no green labels) */
-    .invoice-messaging .block { border-left-color: #233A5E; color: #48534C; }
+    /* Hairline panels, as on the salt/snow invoice: one thin line, no heavy side bar, no green tints */
+    .invoice-header-msg { padding: 6px 12px; margin-bottom: 12px; background: #EEF1EE; border: 0.6pt solid #D9DFDA; color: #131D17; }
+    .invoice-messaging .block { background: #ffffff; border: 0.6pt solid #D9DFDA; color: #48534C; padding: 7px 12px; }
     .invoice-messaging .block .label { color: #233A5E; }
-    .invoice-messaging .block.payment { background: #EEF1EE; border-left-color: #233A5E; }
+    .invoice-messaging .block.payment { background: #EEF1EE; border: 0.6pt solid #D9DFDA; }
+    .notes-section { margin-top: 10px; padding: 7px 12px; border: 0.6pt solid #D9DFDA; color: #131D17; line-height: 1.5; }
+    .notes-section .section-title { color: #233A5E; margin-bottom: 3px; }
+    .payment-info { margin-top: 10px; padding: 8px 14px; background: #EEF1EE; border: 0.6pt solid #D9DFDA; border-radius: 0; color: #131D17; }
+    .status-paid { background: #DCEBE2; color: #1A5A39; }
+    .total-callout.paid { background: #1A5A39; }
+    .total-callout.paid .tc-label { color: #DCEBE2; }
+    /* Tighter rows with a hairline between them */
+    .items-table td { padding-top: 3px; padding-bottom: 3px; border-bottom: 0.4pt solid #D9DFDA; }
 </style>
 <?php endif; ?>
 
@@ -492,7 +500,14 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
         </tr>
     </thead>
     <tbody>
-        <?php foreach ($lineItems as $item): ?>
+        <?php
+            // One service date for every line: say it once under the table instead of on each row.
+            $sharedDate = '';
+            if (!$snowLayout && count($lineItems) > 1) {
+                $ds = array_unique(array_map(fn($i) => (string)($i['service_date'] ?? ''), $lineItems));
+                if (count($ds) === 1 && $ds[0] !== '') { $sharedDate = $ds[0]; }
+            }
+        foreach ($lineItems as $item): ?>
         <tr>
             <?php if ($snowLayout):
                 // Name the work, show the date once; the route/job stays as a small reference.
@@ -504,7 +519,7 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
             ?>
             <td class="desc-col"><strong><?php echo $esc($snowDesc); ?></strong><?php if ($snowDay !== ''): ?><br><span style="color:#475569; font-size:9pt;"><?php echo $esc($snowDay); ?></span><?php endif; ?><?php if (!empty($item['plan_title'])): ?><br><span style="color:#94a3b8; font-size:8pt;">Job: <?php echo $esc($item['plan_title']); ?></span><?php endif; ?></td>
             <?php else: ?>
-                        <td class="desc-col"><?php if (!empty($item['plan_title'])): ?><strong><?php echo $esc($item['plan_title']); ?></strong><br><?php endif; ?><?php echo $esc($item['description']); ?><?php if (!empty($item['service_date'])): ?><br><span style="color:#64748b; font-size:9pt; font-weight:normal;">Service date: <?php echo $esc(date('M j, Y', strtotime((string)$item['service_date']))); ?></span><?php endif; ?></td>
+                        <td class="desc-col"><?php if (!empty($item['plan_title'])): ?><strong><?php echo $esc($item['plan_title']); ?></strong><br><?php endif; ?><?php echo $esc($item['description']); ?><?php if (!empty($item['service_date']) && $sharedDate === ''): ?><br><span style="color:#48534C; font-size:8.5pt; font-weight:normal;">Service date: <?php echo $esc(date('M j, Y', strtotime((string)$item['service_date']))); ?></span><?php endif; ?></td>
             <?php endif; ?>
             <td class="right"><?php echo rtrim(rtrim(number_format(floatval($item['quantity']), 2), '0'), '.'); ?></td>
             <td class="right"><?php echo $fmt($item['unit_price']); ?></td>
@@ -513,6 +528,9 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
         <?php endforeach; ?>
     </tbody>
 </table>
+<?php if ($sharedDate !== ''): ?>
+<div style="margin-top:3px; font-size:8.5pt; color:#48534C;">Service date: <?php echo $esc(date('M j, Y', strtotime($sharedDate))); ?></div>
+<?php endif; ?>
 
 <!-- Totals — Subtotal + tax in a small table -->
 <?php if (!$snowLayout): ?><div style="page-break-inside: avoid;"><?php endif; /* totals, amount due and how to pay stay together */ ?>
@@ -593,26 +611,40 @@ if ($modern && $invoiceFooterText !== '' && !$dropFooterText) {
            . '</tr></table>';
         echo InvoiceSnowTerms::ittai(InvoiceSnowTerms::quiet($gWide));
     } else {
-        echo $payHtml;
+        // How to pay (left, quiet panel) beside the amount due (right, solid), so the page has no wide empty bar
+        $splitInstr = $invoicePaymentInstr !== ''
+            ? '<td width="55%" valign="top" style="background:#EEF1EE; border:0.6pt solid #D9DFDA; padding:9px 14px; font-size:8.5pt; color:#131D17; line-height:1.45;"><strong style="color:#233A5E;">How to pay</strong><br>' . nl2br($esc($invoicePaymentInstr)) . '</td>'
+            : '<td width="55%"></td>';
+        echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px; page-break-inside:avoid;"><tr>'
+           . $splitInstr
+           . '<td width="2%"></td>'
+           . '<td width="43%" valign="top" style="background:' . $snowBg . '; color:#ffffff; padding:10px 16px; text-align:right;">'
+           . '<div style="font-size:8pt; letter-spacing:1px; color:#D9DFDA;">' . strtoupper($esc($calloutLabel)) . '</div>'
+           . '<div style="font-size:26pt; font-weight:bold; line-height:1.1;">' . $calloutValue . '</div>'
+           . ($dueDay !== '' ? '<div style="font-size:10pt; font-weight:bold;">Due ' . $esc($dueDay) . '</div>' : '')
+           . '</td></tr></table>';
     }
 endif; ?>
-<?php if ($isPaid): ?>
-<table class="total-callout <?php echo $calloutClass; ?>" cellpadding="0" cellspacing="0" style="width: 280px; margin-left: auto; margin-top: 10px;">
-    <tr>
-        <td style="padding: 14px 18px; background: <?php
-            echo $calloutClass === 'overdue' ? '#991b1b'
-                : ($calloutClass === 'paid' ? '#166534' : '#0D3B2E');
-        ?>; color: #ffffff;">
-            <div class="tc-label"><?php echo $esc($calloutLabel); ?></div>
-            <div class="tc-value"><?php echo $calloutValue; ?></div>
-        </td>
-    </tr>
-</table>
-<?php endif; ?>
+<?php if ($isPaid):
+    // Payment received (left, quiet panel) beside Paid in Full (right, solid), the same shape as the amount-due row
+    $paidBits = [];
+    if (!empty($invoice['payment_date']))      { $paidBits[] = 'Date: ' . date('F j, Y', strtotime($invoice['payment_date'])); }
+    if (!empty($invoice['payment_method']))    { $paidBits[] = 'Method: ' . ucfirst((string)$invoice['payment_method']); }
+    if (!empty($invoice['payment_reference'])) { $paidBits[] = 'Ref: ' . (string)$invoice['payment_reference']; }
+    echo '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px; page-break-inside:avoid;"><tr>'
+       . ($paidBits
+            ? '<td width="55%" valign="top" style="background:#EEF1EE; border:0.6pt solid #D9DFDA; padding:9px 14px; font-size:8.5pt; color:#131D17; line-height:1.45;"><strong style="color:#233A5E;">Payment received</strong><br>' . $esc(implode(' · ', $paidBits)) . '</td>'
+            : '<td width="55%"></td>')
+       . '<td width="2%"></td>'
+       . '<td width="43%" valign="top" style="background:#1A5A39; color:#ffffff; padding:10px 16px; text-align:right;">'
+       . '<div style="font-size:8pt; letter-spacing:1px; color:#DCEBE2;">' . strtoupper($esc($calloutLabel)) . '</div>'
+       . '<div style="font-size:26pt; font-weight:bold; line-height:1.1;">' . $calloutValue . '</div>'
+       . '</td></tr></table>';
+endif; ?>
 
 <?php if (!$snowLayout): ?></div><?php endif; ?>
 <!-- Payment info (if paid) -->
-<?php if ($isPaid && !empty($invoice['payment_date'])): ?>
+<?php if ($isPaid && !empty($invoice['payment_date']) && !$modern): /* modern: shown beside Paid in Full */ ?>
 <div class="payment-info">
     <strong>Payment Received</strong><br>
     Date: <?php echo date('F j, Y', strtotime($invoice['payment_date'])); ?>
