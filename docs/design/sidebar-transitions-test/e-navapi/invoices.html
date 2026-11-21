@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invoices</title><link rel="stylesheet" href="../shared/app.css"><style>
+@view-transition { navigation: auto; }
+.sidebar { view-transition-name: sidebar; }
+.hl { view-transition-name: hl; }
+main { view-transition-name: main; }
+::view-transition-group(sidebar) { animation: none; }
+::view-transition-group(hl) { animation-duration: 260ms; animation-timing-function: cubic-bezier(.2,.7,.2,1); }
+::view-transition-old(main) { animation: 90ms ease-out both vt-out; }
+::view-transition-new(main) { animation: 160ms ease-out 40ms both vt-in; }
+@keyframes vt-out { to { opacity: 0; } } @keyframes vt-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+</style></head>
+<body class="soft"><div class="shell"><aside class="sidebar" id="sidebar"><div class="logo">ittai</div><div class="card"><div class="face">S</div><b>Sam</b><small>Sales</small></div><nav class="menu" style="--i:5"><a href="today.html">Today</a><a href="clients.html">Clients</a><a href="quotes.html">Quotes</a><a href="jobs.html">Jobs</a><a href="schedule.html">Schedule</a><a href="invoices.html" aria-current="page">Invoices</a><span class="hl"></span></nav><div class="foot">Sidebar built <b id="age">0</b> s ago</div></aside><main id="main"><h1>Invoices</h1><p class="sub">Test page: 26 rows. Content height differs per page on purpose.</p><div class="stats"><div class="stat"><b>26</b>open</div><div class="stat"><b>$10660</b>value</div><div class="stat"><b>66%</b>rate</div><div class="stat"><b>10</b>days</div></div><div class="rows"><div class="row"><span>Invoices item 1</span><span>1d</span></div><div class="row"><span>Invoices item 2</span><span>4d</span></div><div class="row"><span>Invoices item 3</span><span>7d</span></div><div class="row"><span>Invoices item 4</span><span>10d</span></div><div class="row"><span>Invoices item 5</span><span>13d</span></div><div class="row"><span>Invoices item 6</span><span>16d</span></div><div class="row"><span>Invoices item 7</span><span>2d</span></div><div class="row"><span>Invoices item 8</span><span>5d</span></div><div class="row"><span>Invoices item 9</span><span>8d</span></div><div class="row"><span>Invoices item 10</span><span>11d</span></div><div class="row"><span>Invoices item 11</span><span>14d</span></div><div class="row"><span>Invoices item 12</span><span>17d</span></div><div class="row"><span>Invoices item 13</span><span>3d</span></div><div class="row"><span>Invoices item 14</span><span>6d</span></div><div class="row"><span>Invoices item 15</span><span>9d</span></div><div class="row"><span>Invoices item 16</span><span>12d</span></div><div class="row"><span>Invoices item 17</span><span>15d</span></div><div class="row"><span>Invoices item 18</span><span>1d</span></div><div class="row"><span>Invoices item 19</span><span>4d</span></div><div class="row"><span>Invoices item 20</span><span>7d</span></div><div class="row"><span>Invoices item 21</span><span>10d</span></div><div class="row"><span>Invoices item 22</span><span>13d</span></div><div class="row"><span>Invoices item 23</span><span>16d</span></div><div class="row"><span>Invoices item 24</span><span>2d</span></div><div class="row"><span>Invoices item 25</span><span>5d</span></div><div class="row"><span>Invoices item 26</span><span>8d</span></div></div></main></div>
+<script src="../shared/probe.js"></script><script>
+function parse(html) { return new DOMParser().parseFromString(html, 'text/html'); }
+function setActive(url) {
+  var file = new URL(url, location.href).pathname.split('/').pop();
+  var links = [].slice.call(document.querySelectorAll('.menu a')), i = 0;
+  links.forEach(function (a, n) { var on = a.getAttribute('href') === file; if (on) i = n; if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  document.querySelector('.menu').style.setProperty('--i', i);
+}
+function swapIn(doc, url) {
+  var next = doc.getElementById('main'); document.title = doc.title;
+  document.getElementById('main').innerHTML = next.innerHTML;
+  window.scrollTo(0, 0);
+}
+function withTransition(fn) {
+  if (!document.startViewTransition) { fn(); return Promise.resolve(); }
+  var t = document.startViewTransition(fn); return t.finished.catch(function () {});
+}
+
+// E: Navigation API. Every same-origin navigation is intercepted (links, back, forward, address-bar edits to this site, code),
+// the page is fetched ahead on hover/press, the highlight is optimistic, and the swap runs inside one view transition.
+var cache = {};
+function load(url) { return cache[url] || (cache[url] = fetch(url).then(function (r) { return r.text(); })); }
+['pointerenter', 'pointerdown', 'focusin'].forEach(function (ev) {
+  document.addEventListener(ev, function (e) { var a = e.target.closest && e.target.closest('.menu a'); if (a) load(a.href); }, true);
+});
+if (window.navigation) {
+  navigation.addEventListener('navigate', function (e) {
+    if (!e.canIntercept || e.hashChange || e.downloadRequest) return;
+    var url = e.destination.url; if (new URL(url).pathname.indexOf('.html') < 0) return;
+    e.intercept({ scroll: 'manual', focusReset: 'manual', handler: function () {
+      setActive(url); document.body.classList.add('loading');
+      return load(url).then(function (html) {
+        return withTransition(function () { swapIn(parse(html), url); });
+      }).then(function () { document.body.classList.remove('loading'); delete cache[url]; });
+    }});
+  });
+} else { document.body.insertAdjacentHTML('afterbegin', '<p style="padding:8px;background:#fde">This browser has no Navigation API; links load normally.</p>'); }
+</script></body></html>
