@@ -114,7 +114,7 @@ body.it-shell.it-shell .it-chip {
 /* ── The open head's pages: a 180 ms accordion, closed = display:none ── */
 body.it-shell.it-shell .it-acc {
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows 180ms ease-out, display 180ms allow-discrete;
+  transition: grid-template-rows 220ms cubic-bezier(.2,.7,.2,1), display 220ms allow-discrete;
 }
 body.it-shell.it-shell .it-acc[hidden] { display: none; grid-template-rows: 0fr; }
 @starting-style { body.it-shell.it-shell .it-acc { grid-template-rows: 0fr; } }
@@ -141,7 +141,8 @@ body.it-shell.it-shell .it-grp { display: flex; flex-direction: column; }
 body.it-shell.it-shell .it-grp > .it-grow { order: 0; }
 body.it-shell.it-shell .it-grp > .it-hp-space { order: 1; flex: none; margin: 2px 0 10px; }
 body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
-body.it-shell.it-shell .it-hp-space[hidden] { display: none; }
+body.it-shell.it-shell .it-hp-space { overflow: hidden; transition: height 220ms cubic-bezier(.2,.7,.2,1), margin 220ms cubic-bezier(.2,.7,.2,1); }
+body.it-shell.it-shell .it-hp-space[hidden] { display: block; height: 0 !important; margin-top: 0; margin-bottom: 0; }
 body.it-shell.it-shell .it-hp {
   display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 0;
   flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px;
@@ -770,3 +771,13 @@ body.it-shell.it-shell .it-hp .it-pt-lg { cursor: pointer; }
 body.it-shell.it-shell .it-hpi { position: absolute; left: 14px; top: 0; bottom: 0; width: 136px; margin: 0; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; pointer-events: none; transition: opacity 200ms ease-out; }
 body.it-shell.it-shell .it-hp.is-wide .it-hpi { opacity: 1; transition-delay: 100ms; }
 @media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hpi { transition: none; } }
+
+/* Smooth moves between pages and heads (Tim, 2026-11-20): the browser carries the page across a reload, the sidebar
+   stays put while the content fades, and the card, spacer and line follow the moving row frame by frame (ittai-shell.js). */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  body.it-shell.it-shell .sidebar.it-sidebar { view-transition-name: it-sidebar; }
+  ::view-transition-group(root) { animation-duration: 180ms; }
+  ::view-transition-group(it-sidebar) { animation-duration: 0s; }
+}
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp-space, body.it-shell.it-shell .it-acc { transition: none; } }
