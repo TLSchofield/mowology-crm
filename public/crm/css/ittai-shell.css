@@ -752,7 +752,7 @@ body.it-shell.it-shell .it-fwc-box { position: fixed; z-index: 1045; left: var(-
 body.it-shell.it-shell .it-fw-card[data-ready] .it-fwc-box { transition: left 260ms ease-out, width 260ms ease-out; }
 /* Her face stays where it is on the line; tapping it opens the card to the left with her introduction */
 body.it-shell.it-shell .it-fwc-box.is-open { left: calc(var(--fw-l, 0px) - 160px); width: 332px; }
-body.it-shell.it-shell .it-fwc-i { flex: none; width: 0; margin: 0; padding: 14px 0; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; }
+body.it-shell.it-shell .it-fwc-i { contain: size; flex: none; width: 0; margin: 0; padding: 14px 0; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; }
 body.it-shell.it-shell .it-fw-card[data-ready] .it-fwc-i { transition: width 260ms ease-out, padding 260ms ease-out, opacity 200ms ease-out; }
 body.it-shell.it-shell .it-fwc-box.is-open .it-fwc-i { width: 160px; padding-left: 14px; opacity: 1; }
 body.it-shell.it-shell .it-fwc-core { flex: none; width: 172px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px; }
