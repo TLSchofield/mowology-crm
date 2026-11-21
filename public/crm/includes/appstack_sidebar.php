@@ -92,23 +92,6 @@ if (!empty($itShell)):
     ksort($__itRest);
     $__itBlocks = array_merge($__itFirst, $__itHere, array_values($__itRest));
     unset($__itPipeline, $__itFirst, $__itHere, $__itRest, $__b);
-    // First-week short menu (Tim, 2026-11-20): the heads stay as the menu and the active head keeps her normal card above her
-    // pages, but each head lists only the daily pages; the rest wait under a closed More at the bottom.
-    if ($__fwMenu) {
-        $__fwByKey = [];
-        foreach ($__fwMenu['main'] as $__fwI) $__fwByKey[$__fwI['key']] = $__fwI;
-        foreach ($__itBlocks as $__bi => $__b) {
-            $__its = [];
-            foreach ($__b['items'] as $__fwI) {
-                if (isset($__fwByKey[$__fwI['key']])) { $__its[] = $__fwByKey[$__fwI['key']]; unset($__fwByKey[$__fwI['key']]); }
-                elseif (($__fwI['key'] ?? '') === 'kaname') $__its[] = $__fwI;   // the owner's morning brief stays with Kaname
-            }
-            if ($__b['slug'] === 'penny' && isset($__fwByKey['receipts-review'])) { $__its[] = $__fwByKey['receipts-review']; unset($__fwByKey['receipts-review']); }
-            $__itBlocks[$__bi]['items'] = $__its;
-        }
-        $__itBlocks = array_values(array_filter($__itBlocks, static fn($b) => !empty($b['items'])));
-        unset($__fwByKey, $__fwI, $__its, $__bi);
-    }
     $__itNav = ['heads' => []];
     try {
         require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/HeadNavService.php';
@@ -129,6 +112,18 @@ if (!empty($itShell)):
     $__itOpen = '';
     foreach ($__itBlocks as $__b) { if (!empty($__b['here'])) { $__itOpen = $__b['slug']; break; } }
     if ($__itOpen === '') $__itOpen = 'charlie';
+    // First-week short menu: the head the page belongs to keeps her normal card, under the page's row, her introduction
+    // to the left of her face (Tim, 2026-11-20).
+    $__fwCard = '';
+    if ($__fwMenu) {
+        foreach ($__itBlocks as $__b) {
+            if (empty($__b['here'])) continue;
+            $__fwCard = '<li class="it-fw-card" aria-label="' . $__h($__b['name'] . ', AI, ' . $__b['role']) . '"><span class="it-fwc-t"><span class="it-fwc-n"><b>' . $__h($__b['name']) . '</b><span class="it-tag">AI</span></span>'
+                . '<span class="it-fwc-r">' . $__h($__b['role']) . '</span><span class="it-fwc-i">' . $__h(FirstWeekMenu::INTRO[$__b['slug']] ?? '') . '</span></span>'
+                . '<span class="it-pt it-pt-lg it-pt-none"><img src="/crm/img/heads/' . $__h($__b['slug']) . '.jpg" width="44" height="44" alt="" loading="lazy"></span></li>';
+            break;
+        }
+    }
     itIconSprite();
 ?>
 <nav id="sidebar" class="sidebar it-sidebar" aria-label="Main navigation">
@@ -139,8 +134,24 @@ if (!empty($itShell)):
             <a class="it-mark" href="/crm/dashboard_appstack.php" aria-label="Ittai, home"><?php if ($__itSymbol !== ''): ?><img class="it-logo" src="<?php echo $__h($__itSymbol); ?>" alt="" width="24" height="24"><?php endif; ?><img class="it-wm" src="/crm/img/ittai/ittai-wordmark.svg" alt="" height="26"></a>
         </div>
         <?php /* No search box here (Tim, 2026-11-10): the one search is top right, in Kaname's band. */ ?>
-        <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl<?php echo $__fwMenu ? ' it-fw-on' : ''; ?>">
-        <?php foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
+        <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
+        <?php if ($__fwMenu): ?>
+            <li class="it-fw"><ul class="it-fwl">
+            <?php foreach ($__fwMenu['main'] as $__item): $__on = ($activePage === $__item['key']); ?>
+                <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
+                <?php if ($__on) echo $__fwCard; ?>
+            <?php endforeach; ?>
+            <?php if ($__fwMenu['more']): $__moreOpen = in_array($activePage, array_column($__fwMenu['more'], 'key'), true); ?>
+                <li><details class="it-fw-more"<?php echo $__moreOpen ? ' open' : ''; ?>><summary class="it-pg"><span class="it-pl">More</span></summary>
+                    <ul class="it-fwl it-fwl-more">
+                    <?php foreach ($__fwMenu['more'] as $__item): $__on = ($activePage === $__item['key']); ?>
+                        <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
+                        <?php if ($__on) echo $__fwCard; ?>
+                    <?php endforeach; ?>
+                    </ul></details></li>
+            <?php endif; ?>
+            </ul></li>
+        <?php else: foreach ($__itBlocks as ['slug' => $__slug, 'name' => $__name, 'role' => $__role, 'here' => $__here, 'items' => $__items]):
             $__hd    = (array)(($__itNav['heads'] ?? [])[$__slug] ?? []);
             $__st    = in_array($__hd['state'] ?? '', $__itStates, true) ? $__hd['state'] : '';
             $__word  = (string)($__hd['word'] ?? '');
@@ -192,15 +203,7 @@ if (!empty($itShell)):
                     <ul class="it-subs"><?php echo $__pages; ?></ul>
                 </div>
             </li>
-        <?php endforeach; ?>
-        <?php if ($__fwMenu && $__fwMenu['more']): $__moreOpen = in_array($activePage, array_column($__fwMenu['more'], 'key'), true); ?>
-            <li class="it-fw"><details class="it-fw-more"<?php echo $__moreOpen ? ' open' : ''; ?>><summary class="it-pg"><span class="it-pl">More</span></summary>
-                <ul class="it-fwl it-fwl-more">
-                <?php foreach ($__fwMenu['more'] as $__item): $__on = ($activePage === $__item['key']); ?>
-                    <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
-                <?php endforeach; ?>
-                </ul></details></li>
-        <?php endif; ?>
+        <?php endforeach; endif; ?>
         </ul></nav>
         <div class="it-prof">
             <a class="it-pcard" href="/crm/settings.php" aria-label="<?php echo $__h($__itBiz . ', ' . $__itUser . ', ' . $__itRole . '. Business settings'); ?>"><span class="it-disc"><?php echo $__h($__itInit); ?></span><span class="it-pt2"><b><?php echo $__h($__itBiz); ?></b><span><?php echo $__h($__itUser . ' · ' . $__itRole); ?></span></span><svg class="it-ch it-ic" width="16" height="16" aria-hidden="true"><use href="#it-i-updown"/></svg></a>
