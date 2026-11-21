@@ -209,8 +209,15 @@
     // One swap at a time: a second click waits for the first to finish, so the held-handler queue and the page owner never interleave.
     var lock = Promise.resolve();
     function exclusive(fn) { var p = lock.then(fn); lock = p.catch(function () { /* the caller handles it */ }); return p; }
+    var root = document.documentElement;
+    function named(t) { root.classList.add('it-vt'); t.finished.then(function () { root.classList.remove('it-vt'); }, function () { root.classList.remove('it-vt'); }); }
+    // Normal page loads (the page changes by a real navigation): the names are on for the swap and the first frames of the new page.
+    window.addEventListener('pageswap', function (e) { if (e.viewTransition) root.classList.add('it-vt'); });
+    window.addEventListener('pagereveal', function (e) { if (e.viewTransition) named(e.viewTransition); });
     function run(fn) {
+        root.classList.add('it-vt');
         var t = document.startViewTransition(fn);
+        named(t);
         t.ready.catch(function () { /* skipped by a newer click: nothing to report */ });
         t.finished.catch(function () { /* same */ });
         return t.updateCallbackDone;

@@ -1,8 +1,10 @@
 /* Soft navigation (ittai-soft.js, opt-in with the it_soft cookie). The sidebar is drawn as one still picture while a
    page changes, the content fades, and a normal page load takes the same path so the menu never shows bare. */
 @view-transition { navigation: auto; }
-body.it-shell .it-sidebar { view-transition-name: sidebar; }
-body.it-shell main.content { view-transition-name: main; }
+/* The names are on only while a transition runs (ittai-soft.js adds html.it-vt): a view-transition-name is a containing block for
+   fixed children and clips them, which cut the first-week head card off at the sidebar's edge when it was always on. */
+html.it-vt body.it-shell .it-sidebar { view-transition-name: sidebar; }
+html.it-vt body.it-shell main.content { view-transition-name: main; }
 ::view-transition-group(sidebar) { animation: none; }
 ::view-transition-old(main) { animation: 90ms ease-out both it-soft-out; }
 ::view-transition-new(main) { animation: 160ms ease-out 40ms both it-soft-in; }

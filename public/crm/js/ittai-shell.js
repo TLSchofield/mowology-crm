@@ -534,6 +534,21 @@
                     [].forEach.call(n.childNodes, function (c) { a.appendChild(document.importNode(c, true)); });
                 }
             });
+            // First-week short menu: the head card is a list item under the current page's row, and it is the page's own head.
+            var nfw = nsb.querySelector('.it-fw-card'), ofw = sb.querySelector('.it-fw-card');
+            if (ofw && ofw.parentNode) {
+                var list0 = ofw.parentNode;
+                list0.removeChild(ofw);
+                if (nfw) {
+                    var prev = nfw.previousElementSibling, pa = prev && prev.querySelector('a.it-pg'), anchor = null;
+                    if (pa) [].forEach.call(list0.querySelectorAll('a.it-pg'), function (a) { if (a.getAttribute('href') === pa.getAttribute('href')) anchor = a.closest('li'); });
+                    list0.insertBefore(document.importNode(nfw, true), anchor ? anchor.nextSibling : list0.firstChild);
+                }
+            } else if (nfw) {
+                var np = nfw.previousElementSibling, na = np && np.querySelector('a.it-pg'), host = null, flat = sb.querySelector('.it-fw-flat');
+                if (na && flat) [].forEach.call(flat.querySelectorAll('a.it-pg'), function (a) { if (a.getAttribute('href') === na.getAttribute('href')) host = a.closest('li'); });
+                if (host) host.parentNode.insertBefore(document.importNode(nfw, true), host.nextSibling);
+            }
             // The server puts the selected head second in the menu, so the order moves with the page.
             var order = [].map.call(nsb.querySelectorAll('.it-grp'), function (g) { return g.getAttribute('data-head'); });
             var now = [].map.call(sb.querySelectorAll('.it-grp'), function (g) { return g.getAttribute('data-head'); });
