@@ -499,7 +499,7 @@
         var li = box.querySelector('.it-fw-card'), card = li && li.querySelector('.it-fwc-box'), sb = document.getElementById('sidebar'), pg = box.querySelector('.it-pg[aria-current="page"]');
         if (!li || !card || !sb || li.offsetParent === null) return;
         // The card floats on the viewport (centred on the spine, wider than the sidebar); the list keeps its room.
-        var spine = sb.getBoundingClientRect().right - 32;
+        var spine = sb.getBoundingClientRect().right - 24;
         li.style.height = card.offsetHeight + 'px';
         var l = li.getBoundingClientRect();
         card.style.left = Math.round(spine - card.offsetWidth / 2) + 'px';
