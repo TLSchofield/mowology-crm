@@ -723,7 +723,11 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 
 /* ── First-week short menu: a flat list of eight days' items and a closed More (no head spine, no live line) ── */
 body.it-shell.it-shell .it-fwl { padding: 0; }
-body.it-shell.it-shell .it-fwl .it-pg[aria-current="page"]::after { display: none; }
+body.it-shell.it-shell .it-fw-flat { position: relative; }
+/* The page's line to its head, as on the heads menu: across from the page to the spine (the card's face), then up to the card */
+body.it-shell.it-shell .it-fwl .it-pg[aria-current="page"]::after { margin: 0 calc(var(--fw-r, 46px) - 12px) 0 4px; }
+body.it-shell.it-shell .it-fw-flat:not(.is-live) .it-pg[aria-current="page"]::after { display: none; }
+body.it-shell.it-shell .it-fw-flat.is-live::after { content: ""; position: absolute; left: calc(var(--fw-x, 0px) - 1px); top: var(--fw-top, 0px); width: 2px; height: var(--fw-h, 0px); background: var(--it-brand); pointer-events: none; }
 body.it-shell.it-shell .it-fw-more > summary { cursor: pointer; list-style: none; }
 body.it-shell.it-shell .it-fw-more > summary::-webkit-details-marker { display: none; }
 body.it-shell.it-shell .it-fw-more > summary::after { content: "+"; margin-left: auto; color: var(--it-meta); }
@@ -731,13 +735,38 @@ body.it-shell.it-shell .it-fw-more[open] > summary::after { content: "\2212"; }
 body.it-shell.it-shell .it-fwl-more .it-pg { padding-left: 28px; }
 
 /* ── Invoices page: invoice graphs in place of the decision line when nothing is waiting ── */
-body.it-shell.it-shell .it-inv-viz { display: grid; grid-template-columns: 220px repeat(3, minmax(0, 1fr)); gap: 16px; }
-body.it-shell.it-shell .it-inv-intro { padding: 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); background: var(--it-surface); font-size: 14px; line-height: 20px; }
-body.it-shell.it-shell .it-inv-intro p { margin: 0; }
-body.it-shell.it-shell .it-inv-face { display: block; width: 56px; height: 56px; margin-bottom: 8px; border-radius: var(--it-radius-full); object-fit: cover; }
-body.it-shell.it-shell .it-inv-role { color: var(--it-meta); margin-bottom: 8px; }
+body.it-shell.it-shell .it-inv-viz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 body.it-shell.it-shell .it-inv-viz .it-job-viz { padding: 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); background: var(--it-surface); }
 body.it-shell.it-shell .it-viz-flat::before { display: none; }
 body.it-shell.it-shell .it-job-viz .it-viz-late { fill: var(--it-status-attention); }
-@media (max-width: 1400px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: 220px repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1400px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1100px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: 1fr; } }
+/* The strip's charts are drawn 288 wide and scaled to the card (about 1.5x): size the labels to land near 12 px. */
+body.it-shell.it-shell .it-inv-viz .it-viz-lbl { font-size: 8px; line-height: 10px; }
+
+/* First-week short menu: the page's head keeps her card under the page's row; introduction left of the face, card runs left from the spine */
+body.it-shell.it-shell .it-fw-card { display: block; margin: 4px 0 10px; }
+/* The card is the head's normal card: centred on the spine, floating over the page edge (JS places it), her face on the spine,
+   her introduction to the left of it, her name and role to the right */
+body.it-shell.it-shell .it-fwc-box { position: fixed; z-index: 1045; left: var(--fw-l, 0px); top: 0; width: 172px; display: flex; align-items: stretch; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); box-shadow: var(--it-shadow-menu); overflow: hidden; }
+body.it-shell.it-shell .it-fw-card[data-ready] .it-fwc-box { transition: left 260ms ease-out, width 260ms ease-out; }
+/* Her face stays where it is on the line; tapping it opens the card to the left with her introduction */
+body.it-shell.it-shell .it-fwc-box.is-open { left: calc(var(--fw-l, 0px) - 160px); width: 332px; }
+body.it-shell.it-shell .it-fwc-i { contain: size; flex: none; width: 0; margin: 0; padding: 14px 0; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; }
+body.it-shell.it-shell .it-fw-card[data-ready] .it-fwc-i { transition: width 260ms ease-out, padding 260ms ease-out, opacity 200ms ease-out; }
+body.it-shell.it-shell .it-fwc-box.is-open .it-fwc-i { width: 160px; padding-left: 14px; opacity: 1; }
+body.it-shell.it-shell .it-fwc-core { flex: none; width: 172px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px; }
+body.it-shell.it-shell .it-fwc-face { padding: 0; border: 0; background: none; cursor: pointer; border-radius: var(--it-radius-full); }
+body.it-shell.it-shell .it-fwc-face:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-fwc-box, body.it-shell.it-shell .it-fwc-i { transition: none; } }
+body.it-shell.it-shell .it-fw-card:not([data-placed]) .it-fwc-box { visibility: hidden; }
+body.it-shell.it-shell .it-fw-card .it-pt-lg { margin: 0 auto 2px; }
+body.it-shell.it-shell .sidebar.collapsed .it-fw-card { display: none; }
+
+/* Every head's card: tapping her face opens the card to the left with her introduction; the face and the line stay put */
+body.it-shell.it-shell .it-hp { transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete, margin-left 260ms ease-out, width 260ms ease-out, padding-left 260ms ease-out; }
+body.it-shell.it-shell .it-hp.is-wide { margin-left: -150px; width: 350px; padding-left: 162px; box-sizing: border-box; }
+body.it-shell.it-shell .it-hp .it-pt-lg { cursor: pointer; }
+body.it-shell.it-shell .it-hpi { position: absolute; left: 14px; top: 0; bottom: 0; width: 136px; margin: 0; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; pointer-events: none; transition: opacity 200ms ease-out; }
+body.it-shell.it-shell .it-hp.is-wide .it-hpi { opacity: 1; transition-delay: 100ms; }
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hpi { transition: none; } }

@@ -78,6 +78,7 @@ if (!empty($itShell)):
         $__itDesk = new CharlieDeskService(getDB());
         $__itOwner = $__itDesk->ready() && $__itDesk->isOwner((array)$user);
     } catch (Throwable $__e) { /* not the owner, then */ }
+    if (defined('APP_ROOT')) require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekMenu.php';   // the heads' one-line introductions
     $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, $__itOwner);
     // Order (Tim, 2026-11-10): Kaname first; the head you are with second, so the open list and the card always
     // land in the same place; then the rest in the order a job travels — Mia brings it in, Sam prices it, Otto
@@ -112,6 +113,19 @@ if (!empty($itShell)):
     $__itOpen = '';
     foreach ($__itBlocks as $__b) { if (!empty($__b['here'])) { $__itOpen = $__b['slug']; break; } }
     if ($__itOpen === '') $__itOpen = 'charlie';
+    // First-week short menu: the head the page belongs to keeps her normal card, under the page's row, her introduction
+    // to the left of her face (Tim, 2026-11-20).
+    $__fwCard = '';
+    if ($__fwMenu) {
+        foreach ($__itBlocks as $__b) {
+            if (empty($__b['here'])) continue;
+            $__fwCard = '<li class="it-fw-card" aria-label="' . $__h($__b['name'] . ', AI, ' . $__b['role']) . '"><div class="it-fwc-box">'
+                . '<p class="it-fwc-i" id="it-fwc-intro" aria-hidden="true">' . $__h(FirstWeekMenu::INTRO[$__b['slug']] ?? '') . '</p>'
+                . '<div class="it-fwc-core"><button type="button" class="it-fwc-face it-pt it-pt-lg it-pt-none" aria-expanded="false" aria-controls="it-fwc-intro" aria-label="About ' . $__h($__b['name']) . '"><img src="/crm/img/heads/' . $__h($__b['slug']) . '.jpg" width="44" height="44" alt=""></button>'
+                . '<span class="it-hpn"><b>' . $__h($__b['name']) . '</b></span><span class="it-hpd">' . $__h($__b['role']) . '</span></div></div></li>';
+            break;
+        }
+    }
     itIconSprite();
 ?>
 <nav id="sidebar" class="sidebar it-sidebar" aria-label="Main navigation">
@@ -124,7 +138,8 @@ if (!empty($itShell)):
         <?php /* No search box here (Tim, 2026-11-10): the one search is top right, in Kaname's band. */ ?>
         <nav class="it-nv" aria-label="Areas of the business"><ul class="it-gl">
         <?php if ($__fwMenu): ?>
-            <li class="it-fw"><ul class="it-fwl">
+            <li class="it-fw it-fw-flat"><ul class="it-fwl">
+            <?php echo $__fwCard; ?>
             <?php foreach ($__fwMenu['main'] as $__item): $__on = ($activePage === $__item['key']); ?>
                 <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
             <?php endforeach; ?>
@@ -133,7 +148,7 @@ if (!empty($itShell)):
                     <ul class="it-fwl it-fwl-more">
                     <?php foreach ($__fwMenu['more'] as $__item): $__on = ($activePage === $__item['key']); ?>
                         <li><a class="it-pg" href="<?php echo $__h($__item['href']); ?>"<?php echo $__on ? ' aria-current="page"' : ''; ?>><span class="it-pl"><?php echo $__h($__item['label']); ?></span><?php if (!empty($__item['badge']) && (int)$__item['badge'] > 0): ?><span class="it-chip"><?php echo (int)$__item['badge']; ?></span><?php endif; ?></a></li>
-                    <?php endforeach; ?>
+                            <?php endforeach; ?>
                     </ul></details></li>
             <?php endif; ?>
             </ul></li>
@@ -173,7 +188,9 @@ if (!empty($itShell)):
                 </button>
                 <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
                 <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
-                    <span class="<?php echo $__ring; ?> it-pt-lg"><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
+                    <?php $__hpIntro = class_exists('FirstWeekMenu') ? (string)(FirstWeekMenu::INTRO[$__slug] ?? '') : ''; ?>
+                    <?php if ($__hpIntro !== ''): ?><p class="it-hpi" id="it-hpi-<?php echo $__h($__slug); ?>" aria-hidden="true"><?php echo $__h($__hpIntro); ?></p><?php endif; ?>
+                    <span class="<?php echo $__ring; ?> it-pt-lg"<?php if ($__hpIntro !== ''): ?> role="button" tabindex="0" aria-expanded="false" aria-controls="it-hpi-<?php echo $__h($__slug); ?>" aria-label="About <?php echo $__h($__name); ?>"<?php endif; ?>><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
                     <?php /* The card is the row enlarged (Tim, 2026-11-10): face, name, role. No state word, no second AI tag;
                              the state stays in the ring and the aria-label, the word in the rail flyout. */ ?>
                     <span class="it-hpn"><b><?php echo $__h($__name); ?></b></span>
