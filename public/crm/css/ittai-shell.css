@@ -801,3 +801,13 @@ body.it-shell.it-shell .it-hp.is-wide .it-hpi { opacity: 1; transition-delay: 10
 /* One fold control on a desktop screen: the edge chevron. The sandwich stays for phones (Tim, 2026-11-20).
    AppStack's .d-flex is !important, so the earlier display:none rule never won. */
 @media (min-width: 992px) { body.it-shell.it-shell .navbar .sidebar-toggle.d-flex { display: none !important; } }
+
+/* Kaname's hexagon disc on the left of her line, as on the iPhone's centre tab (Tim, 2026-11-20). The symbol itself is
+   untouched: it is the mask, drawn white on the navy disc. Desktop top bar only; the corner then keeps just the wordmark. */
+body.it-shell.it-shell .it-kan-mark { display: none; }
+@media (min-width: 1024px) {
+  body.it-shell.it-shell .it-kan-line.is-top .it-kan-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin-left: 2px; border-radius: var(--it-radius-full); background: var(--it-brand); box-shadow: 0 0 0 2px var(--it-surface), 0 0 0 3px var(--it-line); }
+  body.it-shell.it-shell .it-kan-mark span { width: 20px; height: 20px; background: var(--it-on-tenant); -webkit-mask: url(/crm/img/ittai/ittai-symbol-24.svg) center / contain no-repeat; mask: url(/crm/img/ittai/ittai-symbol-24.svg) center / contain no-repeat; }
+  body.it-shell.it-shell .it-kan-line.is-top .it-kan-mark:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 3px; }
+  body.it-kan-seated.it-shell .sidebar.it-sidebar:not(.collapsed) .it-logo { display: none; }
+}

@@ -217,9 +217,11 @@
                 line.style.marginTop = '';
                 bar.insertBefore(line, cluster);
                 line.classList.add('is-top');
+                document.body.classList.add('it-kan-seated');
             } else if (!wide && line.classList.contains('is-top') && kanHome && kanHome.parentNode) {
                 kanHome.parentNode.insertBefore(line, kanHome);
                 line.classList.remove('is-top');
+                document.body.classList.remove('it-kan-seated');
             }
         }
         seatKan();
