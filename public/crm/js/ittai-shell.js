@@ -154,7 +154,7 @@
                 var c = cardOf(g), sp = spaceOf(g);
                 if (keepHere && g.classList.contains('is-here') && c && sp) { here = g; return; }
                 if (c) c.classList.remove('is-open');
-                if (sp) sp.hidden = true;
+                if (sp) { sp.hidden = true; sp.style.marginTop = ''; }
                 g.classList.remove('has-card');
             });
             if (here && !isRail()) {
@@ -250,7 +250,11 @@
             Array.prototype.some.call(document.querySelectorAll('.it-job:not(.is-done) .it-job-rail'), function (r) { if (r.offsetParent !== null) { rail = r; return true; } return false; });
             var strip = rail ? rail.closest('.it-job') : null;
             var card = strip ? cards[strip.getAttribute('data-head')] : null;
-            if (!rail || !card || !card.classList.contains('is-open') || isRail()) {
+            // First-week short menu: the head's card is the one floating box at the top of the list (no accordion).
+            var fwLi = document.querySelector('.it-fw-card'), fwBox = fwLi && fwLi.querySelector('.it-fwc-box');
+            var isFw = false;
+            if (!card && strip && fwBox && fwLi.offsetParent !== null) { card = fwBox; isFw = true; }
+            if (!rail || !card || (!isFw && !card.classList.contains('is-open')) || isRail()) {
                 link.hidden = stub.hidden = true;
                 return;
             }
@@ -264,9 +268,38 @@
             // so the rail runs level with the card's middle. Not while scrolled: the card is fixed, the strip is not.
             var outer = strip.closest('.it-job-outer');
             if (outer && window.scrollY < 10) {
+                if (isFw) {
+                    // First-week short menu: the head's card sits at the very top of the list, and the strip can only rise
+                    // 16 px (the top bar is above it). Work out the one height both can share and set both at once:
+                    // the card is pushed down by padding (it does not collapse into its neighbours' margins) and the strip
+                    // is moved up or down to it, so the line always runs level from the card to the decision (Tim, 2026-11-21).
+                    var curO = parseFloat(outer.style.marginTop || '0') || 0;
+                    var curP = parseFloat(fwLi.style.paddingTop || '0') || 0;
+                    var C0 = cr.top + cr.height / 2 - curP, R0 = midY() - curO;
+                    var T = Math.max(C0, R0 - 16);
+                    var wantO = Math.round(T - R0), wantP = Math.max(0, Math.round(T - C0));
+                    if (Math.abs(wantO - curO) > 1) outer.style.marginTop = wantO + 'px';
+                    if (Math.abs(wantP - curP) > 1) { fwLi.style.paddingTop = wantP + 'px'; measureFw(); }
+                    cr = card.getBoundingClientRect(); rr = rail.getBoundingClientRect();
+                } else {
                 var cur = parseFloat(outer.style.marginTop || '0') || 0;
                 var want = Math.max(-16, Math.round(cur + (cr.top + cr.height / 2) - midY()));
                 if (Math.abs(want - cur) > 1) { outer.style.marginTop = want + 'px'; rr = rail.getBoundingClientRect(); }
+                }
+                // Full menu: when the card is still higher than the rail, the card goes down to it (its spacer gets a top margin).
+                var spc = spaces[strip.getAttribute('data-head')];
+                var grp = groups.filter(function (x) { return x.getAttribute('data-head') === strip.getAttribute('data-head'); })[0];
+                if (!isFw && spc && grp && !spc.hidden) {
+                    var drop = midY() - (cr.top + cr.height / 2);
+                    var cm = parseFloat(spc.style.marginTop || '0') || 0;
+                    var atTop = (parseFloat(outer.style.marginTop || '0') || 0) <= -15;
+                    if ((atTop && drop > 1) || (drop < -1 && cm > 0)) {
+                        spc.style.transition = 'none';
+                        spc.style.marginTop = Math.max(0, Math.round(cm + drop)) + 'px';
+                        placeCard(grp);
+                        cr = card.getBoundingClientRect();
+                    }
+                }
             }
             var tr = rr;   /* the rail's own middle is the line */
             var cy = cr.top + cr.height / 2, ry = midY(), x0 = cr.right + 16;
@@ -539,7 +572,7 @@
         li.style.height = card.offsetHeight + 'px';
         var l = li.getBoundingClientRect();
         card.style.setProperty('--fw-l', Math.round(spine - 86) + 'px');
-        card.style.top = Math.round(l.top) + 'px';
+        card.style.top = Math.round(l.top + (parseFloat(li.style.paddingTop || '0') || 0)) + 'px';
         li.setAttribute('data-placed', '1');
         if (!li.hasAttribute('data-ready')) requestAnimationFrame(function () { requestAnimationFrame(function () { li.setAttribute('data-ready', '1'); }); });
         if (!pg) return;

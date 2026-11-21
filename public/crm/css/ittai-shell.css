@@ -763,7 +763,11 @@ body.it-shell.it-shell .it-fwc-core { flex: none; width: 172px; box-sizing: bord
 body.it-shell.it-shell .it-fwc-face { padding: 0; border: 0; background: none; cursor: pointer; border-radius: var(--it-radius-full); }
 body.it-shell.it-shell .it-fwc-face:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-fwc-box, body.it-shell.it-shell .it-fwc-i { transition: none; } }
-body.it-shell.it-shell .it-fw-card:not([data-placed]) .it-fwc-box { visibility: hidden; }
+/* Before the script has placed it (the moment between two page loads) the card is already drawn in its place and its slot
+   is already reserved, so the menu never shows without her and never jumps when the script runs (Tim, 2026-11-21).
+   Same spot the script uses: 24 px in from the sidebar's edge, 86 px to the left of that. */
+body.it-shell.it-shell .it-fw-card:not([data-placed]) { position: relative; min-height: 124px; }
+body.it-shell.it-shell .it-fw-card:not([data-placed]) .it-fwc-box { position: absolute; left: calc(280px - 24px - 86px); top: 0; }
 body.it-shell.it-shell .it-fw-card .it-pt-lg { margin: 0 auto 2px; }
 body.it-shell.it-shell .sidebar.collapsed .it-fw-card { display: none; }
 
