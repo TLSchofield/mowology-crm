@@ -236,6 +236,9 @@
             handler: function () {
                 var mine = ++seq;   // a second click while this one is still loading wins; this one does nothing more
                 document.body.classList.add('it-soft-wait');
+                // At once, before the page arrives: the row you pressed is the current one (the swap sets it for good, or the normal load does).
+                var rows = [].slice.call(document.querySelectorAll('.it-sidebar a.it-pg')), hit = rows.filter(function (a) { return norm(new URL(a.href, location.href).pathname) === norm(u.pathname); });
+                if (hit.length) rows.forEach(function (a) { if (hit.indexOf(a) !== -1) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
                 return takePage(u.href).then(function (html) {
                     if (mine !== seq || e.signal.aborted) throw new Error('superseded');
                     var doc = new DOMParser().parseFromString(html, 'text/html');

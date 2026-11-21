@@ -13,3 +13,6 @@ html.it-vt body.it-shell main.content { view-transition-name: main; }
 @media (prefers-reduced-motion: reduce) {
     ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+
+/* While the next page is on its way (ittai-soft.js): the content waits, dimmed, so a slow page still answers the click. */
+body.it-soft-wait main.content { opacity: .55; transition: opacity 120ms; }
