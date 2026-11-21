@@ -114,7 +114,7 @@ body.it-shell.it-shell .it-chip {
 /* ── The open head's pages: a 180 ms accordion, closed = display:none ── */
 body.it-shell.it-shell .it-acc {
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows 180ms ease-out, display 180ms allow-discrete;
+  transition: grid-template-rows 220ms cubic-bezier(.2,.7,.2,1), display 220ms allow-discrete;
 }
 body.it-shell.it-shell .it-acc[hidden] { display: none; grid-template-rows: 0fr; }
 @starting-style { body.it-shell.it-shell .it-acc { grid-template-rows: 0fr; } }
@@ -141,7 +141,8 @@ body.it-shell.it-shell .it-grp { display: flex; flex-direction: column; }
 body.it-shell.it-shell .it-grp > .it-grow { order: 0; }
 body.it-shell.it-shell .it-grp > .it-hp-space { order: 1; flex: none; margin: 2px 0 10px; }
 body.it-shell.it-shell .it-grp > .it-acc { order: 2; }
-body.it-shell.it-shell .it-hp-space[hidden] { display: none; }
+body.it-shell.it-shell .it-hp-space { overflow: hidden; transition: height 220ms cubic-bezier(.2,.7,.2,1), margin 220ms cubic-bezier(.2,.7,.2,1); }
+body.it-shell.it-shell .it-hp-space[hidden] { display: block; height: 0 !important; margin-top: 0; margin-bottom: 0; }
 body.it-shell.it-shell .it-hp {
   display: none; position: fixed; z-index: 1045; left: 0; top: 0; width: 200px; min-height: 0;
   flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px;
@@ -536,7 +537,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job .it-btn-fill .it-job-ic { transform: rotate(90deg); }   /* the merge arrow points along the horizontal flow */
 .it-job .it-btn b { font-weight: 600; }
 .it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
-.it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-job .it-btn-fill { background: var(--it-brand); border-color: var(--it-brand); color: var(--it-on-tenant); }   /* the one action is the brand indigo, whatever the tenant colour (Tim, 2026-11-21) */
 .it-job .it-btn-line { background: var(--it-surface); border-color: var(--it-brand); color: var(--it-brand); }
 .it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
 .it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
@@ -573,8 +574,11 @@ body.it-shell #mwRrPanel { display: none !important; }
 .it-job-num i { font-style: normal; margin-left: 4px; font-size: 12px; line-height: 18px; color: var(--it-meta); }
 /* symmetric padding keeps the rail's line at the frame's centre (level with the head card) and leaves room under the end icons for their labels */
 .it-job-nums .it-job-rail { margin-bottom: 0; padding: 20px 0; justify-content: space-between; }   /* the numbers spread to fill the frame so the line ends at the compass, as the decision strip's frame does */
+.it-job-foot:not(:has(.it-job-mrow:not(:empty))) { display: none; }
+.it-job-n { display: none; }   /* no 'N of M' count: calm, not a queue to clear (Tim, 2026-11-21) */
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-job-skip { display: none; }   /* no 'Not yet' / 'Skip for now' link under the strip either (Tim, 2026-11-21): the strip shows one thing and its two choices */
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
 .it-job-rail.is-enter { animation: it-job-in 200ms ease-out; }
 /* The ink line (Tim's pick, 2026-11-10): after Merge, the frame's words fade, one navy stroke is drawn along the rail,
@@ -720,3 +724,99 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 /* the frame takes the spare width right of its content (up to the Ledger), spreading the text, age and buttons instead of leaving the gap there */
 .it-job-rail .it-job-split { flex: 1 0 auto; justify-content: space-between; }
 .it-job-rail .it-job-split > .it-job-sides { max-width: 340px; }
+
+/* ── First-week short menu: a flat list of eight days' items and a closed More (no head spine, no live line) ── */
+body.it-shell.it-shell .it-fwl { padding: 0; }
+body.it-shell.it-shell .it-fw-flat { position: relative; }
+/* The page's line to its head, as on the heads menu: across from the page to the spine (the card's face), then up to the card */
+body.it-shell.it-shell .it-fwl .it-pg[aria-current="page"]::after { margin: 0 calc(var(--fw-r, 46px) - 12px) 0 4px; }
+body.it-shell.it-shell .it-fw-flat:not(.is-live) .it-pg[aria-current="page"]::after { display: none; }
+body.it-shell.it-shell .it-fw-flat.is-live::after { content: ""; position: absolute; left: calc(var(--fw-x, 0px) - 1px); top: var(--fw-top, 0px); width: 2px; height: var(--fw-h, 0px); background: var(--it-brand); pointer-events: none; }
+body.it-shell.it-shell .it-fw-more > summary { cursor: pointer; list-style: none; }
+body.it-shell.it-shell .it-fw-more > summary::-webkit-details-marker { display: none; }
+body.it-shell.it-shell .it-fw-more > summary::after { content: "+"; margin-left: auto; color: var(--it-meta); }
+body.it-shell.it-shell .it-fw-more[open] > summary::after { content: "\2212"; }
+body.it-shell.it-shell .it-fwl-more .it-pg { padding-left: 28px; }
+
+/* ── Invoices page: invoice graphs in place of the decision line when nothing is waiting ── */
+body.it-shell.it-shell .it-inv-viz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+body.it-shell.it-shell .it-inv-viz .it-job-viz { padding: 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); background: var(--it-surface); }
+body.it-shell.it-shell .it-viz-flat::before { display: none; }
+body.it-shell.it-shell .it-job-viz .it-viz-late { fill: var(--it-status-attention); }
+@media (max-width: 1400px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { body.it-shell.it-shell .it-inv-viz { grid-template-columns: 1fr; } }
+/* The strip's charts are drawn 288 wide and scaled to the card (about 1.5x): size the labels to land near 12 px. */
+body.it-shell.it-shell .it-inv-viz .it-viz-lbl { font-size: 8px; line-height: 10px; }
+
+/* First-week short menu: the page's head keeps her card under the page's row; introduction left of the face, card runs left from the spine */
+body.it-shell.it-shell .it-fw-card { display: block; margin: 4px 0 10px; }
+/* The card is the head's normal card: centred on the spine, floating over the page edge (JS places it), her face on the spine,
+   her introduction to the left of it, her name and role to the right */
+body.it-shell.it-shell .it-fwc-box { position: fixed; z-index: 1045; left: var(--fw-l, 0px); top: 0; width: 172px; display: flex; align-items: stretch; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); box-shadow: var(--it-shadow-menu); overflow: hidden; }
+body.it-shell.it-shell .it-fw-card[data-ready] .it-fwc-box { transition: left 260ms ease-out, width 260ms ease-out; }
+/* Her face stays where it is on the line; tapping it opens the card to the left with her introduction */
+body.it-shell.it-shell .it-fwc-box.is-open { left: calc(var(--fw-l, 0px) - 160px); width: 332px; }
+body.it-shell.it-shell .it-fwc-i { contain: size; flex: none; width: 0; margin: 0; padding: 14px 0; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; }
+body.it-shell.it-shell .it-fw-card[data-ready] .it-fwc-i { transition: width 260ms ease-out, padding 260ms ease-out, opacity 200ms ease-out; }
+body.it-shell.it-shell .it-fwc-box.is-open .it-fwc-i { width: 160px; padding-left: 14px; opacity: 1; }
+body.it-shell.it-shell .it-fwc-core { flex: none; width: 172px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; padding: 14px 12px 16px; }
+body.it-shell.it-shell .it-fwc-face { padding: 0; border: 0; background: none; cursor: pointer; border-radius: var(--it-radius-full); }
+body.it-shell.it-shell .it-fwc-face:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-fwc-box, body.it-shell.it-shell .it-fwc-i { transition: none; } }
+/* Before the script has placed it (the moment between two page loads) the card is already drawn in its place and its slot
+   is already reserved, so the menu never shows without her and never jumps when the script runs (Tim, 2026-11-21).
+   Same spot the script uses: 24 px in from the sidebar's edge, 86 px to the left of that. */
+body.it-shell.it-shell .it-fw-card:not([data-placed]) { position: relative; min-height: 124px; }
+body.it-shell.it-shell .it-fw-card:not([data-placed]) .it-fwc-box { position: absolute; left: calc(280px - 24px - 86px); top: 0; }
+body.it-shell.it-shell .it-fw-card .it-pt-lg { margin: 0 auto 2px; }
+body.it-shell.it-shell .sidebar.collapsed .it-fw-card { display: none; }
+
+/* Every head's card: tapping her face opens the card to the left with her introduction; the face and the line stay put */
+body.it-shell.it-shell .it-hp { transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete, margin-left 260ms ease-out, width 260ms ease-out, padding-left 260ms ease-out; }
+body.it-shell.it-shell .it-hp.is-wide { margin-left: -150px; width: 350px; padding-left: 162px; box-sizing: border-box; }
+body.it-shell.it-shell .it-hp .it-pt-lg { cursor: pointer; }
+body.it-shell.it-shell .it-hpi { position: absolute; left: 14px; top: 0; bottom: 0; width: 136px; margin: 0; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; pointer-events: none; transition: opacity 200ms ease-out; }
+body.it-shell.it-shell .it-hp.is-wide .it-hpi { opacity: 1; transition-delay: 100ms; }
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hpi { transition: none; } }
+
+/* Smooth moves between pages and heads (Tim, 2026-11-20): the browser carries the page across a reload, the sidebar
+   stays put while the content fades, and the card, spacer and line follow the moving row frame by frame (ittai-shell.js). */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  body.it-shell.it-shell .sidebar.it-sidebar { view-transition-name: it-sidebar; }
+  ::view-transition-group(root) { animation-duration: 180ms; }
+  ::view-transition-group(it-sidebar) { animation-duration: 0s; }
+}
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp-space, body.it-shell.it-shell .it-acc { transition: none; } }
+
+/* Desktop top bar: no Clock in, Receipt or GPS signal (Tim, 2026-11-20 — not needed there). They stay in the markup
+   (the clock and tracking scripts look for them) and still show on phones and tablets, where crews use them. */
+@media (min-width: 992px) {
+  body.it-shell.it-shell .navbar .mw-tracking-dot-wrapper,
+  body.it-shell.it-shell .navbar .mw-clock-widget,
+  body.it-shell.it-shell .navbar .mw-snap-receipt-btn { display: none !important; }
+}
+
+/* Kaname's line in the top bar (desktop): a slim pill between the menu toggle and the search; JS seats it (seatKan).
+   Hidden until seated so the page content never shows a gap. */
+@media (min-width: 1024px) {
+  body.it-shell.it-shell .it-kan-line:not(.is-top) { display: none; }
+  body.it-kan-seated.it-shell .navbar { flex-wrap: nowrap; }
+  body.it-shell.it-shell .it-kan-line.is-top { position: relative; top: auto; flex: 0 1 760px; min-width: 0; min-height: 40px; margin: 0 16px 0 68px; padding: 0 4px 0 8px; border-radius: 12px; }
+  body.it-shell.it-shell .it-kan-line.is-top .it-kan-subject, body.it-shell.it-shell .it-kan-line.is-top .it-kan-open { min-height: 34px; }
+}
+
+/* One fold control on a desktop screen: the edge chevron. The sandwich stays for phones (Tim, 2026-11-20).
+   AppStack's .d-flex is !important, so the earlier display:none rule never won. */
+@media (min-width: 992px) { body.it-shell.it-shell .navbar .sidebar-toggle.d-flex { display: none !important; } }
+
+/* Kaname's hexagon disc on the left of her line, as on the iPhone's centre tab (Tim, 2026-11-20). The symbol itself is
+   untouched: it is the mask, drawn white on the navy disc. Desktop top bar only; the corner then keeps just the wordmark. */
+body.it-shell.it-shell .it-kan-mark { display: none; }
+@media (min-width: 1024px) {
+  body.it-shell.it-shell .it-kan-line.is-top .it-kan-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; position: absolute; left: -50px; top: 50%; width: 32px; height: 32px; margin-top: -16px; border-radius: var(--it-radius-full); background: var(--it-brand); box-shadow: 0 0 0 2px var(--it-surface), 0 0 0 3px var(--it-line); }
+  body.it-shell.it-shell .it-kan-line.is-top .it-kan-mark::after { content: ""; position: absolute; left: calc(100% + 3px); top: 50%; width: 15px; height: 0; border-top: 1px solid color-mix(in srgb, var(--it-line) 55%, var(--it-meta)); }
+  body.it-shell.it-shell .it-kan-mark span { width: 20px; height: 20px; background: var(--it-on-tenant); -webkit-mask: url(/crm/img/ittai/ittai-symbol-24.svg) center / contain no-repeat; mask: url(/crm/img/ittai/ittai-symbol-24.svg) center / contain no-repeat; }
+  body.it-shell.it-shell .it-kan-line.is-top .it-kan-mark:focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 3px; }
+  body.it-kan-seated.it-shell .sidebar.it-sidebar:not(.collapsed) .it-logo { display: none; }
+}

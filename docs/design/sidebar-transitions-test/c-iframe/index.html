@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>C: frame</title>
+<link rel="stylesheet" href="../shared/app.css"><style>#frame{flex:1;border:0;width:100%;height:100vh;transition:opacity 140ms;display:block}#frame.wait{opacity:.55}</style></head>
+<body class="soft"><div class="shell"><aside class="sidebar" id="sidebar"><div class="logo">ittai</div><div class="card"><div class="face">S</div><b>Sam</b><small>Sales</small></div><nav class="menu" style="--i:0"><a href="pages/today.html" data-file="today.html" aria-current="page">Today</a><a href="pages/clients.html" data-file="clients.html">Clients</a><a href="pages/quotes.html" data-file="quotes.html">Quotes</a><a href="pages/jobs.html" data-file="jobs.html">Jobs</a><a href="pages/schedule.html" data-file="schedule.html">Schedule</a><a href="pages/invoices.html" data-file="invoices.html">Invoices</a><span class="hl"></span></nav><div class="foot">Sidebar built <b id="age">0</b> s ago</div></aside><iframe id="frame" src="pages/today.html" title="page"></iframe></div>
+<script src="../shared/probe.js"></script><script>
+// C: the sidebar lives in this shell and is never reloaded; the pages load inside the frame. The highlight moves on press.
+var frame = document.getElementById('frame'), menu = document.querySelector('.menu');
+function mark(file) {
+  var links = [].slice.call(menu.querySelectorAll('a')), i = 0;
+  links.forEach(function (a, n) { var on = a.getAttribute('data-file') === file; if (on) i = n; if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  menu.style.setProperty('--i', i);
+}
+menu.addEventListener('click', function (e) {
+  var a = e.target.closest('a'); if (!a) return; e.preventDefault();
+  mark(a.getAttribute('data-file')); frame.classList.add('wait'); frame.src = 'pages/' + a.getAttribute('data-file');
+  history.replaceState(null, '', '#' + a.getAttribute('data-file').replace('.html', ''));
+});
+frame.addEventListener('load', function () { frame.classList.remove('wait'); try { mark(frame.contentWindow.location.pathname.split('/').pop()); } catch (e) {} });
+var h = location.hash.slice(1); if (h) { frame.src = 'pages/' + h + '.html'; mark(h + '.html'); }
+</script></body></html>

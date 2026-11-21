@@ -52,6 +52,7 @@ Not measured: production timings, other pages, a truly empty tenant, phone width
 - Order: dashboard, contacts, quotes list, new quote, jobs, invoices, schedule.
 - Use `ittai-tokens.css` and `docs/design/ittai-v1.2` / `COMPONENTS.md` (status scale: green in, rust look, red missing, grey not expected). No new hex values, no inline styles.
 - One primary action per page. Dense columns and filters collapse for first-week mode.
+- Wording: each page's strings pass `docs/design/plain-language-style-guide.md` (plain words, errors say what to do, every empty state has one button).
 - Each page checked at 1440, 1024 and phone width, light and dark, with `scripts/ittai-design/review-shots.mjs` where it applies.
 
 **Step 6: check as a newcomer.**
@@ -167,3 +168,17 @@ Still open on the dashboard: Otto's card (~740 ms: unscheduled items 230 ms, clo
 Penny's payment-match refresh (a one-off ~1.7 s on the first admin load every 4 h), and the head API calls after load
 (`charlie.php`, `bookkeeper.php`, `otto.php`). `crew_location_history` carries 13 index entries for 7 distinct needs:
 duplicate indexes to drop in a migration.
+
+## Step 2 result: the first-week switch (2026-11-20, deployed)
+
+- `FirstWeekService` (`app/Modules/Settings/Services/`) reads `ops_settings.first_week_mode` ('1' = on, no row = off). Per business database, so per tenant. Tests: `tests/Unit/Settings/FirstWeekServiceTest.php`.
+- Admin toggle in the account menu (top right): "First-week view: on/off". It saves through the existing `ops-settings.php?action=save` (admin only, CSRF).
+- New businesses start ON (`TenantProvisioner`, first run only, so re-provisioning never flips an existing business). Mowology stays OFF.
+- Nothing visible changes yet: steps 3 (simple dashboard) and 4 (short menu) read `FirstWeekService::isOn()`.
+- Checked live: dashboard renders in full, item shows "off (turn on)".
+
+## Steps 3 and 4 result: short menu and one-thing dashboard (2026-11-20, approved by Tim)
+
+- With the first-week view on, the menu is Today, Clients, Quotes, Jobs, Schedule, Invoices, Receipts, Settings and a closed More (everything else the login may open). Both shells. `FirstWeekMenu` (tested). Phone menu not changed yet.
+- Dashboard first screen: greeting, one thing (add client, first quote, follow up, today's visits, all caught up; steps the login can't open are skipped), one button, the rest under a closed More. `FirstWeekFocus` (tested). A failed count falls back to the full dashboard.
+- Checked locally in both shells; live with the view off renders as before. Mowology stays off; turn it on from the account menu to try it.

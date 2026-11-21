@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Today</title><link rel="stylesheet" href="../shared/app.css"><style>
+@view-transition { navigation: auto; }
+.sidebar { view-transition-name: sidebar; }
+.hl { view-transition-name: hl; }
+main { view-transition-name: main; }
+::view-transition-group(sidebar) { animation: none; }
+::view-transition-group(hl) { animation-duration: 260ms; animation-timing-function: cubic-bezier(.2,.7,.2,1); }
+::view-transition-old(main) { animation: 90ms ease-out both vt-out; }
+::view-transition-new(main) { animation: 160ms ease-out 40ms both vt-in; }
+@keyframes vt-out { to { opacity: 0; } } @keyframes vt-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+</style><link rel="expect" href="#sidebar" blocking="render"></head>
+<body class=""><div class="shell"><aside class="sidebar" id="sidebar"><div class="logo">ittai</div><div class="card"><div class="face">S</div><b>Sam</b><small>Sales</small></div><nav class="menu" style="--i:0"><a href="today.html" aria-current="page">Today</a><a href="clients.html">Clients</a><a href="quotes.html">Quotes</a><a href="jobs.html">Jobs</a><a href="schedule.html">Schedule</a><a href="invoices.html">Invoices</a><span class="hl"></span></nav><div class="foot">Sidebar built <b id="age">0</b> s ago</div></aside><main id="main"><h1>Today</h1><p class="sub">Test page: 14 rows. Content height differs per page on purpose.</p><div class="stats"><div class="stat"><b>14</b>open</div><div class="stat"><b>$5740</b>value</div><div class="stat"><b>54%</b>rate</div><div class="stat"><b>7</b>days</div></div><div class="rows"><div class="row"><span>Today item 1</span><span>1d</span></div><div class="row"><span>Today item 2</span><span>4d</span></div><div class="row"><span>Today item 3</span><span>7d</span></div><div class="row"><span>Today item 4</span><span>10d</span></div><div class="row"><span>Today item 5</span><span>13d</span></div><div class="row"><span>Today item 6</span><span>16d</span></div><div class="row"><span>Today item 7</span><span>2d</span></div><div class="row"><span>Today item 8</span><span>5d</span></div><div class="row"><span>Today item 9</span><span>8d</span></div><div class="row"><span>Today item 10</span><span>11d</span></div><div class="row"><span>Today item 11</span><span>14d</span></div><div class="row"><span>Today item 12</span><span>17d</span></div><div class="row"><span>Today item 13</span><span>3d</span></div><div class="row"><span>Today item 14</span><span>6d</span></div></div></main></div>
+<script src="../shared/probe.js"></script></body></html>

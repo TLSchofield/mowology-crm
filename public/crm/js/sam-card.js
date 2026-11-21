@@ -604,7 +604,7 @@
 
         root.innerHTML =
             '<div class="mw-rc-top"><button type="button" class="mw-rc-arrow" data-nav="-1" aria-label="Previous"' + (queue.length < 2 ? ' disabled' : '') + '>‹</button>' +
-            '<span><b>' + (idx + 1) + ' of ' + queue.length + '</b> waiting, ' + money(total) + ' in all</span>' +
+            '<span><b>' + money(total) + '</b> waiting</span>' +
             '<button type="button" class="mw-rc-arrow" data-nav="1" aria-label="Next"' + (queue.length < 2 ? ' disabled' : '') + '>›</button></div>' +
             '<div class="mw-sam-slide">' +
               '<div class="mw-sam-who">' +

@@ -122,6 +122,17 @@
                 g.classList.add('is-live');
             });
         }
+        // Follow the moving row: while the fold and the spacer run (about 300 ms) the card and the line are placed again every frame.
+        var followUntil = 0, following = false;
+        function follow() {
+            followUntil = Date.now() + 320;
+            if (following) return;
+            following = true;
+            (function tick() {
+                replaceOpenCards(); measureLive();
+                if (Date.now() < followUntil) requestAnimationFrame(tick); else following = false;
+            })();
+        }
         function setChev(g, open) {
             var use = g.querySelector('.it-grow > .it-ch use');
             if (use) use.setAttribute('href', open ? '#it-i-down' : '#it-i-right');
@@ -143,7 +154,7 @@
                 var c = cardOf(g), sp = spaceOf(g);
                 if (keepHere && g.classList.contains('is-here') && c && sp) { here = g; return; }
                 if (c) c.classList.remove('is-open');
-                if (sp) sp.hidden = true;
+                if (sp) { sp.hidden = true; sp.style.marginTop = ''; }
                 g.classList.remove('has-card');
             });
             if (here && !isRail()) {
@@ -156,6 +167,7 @@
             measureLive();
             if (typeof placeLink === 'function') placeLink();
             if (typeof placeKanLink === 'function') placeKanLink();
+            follow();
         }
         function closeFlies() {
             clearTimeout(flyTimer);
@@ -191,8 +203,32 @@
         var kanLink = document.createElement('div');
         kanLink.className = 'it-kan-link'; kanLink.hidden = true;
         layer.appendChild(kanLink);
+        // Kaname's line sits in the top bar on a desktop screen (Tim, 2026-11-20: the Clock in / Receipt / GPS buttons left
+        // that room); under 1024 px it goes back to the top of the page content.
+        var kanHome = null;
+        function seatKan() {
+            var line = document.querySelector('.it-kan-line'), bar = document.querySelector('.navbar');
+            var cluster = bar && bar.querySelector('.mw-topbar-right-cluster');
+            if (!line || !cluster) return;
+            var wide = window.innerWidth >= 1024;
+            if (wide && !line.classList.contains('is-top')) {
+                kanHome = document.createComment('kan');
+                line.parentNode.insertBefore(kanHome, line);
+                line.style.marginTop = '';
+                bar.insertBefore(line, cluster);
+                line.classList.add('is-top');
+                document.body.classList.add('it-kan-seated');
+            } else if (!wide && line.classList.contains('is-top') && kanHome && kanHome.parentNode) {
+                kanHome.parentNode.insertBefore(line, kanHome);
+                line.classList.remove('is-top');
+                document.body.classList.remove('it-kan-seated');
+            }
+        }
+        seatKan();
+        window.addEventListener('resize', seatKan);
         function placeKanLink() {
             var line = document.querySelector('.it-kan-line');
+            if (line && line.classList.contains('is-top')) { kanLink.hidden = true; return; }
             var kan = sb.querySelector('.it-grp.it-kan .it-grow .it-pt');
             if (!line || !kan || isRail() || window.innerWidth < 1024) { kanLink.hidden = true; return; }
             var kr = kan.getBoundingClientRect(), lr = line.getBoundingClientRect();
@@ -214,7 +250,11 @@
             Array.prototype.some.call(document.querySelectorAll('.it-job:not(.is-done) .it-job-rail'), function (r) { if (r.offsetParent !== null) { rail = r; return true; } return false; });
             var strip = rail ? rail.closest('.it-job') : null;
             var card = strip ? cards[strip.getAttribute('data-head')] : null;
-            if (!rail || !card || !card.classList.contains('is-open') || isRail()) {
+            // First-week short menu: the head's card is the one floating box at the top of the list (no accordion).
+            var fwLi = document.querySelector('.it-fw-card'), fwBox = fwLi && fwLi.querySelector('.it-fwc-box');
+            var isFw = false;
+            if (!card && strip && fwBox && fwLi.offsetParent !== null) { card = fwBox; isFw = true; }
+            if (!rail || !card || (!isFw && !card.classList.contains('is-open')) || isRail()) {
                 link.hidden = stub.hidden = true;
                 return;
             }
@@ -228,9 +268,38 @@
             // so the rail runs level with the card's middle. Not while scrolled: the card is fixed, the strip is not.
             var outer = strip.closest('.it-job-outer');
             if (outer && window.scrollY < 10) {
+                if (isFw) {
+                    // First-week short menu: the head's card sits at the very top of the list, and the strip can only rise
+                    // 16 px (the top bar is above it). Work out the one height both can share and set both at once:
+                    // the card is pushed down by padding (it does not collapse into its neighbours' margins) and the strip
+                    // is moved up or down to it, so the line always runs level from the card to the decision (Tim, 2026-11-21).
+                    var curO = parseFloat(outer.style.marginTop || '0') || 0;
+                    var curP = parseFloat(fwLi.style.paddingTop || '0') || 0;
+                    var C0 = cr.top + cr.height / 2 - curP, R0 = midY() - curO;
+                    var T = Math.max(C0, R0 - 16);
+                    var wantO = Math.round(T - R0), wantP = Math.max(0, Math.round(T - C0));
+                    if (Math.abs(wantO - curO) > 1) outer.style.marginTop = wantO + 'px';
+                    if (Math.abs(wantP - curP) > 1) { fwLi.style.paddingTop = wantP + 'px'; measureFw(); }
+                    cr = card.getBoundingClientRect(); rr = rail.getBoundingClientRect();
+                } else {
                 var cur = parseFloat(outer.style.marginTop || '0') || 0;
                 var want = Math.max(-16, Math.round(cur + (cr.top + cr.height / 2) - midY()));
                 if (Math.abs(want - cur) > 1) { outer.style.marginTop = want + 'px'; rr = rail.getBoundingClientRect(); }
+                }
+                // Full menu: when the card is still higher than the rail, the card goes down to it (its spacer gets a top margin).
+                var spc = spaces[strip.getAttribute('data-head')];
+                var grp = groups.filter(function (x) { return x.getAttribute('data-head') === strip.getAttribute('data-head'); })[0];
+                if (!isFw && spc && grp && !spc.hidden) {
+                    var drop = midY() - (cr.top + cr.height / 2);
+                    var cm = parseFloat(spc.style.marginTop || '0') || 0;
+                    var atTop = (parseFloat(outer.style.marginTop || '0') || 0) <= -15;
+                    if ((atTop && drop > 1) || (drop < -1 && cm > 0)) {
+                        spc.style.transition = 'none';
+                        spc.style.marginTop = Math.max(0, Math.round(cm + drop)) + 'px';
+                        placeCard(grp);
+                        cr = card.getBoundingClientRect();
+                    }
+                }
             }
             var tr = rr;   /* the rail's own middle is the line */
             var cy = cr.top + cr.height / 2, ry = midY(), x0 = cr.right + 16;
@@ -274,6 +343,7 @@
             g.classList.add('has-card');
             placeCard(g);
             measureLive();
+            follow();
         }
 
         /** Is the page already the one at ws? Compared on the path alone, so a query or fragment never causes a reload. */
@@ -300,8 +370,7 @@
             openCard(g);
             // The other group folds over 180 ms and the row moves with it: place the card again once it has
             // settled (the fold's transitionend below does it too; these are the fallback for a slow frame).
-            setTimeout(function () { replaceOpenCards(); measureLive(); }, 220);
-            setTimeout(function () { replaceOpenCards(); measureLive(); }, 600);
+            follow();
             if (ws !== '' && !herePath(ws)) window.location.href = ws;
         }
 
@@ -491,11 +560,72 @@
         if (!b) return;
         setBar(b.closest('.it-ai'), b.getAttribute('aria-expanded') !== 'true');
     });
+    // First-week short menu: the card sits on the spine at the top; the page's line runs across to the spine and up to the card.
+    function measureFw() {
+        var box = document.querySelector('.it-fw-flat');
+        if (!box) return;
+        box.classList.remove('is-live');
+        var li = box.querySelector('.it-fw-card'), card = li && li.querySelector('.it-fwc-box'), sb = document.getElementById('sidebar'), pg = box.querySelector('.it-pg[aria-current="page"]');
+        if (!li || !card || !sb || li.offsetParent === null) return;
+        // The card floats on the viewport (centred on the spine, wider than the sidebar); the list keeps its room.
+        var spine = sb.getBoundingClientRect().right - 24;
+        li.style.height = card.offsetHeight + 'px';
+        var l = li.getBoundingClientRect();
+        card.style.setProperty('--fw-l', Math.round(spine - 86) + 'px');
+        card.style.top = Math.round(l.top + (parseFloat(li.style.paddingTop || '0') || 0)) + 'px';
+        li.setAttribute('data-placed', '1');
+        if (!li.hasAttribute('data-ready')) requestAnimationFrame(function () { requestAnimationFrame(function () { li.setAttribute('data-ready', '1'); }); });
+        if (!pg) return;
+        var b = box.getBoundingClientRect(), r = pg.getBoundingClientRect();
+        var top = l.bottom - b.top, y = r.top + r.height / 2 - b.top;
+        if (y <= top) return;
+        box.style.setProperty('--fw-x', Math.round(spine - b.left) + 'px');
+        box.style.setProperty('--fw-top', Math.round(top) + 'px');
+        box.style.setProperty('--fw-h', Math.round(y - top) + 'px');
+        box.style.setProperty('--fw-r', Math.round(r.right - spine) + 'px');
+        box.classList.add('is-live');
+    }
+    // Every head's card on the full menu: tapping her face opens the card to the left with her introduction.
+    function toggleHeadCard(face) {
+        var card = face.closest('.it-hp');
+        if (!card || !card.querySelector('.it-hpi')) return;
+        var wide = !card.classList.contains('is-wide');
+        card.classList.toggle('is-wide', wide);
+        face.setAttribute('aria-expanded', wide ? 'true' : 'false');
+        card.querySelector('.it-hpi').setAttribute('aria-hidden', wide ? 'false' : 'true');
+    }
+    document.addEventListener('click', function (e) {
+        var f = e.target.closest ? e.target.closest('.it-hp .it-pt-lg') : null;
+        if (f) toggleHeadCard(f);
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var f = e.target.closest ? e.target.closest('.it-hp .it-pt-lg') : null;
+        if (f) { e.preventDefault(); toggleHeadCard(f); }
+    });
+    // Tapping her face opens the card to the left (and again closes it); the face and the line stay put.
+    document.addEventListener('click', function (e) {
+        var f = e.target.closest ? e.target.closest('.it-fwc-face') : null;
+        if (!f) return;
+        var box = f.closest('.it-fwc-box'), open = !box.classList.contains('is-open');
+        box.classList.toggle('is-open', open);
+        f.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var i = box.querySelector('.it-fwc-i');
+        if (i) i.setAttribute('aria-hidden', open ? 'false' : 'true');
+    });
+    window.addEventListener('resize', measureFw);
+    document.addEventListener('toggle', function () {
+        var until = Date.now() + 320;
+        (function t() { measureFw(); if (Date.now() < until) requestAnimationFrame(t); })();
+    }, true);
+    window.addEventListener('load', measureFw);
+    document.addEventListener('scroll', measureFw, true);
     window.ItShell = { posture: posture, setBar: setBar };
 
     function boot() {
         init();
         sidebarInit();
+        measureFw();
         // The phone menu's head blocks name their icons with data-feather; draw any still empty.
         try { if (window.feather && document.querySelector('.it-mb-link i[data-feather]')) window.feather.replace(); } catch (e) { /* icons are decoration */ }
     }

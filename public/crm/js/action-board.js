@@ -233,7 +233,7 @@
 
         var next = gs[gi + 1], prev = gs[gi - 1];
         hero.querySelector('[data-tc-next]').innerHTML = next
-            ? '<button type="button" class="it-tc-tab it-tc-step" data-tc-go="1">' + face(next.lead) + '<span><b>' + esc(groupName(next, gi + 1)) + '</b><small>Up next · ' + (gi + 2) + ' of ' + gs.length + '</small></span></button>'
+            ? '<button type="button" class="it-tc-tab it-tc-step" data-tc-go="1">' + face(next.lead) + '<span><b>' + esc(groupName(next, gi + 1)) + '</b><small>Up next</small></span></button>'
             : '<span class="it-tc-end">That\'s everyone.</span>';
         hero.querySelector('[data-tc-prev]').innerHTML = prev
             ? '<button type="button" class="it-tc-back" data-tc-go="-1">‹ ' + (gi === 1 ? CHIEF + '\'s three' : esc(groupName(prev, gi - 1))) + '</button>' : '';
