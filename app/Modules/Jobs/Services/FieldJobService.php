@@ -351,6 +351,28 @@ class FieldJobService
     }
 
     /** The contact + its one property, shared by create_client and create_client_job. */
+    /** Phone unless they gave only an email, so follow-up never picks a number that isn't there. */
+    public static function preferredMethod(array $input): string
+    {
+        $phone = trim((string)($input['phone'] ?? ''));
+        $email = trim((string)($input['email'] ?? ''));
+        return ($phone === '' && $email !== '') ? 'email' : 'phone';
+    }
+
+    /**
+     * Note stored on a contact made in the field. A prospect (no job yet) says so and carries what they
+     * asked for, so the office's follow-up has something to act on.
+     */
+    public static function contactNote(array $input, string $createdBy): string
+    {
+        $who  = $createdBy !== '' ? $createdBy : 'crew';
+        $wants = trim((string)($input['prospect_notes'] ?? ''));
+        if (!empty($input['prospect'])) {
+            return 'Prospect met in the field by ' . $who . ' — no job booked yet.' . ($wants !== '' ? ' Wants: ' . $wants : '');
+        }
+        return 'Created in the field by ' . $who . ' — please review.';
+    }
+
     private function createContactWithProperty(array $input, string $createdBy): array
     {
         $lat = isset($input['lat']) && $input['lat'] !== '' ? (float)$input['lat'] : null;
@@ -360,8 +382,9 @@ class FieldJobService
             'first_name'               => trim((string)$input['first_name']),
             'last_name'                => trim((string)($input['last_name'] ?? '')),
             'phone'                    => trim((string)($input['phone'] ?? '')),
-            'preferred_contact_method' => 'phone',
-            'notes'                    => 'Created in the field by ' . ($createdBy !== '' ? $createdBy : 'crew') . ' — please review.',
+            'email'                    => trim((string)($input['email'] ?? '')),
+            'preferred_contact_method' => self::preferredMethod($input),
+            'notes'                    => self::contactNote($input, $createdBy),
             'property_address'         => trim((string)$input['property_address']),
             'property_city'            => self::cityOrDefault($input),
             'property_postal_code'     => trim((string)($input['property_postal_code'] ?? '')),

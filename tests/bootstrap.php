@@ -62,6 +62,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/PennyLessons.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/LeadScore.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ClientRhythm.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/ComparablePricing.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamInvoiceHistory.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamSignals.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/QuoteJobAdapter.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/RouteReconciliationService.php';
@@ -472,6 +473,8 @@ require_once __DIR__ . '/../app/Modules/Contacts/Services/OnsiteContactService.p
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTeamService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTimelineService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactDuplicateFinder.php';
+require_once __DIR__ . '/../app/Modules/Settings/Services/FirstWeekService.php';
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
@@ -615,6 +618,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/CalendarCreateService.php'
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherActionGuard.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherSnapshotService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterJobAdapter.php';
 

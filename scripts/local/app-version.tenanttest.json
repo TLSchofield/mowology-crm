@@ -31,7 +31,13 @@
     "native_plants": true,
     "native_signup": true,
     "native_crew_schedule": true,
-    "native_vendor_items": true
+    "native_vendor_items": true,
+    "native_job_screen": true,
+    "native_penny_receipt_card": true,
+    "native_receipt_comparison": true,
+    "native_receipt_intake": true,
+    "native_timesheet_v2": true,
+    "native_tracking_v3": true
   },
   "ios": {
     "version": "1.3.56",

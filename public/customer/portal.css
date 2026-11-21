@@ -1509,3 +1509,4 @@ a:hover { text-decoration: underline; }
 .portal-plants-name { font-size: 0.9rem; font-weight: 600; color: var(--p-text); }
 .portal-plants-count { font-weight: 400; color: var(--p-text-light); }
 .portal-plants-meta { font-size: 0.78rem; color: var(--p-text-mid); margin-top: 2px; }
+.portal-visit-weather { white-space: normal; }

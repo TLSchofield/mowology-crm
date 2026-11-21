@@ -655,6 +655,19 @@ function statusBadge(string $status, bool $overdue = false): string {
                                      : $mwClientVisibility->forContractId($v['contract_id'] ?? null);
               // Visit length is never shown to a client (Tim, 2026-11-19; same rule as the visit
               // report, 2026-11-02). Office preview (adminMode) still shows it.
+              // Winter service: the forecast this visit was authorized on (same record as the invoice).
+              $wxLine = '';
+              try {
+                  require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceWeatherEvidence.php';
+                  $wxEv = InvoiceWeatherEvidence::forInvoice($db, ['visit_id' => (int)$v['id']]);
+                  if ($wxEv && ($wxEv['grade'] ?? '') === 'official') {
+                      $wxF  = InvoiceWeatherEvidence::official($wxEv);
+                      $wxR  = array_column($wxF['rows'], 1, 0);
+                      $wxLine = 'Forecast low ' . $wxR['Forecast overnight low'] . ' (service at ' . $wxR['Service threshold'] . ') · '
+                              . $wxR['Source'] . ' · ' . ($wxR['Forecast confirmed'] ?? $wxR['Forecast captured'] ?? '') ;
+                      $wxLine = 'Night of ' . date('M j', strtotime((string)$wxEv['trigger_date'])) . ': ' . $wxLine;
+                  }
+              } catch (Throwable $e) { $wxLine = ''; }
               $durMins  = ($adminMode && $vSees['length']) ? (int)($v['actual_duration_minutes'] ?? 0) : 0;
               if ($durMins > 0) {
                   $durHrs  = intdiv($durMins, 60);
@@ -679,6 +692,9 @@ function statusBadge(string $status, bool $overdue = false): string {
                 <div class="portal-visit-service"><?php echo $label; ?></div>
                 <?php if ($addr): ?>
                   <div class="portal-visit-address"><?php echo $addr; ?></div>
+                <?php endif; ?>
+                <?php if ($wxLine !== ''): ?>
+                  <div class="portal-visit-address portal-visit-weather"><?php echo htmlspecialchars($wxLine); ?></div>
                 <?php endif; ?>
                 <div class="portal-visit-meta">
                   <span class="portal-visit-done">Completed</span>

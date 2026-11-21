@@ -636,6 +636,36 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
       <?php endif; ?>
     </div>
 
+    <?php
+    // Winter service: the forecast the visit was authorized on (the same record the invoice carries).
+    $wxRows = null;
+    try {
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceWeatherEvidence.php';
+        $wxEv = InvoiceWeatherEvidence::forInvoice($db, ['visit_id' => $visitId]);
+        if ($wxEv && ($wxEv['grade'] ?? '') === 'official') {
+            $wxRows = InvoiceWeatherEvidence::official($wxEv);
+        }
+    } catch (Throwable $e) {
+        error_log('visit-report weather: ' . $e->getMessage());
+    }
+    ?>
+    <?php if ($wxRows): ?>
+    <!-- 2b. Weather Authorization Card ────────────────────────────────────── -->
+    <div class="pvr-section">
+      <div class="pvr-section-title">Weather Authorization <span class="pvr-gps-title-note">Night of <?php echo htmlspecialchars($wxRows['date']); ?></span></div>
+      <div class="pvr-gps-data-block">
+        <div class="pvr-gps-rows">
+          <?php foreach ($wxRows['rows'] as $wxr): ?>
+          <div class="pvr-gps-row">
+            <span class="pvr-gps-row-key"><?php echo htmlspecialchars($wxr[0]); ?></span>
+            <span class="pvr-gps-row-val"><?php echo htmlspecialchars($wxr[1]); ?></span>
+          </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
+
     <!-- 3. Site Photos Card ─────────────────────────────────────────────── -->
     <?php if (!empty($photos)): ?>
     <div class="pvr-section">

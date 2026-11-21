@@ -38,6 +38,52 @@ class ClientAgreedPrices
     public function forProperty(int $propertyId, ?int $companyId = null): array
     {
         if ($propertyId < 1) return [];
+        $own = $this->forOne($propertyId, $companyId);
+        if ($own) return $own;
+        // The same street address is often on the CRM twice ("3871 West 3rd Avenue" and "3871 west 3rd avenue, Vancouver, Bc V6R 1M4, Canada").
+        // When THIS record has no agreed price, offer the other records' plans, clearly labelled, never merged or prefilled:
+        // two records can be two payers on purpose (Shannon Station #28 commercial / #1528 strata), so the person picks.
+        $out = [];
+        foreach ($this->siblingPropertyIds($propertyId) as $sid) {
+            foreach ($this->forOne($sid, $companyId) as $r) {
+                $r['label'] .= ' · on another record of this address';
+                $r['from_property_id'] = $sid;
+                $out[] = $r;
+            }
+        }
+        return $out;
+    }
+
+    /** @return list<int> other property records with the same street address (text before the first comma, abbreviations folded) */
+    private function siblingPropertyIds(int $propertyId): array
+    {
+        try {
+            $st = $this->db->prepare("SELECT address FROM properties WHERE id = ?");
+            $st->execute([$propertyId]);
+            $addr = (string)$st->fetchColumn();
+            $key = self::addressKey($addr);
+            if ($key === '' || !preg_match('/^(\d+)/', $key, $m)) return [];
+            $st = $this->db->prepare("SELECT id, address FROM properties WHERE id <> ? AND address LIKE ? LIMIT 50");
+            $st->execute([$propertyId, $m[1] . '%']);
+            $ids = [];
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) if (self::addressKey((string)$r['address']) === $key) $ids[] = (int)$r['id'];
+            return $ids;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    public static function addressKey(string $address): string
+    {
+        $k = strtolower(trim(explode(',', $address)[0]));
+        $k = trim((string)preg_replace('/[^a-z0-9]+/', ' ', $k));
+        $words = ['avenue' => 'ave', 'street' => 'st', 'road' => 'rd', 'drive' => 'dr', 'west' => 'w', 'east' => 'e', 'north' => 'n', 'south' => 's', 'boulevard' => 'blvd'];
+        return implode(' ', array_map(static fn($w) => $words[$w] ?? $w, explode(' ', $k)));
+    }
+
+    /** @return list<array> */
+    private function forOne(int $propertyId, ?int $companyId): array
+    {
 
         $sql = "SELECT jp.id, jp.plan_number, jp.title, jp.service_type, jp.pricing_model, jp.price_per_visit,
                        jp.monthly_flat_price, jp.seasonal_price, jp.contract_id, jp.season_start, jp.season_end

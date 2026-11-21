@@ -109,4 +109,31 @@ class ClientAgreedPricesTest extends TestCase
         $this->db->exec("UPDATE contracts SET status = 'cancelled'");
         $this->assertNull($this->svc()->forProperty(39)[0]['contract_number']);
     }
+
+    /** Production 2026-11-20: Meghan Gillespie's address is on the CRM twice; the plan sits on the long-form record. */
+    public function testPlanOnAnotherRecordOfTheSameAddressIsOfferedAndLabelled(): void
+    {
+        $this->db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT)");
+        $this->db->exec("INSERT INTO properties VALUES (62, '3871 West 3rd Avenue'), (476, '3871 west 3rd avenue, Vancouver, Bc V6R 1M4, Canada'), (77, '3871 West 33rd Avenue'), (78, '3875 West 3rd Avenue')");
+        $this->db->exec("INSERT INTO job_plans (id, plan_number, property_id, title, service_type, price_per_visit, plan_start_date)
+                         VALUES (94, 'PLN-2026-0079', 476, 'WEEKLY MOWING', '7 Day Lawn Cut Service', 51.00, '2026-05-21'),
+                                (95, 'PLN-2026-0090', 77, 'OTHER', 'Cleanup', 99.00, '2026-05-21'),
+                                (97, 'PLN-2026-0091', 78, 'NEXT DOOR', 'Cleanup', 88.00, '2026-05-21')");
+        $r = $this->svc()->forProperty(62);
+        $this->assertCount(1, $r, 'only the record with the same street address, not 33rd or 3875');
+        $this->assertSame(51.0, $r[0]['unit_price']);
+        $this->assertSame(476, $r[0]['from_property_id']);
+        $this->assertStringContainsString('on another record of this address', $r[0]['label']);
+    }
+
+    public function testOwnAgreedPriceHidesOtherRecords(): void
+    {
+        $this->db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT)");
+        $this->db->exec("INSERT INTO properties VALUES (39, '4175 West 10th Avenue'), (400, '4175 w 10th ave, Vancouver')");
+        $this->db->exec("INSERT INTO job_plans (id, plan_number, property_id, title, service_type, price_per_visit, plan_start_date)
+                         VALUES (98, 'PLN-X', 400, 'STRATA', 'Cleanup', 500.00, '2026-05-21')");
+        $r = $this->svc()->forProperty(39);
+        $this->assertCount(1, $r);
+        $this->assertSame(48.0, $r[0]['unit_price'], 'the property\'s own plan wins; the sibling is not mixed in');
+    }
 }

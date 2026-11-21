@@ -98,6 +98,22 @@ function _av(string $webPath): string {
     $ts   = @filemtime($disk) ?: time();
     return $webPath . '?v=' . $ts;
 }
+
+/**
+ * Like _av(), but serves the minified sibling (foo.css -> foo.min.css) when it exists.
+ * Smaller to parse (brand CSS 1.25 MB -> 0.96 MB; app.js 3.6 MB -> 2.4 MB). A min file that is
+ * out of date would silently drop CSS changes, so tests/Unit/Assets/MinifiedAssetsFreshTest.php
+ * fails until `php scripts/minify-assets.php` has been run for the files listed there.
+ * DEPLOY: upload the .min file BEFORE (or with) its source and the pages that load it; production
+ * serves whatever .min file exists, so a source uploaded alone leaves the old min file live.
+ */
+function _amin(string $webPath): string {
+    $min = preg_replace('/\.(css|js)$/', '.min.$1', $webPath);
+    if ($min !== $webPath && is_file(PUBLIC_ROOT . $min)) {
+        return _av($min);
+    }
+    return _av($webPath);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -181,7 +197,7 @@ function _av(string $webPath): string {
   <?php if ($crewSlim): ?>
   <link href="<?= _av('/crm/css/crew-brand.css') ?>" rel="stylesheet">
   <?php else: ?>
-  <link href="<?= _av('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
+  <link href="<?= _amin('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
   <?php endif; ?>
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->

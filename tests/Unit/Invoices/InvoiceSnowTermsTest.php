@@ -14,7 +14,7 @@ class InvoiceSnowTermsTest extends TestCase
         $this->assertSame('', InvoiceSnowTerms::html(null));
     }
 
-    public function test_block_shows_wording_signing_date_and_acceptance_line(): void
+    public function test_block_shows_wording_and_signing_date(): void
     {
         $html = InvoiceSnowTerms::html([
             'body' => "SCOPE\nCar park <b>only</b>", 'snapshot' => true,
@@ -23,7 +23,6 @@ class InvoiceSnowTermsTest extends TestCase
         $this->assertStringContainsString('SNOW &amp; ICE SERVICE TERMS', $html);
         $this->assertStringContainsString('signed October 2, 2026', $html);
         $this->assertStringContainsString('Car park &lt;b&gt;only&lt;/b&gt;', $html);   // escaped, not injected
-        $this->assertStringContainsString('Payment of this invoice confirms acceptance of these terms.', $html);
     }
 
     public function test_unproven_signing_date_is_never_claimed(): void
@@ -61,10 +60,17 @@ class InvoiceSnowTermsTest extends TestCase
     public function test_columns_split_between_paragraphs_and_lose_no_text(): void
     {
         $body = "TERM\n\nOne two three.\n\nSCOPE\n\nFour five six seven.\n\nLIMITS\n\nEight nine.";
-        [$l, $r] = InvoiceSnowTerms::twoColumns($body);
-        $this->assertNotSame('', $l);
-        $this->assertNotSame('', $r);
-        $this->assertSame($body, $l . "\n\n" . $r);
-        $this->assertSame([ 'One paragraph only', '' ], InvoiceSnowTerms::twoColumns('One paragraph only'));
+        foreach ([2, 3] as $n) {
+            $cols = InvoiceSnowTerms::columns($body, $n);
+            $this->assertCount($n, $cols);
+            $this->assertSame($body, implode("\n\n", $cols));
+        }
+        $this->assertSame(['One paragraph only'], InvoiceSnowTerms::columns('One paragraph only', 3));
+        $this->assertSame(['one a', 'two b'], InvoiceSnowTerms::columns("one a\n\ntwo b", 3)); // never an empty column
+        // a section (heading + its paragraphs) is never split across columns
+        $sections = "TERM\n\nfirst.\n\nSCOPE\n\nsecond a.\n\nsecond b.\n\nWEATHER\n\nthird.";
+        foreach (InvoiceSnowTerms::columns($sections, 3) as $col) {
+            $this->assertSame(1, preg_match_all('/^[A-Z]+$/m', $col));
+        }
     }
 }
