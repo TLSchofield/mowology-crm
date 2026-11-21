@@ -175,3 +175,9 @@ duplicate indexes to drop in a migration.
 - New businesses start ON (`TenantProvisioner`, first run only, so re-provisioning never flips an existing business). Mowology stays OFF.
 - Nothing visible changes yet: steps 3 (simple dashboard) and 4 (short menu) read `FirstWeekService::isOn()`.
 - Checked live: dashboard renders in full, item shows "off (turn on)".
+
+## Steps 3 and 4 result: short menu and one-thing dashboard (2026-11-20, approved by Tim)
+
+- With the first-week view on, the menu is Today, Clients, Quotes, Jobs, Schedule, Invoices, Receipts, Settings and a closed More (everything else the login may open). Both shells. `FirstWeekMenu` (tested). Phone menu not changed yet.
+- Dashboard first screen: greeting, one thing (add client, first quote, follow up, today's visits, all caught up; steps the login can't open are skipped), one button, the rest under a closed More. `FirstWeekFocus` (tested). A failed count falls back to the full dashboard.
+- Checked locally in both shells; live with the view off renders as before. Mowology stays off; turn it on from the account menu to try it.

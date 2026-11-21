@@ -29,6 +29,9 @@ try {
     $__ijDesk = new CharlieDeskService($__ijDb);
     if (!$__ijDesk->ready() || !$__ijDesk->isOwner($__ijUser)) return;
     require_once APP_ROOT . '/Modules/Expenses/Services/PennyJobAdapter.php';
+    // Invoices page (Tim, 2026-11-20): the line there decides invoice things only (the e-Transfers to record); with none
+    // waiting, the invoice graphs take its place. Receipt duplicates, emailed receipts, month balancing and the spend chart stay on her other pages.
+    $__ijInv = ((string)($activePage ?? '')) === 'invoices';
     // Record payment goes through etransfer-confirm.php, which asks for billing.edit: the e-Transfer job needs it too.
     $__ijCanBill = !function_exists('userHasPermission') || userHasPermission('billing.edit');
     // Month balancing (2026-11-10): the oldest open month's bank lines, through bank_decide (expenses.edit); off unless the switch is on.
@@ -38,8 +41,11 @@ try {
     require_once APP_ROOT . '/Modules/Expenses/Services/PennyReceiptJobAdapter.php';
     $__ijCanReceipt = (!function_exists('userHasPermission') || userHasPermission('expenses.edit')) && PennyReceiptJobAdapter::hasWork($__ijDb);
     // The line is always there (Tim, 2026-11-10): with nothing to decide it rests as a bare line, "Nothing to decide".
-    $__ijWork = PennyJobAdapter::hasWork($__ijDb) || ($__ijCanBill && PennyJobAdapter::hasEtransferWork($__ijDb)) || $__ijCanMonth || $__ijCanReceipt;
+    if ($__ijInv) { $__ijCanMonth = false; $__ijCanReceipt = false; }
+    $__ijWork = $__ijInv ? ($__ijCanBill && PennyJobAdapter::hasEtransferWork($__ijDb))
+                         : (PennyJobAdapter::hasWork($__ijDb) || ($__ijCanBill && PennyJobAdapter::hasEtransferWork($__ijDb)) || $__ijCanMonth || $__ijCanReceipt);
     $__ijJobs = $__ijWork ? PennyJobAdapter::jobs($__ijDb, $__ijUser, $__ijCanBill) : [];
+    if ($__ijInv) $__ijJobs = array_values(array_filter($__ijJobs, static fn($j) => ($j['kind'] ?? '') === 'etransfer'));
     if ($__ijCanReceipt) {
         // after the duplicates (a twin is settled first), before the e-Transfers and the months
         $__ijAt = 0;
@@ -48,8 +54,14 @@ try {
     }
     if ($__ijCanMonth) foreach (PennyMonthJobAdapter::jobs($__ijDb) as $__ijM) $__ijJobs[] = $__ijM;
     foreach ($__ijJobs as $__ijI => $__ijJ) { $__ijJobs[$__ijI]['index'] = $__ijI + 1; $__ijJobs[$__ijI]['total'] = count($__ijJobs); }
-    require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePulseService.php';
-    $__ijPulse = ExpensePulseService::load($__ijDb, time());
+    if ($__ijInv) {
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceInsightsService.php';
+        $__ijIns = InvoiceInsightsService::snapshot($__ijDb, date('Y-m-d'));
+        $__ijPulse = null;
+    } else {
+        require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePulseService.php';
+        $__ijPulse = ExpensePulseService::load($__ijDb, time());
+    }
 } catch (Throwable $__e) {
     error_log('Job strip unavailable: ' . $__e->getMessage());
     return;
@@ -244,8 +256,48 @@ $__ijViz = static function (?array $p) use ($__ijSvg): string {
         . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="Approved receipts by month, last six months">' . $bars . '</svg>'
         . '<p class="it-job-viz-gst"><b>' . h($money((float)$p['quarter_gst'])) . '</b> GST on receipts in ' . h($p['quarter_label']) . ' <span>— claim it back</span></p></figure>';
 };
+// Invoice graphs (Invoices page only). One bar chart: rows of [label, value, class]; money() formats the headline numbers.
+$__ijMoney = static fn(float $v): string => '$' . number_format($v, $v >= 1000 ? 0 : 2);
+$__ijBars = static function (string $title, string $sub, array $rows, string $aria, string $foot = '') use ($__ijSvg, $__ijMoney): string {
+    $w = 288; $h = 120; $pad = 8; $n = max(1, count($rows)); $gap = $n > 8 ? 4 : 8; $bw = (int)floor(($w - $pad * 2) / $n) - $gap;
+    $max = 0.0; foreach ($rows as $r) $max = max($max, (float)$r[1]);
+    $max = $max > 0 ? $max : 1;
+    $bars = '';
+    foreach ($rows as $i => $r) {
+        $bh = (int)round(((float)$r[1] / $max) * 80);
+        $x = $pad + $i * ($bw + $gap); $y = 96 - $bh;
+        $bars .= '<rect x="' . $x . '" y="' . $y . '" width="' . $bw . '" height="' . max($bh, 1) . '" rx="3" class="' . h($r[2]) . '"></rect>'
+               . (($n > 8 && $i % 2 === 0) ? '' : '<text x="' . ($x + $bw / 2) . '" y="112" text-anchor="middle" class="it-viz-lbl">' . h($r[0]) . '</text>');
+    }
+    return '<figure class="it-job-viz it-viz-flat"><figcaption><b>' . h($title) . '</b><span>' . h($sub) . '</span></figcaption>'
+        . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($aria) . '">' . $bars . '</svg>'
+        . ($foot !== '' ? '<p class="it-job-viz-gst">' . $foot . '</p>' : '') . '</figure>';
+};
+$__ijInvViz = static function (array $d, bool $all) use ($__ijBars, $__ijMoney): string {
+    $in = array_map(static fn($m) => [$m['label'], $m['total'], $m['now'] ? 'it-viz-now' : 'it-viz-bar'], $d['months']);
+    $out = $__ijBars('Money in, last 12 months', $__ijMoney((float)$d['this_month']) . ' this month', $in, 'Invoices paid by month, last twelve months',
+        '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months');
+    if (!$all) return $out;
+    $age = array_map(static fn($b) => [$b['label'], $b['amount'], $b['late'] ? 'it-viz-late' : 'it-viz-bar'], $d['aging']);
+    $out .= $__ijBars('Still owed, by days late', $__ijMoney((float)$d['owed_total']) . ' in ' . (int)$d['owed_count'], $age, 'Unpaid balance by how many days past due',
+        '<b>' . h($__ijMoney((float)$d['aging'][1]['amount'] + (float)$d['aging'][2]['amount'] + (float)$d['aging'][3]['amount'])) . '</b> is past its due date');
+    $pay = array_map(static fn($m) => [$m['label'], (float)($m['days'] ?? 0), $m['now'] ? 'it-viz-now' : 'it-viz-bar'], $d['pay_days']);
+    $out .= $__ijBars('Days to get paid', $d['avg_days'] !== null ? 'average ' . $d['avg_days'] . ' days' : 'no payments yet', $pay, 'Average days from invoice to payment, by month paid, last six months',
+        'Invoice date to payment date, by month paid');
+    return $out;
+};
 itIconSprite();
 ?>
+<?php if (!empty($__ijInv) && !$__ij): /* nothing to decide on Invoices: the invoice graphs */ ?>
+<div class="it-job-outer"><section class="it-inv-viz" aria-label="Invoice graphs">
+  <aside class="it-inv-intro" aria-label="About Penny">
+    <img class="it-inv-face" src="/crm/img/heads/penny.jpg" width="56" height="56" alt="" loading="lazy">
+    <p class="it-inv-name"><b>Penny</b> <span class="it-tag">AI</span></p>
+    <p class="it-inv-role">Finance</p>
+    <p class="it-inv-line">I match e-Transfers to your invoices and keep the books. When one needs your decision, it appears here.</p>
+  </aside>
+  <?= $__ijInvViz($__ijIns, true) ?></section></div>
+<?php return; endif; ?>
 <div class="it-job-outer"><div class="it-job-wrap">
 <section class="it-job" data-head="penny" data-kind="<?= h((string)($__ij['kind'] ?? 'idle')) ?>" aria-label="Penny's job">
   <h2 class="it-vh it-job-tt"><?= h($__ij ? $__ij['title'] : 'Penny has nothing to decide') ?></h2>
@@ -266,6 +318,6 @@ itIconSprite();
   </dialog>
   <script type="application/json" class="it-job-data"><?= json_encode($__ijJobs, $__ijFlags) ?></script>
 </section>
-<?= $__ijViz($__ijPulse ?? null) ?>
+<?= !empty($__ijInv) ? $__ijInvViz($__ijIns, false) : $__ijViz($__ijPulse ?? null) ?>
 </div></div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/ittai-job.js') : '/crm/js/ittai-job.js' ?>" defer></script>
