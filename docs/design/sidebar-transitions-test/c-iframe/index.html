@@ -1,13 +1,16 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>C: frame</title>
 <link rel="stylesheet" href="../shared/app.css"><style>#frame{flex:1;border:0;width:100%;height:100vh;transition:opacity 140ms;display:block}#frame.wait{opacity:.55}</style></head>
-<body class="soft"><div class="shell"><aside class="sidebar" id="sidebar"><div class="logo">ittai</div><div class="card"><div class="face">S</div><b>Sam</b><small>Sales</small></div><nav class="menu" style="--i:0"><a href="pages/today.html" data-file="today.html" aria-current="page">Today</a><a href="pages/clients.html" data-file="clients.html">Clients</a><a href="pages/quotes.html" data-file="quotes.html">Quotes</a><a href="pages/jobs.html" data-file="jobs.html">Jobs</a><a href="pages/schedule.html" data-file="schedule.html">Schedule</a><a href="pages/invoices.html" data-file="invoices.html">Invoices</a><span class="hl"></span></nav><div class="foot">Sidebar built <b id="age">0</b> s ago</div></aside><iframe id="frame" src="pages/today.html" title="page"></iframe></div>
+<body class="soft"><div class="shell"><aside class="sidebar" id="sidebar"><div class="logo">ittai</div><div class="card" style="--hc:#233a5e"><div class="face">K</div><b>Kaname</b><small>Chief of staff</small></div><nav class="menu" style="--i:0"><a href="pages/today.html" data-file="today.html" aria-current="page">Today</a><a href="pages/clients.html" data-file="clients.html">Clients</a><a href="pages/quotes.html" data-file="quotes.html">Quotes</a><a href="pages/jobs.html" data-file="jobs.html">Jobs</a><a href="pages/schedule.html" data-file="schedule.html">Schedule</a><a href="pages/invoices.html" data-file="invoices.html">Invoices</a><span class="hl"></span></nav><div class="foot">Sidebar built <b id="age">0</b> s ago</div></aside><iframe id="frame" src="pages/today.html" title="page"></iframe></div>
 <script src="../shared/probe.js"></script><script>
 // C: the sidebar lives in this shell and is never reloaded; the pages load inside the frame. The highlight moves on press.
+var HEADS = {"today": ["K", "Kaname", "Chief of staff", "#233a5e", "Two things need you today"], "clients": ["Y", "Yui", "Client relations", "#8a4fb0", "3 replies are waiting for you"], "quotes": ["S", "Sam", "Sales", "#2d8659", "Send the Alder Test quote?"], "jobs": ["O", "Otto", "Operations", "#d9822b", "Move the Friday visit for rain?"], "schedule": ["O", "Otto", "Operations", "#d9822b", "Two crews are double-booked"], "invoices": ["P", "Penny", "Bookkeeping", "#c0392b", "Match this $1,102.50 deposit?"]};
 var frame = document.getElementById('frame'), menu = document.querySelector('.menu');
 function mark(file) {
   var links = [].slice.call(menu.querySelectorAll('a')), i = 0;
   links.forEach(function (a, n) { var on = a.getAttribute('data-file') === file; if (on) i = n; if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   menu.style.setProperty('--i', i);
+  var h = HEADS[file.replace('.html', '')], c = document.querySelector('.card');
+  if (h && c) { c.style.setProperty('--hc', h[3]); c.innerHTML = '<div class="face">' + h[0] + '</div><b>' + h[1] + '</b><small>' + h[2] + '</small>'; c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
 }
 menu.addEventListener('click', function (e) {
   var a = e.target.closest('a'); if (!a) return; e.preventDefault();
