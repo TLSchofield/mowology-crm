@@ -762,3 +762,11 @@ body.it-shell.it-shell .it-fwc-face:focus-visible { outline: var(--it-stroke-foc
 body.it-shell.it-shell .it-fw-card:not([data-placed]) .it-fwc-box { visibility: hidden; }
 body.it-shell.it-shell .it-fw-card .it-pt-lg { margin: 0 auto 2px; }
 body.it-shell.it-shell .sidebar.collapsed .it-fw-card { display: none; }
+
+/* Every head's card: tapping her face opens the card to the left with her introduction; the face and the line stay put */
+body.it-shell.it-shell .it-hp { transition: opacity 120ms ease-in, transform 120ms ease-in, display 120ms allow-discrete, margin-left 260ms ease-out, width 260ms ease-out, padding-left 260ms ease-out; }
+body.it-shell.it-shell .it-hp.is-wide { margin-left: -150px; width: 350px; padding-left: 162px; box-sizing: border-box; }
+body.it-shell.it-shell .it-hp .it-pt-lg { cursor: pointer; }
+body.it-shell.it-shell .it-hpi { position: absolute; left: 14px; top: 0; bottom: 0; width: 136px; margin: 0; display: flex; align-items: center; text-align: left; font-size: 13px; line-height: 18px; opacity: 0; pointer-events: none; transition: opacity 200ms ease-out; }
+body.it-shell.it-shell .it-hp.is-wide .it-hpi { opacity: 1; transition-delay: 100ms; }
+@media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp, body.it-shell.it-shell .it-hpi { transition: none; } }

@@ -78,6 +78,7 @@ if (!empty($itShell)):
         $__itDesk = new CharlieDeskService(getDB());
         $__itOwner = $__itDesk->ready() && $__itDesk->isOwner((array)$user);
     } catch (Throwable $__e) { /* not the owner, then */ }
+    if (defined('APP_ROOT')) require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekMenu.php';   // the heads' one-line introductions
     $__itBlocks = mwIttaiNavBlocks($navItems, (array)$user, (string)$activePage, $__itOwner);
     // Order (Tim, 2026-11-10): Kaname first; the head you are with second, so the open list and the card always
     // land in the same place; then the rest in the order a job travels — Mia brings it in, Sam prices it, Otto
@@ -187,7 +188,9 @@ if (!empty($itShell)):
                 </button>
                 <div class="it-acc" id="it-acc-<?php echo $__h($__slug); ?>"<?php echo $__isOpen ? '' : ' hidden'; ?>><div class="it-acci"><ul class="it-subs"><?php echo $__pages; ?></ul></div></div>
                 <div class="it-hp<?php echo $__sel ? ' is-open' : ''; ?>" data-head="<?php echo $__h($__slug); ?>" role="group" aria-label="<?php echo $__h($__name . ', AI, ' . $__role . '. ' . ($__word !== '' ? $__word . ': ' : '') . $__line); ?>">
-                    <span class="<?php echo $__ring; ?> it-pt-lg"><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
+                    <?php $__hpIntro = class_exists('FirstWeekMenu') ? (string)(FirstWeekMenu::INTRO[$__slug] ?? '') : ''; ?>
+                    <?php if ($__hpIntro !== ''): ?><p class="it-hpi" id="it-hpi-<?php echo $__h($__slug); ?>" aria-hidden="true"><?php echo $__h($__hpIntro); ?></p><?php endif; ?>
+                    <span class="<?php echo $__ring; ?> it-pt-lg"<?php if ($__hpIntro !== ''): ?> role="button" tabindex="0" aria-expanded="false" aria-controls="it-hpi-<?php echo $__h($__slug); ?>" aria-label="About <?php echo $__h($__name); ?>"<?php endif; ?>><img class="it-hp-face" src="/crm/img/heads/<?php echo $__h($__slug); ?>.jpg" width="44" height="44" alt="" loading="lazy"></span>
                     <?php /* The card is the row enlarged (Tim, 2026-11-10): face, name, role. No state word, no second AI tag;
                              the state stays in the ring and the aria-label, the word in the rail flyout. */ ?>
                     <span class="it-hpn"><b><?php echo $__h($__name); ?></b></span>

@@ -516,6 +516,24 @@
         box.style.setProperty('--fw-r', Math.round(r.right - spine) + 'px');
         box.classList.add('is-live');
     }
+    // Every head's card on the full menu: tapping her face opens the card to the left with her introduction.
+    function toggleHeadCard(face) {
+        var card = face.closest('.it-hp');
+        if (!card || !card.querySelector('.it-hpi')) return;
+        var wide = !card.classList.contains('is-wide');
+        card.classList.toggle('is-wide', wide);
+        face.setAttribute('aria-expanded', wide ? 'true' : 'false');
+        card.querySelector('.it-hpi').setAttribute('aria-hidden', wide ? 'false' : 'true');
+    }
+    document.addEventListener('click', function (e) {
+        var f = e.target.closest ? e.target.closest('.it-hp .it-pt-lg') : null;
+        if (f) toggleHeadCard(f);
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var f = e.target.closest ? e.target.closest('.it-hp .it-pt-lg') : null;
+        if (f) { e.preventDefault(); toggleHeadCard(f); }
+    });
     // Tapping her face opens the card to the left (and again closes it); the face and the line stay put.
     document.addEventListener('click', function (e) {
         var f = e.target.closest ? e.target.closest('.it-fwc-face') : null;
