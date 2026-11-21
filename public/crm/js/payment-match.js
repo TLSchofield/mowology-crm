@@ -201,7 +201,6 @@
         var l = cur == null ? null : line(cur);
         if (!l) { el.innerHTML = '<div class="it-pm-deck"><div class="it-pm-done"><h2>Nothing left to review.</h2><p class="it-pm-meta">Anything you booked is in the history below, with an Undo.</p></div></div>'; return; }
         var ev = evidence(l), ok = bookable(l);
-        var pos = q.findIndex(function (x) { return x.id === l.id; }) + 1;
         var primary = (l.locked || l.blocked) ? '' : ok ? '<button type="button" class="it-pm-btn it-pm-btn-primary" data-pm="one" data-id="' + nid(l.id) + '">Approve and book ' + money(l.amount) + '</button>'
             : '<button type="button" class="it-pm-btn it-pm-btn-primary" data-pm="pick" data-id="' + nid(l.id) + '">Pick the invoices it paid</button>';
         var secondary = '<div class="it-pm-row2"><div class="it-pm-left">' +
@@ -210,7 +209,7 @@
             (ok ? '<button type="button" class="it-pm-btn" data-pm="pick" data-id="' + nid(l.id) + '">Pick invoices by hand</button>' : '') +
             '<button type="button" class="it-pm-btn" data-pm="skip" data-id="' + nid(l.id) + '">Leave it alone</button></div></div>';
         el.innerHTML = '<div class="it-pm-deck"><div class="it-pm-two it-pm-sec" style="padding:0">' +
-            '<section class="it-pm-sec"><h2>The deposit <span class="it-pm-meta">(' + pos + ' of ' + q.length + ')</span></h2>' +
+            '<section class="it-pm-sec"><h2>The deposit</h2>' +
             '<div class="it-pm-dep-top"><span class="it-pm-amount it-pm-num">' + money(l.amount) + '</span><span class="it-pm-date">' + esc(l.date) + '</span></div>' +
             '<p class="it-pm-desc">' + esc(l.description) + '</p></section>' +
             '<section class="it-pm-sec"><h2>' + esc(headline(l)) + '</h2>' + (sub(l) ? '<p class="it-pm-meta" style="margin:0 0 10px">' + esc(sub(l)) + '</p>' : '') + (ev.length ? evList(ev) : '') + '</section></div>' +
