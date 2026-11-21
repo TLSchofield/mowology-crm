@@ -119,8 +119,9 @@ if (!empty($itShell)):
         foreach ($__itBlocks as $__b) {
             if (empty($__b['here'])) continue;
             $__fwCard = '<li class="it-fw-card" aria-label="' . $__h($__b['name'] . ', AI, ' . $__b['role']) . '"><div class="it-fwc-box">'
-                . '<span class="it-pt it-pt-lg it-pt-none"><img src="/crm/img/heads/' . $__h($__b['slug']) . '.jpg" width="44" height="44" alt="" loading="lazy"></span>'
-                . '<span class="it-hpn"><b>' . $__h($__b['name']) . '</b></span><span class="it-hpd">' . $__h($__b['role']) . '</span></div></li>';
+                . '<p class="it-fwc-i" id="it-fwc-intro" aria-hidden="true">' . $__h(FirstWeekMenu::INTRO[$__b['slug']] ?? '') . '</p>'
+                . '<div class="it-fwc-core"><button type="button" class="it-fwc-face it-pt it-pt-lg it-pt-none" aria-expanded="false" aria-controls="it-fwc-intro" aria-label="About ' . $__h($__b['name']) . '"><img src="/crm/img/heads/' . $__h($__b['slug']) . '.jpg" width="44" height="44" alt=""></button>'
+                . '<span class="it-hpn"><b>' . $__h($__b['name']) . '</b></span><span class="it-hpd">' . $__h($__b['role']) . '</span></div></div></li>';
             break;
         }
     }

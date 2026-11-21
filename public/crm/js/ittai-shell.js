@@ -502,9 +502,10 @@
         var spine = sb.getBoundingClientRect().right - 24;
         li.style.height = card.offsetHeight + 'px';
         var l = li.getBoundingClientRect();
-        card.style.left = Math.round(spine - card.offsetWidth / 2) + 'px';
+        card.style.setProperty('--fw-l', Math.round(spine - 86) + 'px');
         card.style.top = Math.round(l.top) + 'px';
         li.setAttribute('data-placed', '1');
+        if (!li.hasAttribute('data-ready')) requestAnimationFrame(function () { requestAnimationFrame(function () { li.setAttribute('data-ready', '1'); }); });
         if (!pg) return;
         var b = box.getBoundingClientRect(), r = pg.getBoundingClientRect();
         var top = l.bottom - b.top, y = r.top + r.height / 2 - b.top;
@@ -515,6 +516,16 @@
         box.style.setProperty('--fw-r', Math.round(r.right - spine) + 'px');
         box.classList.add('is-live');
     }
+    // Tapping her face opens the card to the left (and again closes it); the face and the line stay put.
+    document.addEventListener('click', function (e) {
+        var f = e.target.closest ? e.target.closest('.it-fwc-face') : null;
+        if (!f) return;
+        var box = f.closest('.it-fwc-box'), open = !box.classList.contains('is-open');
+        box.classList.toggle('is-open', open);
+        f.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var i = box.querySelector('.it-fwc-i');
+        if (i) i.setAttribute('aria-hidden', open ? 'false' : 'true');
+    });
     window.addEventListener('resize', measureFw);
     document.addEventListener('toggle', measureFw, true);
     window.addEventListener('load', measureFw);
