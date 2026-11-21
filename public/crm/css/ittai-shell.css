@@ -574,9 +574,11 @@ body.it-shell #mwRrPanel { display: none !important; }
 .it-job-num i { font-style: normal; margin-left: 4px; font-size: 12px; line-height: 18px; color: var(--it-meta); }
 /* symmetric padding keeps the rail's line at the frame's centre (level with the head card) and leaves room under the end icons for their labels */
 .it-job-nums .it-job-rail { margin-bottom: 0; padding: 20px 0; justify-content: space-between; }   /* the numbers spread to fill the frame so the line ends at the compass, as the decision strip's frame does */
+.it-job-foot:not(:has(.it-job-mrow:not(:empty))) { display: none; }
 .it-job-n { display: none; }   /* no 'N of M' count: calm, not a queue to clear (Tim, 2026-11-21) */
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.it-job-skip { display: none; }   /* no 'Not yet' / 'Skip for now' link under the strip either (Tim, 2026-11-21): the strip shows one thing and its two choices */
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }
 .it-job-rail.is-enter { animation: it-job-in 200ms ease-out; }
 /* The ink line (Tim's pick, 2026-11-10): after Merge, the frame's words fade, one navy stroke is drawn along the rail,
