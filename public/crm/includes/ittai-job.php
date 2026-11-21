@@ -296,7 +296,7 @@ itIconSprite();
 <section class="it-job" data-head="penny" data-kind="<?= h((string)($__ij['kind'] ?? 'idle')) ?>" aria-label="Penny's job">
   <h2 class="it-vh it-job-tt"><?= h($__ij ? $__ij['title'] : 'Penny has nothing to decide') ?></h2>
   <div class="it-job-body"><?= !$__ij ? $__ijRailIdle() : (($__ij['kind'] ?? '') === 'receipt' ? $__ijRailReceipt($__ij) : (($__ij['kind'] ?? '') === 'month' ? $__ijRailMonth($__ij) : (($__ij['kind'] ?? '') === 'etransfer' ? $__ijRailEt($__ij) : $__ijRail($__ij))) )?></div>
-  <p class="it-job-foot"<?= $__ij ? '' : ' hidden' ?>><span class="it-job-n">1 of <?= (int)($__ij['total'] ?? 0) ?></span><?php if ((int)($__ij['total'] ?? 0) > 1): ?> · <button type="button" class="it-job-skip">Skip for now</button><?php endif; ?><span class="it-job-mrow" aria-label="The months, oldest first"><?= ($__ij['kind'] ?? '') === 'month' ? $__ijMonthRow($__ij) : '' ?></span></p>
+  <p class="it-job-foot"<?= $__ij ? '' : ' hidden' ?>><span class="it-job-n">1 of <?= (int)($__ij['total'] ?? 0) ?></span><?php if ((int)($__ij['total'] ?? 0) > 1): ?><button type="button" class="it-job-skip">Skip for now</button><?php endif; ?><span class="it-job-mrow" aria-label="The months, oldest first"><?= ($__ij['kind'] ?? '') === 'month' ? $__ijMonthRow($__ij) : '' ?></span></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span> <button type="button" class="it-job-undo" hidden>Undo</button></p>
   <template class="it-job-tpl" data-kind="duplicate"><?= $__ijRail(null) ?></template>
   <template class="it-job-tpl" data-kind="etransfer"><?= $__ijRailEt(null) ?></template>

@@ -120,7 +120,7 @@ itIconSprite();
     <?php if ($__imPage === 'listings'): ?><a class="it-job-anchor it-job-anchor-end" href="/crm/marketing/mia.php"><span class="it-ad"><?= $__imSvg('eye') ?></span><span>Mia</span></a>
     <?php else: ?><a class="it-job-anchor it-job-anchor-end" href="/crm/marketing/social-calendar.php"><span class="it-ad"><?= $__imSvg('chart') ?></span><span>Calendar</span></a><?php endif; ?>
   </div></div>
-  <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Skip for now</button></p>
+  <p class="it-job-foot"><span class="it-job-n"></span><button type="button" class="it-job-skip">Skip for now</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
   <template class="it-job-tpl-listing_enter">
     <label>Name <input name="listed_name" class="it-ctl"></label>

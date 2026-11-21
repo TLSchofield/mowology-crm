@@ -537,7 +537,7 @@ body.it-shell:has(.sidebar.collapsed) .it-ws { --it-gap: 32px; }
 .it-job .it-btn-fill .it-job-ic { transform: rotate(90deg); }   /* the merge arrow points along the horizontal flow */
 .it-job .it-btn b { font-weight: 600; }
 .it-job .it-btn span { grid-column: 2; font-size: 12px; line-height: 16px; font-weight: 400; }
-.it-job .it-btn-fill { background: var(--it-tenant); border-color: var(--it-tenant); color: var(--it-on-tenant); }
+.it-job .it-btn-fill { background: var(--it-brand); border-color: var(--it-brand); color: var(--it-on-tenant); }   /* the one action is the brand indigo, whatever the tenant colour (Tim, 2026-11-21) */
 .it-job .it-btn-line { background: var(--it-surface); border-color: var(--it-brand); color: var(--it-brand); }
 .it-job .it-btn:disabled { opacity: 0.6; cursor: default; }
 .it-job-anchor { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 48px; margin: 0 4px; font-size: 13px; line-height: 18px; color: var(--it-meta); text-decoration: none; }
@@ -574,6 +574,7 @@ body.it-shell #mwRrPanel { display: none !important; }
 .it-job-num i { font-style: normal; margin-left: 4px; font-size: 12px; line-height: 18px; color: var(--it-meta); }
 /* symmetric padding keeps the rail's line at the frame's centre (level with the head card) and leaves room under the end icons for their labels */
 .it-job-nums .it-job-rail { margin-bottom: 0; padding: 20px 0; justify-content: space-between; }   /* the numbers spread to fill the frame so the line ends at the compass, as the decision strip's frame does */
+.it-job-n { display: none; }   /* no 'N of M' count: calm, not a queue to clear (Tim, 2026-11-21) */
 .it-job-foot { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--it-meta); }
 .it-job-skip, .it-job-undo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; background: none; border: 0; font: inherit; color: var(--it-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .it-job-msg { margin: 4px 0 0; font-size: 14px; line-height: 20px; color: var(--it-text); }

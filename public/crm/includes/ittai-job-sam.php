@@ -69,7 +69,7 @@ itIconSprite();
     </div>
     <a class="it-job-anchor it-job-anchor-end" href="/crm/quotes/index.php?status=declined"><span class="it-ad"><?= $__isSvg('chart') ?></span><span>Declined</span></a>
   </div></div>
-  <p class="it-job-foot"><span class="it-job-n"></span> · <button type="button" class="it-job-skip">Not yet</button></p>
+  <p class="it-job-foot"><span class="it-job-n"></span><button type="button" class="it-job-skip">Not yet</button></p>
   <p class="it-job-msg" role="status" aria-live="polite" hidden><span class="it-job-msgt"></span></p>
   <template class="it-job-tpl-quiet">
     <label>If declined, why? <select name="lost_reason" class="it-ctl"><option value="">No reason</option><?php foreach (QuoteService::LOST_REASONS as $__isK => $__isL): ?><option value="<?= h($__isK) ?>"><?= h($__isL) ?></option><?php endforeach; ?></select></label>
