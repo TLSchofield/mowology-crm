@@ -496,20 +496,29 @@
         var box = document.querySelector('.it-fw-flat');
         if (!box) return;
         box.classList.remove('is-live');
-        var card = box.querySelector('.it-fw-card'), face = card && card.querySelector('.it-pt'), pg = box.querySelector('.it-pg[aria-current="page"]');
-        if (!card || !face || !pg || card.offsetParent === null) return;
-        var b = box.getBoundingClientRect(), f = face.getBoundingClientRect(), c = card.getBoundingClientRect(), r = pg.getBoundingClientRect();
-        var x = f.left + f.width / 2 - b.left, top = c.bottom - b.top, y = r.top + r.height / 2 - b.top;
+        var li = box.querySelector('.it-fw-card'), card = li && li.querySelector('.it-fwc-box'), sb = document.getElementById('sidebar'), pg = box.querySelector('.it-pg[aria-current="page"]');
+        if (!li || !card || !sb || li.offsetParent === null) return;
+        // The card floats on the viewport (centred on the spine, wider than the sidebar); the list keeps its room.
+        var spine = sb.getBoundingClientRect().right - 32;
+        li.style.height = card.offsetHeight + 'px';
+        var l = li.getBoundingClientRect();
+        card.style.left = Math.round(spine - card.offsetWidth / 2) + 'px';
+        card.style.top = Math.round(l.top) + 'px';
+        li.setAttribute('data-placed', '1');
+        if (!pg) return;
+        var b = box.getBoundingClientRect(), r = pg.getBoundingClientRect();
+        var top = l.bottom - b.top, y = r.top + r.height / 2 - b.top;
         if (y <= top) return;
-        box.style.setProperty('--fw-x', Math.round(x) + 'px');
+        box.style.setProperty('--fw-x', Math.round(spine - b.left) + 'px');
         box.style.setProperty('--fw-top', Math.round(top) + 'px');
         box.style.setProperty('--fw-h', Math.round(y - top) + 'px');
-        box.style.setProperty('--fw-r', Math.round(r.right - (f.left + f.width / 2)) + 'px');
+        box.style.setProperty('--fw-r', Math.round(r.right - spine) + 'px');
         box.classList.add('is-live');
     }
     window.addEventListener('resize', measureFw);
     document.addEventListener('toggle', measureFw, true);
     window.addEventListener('load', measureFw);
+    document.addEventListener('scroll', measureFw, true);
     window.ItShell = { posture: posture, setBar: setBar };
 
     function boot() {

@@ -118,9 +118,10 @@ if (!empty($itShell)):
     if ($__fwMenu) {
         foreach ($__itBlocks as $__b) {
             if (empty($__b['here'])) continue;
-            $__fwCard = '<li class="it-fw-card" aria-label="' . $__h($__b['name'] . ', AI, ' . $__b['role']) . '"><span class="it-fwc-t"><span class="it-fwc-n"><b>' . $__h($__b['name']) . '</b><span class="it-tag">AI</span></span>'
-                . '<span class="it-fwc-r">' . $__h($__b['role']) . '</span><span class="it-fwc-i">' . $__h(FirstWeekMenu::INTRO[$__b['slug']] ?? '') . '</span></span>'
-                . '<span class="it-pt it-pt-lg it-pt-none"><img src="/crm/img/heads/' . $__h($__b['slug']) . '.jpg" width="44" height="44" alt="" loading="lazy"></span></li>';
+            $__fwCard = '<li class="it-fw-card" aria-label="' . $__h($__b['name'] . ', AI, ' . $__b['role']) . '"><div class="it-fwc-box">'
+                . '<span class="it-fwc-i">' . $__h(FirstWeekMenu::INTRO[$__b['slug']] ?? '') . '</span>'
+                . '<span class="it-pt it-pt-lg it-pt-none"><img src="/crm/img/heads/' . $__h($__b['slug']) . '.jpg" width="44" height="44" alt="" loading="lazy"></span>'
+                . '<span class="it-fwc-n"><b>' . $__h($__b['name']) . '</b><span class="it-tag">AI</span><span class="it-fwc-r">' . $__h($__b['role']) . '</span></span></div></li>';
             break;
         }
     }

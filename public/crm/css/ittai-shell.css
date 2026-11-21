@@ -745,10 +745,13 @@ body.it-shell.it-shell .it-job-viz .it-viz-late { fill: var(--it-status-attentio
 body.it-shell.it-shell .it-inv-viz .it-viz-lbl { font-size: 8px; line-height: 10px; }
 
 /* First-week short menu: the page's head keeps her card under the page's row; introduction left of the face, card runs left from the spine */
-body.it-shell.it-shell .it-fw-card { display: flex; align-items: center; gap: 12px; margin: 4px 12px 10px 12px; padding: 12px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); box-shadow: var(--it-shadow-menu); font-size: 13px; line-height: 18px; }
-body.it-shell.it-shell .it-fwc-t { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; text-align: left; }
-body.it-shell.it-shell .it-fwc-n { display: flex; align-items: center; gap: 6px; font-size: 14px; line-height: 20px; }
-body.it-shell.it-shell .it-fwc-r { color: var(--it-meta); }
-body.it-shell.it-shell .it-fwc-i { margin-top: 4px; }
-body.it-shell.it-shell .it-fw-card .it-pt-lg { flex: none; margin: 0; }
+body.it-shell.it-shell .it-fw-card { display: block; margin: 4px 0 10px; }
+/* The card is the head's normal card: centred on the spine, floating over the page edge (JS places it), her face on the spine,
+   her introduction to the left of it, her name and role to the right */
+body.it-shell.it-shell .it-fwc-box { position: fixed; z-index: 1045; left: 0; top: 0; width: 340px; display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); align-items: center; gap: 12px; padding: 14px 16px; border: var(--it-stroke-hairline) solid var(--it-line); border-radius: 14px; background: var(--it-surface); box-shadow: var(--it-shadow-menu); font-size: 13px; line-height: 18px; }
+body.it-shell.it-shell .it-fw-card:not([data-placed]) .it-fwc-box { visibility: hidden; }
+body.it-shell.it-shell .it-fwc-i { text-align: left; }
+body.it-shell.it-shell .it-fwc-n { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 14px; line-height: 20px; }
+body.it-shell.it-shell .it-fwc-r { flex-basis: 100%; color: var(--it-meta); font-size: 13px; line-height: 18px; }
+body.it-shell.it-shell .it-fw-card .it-pt-lg { margin: 0; }
 body.it-shell.it-shell .sidebar.collapsed .it-fw-card { display: none; }
