@@ -723,7 +723,11 @@ textarea.it-ctl { padding: 10px 12px; min-height: 84px; resize: vertical; }
 
 /* ── First-week short menu: a flat list of eight days' items and a closed More (no head spine, no live line) ── */
 body.it-shell.it-shell .it-fwl { padding: 0; }
-body.it-shell.it-shell .it-fwl .it-pg[aria-current="page"]::after { display: none; }
+body.it-shell.it-shell .it-fw-flat { position: relative; }
+/* The page's line to its head, as on the heads menu: across from the page to the spine (the card's face), then up to the card */
+body.it-shell.it-shell .it-fwl .it-pg[aria-current="page"]::after { margin: 0 calc(var(--fw-r, 46px) - 12px) 0 4px; }
+body.it-shell.it-shell .it-fw-flat:not(.is-live) .it-pg[aria-current="page"]::after { display: none; }
+body.it-shell.it-shell .it-fw-flat.is-live::after { content: ""; position: absolute; left: calc(var(--fw-x, 0px) - 1px); top: var(--fw-top, 0px); width: 2px; height: var(--fw-h, 0px); background: var(--it-brand); pointer-events: none; }
 body.it-shell.it-shell .it-fw-more > summary { cursor: pointer; list-style: none; }
 body.it-shell.it-shell .it-fw-more > summary::-webkit-details-marker { display: none; }
 body.it-shell.it-shell .it-fw-more > summary::after { content: "+"; margin-left: auto; color: var(--it-meta); }

@@ -491,11 +491,31 @@
         if (!b) return;
         setBar(b.closest('.it-ai'), b.getAttribute('aria-expanded') !== 'true');
     });
+    // First-week short menu: the card sits on the spine at the top; the page's line runs across to the spine and up to the card.
+    function measureFw() {
+        var box = document.querySelector('.it-fw-flat');
+        if (!box) return;
+        box.classList.remove('is-live');
+        var card = box.querySelector('.it-fw-card'), face = card && card.querySelector('.it-pt'), pg = box.querySelector('.it-pg[aria-current="page"]');
+        if (!card || !face || !pg || card.offsetParent === null) return;
+        var b = box.getBoundingClientRect(), f = face.getBoundingClientRect(), c = card.getBoundingClientRect(), r = pg.getBoundingClientRect();
+        var x = f.left + f.width / 2 - b.left, top = c.bottom - b.top, y = r.top + r.height / 2 - b.top;
+        if (y <= top) return;
+        box.style.setProperty('--fw-x', Math.round(x) + 'px');
+        box.style.setProperty('--fw-top', Math.round(top) + 'px');
+        box.style.setProperty('--fw-h', Math.round(y - top) + 'px');
+        box.style.setProperty('--fw-r', Math.round(r.right - (f.left + f.width / 2)) + 'px');
+        box.classList.add('is-live');
+    }
+    window.addEventListener('resize', measureFw);
+    document.addEventListener('toggle', measureFw, true);
+    window.addEventListener('load', measureFw);
     window.ItShell = { posture: posture, setBar: setBar };
 
     function boot() {
         init();
         sidebarInit();
+        measureFw();
         // The phone menu's head blocks name their icons with data-feather; draw any still empty.
         try { if (window.feather && document.querySelector('.it-mb-link i[data-feather]')) window.feather.replace(); } catch (e) { /* icons are decoration */ }
     }
