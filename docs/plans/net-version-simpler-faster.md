@@ -52,6 +52,7 @@ Not measured: production timings, other pages, a truly empty tenant, phone width
 - Order: dashboard, contacts, quotes list, new quote, jobs, invoices, schedule.
 - Use `ittai-tokens.css` and `docs/design/ittai-v1.2` / `COMPONENTS.md` (status scale: green in, rust look, red missing, grey not expected). No new hex values, no inline styles.
 - One primary action per page. Dense columns and filters collapse for first-week mode.
+- Wording: each page's strings pass `docs/design/plain-language-style-guide.md` (plain words, errors say what to do, every empty state has one button).
 - Each page checked at 1440, 1024 and phone width, light and dark, with `scripts/ittai-design/review-shots.mjs` where it applies.
 
 **Step 6: check as a newcomer.**
