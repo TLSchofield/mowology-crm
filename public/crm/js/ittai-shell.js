@@ -203,8 +203,30 @@
         var kanLink = document.createElement('div');
         kanLink.className = 'it-kan-link'; kanLink.hidden = true;
         layer.appendChild(kanLink);
+        // Kaname's line sits in the top bar on a desktop screen (Tim, 2026-11-20: the Clock in / Receipt / GPS buttons left
+        // that room); under 1024 px it goes back to the top of the page content.
+        var kanHome = null;
+        function seatKan() {
+            var line = document.querySelector('.it-kan-line'), bar = document.querySelector('.navbar');
+            var cluster = bar && bar.querySelector('.mw-topbar-right-cluster');
+            if (!line || !cluster) return;
+            var wide = window.innerWidth >= 1024;
+            if (wide && !line.classList.contains('is-top')) {
+                kanHome = document.createComment('kan');
+                line.parentNode.insertBefore(kanHome, line);
+                line.style.marginTop = '';
+                bar.insertBefore(line, cluster);
+                line.classList.add('is-top');
+            } else if (!wide && line.classList.contains('is-top') && kanHome && kanHome.parentNode) {
+                kanHome.parentNode.insertBefore(line, kanHome);
+                line.classList.remove('is-top');
+            }
+        }
+        seatKan();
+        window.addEventListener('resize', seatKan);
         function placeKanLink() {
             var line = document.querySelector('.it-kan-line');
+            if (line && line.classList.contains('is-top')) { kanLink.hidden = true; return; }
             var kan = sb.querySelector('.it-grp.it-kan .it-grow .it-pt');
             if (!line || !kan || isRail() || window.innerWidth < 1024) { kanLink.hidden = true; return; }
             var kr = kan.getBoundingClientRect(), lr = line.getBoundingClientRect();
