@@ -23,6 +23,12 @@ if (isset($_GET['it_design'])) {
     header('Location: /crm/dashboard_appstack.php');
     exit;
 }
+// Soft navigation (Tim, 2026-11-21): ?it_soft=1|0 turns on the no-reload sidebar for this browser (ittai-soft.js). Off = normal page loads.
+if (isset($_GET['it_soft'])) {
+    setcookie('it_soft', $_GET['it_soft'] === '1' ? '1' : '0', ['expires' => time() + 365 * 86400, 'path' => '/crm/', 'secure' => true, 'httponly' => false, 'samesite' => 'Lax']);
+    header('Location: /crm/dashboard_appstack.php');
+    exit;
+}
 $itDesign = ($_COOKIE['it_design'] ?? '') === '1';
 
 // Ittai brand preview, opt-in per browser (Tim, 2026-11-04): ?it_brand=ittai|mowology swaps Mowology's green for

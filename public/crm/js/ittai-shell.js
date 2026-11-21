@@ -516,6 +516,53 @@
             window.requestAnimationFrame(function () { openCard(sel0); });
             window.addEventListener('load', function () { replaceOpenCards(); });
         }
+
+        // Soft navigation (ittai-soft.js): the page was swapped without reloading the sidebar, so bring the sidebar
+        // to the state the new page's own server render has: which page is current, which head is selected, the
+        // chips. Nothing is rebuilt and no listener is added, so the sidebar never blinks.
+        window.ItShell.sidebarSync = function (doc) {
+            var nsb = doc && doc.querySelector('.it-sidebar');
+            if (!nsb) return false;
+            var next = {};
+            [].forEach.call(nsb.querySelectorAll('a.it-pg'), function (a) { next[a.getAttribute('href')] = a; });
+            [].forEach.call(sb.querySelectorAll('a.it-pg'), function (a) {
+                var n = next[a.getAttribute('href')];
+                if (!n) return;
+                if (n.hasAttribute('aria-current')) a.setAttribute('aria-current', n.getAttribute('aria-current')); else a.removeAttribute('aria-current');
+                if (a.textContent !== n.textContent) {   // the label or the chip count changed: copy the new nodes (no markup is parsed here)
+                    while (a.firstChild) a.removeChild(a.firstChild);
+                    [].forEach.call(n.childNodes, function (c) { a.appendChild(document.importNode(c, true)); });
+                }
+            });
+            // The server puts the selected head second in the menu, so the order moves with the page.
+            var order = [].map.call(nsb.querySelectorAll('.it-grp'), function (g) { return g.getAttribute('data-head'); });
+            var now = [].map.call(sb.querySelectorAll('.it-grp'), function (g) { return g.getAttribute('data-head'); });
+            if (order.join() !== now.join() && groups.length) {
+                var byHead = {}, last = groups[groups.length - 1], list = last.parentNode, ref = last.nextSibling;
+                groups.forEach(function (g) { byHead[g.getAttribute('data-head')] = g; });
+                var live = [].slice.call(list.querySelectorAll(':scope > .it-grp'));
+                if (live.length) ref = live[live.length - 1].nextSibling;
+                order.forEach(function (h) { if (byHead[h]) list.insertBefore(byHead[h], ref); });
+            }
+            var want = null, target = null;
+            groups.forEach(function (g) {
+                var ng = nsb.querySelector('.it-grp[data-head="' + g.getAttribute('data-head') + '"]');
+                g.classList.toggle('is-here', !!(ng && ng.classList.contains('is-here')));
+                if (ng && ng.classList.contains('is-sel')) { want = g.getAttribute('data-head'); target = g; }
+            });
+            var cur = null;
+            groups.forEach(function (g) { if (g.classList.contains('is-sel')) cur = g; });
+            if ((cur ? cur.getAttribute('data-head') : null) !== want) {
+                groups.forEach(function (o) { if (o !== target) { o.classList.remove('is-sel'); setOpen(o, false); } });
+                if (target) { target.classList.add('is-sel'); setOpen(target, true); if (!isRail()) openCard(target); else closeCards(); }
+                else closeCards();
+                follow();
+            }
+            seatKan();
+            measureLive();
+            placeKanLink();
+            return true;
+        };
     }
 
     // ── A head's workspace: work posture (one job, advice as bars) and rest posture (advice as panels) ──
@@ -620,7 +667,7 @@
     }, true);
     window.addEventListener('load', measureFw);
     document.addEventListener('scroll', measureFw, true);
-    window.ItShell = { posture: posture, setBar: setBar };
+    window.ItShell = { posture: posture, setBar: setBar, measureFw: measureFw };
 
     function boot() {
         init();
