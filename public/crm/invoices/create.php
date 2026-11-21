@@ -789,10 +789,10 @@ if ($apiKey) {
 
             <a href="index.php" class="mw-back-link">&larr; Back to Invoices</a>
 
-            <h1 class="h3 mb-3">Create Invoice</h1>
-            <p class="text-muted mb-4"><?php
+            <h1 class="h3 mb-1">Create Invoice</h1>
+            <p class="text-muted mb-3 mw-inv-sub"><?php
                 if ($visitId && !empty($visit)) {
-                    echo 'Creating invoice from completed visit';
+                    echo htmlspecialchars(trim(($visit['visit_number'] ?? '') . ' · ' . ($visit['title'] ?? '') . (!empty($visit['address']) ? ' · ' . $visit['address'] : ''), ' ·'));
                 } else {
                     echo 'Create a new invoice manually';
                 }
@@ -820,14 +820,6 @@ if ($apiKey) {
                 <div class="mw-error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <?php if ($visitId && !empty($visit)): ?>
-                <div class="mw-info-banner">
-                    <strong>Creating from Visit <?php echo htmlspecialchars($visit['visit_number']); ?></strong><br>
-                    Plan: <?php echo htmlspecialchars($visit['plan_number'] . ' — ' . $visit['title']); ?><br>
-                    <?php echo htmlspecialchars($visit['company_name'] ?? $prefill['company_name'] ?? ''); ?><?php if (!empty($visit['address'])): ?> &mdash; <?php echo htmlspecialchars($visit['address']); ?><?php endif; ?>
-                </div>
-            <?php endif; ?>
-
             <form method="POST" id="invoiceForm">
                 <input type="hidden" name="csrf_token"          value="<?php echo $csrfToken; ?>">
                 <input type="hidden" name="visit_id"            value="<?php echo $prefill['visit_id'] ?? ''; ?>">
@@ -841,9 +833,10 @@ if ($apiKey) {
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
 
+                <div class="mw-inv-main">
                 <div class="card">
                     <div class="card-body">
-                        <h3 class="card-title">Invoice Details</h3>
+                        <h3 class="card-title">Who it is for</h3>
 
                         <!-- ── Customer Typeahead ── -->
                         <div class="mw-form-group">
@@ -904,6 +897,114 @@ if ($apiKey) {
                             </div>
                         </div>
 
+                        <!-- ── Line items (editable; prefilled from the job plan or visit) ── -->
+                        <?php
+                        $initialLines = [];
+                        // After a failed submit, show what was typed rather than the original prefill.
+                        $postedUnbilled = array_map('intval', (array)($_POST['unbilled_visit_ids'] ?? []));
+                        foreach (($manualLines ?? []) as $ml) {
+                            $initialLines[] = ['title' => (string)$ml['title'], 'description' => $ml['description'],
+                                               'quantity' => $ml['quantity'], 'unit_price' => $ml['unit_price'],
+                                               'visit_id' => $ml['visit_id'], 'service_date' => $ml['service_date'],
+                                               'unbilled' => $ml['visit_id'] && in_array((int)$ml['visit_id'], $postedUnbilled, true)];
+                        }
+                        foreach ($initialLines ? [] : ($prefill['plan_line_items'] ?? []) as $pli) {
+                            $initialLines[] = [
+                                'title'       => (string)($pli['service_type'] ?? ''),
+                                'description' => (string)($pli['description'] ?? ''),
+                                'quantity'    => (float)($pli['quantity'] ?? 1),
+                                'unit_price'  => (float)($pli['unit_price'] ?? 0),
+                            ];
+                        }
+                        if (!$initialLines && (float)($prefill['amount'] ?? 0) > 0) {
+                            $initialLines[] = [
+                                'title'       => '',
+                                'description' => (string)($prefill['description'] ?? ''),
+                                'quantity'    => 1,
+                                'unit_price'  => (float)$prefill['amount'],
+                            ];
+                        }
+                        $formTaxRate = 0.05;
+                        try {
+                            $trStmt = $db->query("SELECT gst_rate FROM business_settings LIMIT 1");
+                            $trRow  = $trStmt ? $trStmt->fetch(PDO::FETCH_ASSOC) : null;
+                            if ($trRow && $trRow['gst_rate'] !== null) $formTaxRate = round((float)$trRow['gst_rate'] / 100, 4);
+                            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
+                            if (!TaxEngine::gstRegistered($db)) $formTaxRate = 0.0;
+                        } catch (Throwable $e) { /* keep 5% */ }
+                        ?>
+                        <?php if (!empty($prefill['plan_line_items'])): ?>
+                        <div class="alert alert-success py-2 mb-3" style="font-size:.85rem;">
+                            Lines filled in from the job plan. Change, remove or add to them before creating the invoice.
+                        </div>
+                        <?php endif; ?>
+
+                        <div class="mw-form-group" style="max-width:260px;">
+                            <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
+                            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#service_date" aria-haspopup="true" aria-expanded="false">
+                                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <input type="date" id="service_date" name="service_date" class="form-control" hidden
+                                   value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
+                        </div>
+
+                        <?php $crewTimeVisitId = ($visitId && !empty($prefill['visit_id'])) ? (int)$visitId : 0; include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
+
+                        <!-- Other unbilled work at this property (UnbilledWorkFinder) — filled by MwUnbilledWork -->
+                        <div id="invUnbilledPanel" class="mw-unbilled mb-3" hidden></div>
+
+                        <!-- Sam: what earlier invoices at this property billed for the same work (/crm/api/sam-invoice-history.php) -->
+                        <div id="invSamCard" class="mw-invsam" data-service="<?php echo htmlspecialchars((string)($visit['title'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" hidden></div>
+
+                        <div class="mw-inv-lines-head"><label class="form-label mb-0">Line items *</label></div>
+                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Service / description</th>
+                                    <th style="width:90px;">Qty</th>
+                                    <th style="width:120px;">Unit Price</th>
+                                    <th style="width:100px;" class="text-right">Line Total</th>
+                                    <th style="width:44px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="invLineItemsBody"></tbody>
+                        </table>
+                        <div class="d-flex mt-2" style="gap:8px;flex-wrap:wrap;">
+                            <div id="invServicePicker"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="invAddLineBtn">+ Add Line</button>
+                        </div>
+                        <input type="hidden" name="subtotal" id="subtotalInput" value="0">
+
+                        <script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
+                        <script src="/crm/js/mw-unbilled-work.js?v=20261008a"></script>
+                        <script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
+                        <script src="/crm/js/mw-sam-invoice.js?v=20261120a"></script>
+                        <script>
+                        window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
+                        window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
+                        window.MW_INV_TAX     = <?php echo json_encode($formTaxRate); ?>;
+                        window.MW_INV_CAN_SAVE_SERVICE = <?php echo $canSaveService ? 'true' : 'false'; ?>;
+                        </script>
+
+                        <?php
+                        // Extras add-on preview
+                        $prevExtrasAmt  = floatval($prefill['extras_amount'] ?? 0);
+                        $prevExtrasMins = intval($prefill['extras_minutes'] ?? 0);
+                        $prevExtrasNote = $prefill['extras_note'] ?? '';
+                        if ($prevExtrasAmt > 0 && $prevExtrasMins > 0):
+                        ?>
+                        <div class="alert alert-info d-flex align-items-start gap-2 py-2 mt-3 mb-0" style="font-size:.85rem;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            <div>
+                                <strong>+ $<?php echo number_format($prevExtrasAmt, 2); ?> add-on services (<?php echo $prevExtrasMins; ?> min)</strong> will be added as a separate line item.
+                                <?php if ($prevExtrasNote): ?><br><span class="text-muted">Crew note: &ldquo;<?php echo htmlspecialchars($prevExtrasNote); ?>&rdquo; — pre-filled in Notes below.</span><?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+                        <details class="mw-inv-more" id="invMore"<?php echo (empty($prefill['service_address']) || $error) ? ' open' : ''; ?>>
+                            <summary><span class="mw-inv-more-title">Dates &amp; addresses</span><span class="mw-inv-more-sum" id="invMoreSum"></span></summary>
                         <!-- ── Dates ── -->
                         <div class="mw-form-row mt-3">
                             <div class="mw-form-group">
@@ -1009,122 +1110,7 @@ if ($apiKey) {
                             </div>
                         </div>
 
-                        <!-- ── Line items (editable; prefilled from the job plan or visit) ── -->
-                        <?php
-                        $initialLines = [];
-                        // After a failed submit, show what was typed rather than the original prefill.
-                        $postedUnbilled = array_map('intval', (array)($_POST['unbilled_visit_ids'] ?? []));
-                        foreach (($manualLines ?? []) as $ml) {
-                            $initialLines[] = ['title' => (string)$ml['title'], 'description' => $ml['description'],
-                                               'quantity' => $ml['quantity'], 'unit_price' => $ml['unit_price'],
-                                               'visit_id' => $ml['visit_id'], 'service_date' => $ml['service_date'],
-                                               'unbilled' => $ml['visit_id'] && in_array((int)$ml['visit_id'], $postedUnbilled, true)];
-                        }
-                        foreach ($initialLines ? [] : ($prefill['plan_line_items'] ?? []) as $pli) {
-                            $initialLines[] = [
-                                'title'       => (string)($pli['service_type'] ?? ''),
-                                'description' => (string)($pli['description'] ?? ''),
-                                'quantity'    => (float)($pli['quantity'] ?? 1),
-                                'unit_price'  => (float)($pli['unit_price'] ?? 0),
-                            ];
-                        }
-                        if (!$initialLines && (float)($prefill['amount'] ?? 0) > 0) {
-                            $initialLines[] = [
-                                'title'       => '',
-                                'description' => (string)($prefill['description'] ?? ''),
-                                'quantity'    => 1,
-                                'unit_price'  => (float)$prefill['amount'],
-                            ];
-                        }
-                        $formTaxRate = 0.05;
-                        try {
-                            $trStmt = $db->query("SELECT gst_rate FROM business_settings LIMIT 1");
-                            $trRow  = $trStmt ? $trStmt->fetch(PDO::FETCH_ASSOC) : null;
-                            if ($trRow && $trRow['gst_rate'] !== null) $formTaxRate = round((float)$trRow['gst_rate'] / 100, 4);
-                            require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';   // not registered for GST → no GST charged (onboarding)
-                            if (!TaxEngine::gstRegistered($db)) $formTaxRate = 0.0;
-                        } catch (Throwable $e) { /* keep 5% */ }
-                        ?>
-                        <?php if (!empty($prefill['plan_line_items'])): ?>
-                        <div class="alert alert-success py-2 mb-3" style="font-size:.85rem;">
-                            Lines filled in from the job plan. Change, remove or add to them before creating the invoice.
-                        </div>
-                        <?php endif; ?>
-
-                        <div class="mw-form-group" style="max-width:260px;">
-                            <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
-                            <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#service_date" aria-haspopup="true" aria-expanded="false">
-                                <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                <span class="mw-datepicker-date" data-mw-dp-label></span>
-                                <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-                            <input type="date" id="service_date" name="service_date" class="form-control" hidden
-                                   value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
-                        </div>
-
-                        <?php $crewTimeVisitId = ($visitId && !empty($prefill['visit_id'])) ? (int)$visitId : 0; include dirname(__DIR__) . '/includes/invoice-crew-time.php'; ?>
-
-                        <!-- Other unbilled work at this property (UnbilledWorkFinder) — filled by MwUnbilledWork -->
-                        <div id="invUnbilledPanel" class="mw-unbilled mb-3" hidden></div>
-
-                        <label class="form-label">Line Items *</label>
-                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Service / description</th>
-                                    <th style="width:90px;">Qty</th>
-                                    <th style="width:120px;">Unit Price</th>
-                                    <th style="width:100px;" class="text-right">Line Total</th>
-                                    <th style="width:44px;"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="invLineItemsBody"></tbody>
-                        </table>
-                        <div class="d-flex mt-2" style="gap:8px;flex-wrap:wrap;">
-                            <div id="invServicePicker"></div>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="invAddLineBtn">+ Add Line</button>
-                        </div>
-                        <input type="hidden" name="subtotal" id="subtotalInput" value="0">
-
-                        <div class="mw-totals-box mt-3">
-                            <div class="mw-totals-row">
-                                <span>Subtotal</span>
-                                <span class="mw-totals-value" id="subtotalDisplay">$0.00</span>
-                            </div>
-                            <div class="mw-totals-row">
-                                <span>GST (<?php echo rtrim(rtrim(number_format($formTaxRate * 100, 2), '0'), '.'); ?>%)</span>
-                                <span class="mw-totals-value" id="taxDisplay">$0.00</span>
-                            </div>
-                            <div class="mw-totals-row grand">
-                                <span>Total</span>
-                                <span class="mw-totals-value" id="totalDisplay">$0.00</span>
-                            </div>
-                        </div>
-                        <script src="/crm/js/mw-service-picker.js?v=20261101a"></script>
-                        <script src="/crm/js/mw-unbilled-work.js?v=20261008a"></script>
-                        <script src="/crm/js/mw-mia-invoice-note.js?v=20261101a"></script>
-                        <script>
-                        window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
-                        window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
-                        window.MW_INV_TAX     = <?php echo json_encode($formTaxRate); ?>;
-                        window.MW_INV_CAN_SAVE_SERVICE = <?php echo $canSaveService ? 'true' : 'false'; ?>;
-                        </script>
-
-                        <?php
-                        // Extras add-on preview
-                        $prevExtrasAmt  = floatval($prefill['extras_amount'] ?? 0);
-                        $prevExtrasMins = intval($prefill['extras_minutes'] ?? 0);
-                        $prevExtrasNote = $prefill['extras_note'] ?? '';
-                        if ($prevExtrasAmt > 0 && $prevExtrasMins > 0):
-                        ?>
-                        <div class="alert alert-info d-flex align-items-start gap-2 py-2 mt-3 mb-0" style="font-size:.85rem;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                            <div>
-                                <strong>+ $<?php echo number_format($prevExtrasAmt, 2); ?> add-on services (<?php echo $prevExtrasMins; ?> min)</strong> will be added as a separate line item.
-                                <?php if ($prevExtrasNote): ?><br><span class="text-muted">Crew note: &ldquo;<?php echo htmlspecialchars($prevExtrasNote); ?>&rdquo; — pre-filled in Notes below.</span><?php endif; ?>
-                            </div>
-                        </div>
-                        <?php endif; ?>
+                        </details>
                     </div>
                 </div>
 
@@ -1145,11 +1131,34 @@ if ($apiKey) {
                         </div>
                     </div>
                 </div>
+                </div><!-- /.mw-inv-main -->
 
-                <div class="mw-form-actions">
+                <aside class="mw-inv-side" aria-label="Invoice total">
+                    <div class="mw-inv-side-card">
+                        <div class="mw-inv-side-title">Invoice total</div>
+                        <div class="mw-totals-box">
+                            <div class="mw-totals-row">
+                                <span>Subtotal</span>
+                                <span class="mw-totals-value" id="subtotalDisplay">$0.00</span>
+                            </div>
+                            <div class="mw-totals-row">
+                                <span>GST (<?php echo rtrim(rtrim(number_format($formTaxRate * 100, 2), '0'), '.'); ?>%)</span>
+                                <span class="mw-totals-value" id="taxDisplay">$0.00</span>
+                            </div>
+                            <div class="mw-totals-row grand">
+                                <span>Total</span>
+                                <span class="mw-totals-value" id="totalDisplay">$0.00</span>
+                            </div>
+                        </div>
+                        <div class="mw-inv-side-to" id="invSideTo"></div>
+                        <div class="mw-inv-side-dates" id="invSideDates"></div>
+                <div class="mw-form-actions mw-inv-actions">
                     <button type="submit" class="btn btn-primary">Create Invoice</button>
                     <a href="index.php" class="btn btn-secondary">Cancel</a>
                 </div>
+                    </div>
+                </aside>
+
             </form>
 
 <script>
@@ -1819,6 +1828,58 @@ if (invLinesBody) {
     }
 }
 calculateTotals();
+
+// ── Sam's card: what earlier invoices at this property billed for the same work (MwSamInvoice) ──
+(function () {
+    const host = document.getElementById('invSamCard');
+    if (!host || !window.MwSamInvoice || !propertyIdInput) return;
+    MwSamInvoice.attach({
+        host: host,
+        getProperty: function () { return parseInt(propertyIdInput.value, 10) || 0; },
+        getService: function () { return host.dataset.service || ''; },
+        addLines: function (lines) {
+            // A fresh blank row is replaced rather than left empty above Sam's lines (same rule as the service picker).
+            const rows = invLinesBody.querySelectorAll('.mw-li-row');
+            if (rows.length === 1) {
+                const r = rows[0];
+                if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) {
+                    if (r._svcFormRow) r._svcFormRow.remove();
+                    r.remove();
+                }
+            }
+            lines.forEach(function (l) { addInvoiceLine({ title: '', description: l.description, quantity: l.quantity, unit_price: l.unit_price }); });
+            calculateTotals();
+        }
+    });
+})();
+
+// ── One-line summaries: the collapsed "Dates & addresses" and the sticky total; one recipient needs no table ──
+(function () {
+    const form = document.getElementById('invoiceForm');
+    if (!form) return;
+    function day(id) {
+        const el = document.getElementById(id);
+        const t = el && el.value ? new Date(el.value + 'T00:00:00') : null;
+        return t && !isNaN(t) ? t.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    }
+    function refresh() {
+        const issue = day('issue_date'), due = day('due_date');
+        const addr = (document.getElementById('serviceAddress') || {}).value || '';
+        const sum = document.getElementById('invMoreSum');
+        if (sum) sum.textContent = [issue && 'Issued ' + issue, due && 'due ' + due, addr.trim()].filter(Boolean).join(' · ');
+        const dates = document.getElementById('invSideDates');
+        if (dates) dates.textContent = [issue && 'Issued ' + issue, due && 'Due ' + due].filter(Boolean).join(' · ');
+        const to = document.getElementById('invSideTo');
+        const who = document.getElementById('recipientSummaryText');
+        if (to) to.textContent = who && who.textContent.trim() ? 'Sends to ' + who.textContent.trim() : '';
+        const sec = document.getElementById('recipientSection');
+        if (sec && recipientTableBody) sec.classList.toggle('is-single', recipientTableBody.querySelectorAll('input[type="checkbox"]').length <= 1);
+    }
+    form.addEventListener('input', refresh);
+    form.addEventListener('change', refresh);
+    setInterval(refresh, 1000);   // pickers set these from script, which fires no input event
+    refresh();
+})();
 
 // ── Mia's note suggestion (/crm/api/mia-invoice-suggestion.php) ──
 (function () {

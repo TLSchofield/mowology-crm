@@ -119,6 +119,7 @@ in code**, and **the traps already hit**. Read the reference that matches the ta
 | Pipeline stage of a contact/company | `PipelineStageService::onEvent()`, `PipelineStageService::sweep()` | quote/plan/invoice events, pipeline sweep |
 | "Quote opened" push | `QuoteViewNotifier::notifyFirstView()` | `public/customer/quote.php` |
 | The Closer's price beside the quote | `CloserService::forQuote()` (read-only) | `app/Modules/Sales/Api/closer.php`, `public/crm/includes/closer-panel.php` |
+| "Done here before" lines on a new invoice (earlier CRM + Jobber-import invoices at the property, same kind of work and season; old prices shown as old, discounts never offered) | `SamInvoiceHistory::forProperty()` | `public/crm/api/sam-invoice-history.php`, `public/crm/js/mw-sam-invoice.js` on `public/crm/invoices/create.php` |
 | Pickup / disposal / delivery line suggestion | `TripLineSuggester::forQuote()` | `app/Modules/Sales/Api/closer.php` |
 | Rate card edits (Tim only) | `CloserSettingsService::save()` | closer.php `save_card` |
 

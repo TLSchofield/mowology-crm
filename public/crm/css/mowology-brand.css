@@ -42158,3 +42158,54 @@ body.mw-books {
 .mw-fw-detail { margin: 0 0 1.5rem; color: var(--mw-dark); }
 .mw-fw-fold > summary { cursor: pointer; padding: .75rem 0; font-weight: 600; color: var(--mw-dark); }
 .mw-fw-fold:not([open]) > summary { text-align: center; }
+/* Invoice create: main column + sticky total, Sam's card, collapsed dates (invoices/create.php, 2026-11-20) */
+#invoiceForm { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+#invoiceForm > input[type="hidden"] { display: none; }
+.mw-inv-main { min-width: 0; grid-column: 1; }
+.mw-inv-main > .card { margin-bottom: 16px; }
+.mw-inv-side { grid-column: 2; position: sticky; top: 76px; }
+.mw-inv-side-card { background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); box-shadow: var(--mw-shadow-sm); padding: 16px; }
+.mw-inv-side-title { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mw-ink-500); margin-bottom: 8px; }
+.mw-inv-side .mw-totals-box { margin: 0 0 10px; }
+.mw-inv-side-to, .mw-inv-side-dates { font-size: .82rem; color: var(--mw-ink-600, var(--mw-ink-500)); margin-bottom: 4px; }
+.mw-inv-side-dates { margin-bottom: 12px; }
+.mw-inv-actions { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; border: 0; background: none; }
+.mw-inv-actions .btn { width: 100%; }
+.mw-inv-sub { font-size: .9rem; }
+.mw-inv-lines-head { margin: 4px 0 6px; }
+.mw-inv-more { margin-top: 18px; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); background: var(--mw-ink-50); }
+.mw-inv-more > summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; padding: 10px 14px; list-style: none; }
+.mw-inv-more > summary::-webkit-details-marker { display: none; }
+.mw-inv-more > summary::before { content: "\25B8"; color: var(--mw-ink-500); }
+.mw-inv-more[open] > summary::before { content: "\25BE"; }
+.mw-inv-more-title { font-weight: 600; font-size: .88rem; }
+.mw-inv-more-sum { color: var(--mw-ink-500); font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mw-inv-more[open] .mw-inv-more-sum { display: none; }
+.mw-inv-more > :not(summary) { margin-left: 14px; margin-right: 14px; }
+.mw-inv-more .alert-light { background: transparent; border-left: 0; border-right: 0; border-bottom: 0; }
+#recipientSection.is-single thead, #recipientSection.is-single #selectAllRecipients { display: none; }
+#recipientSection.is-single .mw-recipient-table table { border: 0; }
+/* Crew time: a visit under 5 minutes is a warning, not good news */
+.mw-crew-time-short { border-left-color: var(--mw-orange); background: #fff7ed; }
+.mw-crew-time-warn { color: var(--mw-orange); font-weight: 600; }
+/* Sam's card */
+.mw-invsam { border: 1px solid var(--mw-light); border-left: 4px solid var(--mw-green); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); padding: 12px 14px; margin: 0 0 14px; }
+.mw-invsam[hidden] { display: none; }
+.mw-invsam-top { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.mw-invsam-face img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 2px var(--mw-lime); }
+.mw-invsam-kicker { font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mw-green); }
+.mw-invsam-title { font-weight: 600; font-size: .95rem; color: var(--mw-ink-900); }
+.mw-invsam-src { font-size: .78rem; color: var(--mw-ink-500); }
+.mw-invsam-lines { list-style: none; margin: 0 0 10px; padding: 0; }
+.mw-invsam-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--mw-ink-200); font-size: .88rem; }
+.mw-invsam-line.is-added { opacity: .55; }
+.mw-invsam-line-p { font-variant-numeric: tabular-nums; font-weight: 600; }
+.mw-invsam-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.mw-invsam-caveat { font-size: .78rem; color: var(--mw-ink-500); flex: 1 1 200px; }
+.mw-invsam-earlier { margin-top: 8px; font-size: .8rem; color: var(--mw-ink-500); }
+.mw-invsam-earlier summary { cursor: pointer; }
+.mw-invsam-earlier-list { margin: 4px 0 0; padding-left: 18px; }
+@media (max-width: 991px) {
+    #invoiceForm { grid-template-columns: minmax(0, 1fr); }
+    .mw-inv-side { grid-column: 1; position: static; }
+}

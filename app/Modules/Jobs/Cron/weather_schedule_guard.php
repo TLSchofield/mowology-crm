@@ -462,8 +462,37 @@ function runSaltAlerts(PDO $db): array
         // below, and that is exactly the case where the morning forecast must still be written beside the old
         // capture (found 2026-11-20: the 10:00 run skipped it). Never throws.
         try {
-            $rc = recheckSaltWeatherDecisions($db, $weekForecast, (float)$triggerTemp);
+            // Keep every source's forecast for this run first, so the recheck rests on the very values that were stored.
+            $runStart = date('Y-m-d H:i:s');
+            $recheckForecast = $weekForecast;
+            try {
+                require_once APP_ROOT . '/Modules/Jobs/Services/WeatherSnapshotService.php';
+                $snap = WeatherSnapshotService::captureRun($db, (int)date('G') < 12 ? 'morning' : 'afternoon', true);
+                $saltResults['snapshots'] = $snap['snapshots'];
+                if (!empty($snap['errors'])) {
+                    $saltResults['errors'] = array_merge($saltResults['errors'] ?? [], $snap['errors']);
+                }
+                $ecToday = $snap['ec_days'][date('Y-m-d')] ?? null;
+                if (is_array($ecToday) && isset($ecToday['temp_low'])) {
+                    $recheckForecast[date('Y-m-d')] = array_merge($weekForecast[date('Y-m-d')] ?? [], $ecToday);
+                }
+            } catch (Throwable $e) {
+                $saltResults['errors'][] = 'Snapshot error: ' . $e->getMessage();
+            }
+            $rc = recheckSaltWeatherDecisions($db, $recheckForecast, (float)$triggerTemp);
             $saltResults['rechecked'] = $rc['rechecked'];
+            if ($rc['rechecked'] > 0 && !empty($snap['ec_days'][date('Y-m-d')])) {
+                try {
+                    // Link only a snapshot THIS run stored; if the Environment Canada pull failed there is no link.
+                    $snapId = WeatherSnapshotService::decisiveSnapshotId($db, date('Y-m-d'), null, $runStart);
+                    if ($snapId !== null) {
+                        $db->prepare('UPDATE salt_weather_decisions SET decisive_snapshot_id = ? WHERE trigger_date = ? AND recheck_at IS NOT NULL AND decisive_snapshot_id IS NULL')
+                           ->execute([$snapId, date('Y-m-d')]);
+                    }
+                } catch (Throwable $e) {
+                    error_log('decisive snapshot link: ' . $e->getMessage());   // column not there yet
+                }
+            }
             if (!empty($rc['errors'])) {
                 $saltResults['errors'] = array_merge($saltResults['errors'] ?? [], $rc['errors']);
             }

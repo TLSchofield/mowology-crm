@@ -79,6 +79,21 @@ try {
             $results[] = ['key' => 'mowology', 'cron' => 'schema_update', 'exit' => 1, 'last_line' => $ownUpdate['summary']];
         }
     }
+    // Weather record (Tim, 2026-11-20): the original business's own, in this process. Station reading every hour at :05;
+    // every forecast source at 06:05 and 18:05 as well. Sends nothing; a failed source is noted and skipped.
+    try {
+        $forecastDue = CronSchedule::dueBetween('5 6,18 * * *', $last, $now);
+        if ($forecastDue || CronSchedule::dueBetween('5 * * * *', $last, $now)) {
+            require_once APP_ROOT . '/Modules/Jobs/Services/WeatherSnapshotService.php';
+            $t0 = microtime(true);
+            $snap = WeatherSnapshotService::captureRun($db, $forecastDue ? ((int)date('G', $now) < 12 ? 'morning-early' : 'evening') : 'hourly', $forecastDue);
+            recordCronRun('weather_snapshot', $snap['errors'] ? 'warning' : 'success',
+                $snap['observations'] . ' reading(s), ' . $snap['snapshots'] . ' forecast row(s)',
+                (int)round((microtime(true) - $t0) * 1000), $snap['errors'] ? implode('; ', $snap['errors']) : null, false);
+        }
+    } catch (Throwable $e) {
+        error_log('[weather_snapshot] ' . $e->getMessage());
+    }
     $failed = array_values(array_filter($results, static function (array $r): bool {
         return (int)$r['exit'] !== 0;
     }));
