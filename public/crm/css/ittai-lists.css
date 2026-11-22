@@ -171,3 +171,41 @@ body.it-shell.it-list .mw-bulk-action-bar { background: var(--it-surface); borde
 
 /* ── Invoices: a document number is one word, never three lines ─────────── */
 body.it-shell.it-list #mw-invoice-table tbody td:nth-child(2) { white-space: nowrap; }
+
+/* ── Clients: Kanban/List switch and the pipeline board ─────────────────── */
+/* The radios are Bootstrap 5 "btn-check" inputs; this page runs Bootstrap 4, so they show as raw dots. Hide them, mark the chosen label. */
+body.it-shell.it-list main.content .btn-check { position: absolute; opacity: 0; pointer-events: none; }
+body.it-shell.it-list main.content .btn-group { gap: var(--it-space-1); }
+body.it-shell.it-list main.content .btn-check:checked + .btn { background: var(--it-selected); border-color: var(--it-text); color: var(--it-text); }
+body.it-shell.it-list main.content .btn-check:focus-visible + .btn { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+/* Stage columns: the stage colour stays as the top edge (the owner picks it); the header is calm text, not a coloured bar. */
+body.it-shell.it-list .mw-kanban-column { background: var(--it-sunk); border-color: var(--it-line); border-radius: var(--it-radius-md); }
+body.it-shell.it-list .mw-kanban-header { background: transparent !important; border-bottom: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-text); }
+body.it-shell.it-list .mw-kanban-header .text-white { color: var(--it-text) !important; font-weight: 500; }
+body.it-shell.it-list .mw-kanban-header .badge { background: var(--it-surface); color: var(--it-meta); border: var(--it-stroke-hairline) solid var(--it-line); font-weight: 500; }
+body.it-shell.it-list .mw-kanban-card { background: var(--it-surface); border-color: var(--it-line); box-shadow: none; }
+
+/* Clients list table: .mw-client-row is also a flex card elsewhere, which broke the table (header wide, cells stacked). */
+body.it-shell.it-list main.content tr.mw-client-row { display: table-row; }
+body.it-shell.it-list main.content tr.mw-client-row > td { display: table-cell; }
+body.it-shell.it-list main.content .badge.badge-secondary,
+body.it-shell.it-list main.content .badge.badge-primary,
+body.it-shell.it-list main.content .badge.badge-light { background: var(--it-surface); color: var(--it-meta); }
+/* The brand sheet forces .badge-secondary / .bg-secondary dark with !important, so this one must too. */
+body.it-shell.it-list main.content .badge.badge-secondary { background-color: var(--it-surface) !important; }
+body.it-shell.it-list main.content .badge.badge-success { background: var(--it-surface); color: var(--it-status-complete); }
+body.it-shell.it-list main.content .badge.badge-info { background: var(--it-surface); color: var(--it-status-progress); }
+body.it-shell.it-list main.content .badge.badge-warning { background: var(--it-surface); color: var(--it-status-attention); }
+body.it-shell.it-list main.content .badge.badge-danger { background: var(--it-surface); color: var(--it-status-blocked); }
+/* Clients figures strip */
+body.it-shell.it-list .mw-clients-stats-banner { flex-wrap: wrap; background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-lg); box-shadow: none; margin-bottom: var(--it-space-6); }
+body.it-shell.it-list .mw-cs-stat-divider { background: var(--it-line); }
+body.it-shell.it-list .mw-cs-stat-value { color: var(--it-text); font-size: var(--it-title-28-size); font-weight: 600; }
+body.it-shell.it-list .mw-cs-stat-value.mw-cs-accent-lime { color: var(--it-status-complete); }
+body.it-shell.it-list .mw-cs-stat-value.mw-cs-accent-red { color: var(--it-status-blocked); }
+body.it-shell.it-list .mw-cs-stat-label { text-transform: none; letter-spacing: 0; font-size: var(--it-meta-13-size); font-weight: 500; color: var(--it-meta); white-space: normal; text-align: center; }
+@media (max-width: 575px) {
+  body.it-shell.it-list .mw-cs-stat { flex: 1 1 45%; }
+  body.it-shell.it-list .mw-cs-stat-divider { display: none; }
+  body.it-shell.it-list .mw-page-header > div:first-child { flex: 1 1 100%; }
+}

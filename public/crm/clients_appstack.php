@@ -29,7 +29,7 @@ $messageType = '';
 
 // Flash messages passed via GET after a redirect
 if (isset($_GET['updated'])) {
-    $message = 'Contact updated successfully!';
+    $message = 'Contact updated.';
     if (!empty($_GET['warn'])) {
         $message .= ' Note: ' . htmlspecialchars($_GET['warn']) . ' contained an invalid value and was cleared.';
     }
@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
     if ($requestAction === 'move_company') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                 echo json_encode(['success' => true]);
             } else {
                 http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Failed to update stage']);
+                echo json_encode(['success' => false, 'error' => 'Couldn\'t update the stage. Try again.']);
             }
         } catch (Exception $e) {
             http_response_code(400);
@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
     } elseif ($requestAction === 'move_contact') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -96,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                 echo json_encode(['success' => true]);
             } else {
                 http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Failed to update stage']);
+                echo json_encode(['success' => false, 'error' => 'Couldn\'t update the stage. Try again.']);
             }
         } catch (Exception $e) {
             http_response_code(400);
@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
     } elseif ($requestAction === 'manage_stages') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                     echo json_encode(['success' => true, 'stage_id' => $newStageId]);
                 } else {
                     http_response_code(400);
-                    echo json_encode(['success' => false, 'error' => 'Failed to add stage']);
+                    echo json_encode(['success' => false, 'error' => 'Couldn\'t add the stage. Try again.']);
                 }
             } elseif ($stageAction === 'update') {
                 if (updateLifecycleStage($stageId, $jsonData)) {
@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                     echo json_encode(['success' => true]);
                 } else {
                     http_response_code(400);
-                    echo json_encode(['success' => false, 'error' => 'Failed to update stage']);
+                    echo json_encode(['success' => false, 'error' => 'Couldn\'t update the stage. Try again.']);
                 }
             } elseif ($stageAction === 'delete') {
                 if (deleteLifecycleStage($stageId)) {
@@ -155,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
     } elseif ($requestAction === 'bulk_delete') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
         // Hard delete is an office decision (crew hold clients.view only) — Fable review 2026-10-12.
@@ -208,14 +208,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         } catch (Exception $e) {
             if ($db->inTransaction()) $db->rollBack();
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Delete failed']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t delete this. Try again.']);
         }
         exit;
 
     } elseif ($requestAction === 'convert_to_prospect') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -278,14 +278,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         } catch (Exception $e) {
             $errorHandler->logError('Failed to convert quote request to prospect', $e, ['request_id' => $requestId]);
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Failed to convert prospect']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t convert this request. Try again.']);
             exit;
         }
 
     } elseif ($requestAction === 'add_property_to_contact') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -333,14 +333,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             }
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to add property']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t add the property. Try again.']);
         }
         exit;
 
     } elseif ($requestAction === 'add_property_to_company') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -402,14 +402,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             }
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to add property']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t add the property. Try again.']);
         }
         exit;
 
     } elseif ($requestAction === 'link_company_to_contact') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -428,7 +428,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => true]);
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to link company']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t link the company. Try again.']);
         }
         exit;
 
@@ -436,7 +436,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         // Save lat/lng from client-side geocoding
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -456,14 +456,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => true]);
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to save coordinates']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t save the location. Try again.']);
         }
         exit;
 
     } elseif ($requestAction === 'edit_property') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -491,14 +491,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => true, 'address' => $address, 'city' => $city, 'province' => $province]);
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to update property']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t update the property. Try again.']);
         }
         exit;
 
     } elseif ($requestAction === 'unlink_property') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -535,14 +535,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             }
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to update property']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t update the property. Try again.']);
         }
         exit;
 
     } elseif ($requestAction === 'add_client_note') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            echo json_encode(['success' => false, 'error' => 'This page timed out. Reload it and try again.']);
             exit;
         }
 
@@ -571,7 +571,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             }
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to save note']);
+            echo json_encode(['success' => false, 'error' => 'Couldn\'t save the note. Try again.']);
         }
         exit;
     }
@@ -579,7 +579,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
-        $message = 'Invalid request. Please try again.';
+        $message = 'This page timed out. Reload it and try again.';
         $messageType = 'error';
     } else {
         $action = $_POST['action'] ?? null;
@@ -706,7 +706,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $billingProvince, $billingPostalCode, $accountStatus, $paymentTerms,
                                 $prefAttachPdf
                             ]);
-                            $message = 'Contact and company created successfully!';
+                            $message = 'Contact and company added.';
                         } else {
                             $stmt = $db->prepare("
                                 UPDATE companies SET primary_contact_id = ?, billing_contact_id = ?
@@ -717,7 +717,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         $messageType = 'success';
                     } else {
-                        $message = 'Contact created successfully!';
+                        $message = 'Contact added.';
                         $messageType = 'success';
                     }
 
@@ -725,8 +725,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $action = null; // Return to list view
                 } catch (PDOException $e) {
                     $db->rollBack();
-                    $errorHandler->logDatabaseError($e, '', [], 'Failed to save contact. Please try again.');
-                    $message = 'Failed to save contact. Please try again.';
+                    $errorHandler->logDatabaseError($e, '', [], 'Couldn\'t save this contact. Nothing was changed. Try again.');
+                    $message = 'Couldn\'t save this contact. Nothing was changed. Try again.';
                     $messageType = 'error';
                 }
             }
@@ -818,7 +818,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         exit;
                     } catch (PDOException $e) {
                         $errorHandler->logDatabaseError($e, '', [], 'Failed to update contact.');
-                        $message = 'Failed to update contact. Please try again.';
+                        $message = 'Couldn\'t update this contact. Nothing was changed. Try again.';
                         $messageType = 'error';
                         $action = 'edit_contact';
                         $clientId = $contactId;
@@ -864,14 +864,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $accountStatus, $paymentTerms, $paymentMethod,
                             $companyNotes, $companyId
                         ]);
-                        $message = 'Company updated successfully!';
+                        $message = 'Company updated.';
                         $messageType = 'success';
                         // Redirect to view
                         $action = 'view_company';
                         $clientId = $companyId;
                     } catch (PDOException $e) {
                         $errorHandler->logDatabaseError($e, '', [], 'Failed to update company.');
-                        $message = 'Failed to update company. Please try again.';
+                        $message = 'Couldn\'t update this company. Nothing was changed. Try again.';
                         $messageType = 'error';
                         $action = 'edit_company';
                         $clientId = $companyId;
@@ -2022,6 +2022,8 @@ $unconvertedRequests = $db->query("
         qr.created_at DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+// Ittai list skin (css/ittai-lists.css) on the clients list only, not on the forms and detail views. Applies only when the new design is on.
+if (!$action) $bodyClass = 'it-list';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -2045,13 +2047,13 @@ $unconvertedRequests = $db->query("
           <?php if (!in_array($action, ['view_contact', 'view_company'])): ?>
           <div class="mw-page-header">
             <div class="mw-page-header-left">
-              <h1 class="mw-page-title"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review Duplicate Contacts' : 'Client Management'; ?></h1>
-              <p class="mw-page-subtitle">Contacts, companies &amp; prospects</p>
+              <h1 class="mw-page-title"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review duplicate contacts' : 'Clients'; ?></h1>
+              <p class="mw-page-subtitle">The people and companies you quote and work for</p>
             </div>
             <?php if (!in_array($action, ['edit', 'new', 'edit_contact', 'edit_company']) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
             <div class="mw-page-actions">
               <a href="/crm/api/export-contacts.php" class="btn btn-outline-secondary" title="Export CSV"><i data-feather="download"></i> Export</a>
-              <button class="btn btn-primary" onclick="location.href='?action=new'"><i data-feather="plus"></i> Add New Client</button>
+              <button class="btn btn-primary" onclick="location.href='?action=new'"><i data-feather="plus"></i> Add client</button>
             </div>
             <?php endif; ?>
           </div>
@@ -4225,7 +4227,7 @@ $unconvertedRequests = $db->query("
                     <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
                   </div>
                   <div class="modal-body">
-                    <p class="mb-2">Property added and geocoded successfully.</p>
+                    <p class="mb-2">Property added and located on the map.</p>
                     <p class="mb-0 small text-muted">Drawing an arrival border prevents wrong auto-clock-ins on dense routes. You can always draw one later from the property card.</p>
                   </div>
                   <div class="modal-footer">
@@ -4359,7 +4361,7 @@ $unconvertedRequests = $db->query("
                   })
                   .catch(function () {
                       btn.disabled = false; btn.textContent = origLabel;
-                      mwToast('Network error — please try again.', 'error');
+                      mwToast('Couldn\'t reach the server. Check your connection and try again.', 'error');
                   });
               };
               window.mwAttachDeposit = function (btn, invoiceId, txId, invNum) {
@@ -4406,7 +4408,7 @@ $unconvertedRequests = $db->query("
                   btn.disabled = false;
                   btn.textContent = origLabel;
                   console.error('[mwAttachDeposit]', err);
-                  mwToast('Network error — please try again.', 'error');
+                  mwToast('Couldn\'t reach the server. Check your connection and try again.', 'error');
                 });
               };
               var propertiesData = <?php echo json_encode($contactProperties); ?>;
@@ -4637,7 +4639,7 @@ $unconvertedRequests = $db->query("
                   }
                 })
                 .catch(() => {
-                  alert('Network error — please try again.');
+                  alert('Couldn\'t reach the server. Check your connection and try again.');
                   btn.disabled = false;
                   btn.textContent = 'Save Changes';
                 });
@@ -4700,7 +4702,7 @@ $unconvertedRequests = $db->query("
                   }
                 })
                 .catch(function() {
-                  alert('Network error. Please try again.');
+                  alert('Couldn\'t reach the server. Check your connection and try again.');
                   btn.disabled = false;
                   btn.innerHTML = '<i data-feather="check"></i> Confirm';
                   feather.replace();
@@ -4832,7 +4834,7 @@ $unconvertedRequests = $db->query("
                     if (data.success) {
                       location.reload();
                     } else {
-                      alert('Geocoding failed: ' + (data.error || 'Unknown error'));
+                      alert('Couldn\'t find this address on the map. ' + (data.error || 'Check the address and try again.'));
                       if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" class="mw-icon-xs"></i>'; feather.replace(); }
                     }
                   })
@@ -5933,7 +5935,7 @@ $unconvertedRequests = $db->query("
                     if (data.success) {
                       location.reload();
                     } else {
-                      alert('Geocoding failed: ' + (data.error || 'Unknown error'));
+                      alert('Couldn\'t find this address on the map. ' + (data.error || 'Check the address and try again.'));
                       if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" class="mw-icon-xs"></i>'; feather.replace(); }
                     }
                   })
@@ -6135,7 +6137,7 @@ $unconvertedRequests = $db->query("
                   }
                 })
                 .catch(function() {
-                  alert('Network error. Please try again.');
+                  alert('Couldn\'t reach the server. Check your connection and try again.');
                   btn.disabled = false;
                   btn.innerHTML = '<i data-feather="check"></i> Confirm';
                   feather.replace();
@@ -6267,23 +6269,23 @@ $unconvertedRequests = $db->query("
             <div class="mw-clients-stats-banner">
               <div class="mw-cs-stat">
                 <div class="mw-cs-stat-value"><?php echo number_format($statsTotalActive); ?></div>
-                <div class="mw-cs-stat-label">Active Clients</div>
+                <div class="mw-cs-stat-label">Active clients</div>
               </div>
               <div class="mw-cs-stat-divider"></div>
               <div class="mw-cs-stat">
                 <div class="mw-cs-stat-value"><?php echo $statsContactsTotal; ?></div>
-                <div class="mw-cs-stat-label">Total Contacts</div>
+                <div class="mw-cs-stat-label">Total contacts</div>
               </div>
               <div class="mw-cs-stat-divider"></div>
               <div class="mw-cs-stat">
                 <div class="mw-cs-stat-value mw-cs-accent-lime">+<?php echo $statsNewThisMonth; ?></div>
-                <div class="mw-cs-stat-label">New This Month</div>
+                <div class="mw-cs-stat-label">New this month</div>
               </div>
               <div class="mw-cs-stat-divider"></div>
               <div class="mw-cs-stat">
                 <?php if ($statsOverdueCount > 0): ?>
                   <div class="mw-cs-stat-value mw-cs-accent-red">$<?php echo number_format($statsOverdueAmt, 0); ?></div>
-                  <div class="mw-cs-stat-label"><?php echo $statsOverdueCount; ?> Overdue Invoice<?php echo $statsOverdueCount !== 1 ? 's' : ''; ?></div>
+                  <div class="mw-cs-stat-label"><?php echo $statsOverdueCount; ?> overdue invoice<?php echo $statsOverdueCount !== 1 ? 's' : ''; ?></div>
                 <?php else: ?>
                   <div class="mw-cs-stat-value mw-cs-accent-lime">$0</div>
                   <div class="mw-cs-stat-label">Overdue</div>
@@ -6304,7 +6306,7 @@ $unconvertedRequests = $db->query("
                 </label>
               </div>
               <button class="btn btn-outline-primary" onclick="showStageManagerModal()">
-                <i data-feather="settings"></i> Manage Stages
+                <i data-feather="settings"></i> Manage stages
               </button>
             </div>
 
@@ -6454,7 +6456,7 @@ $unconvertedRequests = $db->query("
             <div class="card">
               <div class="card-header">
                 <h5 class="card-title mb-0">
-                  All Clients &amp; Contacts
+                  All clients and contacts
                   <span class="badge badge-primary ml-2"><?php echo count($clients) + count($standaloneContacts); ?></span>
                 </h5>
               </div>
@@ -6472,7 +6474,7 @@ $unconvertedRequests = $db->query("
                 <?php if (empty($clients) && empty($standaloneContacts) && empty($unconvertedRequests)): ?>
                   <div class="text-center text-muted py-5">
                     <i data-feather="inbox" style="width: 48px; height: 48px;"></i>
-                    <p class="mt-3 mb-0">No clients yet. <a href="?action=new">Create one now</a></p>
+                    <p class="mt-3 mb-0">You haven't added a client yet. Clients appear here once you add them. <a href="?action=new">Add client</a></p>
                   </div>
                 <?php else: ?>
                   <!-- Clients & Prospects Table -->
@@ -7494,10 +7496,10 @@ $unconvertedRequests = $db->query("
               .then(function(r) { return r.json(); })
               .then(function(data) {
                 if (data.success) {
-                  alert('Contacts merged successfully!');
+                  alert('Contacts merged.');
                   location.reload();
                 } else {
-                  alert('Merge failed: ' + (data.error || 'Unknown error'));
+                  alert('Couldn\'t merge these contacts. ' + (data.error || 'Try again.'));
                   document.getElementById('mergeConfirmBtn').disabled = false;
                   document.getElementById('mergeConfirmBtn').innerHTML = '<i data-feather="git-merge" style="width: 14px; height: 14px;"></i> Merge Contacts';
                   feather.replace();
