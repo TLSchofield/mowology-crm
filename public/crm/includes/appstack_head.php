@@ -235,11 +235,10 @@ function _amin(string $webPath): string {
   <link href="<?= _av('/crm/css/ittai-shell.css') ?>" rel="stylesheet">
   <link href="<?= _av('/crm/css/ittai-lists.css') ?>" rel="stylesheet">
   <script src="<?= _av('/crm/js/ittai-shell.js') ?>" defer></script>
-  <?php if (($_COOKIE['it_soft'] ?? '') === '1'): /* Soft navigation, opt-in per browser (ittai-soft.js): the sidebar never reloads. */ ?>
-  <link href="<?= _av('/crm/css/ittai-soft.css') ?>" rel="stylesheet">
+  <?php /* Native page transitions (Tim, 2026-11-21: native only, soft navigation retired): sidebar stays still, content fades. */ ?>
+  <link href="<?= _av('/crm/css/ittai-vt.css') ?>" rel="stylesheet">
   <link rel="expect" href="#sidebar" blocking="render">
-  <script src="<?= _av('/crm/js/ittai-soft.js') ?>"></script>
-  <?php endif; ?>
+  <script src="<?= _av('/crm/js/ittai-vt.js') ?>"></script>
   <?php endif; ?>
 
   <?php
