@@ -6,6 +6,7 @@ require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/error-handler.php';
 require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
+require_once APP_ROOT . '/Modules/Contacts/Services/ClientActionsService.php';
 require_once APP_ROOT . '/Core/Uploads.php';
 
 requireLogin();
@@ -44,6 +45,7 @@ if (isset($_GET['portal_link'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'application/json') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
     $requestAction = $_GET['action'] ?? null;
+    $clientActions = new ClientActionsService($db);
 
     if ($requestAction === 'move_company') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
@@ -219,68 +221,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $requestId = intval($jsonData['request_id'] ?? 0);
-        if (!$requestId) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid request ID']);
-            exit;
-        }
-
-        try {
-            // Get quote request details
-            $stmt = $db->prepare("
-                SELECT qr.*, c.first_name, c.last_name, c.email, p.address, p.city
-                FROM quote_requests qr
-                LEFT JOIN contacts c ON qr.contact_id = c.id
-                LEFT JOIN properties p ON qr.property_id = p.id
-                WHERE qr.id = ?
-            ");
-            $stmt->execute([$requestId]);
-            $qr = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$qr) {
-                throw new Exception('Quote request not found');
-            }
-
-            // Create company for prospect
-            $companyName = trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? '')) ?: 'Prospect from ' . formatDate($qr['created_at']);
-            $billingEmail = $qr['email'] ?? null;
-            $billingAddress = $qr['address'] ?? null;
-            $billingCity = $qr['city'] ?? 'Vancouver';
-
-            $stmt = $db->prepare("
-                INSERT INTO companies (
-                    company_name, company_type, billing_email, billing_address, billing_city,
-                    billing_province, account_status, pref_attach_pdf
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $companyName,
-                'individual',
-                $billingEmail,
-                $billingAddress,
-                $billingCity,
-                'BC',
-                'active',
-                1  // Default to attach PDF
-            ]);
-
-            $companyId = $db->lastInsertId();
-
-            // Link quote request to new company
-            $stmt = $db->prepare("UPDATE quote_requests SET company_id = ? WHERE id = ?");
-            $stmt->execute([$companyId, $requestId]);
-
-            http_response_code(200);
-            echo json_encode(['success' => true, 'company_id' => $companyId]);
-            exit;
-
-        } catch (Exception $e) {
-            $errorHandler->logError('Failed to convert quote request to prospect', $e, ['request_id' => $requestId]);
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t convert this request. Try again.']);
-            exit;
-        }
+        $result = $clientActions->convertToProspect(intval($jsonData['request_id'] ?? 0));
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
+        exit;
 
     } elseif ($requestAction === 'add_property_to_contact') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
@@ -289,52 +235,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $contactId = intval($jsonData['contact_id'] ?? 0);
-        $address = trim($jsonData['address'] ?? '');
-        $city = trim($jsonData['city'] ?? 'Vancouver');
-        $postalCode = trim($jsonData['postal_code'] ?? '');
-        $propertyName = trim($jsonData['property_name'] ?? '');
-
-        if (!$contactId || empty($address)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Contact ID and address are required']);
-            exit;
-        }
-
-        try {
-            // Check if property with this address already exists
-            $checkStmt = $db->prepare("SELECT id, site_contact_id FROM properties WHERE address = ? LIMIT 1");
-            $checkStmt->execute([$address]);
-            $existingProp = $checkStmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($existingProp) {
-                // Link existing property to this contact if not already linked
-                if (empty($existingProp['site_contact_id'])) {
-                    $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
-                       ->execute([$contactId, $existingProp['id']]);
-                }
-                echo json_encode(['success' => true, 'property_id' => (int)$existingProp['id'], 'linked_existing' => true]);
-            } else {
-                // Auto-generate property_name if empty
-                if (empty($propertyName)) {
-                    $contactStmt = $db->prepare("SELECT first_name, last_name FROM contacts WHERE id = ?");
-                    $contactStmt->execute([$contactId]);
-                    $ct = $contactStmt->fetch(PDO::FETCH_ASSOC);
-                    $propertyName = trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? ''));
-                }
-
-                $stmt = $db->prepare("
-                    INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status)
-                    VALUES (?, ?, ?, 'BC', ?, ?, 'active')
-                ");
-                $stmt->execute([$propertyName, $address, $city, $postalCode, $contactId]);
-                $newPropId = (int)$db->lastInsertId();
-                echo json_encode(['success' => true, 'property_id' => $newPropId, 'linked_existing' => false]);
-            }
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t add the property. Try again.']);
-        }
+        $result = $clientActions->addPropertyToContact(
+            intval($jsonData['contact_id'] ?? 0),
+            trim($jsonData['address'] ?? ''),
+            trim($jsonData['city'] ?? 'Vancouver'),
+            trim($jsonData['postal_code'] ?? ''),
+            trim($jsonData['property_name'] ?? '')
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
 
     } elseif ($requestAction === 'add_property_to_company') {
@@ -344,66 +255,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $companyId = intval($jsonData['company_id'] ?? 0);
-        $address = trim($jsonData['address'] ?? '');
-        $city = trim($jsonData['city'] ?? 'Vancouver');
-        $postalCode = trim($jsonData['postal_code'] ?? '');
-        $propertyName = trim($jsonData['property_name'] ?? '');
         $lat = isset($jsonData['latitude']) && $jsonData['latitude'] !== '' ? floatval($jsonData['latitude']) : null;
         $lng = isset($jsonData['longitude']) && $jsonData['longitude'] !== '' ? floatval($jsonData['longitude']) : null;
-
-        if (!$companyId || empty($address)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Company ID and address are required']);
-            exit;
-        }
-
-        try {
-            // Get the company's primary contact to link the property through
-            $compStmt = $db->prepare("SELECT primary_contact_id, billing_contact_id, company_name FROM companies WHERE id = ?");
-            $compStmt->execute([$companyId]);
-            $comp = $compStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$comp) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'error' => 'Company not found']);
-                exit;
-            }
-
-            $contactId = (int)($comp['primary_contact_id'] ?? 0) ?: (int)($comp['billing_contact_id'] ?? 0);
-            if (!$contactId) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Company has no linked contact. Add a contact first.']);
-                exit;
-            }
-
-            // Check if property with this address already exists
-            $checkStmt = $db->prepare("SELECT id, site_contact_id FROM properties WHERE address = ? LIMIT 1");
-            $checkStmt->execute([$address]);
-            $existingProp = $checkStmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($existingProp) {
-                if (empty($existingProp['site_contact_id'])) {
-                    $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
-                       ->execute([$contactId, $existingProp['id']]);
-                }
-                echo json_encode(['success' => true, 'property_id' => (int)$existingProp['id'], 'linked_existing' => true]);
-            } else {
-                if (empty($propertyName)) {
-                    $propertyName = trim($comp['company_name']);
-                }
-
-                $stmt = $db->prepare("
-                    INSERT INTO properties (property_name, address, city, province, postal_code, latitude, longitude, site_contact_id, status)
-                    VALUES (?, ?, ?, 'BC', ?, ?, ?, ?, 'active')
-                ");
-                $stmt->execute([$propertyName, $address, $city, $postalCode, $lat, $lng, $contactId]);
-                $newPropId = (int)$db->lastInsertId();
-                echo json_encode(['success' => true, 'property_id' => $newPropId, 'linked_existing' => false]);
-            }
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t add the property. Try again.']);
-        }
+        $result = $clientActions->addPropertyToCompany(
+            intval($jsonData['company_id'] ?? 0),
+            trim($jsonData['address'] ?? ''),
+            trim($jsonData['city'] ?? 'Vancouver'),
+            trim($jsonData['postal_code'] ?? ''),
+            trim($jsonData['property_name'] ?? ''),
+            $lat,
+            $lng
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
 
     } elseif ($requestAction === 'link_company_to_contact') {
@@ -413,23 +279,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $contactId = intval($jsonData['contact_id'] ?? 0);
-        $companyId = intval($jsonData['company_id'] ?? 0);
-
-        if (!$contactId || !$companyId) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid contact or company']);
-            exit;
-        }
-
-        try {
-            $stmt = $db->prepare("UPDATE companies SET primary_contact_id = ?, billing_contact_id = ? WHERE id = ?");
-            $stmt->execute([$contactId, $contactId, $companyId]);
-            echo json_encode(['success' => true]);
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t link the company. Try again.']);
-        }
+        $result = $clientActions->linkCompanyToContact(
+            intval($jsonData['contact_id'] ?? 0),
+            intval($jsonData['company_id'] ?? 0)
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
 
     } elseif ($requestAction === 'save_property_coords') {
@@ -440,24 +297,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $propertyId = intval($jsonData['property_id'] ?? 0);
-        $lat = floatval($jsonData['lat'] ?? 0);
-        $lng = floatval($jsonData['lng'] ?? 0);
-
-        if (!$propertyId || !$lat || !$lng) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid property or coordinates']);
-            exit;
-        }
-
-        try {
-            $db->prepare("UPDATE properties SET latitude = ?, longitude = ? WHERE id = ?")
-               ->execute([$lat, $lng, $propertyId]);
-            echo json_encode(['success' => true]);
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t save the location. Try again.']);
-        }
+        $result = $clientActions->savePropertyCoords(
+            intval($jsonData['property_id'] ?? 0),
+            floatval($jsonData['lat'] ?? 0),
+            floatval($jsonData['lng'] ?? 0)
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
 
     } elseif ($requestAction === 'edit_property') {
@@ -467,32 +315,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $propertyId = intval($jsonData['property_id'] ?? 0);
-        $address    = trim($jsonData['address'] ?? '');
-        $city       = trim($jsonData['city'] ?? '');
-        $province   = trim($jsonData['province'] ?? '');
-        $postalCode = trim($jsonData['postal_code'] ?? '');
-        $propName   = trim($jsonData['property_name'] ?? '');
-
-        if (!$propertyId || !$address) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Property ID and address are required']);
-            exit;
-        }
-
-        try {
-            $db->prepare("
-                UPDATE properties
-                SET address = ?, city = ?, province = ?, postal_code = ?,
-                    property_name = NULLIF(?, ''),
-                    latitude = NULL, longitude = NULL
-                WHERE id = ?
-            ")->execute([$address, $city, $province, $postalCode, $propName, $propertyId]);
-            echo json_encode(['success' => true, 'address' => $address, 'city' => $city, 'province' => $province]);
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t update the property. Try again.']);
-        }
+        $result = $clientActions->editProperty(
+            intval($jsonData['property_id'] ?? 0),
+            trim($jsonData['address'] ?? ''),
+            trim($jsonData['city'] ?? ''),
+            trim($jsonData['province'] ?? ''),
+            trim($jsonData['postal_code'] ?? ''),
+            trim($jsonData['property_name'] ?? '')
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
 
     } elseif ($requestAction === 'unlink_property') {
@@ -502,41 +336,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $propertyId = intval($jsonData['property_id'] ?? 0);
-        $currentContactId = intval($jsonData['current_contact_id'] ?? 0);
-        $newContactId = intval($jsonData['new_contact_id'] ?? 0);
-
-        if (!$propertyId || !$currentContactId) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Property ID and current contact ID are required']);
-            exit;
-        }
-
-        try {
-            // Verify property belongs to this contact
-            $checkStmt = $db->prepare("SELECT id FROM properties WHERE id = ? AND site_contact_id = ?");
-            $checkStmt->execute([$propertyId, $currentContactId]);
-            if (!$checkStmt->fetch()) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Property not found or not linked to this contact']);
-                exit;
-            }
-
-            if ($newContactId > 0) {
-                // Reassign to different contact
-                $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
-                   ->execute([$newContactId, $propertyId]);
-                echo json_encode(['success' => true, 'action' => 'reassigned']);
-            } else {
-                // Unlink (set to NULL)
-                $db->prepare("UPDATE properties SET site_contact_id = NULL WHERE id = ?")
-                   ->execute([$propertyId]);
-                echo json_encode(['success' => true, 'action' => 'unlinked']);
-            }
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t update the property. Try again.']);
-        }
+        $result = $clientActions->unlinkProperty(
+            intval($jsonData['property_id'] ?? 0),
+            intval($jsonData['current_contact_id'] ?? 0),
+            intval($jsonData['new_contact_id'] ?? 0)
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
 
     } elseif ($requestAction === 'add_client_note') {
@@ -546,33 +354,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
         }
 
-        $noteContactId = intval($jsonData['contact_id'] ?? 0);
-        $noteType = trim($jsonData['note_type'] ?? 'general');
-        $noteContent = trim($jsonData['content'] ?? '');
-
-        if (!$noteContactId || !$noteContent) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Contact ID and content are required']);
-            exit;
-        }
-
-        $validTypes = ['general', 'customer_request', 'issue', 'follow_up', 'internal'];
-        if (!in_array($noteType, $validTypes)) $noteType = 'general';
-
-        try {
-            if (function_exists('addClientNote')) {
-                $result = addClientNote($noteContactId, $noteContent, $noteType, $user['id']);
-                echo json_encode(['success' => true]);
-            } else {
-                // Fallback: direct insert
-                $stmt = $db->prepare("INSERT INTO client_notes (contact_id, note_type, content, created_by, created_at) VALUES (?, ?, ?, ?, NOW())");
-                $stmt->execute([$noteContactId, $noteType, $noteContent, $user['id']]);
-                echo json_encode(['success' => true]);
-            }
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Couldn\'t save the note. Try again.']);
-        }
+        $result = $clientActions->addClientNote(
+            intval($jsonData['contact_id'] ?? 0),
+            trim($jsonData['note_type'] ?? 'general'),
+            trim($jsonData['content'] ?? ''),
+            intval($user['id'])
+        );
+        http_response_code($result['status']);
+        echo json_encode($result['ok']
+            ? array_merge(['success' => true], $result['data'])
+            : ['success' => false, 'error' => $result['error']]);
         exit;
     }
 }
