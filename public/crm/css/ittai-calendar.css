@@ -1,0 +1,124 @@
+/* =============================================================================
+   ittai-calendar.css — the Schedule calendar in the Ittai v1.2 (Kanso) look.
+   Opt-in: loaded by jobs/schedule.php only when the person chose the new design (it_design cookie),
+   and every rule needs body.it-shell.mw-page-schedule, so with the new design off nothing here applies.
+   Design: docs/design/calendar-round-2026-11-23/ (approved by Tim 2026-11-23).
+   Kanso: one calm page colour, hairline panels on --it-surface, no filled blocks, no shadows, figures in
+   tabular numerals, ONE filled button per page. Tokens only (ittai-tokens.css) — no hex values.
+   Slice 1: header, controls, the salt and snow strip. Later slices add the week, day, list views below.
+   ============================================================================= */
+
+body.it-shell.mw-page-schedule,
+body.it-shell.mw-page-schedule .main,
+body.it-shell.mw-page-schedule main.content { background: var(--it-page); }
+
+body.it-shell.mw-page-schedule main.content {
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-variant-numeric: tabular-nums;
+}
+body.it-shell.mw-page-schedule main.content :focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+
+/* ── Header: title row, date navigation, filters ─────────────────────────── */
+body.it-shell.mw-page-schedule .mw-page-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--it-space-3) var(--it-space-4); margin: 0 0 var(--it-space-4); padding: 0; border: 0; background: transparent; }
+body.it-shell.mw-page-schedule .mw-page-title { font-family: var(--it-font-sans); font-size: var(--it-title-28-size); line-height: var(--it-title-28-line); font-weight: var(--it-title-28-weight); letter-spacing: -0.01em; color: var(--it-text); margin: 0; }
+body.it-shell.mw-page-schedule .mw-header-nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--it-space-2); }
+body.it-shell.mw-page-schedule .mw-schedule-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--it-space-2); margin-left: auto; }
+
+/* Today, previous, next, the date picker and Job Plans: quiet outlined buttons */
+body.it-shell.mw-page-schedule .mw-today-btn,
+body.it-shell.mw-page-schedule .mw-nav-btn,
+body.it-shell.mw-page-schedule .mw-datepicker-trigger,
+body.it-shell.mw-page-schedule .mw-schedule-filters > .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--it-space-2);
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+  color: var(--it-text); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; line-height: 1.2;
+  box-shadow: none; text-decoration: none; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-nav-btn { min-width: var(--it-target-desktop); padding: 0; }
+body.it-shell.mw-page-schedule .mw-today-btn:hover,
+body.it-shell.mw-page-schedule .mw-nav-btn:hover,
+body.it-shell.mw-page-schedule .mw-datepicker-trigger:hover,
+body.it-shell.mw-page-schedule .mw-datepicker-trigger.mw-datepicker-open,
+body.it-shell.mw-page-schedule .mw-schedule-filters > .btn:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); text-decoration: none; }
+body.it-shell.mw-page-schedule .mw-datepicker-trigger { color: var(--it-text); }
+
+/* Service and crew filters (the tick-box pickers) */
+body.it-shell.mw-page-schedule .mw-typemulti > summary {
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-8) 0 var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+  color: var(--it-text); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-typemulti > summary:hover,
+body.it-shell.mw-page-schedule .mw-typemulti[open] > summary { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-typemulti-list {
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: var(--it-shadow-menu);
+  color: var(--it-text); font-family: var(--it-font-sans);
+}
+body.it-shell.mw-page-schedule .mw-typemulti-row { min-height: var(--it-target-desktop); font-size: var(--it-body-14-size); }
+body.it-shell.mw-page-schedule .mw-typemulti-row input { accent-color: var(--it-tenant); }
+
+/* Week / Day and Cards / Timeline / Map / List: one calm segmented control, the chosen one lifted onto the surface */
+body.it-shell.mw-page-schedule .mw-dv-view-toggle,
+body.it-shell.mw-page-schedule .mw-cal-seg {
+  display: inline-flex; align-items: stretch; gap: var(--it-space-1); padding: var(--it-space-1); margin: 0;
+  background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); overflow: visible;
+}
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn,
+body.it-shell.mw-page-schedule .mw-cal-seg button,
+body.it-shell.mw-page-schedule .mw-cal-seg a {
+  display: inline-flex; align-items: center; justify-content: center; min-height: calc(var(--it-target-desktop) - 2 * var(--it-space-1) - 2 * var(--it-stroke-hairline)); padding: 0 var(--it-space-3);
+  background: transparent; border: var(--it-stroke-hairline) solid transparent; border-radius: var(--it-radius-sm);
+  color: var(--it-meta); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; line-height: 1.2; text-decoration: none; cursor: pointer; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-cal-seg > * + * { border-left-color: transparent; }
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg button:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg a:hover { background: var(--it-selected); color: var(--it-text); text-decoration: none; }
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn.active,
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn.active:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg button.on,
+body.it-shell.mw-page-schedule .mw-cal-seg a.on,
+body.it-shell.mw-page-schedule .mw-cal-seg button.on:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg a.on:hover { background: var(--it-surface); border-color: var(--it-line); color: var(--it-text); font-weight: 600; }
+
+/* ── Salt and snow route strip: one hairline strip, outlined buttons, never a filled block ─────── */
+body.it-shell.mw-page-schedule .mw-snow-run {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--it-space-3);
+  margin: 0 0 var(--it-space-4); padding: var(--it-space-3) var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: none; color: var(--it-text);
+  font-size: var(--it-body-14-size); line-height: var(--it-body-14-line);
+}
+body.it-shell.mw-page-schedule .mw-snow-run.is-active { background: var(--it-surface); border-color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-snow-run-icon { color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-snow-run.is-active .mw-snow-run-icon { color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-snow-run-note { color: var(--it-meta); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-snow-run-btn {
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); color: var(--it-text);
+  font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; cursor: pointer; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-snow-run-btn:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-snow-run-btn:disabled { opacity: .6; cursor: default; }
+
+/* ── Under 1024 px: targets grow to 48, the header stacks, the strip's buttons fill the row ─────── */
+@media (max-width: 1023px) {
+  body.it-shell.mw-page-schedule .mw-today-btn,
+  body.it-shell.mw-page-schedule .mw-nav-btn,
+  body.it-shell.mw-page-schedule .mw-datepicker-trigger,
+  body.it-shell.mw-page-schedule .mw-schedule-filters > .btn,
+  body.it-shell.mw-page-schedule .mw-snow-run-btn,
+  body.it-shell.mw-page-schedule .mw-typemulti > summary,
+  body.it-shell.mw-page-schedule .mw-typemulti-row { min-height: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-nav-btn { min-width: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-dv-toggle-btn,
+  body.it-shell.mw-page-schedule .mw-cal-seg button,
+  body.it-shell.mw-page-schedule .mw-cal-seg a { min-height: calc(var(--it-target-phone) - 2 * var(--it-space-1) - 2 * var(--it-stroke-hairline)); }
+  body.it-shell.mw-page-schedule .mw-schedule-filters { margin-left: 0; width: 100%; }
+}
+@media (max-width: 600px) {
+  body.it-shell.mw-page-schedule .mw-cal-seg { max-width: 100%; overflow-x: auto; }
+  body.it-shell.mw-page-schedule .mw-snow-run-actions { width: 100%; }
+  body.it-shell.mw-page-schedule .mw-snow-run-btn { flex: 1 1 auto; }
+}

@@ -1324,6 +1324,10 @@ $crewLite  = !empty($_COOKIE['mw_native']); // Android app — see appstack_head
 // _av() lives in appstack_head.php, which is included below — bust the cache by mtime here.
 $extraHead = '<link href="/crm/css/mobile-cards.css?v=' . (@filemtime(dirname(__DIR__) . '/css/mobile-cards.css') ?: time()) . '" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20261008c" defer></script>';
+// The Ittai calendar look (design 2026-11-23): only for people on the new design; every rule in it is scoped to body.it-shell.
+if (!$crewLite && (($_COOKIE['it_design'] ?? '') === '1')) {
+    $extraHead .= '<link href="/crm/css/ittai-calendar.css?v=' . (@filemtime(dirname(__DIR__) . '/css/ittai-calendar.css') ?: time()) . '" rel="stylesheet">';
+}
 if (!$crewLite) {
 // Prefetch every day visible in the strip so any day tap is instant (office/PWA only —
 // on the crew app over LTE these seven ~250 KB fetches cost more than the tap they save)
