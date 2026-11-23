@@ -781,12 +781,8 @@ body.it-shell.it-shell .it-hp.is-wide .it-hpi { opacity: 1; transition-delay: 10
 
 /* Smooth moves between pages and heads (Tim, 2026-11-20): the browser carries the page across a reload, the sidebar
    stays put while the content fades, and the card, spacer and line follow the moving row frame by frame (ittai-shell.js). */
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition { navigation: auto; }
-  body.it-shell.it-shell .sidebar.it-sidebar { view-transition-name: it-sidebar; }
-  ::view-transition-group(root) { animation-duration: 180ms; }
-  ::view-transition-group(it-sidebar) { animation-duration: 0s; }
-}
+/* The page-change transition itself lives in ittai-vt.css. The sidebar must NOT carry a view-transition-name: a named element clips
+   everything sticking out of it, which cut the head card at the sidebar edge and hid it behind the content (Tim, 2026-11-23). */
 @media (prefers-reduced-motion: reduce) { body.it-shell.it-shell .it-hp-space, body.it-shell.it-shell .it-acc { transition: none; } }
 
 /* Desktop top bar: no Clock in, Receipt or GPS signal (Tim, 2026-11-20 — not needed there). They stay in the markup
