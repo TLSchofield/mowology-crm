@@ -35,7 +35,7 @@ $preshiftEnabled = false;
 $preshiftDone    = false;
 $preshiftLen     = 3;
 (function () use ($db, $user, &$preshiftEnabled, &$preshiftDone, &$preshiftLen) {
-    require_once dirname(__DIR__, 3) . '/app/Modules/Quiz/Services/PreshiftGate.php';
+    require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
     if (!PreshiftGate::isRequiredFor($db, (int)$user['id'])) return;
     $preshiftEnabled = true;
     $lrow = $db->query(
