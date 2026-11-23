@@ -236,12 +236,9 @@
     if (bloomVisit) {
       var el = panel.querySelector('.mw-cal-block[data-visit="' + bloomVisit + '"]'); bloomVisit = 0;
       if (el && el.parentNode) {
-        var halo = document.createElement('span'); halo.className = 'mw-cal-halo'; halo.setAttribute('aria-hidden', 'true');
-        halo.style.left = (el.offsetLeft + el.offsetWidth / 2) + 'px'; halo.style.top = (el.offsetTop + el.offsetHeight / 2) + 'px';
-        halo.addEventListener('animationend', function () { halo.remove(); }, { once: true });
-        el.parentNode.appendChild(halo);
-        el.classList.add('mw-cal-block--changed'); setTimeout(function () { el.classList.remove('mw-cal-block--changed'); }, 1200);
-        setTimeout(function () { halo.remove(); }, 1500);
+        el.classList.add('mw-cal-block--pulse', 'mw-cal-block--changed');
+        el.addEventListener('animationend', function () { el.classList.remove('mw-cal-block--pulse'); }, { once: true });
+        setTimeout(function () { el.classList.remove('mw-cal-block--pulse', 'mw-cal-block--changed'); }, 1200);
       }
     }
   }

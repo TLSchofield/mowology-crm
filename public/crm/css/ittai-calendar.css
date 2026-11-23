@@ -455,7 +455,11 @@ body.it-shell.mw-page-schedule .mw-sl-badge--done::before { content: "\2713  "; 
    ============================================================================= */
 @keyframes mw-cal-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes mw-cal-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes mw-cal-bloom { from { opacity: .28; transform: scale(.6); } to { opacity: 0; transform: scale(1.8); } }
+@keyframes mw-cal-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--it-brand) 45%, transparent); border-color: var(--it-brand); }
+  70%  { box-shadow: 0 0 0 7px color-mix(in srgb, var(--it-brand) 0%, transparent); border-color: var(--it-brand); }
+  100% { box-shadow: 0 0 0 7px transparent; border-color: var(--it-line); }
+}
 
 body.it-shell.mw-page-schedule .mw-cal-skelrow { display: flex; gap: var(--it-space-3); padding: var(--it-space-4); }
 body.it-shell.mw-page-schedule .mw-cal-skelcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--it-space-3); }
@@ -468,16 +472,12 @@ body.it-shell.mw-page-schedule .mw-cal-skelhead { height: 28px; width: 60%; }
 body.it-shell.mw-page-schedule .mw-cal-skelblock { height: 72px; }
 
 body.it-shell.mw-page-schedule .mw-cal-block--arrive { animation: mw-cal-rise 220ms ease-out both; animation-delay: calc(var(--mw-i, 0) * 20ms); }
-body.it-shell.mw-page-schedule .mw-cal-halo {
-  position: absolute; z-index: 3; width: 72px; height: 72px; margin: -36px 0 0 -36px; box-sizing: border-box;
-  border: var(--it-stroke-focus) solid var(--it-brand); border-radius: 50%; pointer-events: none; opacity: 0;
-  animation: mw-cal-bloom 700ms ease-out both;
-}
+body.it-shell.mw-page-schedule .mw-cal-block--pulse { animation: mw-cal-pulse 800ms ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
   body.it-shell.mw-page-schedule .mw-cal-skel { animation: none; background: var(--it-sunk); }
   body.it-shell.mw-page-schedule .mw-cal-block--arrive { animation: none; }
-  body.it-shell.mw-page-schedule .mw-cal-halo { display: none; }
+  body.it-shell.mw-page-schedule .mw-cal-block--pulse { animation: none; }
   body.it-shell.mw-page-schedule .mw-cal-block--changed { background: var(--it-selected); }
 }
 body.it-shell.mw-page-schedule .mw-cal-loaderr { margin: 0; padding: var(--it-space-6) var(--it-space-4); color: var(--it-text); font-size: var(--it-body-14-size); }
