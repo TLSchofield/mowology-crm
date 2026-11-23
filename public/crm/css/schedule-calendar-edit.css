@@ -70,6 +70,7 @@
 .mw-cal-panel--week .mw-cal-head { display: none; }
 
 .mw-cal-btype { font-weight: 600; opacity: 1; }
+.mw-cal-shape, .mw-cal-bstatus, .mw-cal-more, .mw-cal-density, .mw-cal-compactline, .mw-cal-btype--solo { display: none; }
 
 /* ═══ Visit modal: click a job on the Timeline to read all of it (schedule-visit-modal.js) ═══
    Ittai v1.2 tokens first, the CRM's own tokens or system colours when the new design is off. No new colour values. */

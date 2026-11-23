@@ -102,6 +102,105 @@ body.it-shell.mw-page-schedule .mw-snow-run-btn {
 body.it-shell.mw-page-schedule .mw-snow-run-btn:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); }
 body.it-shell.mw-page-schedule .mw-snow-run-btn:disabled { opacity: .6; cursor: default; }
 
+/* ── Week and day timeline ──────────────────────────────────────────────── */
+body.it-shell.mw-page-schedule .mw-cal-panel {
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm);
+  color: var(--it-text); box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-cal-head { background: var(--it-surface); border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-cal-colhead { color: var(--it-text); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-cal-gutter { color: var(--it-meta); font-size: 12px; font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-colhead,
+body.it-shell.mw-page-schedule .mw-cal-anycell,
+body.it-shell.mw-page-schedule .mw-cal-col { border-left-color: var(--it-line); }
+body.it-shell.mw-page-schedule .mw-cal-hour { border-top-color: var(--it-line); }
+body.it-shell.mw-page-schedule .mw-cal-col { background-image: linear-gradient(var(--it-line) var(--it-stroke-hairline), transparent var(--it-stroke-hairline)); background-size: 100% var(--mw-cal-hour, 48px); }
+
+body.it-shell.mw-page-schedule .mw-cal-block {
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-sm); box-shadow: none; padding: var(--it-space-1) var(--it-space-2); font-size: 12px;
+}
+body.it-shell.mw-page-schedule .mw-cal-block--drag { box-shadow: var(--it-shadow-menu); }
+body.it-shell.mw-page-schedule .mw-cal-block--locked { background: var(--it-sunk); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-block--overflow { display: none; }
+body.it-shell.mw-page-schedule .mw-cal-btitle {
+  font-weight: 600; white-space: normal; overflow: hidden; text-overflow: clip; line-height: 1.2;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+body.it-shell.mw-page-schedule .mw-cal-bmeta { color: var(--it-meta); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-cal-btype { display: flex; align-items: center; gap: var(--it-space-1); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-btime { min-height: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-edge::after { background: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-cal-ghost { background: var(--it-selected); border-color: var(--it-brand); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-cal-now { border-top-color: var(--it-brand); border-top-width: 2px; }
+
+body.it-shell.mw-page-schedule .mw-cal-shape { display: inline-block; flex: 0 0 auto; width: 9px; height: 9px; background: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-cal-shape--lawn_care { border-radius: var(--it-radius-full); }
+body.it-shell.mw-page-schedule .mw-cal-shape--landscaping { background: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-shape--hedge_trimming { transform: rotate(45deg) scale(.78); }
+body.it-shell.mw-page-schedule .mw-cal-shape--garden_maintenance {
+  width: 0; height: 0; background: transparent; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--it-meta);
+}
+body.it-shell.mw-page-schedule .mw-cal-shape--seasonal_cleanup { width: 12px; height: 3px; border-radius: var(--it-radius-full); background: var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-cal-shape--snow_removal,
+body.it-shell.mw-page-schedule .mw-cal-shape--unknown { background: transparent; border: 2px solid var(--it-meta); border-radius: var(--it-radius-full); }
+
+body.it-shell.mw-page-schedule .mw-cal-bstatus { display: flex; align-items: center; gap: var(--it-space-1); color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus::before { content: ""; display: inline-block; flex: 0 0 auto; width: 9px; height: 9px; border: var(--it-stroke-hairline) solid currentColor; border-radius: var(--it-radius-full); box-sizing: border-box; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--progress::before { border-width: 2px; border-right-color: transparent; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--complete { color: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--complete::before { width: 10px; height: 6px; border: 0; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; border-radius: 0; transform: rotate(-45deg) translateY(-1px); }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--skipped::before { height: 2px; border: 0; border-top: 2px solid currentColor; border-radius: 0; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--attention { color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--attention::before { width: 0; height: 0; border: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid currentColor; border-radius: 0; }
+
+body.it-shell.mw-page-schedule .mw-cal-chip {
+  min-height: 44px; padding: var(--it-space-2) var(--it-space-3); background: var(--it-surface); color: var(--it-text);
+  border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); box-sizing: border-box;
+}
+body.it-shell.mw-page-schedule .mw-cal-chip--drag:hover { background: var(--it-selected); color: var(--it-text); }
+
+body.it-shell.mw-page-schedule .mw-cal-more {
+  display: inline-flex; position: absolute; left: calc(66.666% + 3px); width: calc(33.333% - 6px); min-height: 44px;
+  align-items: center; justify-content: center; padding: var(--it-space-1) var(--it-space-2); z-index: 2;
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full);
+  font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-cal-more:hover { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-cal-pop { background: var(--it-surface); color: var(--it-text); border-color: var(--it-line); box-shadow: var(--it-shadow-menu); }
+body.it-shell.mw-page-schedule .mw-cal-morepop { display: flex; flex-direction: column; gap: var(--it-space-1); min-width: 240px; padding: var(--it-space-2); }
+body.it-shell.mw-page-schedule .mw-cal-morepop > button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 var(--it-space-2); min-height: 44px; padding: var(--it-space-2);
+  text-align: left; background: transparent; color: var(--it-text); border: 0; border-radius: var(--it-radius-sm); font: inherit; font-size: 12px; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-cal-morepop > button:hover { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-cal-morepop > button span:first-child { grid-row: 1 / span 2; color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-morepop > button span:last-child { color: var(--it-meta); }
+
+body.it-shell.mw-page-schedule .mw-cal-density {
+  display: inline-flex; align-items: stretch; gap: var(--it-space-1); margin-left: auto; padding: var(--it-space-1);
+  background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+}
+body.it-shell.mw-page-schedule .mw-cal-panel > .mw-cal-density { margin: var(--it-space-2); width: max-content; }
+body.it-shell.mw-page-schedule .mw-cal-density button {
+  min-height: 36px; padding: 0 var(--it-space-3);
+  background: transparent; color: var(--it-meta); border: var(--it-stroke-hairline) solid transparent; border-radius: var(--it-radius-sm);
+  font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-cal-density button:hover { background: var(--it-selected); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-density button[aria-pressed="true"] { background: var(--it-surface); color: var(--it-text); border-color: var(--it-line); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-cal-compactline { display: none; }
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-btitle,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-btype,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-btime,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-baddr,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-bstatus { display: none; }
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline {
+  display: flex; align-items: center; gap: var(--it-space-1); min-width: 0; color: var(--it-text); font-size: 12px; white-space: nowrap; overflow: hidden;
+}
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline > span:first-child { color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+
 /* ── Under 1024 px: targets grow to 48, the header stacks, the strip's buttons fill the row ─────── */
 @media (max-width: 1023px) {
   body.it-shell.mw-page-schedule .mw-today-btn,
@@ -109,16 +208,31 @@ body.it-shell.mw-page-schedule .mw-snow-run-btn:disabled { opacity: .6; cursor: 
   body.it-shell.mw-page-schedule .mw-datepicker-trigger,
   body.it-shell.mw-page-schedule .mw-schedule-filters > .btn,
   body.it-shell.mw-page-schedule .mw-snow-run-btn,
+  body.it-shell.mw-page-schedule .mw-cal-chip,
+  body.it-shell.mw-page-schedule .mw-cal-more,
+  body.it-shell.mw-page-schedule .mw-cal-morepop > button,
   body.it-shell.mw-page-schedule .mw-typemulti > summary,
   body.it-shell.mw-page-schedule .mw-typemulti-row { min-height: var(--it-target-phone); }
   body.it-shell.mw-page-schedule .mw-nav-btn { min-width: var(--it-target-phone); }
   body.it-shell.mw-page-schedule .mw-dv-toggle-btn,
   body.it-shell.mw-page-schedule .mw-cal-seg button,
   body.it-shell.mw-page-schedule .mw-cal-seg a { min-height: calc(var(--it-target-phone) - 2 * var(--it-space-1) - 2 * var(--it-stroke-hairline)); }
+  body.it-shell.mw-page-schedule .mw-cal-chip,
+  body.it-shell.mw-page-schedule .mw-cal-more,
+  body.it-shell.mw-page-schedule .mw-cal-morepop > button { min-height: 48px; }
+  body.it-shell.mw-page-schedule .mw-cal-density button { min-height: var(--it-target-phone); }
   body.it-shell.mw-page-schedule .mw-schedule-filters { margin-left: 0; width: 100%; }
 }
 @media (max-width: 600px) {
   body.it-shell.mw-page-schedule .mw-cal-seg { max-width: 100%; overflow-x: auto; }
   body.it-shell.mw-page-schedule .mw-snow-run-actions { width: 100%; }
   body.it-shell.mw-page-schedule .mw-snow-run-btn { flex: 1 1 auto; }
+}
+
+/* Phone: wider crew columns inside the timeline's own sideways scroll, so a block can show its client and time */
+@media (max-width: 700px) {
+  body.it-shell.mw-page-schedule .mw-cal-colhead,
+  body.it-shell.mw-page-schedule .mw-cal-anycell,
+  body.it-shell.mw-page-schedule .mw-cal-col { min-width: 220px; }
+  body.it-shell.mw-page-schedule .mw-cal-more { left: calc(50% + 3px); width: calc(50% - 6px); }
 }
