@@ -139,6 +139,7 @@
     panel.querySelector('.mw-cal-grid').innerHTML = h;
     bindMoreButtons();
     nowLine();
+    afterRender();
   }
 
   function serviceSlug(service) {
@@ -207,11 +208,54 @@
   }
   function localToday() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
 
+  // ── Motion (Ittai look only; reduced motion is handled in ittai-calendar.css) ──
+  // Skeleton shapes while the first data loads, a gentle rise when jobs arrive, one soft ring where a job lands.
+  var motionOn = function () { return document.body.classList.contains('it-shell'); };
+  var animateArrival = true, bloomVisit = 0;
+  function showSkeleton() {
+    if (!motionOn() || !panel) return;
+    var cols = '', i, j;
+    for (i = 0; i < (weekMode ? 7 : 3); i++) {
+      cols += '<div class="mw-cal-skelcol"><div class="mw-cal-skelhead mw-cal-skel"></div>';
+      for (j = 0; j < 3; j++) cols += '<div class="mw-cal-skelblock mw-cal-skel"></div>';
+      cols += '</div>';
+    }
+    panel.setAttribute('aria-busy', 'true');
+    panel.querySelector('.mw-cal-grid').innerHTML = '<div class="mw-cal-skelrow" role="status" aria-label="Loading the timeline">' + cols + '</div>';
+  }
+  function afterRender() {
+    if (!motionOn()) return;
+    panel.removeAttribute('aria-busy');
+    if (animateArrival) {
+      animateArrival = false;
+      [].slice.call(panel.querySelectorAll('.mw-cal-block:not(.mw-cal-block--overflow)'), 0, 12).forEach(function (el, i) {
+        el.style.setProperty('--mw-i', i); el.classList.add('mw-cal-block--arrive');
+        el.addEventListener('animationend', function () { el.classList.remove('mw-cal-block--arrive'); }, { once: true });
+      });
+    }
+    if (bloomVisit) {
+      var el = panel.querySelector('.mw-cal-block[data-visit="' + bloomVisit + '"]'); bloomVisit = 0;
+      if (el && el.parentNode) {
+        var halo = document.createElement('span'); halo.className = 'mw-cal-halo'; halo.setAttribute('aria-hidden', 'true');
+        halo.style.left = (el.offsetLeft + el.offsetWidth / 2) + 'px'; halo.style.top = (el.offsetTop + el.offsetHeight / 2) + 'px';
+        halo.addEventListener('animationend', function () { halo.remove(); }, { once: true });
+        el.parentNode.appendChild(halo);
+        el.classList.add('mw-cal-block--changed'); setTimeout(function () { el.classList.remove('mw-cal-block--changed'); }, 1200);
+        setTimeout(function () { halo.remove(); }, 1500);
+      }
+    }
+  }
+
+  var refreshSeq = 0;
   function refresh() {
-    var dates = weekMode ? weekDates : [cfg.date];
+    var dates = weekMode ? weekDates : [cfg.date], mine = ++refreshSeq;   // only the newest answer is drawn, so a slow older one cannot ring the wrong block
     return Promise.all(dates.map(function (d) {
       return fetch(STOPS_API + '?date=' + encodeURIComponent(d) + (cfg.crew ? '&crew=' + encodeURIComponent(cfg.crew) : ''), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return j.stops || []; });
-    })).then(function (lists) { stopsData = [].concat.apply([], lists); render(); });
+    })).then(function (lists) { if (mine !== refreshSeq) return; stopsData = [].concat.apply([], lists); render(); }).catch(function () {
+      if (mine !== refreshSeq || !panel) return;
+      panel.removeAttribute('aria-busy');
+      if (motionOn() && panel.querySelector('.mw-cal-skelrow')) panel.querySelector('.mw-cal-grid').innerHTML = '<p class="mw-cal-loaderr" role="alert">Couldn\u2019t load the schedule. Check your connection and try again.</p>';
+    });
   }
 
   // Click a job to read all of it (schedule-visit-modal.js). Focus goes back to that job when the modal closes.
@@ -323,7 +367,7 @@
             return moved ? post(MOVE_API, { stop_id: item.stopId, new_date: item.date, force: true }) : null;
           }).then(function (u) { if (u && u.day_cards) patchDayCards(u.day_cards); refresh(); toast('Change undone'); });
         });
-        refresh();
+        bloomVisit = item.visitId; refresh();
       });
     }).catch(function () { toast('Network problem: nothing was saved.', null, 'error'); refresh(); });
   }
@@ -389,7 +433,7 @@
         undo = function () { post(EDIT_API, { action: 'undo', visit_id: b.visitId, previous: prev }).then(function (u) { patchDayCards(u.day_cards); refresh(); toast('Change undone'); }); };
       }
       toast('Rescheduled visit', undo);
-      refresh();
+      bloomVisit = b.visitId; refresh();
     }).catch(function () { toast('Network problem: nothing was saved.', null, 'error'); refresh(); });
   }
 
@@ -565,7 +609,7 @@
     }
     var bound = false;
     function setMode(m) {
-      var tl = m === 'timeline';
+      var tl = m === 'timeline', wasHidden = panel.hidden;
       board = board || findBoard();
       if (board) board.style.display = tl ? 'none' : '';
       panel.hidden = !tl;
@@ -576,7 +620,7 @@
       if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-time-label'), function (l) { l.style.display = tl ? 'block' : ''; });
       [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x.dataset.m === m); });
       try { localStorage.setItem('mw_cal_mode', m); } catch (e) {}
-      if (tl) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
+      if (tl) { if (wasHidden) { animateArrival = true; showSkeleton(); } loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
     }
     seg.addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
     var saved = null; try { saved = localStorage.getItem('mw_cal_mode'); } catch (e) {}
