@@ -333,3 +333,118 @@ body.it-shell.mw-page-schedule .mw-stop-time-client { flex-direction: column; al
 body.it-shell.mw-page-schedule .mw-stop-time + .mw-stop-client-name::before { content: none; }
 body.it-shell.mw-page-schedule .mw-stop-client-name { overflow-wrap: break-word; word-break: normal; }
 body.it-shell.mw-page-schedule .mw-day-column { max-height: none; overflow-y: visible; }
+
+/* =============================================================================
+   Slice 4: Day view (cards and map panel) and the List view.
+   ============================================================================= */
+
+/* Day: one hairline panel, cards on the left, map on the right */
+body.it-shell.mw-page-schedule .mw-dv-container { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-dv-cards-panel { background: var(--it-surface); border-right: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-dv-weather { background: var(--it-surface); border-bottom: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-dv-weather-icon { font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-dv-weather-cond { color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-dv-map-topbar { background: var(--it-surface); border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-dv-map-title { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-dv-map-external { background: transparent; color: var(--it-text); width: var(--it-target-desktop); height: var(--it-target-desktop); }
+body.it-shell.mw-page-schedule .mw-dv-map-external:hover { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-dv-map-legend,
+body.it-shell.mw-page-schedule .mw-dv-legend-item { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-legend-pin { background: var(--it-meta); color: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-dv-legend-pin-done { background: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-dv-legend-pin-skip { background: var(--it-meta); }
+
+body.it-shell.mw-page-schedule .mw-dv-section-header { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-dv-section-title { color: var(--it-meta); font-size: 12px; letter-spacing: .04em; }
+body.it-shell.mw-page-schedule .mw-dv-section-count { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-section-unassigned { background: var(--it-sunk); border: var(--it-stroke-hairline) dashed var(--it-line); border-radius: var(--it-radius-md); }
+
+/* Day cards: the same quiet card as the week, status as a word */
+body.it-shell.mw-page-schedule .mw-dv-card {
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-left-width: var(--it-stroke-hairline); border-radius: var(--it-radius-sm); box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-dv-card:hover { box-shadow: none; border-color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-dv-card.mw-dv-card-highlight { box-shadow: none; outline: var(--it-stroke-focus) solid var(--it-brand); outline-offset: -1px; }
+body.it-shell.mw-page-schedule .mw-dv-card-unassigned { border-left-color: var(--it-line); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-dv-card.mw-stop-status-progress { border-left-color: var(--it-line); background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-dv-card.mw-stop-status-done,
+body.it-shell.mw-page-schedule .mw-dv-card.mw-stop-status-skipped { border-left-color: var(--it-line); background: var(--it-sunk); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-dv-card-pinned,
+body.it-shell.mw-page-schedule .mw-dv-card-pinned-last { border-left-color: var(--it-brand) !important; border-left-width: var(--it-stroke-side); background: var(--it-surface); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-dv-pin-btn { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); width: var(--it-target-desktop); height: var(--it-target-desktop); }
+body.it-shell.mw-page-schedule .mw-dv-pin-btn:hover { border-color: var(--it-meta); color: var(--it-text); background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-dv-pin-btn.mw-dv-pin-active,
+body.it-shell.mw-page-schedule .mw-dv-pin-btn.mw-dv-pin-last { background: var(--it-brand); border-color: var(--it-brand); color: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-dv-card-body { padding-right: calc(var(--it-target-desktop) + var(--it-space-2)); }
+body.it-shell.mw-page-schedule .mw-dv-card-top { flex-direction: column; align-items: flex-start; gap: 0; }
+body.it-shell.mw-page-schedule .mw-dv-card-time { color: var(--it-meta); font-size: 12px; font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-dv-card-client { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; white-space: normal; overflow: visible; text-overflow: clip; }
+body.it-shell.mw-page-schedule .mw-dv-card-address { color: var(--it-meta); font-size: 12px; font-weight: 400; white-space: normal; overflow: visible; text-overflow: clip; }
+body.it-shell.mw-page-schedule .mw-dv-card-crew { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-card-services { gap: var(--it-space-1) var(--it-space-3); }
+
+/* Day card footer: Done is the one primary action, every other control is outlined or text */
+body.it-shell.mw-page-schedule .mw-dv-btn-complete,
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-invoice,
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-noinvoice,
+body.it-shell.mw-page-schedule .mw-dv-btn-skip,
+body.it-shell.mw-page-schedule .mw-dv-btn-reopen,
+body.it-shell.mw-page-schedule .mw-dv-btn-unskip,
+body.it-shell.mw-page-schedule .mw-dv-btn-sub {
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-3); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+  color: var(--it-text); font-family: var(--it-font-sans); font-size: 12px; font-weight: 500; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-invoice:hover:not(:disabled),
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-noinvoice:hover:not(:disabled),
+body.it-shell.mw-page-schedule .mw-dv-btn-skip:hover:not(:disabled),
+body.it-shell.mw-page-schedule .mw-dv-btn-reopen:hover,
+body.it-shell.mw-page-schedule .mw-dv-btn-unskip:hover,
+body.it-shell.mw-page-schedule .mw-dv-btn-sub:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-dv-done-badge { color: var(--it-status-complete); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-skip-badge { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-invoice-link,
+body.it-shell.mw-page-schedule .mw-dv-create-invoice-link { color: var(--it-brand); font-size: 12px; text-decoration: underline; }
+body.it-shell.mw-page-schedule .mw-dv-empty-text { color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-dv-empty-sub { color: var(--it-meta); font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-dv-empty-icon { opacity: 1; filter: grayscale(1); }
+
+/* List: rows on a hairline, status as a word, no filled badges */
+body.it-shell.mw-page-schedule .mw-sl { color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-sl-empty { color: var(--it-meta); opacity: 1; font-size: var(--it-body-14-size); }
+body.it-shell.mw-page-schedule .mw-sl-dayhead { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: 600; border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-sl-dayhead a { color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-sl-today { background: transparent; color: var(--it-brand); border-radius: 0; padding: 0; font-size: 12px; font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-sl-count { color: var(--it-meta); opacity: 1; font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-sl-row { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-sl-row--attn { border-left-width: var(--it-stroke-hairline); border-left-color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-sl-row--done { opacity: 1; background: var(--it-sunk); }
+body.it-shell.mw-page-schedule .mw-sl-time { color: var(--it-meta); font-size: var(--it-body-14-size); font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-sl-name { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-sl-addr,
+body.it-shell.mw-page-schedule .mw-sl-history,
+body.it-shell.mw-page-schedule .mw-sl-visits { color: var(--it-meta); opacity: 1; font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-sl-row--attn .mw-sl-history { color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-sl-svc { background: transparent; color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-sl-side { color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-sl-badge { background: transparent; color: var(--it-status-attention); border-radius: 0; padding: 0; font-size: 12px; font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-sl-badge::before { content: "\25B2  "; }
+body.it-shell.mw-page-schedule .mw-sl-badge--done { background: transparent; color: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-sl-badge--done::before { content: "\2713  "; }
+
+@media (max-width: 1023px) {
+  body.it-shell.mw-page-schedule .mw-dv-btn-complete,
+  body.it-shell.mw-page-schedule .mw-dv-btn-skip,
+  body.it-shell.mw-page-schedule .mw-dv-btn-reopen,
+  body.it-shell.mw-page-schedule .mw-dv-btn-unskip,
+  body.it-shell.mw-page-schedule .mw-dv-btn-sub,
+  body.it-shell.mw-page-schedule .mw-dv-btn-complete-invoice,
+  body.it-shell.mw-page-schedule .mw-dv-btn-complete-noinvoice,
+  body.it-shell.mw-page-schedule .mw-dv-pin-btn,
+  body.it-shell.mw-page-schedule .mw-dv-map-external { min-height: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-dv-pin-btn,
+  body.it-shell.mw-page-schedule .mw-dv-map-external { min-width: var(--it-target-phone); width: var(--it-target-phone); }
+}
+@media (max-width: 700px) {
+  body.it-shell.mw-page-schedule .mw-sl-row { grid-template-columns: 1fr; gap: var(--it-space-2); }
+  body.it-shell.mw-page-schedule .mw-sl-side { text-align: left; }
+}
