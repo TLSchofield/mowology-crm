@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schedule, week timeline</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="shared.css">
+<style>
+.density{display:flex;align-items:center;gap:8px}.crew-switcher{display:none}.anytime{display:grid;grid-template-columns:76px repeat(3,minmax(0,1fr));border:1px solid var(--line);border-bottom:0;background:var(--surface)}.anytime>*{padding:10px;border-right:1px solid var(--line)}.anytime>*:last-child{border-right:0}.chip{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:4px 12px;border:1px solid var(--line);border-radius:99px;font-variant-numeric:tabular-nums}.timeline{position:relative;border:1px solid var(--line);background:var(--surface)}.crew-head,.hour-row{display:grid;grid-template-columns:76px repeat(3,minmax(0,1fr))}.crew-head{position:sticky;top:0;z-index:4;background:var(--surface);border-bottom:1px solid var(--line)}.crew-head>*{padding:12px;border-right:1px solid var(--line)}.crew-head>*:last-child{border-right:0}.hour-row{position:relative;min-height:92px;border-bottom:1px solid var(--line)}.hour-row.now::after{content:"";position:absolute;left:76px;right:0;top:34px;height:1px;background:var(--brand);z-index:3}.hour-row:last-child{border-bottom:0}.hour{position:relative;display:grid;place-items:start center;padding-top:12px;border-right:1px solid var(--line);font-variant-numeric:tabular-nums}.hour::before{content:"";position:absolute;left:37px;top:0;bottom:0;width:1px;background:var(--line)}.hour span{position:relative;z-index:1;padding:4px 7px;border:1px solid var(--tenant);border-radius:99px;background:var(--page);color:var(--tenant);font-size:12px}.slot{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-content:start;gap:4px;padding:5px;border-right:1px solid var(--line)}.slot:last-child{border-right:0}.slot .job:only-child{grid-column:1/-1}.more-wrap{position:relative}.more-chip{width:auto;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:99px;background:var(--page);font-weight:600;font-variant-numeric:tabular-nums}.popover{position:absolute;z-index:6;top:48px;right:0;width:220px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 8px 24px var(--line)}.popover b{display:block;padding:6px 8px}.popover ul{margin:0;padding:0;list-style:none}.popover li{padding:8px;border-top:1px solid var(--line)}.compact-demo{margin-top:28px;padding-top:24px;border-top:1px solid var(--line)}.compact-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.compact-crew{border-top:1px solid var(--line)}.compact-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:44px;border-bottom:1px solid var(--line);font-size:12px}.compact-row b{overflow-wrap:anywhere}.compact-row time{font-variant-numeric:tabular-nums;color:var(--meta)}
+@media(max-width:767px){.crew-switcher{display:grid;grid-template-columns:repeat(3,1fr);margin-top:12px;border:1px solid var(--line);background:var(--sunk)}.crew-switcher button{min-height:48px;border:0;border-right:1px solid var(--line);background:transparent}.crew-switcher button:last-child{border-right:0}.crew-switcher button[aria-pressed=true]{background:var(--surface);font-weight:600}.anytime{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:8px}.anytime>*{flex:0 0 auto;padding:0;border:0}.timeline-scroll{overflow:visible}.crew-head,.hour-row{grid-template-columns:64px minmax(0,1fr);width:auto}.crew-head>*:nth-child(n+3),.hour-row>.slot:nth-child(n+3){display:none}.slot{grid-template-columns:repeat(3,minmax(0,1fr))}.hour-row{min-height:128px}.hour-row.now::after{left:64px}.compact-grid{grid-template-columns:1fr}.popover{position:static;width:100%;margin-top:6px}.more-wrap{grid-column:1/-1}}
+</style>
+<style>@media(max-width:1023px){.more-chip{min-height:48px}}</style>
+</head>
+<body>
+<div class="shell">
+<header class="app-header">
+<div class="topline">
+<div class="brand-title">
+<img src="../assets/symbol/ittai-symbol-24.svg" alt="">
+<h1>Schedule</h1>
+</div>
+<div class="tools">
+<button class="outline today-btn">Today</button>
+<div class="date-nav">
+<button class="icon-btn" aria-label="Previous week">‹</button>
+<span class="date-range">Nov 23 to 29, 2026</span>
+<button class="icon-btn" aria-label="Next week">›</button>
+</div>
+<button class="primary">Add job</button>
+</div>
+</div>
+<div class="navline">
+<div class="nav-group">
+<div class="seg">
+<button aria-pressed="true">Week</button>
+<button>Day</button>
+</div>
+<div class="seg">
+<button>Cards</button>
+<button aria-pressed="true">Timeline</button>
+<button>Map</button>
+<button>List</button>
+</div>
+</div>
+<div class="filters">
+<select class="select" aria-label="Service">
+<option>All services</option>
+</select>
+<select class="select" aria-label="Crew">
+<option>All crews</option>
+</select>
+<a class="hit-link" href="#">Job plans</a>
+</div>
+<button class="outline filters-mobile">Filters</button>
+</div>
+</header>
+<main class="content">
+<div class="section-head">
+<div>
+<h2>Week timeline</h2>
+<p>41 jobs. Tuesday is overbooked with 24 jobs across three crews.</p>
+</div>
+<div class="density">
+<span>Density</span>
+<div class="seg">
+<button aria-pressed="true">Readable</button>
+<button>Compact</button>
+</div>
+</div>
+</div>
+<div class="crew-switcher" aria-label="Choose crew">
+<button aria-pressed="true">Crew A</button><button>Crew B</button><button>Crew C</button>
+</div>
+<div class="weather-strip">
+<div class="weather-day today">
+<b>Mon 23 · Today</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12h8a3 3 0 0 0 0-6 4.5 4.5 0 0 0-8.6 1.4A2.3 2.3 0 0 0 4 12Z"/></svg><span class="weather-condition">Cloudy</span> 7° <span class="weather-low">/ 2°</span></span>
+</div>
+<div class="weather-day">
+<b>Tue 24</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 10h8a3 3 0 0 0 0-6 4.5 4.5 0 0 0-8.6 1.4A2.3 2.3 0 0 0 4 10Z"/><path d="m5 12-1 2m5-2-1 2m5-2-1 2"/></svg><span class="weather-condition">Rain</span> 6° <span class="weather-low">/ 3°</span></span>
+</div>
+<div class="weather-day">
+<b>Wed 25</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2m0 10v2M1 8h2m10 0h2M3 3l1.5 1.5m7 7L13 13m0-10-1.5 1.5m-7 7L3 13"/></svg><span class="weather-condition">Clear</span> 4° <span class="weather-low">/ -1°</span></span>
+<span class="salt-note">◇ Salt tonight</span>
+</div>
+<div class="weather-day">
+<b>Thu 26</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2m0 10v2M1 8h2m10 0h2M3 3l1.5 1.5m7 7L13 13m0-10-1.5 1.5m-7 7L3 13"/></svg><span class="weather-condition">Clear</span> 3° <span class="weather-low">/ -2°</span></span>
+<span class="salt-note">◇ Salt tonight</span>
+</div>
+<div class="weather-day">
+<b>Fri 27</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v14M2 4.5l12 7M14 4.5l-12 7M5.5 2.5 8 4l2.5-1.5M5.5 13.5 8 12l2.5 1.5"/></svg><span class="weather-condition">Snow</span> 1° <span class="weather-low">/ -4°</span></span>
+</div>
+<div class="weather-day">
+<b>Sat 28</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12h8a3 3 0 0 0 0-6 4.5 4.5 0 0 0-8.6 1.4A2.3 2.3 0 0 0 4 12Z"/></svg><span class="weather-condition">Cloudy</span> 5° <span class="weather-low">/ 0°</span></span>
+</div>
+<div class="weather-day">
+<b>Sun 29</b>
+<span class="weather"><svg class="weather-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2m0 10v2M1 8h2m10 0h2M3 3l1.5 1.5m7 7L13 13m0-10-1.5 1.5m-7 7L3 13"/></svg><span class="weather-condition">Clear</span> 6° <span class="weather-low">/ 1°</span></span>
+</div>
+</div>
+<div class="salt-strip">
+<span>
+<b>Salt and snow route</b> · Frost expected Wednesday and Thursday night.</span>
+<button class="outline">Start salt run</button>
+</div>
+<div class="anytime">
+<b>Anytime</b>
+<div class="crew-chip">
+<span class="chip">Crew A <b>2</b>
+</span>
+</div>
+<div class="crew-chip">
+<span class="chip">Crew B <b>1</b>
+</span>
+</div>
+<div class="crew-chip">
+<span class="chip">Crew C <b>3</b>
+</span>
+</div>
+</div>
+<div class="timeline-scroll">
+<div class="timeline">
+<div class="crew-head">
+<b>Tuesday</b>
+<b>Crew A · 8</b>
+<b>Crew B · 8</b>
+<b>Crew C · 8</b>
+</div>
+<div class="hour-row"><div class="hour"><span>7 AM</span></div><div class="slot"><article class="job"><span class="job-time">7:20</span><div class="job-name">Depot equipment check</div><span class="status done">✓ Done</span></article></div><div class="slot"></div><div class="slot"></div></div>
+<div class="hour-row">
+<div class="hour">
+<span>8 AM</span>
+</div>
+<div class="slot">
+<article class="job arrival" style="--i:1">
+<span class="job-time">8:00</span>
+<div class="job-name">Alder Test Residence</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape circle">
+</i>Lawn care</span>
+<span class="status">Scheduled</span>
+</div>
+</article>
+<article class="job arrival" style="--i:2">
+<span class="job-time">8:15</span>
+<div class="job-name">Birch Lane Property</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape square">
+</i>Landscaping</span>
+<span class="status progress">On site</span>
+</div>
+</article>
+<article class="job pending arrival" style="--i:3">
+<span class="job-time">8:30</span>
+<div class="job-name">Maple Test Home</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape diamond">
+</i>Hedge trimming</span>
+<span class="status saved">Saved, not sent yet</span>
+</div>
+</article>
+</div>
+<div class="slot">
+<article class="job">
+<span class="job-time">8:00</span>
+<div class="job-name">Harbour View Lodge</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape triangle">
+</i>Garden maintenance</span>
+<span class="status">Scheduled</span>
+</div>
+</article>
+<article class="job">
+<span class="job-time">8:20</span>
+<div class="job-name">Cedar Test Strata</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape bar">
+</i>Seasonal cleanup</span>
+<span class="status attention">Needs attention</span>
+</div>
+</article>
+<article class="job">
+<span class="job-time">8:40</span>
+<div class="job-name">Example Dental Office</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape ring">
+</i>Snow removal</span>
+<span class="status">Scheduled</span>
+</div>
+</article>
+</div>
+<div class="slot">
+<article class="job">
+<span class="job-time">8:05</span>
+<div class="job-name">Willow Test Offices</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape circle">
+</i>Lawn care</span>
+<span class="status">Scheduled</span>
+</div>
+</article>
+<article class="job">
+<span class="job-time">8:25</span>
+<div class="job-name">Pine Example Court</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape square">
+</i>Landscaping</span>
+<span class="status done">✓ Done</span>
+</div>
+</article>
+<div class="more-wrap"><button class="more-chip" aria-expanded="true">+<span>5</span> more</button><div class="popover"><b>Five more jobs</b><ul><li>8:35 · Oak Test Place</li><li>8:40 · River Example House</li><li>8:45 · North Test Studio</li><li>8:50 · Lake Example Court</li><li>8:55 · Hill Test Offices</li></ul></div></div>
+</div>
+</div>
+<div class="hour-row">
+<div class="hour">
+<span>9 AM</span>
+</div>
+<div class="slot">
+<article class="job">
+<span class="job-time">9:00</span>
+<div class="job-name">Spruce Test Residence</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape circle">
+</i>Lawn care</span>
+<span class="status">Scheduled</span>
+</div>
+</article>
+</div>
+<div class="slot">
+<article class="job locked">
+<span class="job-time">9:00</span>
+<div class="job-name">Elm Example Strata</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape diamond">
+</i>Hedge trimming</span>
+<span class="status">▣ Locked</span>
+</div>
+</article>
+</div>
+<div class="slot">
+<article class="job">
+<span class="job-time">9:00</span>
+<div class="job-name">Aspen Test Home</div>
+<div class="job-foot">
+<span class="service">
+<i class="shape triangle">
+</i>Garden maintenance</span>
+<span class="status">Scheduled</span>
+</div>
+</article>
+</div>
+</div>
+<div class="hour-row"><div class="hour"><span>10 AM</span></div><div class="slot"><article class="job"><span class="job-time">10:00</span><div class="job-name">Fir Test Residence</div><span class="status progress">On site</span></article></div><div class="slot"></div><div class="slot"></div></div>
+<div class="hour-row"><div class="hour"><span>11 AM</span></div><div class="slot"></div><div class="slot"><article class="job"><span class="job-time">11:20</span><div class="job-name">South Example Court</div><span class="status">Scheduled</span></article></div><div class="slot"></div></div>
+<div class="hour-row"><div class="hour"><span>12 PM</span></div><div class="slot"></div><div class="slot"></div><div class="slot"></div></div>
+<div class="hour-row"><div class="hour"><span>1 PM</span></div><div class="slot"><article class="job"><span class="job-time">1:15</span><div class="job-name">West Test Offices</div><span class="status">Scheduled</span></article></div><div class="slot"></div><div class="slot"></div></div>
+<div class="hour-row"><div class="hour"><span>2 PM</span></div><div class="slot"></div><div class="slot"><article class="job"><span class="job-time">2:30</span><div class="job-name">Park Example Strata</div><span class="status">Scheduled</span></article></div><div class="slot"></div></div>
+<div class="hour-row"><div class="hour"><span>3 PM</span></div><div class="slot"></div><div class="slot"></div><div class="slot"><article class="job"><span class="job-time">3:10</span><div class="job-name">East Test Home</div><span class="status">Scheduled</span></article></div></div>
+<div class="hour-row"><div class="hour"><span>4 PM</span></div><div class="slot"></div><div class="slot"></div><div class="slot"></div></div>
+<div class="hour-row"><div class="hour"><span>5 PM</span></div><div class="slot"></div><div class="slot"></div><div class="slot"></div></div>
+</div>
+</div>
+<div class="error-strip">
+<span>
+<b>Couldn't move this job.</b> Nothing was changed. Try again.</span>
+<button class="outline">Try again</button>
+</div>
+<section class="compact-demo">
+<div class="section-head">
+<div>
+<h2>Compact Tuesday</h2>
+<p>The same crowded hour as one-line rows. This is the optional density, not the default.</p>
+</div>
+</div>
+<div class="compact-grid">
+<div class="compact-crew">
+<b>Crew A</b>
+<div class="compact-row">
+<time>8:00</time>
+<b>Alder Test Residence</b>
+<i class="shape circle" aria-label="Lawn care">
+</i>
+</div>
+<div class="compact-row">
+<time>8:15</time>
+<b>Birch Lane Property</b>
+<i class="shape square" aria-label="Landscaping">
+</i>
+</div>
+</div>
+<div class="compact-crew">
+<b>Crew B</b>
+<div class="compact-row">
+<time>8:00</time>
+<b>Harbour View Lodge</b>
+<i class="shape triangle" aria-label="Garden maintenance">
+</i>
+</div>
+<div class="compact-row">
+<time>8:20</time>
+<b>Cedar Test Strata</b>
+<i class="shape bar" aria-label="Seasonal cleanup">
+</i>
+</div>
+</div>
+<div class="compact-crew">
+<b>Crew C</b>
+<div class="compact-row">
+<time>8:05</time>
+<b>Willow Test Offices</b>
+<i class="shape circle" aria-label="Lawn care">
+</i>
+</div>
+<div class="compact-row">
+<time>8:25</time>
+<b>Pine Example Court</b>
+<i class="shape square" aria-label="Landscaping">
+</i>
+</div>
+</div>
+</div>
+</section>
+<div class="legend">
+<span>Service shapes</span>
+<div class="legend-items">
+<span class="service">
+<i class="shape circle">
+</i>Lawn care</span>
+<span class="service">
+<i class="shape square">
+</i>Landscaping</span>
+<span class="service">
+<i class="shape diamond">
+</i>Hedge trimming</span>
+<span class="service">
+<i class="shape triangle">
+</i>Garden maintenance</span>
+<span class="service">
+<i class="shape bar">
+</i>Seasonal cleanup</span>
+<span class="service">
+<i class="shape ring">
+</i>Snow removal</span>
+</div>
+</div>
+</main>
+</div>
+</body>
+</html>
