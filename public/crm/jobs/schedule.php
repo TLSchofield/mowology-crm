@@ -4046,6 +4046,7 @@ if ($__srOn): ?>
 if ($calEditOn && !$listMode): ?>
 <link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
 <script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?>, crew: <?= json_encode($crewFilter) ?> };</script>
+<script src="<?= _av('/crm/js/schedule-visit-modal.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
 <?php endif; ?>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
