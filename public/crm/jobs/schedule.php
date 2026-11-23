@@ -35,7 +35,7 @@ $preshiftEnabled = false;
 $preshiftDone    = false;
 $preshiftLen     = 3;
 (function () use ($db, $user, &$preshiftEnabled, &$preshiftDone, &$preshiftLen) {
-    require_once dirname(__DIR__, 3) . '/app/Modules/Quiz/Services/PreshiftGate.php';
+    require_once APP_ROOT . '/Modules/Quiz/Services/PreshiftGate.php';
     if (!PreshiftGate::isRequiredFor($db, (int)$user['id'])) return;
     $preshiftEnabled = true;
     $lrow = $db->query(
@@ -4046,6 +4046,7 @@ if ($__srOn): ?>
 if ($calEditOn && !$listMode): ?>
 <link href="<?= _av('/crm/css/schedule-calendar-edit.css') ?>" rel="stylesheet">
 <script>window.MW_CAL_EDIT = { view: <?= json_encode($view) ?>, crew: <?= json_encode($crewFilter) ?> };</script>
+<script src="<?= _av('/crm/js/schedule-visit-modal.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-calendar-edit.js') ?>" defer></script>
 <?php endif; ?>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>

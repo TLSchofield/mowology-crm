@@ -118,7 +118,7 @@
     for (var m = DAY_START; m < DAY_END; m += 60) hours += '<div class="mw-cal-hour" style="height:' + (60 * PX_PER_MIN) + 'px">' + label(m) + '</div>';
     var h = '<div class="mw-cal-head"><div class="mw-cal-gutter"></div>' + crewCols.map(function (c) { return '<div class="mw-cal-colhead">' + esc(c.name) + '</div>'; }).join('') + '</div>';
     h += '<div class="mw-cal-any"><div class="mw-cal-gutter">Anytime</div>' + crewCols.map(function (c) {
-      return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip' + (a.status === 'scheduled' ? ' mw-cal-chip--drag' : '') + '" data-visit="' + a.visitId + '" title="Drag onto the timeline to give it a time">' + esc((a.who ? a.who + ' \u00b7 ' : '') + a.title) + '</span>'; }).join('') + '</div>';
+      return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip' + (a.status === 'scheduled' ? ' mw-cal-chip--drag' : '') + '" data-visit="' + a.visitId + '" tabindex="0" role="button" aria-label="' + esc('Open job: ' + (a.who ? a.who + ', ' : '') + a.title) + '" title="' + (a.status === 'scheduled' ? 'Click to open. Drag onto the timeline to give it a time.' : 'Click to open') + '">' + esc((a.who ? a.who + ' \u00b7 ' : '') + a.title) + '</span>'; }).join('') + '</div>';
     }).join('') + '</div>';
     h += '<div class="mw-cal-body"><div class="mw-cal-gutter">' + hours + '</div>' + crewCols.map(function (c, i) {
       return '<div class="mw-cal-col" data-ci="' + i + '" style="height:' + ((DAY_END - DAY_START) * PX_PER_MIN) + 'px">' + c.blocks.map(blockHtml).join('') + '</div>';
@@ -130,7 +130,7 @@
   function blockHtml(b) {
     var top = (b.start - DAY_START) * PX_PER_MIN, ht = Math.max(MIN_LEN, b.end - b.start) * PX_PER_MIN;
     var live = b.status === 'scheduled';
-    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" title="' + esc((b.who ? b.who + ' \u2013 ' : '') + b.title + ' \u00b7 ' + label(b.start) + ' \u2013 ' + label(b.end) + (b.addr ? ' \u00b7 ' + b.addr : '')) + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
+    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" tabindex="0" role="button" aria-label="' + esc('Open job: ' + (b.who ? b.who + ', ' : '') + b.title + ', ' + label(b.start) + ' to ' + label(b.end)) + '" title="' + esc((b.who ? b.who + ' \u2013 ' : '') + b.title + ' \u00b7 ' + label(b.start) + ' \u2013 ' + label(b.end) + (b.addr ? ' \u00b7 ' + b.addr : '')) + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--top"></div>' : '') +
       '<div class="mw-cal-btitle">' + esc(b.who || b.title) + '</div>' + (b.who ? '<div class="mw-cal-bmeta mw-cal-btype">' + esc(b.title) + '</div>' : '') + '<div class="mw-cal-bmeta">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
       '<div class="mw-cal-bmeta">' + esc((weekMode && b.crew ? b.crew + ' \u00b7 ' : '') + (b.addr || '')) + '</div>' +
@@ -154,13 +154,33 @@
     })).then(function (lists) { stopsData = [].concat.apply([], lists); render(); });
   }
 
+  // Click a job to read all of it (schedule-visit-modal.js). Focus goes back to that job when the modal closes.
+  function openVisit(id) {
+    if (!window.MwVisitModal || !id) return;
+    window.MwVisitModal.open(id, { onChange: function () { refresh(); }, onClose: function (vid) {
+      var el = panel && panel.querySelector('[data-visit="' + vid + '"]'); if (el) el.focus();
+    } });
+  }
+  var TAP_PX = 5;   // a press that moves less than this is a click, not a drag
+
   // Gesture state machine: one pointer drag at a time.
   function bindGestures() {
     var grid = panel.querySelector('.mw-cal-grid');
+    // Keyboard: Enter or Space on a focused job opens it.
+    grid.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      var el = e.target.closest('.mw-cal-block, .mw-cal-chip[data-visit]'); if (!el || el !== e.target) return;
+      e.preventDefault(); openVisit(+el.dataset.visit);
+    });
+    // Jobs that cannot be dragged (finished, or already started) and Anytime chips that cannot be placed open on a plain click.
+    grid.addEventListener('click', function (e) {
+      var el = e.target.closest('.mw-cal-block--locked, .mw-cal-chip[data-visit]:not(.mw-cal-chip--drag)'); if (el) openVisit(+el.dataset.visit);
+    });
     grid.addEventListener('pointerdown', function (e) {
       if (e.button) return;
       var chipEl = e.target.closest('.mw-cal-chip--drag');
       if (chipEl) { startChipDrag(e, chipEl); return; }
+      if (e.target.closest('.mw-cal-block--locked')) return;   // handled by the click listener above
       var colEl = e.target.closest('.mw-cal-col'); if (!colEl) return;
       var block = e.target.closest('.mw-cal-block');
       var rect = colEl.getBoundingClientRect();
@@ -168,11 +188,18 @@
       var ci = +colEl.dataset.ci;
 
       if (block) {
-        if (block.classList.contains('mw-cal-block--locked')) return;
         var b = findBlock(+block.dataset.visit); if (!b) return;
         var mode = e.target.classList.contains('mw-cal-edge--bottom') ? 'end' : e.target.classList.contains('mw-cal-edge--top') ? 'start' : 'move';
         if (mode === 'move' && scheduledCount(b.stopId) > 1) {
-          toast('This stop has more than one visit, so it cannot be dragged. Change each visit by its edge.', null, 'error');
+          // A click still opens the job; only a real drag gets the explanation.
+          var x0 = e.clientX, y0 = e.clientY;
+          var tapUp = function (ev) {
+            document.removeEventListener('pointerup', tapUp); document.removeEventListener('pointercancel', tapOff);
+            if (Math.abs(ev.clientX - x0) < TAP_PX && Math.abs(ev.clientY - y0) < TAP_PX) openVisit(b.visitId);
+            else toast('This stop has more than one visit, so it cannot be dragged. Change each visit by its edge.', null, 'error');
+          };
+          var tapOff = function () { document.removeEventListener('pointerup', tapUp); document.removeEventListener('pointercancel', tapOff); };
+          document.addEventListener('pointerup', tapUp); document.addEventListener('pointercancel', tapOff);
           return;
         }
         startDrag(e, block, colEl, b, mode, minAt);
@@ -189,8 +216,9 @@
     e.preventDefault();
     var ghost = chipEl.cloneNode(true); ghost.className = 'mw-cal-chip mw-cal-chipghost'; document.body.appendChild(ghost);
     var mark = document.createElement('div'); mark.className = 'mw-cal-ghost'; mark.hidden = true;
-    var target = null;
+    var target = null, x0 = e.clientX, y0 = e.clientY, travelled = false;
     function place(ev) {
+      if (Math.abs(ev.clientX - x0) >= TAP_PX || Math.abs(ev.clientY - y0) >= TAP_PX) travelled = true;
       ghost.style.left = (ev.clientX + 8) + 'px'; ghost.style.top = (ev.clientY + 8) + 'px';
       target = null; mark.hidden = true;
       var cols = panel.querySelectorAll('.mw-cal-col');
@@ -207,7 +235,7 @@
     }
     function done() { document.removeEventListener('pointermove', place); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', cancel); ghost.remove(); mark.remove(); }
     function cancel() { done(); }
-    function up() { var t = target; done(); if (t) commitChip(item, weekMode ? crewCols[t.ci].date : item.date, t.start); }
+    function up() { var t = target, tap = !travelled; done(); if (tap) { openVisit(item.visitId); return; } if (t) commitChip(item, weekMode ? crewCols[t.ci].date : item.date, t.start); }
     place(e);
     document.addEventListener('pointermove', place); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', cancel);
   }
@@ -268,7 +296,7 @@
     function up() {
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel);
       el.classList.remove('mw-cal-block--drag');
-      if (!moved) { render(); return; }
+      if (!moved) { render(); openVisit(b.visitId); return; }
       commit(b, mode, ns, ne, false, weekMode && mode === 'move' && crewCols[ti] ? crewCols[ti].date : b.date);
     }
     function cancel() { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); render(); }
