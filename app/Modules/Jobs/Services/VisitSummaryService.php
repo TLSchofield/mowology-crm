@@ -210,6 +210,9 @@ final class VisitSummaryService
         return [
             'visit' => [
                 'id'          => (int)$row['id'],
+                'stop_id'     => !empty($row['stop_id']) ? (int)$row['stop_id'] : null,
+                'plan_id'     => (int)$row['plan_id'],
+                'invoiced'    => !empty($row['invoice_id']) || !empty($row['is_invoiced']),
                 'number'      => $row['visit_number'],
                 'status'      => $row['status'],
                 'date'        => $row['stop_date'] ?: $row['scheduled_date'],
@@ -248,10 +251,12 @@ final class VisitSummaryService
                 'stop_notes' => trim((string)($row['stop_notes'] ?? '')),
             ],
             'crew'      => $this->crew((int)$row['id'], (int)($row['stop_id'] ?? 0), $row['crew_name']),
+            'crew_ids'  => $this->crewIds((int)($row['stop_id'] ?? 0), (int)($row['assigned_crew_id'] ?? 0)),
             'same_stop' => $this->sameStop((int)$row['id'], (int)($row['stop_id'] ?? 0)),
             'checklist' => $checklist,
             'materials' => self::shapeMaterials(self::decode($row['materials_json'] ?? null)),
             'notes'     => $this->notes((int)$row['id'], (int)$row['plan_id']),
+            'job_line_items' => $this->hasLineItems((int)$row['plan_id']),
             'photos'    => $this->photoCounts((int)$row['id']),
             'invoice'   => $this->invoice((int)$row['id']),
         ];
@@ -290,6 +295,26 @@ final class VisitSummaryService
         return $names;
     }
 
+    /** @return int[] who is on this stop (the people the crew picker starts with) */
+    private function crewIds(int $stopId, int $assigned): array
+    {
+        $ids = $assigned > 0 ? [$assigned] : [];
+        if ($stopId > 0) {
+            try {
+                $q = $this->db->prepare("SELECT user_id FROM calendar_stop_crew WHERE stop_id = ?");
+                $q->execute([$stopId]);
+                foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $id) {
+                    if (!in_array((int)$id, $ids, true)) {
+                        $ids[] = (int)$id;
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('VisitSummaryService::crewIds ' . $e->getMessage());
+            }
+        }
+        return $ids;
+    }
+
     /** @return array<int,array<string,mixed>> the other visits booked at the same stop */
     private function sameStop(int $visitId, int $stopId): array
     {
@@ -320,7 +345,7 @@ final class VisitSummaryService
     {
         $out = [];
         $sources = [
-            ['visit', "SELECT n.note_type, n.content, n.created_at, u.full_name AS author
+            ['visit', "SELECT n.id, n.created_by, n.note_type, n.content, n.created_at, u.full_name AS author
                        FROM visit_notes n LEFT JOIN users u ON u.id = n.created_by
                        WHERE n.visit_id = ? ORDER BY n.created_at DESC LIMIT " . self::NOTE_LIMIT, $visitId],
             ['job', "SELECT n.note_type, n.content, n.created_at, u.full_name AS author
@@ -333,6 +358,8 @@ final class VisitSummaryService
                 $q->execute([$id]);
                 foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $n) {
                     $out[] = [
+                        'id' => $scope === 'visit' ? (int)$n['id'] : null,
+                        'author_id' => $scope === 'visit' && $n['created_by'] !== null ? (int)$n['created_by'] : null,
                         'scope' => $scope, 'type' => $n['note_type'], 'text' => (string)$n['content'],
                         'author' => $n['author'], 'at' => $n['created_at'],
                     ];
@@ -342,6 +369,17 @@ final class VisitSummaryService
             }
         }
         return $out;
+    }
+
+    private function hasLineItems(int $planId): bool
+    {
+        try {
+            $q = $this->db->prepare("SELECT 1 FROM plan_line_items WHERE plan_id = ? LIMIT 1");
+            $q->execute([$planId]);
+            return (bool)$q->fetchColumn();
+        } catch (Throwable $e) {
+            return true; // unknown: keep the price read-only
+        }
     }
 
     /** @return array<string,int> */

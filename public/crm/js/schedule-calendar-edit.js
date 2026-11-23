@@ -157,7 +157,7 @@
   // Click a job to read all of it (schedule-visit-modal.js). Focus goes back to that job when the modal closes.
   function openVisit(id) {
     if (!window.MwVisitModal || !id) return;
-    window.MwVisitModal.open(id, { onClose: function (vid) {
+    window.MwVisitModal.open(id, { onChange: function () { refresh(); }, onClose: function (vid) {
       var el = panel && panel.querySelector('[data-visit="' + vid + '"]'); if (el) el.focus();
     } });
   }

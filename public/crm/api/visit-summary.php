@@ -62,6 +62,8 @@ try {
         }
     }
 
+    $summary['me'] = (int)($user['id'] ?? 0);
+    $summary['can_edit'] = userHasPermission('jobs.edit');
     echo json_encode(['success' => true, 'summary' => $summary]);
 } catch (Throwable $e) {
     error_log('visit-summary.php: ' . $e->getMessage());
