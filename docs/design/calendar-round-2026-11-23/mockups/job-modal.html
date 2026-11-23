@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Schedule, job details modal</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="shared.css">
+<style>body{padding:0}.scene{min-height:100vh;background:var(--page)}.ghost-header{height:92px;border-bottom:1px solid var(--line);padding:24px}.scrim{position:absolute;inset:0;display:grid;place-items:start center;padding:112px 24px 24px;background:color-mix(in srgb,var(--text) 42%,transparent)}.modal{width:min(560px,100%);max-height:calc(100vh - 48px);overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:0 12px 40px var(--line)}.modal-head{display:flex;align-items:start;justify-content:space-between;gap:16px;padding:20px 20px 16px;border-bottom:1px solid var(--line)}.modal-head h1{margin:0;font-size:22px;line-height:28px}.close{width:44px;min-height:44px;border:0;background:transparent;font-size:24px}.modal-body{padding:20px}.address{margin:4px 0 18px;color:var(--meta)}.facts{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line)}.fact{padding:12px 0;border-bottom:1px solid var(--line)}.fact:nth-child(odd){padding-right:16px}.fact span{display:block;color:var(--meta);font-size:12px}.notes{margin-top:18px}.notes p{margin:4px 0 0}.arrival-note{margin-top:18px;padding:12px;background:var(--sunk);border-left:3px solid var(--brand)}.action-bar{display:flex;align-items:center;gap:8px;padding:16px 20px;border-top:1px solid var(--line);background:var(--surface)}.action-bar .primary{margin-left:auto}.states{max-width:1168px;margin:32px auto;padding:0 24px 48px}.state-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.state-card{border:1px solid var(--line);background:var(--surface);padding:20px}.state-card h2{margin:0 0 16px;font-size:18px}.modal-skeleton{display:grid;gap:12px}.failed-state{min-height:210px;display:grid;place-items:center;text-align:center}.failed-state p{max-width:360px;color:var(--meta)}.phone-preview{grid-column:1/-1}.phone-frame{width:min(375px,100%);margin:auto;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--page);padding-top:64px}.phone-sheet{border-top:1px solid var(--line);border-radius:14px 14px 0 0;background:var(--surface)}.phone-sheet .action-bar{display:grid;grid-template-columns:1fr 1fr}.phone-sheet .action-bar a{grid-column:1/-1;display:grid;place-items:center;min-height:48px}.phone-sheet .outline{min-height:48px}@media(max-width:600px){.scrim{align-items:end;padding:0}.modal{width:100%;max-height:92vh;border-radius:14px 14px 0 0}.modal-body{padding-bottom:96px}.action-bar{position:sticky;bottom:0;display:grid;grid-template-columns:1fr 1fr;padding-bottom:calc(16px + env(safe-area-inset-bottom))}.action-bar .primary{grid-column:1/-1;grid-row:1;width:100%;margin:0}.action-bar a{grid-column:1/-1;text-align:center;min-height:48px;display:grid;place-items:center}.state-grid{grid-template-columns:1fr}.states{padding:0 12px 40px}.phone-preview{grid-column:auto}}</style>
+<style>@media(max-width:1023px){.close{width:48px;min-height:48px}}</style>
+</head>
+<body>
+<div class="scene">
+<div class="ghost-header">
+<b>Schedule</b>
+</div>
+<div class="scrim">
+<section class="modal" role="dialog" aria-modal="true" aria-labelledby="job-title">
+<header class="modal-head">
+<div>
+<h1 id="job-title">Harbour View Lodge</h1>
+<p class="address">123 Example Street</p>
+</div>
+<button class="close" aria-label="Close job details">×</button>
+</header>
+<div class="modal-body">
+<div class="job-foot">
+<span class="service">
+<i class="shape triangle">
+</i>Garden maintenance</span>
+<span class="status progress">On site</span>
+</div>
+<div class="facts">
+<div class="fact">
+<span>Time</span>
+<b>9:20 to 10:20</b>
+</div>
+<div class="fact">
+<span>Duration</span>
+<b>1 hour</b>
+</div>
+<div class="fact">
+<span>Crew</span>
+<b>Crew A</b>
+</div>
+<div class="fact">
+<span>Price</span>
+<b>$245.00</b>
+</div>
+</div>
+<div class="notes">
+<b>Notes</b>
+<p>Use the side gate. Trim the courtyard beds and leave clippings in the marked green bin.</p>
+</div>
+<div class="arrival-note">
+<b>Before you arrive</b>
+<div>Call from the front entrance if the side gate is locked.</div>
+</div>
+</div>
+<footer class="action-bar">
+<button class="outline">Move job</button>
+<button class="outline">Skip visit</button>
+<a class="hit-link" href="#">Message client</a>
+<button class="primary">Open job</button>
+</footer>
+</section>
+</div>
+</div>
+<section class="states">
+<div class="section-head">
+<div>
+<h2>Modal states</h2>
+<p>Loading and recovery use the same 560 px frame.</p>
+</div>
+</div>
+<div class="state-grid">
+<article class="state-card" aria-busy="true">
+<h2>Loading job</h2>
+<div class="modal-skeleton">
+<div class="mw-skeleton sk-line">
+</div>
+<div class="mw-skeleton sk-line" style="width:60%">
+</div>
+<div class="mw-skeleton" style="height:96px">
+</div>
+<div class="mw-skeleton sk-line" style="width:72%">
+</div>
+</div>
+</article>
+<article class="state-card failed-state">
+<div>
+<h2>Couldn't load this job</h2>
+<p>Check your connection and try again.</p>
+<button class="outline">Try again</button>
+</div>
+</article>
+<article class="state-card phone-preview">
+<h2>375 bottom sheet</h2>
+<div class="phone-frame">
+<section class="phone-sheet" aria-label="Phone job details preview">
+<header class="modal-head"><div><h1>Harbour View Lodge</h1><p class="address">123 Example Street</p></div><button class="close" aria-label="Close preview">×</button></header>
+<div class="modal-body"><div class="facts"><div class="fact"><span>Time</span><b>9:20 to 10:20</b></div><div class="fact"><span>Crew</span><b>Crew A</b></div></div><div class="notes"><b>Notes</b><p>Use the side gate and leave clippings in the marked green bin.</p></div></div>
+<footer class="action-bar"><button class="outline">Move job</button><button class="outline">Skip visit</button><a class="hit-link" href="#">Message client</a></footer>
+</section>
+</div>
+</article>
+</div>
+</section>
+</body>
+</html>
