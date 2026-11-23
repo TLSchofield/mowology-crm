@@ -24,6 +24,7 @@
   var FULL_PAGE = '/crm/jobs/visit-detail.php?id=';
   var root = null, dialog = null, bodyEl = null, footEl = null, titleEl = null, subEl = null, statusEl = null;
   var currentId = 0, opener = null, onCloseCb = null, onChangeCb = null, token = 0;
+  var gen = 0, wrote = false;   // gen changes when the modal opens or closes; answers to an older save are dropped
   var data = null;          // the summary on screen
   var ui = {};              // what is open: { edit: 'when'|'job'|'note-add'|'note-edit', noteId, confirm: {...}, busy, flash, error }
   var crewList = null;
@@ -76,9 +77,14 @@
   function csrf() { return window.MW_CSRF || window.MW_CSRF_TOKEN || ''; }
   function post(url, body) {
     body = body || {}; body.csrf_token = csrf();
+    var g = gen;
     return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; }); })
-      .catch(function () { return { success: false, error: 'Can’t reach the server. Check your connection and try again.', _status: 0 }; });
+      .then(function (j) {
+        if (j && j.success && url.indexOf('calendar-edit.php') < 0) wrote = true;
+        if (j && j.success && body.action === 'resize') wrote = true;
+        return g === gen ? j : new Promise(function () {});   // the modal moved on: nothing left to update
+      }, function () { return g === gen ? { success: false, error: 'Can’t reach the server. Check your connection and try again.', _status: 0 } : new Promise(function () {}); });
   }
   function failed(j) {
     if (j && j.success) return null;
@@ -403,7 +409,12 @@
     else if (c.kind === 'skip') req = post('/crm/api/pow-actions.php', { action: 'skip_visit', visit_id: id });
     else if (c.kind === 'resize') {
       return doTime(c.start, c.end, true, null, true).then(function () { return c.resume ? c.resume() : null; })
-        .then(function () { done('Saved.'); }, function (e) { if (e && e.overlap) return; ui.confirm = null; fail(typeof e === 'string' ? e : 'Couldn’t save. Nothing more was changed.'); });
+        .then(function () { done('Saved.'); }, function (e) {
+          if (e && e.overlap) return;
+          var msg = (c.saved && c.saved.length ? 'Saved: ' + c.saved.join(', ') + '. ' : '') + (typeof e === 'string' ? e : 'Couldn’t save the rest.');
+          if (onChangeCb) { try { onChangeCb(currentId); } catch (x) {} }
+          reload().then(function () { ui.edit = 'when'; ui.error = msg; paint(); });
+        });
     }
     else return;
     req.then(function (j) {
@@ -463,7 +474,7 @@
     var crewChanged = picked.join(',') !== was.join(',');
     if (!dateChanged && !timeChanged && !crewChanged) { ui = {}; paint(); return; }
     ui.edit = 'when'; busy();
-    var saved = [];
+    var saved = []; ui.savedSoFar = saved;
     function stop(msg) {
       ui.busy = false; ui.error = (saved.length ? 'Saved: ' + saved.join(', ') + '. ' : '') + msg;
       if (saved.length) { if (onChangeCb) { try { onChangeCb(currentId); } catch (e) {} } return reload().then(function () { ui.edit = 'when'; ui.error = (saved.length ? 'Saved: ' + saved.join(', ') + '. ' : '') + msg; paint(); }); }
@@ -496,7 +507,7 @@
     return post('/crm/api/calendar-edit.php', { action: 'resize', visit_id: currentId, start: start, end: end, force: !!force }).then(function (j) {
       if (j && j.warning) {
         ui.busy = false; ui.edit = 'when';
-        ui.confirm = { kind: 'resize', text: (j.message || 'This overlaps another visit for the same person.') + ' Keep the new time anyway?', yes: 'Keep anyway', no: 'Go back', start: start, end: end, resume: then };
+        ui.confirm = { kind: 'resize', text: (j.message || 'This overlaps another visit for the same person.') + ' Keep the new time anyway?', yes: 'Keep anyway', no: 'Go back', start: start, end: end, resume: then, saved: ui.savedSoFar };
         paint();
         var e = { overlap: true }; if (inChain) throw e; return;
       }
@@ -527,7 +538,9 @@
     if (!visitId) return;
     build();
     opts = opts || {};
+    gen++;
     if (root.hidden) {
+      wrote = false;
       opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
       root.hidden = false;
       document.body.classList.add('mw-vm-lock');
@@ -542,11 +555,13 @@
 
   function close() {
     if (!root || root.hidden) return;
-    token++;
+    token++; gen++;
     root.hidden = true;
     document.body.classList.remove('mw-vm-lock');
     document.removeEventListener('keydown', onKey, true);
-    var cb = onCloseCb; onCloseCb = null; onChangeCb = null;
+    var cb = onCloseCb, ch = onChangeCb; onCloseCb = null; onChangeCb = null;
+    if (wrote && ch) { try { ch(currentId); } catch (e) {} }   // a save that was still in flight when the modal closed
+    wrote = false;
     if (cb) { try { cb(currentId); } catch (e) {} }
     else if (opener && document.contains(opener)) { try { opener.focus(); } catch (e) {} }
     opener = null;

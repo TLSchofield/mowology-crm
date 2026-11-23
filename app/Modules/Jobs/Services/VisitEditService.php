@@ -102,7 +102,7 @@ final class VisitEditService
             $p = $in['price_per_visit'];
             if (!is_numeric($p) || (float)$p <= 0 || (float)$p > 1000000) {
                 $errors[] = 'Enter a price above $0.';
-            } elseif (empty($in['confirm_price'])) {
+            } elseif (!filter_var($in['confirm_price'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                 $errors[] = 'Confirm the new price first. It changes every visit of this job that isn’t invoiced yet.';
             } else {
                 $data['price_per_visit'] = round((float)$p, 2);

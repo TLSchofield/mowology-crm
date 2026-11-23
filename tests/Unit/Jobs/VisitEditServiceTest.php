@@ -75,6 +75,12 @@ final class VisitEditServiceTest extends TestCase
         foreach (['0', '-5', 'abc', '', 2000000] as $bad) {
             $this->assertNotSame([], VisitEditService::cleanPlanFields(['price_per_visit' => $bad, 'confirm_price' => 1])['errors'], (string)$bad);
         }
+        foreach (['false', 'no', '0', 0, false, null, ''] as $notYes) {
+            $this->assertNotSame([], VisitEditService::cleanPlanFields(['price_per_visit' => '85', 'confirm_price' => $notYes])['errors'], var_export($notYes, true));
+        }
+        foreach ([true, 1, '1', 'true'] as $yes) {
+            $this->assertSame([], VisitEditService::cleanPlanFields(['price_per_visit' => '85', 'confirm_price' => $yes])['errors'], var_export($yes, true));
+        }
         $ok = VisitEditService::cleanPlanFields(['price_per_visit' => '85.456', 'confirm_price' => 1]);
         $this->assertSame([], $ok['errors']);
         $this->assertSame(85.46, $ok['data']['price_per_visit']);
