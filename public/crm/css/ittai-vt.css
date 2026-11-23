@@ -3,7 +3,10 @@
 /* Only the content is named. The sidebar is NOT: a view-transition-name clips everything sticking out of an element (the head card
    sits half outside the sidebar), and it did so for the whole transition. Everything not named (sidebar, cards, top bar) swaps at
    once under the content's fade; the new page's sidebar is already on screen (rel=expect blocking), so nothing flashes. */
-html.it-vt body.it-shell main.content { view-transition-name: main; }
+html.it-vt body.it-shell main.content { view-transition-name: main; background: transparent !important; }
+/* Why transparent: the content's snapshot is drawn above everything else in the transition, and its page-coloured background covered the part of
+   the head card that overlaps the content area (Tim: "the main page is in front of the head card, then moves behind it"). With no fill it only
+   draws its own text and panels; the page colour comes from the layer underneath. */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 ::view-transition-old(main) { animation: 90ms ease-out both it-soft-out; }
 ::view-transition-new(main) { animation: 160ms ease-out 40ms both it-soft-in; }
