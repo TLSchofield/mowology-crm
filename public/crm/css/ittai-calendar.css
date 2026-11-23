@@ -236,3 +236,100 @@ body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline > span
   body.it-shell.mw-page-schedule .mw-cal-col { min-width: 220px; }
   body.it-shell.mw-page-schedule .mw-cal-more { left: calc(50% + 3px); width: calc(50% - 6px); }
 }
+
+/* =============================================================================
+   Slice 3: Week cards. Weekday and date row, weather, day columns, stop cards, service shapes, legend.
+   ============================================================================= */
+
+/* Weekday row and date row become one calm hairline panel: no dark bar, today marked by a thin brand rule */
+body.it-shell.mw-page-schedule .mw-calendar-container { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); overflow: hidden; box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-calendar-header { background: var(--it-surface); color: var(--it-meta); border-bottom: 0; }
+body.it-shell.mw-page-schedule .mw-calendar-header-cell { color: var(--it-meta); font-family: var(--it-font-sans); font-size: 12px; font-weight: 600; letter-spacing: .04em; padding: var(--it-space-2) var(--it-space-3) 0; background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-calendar-dates-header { background: var(--it-line); border-bottom: var(--it-stroke-hairline) solid var(--it-line); gap: var(--it-stroke-hairline); }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell {
+  flex-wrap: wrap; align-items: baseline; gap: var(--it-space-1) var(--it-space-2); padding: var(--it-space-1) var(--it-space-3) var(--it-space-3);
+  background: var(--it-surface); border: 0; border-left: 0; color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; overflow: visible;
+}
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.today { background: var(--it-surface); box-shadow: inset 0 calc(-1 * var(--it-stroke-focus)) 0 var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.salt-needed,
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.holiday { background: var(--it-surface); border-left: 0; }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.today.salt-needed { box-shadow: inset 0 calc(-1 * var(--it-stroke-focus)) 0 var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-date-number,
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.salt-needed .mw-date-number,
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.holiday .mw-date-number { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.today .mw-date-number::after { content: " Today"; font-size: 12px; font-weight: 600; color: var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-holiday-badge { background: transparent; color: var(--it-meta); border: 0; padding: 0; font-size: 12px; font-weight: 500; }
+
+/* Weather: a line icon, the word, the high and low at 14 px; the salt flag is a word, not a colour */
+body.it-shell.mw-page-schedule .mw-weather-display { display: inline-flex; align-items: center; gap: var(--it-space-1); color: var(--it-meta); font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-weather-icon { flex: 0 0 16px; width: 16px; height: 16px; font-size: 0; line-height: 0; background: currentColor; -webkit-mask: var(--mw-wx-icon) center / 16px 16px no-repeat; mask: var(--mw-wx-icon) center / 16px 16px no-repeat; }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="clear"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="cloud"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 19a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 11a4 4 0 0 1-1 8z'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="rain"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 15a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 7.5 3.8 3.8 0 0 1 17 15z'/%3E%3Cpath d='M8 18l-1 3M12 18l-1 3M16 18l-1 3'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="snow"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20M4 7l16 10M20 7L4 17'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-condition { font-size: 14px; color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-temp-range { font-size: 14px; color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-salt-warning { flex: 0 0 100%; font-size: 0; }
+body.it-shell.mw-page-schedule .mw-salt-warning::after { content: "Salt may be needed"; font-size: 12px; font-weight: 500; color: var(--it-text); }
+
+/* Day columns and stop cards: white, hairline, no tinted fills, status as a word */
+body.it-shell.mw-page-schedule .mw-stop-grid { background: var(--it-surface); border: 0; }
+body.it-shell.mw-page-schedule .mw-day-column { border-right: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-day-column.today { background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-day-column.drag-over { background: var(--it-selected); outline: var(--it-stroke-focus) dashed var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-day-empty { color: var(--it-meta); font-style: normal; font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-stop-card {
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-left-width: var(--it-stroke-hairline); border-radius: var(--it-radius-sm); box-shadow: none;
+  font-family: var(--it-font-sans); font-variant-numeric: tabular-nums;
+}
+body.it-shell.mw-page-schedule .mw-stop-card:hover { background: var(--it-surface); border-color: var(--it-meta); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-progress { background: var(--it-surface); border-left-color: var(--it-line); }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-done,
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-skipped { background: var(--it-sunk); border-left-color: var(--it-line); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-progress::after,
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-done::after,
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-skipped::after { display: block; margin-top: var(--it-space-1); font-size: 12px; line-height: 16px; font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-progress::after { content: "On site"; color: var(--it-status-progress); }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-done::after { content: "\2713  Done"; color: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-skipped::after { content: "Skipped"; color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-stop-time { color: var(--it-meta); font-size: 12px; font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-stop-client-name { color: var(--it-text); font-weight: 600; font-size: var(--it-body-14-size); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+body.it-shell.mw-page-schedule .mw-stop-property,
+body.it-shell.mw-page-schedule .mw-stop-crew { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-stop-rev-amount,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin.is-green,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin.is-amber,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin.is-red { color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-battle-card,
+body.it-shell.mw-page-schedule .mw-battle-card.bc-margin-green,
+body.it-shell.mw-page-schedule .mw-battle-card.bc-margin-amber,
+body.it-shell.mw-page-schedule .mw-battle-card.bc-margin-red { border-color: var(--it-line); background: var(--it-surface); }
+
+/* Service: a small shape and the word, never a colour block. The inline colour on the old pill is not drawn. */
+body.it-shell.mw-page-schedule .mw-visit-pill { display: inline-flex; align-items: center; gap: var(--it-space-2); background: transparent; border: 0; border-left: 0 !important; padding: 0; color: var(--it-text); font-size: 12px; font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-visit-pill::before,
+body.it-shell.mw-page-schedule .mw-legend-item::before { content: ""; flex: 0 0 auto; display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--it-meta); background: transparent; border-radius: 50%; box-sizing: border-box; }
+body.it-shell.mw-page-schedule [data-service="lawn_care"]::before { background: var(--it-meta); border-radius: 50%; }
+body.it-shell.mw-page-schedule [data-service="landscaping"]::before { background: var(--it-text); border-color: var(--it-text); border-radius: 0; }
+body.it-shell.mw-page-schedule [data-service="hedge_trimming"]::before { background: var(--it-meta); border-radius: 0; transform: rotate(45deg) scale(.85); }
+body.it-shell.mw-page-schedule [data-service="garden_maintenance"]::before { width: 0; height: 0; border: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--it-meta); border-radius: 0; background: transparent; }
+body.it-shell.mw-page-schedule [data-service="seasonal_cleanup"]::before { width: 4px; height: 14px; border: 0; border-radius: 0; background: var(--it-brand); }
+body.it-shell.mw-page-schedule [data-service="snow_removal"]::before { background: transparent; border-radius: 50%; }
+
+/* Legend: shape and word pairs at the foot of the page */
+body.it-shell.mw-page-schedule .mw-legend { display: flex; flex-wrap: wrap; gap: var(--it-space-2) var(--it-space-4); margin: var(--it-space-4) 0 0; padding: var(--it-space-3) 0 0; border-top: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-legend-item { display: inline-flex; align-items: center; gap: var(--it-space-2); }
+body.it-shell.mw-page-schedule .mw-legend-color { display: none; }
+body.it-shell.mw-page-schedule .mw-weather-condition { white-space: normal; overflow: visible; text-overflow: clip; max-width: none; }
+body.it-shell.mw-page-schedule .mw-temp-range { margin: 0; flex: 0 0 auto; border: 0; background: none; }
+body.it-shell.mw-page-schedule .mw-weather-display { flex: 0 1 auto; min-width: 0; }
+body.it-shell.mw-page-schedule .mw-legend,
+body.it-shell.mw-page-schedule .mw-legend-item { opacity: 1; background: transparent; box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-date-number { flex: 0 0 100%; }
+body.it-shell.mw-page-schedule .mw-holiday-badge { flex: 0 0 100%; }
+/* Time above the client name so a narrow column still shows the whole name */
+body.it-shell.mw-page-schedule .mw-stop-time-client { flex-direction: column; align-items: flex-start; gap: 0; }
+body.it-shell.mw-page-schedule .mw-stop-time + .mw-stop-client-name::before { content: none; }
+body.it-shell.mw-page-schedule .mw-stop-client-name { overflow-wrap: break-word; word-break: normal; }
+body.it-shell.mw-page-schedule .mw-day-column { max-height: none; overflow-y: visible; }
