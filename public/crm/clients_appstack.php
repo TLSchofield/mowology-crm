@@ -6,6 +6,7 @@ require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/error-handler.php';
 require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
+require_once APP_ROOT . '/Modules/Contacts/Services/ContactInvoiceService.php';
 require_once APP_ROOT . '/Modules/Contacts/Services/ClientActionsService.php';
 require_once APP_ROOT . '/Modules/Clients/Services/ClientPropertySearchIndex.php';
 require_once APP_ROOT . '/Core/Uploads.php';
@@ -924,36 +925,12 @@ if ($action === 'view_contact' && $clientId) {
             $contactVisits = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) { $contactVisits = []; }
 
-        // ── Invoices linked to this contact's properties ──
+        // ── Invoices reaching this contact: any property they are attached to (site / quote /
+        //    property_contacts), their plans, or as signatory — each labelled with its billing account ──
         $contactInvoices = [];
         try {
-            $propIds = array_column($contactProperties, 'id');
-            if (!empty($propIds)) {
-                $planIds = array_column($contactPlans, 'id');
-                // Build WHERE: invoice.property_id in contact's properties OR invoice.plan_id in contact's plans
-                $conditions = [];
-                $params = [];
-                $pPlaceholders = implode(',', array_fill(0, count($propIds), '?'));
-                $conditions[] = "i.property_id IN ({$pPlaceholders})";
-                $params = array_merge($params, $propIds);
-                if (!empty($planIds)) {
-                    $jpPlaceholders = implode(',', array_fill(0, count($planIds), '?'));
-                    $conditions[] = "i.plan_id IN ({$jpPlaceholders})";
-                    $params = array_merge($params, $planIds);
-                }
-                $whereClause = implode(' OR ', $conditions);
-                $stmt = $db->prepare("
-                    SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
-                           i.issue_date, i.due_date, i.amount_paid,
-                           i.payment_method, i.payment_reference
-                    FROM invoices i
-                    WHERE {$whereClause}
-                    ORDER BY i.created_at DESC
-                ");
-                $stmt->execute($params);
-                $contactInvoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            }
-        } catch (Exception $e) { $contactInvoices = []; }
+            $contactInvoices = (new ContactInvoiceService($db))->invoices((int)$clientId, array_column($contactPlans, 'id'));
+        } catch (Throwable $e) { $contactInvoices = []; }
 
         // ── Candidate bank-deposit matches for this contact's unpaid invoices ──
         // Same inline reconciliation as /crm/invoices/index.php ("likely match" pill).
@@ -1087,13 +1064,11 @@ if ($action === 'view_contact' && $clientId) {
         $totalOutstanding = 0;
         $totalInvoiced = 0;
         $totalPaid = 0;
-        foreach ($contactInvoices as $inv) {
-            $totalInvoiced += floatval($inv['total'] ?? 0);
-            $totalPaid += floatval($inv['amount_paid'] ?? 0);
-            if (in_array($inv['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
-                $totalOutstanding += floatval($inv['balance_due'] ?? 0);
-            }
-        }
+        $__tot = ContactInvoiceService::totals($contactInvoices);
+        $totalInvoiced = $__tot['invoiced'];
+        $totalPaid = $__tot['paid'];
+        $totalOutstanding = $__tot['outstanding'];
+        unset($__tot);
         $totalRevenue = $totalPaid;
         $activePlanCount = 0;
         $completedVisitCount = 0;
