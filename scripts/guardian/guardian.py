@@ -69,10 +69,11 @@ def findings_from(metrics, rules_out="", previous=None):
                 add("%s|%s" % (key, name), sev, msg, ["measured on the rendered page at 375 px"], "seo" if key in ("title", "description", "h1") else "accessibility", "")
         prev = (previous or {}).get(name)
         if prev:
-            if kb - prev["transferKB"] > THRESH["regress_kb"] and kb > prev["transferKB"] * (1 + THRESH["regress_pct"]):
-                add("regress-weight|" + name, "P2", "%s got heavier: %d KB -> %d KB" % (name, prev["transferKB"], kb), ["previous run vs this run, same viewports"], "performance", "Find what was added.")
-            if lcp and prev.get("lcpMs") and lcp["lcpMs"] > prev["lcpMs"] * (1 + THRESH["regress_lcp_pct"]) and lcp["lcpMs"] > 1500:
-                add("regress-lcp|" + name, "P2", "%s slower: LCP %d -> %d ms" % (name, prev["lcpMs"], lcp["lcpMs"]), ["previous run vs this run"], "performance", "")
+            kb375, lcp375 = m375["transferKB"], m375.get("lcpMs")        # compare like with like: the summary kept for history is the phone view
+            if kb375 - prev["transferKB"] > THRESH["regress_kb"] and kb375 > prev["transferKB"] * (1 + THRESH["regress_pct"]):
+                add("regress-weight|" + name, "P2", "%s got heavier: %d KB -> %d KB" % (name, prev["transferKB"], kb375), ["previous run vs this run, phone view"], "performance", "Find what was added.")
+            if lcp375 and prev.get("lcpMs") and lcp375 > prev["lcpMs"] * (1 + THRESH["regress_lcp_pct"]) and lcp375 > 1500:
+                add("regress-lcp|" + name, "P2", "%s slower: LCP %d -> %d ms" % (name, prev["lcpMs"], lcp375), ["previous run vs this run, phone view"], "performance", "")
     for origin, s in metrics.get("site", {}).items():
         host = origin.replace("https://", "")
         if s["robotsStatus"] != 200:

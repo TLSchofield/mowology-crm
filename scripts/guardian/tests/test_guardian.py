@@ -69,6 +69,11 @@ class Findings(unittest.TestCase):
         self.assertIn("regress-weight|P", keys); self.assertIn("regress-lcp|P", keys)
         self.assertEqual(self.f([page(measure={"transferKB": 350})], prev=prev), [])
 
+    def test_regression_compares_phone_to_phone_not_phone_to_desktop(self):
+        prev = {"P": {"transferKB": 178, "lcpMs": 800}}
+        rows = [page(width=375, measure={"transferKB": 180}), page(width=1440, measure={"transferKB": 410, "lcpMs": 1200})]
+        self.assertEqual(self.f(rows, prev=prev), [])
+
     def test_new_rule_violations_become_findings_and_secrets_are_p0(self):
         out = self.f([], rules="RULE secret           app/x.php: 1 (baseline 0) — msg\nRULE inline-style     public/crm/a.php: 2 (baseline 1) — msg\n")
         self.assertEqual({x["key"]: x["severity"] for x in out}, {"rule|app/x.php": "P0", "rule|public/crm/a.php": "P2"})

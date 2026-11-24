@@ -562,7 +562,46 @@ class BeforeAfterService
             LIMIT {$limit} OFFSET {$offset}
         ");
         $stmt->execute();
-        return array_map([self::class, 'publicShape'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        return array_map(fn(array $r) => self::publicShape($this->withWebCopies($r)), $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * A pair approved before it had a web copy would be served as the raw phone photo (Guardian measured a 17 MB portfolio page,
+     * 2026-11-24). When a web-sized JPEG already exists in media_variants, use it for this response — read-only, nothing is
+     * generated or written. Rows with a web copy are untouched.
+     */
+    private function withWebCopies(array $row): array
+    {
+        foreach (['before', 'after'] as $side) {
+            if (!empty($row['web_' . $side . '_path']) || empty($row[$side . '_id'])) {
+                continue;
+            }
+            $path = self::webPathFor($this->responsiveVariants((int)$row[$side . '_id']), (string)$row[$side . '_url']);
+            if ($path !== (string)$row[$side . '_url']) {
+                $row['web_' . $side . '_path'] = $path;
+            }
+        }
+        return $row;
+    }
+
+    /**
+     * Give every published pair that still lacks a web copy one (generating the responsive set when none exists) and record it.
+     * Idempotent; used once to fix pairs approved before web copies existed. Returns the number of pairs updated.
+     */
+    public function backfillWebCopies(int $limit = 10): int
+    {
+        $rows = $this->db->query("SELECT bp.id, bp.before_id, bp.after_id, bp.web_before_path, bp.web_after_path, " . self::assetSelect() . "
+            FROM ba_pairs bp JOIN media_assets mb ON mb.id = bp.before_id JOIN media_assets ma ON ma.id = bp.after_id
+            WHERE bp.status = 'approved' AND bp.published = 1 AND (COALESCE(bp.web_before_path,'') = '' OR COALESCE(bp.web_after_path,'') = '')
+            LIMIT " . max(1, min($limit, 50)))->fetchAll(PDO::FETCH_ASSOC);
+        $n = 0;
+        foreach ($rows as $r) {
+            $wb = $r['web_before_path'] ?: $this->ensureWebCopy((int)$r['before_id'], (string)$r['before_url']);
+            $wa = $r['web_after_path'] ?: $this->ensureWebCopy((int)$r['after_id'], (string)$r['after_url']);
+            $this->db->prepare("UPDATE ba_pairs SET web_before_path = ?, web_after_path = ? WHERE id = ?")->execute([$wb, $wa, (int)$r['id']]);
+            $n++;
+        }
+        return $n;
     }
 
     public function publishedCount(): int
