@@ -7,7 +7,7 @@
  *  - move()       → the same checks, then one transaction that re-links visit, lines, invoice and (drafts) recipients
  *
  * Not responsible for auth (the API controller does it) or re-sending the invoice (the owner resends after moving).
- * Depends on resolveManagementBillingRecipient() (InvoiceRouting.php) unless a resolver is injected (tests).
+ * Depends on InvoiceRouting::managedFirmRecipients() (InvoiceRouting.php) unless a resolver is injected (tests).
  */
 declare(strict_types=1);
 
@@ -17,7 +17,7 @@ class InvoiceMoveService
     private const LIMIT   = 30;
 
     private PDO $db;
-    /** @var callable|null (int $propertyId): array — tests only; default resolveManagementBillingRecipient */
+    /** @var callable|null (int $propertyId): array — tests only; default InvoiceRouting::managedFirmRecipients */
     private $pmResolver;
 
     public function __construct(PDO $db, ?callable $pmResolver = null)
@@ -205,6 +205,10 @@ class InvoiceMoveService
             // 4. The invoice itself.
             $propChange = $ctx['property_changes'];
             $cols = "plan_id = ?, visit_id = ?, property_id = ?, company_id = ?, contract_id = ?";
+            // The invoice follows the target job's customer: client_id from the plan (else its building),
+            // and — when the building changes — contact_id from the building's billing person, exactly as
+            // createFromVisit() sets it. Moving used to leave both on the old customer (2026-11-23 review).
+            // invoice_contacts (who it was actually sent to) is handled separately below and never for a sent invoice.
             $args = [
                 $targetPlanId,
                 $newVisit,
@@ -220,6 +224,16 @@ class InvoiceMoveService
                 $args[] = $plan['postal_code'] ?? null;
             }
             $cols .= ", pdf_path = NULL, pdf_version = 0, pdf_generated_at = NULL";
+            $newClient = (int)($plan['plan_client_id'] ?? 0) ?: (int)($plan['property_client_id'] ?? 0);
+            if ($newClient > 0) {
+                $cols .= ", client_id = ?";
+                $args[] = $newClient;
+            }
+            $newContact = (int)($plan['property_site_contact_id'] ?? 0);
+            if ($propChange && $newContact > 0) {
+                $cols .= ", contact_id = ?";
+                $args[] = $newContact;
+            }
             $args[] = $invoiceId;
             $this->db->prepare("UPDATE invoices SET {$cols} WHERE id = ?")->execute($args);
 
@@ -290,6 +304,8 @@ class InvoiceMoveService
     {
         $s = $this->db->prepare("
             SELECT jp.id, jp.plan_number, jp.title, jp.status, jp.property_id, jp.company_id, jp.contract_id,
+                   jp.client_id AS plan_client_id, pr.client_id AS property_client_id,
+                   pr.site_contact_id AS property_site_contact_id,
                    pr.address, pr.city, pr.province, pr.postal_code
             FROM job_plans jp LEFT JOIN properties pr ON pr.id = jp.property_id
             WHERE jp.id = ?");
@@ -427,7 +443,7 @@ class InvoiceMoveService
                 return (array)call_user_func($this->pmResolver, $propertyId);
             }
             require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
-            return resolveManagementBillingRecipient($propertyId);
+            return InvoiceRouting::managedFirmRecipients($propertyId, $this->db);
         } catch (Throwable $e) {
             error_log('[InvoiceMoveService] PM routing failed for property ' . $propertyId . ': ' . $e->getMessage());
             return [];

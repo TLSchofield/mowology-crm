@@ -85,7 +85,7 @@ class InvoiceFromVisitService
         }
         require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
         try {
-            return resolveManagementBillingRecipient($propertyId);
+            return InvoiceRouting::managedFirmRecipients($propertyId, $this->db);
         } catch (Throwable $e) {
             error_log('[InvoiceFromVisitService] PM routing failed for property ' . $propertyId . ': ' . $e->getMessage());
             return [];

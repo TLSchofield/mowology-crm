@@ -22,28 +22,28 @@ class InvoiceMoveServiceTest extends TestCase
         $db = new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, city TEXT, province TEXT, postal_code TEXT, property_manager_id INT)");
+        $db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT, city TEXT, province TEXT, postal_code TEXT, property_manager_id INT, client_id INT, site_contact_id INT)");
         $db->exec("CREATE TABLE job_plans (id INTEGER PRIMARY KEY, plan_number TEXT, title TEXT, status TEXT DEFAULT 'active',
-                   property_id INT, company_id INT, contract_id INT)");
+                   property_id INT, company_id INT, contract_id INT, client_id INT)");
         $db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, visit_number TEXT, plan_id INT, status TEXT, scheduled_date TEXT,
                    is_invoiced INT DEFAULT 0, invoice_id INT)");
         $db->exec("CREATE TABLE contracts (id INTEGER PRIMARY KEY, status TEXT, billing_cycle TEXT)");
         $db->exec("CREATE TABLE invoices (id INTEGER PRIMARY KEY, invoice_number TEXT, status TEXT, amount_paid REAL DEFAULT 0,
-                   stripe_payment_intent_id TEXT, plan_id INT, visit_id INT, property_id INT, company_id INT, contract_id INT,
+                   stripe_payment_intent_id TEXT, client_id INT, contact_id INT, plan_id INT, visit_id INT, property_id INT, company_id INT, contract_id INT,
                    service_address TEXT, service_city TEXT, service_province TEXT, service_postal_code TEXT,
                    pdf_path TEXT, pdf_version INT DEFAULT 0, pdf_generated_at TEXT)");
         $db->exec("CREATE TABLE invoice_line_items (id INTEGER PRIMARY KEY, invoice_id INT, description TEXT, visit_id INT, service_date TEXT)");
         $db->exec("CREATE TABLE invoice_contacts (id INTEGER PRIMARY KEY, invoice_id INT, contact_id INT, contact_role TEXT, email_address TEXT)");
         $this->db = $db;
 
-        $db->exec("INSERT INTO properties VALUES (1, '1 Oak St', 'Squamish', 'BC', 'V8B 0A1', NULL), (2, '9 Elm Ave', 'Whistler', 'BC', 'V8E 0B2', 7)");
+        $db->exec("INSERT INTO properties (id, address, city, province, postal_code, property_manager_id, client_id, site_contact_id) VALUES (1, '1 Oak St', 'Squamish', 'BC', 'V8B 0A1', NULL, 11, 21), (2, '9 Elm Ave', 'Whistler', 'BC', 'V8E 0B2', 7, 12, 22)");
         $db->exec("INSERT INTO contracts VALUES (60, 'active', 'monthly')");
-        $db->exec("INSERT INTO job_plans (id, plan_number, title, status, property_id, company_id, contract_id) VALUES
-                   (100, 'PLN-100', 'Fall Service', 'active', 1, 5, NULL),
-                   (200, 'PLN-200', 'Yew trimming', 'active', 1, 5, NULL),
-                   (300, 'PLN-300', 'Hedge work', 'active', 2, 7, NULL),
-                   (400, 'PLN-400', 'Monthly care', 'active', 1, 5, 60),
-                   (500, 'PLN-500', 'Old', 'cancelled', 1, 5, NULL)");
+        $db->exec("INSERT INTO job_plans (id, plan_number, title, status, property_id, company_id, contract_id, client_id) VALUES
+                   (100, 'PLN-100', 'Fall Service', 'active', 1, 5, NULL, 11),
+                   (200, 'PLN-200', 'Yew trimming', 'active', 1, 5, NULL, 11),
+                   (300, 'PLN-300', 'Hedge work', 'active', 2, 7, NULL, 12),
+                   (400, 'PLN-400', 'Monthly care', 'active', 1, 5, 60, 11),
+                   (500, 'PLN-500', 'Old', 'cancelled', 1, 5, NULL, 11)");
         $db->exec("INSERT INTO job_visits (id, visit_number, plan_id, status, scheduled_date, is_invoiced, invoice_id) VALUES
                    (1000, 'V1000', 100, 'completed', '2026-10-01', 1, 10),
                    (1001, 'V1001', 100, 'completed', '2026-10-08', 1, 11),
@@ -61,7 +61,7 @@ class InvoiceMoveServiceTest extends TestCase
     private function invoice(int $id, string $status, float $paid = 0.0, ?string $stripe = null): void
     {
         $this->db->prepare("INSERT INTO invoices (id, invoice_number, status, amount_paid, stripe_payment_intent_id, plan_id, visit_id, property_id, company_id,
-                            service_address, pdf_path, pdf_version) VALUES (?,?,?,?,?,100,1000,1,5,'1 Oak St','/pdf/x.pdf',3)")
+                            client_id, contact_id, service_address, pdf_path, pdf_version) VALUES (?,?,?,?,?,100,1000,1,5,11,21,'1 Oak St','/pdf/x.pdf',3)")
             ->execute([$id, 'INV-' . $id, $status, $paid, $stripe]);
     }
 
@@ -183,6 +183,41 @@ class InvoiceMoveServiceTest extends TestCase
         $this->assertTrue($this->svc()->move(10, 200, null, 1)['ok']);   // property 2 -> 1: no PM rows
         $emails = $this->db->query("SELECT email_address FROM invoice_contacts WHERE invoice_id = 10")->fetchAll(PDO::FETCH_COLUMN);
         $this->assertSame(['owner@example.com'], $emails);
+    }
+
+    /** The drift bug (2026-11-23): a moved invoice kept the OLD customer. Now client_id/contact_id follow the target job. */
+    public function testMoveToAnotherCustomersBuildingUpdatesClientAndContact(): void
+    {
+        $this->invoice(30, 'draft');
+        $res = $this->svc()->move(30, 300, 3000, 1);
+        $this->assertTrue($res['ok']);
+        $row = $this->row("SELECT client_id, contact_id, company_id, property_id FROM invoices WHERE id = ?", 30);
+        $this->assertSame(12, (int)$row['client_id']);
+        $this->assertSame(22, (int)$row['contact_id']);
+        $this->assertSame(2, (int)$row['property_id']);
+    }
+
+    /** A sent invoice's customer ids move with the job, but the people it was SENT to never change. */
+    public function testSentInvoiceKeepsItsRecipientSnapshotButFollowsTheCustomer(): void
+    {
+        $res = $this->svc()->move(10, 300, 3000, 1);
+        $this->assertTrue($res['ok']);
+        $row = $this->row("SELECT client_id, contact_id FROM invoices WHERE id = ?", 10);
+        $this->assertSame(12, (int)$row['client_id']);
+        $this->assertSame(22, (int)$row['contact_id']);
+        $snap = $this->db->query("SELECT contact_id, email_address FROM invoice_contacts WHERE invoice_id = 10")->fetchAll();
+        $this->assertSame([['contact_id' => 1, 'email_address' => 'owner@example.com']], $snap);
+    }
+
+    /** Same building: nothing about the customer changes except the plan's own client. */
+    public function testMoveWithinTheSameBuildingKeepsTheContact(): void
+    {
+        $this->invoice(31, 'draft');
+        $this->db->exec("UPDATE invoices SET contact_id = 99 WHERE id = 31");
+        $this->assertTrue($this->svc()->move(31, 200, 2000, 1)['ok']);
+        $row = $this->row("SELECT client_id, contact_id FROM invoices WHERE id = ?", 31);
+        $this->assertSame(11, (int)$row['client_id']);
+        $this->assertSame(99, (int)$row['contact_id']);
     }
 
     public function testCandidatesListSamePropertyFirstAndOnlyFreeCompletedVisits(): void

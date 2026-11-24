@@ -52,6 +52,20 @@ foreach ($props as $p) {
         }
     }
 }
+// Firm-only door (steps 4-6 callers: visit service, move service, contract billing, create.php prefill):
+// InvoiceRouting::managedFirmRecipients() must equal the old direct resolveManagementBillingRecipient() everywhere.
+$firmDiffs = [];
+if (method_exists('InvoiceRouting', 'managedFirmRecipients')) {
+    foreach ($props as $p) {
+        $a = $shape($run(fn() => resolveManagementBillingRecipient((int)$p['id'], $db)));
+        $b = $shape($run(fn() => InvoiceRouting::managedFirmRecipients((int)$p['id'], $db)));
+        if ($a !== $b && count($firmDiffs) < 20) $firmDiffs[] = ['property_id' => (int)$p['id'], 'old' => $a, 'new' => $b];
+    }
+    $out['firm_door_diff_count'] = count($firmDiffs);
+    $out['firm_door_diffs'] = $firmDiffs;
+} else {
+    $out['firm_door_diff_count'] = 'managedFirmRecipients not deployed yet';
+}
 $out['property_columns'] = $props ? array_keys($props[0]) : [];
 $out['properties']          = count($props);
 $out['properties_no_client_id'] = $noClient;
@@ -62,4 +76,4 @@ $out['cases_resolving_to_nobody']     = $empty;
 $out['diff_count']          = count($diffs);
 $out['diffs']               = $diffs;
 try { getPropertyWithCompanies((int)$props[0]['id'], $db); $out['getPropertyWithCompanies'] = 'ok'; } catch (Throwable $e) { $out['getPropertyWithCompanies'] = $e->getMessage(); }
-$out['verdict']             = $diffs ? 'DIFFS — STOP' : 'PARITY — zero diffs';
+$out['verdict']             = ($diffs || $firmDiffs) ? 'DIFFS — STOP' : 'PARITY — zero diffs';

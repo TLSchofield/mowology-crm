@@ -33,6 +33,26 @@ class InvoiceRecipientsLoadException extends RuntimeException
 class InvoiceRouting
 {
     /**
+     * The management firm's billing recipients for a PM-managed property (preselected), else [].
+     * The ONLY door to the firm-routing step for callers that want "firm or nothing" and keep their own
+     * fallback (visit invoices, invoice moves, the contract billing cron). Never throws.
+     *
+     * @return array<int,array>
+     */
+    public static function managedFirmRecipients(int $propertyId, ?PDO $db = null): array
+    {
+        if ($propertyId <= 0) {
+            return [];
+        }
+        try {
+            return resolveManagementBillingRecipient($propertyId, $db);
+        } catch (Throwable $e) {
+            error_log('[InvoiceRouting] firm routing failed for property ' . $propertyId . ': ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
      * Cascade: the account's client_contacts (+ its manager's) -> the company's live routing ->
      * determineInvoiceRecipients() -> the property's site contact -> PM-managed firm precedence.
      *
@@ -153,7 +173,7 @@ class InvoiceRouting
         // contract "PM-Managed Billing" screen and fixes the case where the form
         // defaulted to the property manager *person* instead of the firm's accounts.
         if ($propertyId) {
-            $pmRecipients = resolveManagementBillingRecipient($propertyId, $db);
+            $pmRecipients = self::managedFirmRecipients($propertyId, $db);
             if (!empty($pmRecipients)) {
                 $pmContactIds = array_column($pmRecipients, 'contact_id');
                 $ccRecipients = [];
