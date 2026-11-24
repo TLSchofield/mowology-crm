@@ -404,6 +404,7 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         $db->prepare($sql)->execute($insertParams);
 
         $invoiceId = (int)$db->lastInsertId();
+        InvoiceRouting::stampClientId($db, $invoiceId);
 
         // ── 3d. Line item ─────────────────────────────────────────────────────
         $lineDesc = trim($ctr['title'] ?? '') ?: 'Monthly landscaping service';
