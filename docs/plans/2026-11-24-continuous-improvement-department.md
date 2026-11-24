@@ -16,7 +16,10 @@ Guardian, Forge and Mercury. Same Claude Code install and subscription; no API k
 ## Still open
 First CLI sign-in (`claude auth login`).
 
-## Roster recommendation (2026-11-24, after Empath and Atlas were specified)
+## Roster — DECIDED (Tim, 2026-11-24: "your recommendations")
+Agents: Ada, Sentinel, Guardian, Artisan, Forge. Lenses (skill + memory + one weekly queue task, promoted only on proven need): Mercury, Empath, Atlas. Oracle: no spec, not built.
+
+### Reasoning (recommendation as made, after Empath and Atlas were specified)
 Nine agents plus Ada is too many to build and run on one subscription, and Ada's own rule is to add an agent only for a
 demonstrated gap. Recommend: build Ada, Sentinel, Guardian, Artisan, Forge as agents; run **Mercury, Empath, Atlas** first as
 *lenses* (a skill + memory + a weekly task each in Ada's queue) and promote one to its own agent only when its output proves a gap.
