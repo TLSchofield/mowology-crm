@@ -82,13 +82,13 @@
     },
     "oracle": {
       "department": "ada",
-      "status": "planned",
-      "kind": "unspecified",
-      "role": "Strategic foresight and research for Ada and Apollo: technology radar, innovation labs, experiments (full brief received 2026-11-24)",
+      "status": "built-off",
+      "kind": "model",
+      "role": "Strategic foresight and research for Ada and Apollo (lean): technology radar, opportunity register, experiment designs, weekly briefing",
       "spec": "docs/department/specs/oracle.md",
-      "build_trigger": "You write its brief",
-      "does": "Would research emerging technology and strategy for both departments: a technology radar, six innovation labs, cross-industry ideas and small experiments, all sourced and recommend-only.",
-      "limits": "Not built yet: the full brief is saved; a build plan awaits your go-ahead."
+      "does": "Researches emerging technology and strategy for both departments from primary sources: a technology radar (Adopt/Trial/Assess/Watch/Avoid), a register of opportunities with 17 states, experiment designs and one weekly briefing. Recommend-only; hands ideas to Ada or Apollo as ordinary proposals for your approval.",
+      "limits": "Switched off until you run: ada oracle on (Wednesdays). Designs experiments but cannot run them. A vendor claim alone can never lift a technology above Assess.",
+      "wake": "ada oracle on"
     },
     "apollo": {
       "department": "apollo",

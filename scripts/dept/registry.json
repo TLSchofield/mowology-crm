@@ -141,6 +141,25 @@
         "mcp__*"
       ],
       "dormant": false
+    },
+    "oracle": {
+      "role": "Strategic foresight and research for Ada and Apollo: technology radar, innovation labs, experiments (full brief received 2026-11-24)",
+      "autonomy_level": 2,
+      "model": "opus",
+      "budget_usd_per_run": 2,
+      "tools_allowed": [
+        "WebFetch",
+        "WebSearch"
+      ],
+      "tools_denied": [
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        "Bash",
+        "Task",
+        "mcp__*"
+      ],
+      "dormant": false
     }
   }
 }
