@@ -38,6 +38,65 @@ class QuoteRecipientService
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // WHO A QUOTE GOES TO — the one ladder (moved from QuoteService, behaviour unchanged)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Resolve the customer contact chain from a quote row (as returned by getWithContact()).
+     *
+     * Priority order:
+     *   1. quote_request contact  (qr_* fields)
+     *   2. Company primary contact (contact_* fields)
+     *   3. Property site contact  (prop_contact_* fields)
+     *   4. Company billing fields  (billing_*)
+     *
+     * Returns:
+     *   email       string|null
+     *   phone       string|null
+     *   name        string       (full name or company name or 'Valued Customer')
+     *   first_name  string
+     *   contact_id  int|null     (for SMS consent check)
+     */
+    public static function resolveContact(array $quote): array
+    {
+        $email = $quote['qr_email']
+              ?? $quote['contact_email']
+              ?? $quote['prop_contact_email']
+              ?? $quote['billing_email']
+              ?? null;
+
+        $phone = $quote['qr_phone']
+              ?? $quote['contact_phone']
+              ?? $quote['prop_contact_phone']
+              ?? $quote['billing_phone']
+              ?? null;
+
+        $firstName = $quote['qr_first_name']
+                  ?? $quote['contact_first']
+                  ?? $quote['prop_contact_first']
+                  ?? '';
+        $lastName  = $quote['qr_last_name']
+                  ?? $quote['contact_last']
+                  ?? $quote['prop_contact_last']
+                  ?? '';
+
+        $name = trim($firstName . ' ' . $lastName)
+             ?: ($quote['company_name'] ?? 'Valued Customer');
+
+        // The contact ID used for SMS consent lookup
+        $contactId = (int)($quote['qr_contact_id'] ?? $quote['contact_id'] ?? $quote['prop_contact_id'] ?? 0) ?: null;
+
+        return [
+            'email'      => $email ?: null,
+            'phone'      => $phone ?: null,
+            'name'       => $name,
+            'first_name' => $firstName ?: explode(' ', $name)[0],
+            'contact_id' => $contactId,
+        ];
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════
     // SCHEMA GUARDS
     // ══════════════════════════════════════════════════════════════════════
 

@@ -526,8 +526,9 @@ $activePage = 'quotes';
 
           <?php
               // Contact · SMS consent · Access: one quiet line; it only colours when something needs attention.
-              $debugEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
-              $debugPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
+              // The one ladder (QuoteRecipientService::resolveContact via $recipientResolved) — not a second copy here.
+              $debugEmail = $recipientResolved['email'];
+              $debugPhone = $recipientResolved['phone'];
               $hasEmailIssue = empty($debugEmail);
               $hasPhoneIssue = empty($debugPhone);
               $smsContactId = !empty($quote['qr_contact_id']) ? $quote['qr_contact_id'] : (!empty($quote['contact_id']) ? $quote['contact_id'] : ($quote['prop_contact_id'] ?? null));
