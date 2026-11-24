@@ -75,7 +75,7 @@ class Cards(Dashboard):
         h = self.dash.render(self.ada, self.db)
         for name, a in self.ada.roster().items():
             self.assertTrue(a.get("does") and a.get("limits"), name + " needs plain-language does/limits in roster.json")
-            self.assertIn(">%s " % name, h.replace("<h3>", ">"))
+            self.assertIn("<span class='name'>%s</span>" % name, h)
         for words in ("Not built yet", "Built · running nightly", "Built · switched off", "Built · asleep", "Build it when:"):
             self.assertIn(words, h)
 
