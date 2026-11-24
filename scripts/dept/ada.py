@@ -269,7 +269,9 @@ def human_decision(db, tid, decision, reason, tty, code=None):
     if t["source_ref"] and t["agent"] == "sentinel" and os.path.exists(sen):  # one shared decision history
         verb = {"approve": "accept", "reject": "reject", "revise": "modify"}[decision]
         subprocess.run([sys.executable, sen, "decide", t["source_ref"], verb, reason] + (["--code", code] if code else []), env=dict(os.environ), capture_output=True)
-    if decision == "approve" and t["kind"] == "improvement":      # accepting IS the instruction to build (never to deploy)
+    if decision == "approve" and t["kind"] == "improvement":      # accepting IS the instruction to build, test, review, deploy and confirm (owner, 2026-11-24)
+        pl = json.loads(get_task(db, tid)["payload"] or "{}"); pl["ship_on_accept"] = True
+        db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(pl), tid)); db.commit()
         try:
             import forge
             forge.start_in_background(tid)

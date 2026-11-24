@@ -82,7 +82,7 @@ for (const t of targets.web) {
       rec.measure = await page.evaluate(measure);
       Object.assign(rec.measure, await page.evaluate(vitals));
       await page.addScriptTag({ content: axeSource });
-      const axe = await page.evaluate(async () => { const r = await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice'] } }); return r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.length, sample: v.nodes[0]?.target?.join(' ').slice(0, 80) })); });
+      const axe = await page.evaluate(async () => { const r = await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice'] } }); return r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.length, sample: v.nodes[0]?.target?.join(' ').slice(0, 80), details: v.id === 'color-contrast' ? v.nodes.slice(0, 4).map((n) => ({ fg: n.any?.[0]?.data?.fgColor, bg: n.any?.[0]?.data?.bgColor, ratio: n.any?.[0]?.data?.contrastRatio, target: n.target.join(' ').slice(0, 60) })) : undefined })); });
       rec.axe = axe;
       rec.consoleErrors = consoleErrors.slice(0, 5); rec.failedRequests = failed.slice(0, 8);
       const shot = path.join('shots', `${slug(t.url)}-${w}.png`);

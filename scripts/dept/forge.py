@@ -7,6 +7,7 @@ release() is a separate, human action: drift check against production, deploy th
 Hard limits: at most MAX_FILES files and MAX_LINES changed lines; forbidden areas (money, auth, tenant, migrations, secrets, vendor code) are refused
 and left for a human-led build; one build at a time; every step is an Ada state transition by the right actor (Forge never verifies itself)."""
 import datetime, json, os, re, shutil, subprocess, sys, time
+import ship
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
@@ -208,6 +209,10 @@ def build(ada, db, tid, runner=run, checker=independent_checks):
             ada.transition(db, tid, "verified", "guardian", "independent code checks passed: " + "; ".join(lines_out))
             ada.transition(db, tid, "awaiting_release_approval", "ada", "built, verified by code checks; live acceptance criteria are measured after release")
             msg = "built and verified: %s" % branch
+            result["verification"] = lines_out
+            db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(result), tid)); db.commit()
+            msg += auto_ship(ada, db, tid, t, payload, wt, files, runner)
+            result = json.loads(ada.get_task(db, tid)["result"] or "{}")
         else:
             ada.transition(db, tid, "verification_failed", "guardian", "; ".join(lines_out))
             ada.transition(db, tid, "blocked", "ada", "Guardian's checks failed: " + "; ".join(l for l in lines_out if "FAILED" in l or "NOT RUN" in l)[:300])
@@ -225,7 +230,7 @@ def build(ada, db, tid, runner=run, checker=independent_checks):
     return msg
 
 
-def release(ada, db, tid, tty, runner=run):
+def release(ada, db, tid, tty, runner=run, via="the owner"):
     """The human's go-live: drift check, deploy through the gated scripts file by file, OPcache reset, then Guardian re-measures the live pages."""
     if not tty:
         raise ada.Refused("release needs you at a terminal or the authenticated dashboard")
@@ -236,7 +241,8 @@ def release(ada, db, tid, tty, runner=run):
     wt, files = res.get("worktree"), res.get("files", [])
     if not wt or not os.path.isdir(wt):
         raise ada.Refused("the build worktree is gone; rebuild it")
-    log = []
+    log, olds = [], {}
+    payload = json.loads(t["payload"] or "{}")
     for f in files:                                                    # 1. production must still match feature/language for every file we touch
         if not f.startswith(("public/", "app/")):
             raise ada.Refused("%s is not a deployable path" % f)
@@ -246,6 +252,9 @@ def release(ada, db, tid, tty, runner=run):
         live = open(m.group(1), "rb").read() if (rc == 0 and m and os.path.exists(m.group(1))) else None
         if os.environ.get("FORGE_SKIP_DRIFT") != "1" and live is not None and live != base:
             raise ada.Refused("production differs from feature/language for %s; sync it first (prod-pull --into-repo) and rebuild" % f)
+        olds[f] = live                                                 # what to put back if the live check fails (None: a new file)
+    pages = ship.page_urls(files, payload)
+    before = ship.capture(tid, "before", pages)                        # the live pages as they are, just before the change goes up
     for f in files:                                                    # 2. deploy through the gate (merges, tests, pushes, then uploads one file)
         rc, out = runner(["bash", "scripts/deploy-file.sh", f], cwd=wt, timeout=1800)
         log.append("%s: %s" % (f, "deployed" if rc == 0 else "FAILED " + out[-200:]))
@@ -255,15 +264,54 @@ def release(ada, db, tid, tty, runner=run):
     snippet = os.path.join(builds_dir(), "opcache-%d.php" % tid)       # 3. clear OPcache for the uploaded files
     open(snippet, "w").write("".join('opcache_invalidate((defined("%s") ? %s : "") . "%s", true);\n' % (("PUBLIC_ROOT", "PUBLIC_ROOT", "/" + f[7:]) if f.startswith("public/") else ("APP_ROOT", "APP_ROOT", "/" + f[4:])) for f in files) + '$out["opcache"] = "invalidated";')
     runner(["bash", "scripts/prod-run.sh", snippet, "--commit"], cwd=wt, timeout=300)
-    ada.transition(db, tid, "released", "tim", "released by the owner: " + "; ".join(log))
+    ada.transition(db, tid, "released", "tim", "released by %s: " % via + "; ".join(log))
     ada.transition(db, tid, "measuring_outcomes", "ada", "Guardian re-measures the live pages against the acceptance criteria")
     res["released"] = ada.now(); res["release_log"] = log
+    time.sleep(float(os.environ.get("FORGE_LIVE_WAIT", "3")))
+    after = ship.capture(tid, "after", pages)                          # 4. the live pages again: must load fully and not get worse
+    ok, lines = ship.live_check(before, after)
+    res["visuals"] = {"pages": [p["url"] for p in pages], "before": before, "after": after, "compare": ship.compare(before, after), "checks": lines, "ok": ok}
+    if not ok:
+        log.append("LIVE CHECK FAILED: " + "; ".join(lines)[:300])
+        restored = ship.rollback(wt, files, olds, runner, log)
+        res["rolled_back"] = True; res["release_log"] = log
+        ada.transition(db, tid, "blocked", "ada", "the live check failed after release, so the previous files were put back" + ("" if restored else " (a new file needs removing by hand)") + ": " + "; ".join(lines)[:250])
+        db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(res), tid)); db.commit()
+        return log
     db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(res), tid)); db.commit()
     try:
-        ada.guardian_worker({"id": 0}, db)                             # 4. fresh live measurement; fixed findings close themselves
+        ada.guardian_worker({"id": 0}, db)                             # 5. fresh live measurement; fixed findings close themselves
     except Exception as e:  # noqa: BLE001
         log.append("post-release measurement failed: %s" % e)
     return log
+
+
+def auto_ship(ada, db, tid, t, payload, wt, files, runner):
+    """Accept means ship: after the checks pass, review the diff and release it, unless something needs the owner. Returns text appended to the build outcome."""
+    if not payload.get("ship_on_accept") or os.environ.get("FORGE_AUTOSHIP", "1") == "0":
+        return ""
+    res = json.loads(ada.get_task(db, tid)["result"] or "{}")
+
+    def keep(held):
+        res["held"] = held
+        db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(res), tid)); db.commit()
+        return "; held for your Release click: " + held
+    res["visuals"] = {"pages": [p["url"] for p in ship.page_urls(files, payload)]}
+    hold = ship.hold_reason(files)
+    rv = ship.review(wt, t["title"], files, runner)
+    res["review"] = rv
+    res["review_verdict"] = ("reviewed: " + rv["summary"]) if rv["ok"] else ("review: " + rv["summary"] + "".join("; %s:%s %s" % (d.get("file"), d.get("line"), d.get("what")) for d in rv["defects"][:3]))
+    if hold:
+        return keep(hold)
+    if rv["ok"] is not True:
+        return keep("the independent review " + ("found problems" if rv["ok"] is False else "could not run") + ": " + rv["summary"][:200])
+    db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(res), tid)); db.commit()
+    try:
+        log = release(ada, db, tid, True, runner, via="the owner's Accept")
+        return "; released: " + ("rolled back after a failed live check" if any("LIVE CHECK FAILED" in l for l in log) else "live and confirmed")
+    except ada.Refused as e:
+        res = json.loads(ada.get_task(db, tid)["result"] or "{}")
+        return keep("could not release automatically: " + str(e)[:200])
 
 
 def start_in_background(tid):

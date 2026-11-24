@@ -17,7 +17,7 @@ def git(cwd, *a):
 class Forge(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); t = self.tmp.name
-        os.environ.update(DEPT_HOME=os.path.join(t, "d"), SENTINEL_HOME=os.path.join(t, "s"), GUARDIAN_HOME=os.path.join(t, "g"), FORGE_AUTOSTART="0",
+        os.environ.update(DEPT_HOME=os.path.join(t, "d"), SENTINEL_HOME=os.path.join(t, "s"), GUARDIAN_HOME=os.path.join(t, "g"), FORGE_AUTOSTART="0", FORGE_VISUALS="0", FORGE_LIVE_WAIT="0", FORGE_AUTOSHIP="0",
                           FORGE_OUT_DIR=os.path.join(t, "out"), ADA_REPO_ROOT=os.path.join(t, "repo"))
         fx = os.path.join(t, "m.json"); json.dump({"results": [], "site": {}}, open(fx, "w")); os.environ["GUARDIAN_STANDIN_METRICS"] = fx
         origin, repo = os.path.join(t, "origin.git"), os.path.join(t, "repo")
@@ -41,7 +41,7 @@ class Forge(unittest.TestCase):
 
     def tearDown(self):
         subprocess.run(["git", "-C", self.repo, "worktree", "prune"], capture_output=True)
-        for k in ("FORGE_BUILD_SCRIPT", "FAKE_DIFF", "FAKE_RC", "FORGE_AUTOSTART", "FORGE_OUT_DIR", "ADA_REPO_ROOT", "GUARDIAN_STANDIN_METRICS", "GUARDIAN_HOME"):
+        for k in ("FORGE_VISUALS", "FORGE_LIVE_WAIT", "FORGE_AUTOSHIP", "FORGE_BUILD_SCRIPT", "FAKE_DIFF", "FAKE_RC", "FORGE_AUTOSTART", "FORGE_OUT_DIR", "ADA_REPO_ROOT", "GUARDIAN_STANDIN_METRICS", "GUARDIAN_HOME"):
             os.environ.pop(k, None)
         self.tmp.cleanup()
 

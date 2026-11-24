@@ -4,7 +4,7 @@ Read-only on purpose. Approving, rejecting and releasing stay in a terminal (`ad
 terminal, can approve" cannot be bypassed by a web page; the dashboard shows each decision with its exact command and a copy button.
 No server, no network requests, no external fonts or scripts. Everything that came from an agent or a web page is HTML-escaped.
 Written to ~/.mowology-dept/dashboard/index.html after every cycle, briefing and decision; open with `ada dashboard --open`."""
-import datetime, html, importlib.util, json, os, urllib.parse
+import datetime, html, importlib.util, json, os, re, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
@@ -100,11 +100,63 @@ def _buildable(ada, t, payload):
     try:
         import forge
         scope = forge.scope_from(payload, forge.repo_root())
-        return "Accept starts a build on: %s. It is never deployed until you press Release." % ", ".join(scope[:3])
+        import ship
+        hold = ship.hold_reason(scope)
+        return ("Accept builds, tests, reviews and deploys: %s, then checks the live page and puts the old file back if it fails." % ", ".join(scope[:3])) if not hold else ("Accept builds and checks %s, then holds it for your Release click (%s)." % (", ".join(scope[:3]), hold))
     except Exception as e:  # forge.Stop: no file named / forbidden area; anything else: say nothing rather than guess
         if e.__class__.__name__ == "Stop":
             return "Accept records your decision and puts it on the backlog; it will not build by itself (%s)." % str(e)[:160]
         return ""
+
+
+def _swatch(c):
+    c = (c or "").strip()
+    return "<span class='sw' style='background:%s' title='%s'></span>" % (E(c) if re.match(r"^#[0-9a-fA-F]{3,8}$", c) else "transparent", E(c))
+
+
+def _bar(label, b, a, lower_better=True, unit=""):
+    """Two thin bars on one scale: before (grey) and after (green when better, red when worse)."""
+    if b is None and a is None:
+        return ""
+    b, a = float(b or 0), float(a or 0)
+    if b == 0 and a == 0:                                  # nothing to compare: say so in words instead of drawing an empty-looking bar
+        return "<div class='bar'><span class='bl'>%s</span><span class='bv'>none before or after</span></div>" % E(label)
+    top = max(b, a, 0.0001)
+    better = (a <= b) if lower_better else (a >= b)
+    return ("<div class='bar'><span class='bl'>%s</span><span class='bt'><i class='bb' style='width:%d%%'></i><i class='ba %s' style='width:%d%%'></i></span>"
+            "<span class='bv'>%s%s &rarr; %s%s</span></div>") % (E(label), round(100 * b / top), "good" if better else "bad", round(100 * a / top), E(("%g" % b)), unit, E(("%g" % a)), unit)
+
+
+def _visuals(tid, res, interactive):
+    """What the change did to the live pages: pictures, colours, numbers and the checks, so nothing has to be taken on trust."""
+    v = res.get("visuals") or {}
+    out = []
+    checks = list(res.get("verification", []))
+    rv = res.get("review")
+    if rv:
+        checks.append("independent review: " + (rv.get("summary") or ("ok" if rv.get("ok") else "")))
+    checks += v.get("checks", [])
+    if checks:
+        out.append("<ul class='chk'>%s</ul>" % "".join("<li class='%s'>%s %s</li>" % ("bad" if re.search(r"FAILED|NOT RUN|problems|could not", c) else "good", ICON["P1"] if re.search(r"FAILED|NOT RUN|problems|could not", c) else ICON["ok"], E(c[:240])) for c in checks))
+    if res.get("held"):
+        out.append("<p class='held'>%s Held for you: %s</p>" % (ICON["P2"], E(res["held"])))
+    if res.get("rolled_back"):
+        out.append("<p class='held'>%s Rolled back automatically: the previous files are live again.</p>" % ICON["P1"])
+    for r in v.get("compare", []):
+        b, a = r["before"], r["after"]
+        shots = ""
+        if interactive:
+            for lab, ph, o in (("Before", "before", b), ("After", "after", a)):
+                if o.get("shot"):
+                    shots += "<figure><img loading='lazy' src='/visual/%d/%s/%s' alt='%s %s at %dpx'><figcaption>%s</figcaption></figure>" % (tid, ph, E(o["shot"]), lab, E(r["page"]), r["width"], lab)
+        sw = ""
+        for cb, ca in zip(r.get("contrast_before") or [], r.get("contrast_after") or []):
+            sw += "<div class='cc'>%s%s %s &rarr; %s%s %s <span class='meta'>%s</span></div>" % (_swatch(cb.get("fg")), _swatch(cb.get("bg")), E(str(cb.get("ratio"))), _swatch(ca.get("fg")), _swatch(ca.get("bg")), E(str(ca.get("ratio"))), E(ca.get("target") or ""))
+        bars = _bar("weight KB", b.get("transfer_kb"), a.get("transfer_kb"), True) + _bar("layout shift", b.get("cls"), a.get("cls"), True) + _bar("small tap targets", b.get("small_targets"), a.get("small_targets"), True) + _bar("serious accessibility issues", b.get("axe_serious"), a.get("axe_serious"), True)
+        out.append("<div class='vis'><b>%s</b> <span class='meta'>%dpx</span><div class='shots'>%s</div>%s%s</div>" % (E(r["page"]), r["width"], shots, sw, bars))
+    if not v.get("compare") and v.get("pages"):
+        out.append("<p class='meta'>Pages measured: %s. Pictures appear once the change is live.</p>" % E(", ".join(v["pages"])))
+    return "".join(out)
 
 
 def _controls(tid, actions, interactive, cmds):
@@ -148,7 +200,7 @@ def render(ada, db, interactive=False):
             need.append("<li><b>%s Built and checked: #%d %s</b><br><span class='meta'>Branch %s · %s file(s), %s changed line(s) · not deployed</span><br><span class='meta'>%s</span><br><span class='meta'>Reviewer: %s</span><br>%s</li>" % (
                 ICON["ok"], t["id"], E(t["title"]), E(res.get("branch", "?")), len(res.get("files", [])), E(str(res.get("lines", "?"))), E(" · ".join(res.get("verification", []))[:400]),
                 E((res.get("review_verdict") or "")[:200].replace("\n", " ")),
-                _controls(t["id"], ["release"], interactive, ['ada release %d' % t["id"]]) + "<span class='meta'> Release checks production for drift, deploys file by file through the gate, then re-measures the live page.</span>"))
+                _visuals(t["id"], res, interactive) + _controls(t["id"], ["release"], interactive, ['ada release %d' % t["id"]]) + "<span class='meta'> Release checks production for drift, deploys file by file through the gate, then re-measures the live page.</span>"))
             continue
         need.append("<li class='%s'><b>%s #%d %s</b> <span class='meta'>%s · %s</span><br><span class='meta'>%s</span><br>%s</li>" % (
             "crit" if crit else "", ICON["P1"] if crit else ICON["P2"], t["id"], E(t["title"]), E(t["agent"]), E(t["risk"] + " risk"),
@@ -161,6 +213,16 @@ def render(ada, db, interactive=False):
     for t in q("SELECT * FROM tasks WHERE state='blocked' ORDER BY id"):
         need.append("<li><b>%s Blocked #%d %s</b><br><span class='meta'>%s</span> %s</li>" % (ICON["P1"], t["id"], E(t["title"]), E((t["blocked_reason"] or "")[:300]), _controls(t["id"], ["unblock"], interactive, ['ada unblock %d --reason "…"' % t["id"]])))
     S.append("<section><h2>Needs you</h2>%s</section>" % ("<ul class='need'>%s</ul>" % "".join(need) if need else "<p class='meta'>%s Nothing is waiting for you.</p>" % ICON["ok"]))
+
+    # ---- Shipped: what went live, with its proof
+    shipped = []
+    for t in q("SELECT * FROM tasks WHERE kind='improvement' AND (state IN ('released','measuring_outcomes','completed') OR (state='blocked' AND result LIKE '%rolled_back%')) ORDER BY updated_at DESC LIMIT 6"):
+        res = json.loads(t["result"] or "{}")
+        ok = (res.get("visuals") or {}).get("ok")
+        shipped.append("<li><b>%s #%d %s</b> <span class='meta'>%s · %s</span>%s</li>" % (ICON["ok"] if ok is not False else ICON["P1"], t["id"], E(t["title"]), E((res.get("released") or t["updated_at"] or "")[:16]),
+                                                                                       "rolled back" if res.get("rolled_back") else "live, confirmed" if ok else "live", _visuals(t["id"], res, interactive)))
+    if shipped:
+        S.append("<section><h2>Shipped <span class='meta'>live, with before and after</span></h2><ul class='need'>%s</ul></section>" % "".join(shipped))
 
     # ---- Guardian
     rows = q("SELECT * FROM findings WHERE status='open' ORDER BY severity, first_seen")
@@ -252,6 +314,11 @@ def _spark(vals):
 
 
 CSS = """
+.vis{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}.shots{display:flex;gap:12px;flex-wrap:wrap}.shots figure{margin:0;max-width:46%}.shots img{max-width:100%;border:1px solid var(--line);border-radius:8px}.shots figcaption{font-size:13px}
+.sw{display:inline-block;width:18px;height:18px;border:1px solid var(--line);border-radius:4px;vertical-align:middle;margin-right:2px}.cc{margin:4px 0}
+.bar{display:flex;gap:8px;align-items:center;margin:3px 0;font-size:13px}.bl{width:170px}.bt{flex:1;max-width:260px;display:flex;flex-direction:column;gap:2px}.bt i{display:block;height:6px;border-radius:3px}.bb{background:#9aa0a6}.ba.good{background:var(--status-complete)}.ba.bad{background:var(--status-blocked)}
+.chk{list-style:none;padding:0;margin:6px 0}.chk li{font-size:14px}.chk li.bad{color:var(--status-blocked)}.held{color:var(--status-attention)}
+
 *{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--text);font:16px/1.55 Inter,system-ui,-apple-system,sans-serif}
 main{max-width:1080px;margin:0 auto;padding:32px 20px 80px}
 h1{font-size:28px;font-weight:600;margin:0 0 4px}h2{font-size:20px;font-weight:600;margin:0 0 12px}h3{font-size:16px;font-weight:600;margin:16px 0 8px}

@@ -6,7 +6,7 @@ click Accept. Controls: binds 127.0.0.1 on a random port; a one-time secret exis
 127.0.0.1/localhost:port (DNS-rebinding); POSTs need Origin = this server and a JSON body with a custom header (so no cross-site form can send one);
 a reason is mandatory; every decision is logged with 'via dashboard'; the server stops after 30 idle minutes or on Ctrl-C.
 It calls the same human_decision()/unblock() the terminal commands call, so all engine rules (legal moves, Sentinel ledger sync) still apply."""
-import http.server, json, os, secrets, socketserver, sys, threading, time, urllib.parse
+import http.server, json, os, re, secrets, socketserver, sys, threading, time, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_BODY = 4096
@@ -37,7 +37,7 @@ def make_server(ada, dashboard, idle_minutes=30, port=0):
             self.send_response(code)
             self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(b)))
             self.send_header("Cache-Control", "no-store"); self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
+            self.send_header("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
             for k, v in extra:
                 self.send_header(k, v)
             self.end_headers(); self.wfile.write(b)
@@ -52,6 +52,14 @@ def make_server(ada, dashboard, idle_minutes=30, port=0):
                 return self._send(302, "", extra=[("Location", "/"), ("Set-Cookie", "dept=%s; HttpOnly; SameSite=Strict; Path=/" % token)])
             if not self._cookie_ok():
                 return self._send(403, "Open this page with `ada dashboard --serve` (it carries a one-time secret).")
+            m = re.match(r"^/visual/(\d+)/(before|after)/([A-Za-z0-9._-]+\.png)$", u.path)
+            if m:                                   # only the saved before/after screenshots, nothing else on this Mac
+                import ship
+                root = os.path.realpath(ship.visuals_root())
+                f = os.path.realpath(os.path.join(root, m.group(1), m.group(2), "shots", m.group(3)))
+                if f.startswith(root + os.sep) and os.path.isfile(f):
+                    return self._send(200, open(f, "rb").read(), "image/png")
+                return self._send(404, "not found")
             if u.path != "/":
                 return self._send(404, "not found")
             db = ada.connect()
