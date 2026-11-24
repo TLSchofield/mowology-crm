@@ -124,6 +124,9 @@ enum APIEndpoint {
     /// Same OCR as a receipt but never an expense: Penny or Otto proposes it on the web.
     case labelUpload
 
+    /// POST /api/expenses/label-accept — "Add it" on a product label photo (JWT, expenses.edit).
+    case labelAccept
+
     /// GET /api/team/equipment-mobile?mode=options — Otto's Add equipment choices (JWT).
     case equipmentOptions
 
@@ -459,6 +462,9 @@ enum APIEndpoint {
 
         case .labelUpload:
             return URL(string: "\(baseURLString)/expenses/label-upload")
+
+        case .labelAccept:
+            return URL(string: "\(baseURLString)/expenses/label-accept")
 
         case .equipmentOptions:
             return URL(string: "\(baseURLString)/team/equipment-mobile?mode=options")
@@ -803,6 +809,7 @@ enum APIEndpoint {
              .scheduleQuotes,
              .receiptUpload,
              .labelUpload,
+             .labelAccept,
              .equipmentOptions,
              .equipmentList,
              .equipmentAction,
@@ -914,6 +921,7 @@ enum APIEndpoint {
              .powGpsSync,
              .receiptUpload,
              .labelUpload,
+             .labelAccept,
              .equipmentAction,
              .expenseSave,
              .expenseUpdate,

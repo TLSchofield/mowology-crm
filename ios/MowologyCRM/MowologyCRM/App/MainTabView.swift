@@ -405,6 +405,14 @@ struct MainTabView: View {
     /// bar switches there and asks it to open — no new root-level sheet (those blocked other sheets, 2026-10-08).
     private func add(_ item: AddDialItem) {
         addOpen = false
+        if item == .product {
+            // Products are added from a photo, and the photo machinery lives on Receipts: bring it forward, then ask.
+            selectedTab = .receipts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                NotificationCenter.default.post(name: .mwAddProductOnReceipts, object: nil)
+            }
+            return
+        }
         selectedTab = .schedule
         // After the switch lands, so the sheet presents from a Schedule that is on screen.
         DispatchQueue.main.async {
@@ -630,6 +638,8 @@ extension Notification.Name {
     /// Otto's "Snap a product label": MainTabView brings Receipts forward, then posts `mwSnapLabelOnReceipts`.
     static let mwSnapLabel = Notification.Name("ca.mowology.snapLabel")
     static let mwSnapLabelOnReceipts = Notification.Name("ca.mowology.snapLabelOnReceipts")
+    /// "Product" was picked from the Add dial: MainTabView brings Receipts forward, then ReceiptsView asks camera or library.
+    static let mwAddProductOnReceipts = Notification.Name("ca.mowology.addProductOnReceipts")
     /// The welcome card's button (userInfo `entry`: "books" or "work"): the receipt camera, or Add a job.
     static let mwKanameWelcomeAction = Notification.Name("ca.mowology.kanameWelcomeAction")
     static let mwKanameHome = Notification.Name("ca.mowology.kanameHome")
