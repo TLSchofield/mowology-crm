@@ -805,3 +805,6 @@ Nigel had to open the Trip report from the Kaname tab (More-type page, `day/DayS
 
 ## Measure → materials → quote line (Tim's AreaMap screenshots, 2026-11-23)
 Measure a shape once, get what to order (mulch yd³/bags, gravel tons, fertilizer bags by N per 1,000 ft², seed, lime, sod, fence), add it to the quote with one tap, and show the measured shape on the quote PDF. Rates per product are **private** to a tenant; the maths and the one-screen phone UI are **shared**. Full plan and audit: `docs/plans/2026-11-23-measure-to-materials.md`. AreaMap's US county property-line overlay has no BC source, so it is skipped.
+
+## Invoice insight panels on iPhone and Android (Tim, 2026-11-24)
+Web Invoices page now has four insight panels (predicted cash, who holds your money, money in vs last year, days to get paid; `InvoiceInsightsService`). Same panels owed on native iPhone and Android. Also possible: cache `CashFlowForecastService::forecast()` for the page (adds ~300 ms), and the slowest-payer call-out dropped from this round.
