@@ -1,0 +1,31 @@
+{
+  "_about": "The department map. status: live (runs nightly) | built-off (built and tested, not scheduled until the owner switches it on) | dormant (defined, wakes on the owner's command) | planned (spec only; `scripts/dept/scaffold.py <name>` builds the skeleton) | external (not an Ada agent). Ada refuses to queue work for planned agents. Autonomy levels live in the permission register in dept.db, never here.",
+  "agents": {
+    "ada":       {"department": "ada", "status": "live", "kind": "engine", "role": "Orchestration: queue, state machine, permissions, briefing", "spec": "scripts/dept/README.md"},
+    "sentinel":  {"department": "ada", "status": "live-needs-signin", "kind": "model", "role": "Product opportunities from rendered pages and code", "spec": "scripts/sentinel/README.md"},
+    "guardian":  {"department": "ada", "status": "live", "kind": "script", "role": "Deterministic verification: rules ratchet, page audit, findings", "spec": "scripts/guardian/README.md",
+                  "next": "docs/department/specs/guardian-roadmap.md"},
+    "atlas":     {"department": "shared", "status": "live-partial", "kind": "script", "role": "Lesson capture (live); evaluation lab and knowledge hygiene (planned)", "spec": "docs/department/specs/atlas.md",
+                  "build_trigger": "Sentinel or any agent has 4+ weeks of ledger history, or an agent's instructions need a change you want tested before adopting"},
+    "artisan":   {"department": "ada", "status": "planned", "kind": "model", "role": "Design solutions: concepts, prototypes, token proposals", "spec": "docs/department/specs/artisan.md",
+                  "build_trigger": "Three or more accepted Sentinel/Guardian UX findings on one surface, or you ask for a design round the Codex studio cannot do alone",
+                  "reuses": ["ittai-design-studio skill", "scripts/codex-design.sh", "docs/design/ittai-v1.2"]},
+    "forge":     {"department": "ada", "status": "planned", "kind": "model", "role": "Implements approved changes in isolated branches; never merges or deploys", "spec": "docs/department/specs/forge.md",
+                  "build_trigger": "Guardian has run 30 nights with a false-positive rate you accept AND you have approved 5+ findings that were then fixed by hand",
+                  "reuses": ["scripts/codex-web-build.sh", "web-builder agent", "scripts/merge-to-feature.sh", "Guardian rules ratchet"]},
+    "empath":    {"department": "ada", "status": "planned", "kind": "lens", "role": "Customer-experience research; challenges friction and pressure", "spec": "docs/department/specs/empath.md",
+                  "build_trigger": "First 3 real customers using the product, or analytics/feedback you authorise exist"},
+    "oracle":    {"department": "ada", "status": "planned", "kind": "unspecified", "role": "Future possibilities (named in two specs, never specified)", "spec": "docs/department/specs/oracle.md",
+                  "build_trigger": "You write its brief"},
+    "apollo":    {"department": "apollo", "status": "built-off", "kind": "model", "role": "Commercial director", "spec": "docs/commercial/ARCHITECTURE.md"},
+    "mercury":   {"department": "apollo", "status": "built-off", "kind": "model", "role": "SEO and conversion", "spec": "docs/commercial/ARCHITECTURE.md"},
+    "hunter":    {"department": "apollo", "status": "built-off", "kind": "model", "role": "Prospect research", "spec": "docs/commercial/ARCHITECTURE.md"},
+    "scribe":    {"department": "apollo", "status": "built-off", "kind": "model", "role": "Commercial copy drafts", "spec": "docs/commercial/ARCHITECTURE.md"},
+    "closer":    {"department": "apollo", "status": "built-off", "kind": "model", "role": "Discovery and demo plans", "spec": "docs/commercial/ARCHITECTURE.md"},
+    "compass":   {"department": "apollo", "status": "built-off", "kind": "model", "role": "Market and competitor research", "spec": "docs/commercial/ARCHITECTURE.md"},
+    "beacon":    {"department": "apollo", "status": "dormant", "kind": "model", "role": "Brand, content, distribution", "spec": "docs/commercial/ARCHITECTURE.md", "wake": "ada activate beacon"},
+    "ambassador":{"department": "apollo", "status": "dormant", "kind": "model", "role": "Customer success and referrals", "spec": "docs/commercial/ARCHITECTURE.md", "wake": "ada activate ambassador"},
+    "design-studio": {"department": "ada", "status": "external", "kind": "codex", "role": "Codex (ChatGPT plan) builds HTML/CSS/SVG design rounds; Claude art-directs", "spec": ".claude/skills/ittai-design-studio/SKILL.md"}
+  },
+  "live_states": ["live", "live-needs-signin", "live-partial", "built-off", "dormant", "external", "engine"]
+}

@@ -46,7 +46,7 @@ class Base(unittest.TestCase):
 
 class StateMachine(Base):
     def new(self, state="discovered", agent="forge", kind="improvement", key="k1"):
-        return self.ada.add_task(self.db, key, "t", kind, agent, state=state)[0]
+        return self.ada.add_task(self.db, key, "t", kind, agent, state=state, actor="tim")[0]   # the owner may pre-queue; used here to exercise the state machine with a not-yet-built agent
 
     def test_illegal_and_unauthorised_moves_refused(self):
         tid = self.new("proposed", "sentinel")
@@ -99,7 +99,7 @@ class StateMachine(Base):
 
     def test_dependencies_are_respected(self):
         a = self.new(key="a", state="approved")
-        b = self.ada.add_task(self.db, "b", "t", "improvement", "forge", state="approved", depends_on=[a])[0]
+        b = self.ada.add_task(self.db, "b", "t", "improvement", "forge", state="approved", depends_on=[a], actor="tim")[0]
         with self.assertRaises(self.ada.Refused):
             self.ada.transition(self.db, b, "implementing", "forge")
         self.db.execute("UPDATE tasks SET state='completed' WHERE id=?", (a,)); self.db.commit()

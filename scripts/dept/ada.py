@@ -179,12 +179,22 @@ def add_task(db, dedupe_key, title, kind, agent, state="discovered", risk="low",
     row = db.execute("SELECT id FROM tasks WHERE dedupe_key=?", (dedupe_key,)).fetchone()
     if row:
         return row["id"], False
+    entry = roster().get(agent)
+    if entry and entry.get("status") == "planned" and actor != "tim":
+        raise Refused("%s is planned, not built. Build trigger: %s. Build it with: python3 scripts/dept/scaffold.py %s" % (agent, entry.get("build_trigger", "not defined"), agent))
     t = now()
     cur = db.execute("INSERT INTO tasks(dedupe_key,title,kind,agent,department,state,risk,category,priority_score,rationale,depends_on,payload,source_ref,max_attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (dedupe_key, title, kind, agent, dept_of(agent), state, risk, category, score, rationale, json.dumps(list(depends_on)), json.dumps(payload or {}), source_ref, MAX_ATTEMPTS, t, t))
     db.execute("INSERT INTO transitions(task_id,from_state,to_state,actor,reason,at) VALUES(?,?,?,?,?,?)", (cur.lastrowid, None, state, actor, "created", t))
     db.commit()
     return cur.lastrowid, True
+
+
+def roster():
+    try:
+        return json.load(open(os.path.join(HERE, "roster.json")))["agents"]
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
 def get_task(db, tid):
@@ -647,7 +657,7 @@ def main(argv=None):
     p = sub.add_parser("verify-capability"); p.add_argument("name"); p.add_argument("--note", default="")
     p = sub.add_parser("activate"); p.add_argument("agent", choices=["beacon", "ambassador"])
     p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
-    sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial")
+    sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
     a = ap.parse_args(argv)
     db = connect(); seed_permissions(db)
@@ -705,6 +715,9 @@ def main(argv=None):
         elif a.cmd == "demo-commercial":
             import tempfile, importlib
             os.execve(sys.executable, [sys.executable, os.path.join(HERE, "demo.py"), "--cli"], dict(os.environ, DEPT_HOME=os.path.join(HOME, ".mowology-dept-demo")))
+        elif a.cmd == "roster":
+            for n, r in roster().items():
+                print("%-14s %-10s %-18s %s%s" % (n, r["department"], r["status"], r["role"], ("\n%14s build when: %s" % ("", r["build_trigger"])) if r["status"] == "planned" and r.get("build_trigger") else ""))
         elif a.cmd == "pipeline":
             for o in db.execute("SELECT uid,stage,business_name,synthetic,next_action FROM opportunities ORDER BY id").fetchall():
                 print("%s %-30s %s%s  next: %s" % (o["uid"], o["stage"], o["business_name"], " [synthetic]" if o["synthetic"] else "", o["next_action"] or "-"))
