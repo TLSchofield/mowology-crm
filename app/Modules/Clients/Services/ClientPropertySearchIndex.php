@@ -50,14 +50,14 @@ class ClientPropertySearchIndex
         }
         $props = [];
         $sel = 'p.id' . ', ' . implode(', ', $nameCols);
-        foreach ($this->db->query("SELECT $sel FROM properties p")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        foreach ($this->q("SELECT $sel FROM properties p", PDO::FETCH_ASSOC) as $r) {
             $props[(int)$r['id']] = self::label($r);
         }
 
         $companyLinks = [];   // [propertyId, companyId]
         foreach (['company_id', 'property_manager_id', 'billing_company_id'] as $c) {
             if (isset($propCols[$c])) {
-                foreach ($this->db->query("SELECT id, `$c` FROM properties WHERE `$c` IS NOT NULL")->fetchAll(PDO::FETCH_NUM) as $r) {
+                foreach ($this->q("SELECT id, `$c` FROM properties WHERE `$c` IS NOT NULL", PDO::FETCH_NUM) as $r) {
                     $companyLinks[] = [(int)$r[0], (int)$r[1]];
                 }
             }
@@ -66,12 +66,12 @@ class ClientPropertySearchIndex
             $sql = "SELECT p.id, cl.legacy_company_id FROM properties p
                     INNER JOIN clients cl ON cl.id = p.client_id
                     WHERE cl.legacy_company_id IS NOT NULL";
-            foreach ($this->db->query($sql)->fetchAll(PDO::FETCH_NUM) as $r) {
+            foreach ($this->q($sql, PDO::FETCH_NUM) as $r) {
                 $companyLinks[] = [(int)$r[0], (int)$r[1]];
             }
         }
         if ($this->columns('company_properties')) {
-            foreach ($this->db->query("SELECT property_id, company_id FROM company_properties")->fetchAll(PDO::FETCH_NUM) as $r) {
+            foreach ($this->q("SELECT property_id, company_id FROM company_properties", PDO::FETCH_NUM) as $r) {
                 $companyLinks[] = [(int)$r[0], (int)$r[1]];
             }
         }
@@ -79,7 +79,7 @@ class ClientPropertySearchIndex
         $contactLinks = [];   // [propertyId, contactId]
         foreach (['site_contact_id', 'quote_contact_id'] as $c) {
             if (isset($propCols[$c])) {
-                foreach ($this->db->query("SELECT id, `$c` FROM properties WHERE `$c` IS NOT NULL")->fetchAll(PDO::FETCH_NUM) as $r) {
+                foreach ($this->q("SELECT id, `$c` FROM properties WHERE `$c` IS NOT NULL", PDO::FETCH_NUM) as $r) {
                     $contactLinks[] = [(int)$r[0], (int)$r[1]];
                 }
             }
@@ -88,7 +88,7 @@ class ClientPropertySearchIndex
         if ($pcCols) {
             $sql = "SELECT property_id, contact_id FROM property_contacts"
                  . (isset($pcCols['ended_on']) ? " WHERE ended_on IS NULL" : "");
-            foreach ($this->db->query($sql)->fetchAll(PDO::FETCH_NUM) as $r) {
+            foreach ($this->q($sql, PDO::FETCH_NUM) as $r) {
                 $contactLinks[] = [(int)$r[0], (int)$r[1]];
             }
         }
@@ -98,7 +98,7 @@ class ClientPropertySearchIndex
         $coCols = $this->columns('companies');
         foreach (['primary_contact_id', 'billing_contact_id'] as $c) {
             if (isset($coCols[$c])) {
-                foreach ($this->db->query("SELECT id, `$c` FROM companies WHERE `$c` IS NOT NULL")->fetchAll(PDO::FETCH_NUM) as $r) {
+                foreach ($this->q("SELECT id, `$c` FROM companies WHERE `$c` IS NOT NULL", PDO::FETCH_NUM) as $r) {
                     $companyContacts[] = [(int)$r[0], (int)$r[1]];
                 }
             }
@@ -162,12 +162,22 @@ class ClientPropertySearchIndex
         return implode(' — ', $parts);
     }
 
+    /** Run a static query; a missing column/table yields no rows instead of a fatal. @return array<int,array> */
+    private function q(string $sql, int $mode = PDO::FETCH_ASSOC): array
+    {
+        try {
+            return $this->db->query($sql)->fetchAll($mode);
+        } catch (PDOException $e) {
+            return [];
+        }
+    }
+
     /** @return array<string,bool> column name => true (empty if the table is missing) */
     private function columns(string $table): array
     {
         try {
             $out = [];
-            foreach ($this->db->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_COLUMN) as $c) {
+            foreach ($this->q("SHOW COLUMNS FROM `$table`", PDO::FETCH_COLUMN) as $c) {
                 $out[$c] = true;
             }
             return $out;

@@ -229,7 +229,7 @@
                   </div>
                   <div class="mw-kanban-cards" data-stage="<?php echo h($stage['stage_key']); ?>">
                     <?php foreach ($stagesData[$stage['stage_key']]['companies'] ?? [] as $company): ?>
-                      <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>">
+                      <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>" data-props="<?php echo $mwPropAttr('company', (int)$company['id']); ?>">
                         <a href="?action=view_company&id=<?php echo (int)$company['id']; ?>" class="mw-card-link">
                           <div class="mw-card-header">
                             <?php if (!empty($company['primary_contact_name'])): ?>
