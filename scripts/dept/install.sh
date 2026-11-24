@@ -13,7 +13,7 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 mkdir -p "$BIN/dept" "$BIN/sentinel/agent/agents" "$BIN/sentinel/agent/skills" "$D/briefings" "$LA"
 mkdir -p "$BIN/dept/demo" "$BIN/dept/agent-defs"
-cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/roster.json "$HERE"/dashboard.py "$HERE"/scaffold.py "$HERE"/ada "$BIN/dept/"
+cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/roster.json "$HERE"/dashboard.py "$HERE"/dashboard_server.py "$HERE"/scaffold.py "$HERE"/ada "$BIN/dept/"
 cp "$HERE"/demo/standin-claude.py "$BIN/dept/demo/"
 cp "$ROOT/docs/design/ittai-v1.2/tokens.css" "$BIN/dept/ittai-tokens.css"
 for a in apollo mercury hunter scribe beacon closer ambassador compass; do cp "$ROOT/.claude/agents/$a.md" "$BIN/dept/agent-defs/"; mkdir -p "$D/memory/$a"; [ -f "$D/memory/$a/README.md" ] || printf "# %s memory\nNotes the department keeps for this agent (shown to it each run). Edit freely; authoritative facts live in the shared knowledge store.\n" "$a" > "$D/memory/$a/README.md"; done

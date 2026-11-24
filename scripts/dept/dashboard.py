@@ -38,13 +38,31 @@ def _cmd(text):
     return '<code>%s</code> <button type="button" class="copy" data-cmd="%s">Copy</button>' % (E(text), E(text, quote=True))
 
 
+def _sentinel_controls(db, rid, interactive):
+    t = db.execute("SELECT id, state FROM tasks WHERE source_ref=?", (rid,)).fetchone()
+    if t and t["state"] == "awaiting_approval":
+        return _controls(t["id"], ["approve", "revise", "reject"], interactive, ['ada approve %d --reason "…"' % t["id"], 'ada reject %d --reason "…"' % t["id"]])
+    if t:
+        return "<span class='meta'>Task #%d is %s.</span>" % (t["id"], E(t["state"].replace("_", " ")))
+    return "<span class='meta'>Not in the queue yet: it is imported at the next cycle (`ada cycle`).</span>"
+
+
 def _table(headers, rows, empty="Nothing."):
     if not rows:
         return '<p class="meta">%s</p>' % E(empty)
     return "<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % ("".join("<th>%s</th>" % E(h) for h in headers), "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % c for c in r) for r in rows))
 
 
-def render(ada, db):
+def _controls(tid, actions, interactive, cmds):
+    """Served mode: a reason box + buttons (reason is required: the department learns from it). Static mode: the terminal commands."""
+    if not interactive:
+        return " ".join(_cmd(c) for c in cmds)
+    label = {"approve": "Accept", "reject": "Reject", "revise": "Revise", "unblock": "Unblock"}
+    return ("<form class='decide' data-id='%d' onsubmit='return false'><label class='meta'>Why? (required)<br><input type='text' name='reason' maxlength='300' required placeholder='one line the department can learn from'></label> %s <span class='result meta' role='status'></span></form>"
+            % (tid, " ".join("<button type='button' class='act %s' data-decision='%s'>%s</button>" % (a, a, label[a]) for a in actions)))
+
+
+def render(ada, db, interactive=False):
     C, AG = ada.C, ada.AG
     now = datetime.datetime.now().astimezone()
     why = ada.halted(db)
@@ -70,11 +88,11 @@ def render(ada, db):
         need.append("<li class='%s'><b>%s #%d %s</b> <span class='meta'>%s · %s</span><br><span class='meta'>%s</span><br>%s</li>" % (
             "crit" if crit else "", ICON["P1"] if crit else ICON["P2"], t["id"], E(t["title"]), E(t["agent"]), E(t["risk"] + " risk"),
             E((p.get("problem") or "")[:260] + ((" — " + (t["rationale"] or "")[:160]) if t["rationale"] else "")),
-            _cmd('ada approve %d --reason "…"' % t["id"]) + " " + _cmd('ada reject %d --reason "…"' % t["id"])))
+            _controls(t["id"], ["approve", "revise", "reject"], interactive, ['ada approve %d --reason "…"' % t["id"], 'ada reject %d --reason "…"' % t["id"]]) if t["state"] == "awaiting_approval" else "<span class='meta'>Release approval is not available here yet.</span>"))
     for r in q("SELECT o.uid, o.business_name, e.basis FROM eligibility e JOIN opportunities o ON o.id=e.opp_id WHERE e.status='proposed' AND o.stage NOT IN ('opted_out','disqualified')"):
-        need.append("<li><b>%s Confirm contact eligibility</b> %s (%s, proposed basis %s)<br>%s</li>" % (ICON["P2"], E(r["business_name"]), E(r["uid"]), E(r["basis"]), _cmd('ada confirm-eligibility %s --note "…"' % r["uid"])))
+        need.append("<li><b>%s Confirm contact eligibility</b> %s (%s, proposed basis %s)<br>%s</li>" % (ICON["P2"], E(r["business_name"]), E(r["uid"]), E(r["basis"]), _cmd('ada confirm-eligibility %s --note "…"' % r["uid"]) + (" <span class='meta'>(a legal call: terminal only)</span>" if interactive else "")))
     for t in q("SELECT * FROM tasks WHERE state='blocked' ORDER BY id"):
-        need.append("<li><b>%s Blocked #%d %s</b><br><span class='meta'>%s</span> %s</li>" % (ICON["P1"], t["id"], E(t["title"]), E((t["blocked_reason"] or "")[:300]), _cmd('ada unblock %d --reason "…"' % t["id"])))
+        need.append("<li><b>%s Blocked #%d %s</b><br><span class='meta'>%s</span> %s</li>" % (ICON["P1"], t["id"], E(t["title"]), E((t["blocked_reason"] or "")[:300]), _controls(t["id"], ["unblock"], interactive, ['ada unblock %d --reason "…"' % t["id"]])))
     S.append("<section><h2>Needs you</h2>%s</section>" % ("<ul class='need'>%s</ul>" % "".join(need) if need else "<p class='meta'>%s Nothing is waiting for you.</p>" % ICON["ok"]))
 
     # ---- Guardian
@@ -117,7 +135,7 @@ def render(ada, db):
                     s_html.append("<details><summary><b>%s</b> %s <span class='pill'>%s</span> <span class='meta'>score %s · effort %s · risk %s</span></summary><p><b>Problem.</b> %s</p><p><b>Proposal.</b> %s</p><p><b>Benefit.</b> %s</p><p><b>Acceptance.</b> %s</p>%s</details>" % (
                         E(r["id"]), E(r["title"]), E(st), E(str(r.get("priority_score"))), E(str((r.get("effort") or {}).get("size", "?"))), E((r.get("risk") or {}).get("level", "?")),
                         E(r.get("problem", "")), E(r.get("proposal", "")), E(r.get("benefit", "")), E("; ".join(r.get("acceptance", []))),
-                        _cmd('sentinel accept %s "why"' % r["id"]) + " " + _cmd('sentinel reject %s "why"' % r["id"])))
+                        _sentinel_controls(db, r["id"], interactive)))
                 if not rep.get("recommendations"):
                     s_html.append("<p class='meta'>No recommendation met the bar that day.</p>")
         else:
@@ -146,7 +164,7 @@ def render(ada, db):
     S.append("<section><h2>Briefings</h2><ul>%s</ul><p class='meta'>Subscription usage is not measurable from here; the run table shows runs and seconds only.</p></section>" % "".join("<li><a href='%s'>%s</a></li>" % (E(_file_url(os.path.join(bdir, f))), E(f)) for f in files))
 
     css = _tokens_css() + CSS
-    return "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta http-equiv='refresh' content='300'><title>Ittai department</title><style>%s</style></head><body><main>%s</main><script>%s</script></body></html>" % (css, "".join(S), JS)
+    return "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>%s<title>Ittai department</title><style>%s</style></head><body><main>%s</main><script>%s</script></body></html>" % ("" if interactive else "<meta http-equiv='refresh' content='300'>", css, "".join(S), JS + (ACT_JS if interactive else ""))
 
 
 def _spark(vals):
@@ -170,15 +188,25 @@ table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;font
 ul.need{list-style:none;padding:0;margin:0}ul.need li{padding:12px 0;border-bottom:1px solid var(--line)}ul.need li.crit{border-left:3px solid var(--status-blocked);padding-left:12px}
 code{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font:13px ui-monospace,Menlo,monospace;word-break:break-all}
 button.copy{min-height:44px;min-width:64px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
-button.copy:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+button.act{min-height:44px;min-width:88px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:15px;cursor:pointer;background:var(--surface);color:var(--text)}
+button.act.approve{background:var(--tenant);color:var(--on-tenant);border-color:var(--tenant);font-weight:600}
+form.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}form.decide input{min-height:44px;min-width:280px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
+button.copy:focus-visible,button.act:focus-visible,input:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 details{border-top:1px solid var(--line);padding:10px 0}summary{cursor:pointer;min-height:44px}a{color:var(--brand)}
 @media (max-width:600px){main{padding:16px 12px}section{padding:16px}}
 @media (prefers-reduced-motion:no-preference){section{transition:none}}
 """
+ACT_JS = """document.addEventListener('click',function(e){var b=e.target.closest('button.act');if(!b)return;var f=b.closest('form.decide');var r=f.querySelector('input[name=reason]');var out=f.querySelector('.result');
+if(!r.value.trim()){out.textContent='Please add a reason.';r.focus();return;}
+var d=b.getAttribute('data-decision');if(!confirm((d==='approve'?'Accept':d==='reject'?'Reject':d==='revise'?'Send back for revision':'Unblock')+' item #'+f.getAttribute('data-id')+'?'))return;
+f.querySelectorAll('button').forEach(function(x){x.disabled=true});out.textContent='Saving…';
+fetch('/api/decide',{method:'POST',headers:{'Content-Type':'application/json','X-Dept':'1'},credentials:'same-origin',body:JSON.stringify({id:+f.getAttribute('data-id'),decision:d,reason:r.value})})
+.then(function(x){return x.json().then(function(j){return [x.ok,j]})}).then(function(a){if(a[0]){out.textContent='Done — refreshing';setTimeout(function(){location.reload()},600)}else{out.textContent=a[1].error||'Failed';f.querySelectorAll('button').forEach(function(x){x.disabled=false})}})
+.catch(function(){out.textContent='Server stopped. Run: ada dashboard --serve';});});"""
 JS = "document.addEventListener('click',function(e){var b=e.target.closest('button.copy');if(!b)return;var t=b.getAttribute('data-cmd');(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied'},function(){b.textContent='Select + copy';});setTimeout(function(){b.textContent='Copy'},1500)});"
 
 
-def write(ada, db):
+def write(ada, db):  # static copy: commands only, no buttons
     out = os.path.join(ada.DEPT, "dashboard")
     os.makedirs(out, exist_ok=True)
     p = os.path.join(out, "index.html")

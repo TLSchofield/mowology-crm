@@ -257,6 +257,9 @@ def human_decision(db, tid, decision, reason, tty):
         raise Refused("a reason is required — the department learns from it")
     to = {"approve": "approved", "reject": "rejected", "revise": "proposed"}[decision]
     transition(db, tid, to, "tim", reason)
+    if decision == "revise":      # park it: prioritise() skips tasks waiting for a revision so it does not bounce straight back
+        p = json.loads(get_task(db, tid)["payload"] or "{}"); p["revision_requested"] = reason
+        db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(p), tid)); db.commit()
     t = get_task(db, tid)
     sen = os.path.join(HERE, "..", "sentinel", "sentinel.py")
     if t["source_ref"] and t["agent"] == "sentinel" and os.path.exists(sen):  # one shared decision history
@@ -270,9 +273,9 @@ def prioritise(db):
     whenever it arrived: a better proposal displaces a weaker one back to Proposed (the owner is never shown the weaker item just because it came first)."""
     moved = []
     crit = "category IN ('security','data-integrity','financial','reliability')"
-    for r in db.execute("SELECT id, rationale FROM tasks WHERE state='proposed' AND %s ORDER BY priority_score DESC, id" % crit).fetchall():
+    for r in db.execute("SELECT id, rationale FROM tasks WHERE state='proposed' AND payload NOT LIKE '%%\"revision_requested\"%%' AND %s ORDER BY priority_score DESC, id" % crit).fetchall():
         transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised"); moved.append(r["id"])
-    pool = db.execute("SELECT * FROM tasks WHERE state IN ('proposed','awaiting_approval') AND NOT %s ORDER BY priority_score DESC, id" % crit).fetchall()
+    pool = db.execute("SELECT * FROM tasks WHERE state IN ('proposed','awaiting_approval') AND payload NOT LIKE '%%\"revision_requested\"%%' AND NOT %s ORDER BY priority_score DESC, id" % crit).fetchall()
     for i, r in enumerate(pool):
         if i < 3 and r["state"] == "proposed":
             transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised"); moved.append(r["id"])
@@ -675,7 +678,7 @@ def main(argv=None):
     p = sub.add_parser("activate"); p.add_argument("agent", choices=["beacon", "ambassador"])
     p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
     sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
-    p = sub.add_parser("dashboard"); p.add_argument("--open", action="store_true")
+    p = sub.add_parser("dashboard"); p.add_argument("--open", action="store_true"); p.add_argument("--serve", action="store_true")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
     a = ap.parse_args(argv)
     db = connect(); seed_permissions(db)
@@ -697,6 +700,10 @@ def main(argv=None):
         elif a.cmd == "briefing":
             print(write_briefing(db, datetime.date.today().isoformat())); refresh_dashboard(db)
         elif a.cmd == "dashboard":
+            if a.serve:
+                import types, dashboard, dashboard_server
+                dashboard_server.run(types.SimpleNamespace(**globals()), dashboard)
+                return 0
             path = refresh_dashboard(db); print(path)
             if a.open and path:
                 subprocess.run(["open", path])
