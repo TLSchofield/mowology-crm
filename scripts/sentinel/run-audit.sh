@@ -84,6 +84,7 @@ else ASK="Run the WEEKLY audit ($DATE): a deeper pass, up to 10 ranked recommend
 PROMPT="$ASK
 Targets: targets.json in the current folder (public URLs only; viewports 375x812, 768x1024, 1440x900). Code snapshot: this folder (code only).
 Guardian's latest measurements (if present): guardian-latest.json in this folder; its screenshots are under the run_dir it names. Treat them as measured evidence and spend your effort on judgement the numbers cannot give: hierarchy, clarity, flow, copy, whether the page helps a visitor act.
+The iPhone app is part of the product: review its code (ios/MowologyCRM in this folder) and any screenshots below for the same things you check on the web, and for iPhone-versus-web inconsistencies. Android code is not in this folder; use the Android screenshots if any.
 Native screenshots, if any: $RUN/native (a missing folder or empty means not checked).
 Screenshots you take are saved to $RUN/shots — cite only the file name.
 

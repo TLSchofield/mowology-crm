@@ -366,7 +366,7 @@ def guardian_worker(task, db):
     if os.path.isdir(os.path.join(repo, ".git")) and not os.environ.get("GUARDIAN_STANDIN_METRICS"):
         import tempfile
         tmp = tempfile.mkdtemp(prefix="guardian-src-")
-        subprocess.run("git -C '%s' archive origin/feature/language -- public app database 2>/dev/null | tar -x -C '%s'" % (repo, tmp), shell=True)
+        subprocess.run("git -C '%s' archive origin/feature/language -- public app database ios/MowologyCRM 2>/dev/null | tar -x -C '%s'" % (repo, tmp), shell=True)
         root = tmp
     try:
         metrics, rules_out, notes = G.collect(run_dir, root)

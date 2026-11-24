@@ -26,8 +26,8 @@
       "role": "Deterministic verification: rules ratchet, page audit, findings",
       "spec": "scripts/guardian/README.md",
       "next": "docs/department/specs/guardian-roadmap.md",
-      "does": "Measures the real pages every night (speed, weight, accessibility, small tap targets, broken links, SEO basics) and checks every merge against your CLAUDE.md rules. No AI involved, so it is cheap and repeatable.",
-      "limits": "Public pages only so far. Does not test signed-in screens, native apps or security yet."
+      "does": "Measures the real pages every night (speed, weight, accessibility, small tap targets, broken links, SEO basics), compiles the whole iPhone app, and checks every merge against your CLAUDE.md rules. No AI involved, so it is cheap and repeatable.",
+      "limits": "Public pages and the iPhone compile only so far. No simulator screenshots until the iOS runtime is reinstalled; no signed-in screens, Android or security tests yet."
     },
     "atlas": {
       "department": "shared",
@@ -84,11 +84,11 @@
       "department": "ada",
       "status": "planned",
       "kind": "unspecified",
-      "role": "Future possibilities (named in two specs, never specified)",
+      "role": "Strategic foresight and research for Ada and Apollo: technology radar, innovation labs, experiments (full brief received 2026-11-24)",
       "spec": "docs/department/specs/oracle.md",
       "build_trigger": "You write its brief",
-      "does": "Named in two specs but never defined.",
-      "limits": "Not built: needs a written brief from you."
+      "does": "Would research emerging technology and strategy for both departments: a technology radar, six innovation labs, cross-industry ideas and small experiments, all sourced and recommend-only.",
+      "limits": "Not built yet: the full brief is saved; a build plan awaits your go-ahead."
     },
     "apollo": {
       "department": "apollo",
