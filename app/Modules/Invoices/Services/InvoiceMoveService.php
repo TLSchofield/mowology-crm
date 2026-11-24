@@ -225,14 +225,16 @@ class InvoiceMoveService
             }
             $cols .= ", pdf_path = NULL, pdf_version = 0, pdf_generated_at = NULL";
             $newClient = (int)($plan['plan_client_id'] ?? 0) ?: (int)($plan['property_client_id'] ?? 0);
-            if ($newClient > 0) {
+            // A different building never keeps the old customer: no client/contact there means NULL (the
+            // nightly drift report lists it) rather than a confidently wrong one.
+            if ($newClient > 0 || $propChange) {
                 $cols .= ", client_id = ?";
-                $args[] = $newClient;
+                $args[] = $newClient > 0 ? $newClient : null;
             }
-            $newContact = (int)($plan['property_site_contact_id'] ?? 0);
-            if ($propChange && $newContact > 0) {
+            if ($propChange) {
+                $newContact = (int)($plan['property_site_contact_id'] ?? 0);
                 $cols .= ", contact_id = ?";
-                $args[] = $newContact;
+                $args[] = $newContact > 0 ? $newContact : null;
             }
             $args[] = $invoiceId;
             $this->db->prepare("UPDATE invoices SET {$cols} WHERE id = ?")->execute($args);

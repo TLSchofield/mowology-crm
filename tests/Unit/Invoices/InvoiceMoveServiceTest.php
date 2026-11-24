@@ -220,6 +220,19 @@ class InvoiceMoveServiceTest extends TestCase
         $this->assertSame(99, (int)$row['contact_id']);
     }
 
+    /** Codex 2026-11-24: a target building with no customer data must not inherit the old one. */
+    public function testMoveToABuildingWithNoCustomerClearsInsteadOfKeepingTheOldOne(): void
+    {
+        $this->db->exec("INSERT INTO properties (id, address, city, province, postal_code) VALUES (3, '5 Pine Rd', 'Pemberton', 'BC', 'V0N 2L0')");
+        $this->db->exec("INSERT INTO job_plans (id, plan_number, title, status, property_id, company_id) VALUES (600, 'PLN-600', 'Orphan', 'active', 3, 5)");
+        $this->db->exec("INSERT INTO job_visits (id, visit_number, plan_id, status, scheduled_date, is_invoiced) VALUES (6000, 'V6000', 600, 'completed', '2026-10-26', 0)");
+        $this->invoice(32, 'draft');
+        $this->assertTrue($this->svc()->move(32, 600, 6000, 1)['ok']);
+        $row = $this->row("SELECT client_id, contact_id FROM invoices WHERE id = ?", 32);
+        $this->assertNull($row['client_id']);
+        $this->assertNull($row['contact_id']);
+    }
+
     public function testCandidatesListSamePropertyFirstAndOnlyFreeCompletedVisits(): void
     {
         $c = $this->svc()->candidates(10);
