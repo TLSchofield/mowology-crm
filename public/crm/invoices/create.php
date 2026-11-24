@@ -50,7 +50,7 @@ if ($visitId) {
                jp.property_id, jp.company_id,
                c.company_name,
                p.address, p.city, p.province, p.postal_code,
-               p.site_contact_id,
+               p.site_contact_id, p.property_manager_id,
                COALESCE(con.first_name, '') as contact_first,
                COALESCE(con.last_name, '') as contact_last,
                con.email as contact_email,
@@ -119,6 +119,7 @@ if ($visitId) {
             'company_id'        => $visit['company_id'],
             'property_id'       => $visit['property_id'],
             'contact_id'        => $visit['site_contact_id'],
+            'is_pm_managed'     => !empty($visit['property_manager_id']),
             'visit_id'          => $visitId,
             'plan_id'           => $visit['plan_id'],
             'scheduled_date'    => $visit['scheduled_date'],
@@ -315,6 +316,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $contactId        = intval($_POST['contact_id'] ?? 0);
         $clientId         = intval($_POST['client_id'] ?? 0);
         $linkedVisitId    = intval($_POST['visit_id'] ?? 0);
+
+        // A property manager's invoice is billed to their COMPANY, with the person as the
+        // attention line. When the form carries only the contact (e.g. a plan with no
+        // company_id), use the contact's employer company so the contact's own account name
+        // is never stored as the payer (INV-2026-0527: "RON HARVIE" instead of
+        // "VANCOUVER MANAGEMENT LTD"; same pattern on 0496, 0164, 0138).
+        if (!$companyId && $contactId) {
+            try {
+                $empStmt = $db->prepare("
+                    SELECT co.id
+                    FROM contacts ct
+                    JOIN companies co ON co.id = COALESCE(ct.employer_company_id, ct.company_id)
+                    WHERE ct.id = ?
+                ");
+                $empStmt->execute([$contactId]);
+                $companyId = (int)($empStmt->fetchColumn() ?: 0);
+            } catch (PDOException $e) {
+                // column missing on an older schema — leave the company unset
+            }
+        }
 
         // Client/Account model: resolve the unified account id when the form
         // didn't carry one (e.g. prefilled-from-visit invoices). Maps the
@@ -1989,7 +2010,9 @@ function escHtml(str) {
     const contactId  = <?php echo (int)($prefill['contact_id'] ?? 0); ?>;
     propertyIdInput.value = propertyId;
 
-    <?php if (!empty($prefill['contact_id'])): ?>
+    <?php /* A PM-managed building bills the management firm's accounts, so it must go through the
+             recipient API (PM precedence); the site-contact shortcut would email the on-site manager. */ ?>
+    <?php if (!empty($prefill['contact_id']) && empty($prefill['is_pm_managed'])): ?>
     // Contact-linked visit — add contact directly as recipient
     renderRecipientTable([{
         contact_id:    <?php echo (int)$prefill['contact_id']; ?>,

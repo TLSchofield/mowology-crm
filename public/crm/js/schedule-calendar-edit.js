@@ -84,7 +84,7 @@
       if (!c) return;
       (s.visits || []).forEach(function (v) {
         var st = toMin(v.scheduled_time_start) != null ? toMin(v.scheduled_time_start) : toMin(s.estimated_arrival);
-        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.company_name || s.contact_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '', dur: v.estimated_duration || 60 };
+        var item = { visitId: v.visit_id, stopId: s.stop_id, status: v.visit_status, service: v.service_type, title: v.plan_title || v.service_type || 'Visit', addr: s.property_address, who: s.company_name || s.contact_name || '', date: s.stop_date || cfg.date, crew: s.crew_name || '', dur: v.estimated_duration || 60 };
         if (st == null) { c.anytime.push(item); return; }
         var en = toMin(v.scheduled_time_end);
         if (en == null || en <= st) en = st + (v.estimated_duration || 60);
@@ -99,8 +99,21 @@
   // Overlapping blocks in one column sit side by side (like Jobber) instead of printing over each other.
   function layoutLanes(blocks) {
     blocks.sort(function (a, b) { return a.start - b.start || b.end - a.end; });
-    var cluster = [], clusterEnd = -1;
-    function flush() { var n = 0; cluster.forEach(function (x) { n = Math.max(n, x.lane + 1); }); cluster.forEach(function (x) { x.lanes = n; }); cluster = []; }
+    var cluster = [], clusterEnd = -1, clusterNo = 0, ittai = document.body.classList.contains('it-shell');
+    var narrow = ittai && window.innerWidth < 700;   // phone: one readable block per slot, the rest behind +N more
+    function flush() {
+      var n = 0, firstTop = null, hidden = 0;
+      cluster.forEach(function (x) { n = Math.max(n, x.lane + 1); firstTop = firstTop == null ? x.start : Math.min(firstTop, x.start); });
+      var hiddenTop = null;   // the +N more pill sits level with the first job it hides
+      cluster.forEach(function (x) { var hide = ittai && (narrow ? (n > 1 && x.lane >= 1) : (n > 3 && x.lane >= 2)); if (hide) hiddenTop = hiddenTop == null ? x.start : Math.min(hiddenTop, x.start); });
+      cluster.forEach(function (x) {
+        x.cluster = clusterNo; x.clusterTop = hiddenTop != null ? hiddenTop : firstTop; x.overflow = ittai && (narrow ? (n > 1 && x.lane >= 1) : (n > 3 && x.lane >= 2));
+        if (x.overflow) hidden++;
+        x.lanes = !ittai ? n : (narrow ? Math.min(n, 2) : Math.min(n, 3));   // Ittai: two readable columns, the third holds the +N more pill when a slot is crowded
+      });
+      if (cluster.length) cluster.forEach(function (x) { x.overflowCount = hidden; });
+      clusterNo++; cluster = [];
+    }
     blocks.forEach(function (b) {
       if (b.start >= clusterEnd) { flush(); clusterEnd = -1; }
       var used = {}; cluster.forEach(function (x) { if (x.end > b.start) used[x.lane] = true; });
@@ -121,20 +134,68 @@
       return '<div class="mw-cal-anycell">' + c.anytime.map(function (a) { return '<span class="mw-cal-chip' + (a.status === 'scheduled' ? ' mw-cal-chip--drag' : '') + '" data-visit="' + a.visitId + '" tabindex="0" role="button" aria-label="' + esc('Open job: ' + (a.who ? a.who + ', ' : '') + a.title) + '" title="' + (a.status === 'scheduled' ? 'Click to open. Drag onto the timeline to give it a time.' : 'Click to open') + '">' + esc((a.who ? a.who + ' \u00b7 ' : '') + a.title) + '</span>'; }).join('') + '</div>';
     }).join('') + '</div>';
     h += '<div class="mw-cal-body"><div class="mw-cal-gutter">' + hours + '</div>' + crewCols.map(function (c, i) {
-      return '<div class="mw-cal-col" data-ci="' + i + '" style="height:' + ((DAY_END - DAY_START) * PX_PER_MIN) + 'px">' + c.blocks.map(blockHtml).join('') + '</div>';
+      return '<div class="mw-cal-col" data-ci="' + i + '" style="height:' + ((DAY_END - DAY_START) * PX_PER_MIN) + 'px">' + c.blocks.map(blockHtml).join('') + moreHtml(c.blocks) + '</div>';
     }).join('') + '</div>';
     panel.querySelector('.mw-cal-grid').innerHTML = h;
+    bindMoreButtons();
     nowLine();
+    afterRender();
+  }
+
+  function serviceSlug(service) {
+    var slug = String(service || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return ['lawn_care', 'landscaping', 'hedge_trimming', 'garden_maintenance', 'seasonal_cleanup', 'snow_removal'].indexOf(slug) >= 0 ? slug : 'unknown';
+  }
+  function statusInfo(status) {
+    var raw = String(status || ''), key = raw.toLowerCase().replace(/[^a-z0-9]+/g, '_'), words;
+    if (key === 'scheduled') return { kind: 'scheduled', word: 'Scheduled' };
+    if (key === 'in_progress' || key === 'started') return { kind: 'progress', word: 'On site' };
+    if (key === 'completed' || key === 'done') return { kind: 'complete', word: 'Done' };
+    if (key === 'skipped' || key === 'cancelled') return { kind: 'skipped', word: 'Skipped' };
+    if (key === 'needs_attention') return { kind: 'attention', word: 'Needs attention' };
+    words = raw.replace(/[_-]+/g, ' ').toLowerCase();
+    return { kind: 'unknown', word: words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Unknown' };
   }
 
   function blockHtml(b) {
     var top = (b.start - DAY_START) * PX_PER_MIN, ht = Math.max(MIN_LEN, b.end - b.start) * PX_PER_MIN;
-    var live = b.status === 'scheduled';
-    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" tabindex="0" role="button" aria-label="' + esc('Open job: ' + (b.who ? b.who + ', ' : '') + b.title + ', ' + label(b.start) + ' to ' + label(b.end)) + '" title="' + esc((b.who ? b.who + ' \u2013 ' : '') + b.title + ' \u00b7 ' + label(b.start) + ' \u2013 ' + label(b.end) + (b.addr ? ' \u00b7 ' + b.addr : '')) + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
+    var live = b.status === 'scheduled', status = statusInfo(b.status), shape = '<span class="mw-cal-shape mw-cal-shape--' + serviceSlug(b.service) + '" aria-hidden="true"></span>';
+    return '<div class="mw-cal-block' + (live ? '' : ' mw-cal-block--locked') + (b.overflow ? ' mw-cal-block--overflow' : '') + '" data-visit="' + b.visitId + '" data-stop="' + b.stopId + '" tabindex="0" role="button" aria-label="' + esc('Open job: ' + (b.who ? b.who + ', ' : '') + b.title + ', ' + label(b.start) + ' to ' + label(b.end)) + '" title="' + esc((b.who ? b.who + ' \u2013 ' : '') + b.title + ' \u00b7 ' + label(b.start) + ' \u2013 ' + label(b.end) + (b.addr ? ' \u00b7 ' + b.addr : '')) + '" style="top:' + top + 'px;height:' + ht + 'px;left:calc(' + (100 * (b.lane || 0) / (b.lanes || 1)) + '% + 3px);width:calc(' + (100 / (b.lanes || 1)) + '% - 6px)">' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--top"></div>' : '') +
-      '<div class="mw-cal-btitle">' + esc(b.who || b.title) + '</div>' + (b.who ? '<div class="mw-cal-bmeta mw-cal-btype">' + esc(b.title) + '</div>' : '') + '<div class="mw-cal-bmeta">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
-      '<div class="mw-cal-bmeta">' + esc((weekMode && b.crew ? b.crew + ' \u00b7 ' : '') + (b.addr || '')) + '</div>' +
+      '<div class="mw-cal-btitle">' + esc(b.who || b.title) + '</div>' + ((b.who || document.body.classList.contains('it-shell')) ? '<div class="mw-cal-bmeta mw-cal-btype' + (b.who ? '' : ' mw-cal-btype--solo') + '">' + shape + '<span class="mw-cal-btypeword">' + esc(b.title) + '</span></div>' : '') + '<div class="mw-cal-bmeta mw-cal-btime">' + label(b.start) + ' \u2013 ' + label(b.end) + '</div>' +
+      '<div class="mw-cal-bstatus mw-cal-bstatus--' + status.kind + '">' + esc(status.word) + '</div>' +
+      '<div class="mw-cal-bmeta mw-cal-baddr">' + esc((weekMode && b.crew ? b.crew + ' \u00b7 ' : '') + (b.addr || '')) + '</div>' +
+      '<div class="mw-cal-compactline"><span>' + label(b.start) + '</span> ' + shape + '<span>' + esc(b.who || b.title) + '</span></div>' +
       (live ? '<div class="mw-cal-edge mw-cal-edge--bottom"></div>' : '') + '</div>';
+  }
+
+  function moreHtml(blocks) {
+    if (!document.body.classList.contains('it-shell')) return '';
+    var seen = {};
+    return blocks.map(function (b) {
+      if (!b.overflow || seen[b.cluster]) return '';
+      seen[b.cluster] = true;
+      return '<button type="button" class="mw-cal-more" data-cluster="' + b.cluster + '" style="top:' + ((b.clusterTop - DAY_START) * PX_PER_MIN) + 'px" aria-label="Show ' + b.overflowCount + ' more jobs">+' + b.overflowCount + ' more</button>';
+    }).join('');
+  }
+
+  var morePop;
+  function closeMore() { if (morePop) { morePop.remove(); morePop = null; } }
+  function bindMoreButtons() {
+    if (!document.body.classList.contains('it-shell')) return;
+    panel.querySelectorAll('.mw-cal-more').forEach(function (button) {
+      button.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+      button.addEventListener('click', function (e) {
+        e.stopPropagation(); closeMore();
+        var ci = +button.closest('.mw-cal-col').dataset.ci, cluster = +button.dataset.cluster;
+        var jobs = crewCols[ci].blocks.filter(function (b) { return b.cluster === cluster && b.overflow; });
+        morePop = document.createElement('div'); morePop.className = 'mw-cal-pop mw-cal-morepop'; morePop.setAttribute('role', 'dialog'); morePop.setAttribute('aria-label', 'More jobs');
+        morePop.innerHTML = jobs.map(function (b) { return '<button type="button" data-visit="' + b.visitId + '"><span>' + label(b.start) + '</span><strong>' + esc(b.who || b.title) + '</strong><span>' + esc(b.title) + '</span></button>'; }).join('');
+        document.body.appendChild(morePop);
+        var r = button.getBoundingClientRect(); morePop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - morePop.offsetWidth - 8)) + 'px'; morePop.style.top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - morePop.offsetHeight - 8)) + 'px';
+        morePop.querySelectorAll('button[data-visit]').forEach(function (row) { row.addEventListener('click', function () { var id = +row.dataset.visit; closeMore(); openVisit(id); }); });
+      });
+    });
   }
 
   function nowLine() {
@@ -147,11 +208,51 @@
   }
   function localToday() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
 
+  // ── Motion (Ittai look only; reduced motion is handled in ittai-calendar.css) ──
+  // Skeleton shapes while the first data loads, a gentle rise when jobs arrive, one soft ring where a job lands.
+  var motionOn = function () { return document.body.classList.contains('it-shell'); };
+  var animateArrival = true, bloomVisit = 0;
+  function showSkeleton() {
+    if (!motionOn() || !panel) return;
+    var cols = '', i, j;
+    for (i = 0; i < (weekMode ? 7 : 3); i++) {
+      cols += '<div class="mw-cal-skelcol"><div class="mw-cal-skelhead mw-cal-skel"></div>';
+      for (j = 0; j < 3; j++) cols += '<div class="mw-cal-skelblock mw-cal-skel"></div>';
+      cols += '</div>';
+    }
+    panel.setAttribute('aria-busy', 'true');
+    panel.querySelector('.mw-cal-grid').innerHTML = '<div class="mw-cal-skelrow" role="status" aria-label="Loading the timeline">' + cols + '</div>';
+  }
+  function afterRender() {
+    if (!motionOn()) return;
+    panel.removeAttribute('aria-busy');
+    if (animateArrival) {
+      animateArrival = false;
+      [].slice.call(panel.querySelectorAll('.mw-cal-block:not(.mw-cal-block--overflow)'), 0, 12).forEach(function (el, i) {
+        el.style.setProperty('--mw-i', i); el.classList.add('mw-cal-block--arrive');
+        el.addEventListener('animationend', function () { el.classList.remove('mw-cal-block--arrive'); }, { once: true });
+      });
+    }
+    if (bloomVisit) {
+      var el = panel.querySelector('.mw-cal-block[data-visit="' + bloomVisit + '"]'); bloomVisit = 0;
+      if (el && el.parentNode) {
+        el.classList.add('mw-cal-block--pulse', 'mw-cal-block--changed');
+        el.addEventListener('animationend', function () { el.classList.remove('mw-cal-block--pulse'); }, { once: true });
+        setTimeout(function () { el.classList.remove('mw-cal-block--pulse', 'mw-cal-block--changed'); }, 1200);
+      }
+    }
+  }
+
+  var refreshSeq = 0;
   function refresh() {
-    var dates = weekMode ? weekDates : [cfg.date];
+    var dates = weekMode ? weekDates : [cfg.date], mine = ++refreshSeq;   // only the newest answer is drawn, so a slow older one cannot ring the wrong block
     return Promise.all(dates.map(function (d) {
       return fetch(STOPS_API + '?date=' + encodeURIComponent(d) + (cfg.crew ? '&crew=' + encodeURIComponent(cfg.crew) : ''), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { return j.stops || []; });
-    })).then(function (lists) { stopsData = [].concat.apply([], lists); render(); });
+    })).then(function (lists) { if (mine !== refreshSeq) return; stopsData = [].concat.apply([], lists); render(); }).catch(function () {
+      if (mine !== refreshSeq || !panel) return;
+      panel.removeAttribute('aria-busy');
+      if (motionOn() && panel.querySelector('.mw-cal-skelrow')) panel.querySelector('.mw-cal-grid').innerHTML = '<p class="mw-cal-loaderr" role="alert">Couldn\u2019t load the schedule. Check your connection and try again.</p>';
+    });
   }
 
   // Click a job to read all of it (schedule-visit-modal.js). Focus goes back to that job when the modal closes.
@@ -178,6 +279,7 @@
     });
     grid.addEventListener('pointerdown', function (e) {
       if (e.button) return;
+      if (e.target.closest('.mw-cal-more')) return;
       var chipEl = e.target.closest('.mw-cal-chip--drag');
       if (chipEl) { startChipDrag(e, chipEl); return; }
       if (e.target.closest('.mw-cal-block--locked')) return;   // handled by the click listener above
@@ -262,7 +364,7 @@
             return moved ? post(MOVE_API, { stop_id: item.stopId, new_date: item.date, force: true }) : null;
           }).then(function (u) { if (u && u.day_cards) patchDayCards(u.day_cards); refresh(); toast('Change undone'); });
         });
-        refresh();
+        bloomVisit = item.visitId; refresh();
       });
     }).catch(function () { toast('Network problem: nothing was saved.', null, 'error'); refresh(); });
   }
@@ -291,7 +393,8 @@
       }
       if (ns !== s0 || ne !== e0) moved = true;
       el.style.top = ((ns - DAY_START) * PX_PER_MIN) + 'px'; el.style.height = ((ne - ns) * PX_PER_MIN) + 'px';
-      el.querySelector('.mw-cal-bmeta').textContent = label(ns) + ' \u2013 ' + label(ne);
+      el.querySelector('.mw-cal-btime').textContent = label(ns) + ' \u2013 ' + label(ne);
+      var compactTime = el.querySelector('.mw-cal-compactline > span:first-child'); if (compactTime) compactTime.textContent = label(ns);
     }
     function up() {
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel);
@@ -327,7 +430,7 @@
         undo = function () { post(EDIT_API, { action: 'undo', visit_id: b.visitId, previous: prev }).then(function (u) { patchDayCards(u.day_cards); refresh(); toast('Change undone'); }); };
       }
       toast('Rescheduled visit', undo);
-      refresh();
+      bloomVisit = b.visitId; refresh();
     }).catch(function () { toast('Network problem: nothing was saved.', null, 'error'); refresh(); });
   }
 
@@ -465,7 +568,11 @@
   }
 
   // outside click closes popover
-  document.addEventListener('pointerdown', function (e) { if (pop && !pop.contains(e.target) && !e.target.closest('.mw-cal-col') && !e.target.closest('.mw-cal-add')) closePopover(); });
+  document.addEventListener('pointerdown', function (e) {
+    if (morePop && !morePop.contains(e.target) && !e.target.closest('.mw-cal-more')) closeMore();
+    if (pop && !pop.contains(e.target) && !e.target.closest('.mw-cal-col') && !e.target.closest('.mw-cal-add')) closePopover();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMore(); });
 
   // ── mount ─────────────────────────────────────────────────
   function mountDay() {
@@ -491,6 +598,7 @@
       var bar = document.createElement('div'); bar.className = 'mw-cal-bar'; bar.appendChild(seg);
       host.insertBefore(panel, host.firstChild); host.insertBefore(bar, panel);
     }
+    if (document.body.classList.contains('it-shell')) addDensityControl(document.querySelector('.mw-cal-bar'));
     // The cards board is what the timeline replaces: the 7 day columns (week) or the stop list + map (day).
     function findBoard() {
       if (weekMode) { var c = document.querySelector('.mw-day-column'); return c ? c.parentElement : null; }
@@ -498,7 +606,7 @@
     }
     var bound = false;
     function setMode(m) {
-      var tl = m === 'timeline';
+      var tl = m === 'timeline', wasHidden = panel.hidden;
       board = board || findBoard();
       if (board) board.style.display = tl ? 'none' : '';
       panel.hidden = !tl;
@@ -509,13 +617,31 @@
       if (weekMode) [].forEach.call(document.querySelectorAll('.mw-calendar-container .mw-calendar-time-label'), function (l) { l.style.display = tl ? 'block' : ''; });
       [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x.dataset.m === m); });
       try { localStorage.setItem('mw_cal_mode', m); } catch (e) {}
-      if (tl) { loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
+      if (tl) { if (wasHidden) { animateArrival = true; showSkeleton(); } loadCrew(); refresh(); if (!bound) { bindGestures(); bound = true; } }
     }
     seg.addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
     var saved = null; try { saved = localStorage.getItem('mw_cal_mode'); } catch (e) {}
     var asked = new URLSearchParams(window.location.search).get('layout');   // from the List page's Cards / Timeline links
     if (asked === 'cards' || asked === 'timeline') saved = asked;
     if (saved === 'timeline') setMode('timeline'); else if (asked === 'cards') setMode('cards');
+  }
+
+  function addDensityControl(bar) {
+    var density = 'readable';
+    try { density = localStorage.getItem('mw-cal-density') === 'compact' ? 'compact' : 'readable'; } catch (e) {}
+    var control = document.createElement('div'); control.className = 'mw-cal-density'; control.setAttribute('role', 'group'); control.setAttribute('aria-label', 'Timeline density');
+    control.innerHTML = '<button type="button" data-density="readable">Readable</button><button type="button" data-density="compact">Compact</button>';
+    function setDensity(value) {
+      density = value; panel.classList.toggle('mw-cal-panel--compact', value === 'compact');
+      // Readable gives each hour more height (72 px) so a block can show its client, service, time and status; Compact keeps 48 px.
+      PX_PER_MIN = value === 'compact' ? 0.8 : 1.2; panel.style.setProperty('--mw-cal-hour', (60 * PX_PER_MIN) + 'px');
+      if (crewCols.length) render();
+      [].forEach.call(control.querySelectorAll('button'), function (b) { b.setAttribute('aria-pressed', b.dataset.density === value ? 'true' : 'false'); });
+      try { localStorage.setItem('mw-cal-density', value); } catch (e) {}
+    }
+    control.addEventListener('click', function (e) { var b = e.target.closest('button[data-density]'); if (b) setDensity(b.dataset.density); });
+    if (bar) bar.appendChild(control); else panel.insertBefore(control, panel.firstChild);
+    setDensity(density);
   }
 
   function mountWeek() {

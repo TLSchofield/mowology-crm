@@ -39,6 +39,13 @@ $billingEntity = trim((string)($invoice['billing_entity_name'] ?? ''));
 //   4. contact first + last           — private client / rep name
 //   5. properties.property_name       — last-resort fallback
 $billToHeading = trim((string)($invoice['bill_to_name'] ?? ''));
+// A saved bill_to_name that is just the contact's own name (a property manager's person
+// account) must not beat the company they work for: the company is the payer, the person
+// is the "Attn" line. Genuine manual overrides (anything else) are kept.
+if ($billToHeading !== '' && $contactName !== '' && $companyName !== ''
+    && strcasecmp($billToHeading, $contactName) === 0) {
+    $billToHeading = '';
+}
 if ($billToHeading === '') {
     if ($billingEntity !== '' && $companyName !== '') {
         $billToHeading = $billingEntity . ' C/O ' . $companyName;

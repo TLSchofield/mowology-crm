@@ -1324,6 +1324,10 @@ $crewLite  = !empty($_COOKIE['mw_native']); // Android app — see appstack_head
 // _av() lives in appstack_head.php, which is included below — bust the cache by mtime here.
 $extraHead = '<link href="/crm/css/mobile-cards.css?v=' . (@filemtime(dirname(__DIR__) . '/css/mobile-cards.css') ?: time()) . '" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20261008c" defer></script>';
+// The Ittai calendar look (design 2026-11-23): only for people on the new design; every rule in it is scoped to body.it-shell.
+if (!$crewLite && (($_COOKIE['it_design'] ?? '') === '1')) {
+    $extraHead .= '<link href="/crm/css/ittai-calendar.css?v=' . (@filemtime(dirname(__DIR__) . '/css/ittai-calendar.css') ?: time()) . '" rel="stylesheet">';
+}
 if (!$crewLite) {
 // Prefetch every day visible in the strip so any day tap is instant (office/PWA only —
 // on the crew app over LTE these seven ~250 KB fetches cost more than the tap they save)
@@ -1666,7 +1670,13 @@ if ($apiKey) {
                                   <?php echo htmlspecialchars($holidayName); ?>
                               </div>
                           <?php endif; ?>
-                          <div class="mw-weather-display">
+                          <?php
+                          // Ittai look: the emoji is swapped for a line icon drawn in ittai-calendar.css; this says which one.
+                          $wxKind = (strpos($condition, 'snow') !== false || strpos($condition, 'ice') !== false || strpos($condition, 'flurr') !== false) ? 'snow'
+                              : ((strpos($condition, 'rain') !== false || strpos($condition, 'shower') !== false || strpos($condition, 'drizzle') !== false || strpos($condition, 'storm') !== false) ? 'rain'
+                              : ((strpos($condition, 'cloud') !== false || strpos($condition, 'overcast') !== false || strpos($condition, 'fog') !== false) ? 'cloud' : 'clear'));
+                          ?>
+                          <div class="mw-weather-display" data-wx="<?php echo $wxKind; ?>">
                               <div class="mw-weather-icon" title="<?php echo htmlspecialchars($weather['condition'] ?? 'Clear'); ?>">
                                   <?php echo $icon; ?>
                               </div>
@@ -1938,7 +1948,7 @@ if ($apiKey) {
                                       <?php if (!empty($stop['visits'])): ?>
                                           <div class="mw-stop-visits">
                                               <?php foreach ($stop['visits'] as $visit): ?>
-                                                  <span class="mw-visit-pill"
+                                                  <span class="mw-visit-pill" data-service="<?php echo htmlspecialchars((string)($visit['service_type'] ?? '')); ?>"
                                                         style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>"
                                                         title="<?php echo htmlspecialchars($visit['plan_title'] ?? $visit['visit_number'] ?? ''); ?>">
                                                       <?php echo htmlspecialchars(getServiceLabelLocal($visit['service_type'] ?? '')); ?>
@@ -2058,7 +2068,7 @@ if ($apiKey) {
           <!-- Legend -->
           <div class="mw-legend mt-3">
               <?php foreach ($serviceColors as $service => $color): ?>
-                  <div class="mw-legend-item">
+                  <div class="mw-legend-item" data-service="<?php echo htmlspecialchars((string)$service); ?>">
                       <div class="mw-legend-color" style="background: <?php echo $color; ?>"></div>
                       <span><?php echo htmlspecialchars(getServiceLabelLocal($service)); ?></span>
                   </div>
@@ -2140,7 +2150,7 @@ if ($apiKey) {
                               <?php if (!empty($stop['visits'])): ?>
                               <div class="mw-dv-card-services">
                                   <?php foreach ($stop['visits'] as $visit): ?>
-                                      <span class="mw-visit-pill" style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>">
+                                      <span class="mw-visit-pill" data-service="<?php echo htmlspecialchars((string)($visit['service_type'] ?? '')); ?>" style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>">
                                           <?php echo htmlspecialchars(getServiceLabelLocal($visit['service_type'] ?? '')); ?>
                                       </span>
                                   <?php endforeach; ?>
@@ -2359,7 +2369,7 @@ if ($apiKey) {
                               <?php if (!empty($stop['visits'])): ?>
                               <div class="mw-dv-card-services">
                                   <?php foreach ($stop['visits'] as $visit): ?>
-                                      <span class="mw-visit-pill" style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>">
+                                      <span class="mw-visit-pill" data-service="<?php echo htmlspecialchars((string)($visit['service_type'] ?? '')); ?>" style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>">
                                           <?php echo htmlspecialchars(getServiceLabelLocal($visit['service_type'] ?? '')); ?>
                                       </span>
                                   <?php endforeach; ?>
