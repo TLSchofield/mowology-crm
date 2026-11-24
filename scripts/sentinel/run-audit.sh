@@ -52,6 +52,8 @@ mkdir -p "$SRC/.claude/agents" "$SRC/.claude/skills"
 cp "$AG/agents/sentinel.md" "$SRC/.claude/agents/"
 cp -R "$AG/skills/sentinel-product-audit" "$SRC/.claude/skills/" 2>/dev/null
 cp "$TARGETS" "$SRC/targets.json"
+# Guardian's measurements (rendered-page numbers, a11y, weight, rule violations) are evidence Sentinel should build on, not re-derive
+GL="${GUARDIAN_HOME:-$HOME/.mowology-guardian}/latest.json"; [ -f "$GL" ] && cp "$GL" "$SRC/guardian-latest.json"
 
 # 4. native screenshots when a simulator / emulator is running (never required)
 [ "${SENTINEL_SKIP_NATIVE:-0}" = "1" ] || bash "$HERE/native-shots.sh" "$RUN/native" >>"$LOG" 2>&1 || log "native shots skipped"
@@ -81,6 +83,7 @@ if [ "$KIND" = "daily" ]; then ASK="Run today's DAILY audit ($DATE): at most 3 r
 else ASK="Run the WEEKLY audit ($DATE): a deeper pass, up to 10 ranked recommendations as a roadmap, and review the ledger for stalled accepted items and rejected themes that keep coming back."; fi
 PROMPT="$ASK
 Targets: targets.json in the current folder (public URLs only; viewports 375x812, 768x1024, 1440x900). Code snapshot: this folder (code only).
+Guardian's latest measurements (if present): guardian-latest.json in this folder; its screenshots are under the run_dir it names. Treat them as measured evidence and spend your effort on judgement the numbers cannot give: hierarchy, clarity, flow, copy, whether the page helps a visitor act.
 Native screenshots, if any: $RUN/native (a missing folder or empty means not checked).
 Screenshots you take are saved to $RUN/shots — cite only the file name.
 

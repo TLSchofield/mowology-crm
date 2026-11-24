@@ -1,5 +1,6 @@
 import datetime, importlib.util, json, os, stat, subprocess, sys, tempfile, unittest
 
+os.environ["FORGE_AUTOSTART"] = "0"   # tests must never start a real build
 HERE = os.path.dirname(os.path.abspath(__file__))
 SENTINEL = os.path.join(HERE, "..", "..", "sentinel")
 
@@ -27,12 +28,15 @@ class Base(unittest.TestCase):
         t = self.tmp.name
         os.environ["DEPT_HOME"] = os.path.join(t, "dept"); os.environ["SENTINEL_HOME"] = os.path.join(t, "sen")
         self.ada = load(); self.db = self.ada.connect(); self.ada.seed_permissions(self.db)
+        fx = os.path.join(t, "empty-metrics.json"); json.dump({"results": [], "site": {}}, open(fx, "w"))
+        os.environ["GUARDIAN_STANDIN_METRICS"] = fx; os.environ["GUARDIAN_HOME"] = os.path.join(t, "g")   # never launch a browser or touch the network in tests
         self.runner = os.path.join(t, "runner.sh")
         os.environ["ADA_SENTINEL_RUNNER"] = self.runner
         self.calls = os.path.join(t, "calls.log")
 
     def tearDown(self):
         self.tmp.cleanup()
+        os.environ.pop("GUARDIAN_STANDIN_METRICS", None); os.environ.pop("GUARDIAN_HOME", None)
 
     def runner_ok(self):
         fake_runner(self.runner, 'echo "$1" >> %s; echo "done: 0 recommendation(s)"; exit 0' % self.calls)
@@ -43,7 +47,7 @@ class Base(unittest.TestCase):
 
 class StateMachine(Base):
     def new(self, state="discovered", agent="forge", kind="improvement", key="k1"):
-        return self.ada.add_task(self.db, key, "t", kind, agent, state=state)[0]
+        return self.ada.add_task(self.db, key, "t", kind, agent, state=state, actor="tim")[0]   # the owner may pre-queue; used here to exercise the state machine with a not-yet-built agent
 
     def test_illegal_and_unauthorised_moves_refused(self):
         tid = self.new("proposed", "sentinel")
@@ -96,7 +100,7 @@ class StateMachine(Base):
 
     def test_dependencies_are_respected(self):
         a = self.new(key="a", state="approved")
-        b = self.ada.add_task(self.db, "b", "t", "improvement", "forge", state="approved", depends_on=[a])[0]
+        b = self.ada.add_task(self.db, "b", "t", "improvement", "forge", state="approved", depends_on=[a], actor="tim")[0]
         with self.assertRaises(self.ada.Refused):
             self.ada.transition(self.db, b, "implementing", "forge")
         self.db.execute("UPDATE tasks SET state='completed' WHERE id=?", (a,)); self.db.commit()
@@ -121,7 +125,7 @@ class Orchestration(Base):
         self.runner_ok()
         self.ada.cycle(self.db, "2026-11-25"); self.ada.cycle(self.db, "2026-11-25")
         self.assertEqual(open(self.calls).read().split(), ["daily"])      # the second cycle found the work already done
-        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE kind='audit'").fetchone()["c"], 1)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE kind='audit' AND agent='sentinel'").fetchone()["c"], 1)
 
     def test_sunday_adds_the_weekly_audit(self):
         self.runner_ok()
@@ -161,6 +165,17 @@ class Orchestration(Base):
         self.assertEqual(self.state(tid), "discovered")
         self.assertEqual(self.db.execute("SELECT status FROM runs").fetchone()["status"], "interrupted")
         self.assertEqual(self.db.execute("SELECT attempts FROM tasks WHERE id=?", (tid,)).fetchone()["attempts"], 2)
+
+    def test_a_sign_in_block_clears_itself_once_signed_in_and_a_finished_audit_is_not_repeated(self):
+        fake_runner(self.runner, 'echo "$1" >> %s; exit 0' % self.calls)
+        tid = self.ada.add_task(self.db, "x", "t", "audit", "sentinel")[0]
+        self.ada.transition(self.db, tid, "investigating", "sentinel"); self.ada.transition(self.db, tid, "blocked", "system", "needs you: Claude CLI is not signed in")
+        os.environ["ADA_CLAUDE_BIN"] = "/usr/bin/true"            # a stand-in counts as signed in
+        try:
+            self.ada.cycle(self.db, "2026-11-25")
+        finally:
+            os.environ.pop("ADA_CLAUDE_BIN")
+        self.assertEqual(self.state(tid), "completed")
 
     def test_pause_resume_and_emergency_stop(self):
         self.runner_ok()
@@ -204,6 +219,17 @@ class SharedKnowledge(Base):
         self.assertEqual(self.ada.import_sentinel(self.db), 5); self.assertEqual(self.ada.import_sentinel(self.db), 0)
         self.assertEqual(len(self.ada.prioritise(self.db)), 3)
         self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE state='proposed'").fetchone()["c"], 2)
+
+    def test_a_better_later_proposal_displaces_a_weaker_earlier_one(self):
+        for i in range(3):
+            self.ada.add_task(self.db, "low%d" % i, "low", "improvement", "guardian", state="proposed", score=2)
+        self.ada.prioritise(self.db)
+        best = self.ada.add_task(self.db, "best", "best", "improvement", "sentinel", state="proposed", score=20, actor="sentinel")[0]
+        self.ada.prioritise(self.db)
+        st = {r["title"]: r["state"] for r in self.db.execute("SELECT title, state FROM tasks")}
+        self.assertEqual(self.ada.get_task(self.db, best)["state"], "awaiting_approval")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE state='awaiting_approval'").fetchone()["c"], 3)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE state='proposed'").fetchone()["c"], 1)
 
     def test_critical_work_jumps_the_queue_and_is_not_capped(self):
         for i in range(5):

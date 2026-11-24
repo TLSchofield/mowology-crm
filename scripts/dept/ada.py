@@ -41,7 +41,7 @@ TRANSITIONS = {
     ("proposed", "awaiting_approval"): {"ada"},
     ("proposed", "investigating"): {"ada"},
     ("awaiting_approval", "approved"): {"tim"},
-    ("awaiting_approval", "proposed"): {"tim"},           # request revision
+    ("awaiting_approval", "proposed"): {"tim", "ada"},     # revision request, or Ada re-ranking a lower-scored item out of the three slots
     ("approved", "implementing"): {"forge"},
     ("implementing", "awaiting_verification"): {"forge"},
     ("implementing", "approved"): {"system"},             # recovery
@@ -94,6 +94,9 @@ def connect():
       id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, agent TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT,
       status TEXT NOT NULL, exit_code INTEGER, seconds REAL, cost_usd REAL, note TEXT);
     CREATE TABLE IF NOT EXISTS controls(key TEXT PRIMARY KEY, value TEXT, at TEXT);
+    CREATE TABLE IF NOT EXISTS findings(
+      key TEXT PRIMARY KEY, severity TEXT NOT NULL, title TEXT NOT NULL, evidence TEXT, area TEXT, fix_hint TEXT,
+      first_seen TEXT, last_seen TEXT, status TEXT NOT NULL DEFAULT 'open', task_id INTEGER, resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS disagreements(
       id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, parties TEXT, issue TEXT, resolution TEXT, at TEXT);
     """)
@@ -142,6 +145,8 @@ PERMS = [  # agent, category, level, tools-note, environments, limits-note
     ("apollo", "evaluate-opportunities", 2, "no tools", "pipeline records", "recommend; the owner approves"),
     ("closer", "prepare-sales-plan", 3, "no tools", "pipeline records", "verified capabilities only"),
     ("atlas", "capture-lessons", 2, "deterministic script", "pipeline history", "lessons stay draft until verified"),
+    ("forge", "build-in-worktree", 3, "scripts/codex-web-build.sh (Codex, redacted copy) + isolated git worktree; no merge, no deploy without the owner", "build worktrees under ~/.mowology-dept/builds; public site and app/ code only", "max 8 files / 400 lines; money, auth, tenant, migrations, secrets refused"),
+    ("guardian", "verify-readonly", 1, "deterministic scripts + headless Chrome, read-only", "public websites; code snapshot of origin/feature/language", "no model, no writes, no customer data"),
 ]
 
 
@@ -175,12 +180,22 @@ def add_task(db, dedupe_key, title, kind, agent, state="discovered", risk="low",
     row = db.execute("SELECT id FROM tasks WHERE dedupe_key=?", (dedupe_key,)).fetchone()
     if row:
         return row["id"], False
+    entry = roster().get(agent)
+    if entry and entry.get("status") == "planned" and actor != "tim":
+        raise Refused("%s is planned, not built. Build trigger: %s. Build it with: python3 scripts/dept/scaffold.py %s" % (agent, entry.get("build_trigger", "not defined"), agent))
     t = now()
     cur = db.execute("INSERT INTO tasks(dedupe_key,title,kind,agent,department,state,risk,category,priority_score,rationale,depends_on,payload,source_ref,max_attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (dedupe_key, title, kind, agent, dept_of(agent), state, risk, category, score, rationale, json.dumps(list(depends_on)), json.dumps(payload or {}), source_ref, MAX_ATTEMPTS, t, t))
     db.execute("INSERT INTO transitions(task_id,from_state,to_state,actor,reason,at) VALUES(?,?,?,?,?,?)", (cur.lastrowid, None, state, actor, "created", t))
     db.commit()
     return cur.lastrowid, True
+
+
+def roster():
+    try:
+        return json.load(open(os.path.join(HERE, "roster.json")))["agents"]
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
 def get_task(db, tid):
@@ -235,35 +250,44 @@ def unblock(db, tid, actor, reason):
     db.commit()
 
 
-def human_decision(db, tid, decision, reason, tty):
+def human_decision(db, tid, decision, reason, tty, code=None):
     """approve | reject | revise — the only way work becomes Approved. Needs a real terminal (agents have none)."""
     if not tty:
         raise Refused("approvals need an interactive terminal; an agent or script cannot approve")
     if not reason.strip():
         raise Refused("a reason is required — the department learns from it")
     to = {"approve": "approved", "reject": "rejected", "revise": "proposed"}[decision]
-    transition(db, tid, to, "tim", reason)
+    transition(db, tid, to, "tim", ("[%s] " % code if code else "") + reason)
+    if decision == "revise":      # park it: prioritise() skips tasks waiting for a revision so it does not bounce straight back
+        p = json.loads(get_task(db, tid)["payload"] or "{}"); p["revision_requested"] = reason
+        db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(p), tid)); db.commit()
     t = get_task(db, tid)
     sen = os.path.join(HERE, "..", "sentinel", "sentinel.py")
     if t["source_ref"] and t["agent"] == "sentinel" and os.path.exists(sen):  # one shared decision history
         verb = {"approve": "accept", "reject": "reject", "revise": "modify"}[decision]
-        subprocess.run([sys.executable, sen, "decide", t["source_ref"], verb, reason], env=dict(os.environ), capture_output=True)
+        subprocess.run([sys.executable, sen, "decide", t["source_ref"], verb, reason] + (["--code", code] if code else []), env=dict(os.environ), capture_output=True)
+    if decision == "approve" and t["kind"] == "improvement":      # accepting IS the instruction to build (never to deploy)
+        try:
+            import forge
+            forge.start_in_background(tid)
+        except Exception as e:  # noqa: BLE001
+            print("could not start the build: %s" % e, file=sys.stderr)
 
 
 # ------------------------------------------------------------- prioritising
 def prioritise(db):
-    """Proposed -> Awaiting approval. Critical categories first and unlimited; ordinary work capped at three waiting for Tim."""
+    """Critical work (security, data, financial, reliability) goes to the owner at once, unlimited. Ordinary work competes for THREE slots by score,
+    whenever it arrived: a better proposal displaces a weaker one back to Proposed (the owner is never shown the weaker item just because it came first)."""
     moved = []
-    waiting = db.execute("SELECT COUNT(*) c FROM tasks WHERE state='awaiting_approval' AND category NOT IN ('security','data-integrity','financial','reliability')").fetchone()["c"]
-    rows = db.execute("SELECT * FROM tasks WHERE state='proposed' ORDER BY (category IN ('security','data-integrity','financial','reliability')) DESC, priority_score DESC, id").fetchall()
-    for r in rows:
-        crit = r["category"] in CRITICAL_CATEGORIES
-        if not crit and waiting >= 3:
-            continue
-        transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised")
-        moved.append(r["id"])
-        if not crit:
-            waiting += 1
+    crit = "category IN ('security','data-integrity','financial','reliability')"
+    for r in db.execute("SELECT id, rationale FROM tasks WHERE state='proposed' AND payload NOT LIKE '%%\"revision_requested\"%%' AND %s ORDER BY priority_score DESC, id" % crit).fetchall():
+        transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised"); moved.append(r["id"])
+    pool = db.execute("SELECT * FROM tasks WHERE state IN ('proposed','awaiting_approval') AND payload NOT LIKE '%%\"revision_requested\"%%' AND NOT %s ORDER BY priority_score DESC, id" % crit).fetchall()
+    for i, r in enumerate(pool):
+        if i < 3 and r["state"] == "proposed":
+            transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised"); moved.append(r["id"])
+        elif i >= 3 and r["state"] == "awaiting_approval":
+            transition(db, r["id"], "proposed", "ada", "outranked by higher-scored work; kept in the backlog")
     return moved
 
 
@@ -309,6 +333,9 @@ def import_sentinel(db):
 def sentinel_worker(task, db):
     """Run Sentinel's audit through its own runner. Returns (ok, note). Exit 75 = not signed in / limit: named, not retried."""
     kind = json.loads(task["payload"]).get("audit", "daily")
+    done_today = os.path.join(os.environ.get("SENTINEL_HOME", os.path.join(HOME, ".mowology-sentinel")), "reports", datetime.date.today().isoformat(), kind + ".json")
+    if os.path.exists(done_today) and not os.environ.get("ADA_SENTINEL_RUNNER"):
+        return True, "already ran today (%s report exists); not repeated" % kind
     script = os.environ.get("ADA_SENTINEL_RUNNER", os.path.join(HERE, "..", "sentinel", "run-audit.sh"))
     p = subprocess.run(["bash", script, kind], capture_output=True, text=True, timeout=int(os.environ.get("ADA_TASK_TIMEOUT", "2400")))
     out = (p.stdout or "") + (p.stderr or "")
@@ -322,7 +349,66 @@ def sentinel_worker(task, db):
     return False, "exit %s: %s" % (p.returncode, last[0])
 
 
-WORKERS = {"sentinel": ("audit-public-web", sentinel_worker)}
+SEV_SCORE = {"P0": 100, "P1": 50, "P2": 10, "P3": 2}
+SEV_CATEGORY = {"P0": "security", "P1": "reliability", "P2": "ordinary", "P3": "ordinary"}
+
+
+def guardian_worker(task, db):
+    """Guardian's nightly deterministic verification: rules ratchet + rendered public pages. Persists findings, queues new ones, closes resolved ones."""
+    gdir = os.environ.get("GUARDIAN_DIR") or next(p for p in (os.path.join(HERE, "..", "guardian"), os.path.join(HERE, "..", "guardian-tools")) if os.path.exists(p))
+    sys.path.insert(0, gdir)
+    import guardian as G
+    day = datetime.date.today().isoformat()
+    run_dir = os.path.join(G.HOME, "runs", day)
+    root = None
+    repo = os.environ.get("SENTINEL_REPO", os.path.join(HOME, "Projects", "mowology-crm"))
+    tmp = None
+    if os.path.isdir(os.path.join(repo, ".git")) and not os.environ.get("GUARDIAN_STANDIN_METRICS"):
+        import tempfile
+        tmp = tempfile.mkdtemp(prefix="guardian-src-")
+        subprocess.run("git -C '%s' archive origin/feature/language -- public app database 2>/dev/null | tar -x -C '%s'" % (repo, tmp), shell=True)
+        root = tmp
+    try:
+        metrics, rules_out, notes = G.collect(run_dir, root)
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+    if metrics is None and not rules_out and notes:
+        return False, "; ".join(notes)
+    found = G.findings_from(metrics or {}, rules_out, G.latest_previous())
+    t = now()
+    seen = set()
+    new = 0
+    for f in found:
+        seen.add(f["key"])
+        row = db.execute("SELECT * FROM findings WHERE key=?", (f["key"],)).fetchone()
+        ev = json.dumps(f["evidence"])
+        if row:
+            db.execute("UPDATE findings SET severity=?, title=?, evidence=?, last_seen=?, status='open', resolved_at=NULL WHERE key=?", (f["severity"], f["title"], ev, t, f["key"]))
+            continue
+        tid, _ = add_task(db, "guardian:" + f["key"], f["title"], "improvement", "guardian", state="proposed", risk="low", category=SEV_CATEGORY[f["severity"]],
+                          payload={"problem": f["title"], "evidence": [{"text": e} for e in f["evidence"]], "proposal": f.get("fix_hint") or "", "benefit": "Measured defect on the rendered product", "effort": {"size": "?"}, "severity": f["severity"], "area": f["area"]},
+                          source_ref=f["key"], score=SEV_SCORE[f["severity"]], rationale="Guardian measurement, severity %s (rule-based, not an estimate): %s" % (f["severity"], "; ".join(f["evidence"])[:200]), actor="guardian")
+        db.execute("INSERT INTO findings(key,severity,title,evidence,area,fix_hint,first_seen,last_seen,status,task_id) VALUES(?,?,?,?,?,?,?,?,?,?)", (f["key"], f["severity"], f["title"], ev, f["area"], f.get("fix_hint"), t, t, "open", tid))
+        new += 1
+    resolved = 0
+    for row in db.execute("SELECT * FROM findings WHERE status='open'").fetchall():
+        if row["key"] not in seen and metrics is not None:                 # only close when the page audit actually ran
+            db.execute("UPDATE findings SET status='resolved', resolved_at=? WHERE key=?", (t, row["key"]))
+            tk = db.execute("SELECT id, state FROM tasks WHERE id=?", (row["task_id"],)).fetchone()
+            if tk and tk["state"] == "proposed":
+                transition(db, tk["id"], "rejected", "ada", "resolved: no longer observed by Guardian")
+            resolved += 1
+    db.commit()
+    if metrics is not None:
+        G.record_history(metrics)
+        os.makedirs(G.HOME, exist_ok=True)
+        json.dump({"at": t, "findings": found, "run_dir": run_dir, "pages": G.page_summary(metrics)}, open(os.path.join(G.HOME, "latest.json"), "w"), indent=1)
+    sev = {s: sum(1 for f in found if f["severity"] == s) for s in ("P0", "P1", "P2", "P3")}
+    return True, "%d open finding(s) %s, %d new, %d resolved%s" % (len(found), sev, new, resolved, ("; " + "; ".join(notes)) if notes else "")
+
+
+WORKERS = {"sentinel": ("audit-public-web", sentinel_worker), "guardian": ("verify-readonly", guardian_worker)}
 for _a, (_cat) in (("mercury", "audit-public-web"), ("compass", "research-public-web"), ("hunter", "research-public-web"), ("scribe", "draft-commercial"),
                    ("apollo", "evaluate-opportunities"), ("closer", "prepare-sales-plan"), ("atlas", "capture-lessons")):
     WORKERS[_a] = (_cat, AG.worker)
@@ -349,7 +435,7 @@ def recover(db):
     return n
 
 
-def tick(db, max_runs=1, department=None):
+def tick(db, max_runs=1, department=None, only=None, exclude=()):
     """Run up to max_runs runnable tasks. Returns a list of (task_id, outcome)."""
     why = halted(db)
     if why:
@@ -364,6 +450,8 @@ def tick(db, max_runs=1, department=None):
             if t["agent"] not in WORKERS or t["attempts"] >= t["max_attempts"]:
                 continue
             if department and t["department"] not in (department, "shared"):
+                continue
+            if (only and t["agent"] not in only) or t["agent"] in exclude:
                 continue
             if t["agent"] in ("beacon", "ambassador"):
                 continue                                   # dormant until the owner activates them
@@ -426,6 +514,16 @@ def signin_blocked(db):
     return bool(r) and not AG.cli_ready()
 
 
+def refresh_dashboard(db):
+    """Regenerate the local dashboard; it must never break a cycle or a decision."""
+    try:
+        import dashboard
+        import types
+        return dashboard.write(types.SimpleNamespace(**globals()), db)
+    except Exception as e:  # noqa: BLE001
+        print("dashboard not refreshed: %s" % e, file=sys.stderr)
+
+
 def cycle(db, today=None):
     """The once-a-day overnight cycle: queue the day's work, run what is runnable (equal run budget per department),
     import proposals, prioritise, write ONE briefing."""
@@ -433,6 +531,10 @@ def cycle(db, today=None):
     d = datetime.date.fromisoformat(today)
     set_ctl(db, "cycle_started", now())
     seed_permissions(db)
+    add_task(db, "guardian:verify:" + today, "Guardian nightly verification " + today, "audit", "guardian", payload={"audit": "nightly"})   # deterministic: needs no sign-in
+    if AG.cli_ready():
+        for t in db.execute("SELECT id FROM tasks WHERE state='blocked' AND blocked_reason LIKE '%not signed in%'").fetchall():
+            unblock(db, t["id"], "ada", "the Claude CLI is signed in now")
     if signin_blocked(db):
         set_ctl(db, "cli_note", "Claude CLI is not signed in: no model-driven work was queued (sign in once; the cycle resumes by itself)")
     else:
@@ -445,11 +547,18 @@ def cycle(db, today=None):
                 add_task(db, "compass:market:" + today, "Compass weekly market review " + today, "commercial", "compass", payload={"input": {"focus": "see memory/compass/brief.md; evidence with sources only"}})
             if d.weekday() in (1, 3):
                 add_task(db, "mercury:review:" + today, "Mercury acquisition review " + today, "commercial", "mercury", payload={"input": {"targets": "public pages in scripts/sentinel/targets.json"}})
-    results = tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada") + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo")
+    # Guardian and Atlas are deterministic (no model): they do not use the model-run budget that is split between the departments
+    try:
+        import forge
+        sweep_note = forge.sweep(__import__("types").SimpleNamespace(**globals()), db)
+    except Exception as e:  # noqa: BLE001
+        sweep_note = "forge sweep failed: %s" % e
+    results = tick(db, max_runs=2, only=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada", exclude=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo", exclude=("guardian",))
     imported = import_sentinel(db)
     moved = prioritise(db)
     path = write_briefing(db, today, results, imported, moved)
     set_ctl(db, "cycle_finished", now())
+    refresh_dashboard(db)
     return results, path
 
 
@@ -501,6 +610,7 @@ def write_briefing(db, today, results=(), imported=0, moved=()):
           "- Disk free: %.0f GB (runs stop below %d GB)." % (free_gb(), MIN_FREE_GB), ""]
     nxt = q("SELECT * FROM tasks WHERE state IN ('discovered','approved') ORDER BY id")
     L += ["## Next actions"] + (["- #%d %s (%s, waiting on: %s)" % (t["id"], t["title"], t["state"], "an implementation agent that is not built yet" if t["state"] == "approved" else "next cycle") for t in nxt] or ["_nothing queued_"]) + [""]
+    L += guardian_section(db)
     L += commercial_section(db)
     note = get_ctl(db, "cli_note")
     if note:
@@ -508,6 +618,23 @@ def write_briefing(db, today, results=(), imported=0, moved=()):
     path = os.path.join(out, today + ".md")
     open(path, "w").write("\n".join(L))
     return path
+
+
+def guardian_section(db):
+    """What Guardian MEASURED (no model): open findings by severity, what is new, what was fixed."""
+    L = ["", "## Guardian (measured, rule-based)", ""]
+    rows = db.execute("SELECT severity, COUNT(*) c FROM findings WHERE status='open' GROUP BY severity ORDER BY severity").fetchall()
+    if not db.execute("SELECT 1 FROM findings LIMIT 1").fetchone() and not db.execute("SELECT 1 FROM tasks WHERE agent='guardian' AND state='completed'").fetchone():
+        return L + ["_Guardian has not completed a run yet._"]
+    L.append("- Open findings: " + (", ".join("%s %d" % (r["severity"], r["c"]) for r in rows) or "none"))
+    today = datetime.date.today().isoformat()
+    for r in db.execute("SELECT severity, title FROM findings WHERE status='open' AND first_seen >= ? ORDER BY severity LIMIT 5", (today,)).fetchall():
+        L.append("- NEW %s: %s" % (r["severity"], r["title"]))
+    fixed = db.execute("SELECT COUNT(*) c FROM findings WHERE status='resolved' AND resolved_at >= ?", (today,)).fetchone()["c"]
+    if fixed:
+        L.append("- Resolved since last run: %d" % fixed)
+    L.append("- Rules ratchet (project rules from CLAUDE.md) also runs on every merge; page measurements: ~/.mowology-guardian/latest.json")
+    return L
 
 
 def commercial_section(db):
@@ -562,7 +689,10 @@ def main(argv=None):
     p = sub.add_parser("verify-capability"); p.add_argument("name"); p.add_argument("--note", default="")
     p = sub.add_parser("activate"); p.add_argument("agent", choices=["beacon", "ambassador"])
     p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
-    sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial")
+    p = sub.add_parser("forge-build"); p.add_argument("id", type=int)
+    p = sub.add_parser("release"); p.add_argument("id", type=int)
+    sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
+    p = sub.add_parser("dashboard"); p.add_argument("--open", action="store_true"); p.add_argument("--serve", action="store_true")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
     a = ap.parse_args(argv)
     db = connect(); seed_permissions(db)
@@ -582,7 +712,15 @@ def main(argv=None):
         elif a.cmd == "tick":
             [print(r) for r in tick(db)]
         elif a.cmd == "briefing":
-            print(write_briefing(db, datetime.date.today().isoformat()))
+            print(write_briefing(db, datetime.date.today().isoformat())); refresh_dashboard(db)
+        elif a.cmd == "dashboard":
+            if a.serve:
+                import types, dashboard, dashboard_server
+                dashboard_server.run(types.SimpleNamespace(**globals()), dashboard)
+                return 0
+            path = refresh_dashboard(db); print(path)
+            if a.open and path:
+                subprocess.run(["open", path])
         elif a.cmd == "pause":
             set_ctl(db, "paused:" + a.agent if a.agent else "paused", now()); print("paused", a.agent or "department")
         elif a.cmd == "resume":
@@ -598,7 +736,7 @@ def main(argv=None):
             for r in db.execute("SELECT * FROM permissions").fetchall():
                 print("%s / %s level %d max_risk %s since %s%s" % (r["agent"], r["category"], r["level"], r["max_risk"], r["authorised_at"], (" REVOKED " + r["revoked_at"]) if r["revoked_at"] else ""))
         elif a.cmd in ("approve", "reject", "revise"):
-            human_decision(db, a.id, a.cmd, a.reason, sys.stdin.isatty()); print("recorded", a.cmd, a.id)
+            human_decision(db, a.id, a.cmd, a.reason, sys.stdin.isatty()); print("recorded", a.cmd, a.id); refresh_dashboard(db)
         elif a.cmd == "unblock":
             if not sys.stdin.isatty():
                 raise Refused("needs an interactive terminal")
@@ -620,6 +758,17 @@ def main(argv=None):
         elif a.cmd == "demo-commercial":
             import tempfile, importlib
             os.execve(sys.executable, [sys.executable, os.path.join(HERE, "demo.py"), "--cli"], dict(os.environ, DEPT_HOME=os.path.join(HOME, ".mowology-dept-demo")))
+        elif a.cmd == "forge-build":
+            import types, forge
+            print(forge.build(types.SimpleNamespace(**globals()), db, a.id)); refresh_dashboard(db)
+        elif a.cmd == "release":
+            import types, forge
+            for line in forge.release(types.SimpleNamespace(**globals()), db, a.id, sys.stdin.isatty()):
+                print(line)
+            refresh_dashboard(db)
+        elif a.cmd == "roster":
+            for n, r in roster().items():
+                print("%-14s %-10s %-18s %s%s" % (n, r["department"], r["status"], r["role"], ("\n%14s build when: %s" % ("", r["build_trigger"])) if r["status"] == "planned" and r.get("build_trigger") else ""))
         elif a.cmd == "pipeline":
             for o in db.execute("SELECT uid,stage,business_name,synthetic,next_action FROM opportunities ORDER BY id").fetchall():
                 print("%s %-30s %s%s  next: %s" % (o["uid"], o["stage"], o["business_name"], " [synthetic]" if o["synthetic"] else "", o["next_action"] or "-"))

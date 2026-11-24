@@ -78,6 +78,7 @@ def current_state(rows):
             recs[rid]["status"] = {"accept": "accepted", "reject": "rejected", "modify": "modified"}[r["decision"]]
             recs[rid]["decision_reason"] = r.get("reason", "")
             recs[rid]["decision_note"] = r.get("note", "")
+            recs[rid]["decision_code"] = r.get("code")
             recs[rid]["decided_at"] = r.get("at")
         elif rid in recs and r.get("event") == "done":
             recs[rid]["status"] = "done"
@@ -86,6 +87,18 @@ def current_state(rows):
 
 def norm(s):
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _days_since(iso):
+    try:
+        return (datetime.datetime.now().astimezone() - datetime.datetime.fromisoformat(iso)).days
+    except (TypeError, ValueError):
+        return 0
+
+
+def _size(rec):
+    e = rec.get("effort")
+    return {"S": 1, "M": 2, "L": 4, "XL": 8}.get(str((e.get("size") if isinstance(e, dict) else e) or "").upper(), 99)
 
 
 def suppression(rec, recs):
@@ -99,8 +112,14 @@ def suppression(rec, recs):
         if not (same_topic or close):
             continue
         st = old.get("status")
-        if st == "rejected" and len(new_ev) < 40:
-            return "previously rejected (%s: %s) and no new evidence given" % (old["id"], old.get("decision_reason", ""))
+        if st == "rejected":
+            code = old.get("decision_code")
+            if code == "not_now" and _days_since(old.get("decided_at")) >= 90:
+                continue                                                     # "not now" expires after 90 days
+            if code == "too_big" and _size(rec) < _size(old):
+                continue                                                     # asked for a smaller version: this one is smaller
+            if len(new_ev) < 40:
+                return "previously rejected (%s: %s) and no new evidence given" % (old["id"], old.get("decision_reason", ""))
         if st in ("proposed", "accepted", "modified", "done") and len(new_ev) < 40:
             return "already %s as %s" % (st, old["id"])
     return None
@@ -232,13 +251,13 @@ def render_md(rep):
 
 
 # --------------------------------------------------------------- decisions
-def decide(rid, decision, reason, note=""):
+def decide(rid, decision, reason, note="", code=None):
     recs = current_state(read_ledger())
     if rid not in recs:
         raise KeyError("unknown recommendation " + rid)
     if not reason.strip():
         raise ValueError("a reason is required — Sentinel learns from it")
-    append_ledger({"event": "decision", "id": rid, "decision": decision, "reason": reason, "note": note, "at": now()})
+    append_ledger({"event": "decision", "id": rid, "decision": decision, "reason": reason, "note": note, "code": code, "at": now()})
     write_backlog()
 
 
@@ -278,6 +297,10 @@ SEED = {
 }
 
 
+_TEACH = {"not_now": "do not raise for 90 days", "deliberate": "a design decision, never again without significant new evidence", "low_value": "ideas of this low impact are not worth proposing",
+          "wrong_facts": "your evidence was wrong: re-verify before claiming", "too_big": "may return only as a clearly smaller version"}
+
+
 def init():
     ensure_dirs()
     for name, body in SEED.items():
@@ -302,7 +325,7 @@ def context():
             parts.append("# Recent audits\n" + "".join(f.readlines()[-15:]))
     rej = [r for r in recs.values() if r["status"] == "rejected"]
     parts.append("# Rejected — do NOT propose again unless you cite significant NEW evidence in new_evidence\n" +
-                 ("\n".join("- topic=%s | %s | Tim said: %s" % (r.get("topic"), r["title"], r.get("decision_reason", "")) for r in rej) or "_none yet_"))
+                 ("\n".join("- topic=%s | %s | Tim said: %s%s" % (r.get("topic"), r["title"], r.get("decision_reason", ""), (" [" + r["decision_code"] + ": " + _TEACH.get(r["decision_code"], "") + "]") if r.get("decision_code") else "") for r in rej) or "_none yet_"))
     known = [r for r in recs.values() if r["status"] in ("accepted", "modified", "proposed", "done")]
     parts.append("# Already known (accepted, modified or awaiting Tim) — do not repeat\n" +
                  ("\n".join("- %s topic=%s | %s [%s]%s" % (r["id"], r.get("topic"), r["title"], r["status"], (" — Tim: " + r["decision_reason"]) if r.get("decision_reason") else "") for r in known) or "_none yet_"))
@@ -314,7 +337,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init"); sub.add_parser("context"); sub.add_parser("backlog")
     p = sub.add_parser("ingest"); p.add_argument("file"); p.add_argument("--kind", default="daily", choices=["daily", "weekly"]); p.add_argument("--date")
-    p = sub.add_parser("decide"); p.add_argument("id"); p.add_argument("decision", choices=["accept", "reject", "modify"]); p.add_argument("reason"); p.add_argument("--note", default="")
+    p = sub.add_parser("decide"); p.add_argument("id"); p.add_argument("decision", choices=["accept", "reject", "modify"]); p.add_argument("reason"); p.add_argument("--note", default=""); p.add_argument("--code")
     p = sub.add_parser("list"); p.add_argument("--status")
     a = ap.parse_args(argv)
     try:
@@ -329,7 +352,7 @@ def main(argv=None):
             print("%d recommendation(s), %d held back -> %s" % (len(rep["recommendations"]), len(rep["dropped"]), os.path.join(STATE, "reports", rep["date"], a.kind + ".md")))
             return 0 if rep["recommendations"] else 2
         elif a.cmd == "decide":
-            decide(a.id, a.decision, a.reason, a.note); print("recorded", a.id, a.decision)
+            decide(a.id, a.decision, a.reason, a.note, a.code); print("recorded", a.id, a.decision)
         elif a.cmd == "list":
             for r in sorted(current_state(read_ledger()).values(), key=lambda r: r["id"]):
                 if not a.status or r["status"] == a.status:

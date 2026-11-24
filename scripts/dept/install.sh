@@ -13,14 +13,21 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 mkdir -p "$BIN/dept" "$BIN/sentinel/agent/agents" "$BIN/sentinel/agent/skills" "$D/briefings" "$LA"
 mkdir -p "$BIN/dept/demo" "$BIN/dept/agent-defs"
-cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/ada "$BIN/dept/"
+cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/roster.json "$HERE"/reasons.py "$HERE"/forge.py "$HERE"/dashboard.py "$HERE"/dashboard_server.py "$HERE"/scaffold.py "$HERE"/ada "$BIN/dept/"
 cp "$HERE"/demo/standin-claude.py "$BIN/dept/demo/"
+cp "$ROOT/docs/design/ittai-v1.2/tokens.css" "$BIN/dept/ittai-tokens.css"
 for a in apollo mercury hunter scribe beacon closer ambassador compass; do cp "$ROOT/.claude/agents/$a.md" "$BIN/dept/agent-defs/"; mkdir -p "$D/memory/$a"; [ -f "$D/memory/$a/README.md" ] || printf "# %s memory\nNotes the department keeps for this agent (shown to it each run). Edit freely; authoritative facts live in the shared knowledge store.\n" "$a" > "$D/memory/$a/README.md"; done
 cp "$ROOT"/scripts/sentinel/{sentinel.py,run-audit.sh,native-shots.sh,sentinel,registry.json,targets.json} "$BIN/sentinel/"
 cp "$ROOT/.claude/agents/sentinel.md" "$BIN/sentinel/agent/agents/"
 rm -rf "$BIN/sentinel/agent/skills/sentinel-product-audit"; cp -R "$ROOT/.claude/skills/sentinel-product-audit" "$BIN/sentinel/agent/skills/"
 chmod +x "$BIN/dept/ada" "$BIN/dept/ada.py" "$BIN/dept/demo/standin-claude.py" "$BIN/sentinel/"*.sh "$BIN/sentinel/sentinel"
 [ -f "$D/memory/compass/brief.md" ] || printf "# Compass standing brief\nStart from docs/marketing/competitor-checklist.md and docs/commercial/research-2026-11-24.md (BuildOps, Aspire, LeanScaper are on the checklist). Evidence with sources and dates only; competitor claims are not verified facts.\n" > "$D/memory/compass/brief.md"
+mkdir -p "$BIN/guardian" "$HOME/.mowology-guardian"
+cp "$ROOT"/scripts/guardian/{rules.py,guardian.py,page-audit.mjs,baseline.json} "$BIN/guardian/"
+if [ ! -d "$HOME/.mowology-guardian/node_modules/playwright-core" ]; then
+  # dev tools for Guardian only, outside the repo (pinned): headless browser control + axe accessibility engine. Uses the installed Google Chrome.
+  (cd "$HOME/.mowology-guardian" && { [ -f package.json ] || npm init -y >/dev/null 2>&1; npm install --no-audit --no-fund playwright-core@1.57.0 axe-core@4.10.2 >/dev/null 2>&1; }) || echo "note: npm install failed; Guardian's page audit will be skipped until it works"
+fi
 mkplist() { # label hour minute command...
   local label="$1" h="$2" m="$3"; shift 3
   { echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>'

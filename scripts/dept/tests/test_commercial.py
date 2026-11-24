@@ -1,5 +1,6 @@
 import importlib.util, json, os, tempfile, unittest
 
+os.environ["FORGE_AUTOSTART"] = "0"   # tests must never start a real build
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEPT = os.path.join(HERE, "..")
 
@@ -17,11 +18,14 @@ class Base(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["DEPT_HOME"] = os.path.join(self.tmp.name, "dept"); os.environ["SENTINEL_HOME"] = os.path.join(self.tmp.name, "sen")
         os.environ.pop("ADA_CLAUDE_BIN", None)
+        fx = os.path.join(self.tmp.name, "empty-metrics.json"); json.dump({"results": [], "site": {}}, open(fx, "w"))
+        os.environ["GUARDIAN_STANDIN_METRICS"] = fx; os.environ["GUARDIAN_HOME"] = os.path.join(self.tmp.name, "g")
         self.ada = load("ada"); self.C = self.ada.C; self.db = self.ada.connect(); self.ada.seed_permissions(self.db)
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("ADA_CLAUDE_BIN", None)
+        os.environ.pop("GUARDIAN_STANDIN_METRICS", None); os.environ.pop("GUARDIAN_HOME", None)
 
     def opp(self, name="Green Co", site="https://green.example", loc="Surrey", email="a@green.example"):
         return self.C.add_opportunity(self.db, name, site, "landscaping", loc, "test", {"email": email}, EV)
