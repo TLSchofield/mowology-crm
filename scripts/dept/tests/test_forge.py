@@ -114,6 +114,18 @@ class Forge(unittest.TestCase):
         self.ada.revoke(self.db, "forge", "build-in-worktree", "test")
         self.build(t2); self.assertEqual(self.st(t2)["state"], "blocked")
 
+    def test_the_next_accepted_task_starts_when_a_build_ends(self):
+        started = []
+        self.forge.start_in_background = lambda tid: started.append(tid)
+        t1, t2 = self.task(key="c1"), self.task(key="c2")
+        self.build(t1)
+        self.assertEqual(started, [t2])
+
+    def test_the_build_base_gets_the_vendor_folder_the_builder_requires(self):
+        os.makedirs(os.path.join(self.repo, "vendor"))
+        tid = self.task(key="v"); self.build(tid)
+        self.assertTrue(os.path.islink(os.path.join(self.tmp.name, "d", "builds", "_base", "vendor")))
+
     def test_real_independent_checks_run_syntax_rules_and_tests(self):
         tid = self.task(key="r"); self.forge.build(self.ns, self.db, tid, checker=lambda wt, f: (True, ["stub"]))
         wt = json.loads(self.st(tid)["result"])["worktree"]

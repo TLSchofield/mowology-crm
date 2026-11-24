@@ -169,6 +169,8 @@ def build(ada, db, tid, runner=run, checker=independent_checks):
                 raise Stop("could not prepare the build base: " + o[-200:])
         else:
             runner(["git", "-C", base, "checkout", "-q", "--detach", "origin/feature/language"])
+        if os.path.isdir(os.path.join(repo, "vendor")) and not os.path.exists(os.path.join(base, "vendor")):
+            os.symlink(os.path.join(repo, "vendor"), os.path.join(base, "vendor"))      # the builder needs the test dependencies in the checkout it runs from
         scope = scope_from(payload, base)
         name = "forge-%d" % tid
         taskfile = os.path.join(builds_dir(), name + ".task.md")
@@ -216,6 +218,9 @@ def build(ada, db, tid, runner=run, checker=independent_checks):
         ada.transition(db, tid, "blocked", "forge", "the build timed out")
         msg = "blocked: timeout"
     db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps(result), tid)); db.commit()
+    nxt = db.execute("SELECT id FROM tasks WHERE state='approved' AND kind='improvement' AND attempts < max_attempts AND id != ? ORDER BY priority_score DESC, id LIMIT 1", (tid,)).fetchone()
+    if nxt:                                    # builds run one at a time; the next accepted task starts when this one ends
+        start_in_background(nxt["id"])
     return msg
 
 

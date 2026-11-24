@@ -287,7 +287,7 @@ def write(ada, db):  # static copy: commands only, no buttons
     out = os.path.join(ada.DEPT, "dashboard")
     os.makedirs(out, exist_ok=True)
     p = os.path.join(out, "index.html")
-    tmp = p + ".tmp"
+    tmp = "%s.%d.tmp" % (p, os.getpid())      # unique per process: two builds finishing together must not collide
     open(tmp, "w", encoding="utf-8").write(render(ada, db))
     os.replace(tmp, p)
     return p
