@@ -115,6 +115,30 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
         // Fallback: bill-to contact
         $hasEmail = false;
         foreach ($recipients as $r) { if (!empty($r['email_address'])) { $hasEmail = true; break; } }
+        // An invoice with NO recipient rows at all on a PM-managed building bills the firm's accounts,
+        // never the on-site contact (same rule as the recipient API; Dorset 2026-11-23). Existing
+        // snapshots are never touched.
+        if (!$hasEmail && empty($recipients) && !empty($invoice['property_id'])) {
+            require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+            foreach (InvoiceRouting::managedFirmRecipients((int)$invoice['property_id'], $db) as $fr) {
+                if (empty($fr['email_address'])) continue;
+                $frId = 0;
+                try {
+                    $db->prepare("INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address) VALUES (?, ?, ?, ?)")
+                       ->execute([$invoiceId, !empty($fr['contact_id']) ? (int)$fr['contact_id'] : null, $fr['contact_role'] ?: 'billing_contact', $fr['email_address']]);
+                    $frId = (int)$db->lastInsertId();
+                } catch (Throwable $e) { error_log("bulk-resend {$invoiceId}: firm recipient insert failed: " . $e->getMessage()); continue; }   // no durable snapshot, no send
+                $recipients[] = [
+                    'id'            => $frId,
+                    'contact_id'    => !empty($fr['contact_id']) ? (int)$fr['contact_id'] : null,
+                    'email_address' => $fr['email_address'],
+                    'contact_role'  => $fr['contact_role'] ?: 'billing_contact',
+                    'first_name'    => $fr['contact_name'] ?? '',
+                    'last_name'     => '',
+                ];
+                $hasEmail = true;
+            }
+        }
         if (!$hasEmail && !empty($invoice['contact_email'])) {
             if (!empty($invoice['contact_id'])) {
                 try {

@@ -469,6 +469,7 @@ require_once __DIR__ . '/../app/Services/Receipts/ReceiptLineItemIntelligence.ph
 
 // Contacts
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactMergeLinks.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ClientActionsService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/OnsiteContactService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTeamService.php';
@@ -482,6 +483,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceInsightsService
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/RecipientDriftReport.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRosterSync.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRoster.php';
 
@@ -620,6 +622,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/StopRescheduleService.php'
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitResizeService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitSummaryService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEditService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/RecurringScheduleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CalendarCreateService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';

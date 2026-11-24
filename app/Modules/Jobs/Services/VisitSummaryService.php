@@ -233,6 +233,13 @@ final class VisitSummaryService
                 'service'      => self::serviceLabel($serviceType),
                 'repeat'       => self::repeatLabel($plan),
                 'plan_status'  => $row['plan_status'],
+                'recurring'    => !empty($row['is_recurring']),
+                'recurrence'   => [
+                    'unit'  => ($row['recurrence_pattern'] ?? '') === 'monthly' ? 'months' : 'weeks',
+                    'every' => ($row['recurrence_pattern'] ?? '') === 'biweekly' ? max(2, (int)$row['recurrence_interval']) : max(1, (int)($row['recurrence_interval'] ?: 1)),
+                    'days'  => self::weekdays($row['recurrence_pattern'] ?? '', $row['recurrence_day_of_week'] ?? null, $row['stop_date'] ?: $row['scheduled_date']),
+                    'monthly' => ($row['recurrence_pattern'] ?? '') === 'monthly',
+                ],
             ],
             'client' => [
                 'company' => $companyName,
@@ -260,6 +267,23 @@ final class VisitSummaryService
             'photos'    => $this->photoCounts((int)$row['id']),
             'invoice'   => $this->invoice((int)$row['id']),
         ];
+    }
+
+    /** Weekdays 0 (Sunday) to 6 a weekly repeat falls on. Biweekly is every 2 weeks; the stored interval is read by the caller. PURE. */
+    public static function weekdays(string $pattern, $dowList, ?string $fallbackDate): array
+    {
+        $days = [];
+        foreach (explode(',', (string)$dowList) as $d) {
+            if ($d !== '' && is_numeric($d) && (int)$d >= 0 && (int)$d <= 6) {
+                $days[(int)$d] = true;
+            }
+        }
+        if (!$days && $fallbackDate && preg_match('/^\d{4}-\d{2}-\d{2}/', $fallbackDate)) {
+            $days[(int)date('w', strtotime(substr($fallbackDate, 0, 10)))] = true;
+        }
+        $out = array_keys($days);
+        sort($out);
+        return $out;
     }
 
     /** @return mixed */

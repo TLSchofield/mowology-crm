@@ -1,0 +1,15 @@
+# Brief template (filled)
+**Name:** schedule-colours   **Round:** 1
+**What is being designed:** The colour set the schedule uses to tell services and crews apart — as design-system tokens (v1.2 has none today; `schedule.php` hard-codes six hex values and `dashboard_appstack.php` / `jobs/view.php` hard-code a six-colour Material palette for crews). Answer open question 1 of `docs/design/calendar-round-2026-11-23/SPEC.md`: "add per-service tokens to v1.2, or keep shapes?"
+**Who and where:** Office staff scanning a busy week on desktop; a crew lead glancing at the day on a phone outdoors in sun (field mode). They want to spot "which kind of job / whose crew" in under a second, while status stays icon + word.
+**The one decision or action this exists for:** Let the eye group jobs by service and by crew quickly without ever being the only carrier of meaning.
+**States to show:** a normal week (6 services, 4 crews), a crowded day (24 jobs), the same screen in light, dark and field mode, and a colour-blind simulation strip (deuteranopia, protanopia, tritanopia).
+**Synthetic content:** Services: Lawn mowing, Garden maintenance, Hedge and pruning, Seasonal clean-up, Snow and salt, Installations. Crews: Crew A to Crew D (design tokens for up to 8). Clients "Client A" … , "123 Example Street".
+**Files wanted in out/:**
+- `schedule-colours.html` (all three modes via data-theme/data-mode): the palette as swatches with token names, hex per mode, the contrast ratio of each swatch against `surface`, `sunk` and its own `on-` text colour, and a minimum pairwise colour-difference table per mode (state the formula, CIEDE2000 or OKLab distance, and the colour-blind-simulated minimum).
+- `schedule-week.html`: a realistic week using the set, 375 and 1440, each mode.
+- `tokens-fragment.json`: proposed additions in the shape of `docs/design/ittai-v1.2/tokens.json` — `service-1..6` and `crew-1..8`, each with light/dark/field values and an `on-` pair. Nothing else in tokens.json changes.
+- `NOTES.md`: your reasoning, two alternatives (A: muted, one-chroma family; B: wider hue spread) and a recommendation, and what you could not satisfy.
+**Must reuse:** the v1.2 neutrals, `tenant` brand colour as the one accent (do not compete with it), Inter, status icon+word vocabulary, 1.75 px icons; read `tokens.css` and the spec.
+**Must NOT do:** colour as the only carrier of meaning (keep shape + word); more than 8 crew colours; neon or Material-default palette; hex literals outside the tokens fragment; any new accent that competes with the tenant colour; text under 12 px; fill colours used for body text.
+**Hard requirements (machine-checked where possible):** WCAG 2.2 AAA — any swatch used as text needs 7:1 against its surface; any text on a swatch needs 7:1 against that swatch; non-text swatch against surface at least 3:1; every pair within one mode distinguishable for the three colour-blind types (report the minimum distance and flag any pair under a stated threshold); field mode legible in direct sun.

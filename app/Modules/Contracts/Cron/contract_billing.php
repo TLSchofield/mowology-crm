@@ -73,7 +73,7 @@ require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
 require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
-require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // resolveManagementBillingRecipient()
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // InvoiceRouting::managedFirmRecipients()
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingPolicy.php';
@@ -294,14 +294,14 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         // PM-managed properties (properties.property_manager_id set) must bill
         // the management company's accounts contact, honoring its
         // invoice_routing_method — same rule the manual invoice-creation UI
-        // uses (InvoiceRouting::resolveManagementBillingRecipient). This cron
+        // uses (InvoiceRouting::managedFirmRecipients). This cron
         // previously only checked p.billing_company_id / the contact's own
         // company links, which never matches a property_manager_id-based
         // relationship, so PM-managed contracts fell through to the on-site
         // contact's personal email instead of the firm's.
         $billingContactId = $contactId;
         $pmRecipients = !empty($ctr['property_id'])
-            ? resolveManagementBillingRecipient((int)$ctr['property_id'])
+            ? InvoiceRouting::managedFirmRecipients((int)$ctr['property_id'])
             : [];
 
         if (!empty($pmRecipients)) {
@@ -404,6 +404,7 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
         $db->prepare($sql)->execute($insertParams);
 
         $invoiceId = (int)$db->lastInsertId();
+        InvoiceRouting::stampClientId($db, $invoiceId);
 
         // ── 3d. Line item ─────────────────────────────────────────────────────
         $lineDesc = trim($ctr['title'] ?? '') ?: 'Monthly landscaping service';

@@ -28,6 +28,7 @@ require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 require_once dirname(__DIR__, 3) . '/Core/PdfStore.php';
 require_once __DIR__ . '/InvoicePdfGate.php';
 require_once __DIR__ . '/UnbilledWorkFinder.php';
+require_once __DIR__ . '/InvoiceRouting.php';
 
 class InvoiceFromVisitService
 {
@@ -85,7 +86,7 @@ class InvoiceFromVisitService
         }
         require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
         try {
-            return resolveManagementBillingRecipient($propertyId);
+            return InvoiceRouting::managedFirmRecipients($propertyId, $this->db);
         } catch (Throwable $e) {
             error_log('[InvoiceFromVisitService] PM routing failed for property ' . $propertyId . ': ' . $e->getMessage());
             return [];
@@ -481,6 +482,7 @@ class InvoiceFromVisitService
                 $userId,
             ]);
             $invoiceId = (int)$this->db->lastInsertId();
+            InvoiceRouting::stampClientId($this->db, $invoiceId);
 
             // Back-link the source visit immediately at creation — NOT only at send().
             // The day schedule keys "Create Invoice" vs the invoice link off

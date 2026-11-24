@@ -28,6 +28,7 @@
   var data = null;          // the summary on screen
   var ui = {};              // what is open: { edit: 'when'|'job'|'note-add'|'note-edit', noteId, confirm: {...}, busy, flash, error }
   var crewList = null;
+  var datePopups = [];
 
   var STATUS = {
     scheduled: ['Scheduled', 'info'], in_progress: ['In progress', 'progress'], completed: ['Done', 'done'],
@@ -142,6 +143,7 @@
   function onKey(e) {
     if (root.hidden) return;
     if (e.key === 'Escape') {
+      if (datePopups.some(function (p) { return !p.hidden; })) return;   // the calendar closes itself first
       e.preventDefault(); e.stopPropagation();
       if (ui.edit || ui.confirm) { ui.edit = null; ui.confirm = null; ui.error = ''; paint(); } else close();
       return;
@@ -190,27 +192,113 @@
       '<button type="button" class="mw-vm-btn mw-vm-btn--quiet" data-vm-act="confirm-no">' + esc(c.no || 'Go back') + '</button></div>' + errorLine() + '</div>';
   }
 
-  function whenSection(s) {
-    var v = s.visit, j = s.job;
-    var canChange = s.can_edit && v.status === 'scheduled' && !v.locked;
-    var crewNames = (s.crew || []).length ? esc(s.crew.join(', ')) : '<span class="mw-vm-muted">No one yet</span>';
-    if (ui.edit === 'when' && canChange) {
-      var crewChecks = crewList ? crewList.map(function (c) {
-        var on = ui.crewPick ? ui.crewPick.indexOf(c.id) >= 0 : (s.crew_ids || []).indexOf(c.id) >= 0;
-        return '<label class="mw-vm-check"><input type="checkbox" data-vm-crew="' + c.id + '"' + (on ? ' checked' : '') + '> ' + esc(c.name) + '</label>';
-      }).join('') : '<span class="mw-vm-muted">Loading the team…</span>';
+
+  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function shortDay(d) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ''); if (!m) return d;
+    return new Date(+m[1], +m[2] - 1, +m[3], 12).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
+  }
+  function dayList(dates) {
+    if (!dates || !dates.length) return '';
+    var shown = dates.slice(0, 6).map(shortDay).join(', ');
+    return shown + (dates.length > 6 ? ' and ' + (dates.length - 6) + ' more' : '');
+  }
+  // The end shown in the form: the stored one, or the start plus the usual length when only a start is stored.
+  function endGuess(v) {
+    if (v.end) return hhmm(v.end);
+    var m = /^(\d{1,2}):(\d{2})/.exec(v.start || ''); if (!m) return '';
+    var t = Math.min(23 * 60 + 45, (+m[1]) * 60 + (+m[2]) + (v.minutes || 60));
+    return ('0' + Math.floor(t / 60)).slice(-2) + ':' + ('0' + (t % 60)).slice(-2);
+  }
+  function crewChecksHtml(s) {
+    return crewList ? crewList.map(function (c) {
+      var on = ui.crewPick ? ui.crewPick.indexOf(c.id) >= 0 : (s.crew_ids || []).indexOf(c.id) >= 0;
+      return '<label class="mw-vm-check"><input type="checkbox" data-vm-crew="' + c.id + '"' + (on ? ' checked' : '') + '> ' + esc(c.name) + '</label>';
+    }).join('') : '<span class="mw-vm-muted">Loading the team…</span>';
+  }
+  function dayPicker(v) {
+    return '<span class="mw-vm-field-label" id="mwVmDayLabel">Day</span>' +
+      '<button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwVmDay" aria-haspopup="true" aria-expanded="false" aria-labelledby="mwVmDayLabel" data-vm-autofocus>' +
+        '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+        '<span class="mw-datepicker-date" data-mw-dp-label></span>' +
+        '<svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+      '</button><input type="date" id="mwVmDay" data-vm-f="date" hidden value="' + esc(v.date || '') + '">';
+  }
+
+  function whenForm(s) {
+    var v = s.visit, j = s.job, scope = j.recurring ? (ui.scope || 'one') : 'one';
+    var scopeBox = j.recurring
+      ? '<fieldset class="mw-vm-scope"><legend class="mw-vm-legend">Change</legend>' +
+        '<label class="mw-vm-check"><input type="radio" name="mwVmScope" data-vm-act="scope-one"' + (scope === 'one' ? ' checked' : '') + '> Just this visit</label>' +
+        '<label class="mw-vm-check"><input type="radio" name="mwVmScope" data-vm-act="scope-future"' + (scope === 'future' ? ' checked' : '') + '> This and all future visits</label></fieldset>'
+      : '';
+    var times = '<label class="mw-vm-field">Starts<input type="time" step="900" class="mw-vm-in" data-vm-f="start" value="' + esc(hhmm(v.start)) + '"></label>' +
+      '<label class="mw-vm-field">Ends<input type="time" step="900" class="mw-vm-in" data-vm-f="end" value="' + esc(endGuess(v)) + '"></label>';
+    var crew = '<fieldset class="mw-vm-crewpick"><legend class="mw-vm-legend">Crew</legend>' + crewChecksHtml(s) + '</fieldset>';
+    if (scope === 'one') {
       return section('When and who',
-        '<div class="mw-vm-form">' +
-          '<div class="mw-vm-fields">' +
-            '<label class="mw-vm-field">Day<input type="date" class="mw-vm-in" data-vm-f="date" value="' + esc(v.date || '') + '" data-vm-autofocus></label>' +
-            '<label class="mw-vm-field">Starts<input type="time" step="900" class="mw-vm-in" data-vm-f="start" value="' + esc(hhmm(v.start)) + '"></label>' +
-            '<label class="mw-vm-field">Ends<input type="time" step="900" class="mw-vm-in" data-vm-f="end" value="' + esc(hhmm(v.end)) + '"></label>' +
-          '</div>' +
-          '<fieldset class="mw-vm-crewpick"><legend class="mw-vm-legend">Crew</legend>' + crewChecks + '</fieldset>' +
+        '<div class="mw-vm-form">' + scopeBox +
+          '<div class="mw-vm-fields"><div class="mw-vm-field">' + dayPicker(v) + '</div>' + times + '</div>' + crew +
           '<p class="mw-vm-muted mw-vm-hint">Changing the crew changes it for every visit at this stop that day, and tells the new people.</p>' +
           errorLine() + confirmBox() + (ui.confirm ? '' : formButtons('Save changes')) +
         '</div>');
     }
+    var rec = j.recurrence || { every: 1, unit: 'weeks', days: [] };
+    var dayBoxes = DAYS.map(function (n, i) {
+      var on = ui.daysPick ? ui.daysPick.indexOf(i) >= 0 : (rec.days || []).indexOf(i) >= 0;
+      return '<label class="mw-vm-check"><input type="checkbox" data-vm-day="' + i + '"' + (on ? ' checked' : '') + '> ' + n + '</label>';
+    }).join('');
+    var pv = ui.preview;
+    return section('When and who',
+      '<div class="mw-vm-form">' + scopeBox +
+        '<p class="mw-vm-muted mw-vm-hint">Changes ' + esc(shortDay(v.date)) + ' and every later visit of this job. Earlier visits are left alone.</p>' +
+        '<div class="mw-vm-fields">' + times + '</div>' + crew +
+        '<fieldset class="mw-vm-repeat"><legend class="mw-vm-legend">Repeats</legend>' +
+          '<div class="mw-vm-fields"><label class="mw-vm-field">Every<input type="number" class="mw-vm-in" min="1" max="12" data-vm-f="every" value="' + esc(ui.every || rec.every) + '"></label>' +
+          '<label class="mw-vm-field">Unit<select class="mw-vm-in" data-vm-f="unit"><option value="weeks"' + ((ui.unit || rec.unit) === 'weeks' ? ' selected' : '') + '>weeks</option><option value="months"' + ((ui.unit || rec.unit) === 'months' ? ' selected' : '') + '>months</option></select></label></div>' +
+          '<div class="mw-vm-crewpick">' + dayBoxes + '</div>' +
+          '<p class="mw-vm-muted mw-vm-hint">Weekdays only apply to weekly repeats. A monthly repeat keeps the job’s day of the month. Repeats count from the job’s first visit, so the preview shows the real dates.</p>' +
+        '</fieldset>' +
+        '<label class="mw-vm-check"><input type="checkbox" data-vm-f="stop_after"> Stop repeating after this visit</label>' +
+        '<label class="mw-vm-check"><input type="checkbox" data-vm-f="include_moved"> Also change visits I moved by hand</label>' +
+        (pv ? previewHtml(pv) : '') + errorLine() +
+        '<div class="mw-vm-formbtns">' +
+          (pv ? '<button type="button" class="mw-vm-btn mw-vm-btn--main" data-vm-act="recur-apply"' + (ui.busy ? ' disabled' : '') + '>' + esc(ui.busy ? 'Saving…' : 'Apply to this and future visits') + '</button>' : '') +
+          '<button type="button" class="mw-vm-btn' + (pv ? '' : ' mw-vm-btn--main') + '" data-vm-act="recur-preview"' + (ui.busy ? ' disabled' : '') + '>' + (pv ? 'Preview again' : 'Preview changes') + '</button>' +
+          '<button type="button" class="mw-vm-btn mw-vm-btn--quiet" data-vm-act="cancel-edit">Cancel</button>' +
+        '</div>' +
+      '</div>');
+  }
+
+  function previewHtml(pv) {
+    var lines = [];
+    if (pv.time_dates.length) lines.push('New time on ' + pv.time_dates.length + ' visit' + (pv.time_dates.length === 1 ? '' : 's') + ': ' + dayList(pv.time_dates) + '.');
+    if (pv.crew_dates.length) lines.push('New crew on ' + pv.crew_dates.length + ' visit' + (pv.crew_dates.length === 1 ? '' : 's') + ': ' + dayList(pv.crew_dates) + '.');
+    if (pv.cancel_dates.length) lines.push('Cancelled: ' + dayList(pv.cancel_dates) + '.');
+    if (pv.add_dates.length) lines.push('Added: ' + dayList(pv.add_dates) + '.');
+    if (!lines.length) lines.push('Nothing would change.');
+    var keep = (pv.keep || []).length ? '<p class="mw-vm-text"><strong>Left as they are:</strong> ' + pv.keep.slice(0, 8).map(function (k) { return esc(shortDay(k.date)) + ' (' + esc(k.why) + ')'; }).join(', ') + (pv.keep.length > 8 ? ' and ' + (pv.keep.length - 8) + ' more' : '') + '.</p>' : '';
+    return '<div class="mw-vm-confirm" role="status"><p class="mw-vm-text"><strong>Preview, from ' + esc(shortDay(pv.from)) + '</strong></p>' +
+      lines.map(function (l) { return '<p class="mw-vm-text">' + esc(l) + '</p>'; }).join('') + keep + '</div>';
+  }
+
+  function repeatSection(s) {
+    var j = s.job;
+    if (!s.can_edit || !j.recurring) return '';
+    if (ui.confirm && (ui.confirm.kind === 'pause' || ui.confirm.kind === 'resume')) return section('Repeating job', confirmBox());
+    var paused = j.plan_status === 'paused';
+    return section('Repeating job',
+      '<p class="mw-vm-text">' + (paused ? 'This job is paused. No new visits are being made.' : 'Repeats: ' + esc(j.repeat) + '.') + '</p>' +
+      '<div class="mw-vm-formbtns">' + (paused
+        ? '<button type="button" class="mw-vm-btn" data-vm-act="resume">Resume this job</button>'
+        : '<button type="button" class="mw-vm-btn mw-vm-btn--danger" data-vm-act="pause">Pause this job</button>') + '</div>');
+  }
+
+  function whenSection(s) {
+    var v = s.visit, j = s.job;
+    var canChange = s.can_edit && v.status === 'scheduled' && !v.locked;
+    var crewNames = (s.crew || []).length ? esc(s.crew.join(', ')) : '<span class="mw-vm-muted">No one yet</span>';
+    if (ui.edit === 'when' && canChange) return whenForm(s);
     var inner = '<dl class="mw-vm-dl">' + row('When', esc(dayText(v.date) + (v.start ? ', ' + clock(v.start) + (v.end ? ' to ' + clock(v.end) : '') : (v.date ? ', any time' : '')))) +
       row('Length', esc(length(v.minutes))) + row('Crew', crewNames) + row('Repeats', esc(j.repeat)) +
       row('Started', v.started_at ? esc(stamp(v.started_at)) + ' ' + esc(clock(String(v.started_at).split(' ')[1])) : '') +
@@ -325,6 +413,7 @@
       }).join('') + '</ul>');
     }
     h += statusSection(s);
+    h += repeatSection(s);
 
     // Keep what was typed when the screen redraws for "Saving..." or an error, but only inside the same form.
     var formKey = (ui.edit || '') + ':' + (ui.noteId || '');
@@ -332,13 +421,15 @@
     if (paint._form === formKey) {
       [].forEach.call(bodyEl.querySelectorAll('[data-vm-f]'), function (el) { kept['f:' + el.getAttribute('data-vm-f')] = el.type === 'checkbox' ? el.checked : el.value; });
       [].forEach.call(bodyEl.querySelectorAll('[data-vm-crew]'), function (el) { kept['c:' + el.getAttribute('data-vm-crew')] = el.checked; });
+      [].forEach.call(bodyEl.querySelectorAll('[data-vm-day]'), function (el) { kept['d:' + el.getAttribute('data-vm-day')] = el.checked; });
     }
     paint._form = formKey;
     var scroll = bodyEl.scrollTop;
     bodyEl.innerHTML = h;
     bodyEl.scrollTop = scroll;
     Object.keys(kept).forEach(function (k) {
-      var el = k.charAt(0) === 'f' ? bodyEl.querySelector('[data-vm-f="' + k.slice(2) + '"]') : bodyEl.querySelector('[data-vm-crew="' + k.slice(2) + '"]');
+      var el = k.charAt(0) === 'f' ? bodyEl.querySelector('[data-vm-f="' + k.slice(2) + '"]')
+        : k.charAt(0) === 'd' ? bodyEl.querySelector('[data-vm-day="' + k.slice(2) + '"]') : bodyEl.querySelector('[data-vm-crew="' + k.slice(2) + '"]');
       if (!el) return;
       if (el.type === 'checkbox') el.checked = kept[k]; else el.value = kept[k];
     });
@@ -352,6 +443,14 @@
       (c.phone ? '<a class="mw-vm-btn" href="tel:' + esc(c.phone) + '">Call client</a>' : '') +
       '<button type="button" class="mw-vm-btn mw-vm-btn--quiet" data-vm-close>Close</button>';
 
+    // The shared date picker builds a popup on <body> for each trigger: drop last paint's, then wire this paint's.
+    datePopups.forEach(function (p) { if (p.parentNode) p.parentNode.removeChild(p); });
+    datePopups = [];
+    if (window.mwInitDatePickers && bodyEl.querySelector('.mw-datepicker-trigger')) {
+      var before = [].slice.call(document.querySelectorAll('.mw-datepicker-popup'));
+      window.mwInitDatePickers(bodyEl);
+      datePopups = [].filter.call(document.querySelectorAll('.mw-datepicker-popup'), function (p) { return before.indexOf(p) < 0; });
+    }
     var af = bodyEl.querySelector('[data-vm-autofocus]');
     if (af && ui.focusForm) { ui.focusForm = false; af.focus(); }
   }
@@ -378,8 +477,14 @@
   function act(name, el) {
     var s = data;
     switch (name) {
+      case 'scope-one': ui.scope = 'one'; ui.preview = null; ui.error = ''; paint(); return;
+      case 'scope-future': ui.scope = 'future'; ui.preview = null; ui.error = ''; paint(); return;
+      case 'recur-preview': return recurPreview();
+      case 'recur-apply': return recurApply();
+      case 'pause': ui = { confirm: { kind: 'pause', text: 'Pause this job? Every scheduled visit from today on is cancelled until you resume it. Visits already done are not touched.', yes: 'Pause job', danger: true, no: 'Keep it going' } }; paint(); return;
+      case 'resume': ui = { confirm: { kind: 'resume', text: 'Resume this job? New visits are made for the coming weeks.', yes: 'Resume job' } }; paint(); return;
       case 'edit-when':
-        ui = { edit: 'when', focusForm: true }; paint();
+        ui = { edit: 'when', scope: 'one', focusForm: true }; paint();
         loadCrew().then(function () { if (ui.edit === 'when') { ui.crewPick = null; paint(); } });
         return;
       case 'edit-job': ui = { edit: 'job', focusForm: true }; paint(); return;
@@ -404,6 +509,8 @@
     var id = currentId, req;
     if (c.kind === 'note-delete') req = post('/crm/api/visit-edit.php', { action: 'note_delete', note_id: c.noteId });
     else if (c.kind === 'cancel') req = post('/crm/api/visit-edit.php', { action: 'cancel', visit_id: id });
+    else if (c.kind === 'pause') req = post('/crm/api/visit-edit.php', { action: 'plan_pause', visit_id: id });
+    else if (c.kind === 'resume') req = post('/crm/api/visit-edit.php', { action: 'plan_resume', visit_id: id });
     else if (c.kind === 'start') req = post('/crm/api/pow-actions.php', { action: 'start_visit', visit_id: id });
     else if (c.kind === 'complete') req = post('/crm/api/pow-actions.php', { action: 'end_visit', visit_id: id });
     else if (c.kind === 'skip') req = post('/crm/api/pow-actions.php', { action: 'skip_visit', visit_id: id });
@@ -419,7 +526,7 @@
     else return;
     req.then(function (j) {
       var m = failed(j); if (m) { ui.confirm = c; return fail(m); }
-      done({ 'note-delete': 'Note deleted.', cancel: 'Visit cancelled.', start: 'Visit started.', complete: 'Visit marked done.', skip: 'Visit skipped.' }[c.kind]);
+      done({ pause: 'Job paused.', resume: 'Job resumed.', 'note-delete': 'Note deleted.', cancel: 'Visit cancelled.', start: 'Visit started.', complete: 'Visit marked done.', skip: 'Visit skipped.' }[c.kind]);
     });
   }
 
@@ -444,6 +551,45 @@
     }
     if (ui.edit === 'job') return saveJob();
     if (ui.edit === 'when') return saveWhen();
+  }
+
+  // "This and all future visits": send only what actually differs from the job today.
+  function futureBody() {
+    var s = data, v = s.visit, rec = s.job.recurrence || { every: 1, unit: 'weeks', days: [] };
+    var body = { visit_id: currentId };
+    var start = field('start').value, end = field('end').value;
+    if (start !== hhmm(v.start) || end !== endGuess(v)) { body.time_start = start; body.time_end = end; }
+    var picked = [].map.call(bodyEl.querySelectorAll('[data-vm-crew]:checked'), function (c) { return +c.getAttribute('data-vm-crew'); }).sort();
+    if (picked.join(',') !== (s.crew_ids || []).slice().sort().join(',')) body.crew_ids = picked;
+    var every = +field('every').value, unit = field('unit').value;
+    var days = [].map.call(bodyEl.querySelectorAll('[data-vm-day]:checked'), function (c) { return +c.getAttribute('data-vm-day'); }).sort();
+    ui.every = every; ui.unit = unit; ui.daysPick = days; ui.crewPick = picked;
+    if (every !== rec.every || unit !== rec.unit || (unit === 'weeks' && days.join(',') !== (rec.days || []).join(','))) body.repeat = { every: every, unit: unit, days: unit === 'weeks' ? days : [] };
+    if (field('stop_after').checked) body.stop_after = 1;
+    if (field('include_moved').checked) body.include_moved = 1;
+    return body;
+  }
+  function recurPreview() {
+    var body = futureBody(); body.action = 'recur_preview';
+    ui.error = ''; ui.busy = true; ui.preview = null; paint();
+    return post('/crm/api/visit-edit.php', body).then(function (j) {
+      ui.busy = false;
+      var m = failed(j); if (m) return fail(m);
+      ui.preview = j.preview; ui.previewSig = JSON.stringify(stripAction(body)); paint();
+      var box = bodyEl.querySelector('.mw-vm-confirm'); if (box && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+    });
+  }
+  function stripAction(b) { var c = {}; Object.keys(b).forEach(function (k) { if (k !== 'action' && k !== 'csrf_token') c[k] = b[k]; }); return c; }
+  function recurApply() {
+    var body = futureBody();
+    if (JSON.stringify(stripAction(body)) !== ui.previewSig) { ui.preview = null; return fail('You changed something after the preview. Preview again to check it.'); }
+    body.action = 'recur_apply';
+    busy();
+    return post('/crm/api/visit-edit.php', body).then(function (j) {
+      var m = failed(j); if (m) { ui.preview = null; return fail(m); }
+      var r = j.result || {}, kept = (r.keep || []).length;
+      done('Saved for this and future visits.' + (kept ? ' ' + kept + ' left as they were.' : ''));
+    });
   }
 
   function saveJob() {
@@ -557,6 +703,7 @@
     if (!root || root.hidden) return;
     token++; gen++;
     root.hidden = true;
+    datePopups.forEach(function (p) { if (p.parentNode) p.parentNode.removeChild(p); }); datePopups = [];
     document.body.classList.remove('mw-vm-lock');
     document.removeEventListener('keydown', onKey, true);
     var cb = onCloseCb, ch = onChangeCb; onCloseCb = null; onChangeCb = null;
