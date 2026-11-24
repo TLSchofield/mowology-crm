@@ -36,6 +36,7 @@ for _s in STATES:
 # Current services Oracle also studies (owner, 2026-11-24: "it could also prove useful in improving current services"). service -> the head skill that describes it today.
 SERVICES = {"charlie": "kaname-chief-of-staff", "sam": "sam-sales", "penny": "penny-bc-bookkeeping", "otto": "otto-operations", "mia": "mia-marketing",
             "ada": "ada-technology", "yui": "yui-comms", "crew-apps": "", "platform": ""}
+SERVICE_DOCS = {"crew-apps": "docs/department/services/crew-apps.md", "platform": "docs/department/services/platform.md"}   # services with no head skill: a short checked-in description instead
 EXPERIMENT_EXECUTION_ENABLED = False      # levels 4-5 are not granted; experiments are DESIGNED here, never run by Oracle
 EXPERIMENT_FIELDS = ["research_question", "problem", "evidence", "hypothesis", "technology", "expected_benefit", "baseline", "resources",
                      "security", "privacy", "success_criteria", "failure_criteria", "time_box_days"]
@@ -241,6 +242,9 @@ def service_summary(service, skills_dir):
     import os
     name = SERVICES.get(service, "")
     p = os.path.join(skills_dir or "", name, "SKILL.md") if name else ""
+    if not name and service in SERVICE_DOCS and skills_dir:
+        p = os.path.join(os.path.dirname(os.path.dirname(skills_dir)), SERVICE_DOCS[service])
+        name = service
     if not name or not os.path.exists(p):
         return ""
     text = open(p, encoding="utf-8", errors="ignore").read()

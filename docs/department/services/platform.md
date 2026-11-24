@@ -1,0 +1,6 @@
+# Platform (what it is today)
+A multi-business CRM and website for trades businesses; Mowology (landscaping) is business #1, built to host other trades.
+Stack: plain PHP 7.4 and MySQL 5.7 (PDO, prepared statements), vanilla JS and CSS, AppStack/Bootstrap 4 for the CRM, no npm or build step, Composer for PHP only. Business logic lives in service classes under app/Modules/*/Services with PHPUnit tests (~6,800 tests); no autoloader in production.
+Hosting: cPanel shared hosting; files uploaded by FTP only through deploy scripts that first merge into feature/language and run the tests; OPcache reset after deploy. Database changes numbered 1445 onward apply themselves to every business at load (SchemaUpdater). Crons run per business from one entry point on PHP 8.1.
+Quality machinery: Guardian (deterministic rule ratchet and rendered-page audit), Sentinel (product audit), Ada's department engine (task queue with owner approval), Oracle (research), Codex or Claude reviews before risky releases.
+Known weaknesses: Python agent tests are not in the merge gate; shared hosting limits (no long-running workers, restricted functions in cron); several large legacy page files still hold inline logic; production can drift from the repo.
