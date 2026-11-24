@@ -160,4 +160,16 @@ class InvoiceInsightsServiceTest extends TestCase
         $s = InvoiceInsightsService::build([['created_at' => '2025-03-01', 'paid_at' => '2025-03-10', 'total' => 50]], [], '2026-11-20');
         $this->assertFalse($s['has_data']);
     }
+
+    public function testEachMonthCarriesTheSameMonthLastYear(): void
+    {
+        $paid = [
+            ['created_at' => '2025-10-20', 'paid_at' => '2025-11-10', 'total' => 100],
+            ['created_at' => '2025-10-25', 'paid_at' => '2025-11-20', 'total' => 50],
+            ['created_at' => '2026-10-20', 'paid_at' => '2026-11-10', 'total' => 80],
+        ];
+        $s = InvoiceInsightsService::build($paid, [], '2026-11-24');
+        $this->assertSame(['Nov', 80.0, 150.0], [$s['months'][11]['label'], $s['months'][11]['total'], $s['months'][11]['last_year']]);
+        $this->assertSame(0.0, $s['months'][0]['last_year']);
+    }
 }

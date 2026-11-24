@@ -42,11 +42,13 @@ final class InvoiceInsightsService
         $lastYearKey = date('Y-m', strtotime($nowKey . '-01 -1 year'));
         $priorYearFrom = date('Y-m', strtotime($nowKey . '-01 -23 months'));
         $priorYearTo = date('Y-m', strtotime($nowKey . '-01 -12 months'));
+        $byMonth = [];   // every paid month fetched (up to 24), so each of the 12 shown can sit beside the same month a year earlier
         $lastYearTotal = 0.0;
         $lastYearCount = 0;
         $priorYearCount = 0;
         foreach ($paid as $r) {
             $k = substr((string)($r['paid_at'] ?? ''), 0, 7);
+            $byMonth[$k] = ($byMonth[$k] ?? 0.0) + (float)($r['total'] ?? 0);
             if ($k >= $priorYearFrom && $k <= $priorYearTo) $priorYearCount++;
             if ($k === $lastYearKey) { $lastYearTotal += (float)($r['total'] ?? 0); $lastYearCount++; }
         }
@@ -70,8 +72,10 @@ final class InvoiceInsightsService
         $payRows = [];
         $sumDays = 0.0; $nDays = 0;
         $i = 0;
+        $monthKeys = array_keys($months);
         foreach ($months as $m) {
-            $monthRows[] = ['label' => $m['label'], 'total' => round($m['total'], 2), 'now' => $m['now']];
+            $monthRows[] = ['label' => $m['label'], 'total' => round($m['total'], 2), 'now' => $m['now'],
+                            'last_year' => round($byMonth[date('Y-m', strtotime($monthKeys[$i] . '-01 -1 year'))] ?? 0.0, 2)];
             if ($i >= 6) {   // the last 6 months
                 $payRows[] = ['label' => $m['label'], 'days' => $m['n'] > 0 ? round($m['days'] / $m['n'], 1) : null, 'now' => $m['now']];
                 $sumDays += $m['days']; $nDays += $m['n'];

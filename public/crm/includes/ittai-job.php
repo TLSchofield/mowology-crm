@@ -68,6 +68,30 @@ try {
         } catch (Throwable $__forecastError) {
             error_log('Invoice insights forecast unavailable: ' . $__forecastError->getMessage());
         }
+        try {   // the target: what the business must turn over a month to cover costs and the owner's pay (the Freedom page's figure); ops_settings.invoice_monthly_target overrides
+            $__ijOver = (float)($__ijDb->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'invoice_monthly_target'")->fetchColumn() ?: 0);
+            if ($__ijOver > 0) {
+                $__ijIns['target'] = round($__ijOver);
+            } else {
+                // The Freedom workload runs many year-wide queries, so it runs once a day and the answer is kept (ops_settings.invoice_target_cache = "YYYY-MM-DD|amount").
+                $__ijCache = explode('|', (string)($__ijDb->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'invoice_target_cache'")->fetchColumn() ?: ''));
+                if (($__ijCache[0] ?? '') === date('Y-m-d')) {
+                    if ((float)($__ijCache[1] ?? 0) > 0) $__ijIns['target'] = (float)$__ijCache[1];
+                } else {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/OwnerFreedomService.php';
+                    $__ijOf = new OwnerFreedomService($__ijDb);
+                    $__ijOfS = $__ijOf->settings();
+                    $__ijOfM = OwnerFreedomService::compute($__ijOf->loadInputs(date('Y-m-d', strtotime('-365 days')), date('Y-m-d'), $__ijOfS), $__ijOfS);
+                    $__ijNeed = !empty($__ijOfM['turnover_needed_year']) ? round((float)$__ijOfM['turnover_needed_year'] / 12) : 0;
+                    if ($__ijNeed > 0) $__ijIns['target'] = $__ijNeed;
+                    $__ijDb->prepare("INSERT INTO ops_settings (setting_key, setting_value, description, updated_by) VALUES ('invoice_target_cache', ?, 'Daily cache of the monthly turnover target shown on the Invoices page', ?)
+                                      ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)")
+                        ->execute([date('Y-m-d') . '|' . $__ijNeed, (int)($__ijUser['id'] ?? 0)]);
+                }
+            }
+        } catch (Throwable $__targetError) {
+            error_log('Invoice insights target unavailable: ' . $__targetError->getMessage());
+        }
         $__ijPulse = null;
     } else {
         require_once APP_ROOT . '/Modules/Expenses/Services/ExpensePulseService.php';
@@ -284,31 +308,86 @@ $__ijBars = static function (string $kind, string $title, string $headline, arra
         . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($headline) . '">' . $bars . '</svg>'
         . ($foot !== '' ? '<p class="it-job-viz-gst">' . $foot . '</p>' : '') . '</figure>';
 };
-$__ijCashViz = static function (array $cash): string {
-    $w = 288; $h = 120; $left = 8; $right = 280; $top = 8; $bottom = 104;
-    $values = [$cash['floor']];
-    foreach ($cash['points'] as $p) { $values[] = $p['low']; $values[] = $p['high']; }
-    $min = min($values); $max = max($values); if ($max <= $min) $max = $min + 1;
-    $x = static fn(int $i): float => $left + ($right - $left) * $i / max(1, count($cash['points']) - 1);
-    $y = static fn(float $v): float => $bottom - ($v - $min) / ($max - $min) * ($bottom - $top);
-    $line = []; $high = []; $low = []; $lowX = $left; $lowY = $bottom;
-    foreach ($cash['points'] as $i => $p) {
+$__ijShort = static function (float $v): string {   // $16.3k, $24k, −$500
+    $a = abs($v);
+    $t = $a >= 1000000 ? number_format($a / 1000000, 1) . 'M' : ($a >= 10000 ? number_format($a / 1000, 0) . 'k' : ($a >= 1000 ? number_format($a / 1000, 1) . 'k' : number_format($a, 0)));
+    return ($v < 0 ? '−$' : '$') . $t;
+};
+$__ijCashViz = static function (array $cash) use ($__ijShort): string {
+    $w = 288; $h = 124; $left = 6; $right = 282; $top = 26; $bottom = 98;
+    $pts = $cash['points']; $n = count($pts);
+    $short = $__ijShort;
+    $vals = [];
+    foreach ($pts as $p) { $vals[] = $p['low']; $vals[] = $p['high']; $vals[] = $p['closing']; }
+    // The floor only joins the scale when cash is within reach of it; far below, it would flatten the whole line.
+    $floorShown = $cash['floor'] > 0 && min($vals) < $cash['floor'] * 3;
+    if ($floorShown) $vals[] = $cash['floor'];
+    $min = min($vals); $max = max($vals); if ($max <= $min) $max = $min + 1;
+    $x = static fn(int $i): float => round($left + ($right - $left) * $i / max(1, $n - 1), 1);
+    $y = static fn(float $v): float => round($bottom - ($v - $min) / ($max - $min) * ($bottom - $top), 1);
+    $line = []; $high = []; $low = []; $lowX = $left; $lowY = $bottom; $lowI = 0;
+    foreach ($pts as $i => $p) {
         $px = $x($i); $py = $y((float)$p['closing']);
         $line[] = $px . ',' . $py; $high[] = $px . ',' . $y((float)$p['high']); $low[] = $px . ',' . $y((float)$p['low']);
-        if ($p['start'] === $cash['low']['start']) { $lowX = $px; $lowY = $py; }
+        if ($p['start'] === $cash['low']['start']) { $lowX = $px; $lowY = $py; $lowI = $i; }
     }
     $band = implode(' ', array_merge($high, array_reverse($low)));
     $area = implode(' ', $line) . ' ' . $right . ',' . $bottom . ' ' . $left . ',' . $bottom;
-    $floorY = $y((float)$cash['floor']);
-    $foot = 'From the bank as of ' . date('M j, Y', strtotime((string)$cash['as_of'])) . '; band ±' . number_format((float)$cash['band_pct'], 1) . '%';
-    if ($cash['thin']) $foot .= ' — some clients pay unpredictably';
+    $t = static fn(float $px, float $py, string $anchor, string $txt, string $cls = 'it-viz-cash-lbl'): string =>
+        '<text x="' . $px . '" y="' . max(10.0, $py) . '" text-anchor="' . $anchor . '" class="it-viz-lbl ' . $cls . '">' . h($txt) . '</text>';
+    $labels = $t($left, $y((float)$pts[0]['closing']) - 7, 'start', 'Now ' . $short((float)$pts[0]['closing']))
+        . ($n > 1 ? $t($right, $y((float)$pts[$n - 1]['closing']) - 7, 'end', $short((float)$pts[$n - 1]['closing'])) : '');
+    if ($lowI >= 2 && $lowI <= $n - 3) {   // an interior low gets its own label; at either end the Now / end label already says it
+        $labels .= $t(min(max($lowX, 30.0), 258.0), $lowY + 14 < 108 ? $lowY + 14 : $lowY - 8, 'middle', 'low ' . $short((float)$cash['low']['closing']));
+    }
+    $axis = '';
+    for ($i = 1; $i < $n; $i++) {
+        $m = date('M', strtotime($pts[$i]['start']));
+        if ($m !== date('M', strtotime($pts[$i - 1]['start']))) $axis .= '<text x="' . min(max($x($i), 12.0), 276.0) . '" y="119" text-anchor="middle" class="it-viz-lbl">' . h($m) . '</text>';
+    }
+    $floor = '';
+    if ($floorShown) {
+        $fy = $y((float)$cash['floor']);
+        $floor = '<line class="it-viz-floor" x1="' . $left . '" y1="' . $fy . '" x2="' . $right . '" y2="' . $fy . '"></line>'
+            . $t($right, $fy + 9 < 110 ? $fy + 9 : $fy - 3, 'end', 'floor ' . $short((float)$cash['floor']), 'it-viz-cash-lbl it-viz-floor-lbl');
+    }
+    $foot = 'Line: expected balance. Shaded: if clients pay earlier or later (±' . number_format((float)$cash['band_pct'], 1) . '%). Bank as of ' . date('M j, Y', strtotime((string)$cash['as_of'])) . '.';
+    if ($cash['thin']) $foot .= ' Some clients pay unpredictably.';
     return '<figure class="it-job-viz it-viz-flat" data-viz="cash"><figcaption><span class="it-viz-title">Predicted cash, next 13 weeks</span><b class="it-viz-headline">' . h($cash['headline']) . '</b></figcaption>'
         . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($cash['headline']) . '">'
         . '<polygon class="it-viz-cash-area" points="' . h($area) . '"></polygon><polygon class="it-viz-band" points="' . h($band) . '"></polygon>'
-        . '<line class="it-viz-floor" x1="' . $left . '" y1="' . $floorY . '" x2="' . $right . '" y2="' . $floorY . '"></line>'
+        . $floor
         . '<path class="it-viz-cash-line" pathLength="1" d="M ' . h(implode(' L ', $line)) . '"></path>'
-        . '<circle class="it-viz-low" cx="' . $lowX . '" cy="' . $lowY . '" r="4"></circle></svg>'
+        . '<circle class="it-viz-low" cx="' . $lowX . '" cy="' . $lowY . '" r="4"></circle>'
+        . $labels . $axis . '</svg>'
         . '<p class="it-job-viz-gst">' . h($foot) . '</p></figure>';
+};
+// Money in: this year's months as slim columns, each beside the same month last year (hollow), and the monthly target as a dashed line.
+$__ijMoneyViz = static function (array $d) use ($__ijMoney, $__ijShort): string {
+    $w = 288; $pad = 8; $n = max(1, count($d['months'])); $slot = ($w - $pad * 2) / $n; $bw = max(3, (int)floor($slot / 2) - 1);
+    $target = !empty($d['target']) ? (float)$d['target'] : null;
+    $max = max($target ?: 0.0, 1.0);
+    foreach ($d['months'] as $m) $max = max($max, (float)$m['total'], (float)($m['last_year'] ?? 0));
+    $base = 96; $scale = 76; $bars = ''; $lbl = '';
+    foreach ($d['months'] as $i => $m) {
+        $x = round($pad + $i * $slot + ($slot - 2 * $bw - 2) / 2, 1);
+        $ly = (float)($m['last_year'] ?? 0); $ty = (float)$m['total'];
+        $lh = (int)round($ly / $max * $scale); $th = (int)round($ty / $max * $scale);
+        if ($lh > 0) $bars .= '<rect x="' . $x . '" y="' . ($base - $lh) . '" width="' . $bw . '" height="' . $lh . '" rx="2" class="it-viz-ly" style="--i:' . (int)$i . '"></rect>';
+        $bars .= '<rect x="' . ($x + $bw + 2) . '" y="' . ($base - max($th, 1)) . '" width="' . $bw . '" height="' . max($th, 1) . '" rx="2" class="' . ($m['now'] ? 'it-viz-now' : 'it-viz-yr') . '" style="--i:' . (int)$i . '"></rect>';
+        $lbl .= '<text x="' . round($x + $bw + 1, 1) . '" y="112" text-anchor="middle" class="it-viz-lbl">' . h($m['label']) . '</text>';
+    }
+    $line = '';
+    if ($target) {
+        $ty = round($base - $target / $max * $scale, 1);
+        $line = '<line class="it-viz-target" x1="' . $pad . '" y1="' . $ty . '" x2="' . ($w - $pad) . '" y2="' . $ty . '"></line>'
+            . '<text x="' . $pad . '" y="' . max(10.0, $ty - 3) . '" text-anchor="start" class="it-viz-lbl it-viz-cash-lbl">target ' . h($__ijShort($target)) . '/mo</text>';
+    }
+    $foot = '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months. Hollow bars: the same month last year.'
+        . ($target ? ' Dashed: ' . h($__ijMoney($target)) . ' a month covers costs and your pay.' : '');
+    return '<figure class="it-job-viz it-viz-flat" data-viz="in"><figcaption><span class="it-viz-title">Money in</span><b class="it-viz-headline">' . h($d['money_headline']) . '</b></figcaption>'
+        . '<svg viewBox="0 0 ' . $w . ' 120" width="' . $w . '" height="120" role="img" aria-label="' . h($d['money_headline']) . '">' . $bars . $line . $lbl . '</svg>'
+        . '<p class="it-job-viz-gst">' . $foot . '</p></figure>';
 };
 $__ijHoldersViz = static function (array $holders) use ($__ijMoney): string {
     if (empty($holders['rows'])) return '';
@@ -325,10 +404,8 @@ $__ijHoldersViz = static function (array $holders) use ($__ijMoney): string {
     return '<figure class="it-job-viz it-viz-flat" data-viz="holders"><figcaption><span class="it-viz-title">Who’s holding your money</span><b class="it-viz-headline">' . h($holders['headline']) . '</b></figcaption>'
         . '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="' . $w . '" height="' . $h . '" role="img" aria-label="' . h($holders['headline']) . '">' . $bars . '</svg></figure>';
 };
-$__ijInvViz = static function (array $d, bool $all) use ($__ijBars, $__ijCashViz, $__ijHoldersViz, $__ijMoney): string {
-    $in = array_map(static fn($m) => [$m['label'], $m['total'], $m['now'] ? 'it-viz-now' : 'it-viz-bar'], $d['months']);
-    $money = $__ijBars('in', 'Money in', $d['money_headline'], $in,
-        '<b>' . h($__ijMoney((float)$d['year_total'])) . '</b> paid in the last 12 months');
+$__ijInvViz = static function (array $d, bool $all) use ($__ijBars, $__ijCashViz, $__ijHoldersViz, $__ijMoneyViz, $__ijMoney): string {
+    $money = $__ijMoneyViz($d);
     if (!$all) return $money;
     $out = !empty($d['cash']) ? $__ijCashViz($d['cash']) : '';
     $out .= !empty($d['holders']) ? $__ijHoldersViz($d['holders']) : '';

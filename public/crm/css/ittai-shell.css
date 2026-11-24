@@ -762,28 +762,38 @@ body.it-shell.it-shell .it-inv-viz .it-viz-low { fill: var(--it-status-attention
 /* The strip's charts are drawn 288 wide and scaled to the card (about 1.5x): size the labels to land near 12 px. */
 body.it-shell.it-shell .it-inv-viz .it-viz-lbl { font-size: 8px; line-height: 10px; }
 
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-headline { opacity: 0; transform: translateY(8px); }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-headline { transition: opacity 500ms ease-out var(--d, 0ms), transform 500ms ease-out var(--d, 0ms); }
-body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-bar,
-body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-now,
-body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-late,
-body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-hbar { transform-box: fill-box; transform-origin: bottom; transition: transform 700ms cubic-bezier(.2,.7,.2,1) calc(var(--d, 0ms) + var(--i, 0) * 45ms); }
-body.it-shell.it-shell .it-inv-viz.is-armed rect.it-viz-hbar { transform-origin: left; }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-bar,
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-now,
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-late { transform: scaleY(0); }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) rect.it-viz-hbar { transform: scaleX(0); }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-cash-line { stroke-dasharray: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1100ms cubic-bezier(.2,.7,.2,1) calc(var(--d, 0ms) + 180ms); }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-cash-line { stroke-dashoffset: 1; }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-band,
-body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-cash-area { transition: opacity 600ms ease-out calc(var(--d, 0ms) + 300ms); }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-band,
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-cash-area { opacity: 0; }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-viz-low { transform-box: fill-box; transform-origin: center; transition: transform 350ms cubic-bezier(.2,.7,.2,1) calc(var(--d, 0ms) + 1050ms); }
-body.it-shell.it-shell .it-inv-viz.is-armed .it-job-viz:not(.is-in) .it-viz-low { transform: scale(0); }
-@media (prefers-reduced-motion: reduce) {
-  body.it-shell.it-shell .it-inv-viz.is-armed *, body.it-shell.it-shell .it-inv-viz.is-armed *::before, body.it-shell.it-shell .it-inv-viz.is-armed *::after { transition: none; }
+/* Load animation (pure CSS, so it starts with the page and nothing flashes first): bars grow, the forecast line draws,
+   the range fades in, the low point pops, headlines rise. Each panel starts a beat after the one before. Reduced motion: none of it. */
+@keyframes it-viz-up { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes it-viz-right { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes it-viz-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes it-viz-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes it-viz-pop { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes it-viz-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media screen and (prefers-reduced-motion: no-preference) {
+  body.it-shell.it-shell .it-inv-viz > .it-job-viz:nth-child(2) { --d: 140ms; }
+  body.it-shell.it-shell .it-inv-viz > .it-job-viz:nth-child(3) { --d: 280ms; }
+  body.it-shell.it-shell .it-inv-viz > .it-job-viz:nth-child(4) { --d: 420ms; }
+  body.it-shell.it-shell .it-inv-viz .it-viz-headline { animation: it-viz-rise 600ms ease-out both; animation-delay: var(--d, 0ms); }
+  body.it-shell.it-shell .it-inv-viz rect.it-viz-bar,
+  body.it-shell.it-shell .it-inv-viz rect.it-viz-now,
+  body.it-shell.it-shell .it-inv-viz rect.it-viz-yr,
+  body.it-shell.it-shell .it-inv-viz rect.it-viz-ly,
+  body.it-shell.it-shell .it-inv-viz rect.it-viz-late:not(.it-viz-hbar) { transform-box: fill-box; transform-origin: bottom; animation: it-viz-up 850ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--d, 0ms) + 200ms + var(--i, 0) * 55ms); }
+  body.it-shell.it-shell .it-inv-viz rect.it-viz-hbar { transform-box: fill-box; transform-origin: left; animation: it-viz-right 850ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--d, 0ms) + 200ms + var(--i, 0) * 90ms); }
+  body.it-shell.it-shell .it-inv-viz .it-viz-cash-line { stroke-dasharray: 1; animation: it-viz-draw 1500ms cubic-bezier(.3,.6,.3,1) both; animation-delay: calc(var(--d, 0ms) + 250ms); }
+  body.it-shell.it-shell .it-inv-viz .it-viz-band,
+  body.it-shell.it-shell .it-inv-viz .it-viz-cash-area,
+  body.it-shell.it-shell .it-inv-viz .it-viz-floor,
+  body.it-shell.it-shell .it-inv-viz .it-viz-target,
+  body.it-shell.it-shell .it-inv-viz .it-viz-cash-lbl { animation: it-viz-fade 700ms ease-out both; animation-delay: calc(var(--d, 0ms) + 900ms); }
+  body.it-shell.it-shell .it-inv-viz .it-viz-low { transform-box: fill-box; transform-origin: center; animation: it-viz-pop 400ms cubic-bezier(.2,.9,.3,1.4) both; animation-delay: calc(var(--d, 0ms) + 1700ms); }
 }
+body.it-shell.it-shell .it-inv-viz .it-viz-cash-lbl { fill: var(--it-text); font-weight: 600; }
+body.it-shell.it-shell .it-inv-viz .it-viz-floor-lbl { fill: var(--it-status-attention); }
+body.it-shell.it-shell .it-inv-viz .it-viz-ly { fill: none; stroke: var(--it-meta); stroke-width: 1; }
+body.it-shell.it-shell .it-inv-viz .it-viz-yr { fill: var(--it-tenant); fill-opacity: .45; }
+body.it-shell.it-shell .it-inv-viz .it-viz-target { stroke: var(--it-text); stroke-width: 1; stroke-dasharray: 4 3; }
 
 /* First-week short menu: the page's head keeps her card under the page's row; introduction left of the face, card runs left from the spine */
 body.it-shell.it-shell .it-fw-card { display: block; margin: 4px 0 10px; }
