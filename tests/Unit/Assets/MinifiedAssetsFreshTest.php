@@ -24,7 +24,6 @@ class MinifiedAssetsFreshTest extends TestCase
     {
         return [
             'brand css' => ['public/crm/css/mowology-brand.css', 'public/crm/css/mowology-brand.min.css', CSS::class],
-            'app js'    => ['public/crm/js/app.js', 'public/crm/js/app.min.js', JS::class],
         ];
     }
 
@@ -44,6 +43,8 @@ class MinifiedAssetsFreshTest extends TestCase
         $head = (string)file_get_contents($this->repo . '/public/crm/includes/appstack_head.php');
         $foot = (string)file_get_contents($this->repo . '/public/crm/includes/appstack_footer.php');
         $this->assertStringContainsString("_amin('/crm/css/mowology-brand.css')", $head);
-        $this->assertStringContainsString("_amin('/crm/js/app.js')", $foot);
+        // app.js must NOT go through _amin(): the minifier truncated it and jQuery vanished from every page.
+        $this->assertStringNotContainsString("_amin('/crm/js/app.js')", $foot);
+        $this->assertFileDoesNotExist($this->repo . '/public/crm/js/app.min.js');
     }
 }
