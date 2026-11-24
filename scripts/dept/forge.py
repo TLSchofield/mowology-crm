@@ -80,6 +80,7 @@ def brief(task, payload, scope):
 - Only these files may change unless a new file is genuinely needed: %s
 - House rules: design tokens only (no hard-coded hex), no inline <style> in CRM pages, no new dependency, new logic in a service with a test, PHP 7.4-compatible syntax, MySQL 5.7, prepared statements.
 - Public pages: mobile first; tap targets at least 44px (48px on phones) and text contrast 7:1; no floating bars over content; keep the existing look and brand.
+- Offline first (owner rule): state in your summary what happens with no connection (works / queues and sends later / unavailable) and cover it with a test; server first, local copy as the backup.
 - Do not touch payments, auth, tenant isolation, migrations or secrets. If the task cannot be done within these limits, change nothing and say why.
 """ % (task["title"], payload.get("problem", ""), ev or "-", payload.get("proposal", ""), "\n".join("- " + a for a in (payload.get("acceptance") or ["(none given: ask for clarification by changing nothing)"])), ", ".join(scope))
 

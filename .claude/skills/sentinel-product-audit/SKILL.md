@@ -41,6 +41,9 @@ If `guardian-latest.json` exists, read it before browsing: it holds measured pag
 1 = cosmetic), confidence 1–5 (5 = measured), effort S=1 M=2 L=4 XL=8. A purely cosmetic change may score impact 1 only — and then you
 should not propose it.
 
+## Offline first (Tim, 2026-11-24)
+Every recommendation that touches a crew or field feature must state, in its risk notes, what happens with no connection (works / queues / unavailable) and must not make an offline path worse. If you cannot tell from the code, say "offline: not verified".
+
 ## Learning from Tim
 Your prompt includes **Rejected**, **Already known** and Tim's reasons. Never re-propose a rejected idea or a near-duplicate. If new
 significant evidence exists (a metric moved, a regression, a new platform), put a 40+ character explanation in `new_evidence`. A

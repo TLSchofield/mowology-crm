@@ -141,6 +141,17 @@ The script copies **code only** to a temp folder, replaces every client, company
 
 The first trial (Android camera, 2026-10-14) found 5 real defects that Claude had missed.
 
+## 1e. Offline first for crew and field features (Tim, 2026-11-24: "Always consider offline")
+
+Crew work outdoors with weak or no signal. For every crew/field feature (time clock, trips and vehicle checks, GPS and geofences, photos, receipts, plants, schedule actions) in ANY app:
+- State its offline behaviour in one line in the plan, the design and the review: **works as normal / queues and sends later / unavailable (and why)**. No silent "needs signal".
+- Server first, the on-device copy as the backup, saved with the time the action was actually performed (see the offline-forms feedback).
+- Test the offline case: the request fails, the app restarts or the phone reboots offline, the connection returns (order preserved, nothing duplicated), queue caps.
+- Keep the least data on the phone, per user, wiped on sign-out (e.g. geofence coordinates, never address text).
+- Reviewers (Sentinel, Guardian, Codex review) flag any change that makes an offline path worse.
+
+---
+
 ## 1d. Evidence-Gated Debugging — Three Rules
 
 Before touching a bug or building a fix, apply these three rules in order:
