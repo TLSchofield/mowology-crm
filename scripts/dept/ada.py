@@ -16,12 +16,21 @@ HOME = os.path.expanduser("~")
 DEPT = os.environ.get("DEPT_HOME", os.path.join(HOME, ".mowology-dept"))
 DB = os.path.join(DEPT, "dept.db")
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import commercial as C  # noqa: E402
+import agents as AG  # noqa: E402
 
 STATES = ["discovered", "investigating", "proposed", "awaiting_approval", "approved", "implementing", "awaiting_verification",
           "verification_failed", "verified", "awaiting_release_approval", "released", "measuring_outcomes", "completed",
           "blocked", "rejected"]
 TERMINAL = {"completed", "rejected"}
-AGENTS = {"sentinel", "artisan", "forge", "guardian", "mercury", "empath", "atlas", "oracle"}
+AGENTS = {"sentinel", "artisan", "forge", "guardian", "mercury", "empath", "atlas", "oracle", "apollo", "hunter", "scribe", "beacon", "closer", "ambassador", "compass"}
+COMMERCIAL = {"apollo", "mercury", "hunter", "scribe", "beacon", "closer", "ambassador", "compass"}
+
+
+def dept_of(agent):
+    return "apollo" if agent in COMMERCIAL else ("shared" if agent == "atlas" else "ada")
+
 PROPOSERS = AGENTS | {"ada"}
 # (from_state, to_state) -> actors allowed. 'system' = recovery inside tick. Anything not listed is refused.
 TRANSITIONS = {
@@ -88,6 +97,10 @@ def connect():
     CREATE TABLE IF NOT EXISTS disagreements(
       id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, parties TEXT, issue TEXT, resolution TEXT, at TEXT);
     """)
+    for col, ddl in (("department", "TEXT NOT NULL DEFAULT 'ada'"), ("result", "TEXT")):
+        if col not in [r["name"] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]:
+            db.execute("ALTER TABLE tasks ADD COLUMN %s %s" % (col, ddl))
+    C.ensure_schema(db)
     return db
 
 
@@ -120,14 +133,23 @@ def halted(db, agent=None):
 
 
 # --------------------------------------------------------------- permissions
+PERMS = [  # agent, category, level, tools-note, environments, limits-note
+    ("sentinel", "audit-public-web", 1, "see scripts/sentinel/registry.json", "public websites in targets.json; local simulators", "reports only"),
+    ("mercury", "audit-public-web", 1, "read-only web + Playwright", "public websites", "findings recorded as observations"),
+    ("compass", "research-public-web", 1, "WebSearch/WebFetch read-only", "public web", "no contact with anyone"),
+    ("hunter", "research-public-web", 1, "WebSearch/WebFetch read-only", "public business pages only; no restricted platforms", "never contacts prospects"),
+    ("scribe", "draft-commercial", 3, "no tools", "drafts inside the pipeline", "verified claims only; drafts are never sent"),
+    ("apollo", "evaluate-opportunities", 2, "no tools", "pipeline records", "recommend; the owner approves"),
+    ("closer", "prepare-sales-plan", 3, "no tools", "pipeline records", "verified capabilities only"),
+    ("atlas", "capture-lessons", 2, "deterministic script", "pipeline history", "lessons stay draft until verified"),
+]
+
+
 def seed_permissions(db):
-    if db.execute("SELECT COUNT(*) c FROM permissions").fetchone()["c"]:
-        return
-    reg = json.load(open(os.path.join(HERE, "..", "sentinel", "registry.json")))["agents"]["sentinel"]
-    db.execute("INSERT INTO permissions(agent,category,level,tools,repos,environments,max_risk,approval,limits,authorised_at,authorised_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-               ("sentinel", "audit-public-web", 1, json.dumps(reg["tools_allowed"]), json.dumps(["code snapshot, read-only"]),
-                json.dumps(["public websites in targets.json", "local simulators"]), "low", "none (reports only)",
-                json.dumps({"budget_usd_per_run": reg["budget_usd_per_run"], "max_recommendations_daily": 3}), now(), "tim"))
+    for agent, cat, lvl, tools, env, lim in PERMS:
+        if not db.execute("SELECT 1 FROM permissions WHERE agent=? AND category=?", (agent, cat)).fetchone():
+            db.execute("INSERT INTO permissions(agent,category,level,tools,repos,environments,max_risk,approval,limits,authorised_at,authorised_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                       (agent, cat, lvl, json.dumps(tools), json.dumps(["none: no repository access"] if agent in COMMERCIAL else ["code snapshot, read-only"]), json.dumps(env), "low", "owner approves anything external", json.dumps(lim), now(), "tim"))
     db.commit()
 
 
@@ -154,8 +176,8 @@ def add_task(db, dedupe_key, title, kind, agent, state="discovered", risk="low",
     if row:
         return row["id"], False
     t = now()
-    cur = db.execute("INSERT INTO tasks(dedupe_key,title,kind,agent,state,risk,category,priority_score,rationale,depends_on,payload,source_ref,max_attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                     (dedupe_key, title, kind, agent, state, risk, category, score, rationale, json.dumps(list(depends_on)), json.dumps(payload or {}), source_ref, MAX_ATTEMPTS, t, t))
+    cur = db.execute("INSERT INTO tasks(dedupe_key,title,kind,agent,department,state,risk,category,priority_score,rationale,depends_on,payload,source_ref,max_attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (dedupe_key, title, kind, agent, dept_of(agent), state, risk, category, score, rationale, json.dumps(list(depends_on)), json.dumps(payload or {}), source_ref, MAX_ATTEMPTS, t, t))
     db.execute("INSERT INTO transitions(task_id,from_state,to_state,actor,reason,at) VALUES(?,?,?,?,?,?)", (cur.lastrowid, None, state, actor, "created", t))
     db.commit()
     return cur.lastrowid, True
@@ -180,8 +202,8 @@ def transition(db, tid, to_state, actor, reason=""):
         raise Refused("%s may not move task %s from %s to %s" % (actor, tid, frm, to_state))
     if to_state in TIM_ONLY and actor != "tim":
         raise Refused("only the product owner can move work to " + to_state)
-    if (frm, to_state) == ("investigating", "completed") and t["kind"] != "audit":
-        raise Refused("only audit tasks may complete straight from investigating")
+    if (frm, to_state) == ("investigating", "completed") and t["kind"] not in ("audit", "commercial"):
+        raise Refused("only audit and commercial work tasks may complete straight from investigating")
     if to_state == "verified" and t["implementer"] == actor:
         raise Refused("an agent cannot verify its own implementation")
     deps = json.loads(t["depends_on"])
@@ -205,7 +227,8 @@ def unblock(db, tid, actor, reason):
         raise Refused("task %s is not blocked" % tid)
     if actor not in ("ada", "tim"):
         raise Refused("only ada or the product owner can unblock")
-    back = t["blocked_from"] if t["blocked_from"] in RESUME_STATES else "discovered"
+    back = {"investigating": "discovered", "implementing": "approved"}.get(t["blocked_from"], t["blocked_from"])   # working states restart cleanly
+    back = back if back in RESUME_STATES else "discovered"
     ts = now()
     db.execute("UPDATE tasks SET state=?, blocked_reason=NULL, attempts=0, updated_at=? WHERE id=?", (back, ts, tid))
     db.execute("INSERT INTO transitions(task_id,from_state,to_state,actor,reason,at) VALUES(?,?,?,?,?,?)", (tid, "blocked", back, actor, reason, ts))
@@ -300,6 +323,11 @@ def sentinel_worker(task, db):
 
 
 WORKERS = {"sentinel": ("audit-public-web", sentinel_worker)}
+for _a, (_cat) in (("mercury", "audit-public-web"), ("compass", "research-public-web"), ("hunter", "research-public-web"), ("scribe", "draft-commercial"),
+                   ("apollo", "evaluate-opportunities"), ("closer", "prepare-sales-plan"), ("atlas", "capture-lessons")):
+    WORKERS[_a] = (_cat, AG.worker)
+for _a in ("beacon", "ambassador"):
+    WORKERS[_a] = ("dormant", AG.worker)
 
 
 def free_gb():
@@ -321,7 +349,7 @@ def recover(db):
     return n
 
 
-def tick(db, max_runs=1):
+def tick(db, max_runs=1, department=None):
     """Run up to max_runs runnable tasks. Returns a list of (task_id, outcome)."""
     why = halted(db)
     if why:
@@ -334,6 +362,15 @@ def tick(db, max_runs=1):
         picked = None
         for t in db.execute("SELECT * FROM tasks WHERE state='discovered' ORDER BY priority_score DESC, id").fetchall():
             if t["agent"] not in WORKERS or t["attempts"] >= t["max_attempts"]:
+                continue
+            if department and t["department"] not in (department, "shared"):
+                continue
+            if t["agent"] in ("beacon", "ambassador"):
+                continue                                   # dormant until the owner activates them
+            opp = AG.dependency_results(db, t).get("opp")
+            if opp and C.is_suppressed_opp(db, C.get_opp(db, opp)):
+                transition(db, t["id"], "rejected", "ada", "opted out: this prospect is suppressed department-wide")
+                done.append((t["id"], "rejected: opted out"))
                 continue
             if halted(db, t["agent"]):
                 continue
@@ -381,15 +418,34 @@ def tick(db, max_runs=1):
     return done
 
 
+RUNS_PER_DEPARTMENT = 2   # 50/50 split of the cycle's run budget between product (ada) and commercial (apollo)
+
+
+def signin_blocked(db):
+    r = db.execute("SELECT 1 FROM tasks WHERE agent='sentinel' AND state='blocked' AND blocked_reason LIKE '%not signed in%' ORDER BY id DESC LIMIT 1").fetchone()
+    return bool(r) and not AG.cli_ready()
+
+
 def cycle(db, today=None):
-    """The once-a-day overnight cycle: queue the day's audits, run what is runnable, import, prioritise, brief."""
+    """The once-a-day overnight cycle: queue the day's work, run what is runnable (equal run budget per department),
+    import proposals, prioritise, write ONE briefing."""
     today = today or datetime.date.today().isoformat()
+    d = datetime.date.fromisoformat(today)
     set_ctl(db, "cycle_started", now())
     seed_permissions(db)
-    add_task(db, "sentinel:audit:daily:" + today, "Sentinel daily audit " + today, "audit", "sentinel", payload={"audit": "daily"})
-    if datetime.date.fromisoformat(today).weekday() == 6:
-        add_task(db, "sentinel:audit:weekly:" + today, "Sentinel weekly audit " + today, "audit", "sentinel", payload={"audit": "weekly"})
-    results = tick(db, max_runs=MAX_RUNS_PER_CYCLE)
+    if signin_blocked(db):
+        set_ctl(db, "cli_note", "Claude CLI is not signed in: no model-driven work was queued (sign in once; the cycle resumes by itself)")
+    else:
+        set_ctl(db, "cli_note", None)
+        add_task(db, "sentinel:audit:daily:" + today, "Sentinel daily audit " + today, "audit", "sentinel", payload={"audit": "daily"})
+        if d.weekday() == 6:
+            add_task(db, "sentinel:audit:weekly:" + today, "Sentinel weekly audit " + today, "audit", "sentinel", payload={"audit": "weekly"})
+        if get_ctl(db, "commercial_on") and AG.cli_ready():
+            if d.weekday() == 0:
+                add_task(db, "compass:market:" + today, "Compass weekly market review " + today, "commercial", "compass", payload={"input": {"focus": "see memory/compass/brief.md; evidence with sources only"}})
+            if d.weekday() in (1, 3):
+                add_task(db, "mercury:review:" + today, "Mercury acquisition review " + today, "commercial", "mercury", payload={"input": {"targets": "public pages in scripts/sentinel/targets.json"}})
+    results = tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada") + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo")
     imported = import_sentinel(db)
     moved = prioritise(db)
     path = write_briefing(db, today, results, imported, moved)
@@ -445,9 +501,45 @@ def write_briefing(db, today, results=(), imported=0, moved=()):
           "- Disk free: %.0f GB (runs stop below %d GB)." % (free_gb(), MIN_FREE_GB), ""]
     nxt = q("SELECT * FROM tasks WHERE state IN ('discovered','approved') ORDER BY id")
     L += ["## Next actions"] + (["- #%d %s (%s, waiting on: %s)" % (t["id"], t["title"], t["state"], "an implementation agent that is not built yet" if t["state"] == "approved" else "next cycle") for t in nxt] or ["_nothing queued_"]) + [""]
+    L += commercial_section(db)
+    note = get_ctl(db, "cli_note")
+    if note:
+        L += ["", "> **Not running models:** " + note]
     path = os.path.join(out, today + ".md")
     open(path, "w").write("\n".join(L))
     return path
+
+
+def commercial_section(db):
+    """Apollo's half of the one briefing. Counts and facts from the pipeline; nothing estimated."""
+    L = ["", "# Commercial position (Apollo)", ""]
+    real = db.execute("SELECT stage, COUNT(*) c FROM opportunities WHERE synthetic=0 GROUP BY stage").fetchall()
+    synth = db.execute("SELECT COUNT(*) c FROM opportunities WHERE synthetic=1").fetchone()["c"]
+    L.append("- Pipeline (real prospects): " + (", ".join("%s %d" % (r["stage"], r["c"]) for r in real) or "**empty — no real prospect has been researched yet**") + ("; %d synthetic demo row(s) excluded" % synth if synth else ""))
+    L.append("- Paying customers: **none** (no billing data exists yet); recurring revenue: **not available**.")
+    cap = {r["status"]: r["c"] for r in db.execute("SELECT status, COUNT(*) c FROM capabilities GROUP BY status").fetchall()}
+    L.append("- Product claims: %d verified, %d with evidence found (awaiting your or Guardian's verification), %d unverified. **Scribe can use only verified ones.**" % (cap.get("verified", 0), cap.get("evidence_found", 0), cap.get("unverified", 0)))
+    sup = db.execute("SELECT COUNT(*) c FROM suppressions").fetchone()["c"]
+    L.append("- Suppression list: %d entr%s (applies to every agent and campaign)." % (sup, "y" if sup == 1 else "ies"))
+    fc = C.forecast(db)
+    L.append("- Forecast buckets (counts / known value): " + "; ".join("%s %d / $%s" % (b, fc[b]["count"], fc[b]["known_value"]) for b in C.BUCKETS) + ". Confirmed revenue: unavailable. No probability-weighted figure (no conversion history).")
+    L += ["", "## Commercial decisions for you (max 3)"]
+    dec = []
+    for r in db.execute("SELECT o.uid, o.business_name, e.basis, e.evidence FROM eligibility e JOIN opportunities o ON o.id=e.opp_id WHERE e.status='proposed' AND o.stage NOT IN ('opted_out','disqualified')").fetchall():
+        dec.append("Confirm contact eligibility for %s (%s): proposed basis **%s** — %s. Recommend: review the evidence; this is a legal call and is yours. `ada confirm-eligibility %s --note \"…\"`" % (r["uid"], r["business_name"], r["basis"], r["evidence"], r["uid"]))
+    for r in db.execute("SELECT o.uid, o.business_name, c.id cid FROM communications c JOIN opportunities o ON o.id=c.opp_id JOIN eligibility e ON e.opp_id=o.id WHERE c.status='draft' AND e.status='confirmed' AND e.outreach_approved_by IS NULL").fetchall():
+        dec.append("Approve outreach draft #%d to %s. `ada approve-outreach %s` — nothing is sent by the system; you send it and record it." % (r["cid"], r["business_name"], r["uid"]))
+    L += ["- " + d for d in dec[:3]] or ["_none_"]
+    if len(dec) > 3:
+        L.append("_%d more held back._" % (len(dec) - 3))
+    L += ["", "## Product intelligence for Ada"]
+    reqs = db.execute("SELECT problem, observations FROM product_requests ORDER BY observations DESC LIMIT 3").fetchall()
+    L += ["- %s (seen %d time(s))" % (r["problem"], r["observations"]) for r in reqs] or ["_no commercially requested features recorded yet_"]
+    cf = C.conflicts(db)
+    if cf:
+        L += ["", "## Knowledge conflicts needing a decision"] + ["- draft #%d disagrees with authoritative #%d on %s" % (d, a, t) for a, d, t in cf]
+    L += ["", "_Dormant: Beacon (until you approve a content programme) and Ambassador (until the first paying customer). Compass/Mercury run only after `ada commercial on`._"]
+    return L
 
 
 # --------------------------------------------------------------------- cli
@@ -462,9 +554,20 @@ def main(argv=None):
             p.add_argument("--state")
     for c in ("approve", "reject", "revise", "unblock"):
         p = sub.add_parser(c); p.add_argument("id", type=int); p.add_argument("--reason", required=True)
+    for c in ("confirm-eligibility",):
+        p = sub.add_parser(c); p.add_argument("opp"); p.add_argument("--note", required=True)
+    p = sub.add_parser("approve-outreach"); p.add_argument("opp")
+    p = sub.add_parser("mark-sent"); p.add_argument("comm", type=int)
+    p = sub.add_parser("suppress"); p.add_argument("--email"); p.add_argument("--domain"); p.add_argument("--phone"); p.add_argument("--name"); p.add_argument("--reason", required=True)
+    p = sub.add_parser("verify-capability"); p.add_argument("name"); p.add_argument("--note", default="")
+    p = sub.add_parser("activate"); p.add_argument("agent", choices=["beacon", "ambassador"])
+    p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
+    sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
     a = ap.parse_args(argv)
     db = connect(); seed_permissions(db)
+    if not db.execute("SELECT 1 FROM capabilities LIMIT 1").fetchone():
+        C.seed_capabilities(db, os.environ.get("ADA_REPO_ROOT", os.path.join(HOME, "Projects", "mowology-crm")))
     try:
         if a.cmd == "status":
             why = halted(db)
@@ -500,9 +603,32 @@ def main(argv=None):
             if not sys.stdin.isatty():
                 raise Refused("needs an interactive terminal")
             unblock(db, a.id, "tim", a.reason); print("unblocked", a.id)
+        elif a.cmd == "confirm-eligibility":
+            C.confirm_eligibility(db, a.opp, "tim", a.note, sys.stdin.isatty()); print("confirmed; the opportunity can now move to contact_eligibility_verified")
+        elif a.cmd == "approve-outreach":
+            C.approve_outreach(db, a.opp, "tim", sys.stdin.isatty()); print("outreach approved for", a.opp, "- nothing was sent")
+        elif a.cmd == "mark-sent":
+            C.record_sent(db, a.comm, "tim", sys.stdin.isatty()); print("recorded as sent by you")
+        elif a.cmd == "suppress":
+            hit = C.suppress(db, a.reason, a.email, a.domain, a.phone, a.name); print("suppressed department-wide; opportunities opted out:", hit or "none")
+        elif a.cmd == "verify-capability":
+            C.verify_capability(db, a.name, "tim", a.note, sys.stdin.isatty()); print("verified:", a.name)
+        elif a.cmd == "activate":
+            set_ctl(db, a.agent + "_active", now()); print(a.agent, "activated")
+        elif a.cmd == "commercial":
+            set_ctl(db, "commercial_on", now() if a.onoff == "on" else None); print("commercial research", a.onoff)
+        elif a.cmd == "demo-commercial":
+            import tempfile, importlib
+            os.execve(sys.executable, [sys.executable, os.path.join(HERE, "demo.py"), "--cli"], dict(os.environ, DEPT_HOME=os.path.join(HOME, ".mowology-dept-demo")))
+        elif a.cmd == "pipeline":
+            for o in db.execute("SELECT uid,stage,business_name,synthetic,next_action FROM opportunities ORDER BY id").fetchall():
+                print("%s %-30s %s%s  next: %s" % (o["uid"], o["stage"], o["business_name"], " [synthetic]" if o["synthetic"] else "", o["next_action"] or "-"))
+        elif a.cmd == "capabilities":
+            for r in db.execute("SELECT name,status,limitations FROM capabilities ORDER BY id").fetchall():
+                print("%-14s %s%s" % (r["status"], r["name"], (" — " + r["limitations"]) if r["limitations"] else ""))
         elif a.cmd == "revoke":
             print("revoked", revoke(db, a.agent, a.category, a.reason))
-    except Refused as e:
+    except (Refused, C.Refused) as e:
         print("ada:", e, file=sys.stderr)
         return 3
     return 0

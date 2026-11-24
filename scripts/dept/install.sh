@@ -12,11 +12,15 @@ if [ "${1:-}" = "--uninstall" ]; then
   echo "unloaded"; exit 0
 fi
 mkdir -p "$BIN/dept" "$BIN/sentinel/agent/agents" "$BIN/sentinel/agent/skills" "$D/briefings" "$LA"
-cp "$HERE/ada.py" "$HERE/ada" "$BIN/dept/"
+mkdir -p "$BIN/dept/demo" "$BIN/dept/agent-defs"
+cp "$HERE"/ada.py "$HERE"/commercial.py "$HERE"/agents.py "$HERE"/demo.py "$HERE"/registry.json "$HERE"/ada "$BIN/dept/"
+cp "$HERE"/demo/standin-claude.py "$BIN/dept/demo/"
+for a in apollo mercury hunter scribe beacon closer ambassador compass; do cp "$ROOT/.claude/agents/$a.md" "$BIN/dept/agent-defs/"; mkdir -p "$D/memory/$a"; [ -f "$D/memory/$a/README.md" ] || printf "# %s memory\nNotes the department keeps for this agent (shown to it each run). Edit freely; authoritative facts live in the shared knowledge store.\n" "$a" > "$D/memory/$a/README.md"; done
 cp "$ROOT"/scripts/sentinel/{sentinel.py,run-audit.sh,native-shots.sh,sentinel,registry.json,targets.json} "$BIN/sentinel/"
 cp "$ROOT/.claude/agents/sentinel.md" "$BIN/sentinel/agent/agents/"
 rm -rf "$BIN/sentinel/agent/skills/sentinel-product-audit"; cp -R "$ROOT/.claude/skills/sentinel-product-audit" "$BIN/sentinel/agent/skills/"
-chmod +x "$BIN/dept/ada" "$BIN/dept/ada.py" "$BIN/sentinel/"*.sh "$BIN/sentinel/sentinel"
+chmod +x "$BIN/dept/ada" "$BIN/dept/ada.py" "$BIN/dept/demo/standin-claude.py" "$BIN/sentinel/"*.sh "$BIN/sentinel/sentinel"
+[ -f "$D/memory/compass/brief.md" ] || printf "# Compass standing brief\nStart from docs/marketing/competitor-checklist.md and docs/commercial/research-2026-11-24.md (BuildOps, Aspire, LeanScaper are on the checklist). Evidence with sources and dates only; competitor claims are not verified facts.\n" > "$D/memory/compass/brief.md"
 mkplist() { # label hour minute command...
   local label="$1" h="$2" m="$3"; shift 3
   { echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>'

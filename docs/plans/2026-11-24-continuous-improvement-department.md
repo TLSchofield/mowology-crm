@@ -38,3 +38,9 @@ Each is its own reviewed commit; nothing is called "working" until it has passed
 ## Limits
 Plan usage is not measurable (only `total_cost_usd` and the "hit your limit" message); `--max-turns` does not exist in this CLI
 (budget cap + wall-clock timeout instead); `--bare` needs an API key so it is not used.
+
+## Apollo's Commercial Intelligence Department (built 2026-11-24, Tim: "Build all")
+Eight agent definitions (`.claude/agents/`), commercial pipeline/compliance core (`scripts/dept/commercial.py`), agent runtime (`agents.py`), 72 tests.
+Docs: `docs/commercial/` (ARCHITECTURE, OPERATING-GUIDE, LIMITATIONS, metric-definitions, first-deliverables, research). Mercury and Atlas were not pre-existing;
+Mercury is now built under Apollo, Atlas stays a shared deterministic lesson-capture worker (the roster decision "lens" is kept for Empath only; Atlas's lesson capture is code).
+Beacon and Ambassador are defined but dormant. Interpretation of "build all": all eight definitions built; dormant ones activate on the owner's command.
