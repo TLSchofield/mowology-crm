@@ -68,6 +68,7 @@ function collect(string $dir, string $ext): array {
         $name = $f->getFilename();
         if (!str_ends_with($name, '.' . $ext)) continue;
         if (str_ends_with($name, '.min.' . $ext)) continue; // already minified
+        if ($name === 'app.js') continue; // Minify\JS truncates this bundle (2026-11-24): serve app.js as-is
         $path = $f->getPathname();
         if (strpos($path, '/vendor/') !== false) continue;
         if (strpos($path, '/node_modules/') !== false) continue;
