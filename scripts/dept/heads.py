@@ -25,7 +25,7 @@ def home():
 
 
 def repo_root():
-    return os.environ.get("ADA_REPO_ROOT") or os.path.abspath(os.path.join(HERE, "..", ".."))
+    return os.environ.get("ADA_REPO_ROOT", os.path.join(os.path.expanduser("~"), "Projects", "mowology-crm"))   # same convention as forge.py: the main checkout holds scripts/prod-run.sh
 
 
 def _num(v):
