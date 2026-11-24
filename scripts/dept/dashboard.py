@@ -83,12 +83,31 @@ def _table(headers, rows, empty="Nothing."):
     return "<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % ("".join("<th>%s</th>" % E(h) for h in headers), "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % c for c in r) for r in rows))
 
 
+def _clip(text, n=360):
+    text = " ".join((text or "").split())
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
+
+
+def _buildable(ada, t, payload):
+    """Plain-words promise about what Accept will do for this item."""
+    if t["kind"] != "improvement":
+        return ""
+    try:
+        import forge
+        scope = forge.scope_from(payload, forge.repo_root())
+        return "Accept starts a build on: %s. It is never deployed until you press Release." % ", ".join(scope[:3])
+    except Exception as e:  # forge.Stop: no file named / forbidden area; anything else: say nothing rather than guess
+        if e.__class__.__name__ == "Stop":
+            return "Accept records your decision and puts it on the backlog; it will not build by itself (%s)." % str(e)[:160]
+        return ""
+
+
 def _controls(tid, actions, interactive, cmds):
     """Served mode: a reason box + buttons (reason is required: the department learns from it). Static mode: the terminal commands."""
     if not interactive:
         return " ".join(_cmd(c) for c in cmds)
     label = {"release": "Release to production", "approve": "Accept", "reject": "Reject", "revise": "Revise", "unblock": "Unblock"}
-    return ("<form class='decide' data-id='%d' onsubmit='return false'><label class='meta'>Why? (required)<br><input type='text' name='reason' maxlength='300' required placeholder='one line the department can learn from'></label> %s <span class='result meta' role='status'></span></form>"
+    return ("<form class='decide' data-id='%d' onsubmit='return false'><label class='meta'>Why? (required)<br><input type='text' name='reason' maxlength='300' required placeholder='one line, e.g. "quotes are our main revenue" / "the phone number is deliberate" / "only on the contact page"'></label> %s <span class='result meta' role='status'></span></form>"
             % (tid, " ".join("<button type='button' class='act %s' data-decision='%s'>%s</button>" % (a, a, label[a]) for a in actions)))
 
 
@@ -124,7 +143,7 @@ def render(ada, db, interactive=False):
             continue
         need.append("<li class='%s'><b>%s #%d %s</b> <span class='meta'>%s · %s</span><br><span class='meta'>%s</span><br>%s</li>" % (
             "crit" if crit else "", ICON["P1"] if crit else ICON["P2"], t["id"], E(t["title"]), E(t["agent"]), E(t["risk"] + " risk"),
-            E((p.get("problem") or "")[:260] + ((" — " + (t["rationale"] or "")[:160]) if t["rationale"] else "")),
+            E(_clip(p.get("problem")) + ("\n" + _clip(_buildable(ada, t, p), 260) if _buildable(ada, t, p) else "")),
             _controls(t["id"], ["approve", "revise", "reject"], interactive, ['ada approve %d --reason "…"' % t["id"], 'ada reject %d --reason "…"' % t["id"]]) if t["state"] == "awaiting_approval" else "<span class='meta'>Release approval is not available here yet.</span>"))
     for t in q("SELECT * FROM tasks WHERE state IN ('approved','implementing','awaiting_verification') AND kind='improvement' ORDER BY id"):
         need.append("<li class='meta'>%s <b>#%d %s</b>: %s</li>" % (ICON["wait"], t["id"], E(t["title"]), {"approved": "accepted, build starting", "implementing": "being built now", "awaiting_verification": "being verified by Guardian"}[t["state"]]))
@@ -227,7 +246,7 @@ code{background:var(--sunk);border:1px solid var(--line);border-radius:6px;paddi
 button.copy{min-height:44px;min-width:64px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
 button.act{min-height:44px;min-width:88px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:15px;cursor:pointer;background:var(--surface);color:var(--text)}
 button.act.approve{background:var(--tenant);color:var(--on-tenant);border-color:var(--tenant);font-weight:600}
-form.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}form.decide input{min-height:44px;min-width:280px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
+form.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}form.decide input{min-height:44px;min-width:min(100%,420px);border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
 button.copy:focus-visible,button.act:focus-visible,input:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 details{border-top:1px solid var(--line);padding:10px 0}summary{cursor:pointer;min-height:44px}a{color:var(--brand)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
