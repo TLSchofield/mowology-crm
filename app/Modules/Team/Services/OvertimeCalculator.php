@@ -1,0 +1,204 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * BC Overtime Pay Calculator
+ *
+ * BC Employment Standards Act overtime rules:
+ *   - Daily:  first 8h regular | 8–12h at 1.5× | >12h at 2×
+ *   - Weekly: cumulative hours not already paid at a daily OT rate,
+ *             up to 40h total regular; excess at 1.5×
+ */
+class OvertimeCalculator
+{
+    private const DAILY_REG_MAX    = 480;  // 8 h in minutes
+    private const DAILY_OT15_MAX   = 720;  // 12 h in minutes
+    private const WEEKLY_REG_MAX   = 2400; // 40 h in minutes
+
+    /**
+     * Calculate pay breakdown for a week.
+     *
+     * @param array<string,int> $dailyMinutes  Keyed by 'Y-m-d', values are total shift minutes for that day.
+     * @param float             $hourlyRate    Employee's hourly rate in dollars.
+     *
+     * @return array{
+     *   regular_minutes:  int,
+     *   ot_1_5_minutes:   int,
+     *   ot_2_0_minutes:   int,
+     *   gross_pay:        float,
+     *   regular_pay:      float,
+     *   ot_1_5_pay:       float,
+     *   ot_2_0_pay:       float,
+     *   has_overtime:     bool,
+     *   daily_breakdown:  array
+     * }
+     */
+    public static function calculate(array $dailyMinutes, float $hourlyRate, int $priorRegularMinutes = 0): array
+    {
+        // $priorRegularMinutes: the first-8-hours minutes already worked this Sunday–Saturday week on days before
+        // these (paid earlier); they count toward the 40 h but are not paid again (Codex review 2026-10-23).
+        $weekRegMin  = 0;  // running total of minutes paid at regular rate
+        $weekOt15Min = 0;  // running total of minutes paid at 1.5×
+        $weekOt20Min = 0;  // running total of minutes paid at 2×
+
+        $dailyBreakdown = [];
+
+        foreach ($dailyMinutes as $date => $totalMin) {
+            $totalMin = max(0, (int)$totalMin);
+            $dayReg  = 0;
+            $dayOt15 = 0;
+            $dayOt20 = 0;
+
+            if ($totalMin > self::DAILY_OT15_MAX) {
+                // >12 h: split into reg / 1.5× / 2×
+                $dayReg  = self::DAILY_REG_MAX;
+                $dayOt15 = self::DAILY_OT15_MAX - self::DAILY_REG_MAX;
+                $dayOt20 = $totalMin - self::DAILY_OT15_MAX;
+            } elseif ($totalMin > self::DAILY_REG_MAX) {
+                // 8–12 h: split into reg / 1.5×
+                $dayReg  = self::DAILY_REG_MAX;
+                $dayOt15 = $totalMin - self::DAILY_REG_MAX;
+            } else {
+                // ≤8 h: all regular
+                $dayReg = $totalMin;
+            }
+
+            $weekRegMin  += $dayReg;
+            $weekOt15Min += $dayOt15;
+            $weekOt20Min += $dayOt20;
+
+            $dailyBreakdown[$date] = [
+                'total_minutes'   => $totalMin,
+                'regular_minutes' => $dayReg,
+                'ot_1_5_minutes'  => $dayOt15,
+                'ot_2_0_minutes'  => $dayOt20,
+                'has_daily_ot'    => ($dayOt15 > 0 || $dayOt20 > 0),
+            ];
+        }
+
+        // Weekly overtime: regular minutes beyond 40 h (2400 min) shift to 1.5×
+        // Only the "regular" bucket is subject to weekly OT; daily OT is already priced above.
+        $cap = max(0, self::WEEKLY_REG_MAX - max(0, $priorRegularMinutes));
+        if ($weekRegMin > $cap) {
+            $weeklyOtMin  = $weekRegMin - $cap;
+            $weekOt15Min += $weeklyOtMin;
+            $weekRegMin   = $cap;
+        }
+
+        $ratePerMin     = $hourlyRate / 60.0;
+        $regularPay     = round($weekRegMin  * $ratePerMin, 2);
+        $ot15Pay        = round($weekOt15Min * $ratePerMin * 1.5, 2);
+        $ot20Pay        = round($weekOt20Min * $ratePerMin * 2.0, 2);
+        $grossPay       = round($regularPay + $ot15Pay + $ot20Pay, 2);
+
+        return [
+            'regular_minutes' => $weekRegMin,
+            'ot_1_5_minutes'  => $weekOt15Min,
+            'ot_2_0_minutes'  => $weekOt20Min,
+            'gross_pay'       => $grossPay,
+            'regular_pay'     => $regularPay,
+            'ot_1_5_pay'      => $ot15Pay,
+            'ot_2_0_pay'      => $ot20Pay,
+            'has_overtime'    => ($weekOt15Min > 0 || $weekOt20Min > 0),
+            'daily_breakdown' => $dailyBreakdown,
+        ];
+    }
+
+    /**
+     * Pay for any period (e.g. a bi-weekly pay run): days are grouped into their Sunday–Saturday
+     * week — the BC Employment Standards Act's overtime week begins on Sunday (s.1 "week"; it was
+     * Monday–Sunday until 2026-10-21, found by the payroll plan's Fable review), each week goes through calculate() (daily 8 h / 12 h rules + the 40 h weekly rule),
+     * and the weeks are summed. The weekly threshold is never applied to more than one week.
+     * PURE.
+     *
+     * @param array<string,int> $dailyMinutes keyed 'Y-m-d' (any order, any span)
+     * @return array same shape as calculate(), plus 'weeks' => [weekStart => calculate() result]
+     */
+    public static function calculatePeriod(array $dailyMinutes, float $hourlyRate, array $priorDays = []): array
+    {
+        // $priorDays: days of the period's first Sunday–Saturday week that fall BEFORE it (already paid) —
+        // they count toward that week's 40 h only (Codex review 2026-10-23).
+        $prior = [];
+        foreach ($priorDays as $d => $m) {
+            $ts = strtotime((string)$d);
+            if ($ts === false) continue;
+            $wk = date('Y-m-d', strtotime('-' . (int)date('w', $ts) . ' days', $ts));
+            $prior[$wk] = ($prior[$wk] ?? 0) + min(max(0, (int)$m), self::DAILY_REG_MAX);
+        }
+        ksort($dailyMinutes);
+        $byWeek = [];
+        foreach ($dailyMinutes as $date => $min) {
+            $ts = strtotime((string)$date);
+            if ($ts === false) continue;
+            $sunday = date('Y-m-d', strtotime('-' . (int)date('w', $ts) . ' days', $ts));   // w: 0 = Sunday
+            $byWeek[$sunday][date('Y-m-d', $ts)] = ($byWeek[$sunday][date('Y-m-d', $ts)] ?? 0) + (int)$min;
+        }
+        $sum = ['regular_minutes' => 0, 'ot_1_5_minutes' => 0, 'ot_2_0_minutes' => 0,
+                'gross_pay' => 0.0, 'regular_pay' => 0.0, 'ot_1_5_pay' => 0.0, 'ot_2_0_pay' => 0.0,
+                'has_overtime' => false, 'daily_breakdown' => [], 'weeks' => []];
+        foreach ($byWeek as $sunday => $days) {
+            $w = self::calculate($days, $hourlyRate, $prior[$sunday] ?? 0);
+            $sum['weeks'][$sunday] = $w;
+            foreach (['regular_minutes', 'ot_1_5_minutes', 'ot_2_0_minutes'] as $k) $sum[$k] += $w[$k];
+            foreach (['gross_pay', 'regular_pay', 'ot_1_5_pay', 'ot_2_0_pay'] as $k) $sum[$k] = round($sum[$k] + $w[$k], 2);
+            $sum['has_overtime'] = $sum['has_overtime'] || $w['has_overtime'];
+            $sum['daily_breakdown'] += $w['daily_breakdown'];
+        }
+        return $sum;
+    }
+
+    /**
+     * Calculate pay from a pre-aggregated weekly total (no per-day breakdown).
+     * Use this when only the stored timesheets.total_shift_minutes is available.
+     * NOT for pay runs: it misses the daily 8 h / 12 h rules — use calculatePeriod() (2026-10-12).
+     * Applies weekly OT only (>40h = 1.5×); per-day OT is not computable.
+     *
+     * @param int   $weeklyMinutes  Total shift minutes for the week (trusted stored value).
+     * @param float $hourlyRate
+     * @return array (same shape as calculate(), daily_breakdown is empty)
+     */
+    public static function calculateFromWeeklyTotal(int $weeklyMinutes, float $hourlyRate): array
+    {
+        $weeklyMinutes = max(0, $weeklyMinutes);
+        $regMin  = min($weeklyMinutes, self::WEEKLY_REG_MAX);
+        $ot15Min = max(0, $weeklyMinutes - self::WEEKLY_REG_MAX);
+
+        $ratePerMin = $hourlyRate / 60.0;
+        $regPay     = round($regMin  * $ratePerMin, 2);
+        $ot15Pay    = round($ot15Min * $ratePerMin * 1.5, 2);
+        $grossPay   = round($regPay + $ot15Pay, 2);
+
+        return [
+            'regular_minutes' => $regMin,
+            'ot_1_5_minutes'  => $ot15Min,
+            'ot_2_0_minutes'  => 0,
+            'gross_pay'       => $grossPay,
+            'regular_pay'     => $regPay,
+            'ot_1_5_pay'      => $ot15Pay,
+            'ot_2_0_pay'      => 0.0,
+            'has_overtime'    => ($ot15Min > 0),
+            'daily_breakdown' => [],
+        ];
+    }
+
+    /**
+     * Format minutes as decimal hours string, e.g. "8.50h".
+     */
+    public static function minutesToHours(int $minutes): string
+    {
+        if ($minutes <= 0) return '0h';
+        $h = floor($minutes / 60);
+        $m = $minutes % 60;
+        if ($m === 0) return "{$h}h";
+        $dec = round($m / 60, 2);
+        return number_format($h + $dec, 2) . 'h';
+    }
+
+    /**
+     * Format a dollar amount as CAD currency string.
+     */
+    public static function formatPay(float $amount): string
+    {
+        return '$' . number_format($amount, 2);
+    }
+}

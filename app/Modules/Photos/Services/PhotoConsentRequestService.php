@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__, 3) . '/Services/Messaging/IdentityMail.php';
 
 /**
  * PhotoConsentRequestService
@@ -87,7 +88,7 @@ class PhotoConsentRequestService
             } catch (Throwable $e) { /* column missing */ return; }
 
             // 5. Send the email
-            $baseUrl     = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+            $baseUrl     = defined('SITE_URL') ? SITE_URL : _idSiteUrl();
             $galleryUrl  = $baseUrl . '/customer/gallery.php?token=' . urlencode($ctx['portal_token']);
             $firstName   = $ctx['first_name'] ?: 'there';
 
@@ -113,7 +114,7 @@ You can view them anytime in your private gallery:</p>
 </p>
 <p style="color:#94a3b8;font-size:0.8rem;margin-top:24px;">
   Ignore this email if you\'d rather keep all your photos private — they\'ll stay that way.
-  Thank you for letting Mowology take care of your landscape.
+  Thank you for letting ' . htmlspecialchars(_idFromName()) . ' take care of your property.
 </p>';
 
             // Use the CRM messaging layer (PHPMailer SMTP)

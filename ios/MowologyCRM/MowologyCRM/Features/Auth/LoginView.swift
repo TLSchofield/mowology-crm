@@ -8,6 +8,10 @@
 import SwiftUI
 
 struct LoginView: View {
+    @Environment(\.itAppStyle) private var appStyle
+    @Environment(\.it) private var it
+    /// When the person arrived from the Welcome screen, a Back button returns there.
+    var onBack: (() -> Void)?
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: LoginViewModel
@@ -31,7 +35,8 @@ struct LoginView: View {
     }
 
     // Designated initialiser used by RootView which supplies the real session.
-    init(authSession: AuthSession) {
+    init(authSession: AuthSession, onBack: (() -> Void)? = nil) {
+        self.onBack = onBack
         _viewModel = StateObject(wrappedValue: LoginViewModel(authSession: authSession))
     }
 
@@ -52,43 +57,60 @@ struct LoginView: View {
                 Spacer(minLength: 40)
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(appStyle.page)
         .ignoresSafeArea(edges: .top)
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture { focusedField = nil }
+        .solidStatusBar(ItOpeningColors.navy)
+        .sheet(isPresented: businessPickerPresented, onDismiss: authSession.dismissBusinessChoices) {
+            NavigationStack {
+                List(authSession.businessChoices) { business in
+                    Button {
+                        Task { await viewModel.login(business: business.key) }
+                    } label: {
+                        Text(business.name).font(appStyle.font(.body)).foregroundStyle(appStyle.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .disabled(viewModel.isLoading)
+                    .accessibilityHint("Signs in to this business")
+                }
+                .navigationTitle("Choose your business")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { authSession.dismissBusinessChoices() }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var businessPickerPresented: Binding<Bool> {
+        Binding(
+            get: { !authSession.businessChoices.isEmpty },
+            set: { if !$0 { authSession.dismissBusinessChoices() } }
+        )
     }
 
     // MARK: - Brand Header
 
+    /// The Ittai look: navy ground and the wordmark (gold dots on the i's, gold bar across the t's), drawn by the
+    /// same frozen geometry as the opening's end state. No business name: the phone does not know it before sign-in.
     private var brandHeader: some View {
-        VStack(spacing: 8) {
-            // Leaf icon as a system symbol stand-in for the Mowology logo.
-            Image(systemName: "leaf.fill")
-                .font(.system(size: 48, weight: .medium))
-                .foregroundStyle(.white.opacity(0.95))
-                .padding(.top, 72)
-                .padding(.bottom, 4)
-
-            Text("Mowology")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("Field Manager")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.white.opacity(0.80))
-                .padding(.bottom, 40)
+        ZStack(alignment: .topLeading) {
+            ItOpeningColors.navy
+            ItOpeningMark(frame: ItOpeningMotion.frame(ItOpeningMotion.T), zoom: 0.78)
+                .frame(height: 150)
+                .padding(.top, 76).padding(.bottom, 24)
+            if let onBack {
+                Button(action: onBack) { Label("Back", systemImage: "chevron.left").foregroundStyle(ItOpeningColors.letters) }
+                    .padding(.top, 60).padding(.leading, 20)
+            }
         }
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color.MW.green,  // #2D8659
-                    Color.MW.dark   // #1A5F4A
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ittai")
     }
 
     // MARK: - Login Card
@@ -97,8 +119,8 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 20) {
 
             Text("Sign In")
-                .font(.title2.bold())
-                .foregroundStyle(.primary)
+                .font(appStyle.font(.title2, weight: .bold))
+                .foregroundStyle(appStyle.text)
                 .padding(.top, 4)
 
             // Error Banner
@@ -109,10 +131,10 @@ struct LoginView: View {
             // Email Field
             VStack(alignment: .leading, spacing: 6) {
                 Label("Email", systemImage: "envelope")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
 
-                TextField("you@mowology.ca", text: $viewModel.email)
+                TextField("Email address", text: $viewModel.email)
                     .keyboardType(.emailAddress)
                     .textContentType(.emailAddress)
                     .autocapitalization(.none)
@@ -122,19 +144,19 @@ struct LoginView: View {
                     .onSubmit { focusedField = .password }
                     .onChange(of: viewModel.email) { _, _ in viewModel.clearError() }
                     .padding(12)
-                    .background(Color(.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .background(appStyle.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color(.systemGray4), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                            .stroke(appStyle.line, lineWidth: 1)
                     )
             }
 
             // Password Field
             VStack(alignment: .leading, spacing: 6) {
                 Label("Password", systemImage: "lock")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(appStyle.font(.footnote, weight: .semibold))
+                    .foregroundStyle(appStyle.meta)
 
                 SecureField("Password", text: $viewModel.password)
                     .textContentType(.password)
@@ -146,11 +168,11 @@ struct LoginView: View {
                     }
                     .onChange(of: viewModel.password) { _, _ in viewModel.clearError() }
                     .padding(12)
-                    .background(Color(.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .background(appStyle.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color(.systemGray4), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                            .stroke(appStyle.line, lineWidth: 1)
                     )
             }
 
@@ -162,36 +184,35 @@ struct LoginView: View {
                 HStack(spacing: 8) {
                     if viewModel.isLoading {
                         ProgressView()
-                            .tint(.white)
+                            .tint(it.mode == .dark ? it.page : Color.white)
                             .scaleEffect(0.9)
                     }
                     Text(viewModel.isLoading ? "Signing In…" : "Sign In")
-                        .font(.body.bold())
+                        .font(appStyle.font(.body, weight: .bold))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(
                     viewModel.isLoading
-                        ? Color.MW.green.opacity(0.7)
-                        : Color.MW.green
+                        ? it.brand.opacity(0.7)
+                        : it.brand
                 )
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(it.mode == .dark ? it.page : Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(12)))
             }
             .disabled(viewModel.isLoading)
             .padding(.top, 4)
 
-            // Footer note — no signup link by design.
-            Text("Access is restricted to Mowology staff.")
-                .font(.caption)
+            Text("Sign in with the login your business gave you.")
+                .font(appStyle.font(.caption))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.bottom, 4)
         }
         .padding(24)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+        .background(appStyle.surface)
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(16)))
+        .shadow(color: appStyle.shadow(0.08), radius: 12, x: 0, y: 4)
     }
 
     // MARK: - Error Banner
@@ -199,23 +220,23 @@ struct LoginView: View {
     private func errorBanner(message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .font(.subheadline)
+                .foregroundStyle(appStyle.blocked)
+                .font(appStyle.font(.subheadline))
                 .padding(.top, 1)
 
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.red)
+                .font(appStyle.font(.subheadline))
+                .foregroundStyle(appStyle.blocked)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
         }
         .padding(12)
-        .background(Color.red.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(appStyle.blocked.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: appStyle.cornerRadius(10)))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.red.opacity(0.25), lineWidth: 1)
+            RoundedRectangle(cornerRadius: appStyle.cornerRadius(10))
+                .stroke(appStyle.blocked.opacity(0.25), lineWidth: 1)
         )
     }
 }

@@ -1,0 +1,32 @@
+{
+  "_about": "Specialist agents of Ada's Continuous Improvement Department. Autonomy levels: 0 = read-only, reports only; 1 = may draft a patch on a branch for Tim to review; 2 = may open a PR; 3 = may deploy low-risk changes. Promotion needs Tim's written say-so and a track record in the ledger (see promotion). Nobody is above 0 today.",
+  "department": "Continuous Improvement (reports to Ada, Technology)",
+  "promotion": {
+    "to_level_1": "20 accepted recommendations, none later reverted, Tim's written approval",
+    "to_level_2": "10 level-1 patches merged without rework, Tim's written approval",
+    "to_level_3": "never automatic; per-change approval stays unless Tim changes this file himself"
+  },
+  "agents": {
+    "sentinel": {
+      "role": "Product auditor: web, web app, iOS, Android",
+      "autonomy_level": 0,
+      "model": "opus",
+      "budget_usd_per_run": 3,
+      "max_recommendations_per_daily_run": 3,
+      "tools_allowed": ["Read", "Grep", "Glob", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(ls:*)", "Bash(wc:*)", "Bash(cat:*)", "Bash(rg:*)", "mcp__playwright__*", "mcp__chrome-devtools__*"],
+      "tools_denied": ["Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Bash(rm:*)", "Bash(mv:*)", "Bash(cp:*)", "Bash(curl:*)", "Bash(ssh:*)", "Bash(ftp:*)", "Bash(lftp:*)", "Bash(git push:*)", "Bash(git commit:*)", "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(scripts/*)", "Bash(./deploy.sh:*)"],
+      "may_read": ["code snapshot (~/.mowology-sentinel/src, code only)", "public websites listed in targets.json", "its own memory, ledger and reports"],
+      "may_not_touch": ["production code", "deploys", "live customer data", "signed-in pages", "secrets", "docs/tests/data of the repo"]
+    }
+  },
+  "future_template": {
+    "_about": "Copy this block to add a specialist. Give it the narrowest tools that do the job and start it at level 0.",
+    "name": "example-accessibility-specialist",
+    "role": "one sentence",
+    "autonomy_level": 0,
+    "model": "sonnet",
+    "budget_usd_per_run": 1,
+    "tools_allowed": ["Read", "Grep", "Glob"],
+    "tools_denied": ["Write", "Edit"]
+  }
+}

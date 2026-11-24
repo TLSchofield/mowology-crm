@@ -8,5 +8,10 @@ for ($__i = 0; $__i < 6; $__i++) {
         break;
     }
 }
+if (($_GET['action'] ?? '') === 'list' && isset($_GET['expense_id'])) {
+    $_GET['expense_id'] = is_numeric($_GET['expense_id']) && (int)$_GET['expense_id'] > 0
+        ? (int)$_GET['expense_id']
+        : '';
+}
 // Shim — routes to /app/Modules/Accounting/Api/transactions.php
 require_once APP_ROOT . '/Modules/Accounting/Api/transactions.php';

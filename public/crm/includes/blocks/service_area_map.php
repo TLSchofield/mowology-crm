@@ -1,4 +1,5 @@
 <?php
+require_once APP_ROOT . '/Core/Csp.php'; // nonce for this block's inline script (Fable #22)
 /**
  * Service Area Map Block Renderer (P2-E)
  *
@@ -56,10 +57,8 @@ $areasJson = json_encode(array_map(fn($a) => [
 
 <!-- Leaflet CSS / JS (loaded once via guard) -->
 <?php if (!defined('LEAFLET_LOADED')): define('LEAFLET_LOADED', true); ?>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WPeE=" crossorigin=""></script>
+<link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.min.css">
+<script src="/assets/vendor/leaflet/leaflet.min.js"></script>
 <style>
 .area-chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
 .area-chip  { background:var(--mowology-light,#e8f3f0); color:var(--mowology-dark,#1A5F4A);
@@ -67,7 +66,7 @@ $areasJson = json_encode(array_map(fn($a) => [
 </style>
 <?php endif; ?>
 
-<script>
+<script<?= MwCsp::attr() ?>>
 (function() {
     var mapEl = document.getElementById('<?php echo $mapId; ?>');
     if (!mapEl || typeof L === 'undefined') return;

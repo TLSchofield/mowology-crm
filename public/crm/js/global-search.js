@@ -26,7 +26,8 @@
     'Properties': { icon: 'map-pin',     color: '#17a2b8' },
     'Quotes':     { icon: 'file-text',   color: '#4a90d9' },
     'Jobs':       { icon: 'briefcase',   color: '#e85d04' },
-    'Invoices':   { icon: 'credit-card', color: '#7c3aed' },
+    'Invoices':   { icon: 'credit-card', color: '#2F4B8F' },
+    'Contracts':  { icon: 'file-text',   color: '#1A5F4A' },
     'Team':       { icon: 'users',       color: '#6c757d' }
   };
 
@@ -36,8 +37,8 @@
 
   // Deterministic color from name — stays consistent across searches
   var avatarPalette = [
-    '#2D8659', '#1A5F4A', '#4a90d9', '#7c3aed',
-    '#e85d04', '#17a2b8', '#d97706', '#0891b2',
+    '#2D8659', '#1A5F4A', '#4a90d9', '#2F4B8F',
+    '#e85d04', '#17a2b8', '#9A3412', '#0891b2',
     '#be185d', '#0d6efd'
   ];
 
@@ -156,7 +157,7 @@
     }
 
     showLoading();
-    debounceTimer = setTimeout(function() { fetchResults(q); }, 200);
+    debounceTimer = setTimeout(function() { fetchResults(q); }, 120);
   });
 
   // ── Overlay input: arrow keys + Enter ────────────
@@ -239,7 +240,7 @@
 
     var html = '';
     var itemIdx = 0;
-    var categoryOrder = ['Contacts', 'Companies', 'Properties', 'Quotes', 'Jobs', 'Invoices', 'Team'];
+    var categoryOrder = ['Contacts', 'Companies', 'Properties', 'Contracts', 'Quotes', 'Jobs', 'Invoices', 'Team'];
 
     categoryOrder.forEach(function(cat) {
       if (!groups[cat]) return;
@@ -288,8 +289,13 @@
     body.innerHTML = html;
 
     body.querySelectorAll('.mw-spotlight-item').forEach(function(item) {
-      item.addEventListener('click', function() {
-        saveRecent(item.dataset.label, item.dataset.url, item.dataset.category);
+      item.addEventListener('click', function(e) {
+        e.preventDefault();
+        var url = item.dataset.url;
+        if (url) {
+          saveRecent(item.dataset.label, url, item.dataset.category);
+          window.location.href = url;
+        }
       });
     });
   }

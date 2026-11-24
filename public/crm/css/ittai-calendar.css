@@ -1,0 +1,483 @@
+/* =============================================================================
+   ittai-calendar.css — the Schedule calendar in the Ittai v1.2 (Kanso) look.
+   Opt-in: loaded by jobs/schedule.php only when the person chose the new design (it_design cookie),
+   and every rule needs body.it-shell.mw-page-schedule, so with the new design off nothing here applies.
+   Design: docs/design/calendar-round-2026-11-23/ (approved by Tim 2026-11-23).
+   Kanso: one calm page colour, hairline panels on --it-surface, no filled blocks, no shadows, figures in
+   tabular numerals, ONE filled button per page. Tokens only (ittai-tokens.css) — no hex values.
+   Slice 1: header, controls, the salt and snow strip. Later slices add the week, day, list views below.
+   ============================================================================= */
+
+body.it-shell.mw-page-schedule,
+body.it-shell.mw-page-schedule .main,
+body.it-shell.mw-page-schedule main.content { background: var(--it-page); }
+
+body.it-shell.mw-page-schedule main.content {
+  color: var(--it-text);
+  font-family: var(--it-font-sans);
+  font-variant-numeric: tabular-nums;
+}
+body.it-shell.mw-page-schedule main.content :focus-visible { outline: var(--it-stroke-focus) solid var(--it-focus); outline-offset: 2px; }
+
+/* ── Header: title row, date navigation, filters ─────────────────────────── */
+body.it-shell.mw-page-schedule .mw-page-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--it-space-3) var(--it-space-4); margin: 0 0 var(--it-space-4); padding: 0; border: 0; background: transparent; }
+body.it-shell.mw-page-schedule .mw-page-title { font-family: var(--it-font-sans); font-size: var(--it-title-28-size); line-height: var(--it-title-28-line); font-weight: var(--it-title-28-weight); letter-spacing: -0.01em; color: var(--it-text); margin: 0; }
+body.it-shell.mw-page-schedule .mw-header-nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--it-space-2); }
+body.it-shell.mw-page-schedule .mw-schedule-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--it-space-2); margin-left: auto; }
+
+/* Today, previous, next, the date picker and Job Plans: quiet outlined buttons */
+body.it-shell.mw-page-schedule .mw-today-btn,
+body.it-shell.mw-page-schedule .mw-nav-btn,
+body.it-shell.mw-page-schedule .mw-datepicker-trigger,
+body.it-shell.mw-page-schedule .mw-schedule-filters > .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--it-space-2);
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+  color: var(--it-text); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; line-height: 1.2;
+  box-shadow: none; text-decoration: none; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-nav-btn { min-width: var(--it-target-desktop); padding: 0; }
+body.it-shell.mw-page-schedule .mw-today-btn:hover,
+body.it-shell.mw-page-schedule .mw-nav-btn:hover,
+body.it-shell.mw-page-schedule .mw-datepicker-trigger:hover,
+body.it-shell.mw-page-schedule .mw-datepicker-trigger.mw-datepicker-open,
+body.it-shell.mw-page-schedule .mw-schedule-filters > .btn:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); text-decoration: none; }
+body.it-shell.mw-page-schedule .mw-datepicker-trigger { color: var(--it-text); }
+
+/* Service and crew filters (the tick-box pickers) */
+body.it-shell.mw-page-schedule .mw-typemulti > summary {
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-8) 0 var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+  color: var(--it-text); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-typemulti > summary:hover,
+body.it-shell.mw-page-schedule .mw-typemulti[open] > summary { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-typemulti-list {
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: var(--it-shadow-menu);
+  color: var(--it-text); font-family: var(--it-font-sans);
+}
+body.it-shell.mw-page-schedule .mw-typemulti-row { min-height: var(--it-target-desktop); font-size: var(--it-body-14-size); }
+body.it-shell.mw-page-schedule .mw-typemulti-row input { accent-color: var(--it-tenant); }
+
+/* Week / Day and Cards / Timeline / Map / List: one calm segmented control, the chosen one lifted onto the surface */
+body.it-shell.mw-page-schedule .mw-dv-view-toggle,
+body.it-shell.mw-page-schedule .mw-cal-seg {
+  display: inline-flex; align-items: stretch; gap: var(--it-space-1); padding: var(--it-space-1); margin: 0;
+  background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); overflow: visible;
+}
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn,
+body.it-shell.mw-page-schedule .mw-cal-seg button,
+body.it-shell.mw-page-schedule .mw-cal-seg a {
+  display: inline-flex; align-items: center; justify-content: center; min-height: calc(var(--it-target-desktop) - 2 * var(--it-space-1) - 2 * var(--it-stroke-hairline)); padding: 0 var(--it-space-3);
+  background: transparent; border: var(--it-stroke-hairline) solid transparent; border-radius: var(--it-radius-sm);
+  color: var(--it-meta); font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; line-height: 1.2; text-decoration: none; cursor: pointer; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-cal-seg > * + * { border-left-color: transparent; }
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg button:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg a:hover { background: var(--it-selected); color: var(--it-text); text-decoration: none; }
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn.active,
+body.it-shell.mw-page-schedule .mw-dv-toggle-btn.active:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg button.on,
+body.it-shell.mw-page-schedule .mw-cal-seg a.on,
+body.it-shell.mw-page-schedule .mw-cal-seg button.on:hover,
+body.it-shell.mw-page-schedule .mw-cal-seg a.on:hover { background: var(--it-surface); border-color: var(--it-line); color: var(--it-text); font-weight: 600; }
+
+/* ── Salt and snow route strip: one hairline strip, outlined buttons, never a filled block ─────── */
+body.it-shell.mw-page-schedule .mw-snow-run {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--it-space-3);
+  margin: 0 0 var(--it-space-4); padding: var(--it-space-3) var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: none; color: var(--it-text);
+  font-size: var(--it-body-14-size); line-height: var(--it-body-14-line);
+}
+body.it-shell.mw-page-schedule .mw-snow-run.is-active { background: var(--it-surface); border-color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-snow-run-icon { color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-snow-run.is-active .mw-snow-run-icon { color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-snow-run-note { color: var(--it-meta); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-snow-run-btn {
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-4);
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); color: var(--it-text);
+  font-family: var(--it-font-sans); font-size: var(--it-body-14-size); font-weight: 500; cursor: pointer; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-snow-run-btn:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-snow-run-btn:disabled { opacity: .6; cursor: default; }
+
+/* ── Week and day timeline ──────────────────────────────────────────────── */
+body.it-shell.mw-page-schedule .mw-cal-panel {
+  background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm);
+  color: var(--it-text); box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-cal-head { background: var(--it-surface); border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-cal-colhead { color: var(--it-text); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-cal-gutter { color: var(--it-meta); font-size: 12px; font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-colhead,
+body.it-shell.mw-page-schedule .mw-cal-anycell,
+body.it-shell.mw-page-schedule .mw-cal-col { border-left-color: var(--it-line); }
+body.it-shell.mw-page-schedule .mw-cal-hour { border-top-color: var(--it-line); }
+body.it-shell.mw-page-schedule .mw-cal-col { background-image: linear-gradient(var(--it-line) var(--it-stroke-hairline), transparent var(--it-stroke-hairline)); background-size: 100% var(--mw-cal-hour, 48px); }
+
+body.it-shell.mw-page-schedule .mw-cal-block {
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line);
+  border-radius: var(--it-radius-sm); box-shadow: none; padding: var(--it-space-1) var(--it-space-2); font-size: 12px;
+}
+body.it-shell.mw-page-schedule .mw-cal-block--drag { box-shadow: var(--it-shadow-menu); }
+body.it-shell.mw-page-schedule .mw-cal-block--locked { background: var(--it-sunk); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-block--overflow { display: none; }
+body.it-shell.mw-page-schedule .mw-cal-btitle {
+  font-weight: 600; white-space: normal; overflow: hidden; text-overflow: clip; line-height: 1.2;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+body.it-shell.mw-page-schedule .mw-cal-bmeta { color: var(--it-meta); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-cal-btype { display: flex; align-items: center; gap: var(--it-space-1); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-btime { min-height: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-edge::after { background: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-cal-ghost { background: var(--it-selected); border-color: var(--it-brand); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-cal-now { border-top-color: var(--it-brand); border-top-width: 2px; }
+
+body.it-shell.mw-page-schedule .mw-cal-shape { display: inline-block; flex: 0 0 auto; width: 9px; height: 9px; background: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-cal-shape--lawn_care { border-radius: var(--it-radius-full); }
+body.it-shell.mw-page-schedule .mw-cal-shape--landscaping { background: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-shape--hedge_trimming { transform: rotate(45deg) scale(.78); }
+body.it-shell.mw-page-schedule .mw-cal-shape--garden_maintenance {
+  width: 0; height: 0; background: transparent; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--it-meta);
+}
+body.it-shell.mw-page-schedule .mw-cal-shape--seasonal_cleanup { width: 12px; height: 3px; border-radius: var(--it-radius-full); background: var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-cal-shape--snow_removal,
+body.it-shell.mw-page-schedule .mw-cal-shape--unknown { background: transparent; border: 2px solid var(--it-meta); border-radius: var(--it-radius-full); }
+
+body.it-shell.mw-page-schedule .mw-cal-bstatus { display: flex; align-items: center; gap: var(--it-space-1); color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus::before { content: ""; display: inline-block; flex: 0 0 auto; width: 9px; height: 9px; border: var(--it-stroke-hairline) solid currentColor; border-radius: var(--it-radius-full); box-sizing: border-box; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--progress::before { border-width: 2px; border-right-color: transparent; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--complete { color: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--complete::before { width: 10px; height: 6px; border: 0; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; border-radius: 0; transform: rotate(-45deg) translateY(-1px); }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--skipped::before { height: 2px; border: 0; border-top: 2px solid currentColor; border-radius: 0; }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--attention { color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-cal-bstatus--attention::before { width: 0; height: 0; border: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid currentColor; border-radius: 0; }
+
+body.it-shell.mw-page-schedule .mw-cal-chip {
+  min-height: 44px; padding: var(--it-space-2) var(--it-space-3); background: var(--it-surface); color: var(--it-text);
+  border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); box-sizing: border-box;
+}
+body.it-shell.mw-page-schedule .mw-cal-chip--drag:hover { background: var(--it-selected); color: var(--it-text); }
+
+body.it-shell.mw-page-schedule .mw-cal-more {
+  display: inline-flex; position: absolute; left: calc(66.666% + 3px); width: calc(33.333% - 6px); min-height: 44px;
+  align-items: center; justify-content: center; padding: var(--it-space-1) var(--it-space-2); z-index: 2;
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full);
+  font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-cal-more:hover { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-cal-pop { background: var(--it-surface); color: var(--it-text); border-color: var(--it-line); box-shadow: var(--it-shadow-menu); }
+body.it-shell.mw-page-schedule .mw-cal-morepop { display: flex; flex-direction: column; gap: var(--it-space-1); min-width: 240px; padding: var(--it-space-2); }
+body.it-shell.mw-page-schedule .mw-cal-morepop > button {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 var(--it-space-2); min-height: 44px; padding: var(--it-space-2);
+  text-align: left; background: transparent; color: var(--it-text); border: 0; border-radius: var(--it-radius-sm); font: inherit; font-size: 12px; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-cal-morepop > button:hover { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-cal-morepop > button span:first-child { grid-row: 1 / span 2; color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-morepop > button span:last-child { color: var(--it-meta); }
+
+body.it-shell.mw-page-schedule .mw-cal-density {
+  display: inline-flex; align-items: stretch; gap: var(--it-space-1); margin-left: auto; padding: var(--it-space-1);
+  background: var(--it-sunk); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+}
+body.it-shell.mw-page-schedule .mw-cal-panel > .mw-cal-density { margin: var(--it-space-2); width: max-content; }
+body.it-shell.mw-page-schedule .mw-cal-density button {
+  min-height: 36px; padding: 0 var(--it-space-3);
+  background: transparent; color: var(--it-meta); border: var(--it-stroke-hairline) solid transparent; border-radius: var(--it-radius-sm);
+  font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+}
+body.it-shell.mw-page-schedule .mw-cal-density button:hover { background: var(--it-selected); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-cal-density button[aria-pressed="true"] { background: var(--it-surface); color: var(--it-text); border-color: var(--it-line); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-cal-compactline { display: none; }
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-btitle,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-btype,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-btime,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-baddr,
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-bstatus { display: none; }
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline {
+  display: flex; align-items: center; gap: var(--it-space-1); min-width: 0; color: var(--it-text); font-size: 12px; white-space: nowrap; overflow: hidden;
+}
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline > span:first-child { color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-cal-panel--compact .mw-cal-compactline > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Under 1024 px: targets grow to 48, the header stacks, the strip's buttons fill the row ─────── */
+@media (max-width: 1023px) {
+  body.it-shell.mw-page-schedule .mw-today-btn,
+  body.it-shell.mw-page-schedule .mw-nav-btn,
+  body.it-shell.mw-page-schedule .mw-datepicker-trigger,
+  body.it-shell.mw-page-schedule .mw-schedule-filters > .btn,
+  body.it-shell.mw-page-schedule .mw-snow-run-btn,
+  body.it-shell.mw-page-schedule .mw-cal-chip,
+  body.it-shell.mw-page-schedule .mw-cal-more,
+  body.it-shell.mw-page-schedule .mw-cal-morepop > button,
+  body.it-shell.mw-page-schedule .mw-typemulti > summary,
+  body.it-shell.mw-page-schedule .mw-typemulti-row { min-height: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-nav-btn { min-width: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-dv-toggle-btn,
+  body.it-shell.mw-page-schedule .mw-cal-seg button,
+  body.it-shell.mw-page-schedule .mw-cal-seg a { min-height: calc(var(--it-target-phone) - 2 * var(--it-space-1) - 2 * var(--it-stroke-hairline)); }
+  body.it-shell.mw-page-schedule .mw-cal-chip,
+  body.it-shell.mw-page-schedule .mw-cal-more,
+  body.it-shell.mw-page-schedule .mw-cal-morepop > button { min-height: 48px; }
+  body.it-shell.mw-page-schedule .mw-cal-density button { min-height: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-schedule-filters { margin-left: 0; width: 100%; }
+}
+@media (max-width: 600px) {
+  body.it-shell.mw-page-schedule .mw-cal-seg { max-width: 100%; overflow-x: auto; }
+  body.it-shell.mw-page-schedule .mw-snow-run-actions { width: 100%; }
+  body.it-shell.mw-page-schedule .mw-snow-run-btn { flex: 1 1 auto; }
+}
+
+/* Phone: wider crew columns inside the timeline's own sideways scroll, so a block can show its client and time */
+@media (max-width: 700px) {
+  body.it-shell.mw-page-schedule .mw-cal-colhead,
+  body.it-shell.mw-page-schedule .mw-cal-anycell,
+  body.it-shell.mw-page-schedule .mw-cal-col { min-width: 220px; }
+  body.it-shell.mw-page-schedule .mw-cal-more { left: calc(50% + 3px); width: calc(50% - 6px); }
+}
+
+/* =============================================================================
+   Slice 3: Week cards. Weekday and date row, weather, day columns, stop cards, service shapes, legend.
+   ============================================================================= */
+
+/* Weekday row and date row become one calm hairline panel: no dark bar, today marked by a thin brand rule */
+body.it-shell.mw-page-schedule .mw-calendar-container { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); overflow: hidden; box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-calendar-header { background: var(--it-surface); color: var(--it-meta); border-bottom: 0; }
+body.it-shell.mw-page-schedule .mw-calendar-header-cell { color: var(--it-meta); font-family: var(--it-font-sans); font-size: 12px; font-weight: 600; letter-spacing: .04em; padding: var(--it-space-2) var(--it-space-3) 0; background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-calendar-dates-header { background: var(--it-line); border-bottom: var(--it-stroke-hairline) solid var(--it-line); gap: var(--it-stroke-hairline); }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell {
+  flex-wrap: wrap; align-items: baseline; gap: var(--it-space-1) var(--it-space-2); padding: var(--it-space-1) var(--it-space-3) var(--it-space-3);
+  background: var(--it-surface); border: 0; border-left: 0; color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; overflow: visible;
+}
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.today { background: var(--it-surface); box-shadow: inset 0 calc(-1 * var(--it-stroke-focus)) 0 var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.salt-needed,
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.holiday { background: var(--it-surface); border-left: 0; }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.today.salt-needed { box-shadow: inset 0 calc(-1 * var(--it-stroke-focus)) 0 var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-date-number,
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.salt-needed .mw-date-number,
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.holiday .mw-date-number { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-calendar-date-cell.today .mw-date-number::after { content: " Today"; font-size: 12px; font-weight: 600; color: var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-holiday-badge { background: transparent; color: var(--it-meta); border: 0; padding: 0; font-size: 12px; font-weight: 500; }
+
+/* Weather: a line icon, the word, the high and low at 14 px; the salt flag is a word, not a colour */
+body.it-shell.mw-page-schedule .mw-weather-display { display: inline-flex; align-items: center; gap: var(--it-space-1); color: var(--it-meta); font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-weather-icon { flex: 0 0 16px; width: 16px; height: 16px; font-size: 0; line-height: 0; background: currentColor; -webkit-mask: var(--mw-wx-icon) center / 16px 16px no-repeat; mask: var(--mw-wx-icon) center / 16px 16px no-repeat; }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="clear"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="cloud"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 19a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 11a4 4 0 0 1-1 8z'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="rain"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 15a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 7.5 3.8 3.8 0 0 1 17 15z'/%3E%3Cpath d='M8 18l-1 3M12 18l-1 3M16 18l-1 3'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-display[data-wx="snow"] { --mw-wx-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20M4 7l16 10M20 7L4 17'/%3E%3C/svg%3E"); }
+body.it-shell.mw-page-schedule .mw-weather-condition { font-size: 14px; color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-temp-range { font-size: 14px; color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-salt-warning { flex: 0 0 100%; font-size: 0; }
+body.it-shell.mw-page-schedule .mw-salt-warning::after { content: "Salt may be needed"; font-size: 12px; font-weight: 500; color: var(--it-text); }
+
+/* Day columns and stop cards: white, hairline, no tinted fills, status as a word */
+body.it-shell.mw-page-schedule .mw-stop-grid { background: var(--it-surface); border: 0; }
+body.it-shell.mw-page-schedule .mw-day-column { border-right: var(--it-stroke-hairline) solid var(--it-line); background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-day-column.today { background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-day-column.drag-over { background: var(--it-selected); outline: var(--it-stroke-focus) dashed var(--it-brand); }
+body.it-shell.mw-page-schedule .mw-day-empty { color: var(--it-meta); font-style: normal; font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-stop-card {
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-left-width: var(--it-stroke-hairline); border-radius: var(--it-radius-sm); box-shadow: none;
+  font-family: var(--it-font-sans); font-variant-numeric: tabular-nums;
+}
+body.it-shell.mw-page-schedule .mw-stop-card:hover { background: var(--it-surface); border-color: var(--it-meta); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-progress { background: var(--it-surface); border-left-color: var(--it-line); }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-done,
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-skipped { background: var(--it-sunk); border-left-color: var(--it-line); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-progress::after,
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-done::after,
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-skipped::after { display: block; margin-top: var(--it-space-1); font-size: 12px; line-height: 16px; font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-progress::after { content: "On site"; color: var(--it-status-progress); }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-done::after { content: "\2713  Done"; color: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-stop-card.mw-stop-status-skipped::after { content: "Skipped"; color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-stop-time { color: var(--it-meta); font-size: 12px; font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-stop-client-name { color: var(--it-text); font-weight: 600; font-size: var(--it-body-14-size); white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+body.it-shell.mw-page-schedule .mw-stop-property,
+body.it-shell.mw-page-schedule .mw-stop-crew { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-stop-rev-amount,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin.is-green,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin.is-amber,
+body.it-shell.mw-page-schedule .mw-stop-rev-margin.is-red { color: var(--it-meta); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-battle-card,
+body.it-shell.mw-page-schedule .mw-battle-card.bc-margin-green,
+body.it-shell.mw-page-schedule .mw-battle-card.bc-margin-amber,
+body.it-shell.mw-page-schedule .mw-battle-card.bc-margin-red { border-color: var(--it-line); background: var(--it-surface); }
+
+/* Service: a small shape and the word, never a colour block. The inline colour on the old pill is not drawn. */
+body.it-shell.mw-page-schedule .mw-visit-pill { display: inline-flex; align-items: center; gap: var(--it-space-2); background: transparent; border: 0; border-left: 0 !important; padding: 0; color: var(--it-text); font-size: 12px; font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-visit-pill::before,
+body.it-shell.mw-page-schedule .mw-legend-item::before { content: ""; flex: 0 0 auto; display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--it-meta); background: transparent; border-radius: 50%; box-sizing: border-box; }
+body.it-shell.mw-page-schedule [data-service="lawn_care"]::before { background: var(--it-meta); border-radius: 50%; }
+body.it-shell.mw-page-schedule [data-service="landscaping"]::before { background: var(--it-text); border-color: var(--it-text); border-radius: 0; }
+body.it-shell.mw-page-schedule [data-service="hedge_trimming"]::before { background: var(--it-meta); border-radius: 0; transform: rotate(45deg) scale(.85); }
+body.it-shell.mw-page-schedule [data-service="garden_maintenance"]::before { width: 0; height: 0; border: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--it-meta); border-radius: 0; background: transparent; }
+body.it-shell.mw-page-schedule [data-service="seasonal_cleanup"]::before { width: 4px; height: 14px; border: 0; border-radius: 0; background: var(--it-brand); }
+body.it-shell.mw-page-schedule [data-service="snow_removal"]::before { background: transparent; border-radius: 50%; }
+
+/* Legend: shape and word pairs at the foot of the page */
+body.it-shell.mw-page-schedule .mw-legend { display: flex; flex-wrap: wrap; gap: var(--it-space-2) var(--it-space-4); margin: var(--it-space-4) 0 0; padding: var(--it-space-3) 0 0; border-top: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-legend-item { display: inline-flex; align-items: center; gap: var(--it-space-2); }
+body.it-shell.mw-page-schedule .mw-legend-color { display: none; }
+body.it-shell.mw-page-schedule .mw-weather-condition { white-space: normal; overflow: visible; text-overflow: clip; max-width: none; }
+body.it-shell.mw-page-schedule .mw-temp-range { margin: 0; flex: 0 0 auto; border: 0; background: none; }
+body.it-shell.mw-page-schedule .mw-weather-display { flex: 0 1 auto; min-width: 0; }
+body.it-shell.mw-page-schedule .mw-legend,
+body.it-shell.mw-page-schedule .mw-legend-item { opacity: 1; background: transparent; box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-date-number { flex: 0 0 100%; }
+body.it-shell.mw-page-schedule .mw-holiday-badge { flex: 0 0 100%; }
+/* Time above the client name so a narrow column still shows the whole name */
+body.it-shell.mw-page-schedule .mw-stop-time-client { flex-direction: column; align-items: flex-start; gap: 0; }
+body.it-shell.mw-page-schedule .mw-stop-time + .mw-stop-client-name::before { content: none; }
+body.it-shell.mw-page-schedule .mw-stop-client-name { overflow-wrap: break-word; word-break: normal; }
+body.it-shell.mw-page-schedule .mw-day-column { max-height: none; overflow-y: visible; }
+
+/* =============================================================================
+   Slice 4: Day view (cards and map panel) and the List view.
+   ============================================================================= */
+
+/* Day: one hairline panel, cards on the left, map on the right */
+body.it-shell.mw-page-schedule .mw-dv-container { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-dv-cards-panel { background: var(--it-surface); border-right: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-dv-weather { background: var(--it-surface); border-bottom: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-dv-weather-icon { font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-dv-weather-cond { color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-dv-map-topbar { background: var(--it-surface); border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-dv-map-title { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-dv-map-external { background: transparent; color: var(--it-text); width: var(--it-target-desktop); height: var(--it-target-desktop); }
+body.it-shell.mw-page-schedule .mw-dv-map-external:hover { background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-dv-map-legend,
+body.it-shell.mw-page-schedule .mw-dv-legend-item { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-legend-pin { background: var(--it-meta); color: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-dv-legend-pin-done { background: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-dv-legend-pin-skip { background: var(--it-meta); }
+
+body.it-shell.mw-page-schedule .mw-dv-section-header { border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-dv-section-title { color: var(--it-meta); font-size: 12px; letter-spacing: .04em; }
+body.it-shell.mw-page-schedule .mw-dv-section-count { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-section-unassigned { background: var(--it-sunk); border: var(--it-stroke-hairline) dashed var(--it-line); border-radius: var(--it-radius-md); }
+
+/* Day cards: the same quiet card as the week, status as a word */
+body.it-shell.mw-page-schedule .mw-dv-card {
+  background: var(--it-surface); color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-left-width: var(--it-stroke-hairline); border-radius: var(--it-radius-sm); box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-dv-card:hover { box-shadow: none; border-color: var(--it-meta); }
+body.it-shell.mw-page-schedule .mw-dv-card.mw-dv-card-highlight { box-shadow: none; outline: var(--it-stroke-focus) solid var(--it-brand); outline-offset: -1px; }
+body.it-shell.mw-page-schedule .mw-dv-card-unassigned { border-left-color: var(--it-line); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-dv-card.mw-stop-status-progress { border-left-color: var(--it-line); background: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-dv-card.mw-stop-status-done,
+body.it-shell.mw-page-schedule .mw-dv-card.mw-stop-status-skipped { border-left-color: var(--it-line); background: var(--it-sunk); opacity: 1; }
+body.it-shell.mw-page-schedule .mw-dv-card-pinned,
+body.it-shell.mw-page-schedule .mw-dv-card-pinned-last { border-left-color: var(--it-brand) !important; border-left-width: var(--it-stroke-side); background: var(--it-surface); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-dv-pin-btn { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); color: var(--it-meta); width: var(--it-target-desktop); height: var(--it-target-desktop); }
+body.it-shell.mw-page-schedule .mw-dv-pin-btn:hover { border-color: var(--it-meta); color: var(--it-text); background: var(--it-selected); }
+body.it-shell.mw-page-schedule .mw-dv-pin-btn.mw-dv-pin-active,
+body.it-shell.mw-page-schedule .mw-dv-pin-btn.mw-dv-pin-last { background: var(--it-brand); border-color: var(--it-brand); color: var(--it-surface); }
+body.it-shell.mw-page-schedule .mw-dv-card-body { padding-right: calc(var(--it-target-desktop) + var(--it-space-2)); }
+body.it-shell.mw-page-schedule .mw-dv-card-top { flex-direction: column; align-items: flex-start; gap: 0; }
+body.it-shell.mw-page-schedule .mw-dv-card-time { color: var(--it-meta); font-size: 12px; font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-dv-card-client { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; white-space: normal; overflow: visible; text-overflow: clip; }
+body.it-shell.mw-page-schedule .mw-dv-card-address { color: var(--it-meta); font-size: 12px; font-weight: 400; white-space: normal; overflow: visible; text-overflow: clip; }
+body.it-shell.mw-page-schedule .mw-dv-card-crew { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-card-services { gap: var(--it-space-1) var(--it-space-3); }
+
+/* Day card footer: Done is the one primary action, every other control is outlined or text */
+body.it-shell.mw-page-schedule .mw-dv-btn-complete,
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-invoice,
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-noinvoice,
+body.it-shell.mw-page-schedule .mw-dv-btn-skip,
+body.it-shell.mw-page-schedule .mw-dv-btn-reopen,
+body.it-shell.mw-page-schedule .mw-dv-btn-unskip,
+body.it-shell.mw-page-schedule .mw-dv-btn-sub {
+  min-height: var(--it-target-desktop); padding: 0 var(--it-space-3); background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-md);
+  color: var(--it-text); font-family: var(--it-font-sans); font-size: 12px; font-weight: 500; box-shadow: none;
+}
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-invoice:hover:not(:disabled),
+body.it-shell.mw-page-schedule .mw-dv-btn-complete-noinvoice:hover:not(:disabled),
+body.it-shell.mw-page-schedule .mw-dv-btn-skip:hover:not(:disabled),
+body.it-shell.mw-page-schedule .mw-dv-btn-reopen:hover,
+body.it-shell.mw-page-schedule .mw-dv-btn-unskip:hover,
+body.it-shell.mw-page-schedule .mw-dv-btn-sub:hover { background: var(--it-selected); border-color: var(--it-line); color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-dv-done-badge { color: var(--it-status-complete); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-skip-badge { color: var(--it-meta); font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-dv-invoice-link,
+body.it-shell.mw-page-schedule .mw-dv-create-invoice-link { color: var(--it-brand); font-size: 12px; text-decoration: underline; }
+body.it-shell.mw-page-schedule .mw-dv-empty-text { color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-dv-empty-sub { color: var(--it-meta); font-size: 14px; }
+body.it-shell.mw-page-schedule .mw-dv-empty-icon { opacity: 1; filter: grayscale(1); }
+
+/* List: rows on a hairline, status as a word, no filled badges */
+body.it-shell.mw-page-schedule .mw-sl { color: var(--it-text); font-family: var(--it-font-sans); font-variant-numeric: tabular-nums; }
+body.it-shell.mw-page-schedule .mw-sl-empty { color: var(--it-meta); opacity: 1; font-size: var(--it-body-14-size); }
+body.it-shell.mw-page-schedule .mw-sl-dayhead { color: var(--it-text); font-size: var(--it-heading-16-size); font-weight: 600; border-bottom: var(--it-stroke-hairline) solid var(--it-line); }
+body.it-shell.mw-page-schedule .mw-sl-dayhead a { color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-sl-today { background: transparent; color: var(--it-brand); border-radius: 0; padding: 0; font-size: 12px; font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-sl-count { color: var(--it-meta); opacity: 1; font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-sl-row { background: var(--it-surface); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-sm); box-shadow: none; }
+body.it-shell.mw-page-schedule .mw-sl-row--attn { border-left-width: var(--it-stroke-hairline); border-left-color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-sl-row--done { opacity: 1; background: var(--it-sunk); }
+body.it-shell.mw-page-schedule .mw-sl-time { color: var(--it-meta); font-size: var(--it-body-14-size); font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-sl-name { color: var(--it-text); font-size: var(--it-body-14-size); font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-sl-addr,
+body.it-shell.mw-page-schedule .mw-sl-history,
+body.it-shell.mw-page-schedule .mw-sl-visits { color: var(--it-meta); opacity: 1; font-size: 12px; }
+body.it-shell.mw-page-schedule .mw-sl-row--attn .mw-sl-history { color: var(--it-status-attention); }
+body.it-shell.mw-page-schedule .mw-sl-svc { background: transparent; color: var(--it-text); border: var(--it-stroke-hairline) solid var(--it-line); border-radius: var(--it-radius-full); font-weight: 500; }
+body.it-shell.mw-page-schedule .mw-sl-side { color: var(--it-text); }
+body.it-shell.mw-page-schedule .mw-sl-badge { background: transparent; color: var(--it-status-attention); border-radius: 0; padding: 0; font-size: 12px; font-weight: 600; }
+body.it-shell.mw-page-schedule .mw-sl-badge::before { content: "\25B2  "; }
+body.it-shell.mw-page-schedule .mw-sl-badge--done { background: transparent; color: var(--it-status-complete); }
+body.it-shell.mw-page-schedule .mw-sl-badge--done::before { content: "\2713  "; }
+
+@media (max-width: 1023px) {
+  body.it-shell.mw-page-schedule .mw-dv-btn-complete,
+  body.it-shell.mw-page-schedule .mw-dv-btn-skip,
+  body.it-shell.mw-page-schedule .mw-dv-btn-reopen,
+  body.it-shell.mw-page-schedule .mw-dv-btn-unskip,
+  body.it-shell.mw-page-schedule .mw-dv-btn-sub,
+  body.it-shell.mw-page-schedule .mw-dv-btn-complete-invoice,
+  body.it-shell.mw-page-schedule .mw-dv-btn-complete-noinvoice,
+  body.it-shell.mw-page-schedule .mw-dv-pin-btn,
+  body.it-shell.mw-page-schedule .mw-dv-map-external { min-height: var(--it-target-phone); }
+  body.it-shell.mw-page-schedule .mw-dv-pin-btn,
+  body.it-shell.mw-page-schedule .mw-dv-map-external { min-width: var(--it-target-phone); width: var(--it-target-phone); }
+}
+@media (max-width: 700px) {
+  body.it-shell.mw-page-schedule .mw-sl-row { grid-template-columns: 1fr; gap: var(--it-space-2); }
+  body.it-shell.mw-page-schedule .mw-sl-side { text-align: left; }
+}
+
+/* =============================================================================
+   Slice 6: motion. Skeleton shapes while the timeline loads, a gentle rise as jobs arrive, one soft ring where a job
+   lands or changes. Reduced motion: no shimmer, no rise, no ring; a held highlight shows the change instead.
+   ============================================================================= */
+@keyframes mw-cal-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes mw-cal-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes mw-cal-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--it-brand) 45%, transparent); border-color: var(--it-brand); }
+  70%  { box-shadow: 0 0 0 7px color-mix(in srgb, var(--it-brand) 0%, transparent); border-color: var(--it-brand); }
+  100% { box-shadow: 0 0 0 7px transparent; border-color: var(--it-line); }
+}
+
+body.it-shell.mw-page-schedule .mw-cal-skelrow { display: flex; gap: var(--it-space-3); padding: var(--it-space-4); }
+body.it-shell.mw-page-schedule .mw-cal-skelcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--it-space-3); }
+body.it-shell.mw-page-schedule .mw-cal-skel {
+  border-radius: var(--it-radius-sm); border: var(--it-stroke-hairline) solid var(--it-line);
+  background: linear-gradient(90deg, var(--it-sunk) 0%, var(--it-selected) 50%, var(--it-sunk) 100%); background-size: 200% 100%;
+  animation: mw-cal-shimmer 1.4s ease-in-out infinite;
+}
+body.it-shell.mw-page-schedule .mw-cal-skelhead { height: 28px; width: 60%; }
+body.it-shell.mw-page-schedule .mw-cal-skelblock { height: 72px; }
+
+body.it-shell.mw-page-schedule .mw-cal-block--arrive { animation: mw-cal-rise 220ms ease-out both; animation-delay: calc(var(--mw-i, 0) * 20ms); }
+body.it-shell.mw-page-schedule .mw-cal-block--pulse { animation: mw-cal-pulse 800ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.it-shell.mw-page-schedule .mw-cal-skel { animation: none; background: var(--it-sunk); }
+  body.it-shell.mw-page-schedule .mw-cal-block--arrive { animation: none; }
+  body.it-shell.mw-page-schedule .mw-cal-block--pulse { animation: none; }
+  body.it-shell.mw-page-schedule .mw-cal-block--changed { background: var(--it-selected); }
+}
+body.it-shell.mw-page-schedule .mw-cal-loaderr { margin: 0; padding: var(--it-space-6) var(--it-space-4); color: var(--it-text); font-size: var(--it-body-14-size); }

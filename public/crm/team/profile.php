@@ -489,7 +489,12 @@ if ($apiKey) {
                                 <div class="col-sm-6">
                                     <div class="form-group">
                                         <label>Hire Date</label>
-                                        <input type="date" class="form-control" name="hire_date" value="<?php echo h($emp['hire_date'] ?? ''); ?>">
+                                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#hire_date" aria-haspopup="true" aria-expanded="false">
+                                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                        <input type="date" class="form-control" id="hire_date" name="hire_date" hidden value="<?php echo h($emp['hire_date'] ?? ''); ?>">
                                     </div>
                                 </div>
                                 <div class="col-sm-6">
@@ -559,8 +564,8 @@ if ($apiKey) {
                                 <div class="col-sm-12">
                                     <div class="form-group">
                                         <label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
-                                        <input type="password" class="form-control" name="password" minlength="8"
-                                               placeholder="Min. 8 characters"
+                                        <input type="password" class="form-control" name="password" minlength="12"
+                                               placeholder="Min. 12 characters"
                                                autocomplete="new-password" data-lpignore="true" data-1p-ignore>
                                     </div>
                                 </div>
@@ -733,7 +738,12 @@ if ($apiKey) {
                                 <div class="col-sm-6">
                                     <div class="form-group">
                                         <label>Date of Birth</label>
-                                        <input type="date" class="form-control" name="date_of_birth"
+                                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#date_of_birth" aria-haspopup="true" aria-expanded="false">
+                                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                        <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" hidden
                                                value="<?php echo h($emp['date_of_birth'] ?? ''); ?>">
                                     </div>
                                 </div>
@@ -819,7 +829,12 @@ if ($apiKey) {
                                 <div class="col-sm-4">
                                     <div class="form-group">
                                         <label>Expiry Date <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control" name="dl_expiry"
+                                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#dl_expiry" aria-haspopup="true" aria-expanded="false">
+                                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                        <input type="date" class="form-control" id="dl_expiry" name="dl_expiry" hidden
                                                value="<?php echo h($emp['dl_expiry'] ?? ''); ?>">
                                     </div>
                                 </div>
@@ -1055,7 +1070,7 @@ if ($apiKey) {
                     <h6 class="mb-0">Send App Install Link</h6>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted">Send <?php echo h($empDisplayName ?: 'this employee'); ?> a link to install the Mowology field app on their device.</p>
+                    <p class="text-muted">Send <?php echo h($empDisplayName ?: 'this employee'); ?> a link to install the <?php echo h(function_exists('_idFromName') ? _idFromName() : ''); ?> field app on their device.</p>
 
                     <?php if (!empty($emp['install_link_sent_at'])): ?>
                     <div class="alert alert-info py-2">
@@ -1101,14 +1116,14 @@ if ($apiKey) {
                         <div class="form-group">
                             <label>Install URL <span class="text-danger">*</span></label>
                             <input type="url" class="form-control" name="install_url" id="installUrl"
-                                   placeholder="https://app.mowology.ca/install" required>
+                                   placeholder="https://your-site.example/install" required>
                             <small class="form-text text-muted">The URL the employee will open to install the app.</small>
                         </div>
 
                         <div class="form-group">
                             <label>Custom Message <span class="text-muted">(optional)</span></label>
                             <textarea class="form-control" name="custom_message" rows="3"
-                                      placeholder="Hi [name], please install the Mowology app at the link below..."><?php echo 'Hi ' . h($empFirstName ?: 'there') . ', please install the Mowology field app using the link below. Contact us if you need help.'; ?></textarea>
+                                      placeholder="Hi [name], please install the app at the link below..."><?php echo 'Hi ' . h($empFirstName ?: 'there') . ', please install the ' . h(function_exists('_idFromName') ? _idFromName() : '') . ' field app using the link below. Contact us if you need help.'; ?></textarea>
                         </div>
 
                         <div id="install-result" class="d-none"></div>
@@ -1457,6 +1472,22 @@ if ($apiKey) {
             </div>
             <?php endif; ?>
 
+            <!-- Two-step sign-in reset (lost phone) -->
+            <?php
+            $twoStepOn = false;
+            if ($canManageUsers && $empId !== (int)$user['id']) {
+                try { $twoStepOn = (new TwoStepService($db, null))->isEnrolled($empId); } catch (Throwable $e) { error_log('profile two-step status: ' . $e->getMessage()); }
+            }
+            if ($twoStepOn): ?>
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">Two-step sign-in</h6></div>
+                <div class="card-body">
+                    <p class="text-muted">Two-step sign-in is on for this person. If they lost their phone and backup codes, turn it off; they can turn it on again from their account menu.</p>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="acc-two-step-off">Turn off two-step sign-in</button>
+                </div>
+            </div>
+            <?php endif; ?>
+
         </div><!-- /col right -->
 
     </div>
@@ -1468,6 +1499,25 @@ if ($apiKey) {
 
 <script>
 var profileCsrf = '<?php echo h(generateCSRFToken()); ?>';
+(function () {
+    var offBtn = document.getElementById('acc-two-step-off');
+    if (!offBtn) return;
+    offBtn.addEventListener('click', function () {
+        if (!confirm('Turn off two-step sign-in for this person?')) return;
+        offBtn.disabled = true;
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'disable_two_step', id: profileEmpId, csrf_token: profileCsrf})
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (json) {
+            if (json.success) { offBtn.textContent = 'Turned off'; }
+            else { offBtn.disabled = false; alert(json.error || 'Could not turn it off'); }
+        })
+        .catch(function () { offBtn.disabled = false; alert('Network error'); });
+    });
+})();
 var profileEmpId = <?php echo $empId; ?>;
 
 // ── Toggle edit panels ─────────────────────────────────────────────────────

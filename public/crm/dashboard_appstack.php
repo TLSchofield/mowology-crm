@@ -2,10 +2,37 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/weather-service.php';
+require_once APP_ROOT . '/Modules/Jobs/Services/SeasonalOutlookService.php';
+require_once __DIR__ . '/modules/weather/seasonal-outlook-card.php';
 require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+
+// Timing marks, admin only: add ?prof=1 and the page ends with an HTML comment listing where the time went (ms since the
+// previous mark). Added 2026-11-20 for the dashboard speed work; harmless otherwise (a few microtime() calls).
+$__profOn = isset($_GET['prof']) && ($user['role'] ?? '') === 'admin';
+$__prof = [['request_start_to_here', microtime(true), $_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true)]];
+$__mark = function (string $label) use (&$__prof) { $__prof[] = [$label, microtime(true)]; };
+
+// Ittai design, opt-in per browser (owner, 2026-10-18): ?it_design=1|0 flips it, then back to the clean URL.
+// A look-only preference, so a cookie is enough; off is the classic page, unchanged.
+if (isset($_GET['it_design'])) {
+    $itOn = $_GET['it_design'] === '1';
+    setcookie('it_design', $itOn ? '1' : '0', ['expires' => time() + 365 * 86400, 'path' => '/crm/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+    header('Location: /crm/dashboard_appstack.php');
+    exit;
+}
+$itDesign = ($_COOKIE['it_design'] ?? '') === '1';
+
+// Ittai brand preview, opt-in per browser (Tim, 2026-11-04): ?it_brand=ittai|mowology swaps Mowology's green for
+// Ittai's navy on this browser only (appstack_head.php loads css/ittai-brand.css). Look-only, so a cookie is enough.
+if (isset($_GET['it_brand'])) {
+    $brandIttai = $_GET['it_brand'] === 'ittai';
+    setcookie('it_brand', $brandIttai ? 'ittai' : 'mowology', ['expires' => time() + 365 * 86400, 'path' => '/crm/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+    header('Location: /crm/dashboard_appstack.php');
+    exit;
+}
 
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Dashboard', $_SERVER['REQUEST_METHOD']);
@@ -13,11 +40,22 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Get 7-day weather forecast for dashboard (today + 6 days forward)
 $weekWeather = getWeekForecast('Vancouver', 'BC');
+$__mark('weather');
+
+// Winter seasonal outlook (Nov-Mar freeze/snow expectations). Null out of season,
+// so the card simply disappears in summer rather than showing a dead panel.
+$seasonalOutlook = null;
+try {
+    $seasonalOutlook = (new SeasonalOutlookService(getDB()))->activeOutlook();
+} catch (Throwable $e) {
+    error_log('Dashboard seasonal outlook unavailable: ' . $e->getMessage());
+}
 
 // Get 7-day profitability data (3 past + today + 3 future, aligned with weather)
 $profitStart = date('Y-m-d', strtotime('-3 days'));
 $profitEnd = date('Y-m-d', strtotime('+3 days'));
 $dailyProfit = getDailyProfitability($profitStart, $profitEnd);
+$__mark('profit');
 
 // Get dashboard statistics
 $db = getDB();
@@ -87,6 +125,7 @@ try {
 
     // Work queue items
     $workQueueItems = getWorkQueueItems();
+    $__mark('workQueue');
 
     // Crew Today: clock-in status + app install status + active jobs
     $crewToday = [];
@@ -101,6 +140,7 @@ try {
                    AND status IN ('scheduled', 'in_progress')) AS active_jobs
             FROM users u
             WHERE u.is_active = 1
+              AND IFNULL(u.device_type, 'personal') <> 'truck'
             ORDER BY is_clocked_in DESC, u.full_name ASC
         ");
         $crewToday = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -154,9 +194,37 @@ try {
 
 $pageTitle = 'Dashboard';
 $activePage = 'dashboard';
-$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '" defer></script>';
+// Google Maps (~0.8 MB) is NOT loaded with the page any more: the live operations map loads it when its
+// card comes within a screen of view (speed pass, 2026-10-19). The key rides on the map element.
+$extraHead = '';
+$dashMapsKey = htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8');
+if ($itDesign) {
+    foreach (['ittai-tokens.css', 'ittai-dashboard.css'] as $__itCss) {
+        $extraHead .= '<link href="/crm/css/' . $__itCss . '?v=' . (int)@filemtime(__DIR__ . '/css/' . $__itCss) . '" rel="stylesheet">';
+    }
+}
+$__mark('queries_done');
+?>
+<?php
+// First-week view (step 3): greeting, the one thing that matters, one button; everything else under a closed "More".
+$__fw = null;
+try {
+    if (defined('APP_ROOT')) {
+        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekService.php';
+        require_once APP_ROOT . '/Modules/Settings/Services/FirstWeekFocus.php';
+        if (FirstWeekService::isOn($db)) {
+            $__can = static fn(string $p): bool => !function_exists('userHasPermission') || userHasPermission($p);
+            $__fw = FirstWeekFocus::pick(FirstWeekFocus::gather($db), [
+                'clients' => $__can('clients.view'), 'quotes' => $__can('billing.view'), 'schedule' => $__can('schedule.view'),
+            ]);
+            $__fw['greeting'] = FirstWeekFocus::greeting((string)($user['name'] ?? $user['full_name'] ?? ''), (int)date('G'));
+        }
+    }
+} catch (Throwable $__e) { $__fw = null; }   // anything wrong: the full dashboard, as before
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+<?php $__mark('head_include'); ?>
+<?php if ($itDesign): ?><div class="it-design"><?php endif; ?>
 
           <!-- Session Alert Display -->
           <?php if (isset($_SESSION['alert'])):
@@ -175,12 +243,64 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
+          <?php if ($__fw): ?>
+          <section class="mw-fw-focus" aria-labelledby="mw-fw-focus-h">
+            <p class="mw-fw-greeting"><?php echo h($__fw['greeting']); ?></p>
+            <h1 class="mw-fw-headline" id="mw-fw-focus-h"><?php echo h($__fw['headline']); ?></h1>
+            <p class="mw-fw-detail"><?php echo h($__fw['detail']); ?></p>
+            <?php if ($__fw['href'] !== ''): ?><a class="btn btn-primary btn-lg mw-fw-button" href="<?php echo h($__fw['href']); ?>"><?php echo h($__fw['button']); ?></a><?php endif; ?>
+          </section>
+          <details class="mw-fw-fold"><summary>More</summary>
+          <?php else: ?>
           <div class="mw-page-header">
             <div class="mw-page-header-left">
               <h1 class="mw-page-title">Dashboard</h1>
               <p class="mw-page-subtitle">Operations overview &amp; work queue</p>
             </div>
+            <a class="it-switch-link" href="/crm/dashboard_appstack.php?it_design=<?php echo $itDesign ? '0' : '1'; ?>"><?php echo $itDesign ? 'Back to the classic design' : 'Try the new design'; ?></a>
           </div>
+          <?php endif; /* first-week focus or the usual header */ ?>
+
+          <?php
+          // "Needs you now" — Charlie's ranked items as rows (owner only). Never breaks the page.
+          if (is_file(__DIR__ . '/includes/action-board.php')) {
+              ob_start();
+              try {
+                  include __DIR__ . '/includes/action-board.php';
+                  echo ob_get_clean();
+              } catch (Throwable $__abErr) {
+                  ob_end_clean();
+                  error_log('Action board failed: ' . $__abErr->getMessage());
+              }
+          }
+          ?>
+
+          <?php $__mark('action_board'); include __DIR__ . '/includes/dept-heads-deck.php'; // Penny + the department heads ?>
+          <?php $__mark('heads_deck'); ?>
+
+          <?php
+          // Pending e-Transfers awaiting recording (billing users only — links to
+          // the record/dismiss panel on Invoices, which is the single place to act).
+          $pendingEtransferCount = 0;
+          if (defined('APP_ROOT') && function_exists('userHasPermission') && userHasPermission('billing.view')) {
+              $__etSvc = APP_ROOT . '/Modules/Accounting/Services/EtransferInboxService.php';
+              if (is_file($__etSvc)) {
+                  require_once $__etSvc;
+                  try {
+                      $pendingEtransferCount = (new EtransferInboxService(getDB()))->countPending();
+                  } catch (\Throwable $__e) {
+                      $pendingEtransferCount = 0;
+                  }
+              }
+          }
+          ?>
+          <?php if ($pendingEtransferCount > 0): ?>
+          <a href="/crm/invoices/index.php#etransfers" class="mw-et-dash-alert">
+            <i data-feather="inbox"></i>
+            <span><strong><?php echo (int)$pendingEtransferCount; ?></strong> e-Transfer<?php echo $pendingEtransferCount === 1 ? '' : 's'; ?> received &mdash; record <?php echo $pendingEtransferCount === 1 ? 'it' : 'them'; ?></span>
+            <i data-feather="arrow-right" class="mw-et-dash-arrow"></i>
+          </a>
+          <?php endif; ?>
 
           <!-- Daily Operations Strip: Weather + Profitability -->
           <?php
@@ -202,7 +322,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
           ?>
           <div class="mw-daily-ops">
               <div class="mw-daily-ops-header">
-                  <div class="mw-daily-ops-title">7-Day Operations</div>
+                  <div class="mw-daily-ops-title">7-day operations</div>
                   <div class="mw-daily-ops-summary">
                       <span class="mw-daily-ops-stat">
                           <span class="mw-daily-ops-stat-val">$<?php echo number_format($weekRevenue, 0); ?></span>
@@ -222,6 +342,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                       </span>
                   </div>
               </div>
+              <?php
+              // Otto owns the schedule: his strip for the same 7 days (jobs.edit only; loads after the page).
+              $ottoStrip = ['from' => $opsStartDate->format('Y-m-d'), 'to' => (clone $opsStartDate)->modify('+6 days')->format('Y-m-d'), 'focus' => $todayStr];
+              include __DIR__ . '/includes/otto-schedule-strip.php';
+              ?>
               <div class="mw-daily-ops-grid">
                   <?php
                   $opsDate = clone $opsStartDate;
@@ -309,6 +434,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                   ?>
               </div>
           </div>
+
+          <!-- Winter Seasonal Outlook (Nov-Mar) — hidden out of season -->
+          <?php if ($seasonalOutlook): renderSeasonalOutlookCard($seasonalOutlook, 'compact'); endif; ?>
 
           <!-- Work Queue — 4-lane attention system -->
           <?php
@@ -547,7 +675,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                   </div>
                 </div>
                 <div class="card-body p-0">
-                  <div id="dashboard-map" style="height: 340px; background: #e8e8e8;"></div>
+                  <div id="dashboard-map" data-maps-key="<?php echo $dashMapsKey; ?>" style="height: 340px; background: #e8e8e8;"></div>
                   <div class="mw-ops-map-legend" id="mapLegend">
                     <div class="text-center text-muted small py-2">Loading crew data...</div>
                   </div>
@@ -1015,11 +1143,31 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         return d.innerHTML;
     }
 
-    // Init when Google Maps API is ready
-    if (document.readyState === 'complete') {
+    // Load Google Maps only when the map card is about to be seen, then start the map
+    // (initDashboardMap already waits for google.maps). Without IntersectionObserver: load after the page.
+    var mapsRequested = false;
+    function loadMapsThenInit() {
+        if (mapsRequested) return;
+        mapsRequested = true;
+        if (!(window.google && google.maps)) {
+            var el = document.getElementById('dashboard-map');
+            var s = document.createElement('script');
+            s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(el ? (el.getAttribute('data-maps-key') || '') : '');
+            s.async = true;
+            document.head.appendChild(s);
+        }
         initDashboardMap();
+    }
+    var mapTarget = document.getElementById('dashboard-map');
+    if (mapTarget && 'IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+            if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); loadMapsThenInit(); }
+        }, { rootMargin: '600px 0px' });
+        io.observe(mapTarget);
+    } else if (document.readyState === 'complete') {
+        loadMapsThenInit();
     } else {
-        window.addEventListener('load', initDashboardMap);
+        window.addEventListener('load', loadMapsThenInit);
     }
 })();
 </script>
@@ -1128,7 +1276,7 @@ function mwReconsentSkip(queueId, btn) {
         fetch('/crm/api/jobber-reconsent.php?action=skip', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ queue_id: queueId })
         })
         .then(function(r) { return r.json(); })
@@ -1178,7 +1326,7 @@ function mwReconsentSendBatch() {
         fetch('/crm/api/jobber-reconsent.php?action=trigger-send', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({ limit: remaining })
         })
         .then(function(r) { return r.json(); })
@@ -1210,4 +1358,17 @@ function mwReconsentSendBatch() {
 }
 </script>
 
+<?php if ($__fw): ?></details><!-- /.mw-fw-fold --><?php endif; ?>
+<?php if ($itDesign): ?></div><!-- /.it-design --><?php endif; ?>
+<?php
+$__mark('body_rest');
+if ($__profOn) {
+    $__prev = null; $__line = [];
+    foreach ($__prof as $__p) {
+        $__line[] = $__p[0] . '=' . (int)round(($__p[1] - ($__p[2] ?? $__prev ?? $__p[1])) * 1000);
+        $__prev = $__p[1];
+    }
+    echo '<!-- prof(ms): ' . implode(' ', $__line) . ' -->';
+}
+?>
 <?php include 'includes/appstack_footer.php'; ?>

@@ -1,0 +1,1027 @@
+<?php
+/**
+ * LedgerService — true double-entry posting engine (Phase 1).
+ *
+ * Authoritative journal layer that sits alongside the legacy single-entry
+ * accounting_transactions table. Every economic event becomes one balanced
+ * journal_entries header + N journal_lines (debit XOR credit per line,
+ * SUM(debit) == SUM(credit) per entry).
+ *
+ * Step 1 scope: postEntry() + validation invariant + period-lock guard +
+ * idempotency by (source_type, source_id). Posting recipes (postInvoice, etc.)
+ * are layered on in Step 2.
+ *
+ * Amounts: debit/credit are non-negative; direction is the column, not a sign.
+ */
+declare(strict_types=1);
+
+class LedgerService
+{
+    private PDO $db;
+
+    /** Balancing tolerance — entries must balance to within half a cent. */
+    private const BALANCE_TOLERANCE = 0.005;
+    /** First day of the open books (FY2025 filed and closed). */
+    public const FY_START = '2026-01-01';
+    /** Postings the nightly sync and the services make on their own. */
+    public const AUTO_SOURCES = ['invoice', 'payment', 'payment_allocation', 'stripe_payment', 'expense', 'bank_import', 'client_credit'];
+
+    private bool $closedYearAllowed = false;
+
+    /** Tests that build 2025 history (and nothing else): allow postings dated before FY_START. */
+    public function allowingClosedYear(): self { $this->closedYearAllowed = true; return $this; }
+
+    /** Canonical account codes used by posting recipes. */
+    public const ACC_BANK            = '1010'; // Chequing
+    public const ACC_AR              = '1100'; // Accounts Receivable
+    public const ACC_DUE_FROM_SH     = '1300'; // Due from Shareholder
+    public const ACC_AP              = '2100'; // Accounts Payable
+    public const ACC_GST_COLLECTED   = '2200'; // GST/HST Collected
+    public const ACC_GST_ITC         = '2210'; // GST/HST Input Tax Credits
+    public const ACC_PST_PAYABLE     = '2300'; // PST Payable
+    public const ACC_CREDIT_CARD     = '2400'; // Credit Card Payable
+    public const ACC_OWNER_CAPITAL   = '3100'; // Owner's Capital
+    public const ACC_RETAINED        = '3200'; // Retained Earnings
+    public const ACC_OWNER_DRAW      = '3300'; // Owner's Draw
+    public const ACC_OPENING_EQUITY  = '3900'; // Opening Balance Equity
+    public const ACC_STRIPE_CLEARING = '1015'; // Stripe clearing — card payments until paid out (migration 1364)
+    public const ACC_UNDEPOSITED     = '1016'; // Undeposited funds — cheques/e-Transfers until deposited (1364)
+    /** ops_settings: entries dated on/after this use the holding accounts ('' = off). */
+    public const HOLDING_SETTING = 'ledger_holding_from';
+
+    private ?string $holdingFrom = null;
+    private bool $holdingRead = false;
+
+    /** The holding-accounts switch date, or null (off). */
+    public function holdingFrom(): ?string
+    {
+        if ($this->holdingRead) return $this->holdingFrom;
+        $this->holdingRead = true;
+        try {
+            $s = $this->db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = ? LIMIT 1");
+            $s->execute([self::HOLDING_SETTING]);
+            $v = trim((string)$s->fetchColumn());
+            $this->holdingFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
+        } catch (Throwable $e) {
+            $this->holdingFrom = null;
+        }
+        return $this->holdingFrom;
+    }
+
+    /** Tests / the repost preview: set the switch without the database. */
+    public function withHoldingFrom(?string $date): self { $this->holdingFrom = $date; $this->holdingRead = true; return $this; }
+
+    /**
+     * Which account a customer payment lands in (plan 2026-10-14 deposit matcher). Pure given the switch:
+     * before the switch date (or with it off) → 1010 Chequing, as always; on/after → 1015 for a Stripe card
+     * payment, 1016 for everything else (cheque, e-Transfer, EFT, cash, a payment with no record).
+     */
+    public static function paymentAccount(string $sourceType, string $date, ?string $holdingFrom, ?string $invoiceMethod = null): string
+    {
+        if ($holdingFrom === null || substr($date, 0, 10) < $holdingFrom) return self::ACC_BANK;
+        // A card payment through Stripe — its own record, or an invoice paid by Stripe whose payment is the
+        // one-per-invoice 'payment' entry (240 of them in 2026, preview 2026-10-14) — waits in Stripe clearing.
+        if ($sourceType === 'stripe_payment' || strtolower((string)$invoiceMethod) === 'stripe') return self::ACC_STRIPE_CLEARING;
+        return self::ACC_UNDEPOSITED;
+    }
+
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // VALIDATION (pure — no DB) — the core integrity guarantee
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Validate a journal entry's structure and balance. Throws on any violation.
+     *
+     * Rules:
+     *  - at least 2 lines
+     *  - every line has a positive integer account_id
+     *  - debit >= 0 and credit >= 0
+     *  - each line has exactly one of debit/credit non-zero (debit XOR credit)
+     *  - SUM(debit) == SUM(credit) within BALANCE_TOLERANCE, and total > 0
+     *
+     * @throws InvalidArgumentException
+     */
+    public function validateEntry(array $entry): void
+    {
+        $lines = $entry['lines'] ?? [];
+        if (!is_array($lines) || count($lines) < 2) {
+            throw new InvalidArgumentException('Journal entry must have at least 2 lines.');
+        }
+
+        $sumDebit = 0.0;
+        $sumCredit = 0.0;
+
+        foreach ($lines as $i => $line) {
+            $accountId = $line['account_id'] ?? null;
+            if (!is_int($accountId) && !(is_numeric($accountId) && (int)$accountId > 0)) {
+                throw new InvalidArgumentException("Line $i: account_id is required and must be a positive integer.");
+            }
+
+            $debit  = round((float)($line['debit']  ?? 0), 2);
+            $credit = round((float)($line['credit'] ?? 0), 2);
+
+            if ($debit < 0 || $credit < 0) {
+                throw new InvalidArgumentException("Line $i: debit and credit must be non-negative.");
+            }
+            if ($debit > 0 && $credit > 0) {
+                throw new InvalidArgumentException("Line $i: a line cannot have both a debit and a credit.");
+            }
+            if ($debit === 0.0 && $credit === 0.0) {
+                throw new InvalidArgumentException("Line $i: a line must have either a debit or a credit.");
+            }
+
+            $sumDebit  += $debit;
+            $sumCredit += $credit;
+        }
+
+        if ($sumDebit <= 0.0) {
+            throw new InvalidArgumentException('Journal entry total must be greater than zero.');
+        }
+        if (abs($sumDebit - $sumCredit) > self::BALANCE_TOLERANCE) {
+            throw new InvalidArgumentException(sprintf(
+                'Journal entry does not balance: debits %.2f vs credits %.2f.',
+                $sumDebit, $sumCredit
+            ));
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // POSTING
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Post a balanced journal entry. Returns the journal_entries.id.
+     *
+     * Idempotent: when source_type != 'manual' and source_id is set, a second
+     * post for the same (source_type, source_id) returns the existing id without
+     * re-inserting.
+     *
+     * @throws InvalidArgumentException on an unbalanced/invalid entry
+     * @throws RuntimeException         when the target period is locked
+     */
+    public function postEntry(array $entry): int
+    {
+        $sourceType = $entry['source_type'] ?? 'manual';
+        $sourceId = $entry['source_id'] ?? null;
+        if ($sourceType === 'manual' || $sourceId === null) return $this->postEntryUnlocked($entry);
+        $lock = 'ledger_post_' . md5($sourceType . ':' . $sourceId);
+        $this->acquireNamedLock($lock);
+        try {
+            return $this->postEntryUnlocked($entry);
+        } finally {
+            $this->releaseNamedLock($lock);
+        }
+    }
+
+    private function postEntryUnlocked(array $entry): int
+    {
+        $this->validateEntry($entry);
+
+        $entryDate  = $entry['entry_date'] ?? date('Y-m-d');
+        $sourceType = $entry['source_type'] ?? 'manual';
+        $sourceId   = $entry['source_id'] ?? null;
+
+        // Idempotency: skip if this source already posted.
+        if ($sourceType !== 'manual' && $sourceId !== null) {
+            $existing = $this->findEntryIdBySource($sourceType, (int)$sourceId);
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+
+        // FY2025 is filed and closed, and 2026 opens from the filed statements (Fy2026OpeningService).
+        // A 2025 record reaching the journal now would be re-dated into 2026 below and land on top of
+        // the opening balances (review 2026-10-12) — so automatic postings dated before 2026 are
+        // refused. Reversals ('adjusting'), the opening itself and manual entries are not affected.
+        if (!$this->closedYearAllowed && in_array($sourceType, self::AUTO_SOURCES, true) && $entryDate < self::FY_START) {
+            throw new RuntimeException("Closed year: {$sourceType} #{$sourceId} is dated {$entryDate}, before " . self::FY_START . ' — not posted');
+        }
+
+        // Period lock: an automatic posting (invoice, receipt, bank line, reversal) for a
+        // locked month lands in the current month as a late entry — never inside the
+        // locked month. Manual entries into a locked month are refused.
+        $lateFor = null;
+        if ($sourceType !== 'manual' && $this->isLocked($entryDate) && !$this->isLocked(date('Y-m-d'))) {
+            $entry['memo'] = 'Late entry for ' . $entryDate . ' — ' . ($entry['memo'] ?? '');
+            $lateFor = $entryDate;   // journal_entries.late_for — the Ledger's exception report reads this (migration 1356)
+            $entryDate = date('Y-m-d');
+        }
+        $this->assertPeriodPostable($entryDate);
+        $periodId = $this->findPeriodId($entryDate);
+
+        // Join the caller's transaction when there is one, so "reverse the old entry + change the
+        // record" (or reverse + repost) is all-or-nothing (review 2026-10-12: several callers could
+        // leave a reversal with no change behind it). Otherwise this entry is its own transaction.
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            // A receipt that shares a bank line: lock the line before writing the entry, the same order as the
+            // settlement that follows (no deadlock with the nightly sweep; Codex third pass 2026-10-16).
+            if ($sourceType === 'expense' && $sourceId !== null) $this->lockGroupLineFor((int)$sourceId);
+            // A deposit booked by the Jobber / bank-balance workflow ('bank_deposit') replaces whatever its
+            // bank line already posted — after the holding switch a customer deposit posts DR bank / CR 1016 as
+            // 'bank_import', and both live would count the cash twice (Codex review 2026-10-14).
+            if ($sourceType === 'bank_deposit' && $sourceId !== null) {
+                $live = $this->db->prepare("SELECT id FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ? AND status = 'posted' AND reversed_by_entry_id IS NULL");
+                $live->execute([(int)$sourceId]);
+                foreach ($live->fetchAll(PDO::FETCH_COLUMN) as $old) {
+                    $this->reverseEntry((int)$old, $entry['created_by'] ?? null, 'replaced by the deposit booking', 'system');
+                }
+            }
+            $withProposer = $this->hasColumn('journal_entries', 'proposed_by');
+            $withKind     = $this->hasColumn('journal_entries', 'entry_kind');   // migration 1355
+            $withLate     = $lateFor !== null && $this->hasColumn('journal_entries', 'late_for');   // migration 1356
+            $hdr = $this->db->prepare(
+                "INSERT INTO journal_entries
+                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by" . ($withProposer ? ', proposed_by' : '') . ($withKind ? ', entry_kind' : '') . ($withLate ? ', late_for' : '') . ")
+                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?" . ($withProposer ? ', ?' : '') . ($withKind ? ', ?' : '') . ($withLate ? ', ?' : '') . ")"
+            );
+            $vals = [
+                $entryDate,
+                $entry['memo'] ?? null,
+                $sourceType,
+                $sourceId,
+                $periodId,
+                !empty($entry['is_adjusting']) ? 1 : 0,
+                $entry['created_by'] ?? null,
+            ];
+            if ($withProposer) $vals[] = $entry['proposed_by'] ?? 'system';
+            if ($withKind) $vals[] = self::entryKindFor($sourceType, $entry['entry_kind'] ?? null);
+            if ($withLate) $vals[] = $lateFor;
+            $vals[1] = $entry['memo'] ?? null;
+            $hdr->execute($vals);
+            $entryId = (int)$this->db->lastInsertId();
+
+            $ln = $this->db->prepare(
+                "INSERT INTO journal_lines
+                    (entry_id, account_id, debit, credit, gst_amount, pst_amount, description,
+                     job_id, contact_id, vendor_id, crew_user_id, cost_type_id, service_type)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
+            foreach ($entry['lines'] as $line) {
+                $ln->execute([
+                    $entryId,
+                    (int)$line['account_id'],
+                    round((float)($line['debit']  ?? 0), 2),
+                    round((float)($line['credit'] ?? 0), 2),
+                    round((float)($line['gst_amount'] ?? 0), 2),
+                    round((float)($line['pst_amount'] ?? 0), 2),
+                    $line['description']  ?? null,
+                    $line['job_id']       ?? null,
+                    $line['contact_id']   ?? null,
+                    $line['vendor_id']    ?? null,
+                    $line['crew_user_id'] ?? null,
+                    $line['cost_type_id'] ?? null,
+                    $line['service_type'] ?? null,
+                ]);
+            }
+            if ($sourceType === 'expense' && $sourceId !== null) {
+                $this->retireLinkedBankEntries((int)$sourceId, $entry['created_by'] ?? null);
+            }
+
+            if ($own) $this->db->commit();
+            return $entryId;
+        } catch (\Throwable $e) {
+            if ($own && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // POSTING RECIPES — pure builders (no DB) + thin post wrappers
+    //
+    // Builders return an entry whose lines carry an 'account' CODE (string).
+    // post*() resolves codes -> account_id and calls postEntry(). Keeping the
+    // accounting logic in the pure builders makes every recipe unit-testable.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Invoice raised (accrual): DR Accounts Receivable / CR Revenue (+ GST Collected).
+     * @param array $inv id, date, net, gst?, revenue_account? (code, default 4900),
+     *                   service_type?, contact_id?, job_id?, memo?
+     */
+    public function buildInvoiceEntry(array $inv): array
+    {
+        $net = round((float)$inv['net'], 2);
+        $gst = round((float)($inv['gst'] ?? 0), 2);
+        $total = round($net + $gst, 2);
+        $revenue = $inv['revenue_account'] ?? '4900';
+
+        $lines = [];
+        $lines[] = [
+            'account' => self::ACC_AR, 'debit' => $total, 'credit' => 0,
+            'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
+        ];
+        // Revenue: one line, or split across accounts (LedgerAccountMap::invoiceSplits —
+        // contract income / per-service accounts). Splits must sum to $net.
+        $splits = $inv['revenue_splits'] ?? [[$revenue, $net]];
+        foreach ($splits as [$code, $amt]) {
+            $lines[] = [
+                'account' => $code, 'debit' => 0, 'credit' => round((float)$amt, 2),
+                'service_type' => $inv['service_type'] ?? null,
+                'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
+            ];
+        }
+        if ($gst > 0) {
+            $lines[] = ['account' => self::ACC_GST_COLLECTED, 'debit' => 0, 'credit' => $gst, 'gst_amount' => $gst];
+        }
+
+        return [
+            'entry_date'  => $inv['date'],
+            'memo'        => $inv['memo'] ?? ('Invoice #' . ($inv['id'] ?? '')),
+            'source_type' => 'invoice',
+            'source_id'   => $inv['id'] ?? null,
+            'lines'       => $lines,
+        ];
+    }
+
+    /**
+     * Customer payment: DR Bank / CR Accounts Receivable.
+     * @param array $pmt id, date, amount, bank_account? (code, default 1010), contact_id?, memo?
+     */
+    public function buildPaymentEntry(array $pmt): array
+    {
+        $amount = round((float)$pmt['amount'], 2);
+        $bank = $pmt['bank_account'] ?? self::ACC_BANK;
+
+        return [
+            'entry_date'  => $pmt['date'],
+            'memo'        => $pmt['memo'] ?? ('Payment for invoice #' . ($pmt['invoice_id'] ?? '')),
+            'source_type' => 'payment',
+            'source_id'   => $pmt['id'] ?? null,
+            'lines'       => [
+                ['account' => $bank, 'debit' => $amount, 'credit' => 0, 'contact_id' => $pmt['contact_id'] ?? null],
+                ['account' => self::ACC_AR, 'debit' => 0, 'credit' => $amount, 'contact_id' => $pmt['contact_id'] ?? null],
+            ],
+        ];
+    }
+
+    /**
+     * Expense: DR Expense (+ PST as cost) + DR GST ITC / CR funding account.
+     * PST is non-recoverable, so it is rolled into the expense cost, not the ITC.
+     * @param array $exp id, date, net, gst?, pst?, expense_account (code),
+     *                   funding? (code, default 2400 Credit Card), cost_type_id?,
+     *                   service_type?, job_id?, vendor_id?, memo?
+     */
+    /** 1300–1309: what a shareholder owes the company (GIFI 1300/1301; 1302 Katrenna's loan). PURE. */
+    public static function isShareholderAccount(string $code): bool
+    {
+        return (bool)preg_match('/^130\d$/', trim($code));
+    }
+
+    public function buildExpenseEntry(array $exp): array
+    {
+        if (!empty($exp['allocations']) && is_array($exp['allocations'])) {
+            return $this->buildSplitExpenseEntry($exp);
+        }
+        $net = round((float)$exp['net'], 2);
+        $gst = round((float)($exp['gst'] ?? 0), 2);
+        $pst = round((float)($exp['pst'] ?? 0), 2);
+        $total = round($net + $gst + $pst, 2);
+        $funding = $exp['funding'] ?? self::ACC_CREDIT_CARD;
+        // A meals receipt claims only part of its GST (s.236, GstReportService's rate) — the rest is
+        // cost, as the split builder already did (Codex review 2026-10-14: unsplit meals claimed it all).
+        $claim = !empty($exp['meals']) ? round($gst * (isset($exp['meals_itc_rate']) ? (float)$exp['meals_itc_rate'] : 0.5), 2) : $gst;
+        // A personal purchase charged to a shareholder (1300 Tim, 1302 Katrenna …) is not a business
+        // input: no GST is claimed back, the whole receipt goes on the shareholder's account (2026-10-19).
+        if (self::isShareholderAccount((string)$exp['expense_account'])) $claim = 0.0;
+        // A business not registered for GST claims nothing back: the GST stays in the cost (claim_itc false, set only then).
+        if (($exp['claim_itc'] ?? true) === false) $claim = 0.0;
+
+        $lines = [];
+        $lines[] = [
+            'account' => $exp['expense_account'], 'debit' => round($net + $pst + $gst - $claim, 2), 'credit' => 0,
+            'gst_amount' => $claim, 'pst_amount' => $pst,
+            'cost_type_id' => $exp['cost_type_id'] ?? null,
+            'service_type' => $exp['service_type'] ?? null,
+            'job_id' => $exp['job_id'] ?? null, 'vendor_id' => $exp['vendor_id'] ?? null,
+        ];
+        if ($claim > 0) {
+            $lines[] = ['account' => self::ACC_GST_ITC, 'debit' => $claim, 'credit' => 0, 'gst_amount' => $claim];
+        }
+        $lines[] = ['account' => $funding, 'debit' => 0, 'credit' => $total, 'vendor_id' => $exp['vendor_id'] ?? null];
+
+        return [
+            'entry_date'  => $exp['date'],
+            'memo'        => $exp['memo'] ?? ('Expense #' . ($exp['id'] ?? '')),
+            'source_type' => 'expense',
+            'source_id'   => $exp['id'] ?? null,
+            'lines'       => $lines,
+        ];
+    }
+
+    /**
+     * A receipt split by line (ExpenseSplitService, migration 1233): one debit per allocation —
+     * its account, its job — carrying net + PST + the GST that can't be claimed (the meals
+     * share's GST above the ITC rate), then DR GST ITC for what can be claimed, CR funding for
+     * the receipt's total. Lawnboy #412: DR 5200 $80.00 (Oakridge) + DR 5200 $128.40 (stock,
+     * PST $8.40 in cost) + DR 2210 $10.00 / CR 2400 $218.40.
+     * @param array $exp as buildExpenseEntry + allocations: list<{account, net, gst, pst, job_id?,
+     *                   cost_type_id?, label?, meals?: bool}>, meals_itc_rate? (default 0.5)
+     */
+    public function buildSplitExpenseEntry(array $exp): array
+    {
+        $rate = isset($exp['meals_itc_rate']) ? (float)$exp['meals_itc_rate'] : 0.5;
+        $funding = $exp['funding'] ?? self::ACC_CREDIT_CARD;
+        $lines = [];
+        $itc = 0.0;
+        $total = 0.0;
+        foreach ($exp['allocations'] as $a) {
+            $net = round((float)$a['net'], 2);
+            $gst = round((float)($a['gst'] ?? 0), 2);
+            $pst = round((float)($a['pst'] ?? 0), 2);
+            $claim = !empty($a['meals']) ? round($gst * $rate, 2) : $gst;
+            if (self::isShareholderAccount((string)$a['account'])) $claim = 0.0;   // personal share: no ITC
+            if (($exp['claim_itc'] ?? true) === false) $claim = 0.0;   // not registered for GST: the GST stays in the cost
+            $itc += $claim;
+            $total += $net + $gst + $pst;
+            $debit = round($net + $pst + $gst - $claim, 2);
+            if (abs($debit) < 0.005) continue;
+            $lines[] = [
+                // A discount line (negative) is a credit to its account.
+                'account' => $a['account'], 'debit' => max(0.0, $debit), 'credit' => max(0.0, -$debit),
+                'gst_amount' => $claim, 'pst_amount' => $pst,
+                'description' => isset($a['label']) ? mb_substr((string)$a['label'], 0, 255) : null,
+                'cost_type_id' => $a['cost_type_id'] ?? null,
+                'service_type' => $exp['service_type'] ?? null,
+                'job_id' => $a['job_id'] ?? null, 'vendor_id' => $exp['vendor_id'] ?? null,
+            ];
+        }
+        $itc = round($itc, 2);
+        if ($itc > 0) {
+            $lines[] = ['account' => self::ACC_GST_ITC, 'debit' => $itc, 'credit' => 0, 'gst_amount' => $itc];
+        }
+        $lines[] = ['account' => $funding, 'debit' => 0, 'credit' => round($total, 2), 'vendor_id' => $exp['vendor_id'] ?? null];
+
+        return [
+            'entry_date'  => $exp['date'],
+            'memo'        => $exp['memo'] ?? ('Expense #' . ($exp['id'] ?? '') . ' (split by line)'),
+            'source_type' => 'expense',
+            'source_id'   => $exp['id'] ?? null,
+            'lines'       => $lines,
+        ];
+    }
+
+    /**
+     * A split receipt's allocations onto the posting args (when the caller — the nightly sync,
+     * the repost runner — didn't bring them). Unchanged when the receipt isn't split.
+     */
+    public function withAllocations(array $exp): array
+    {
+        if (array_key_exists('allocations', $exp) || empty($exp['id'])) return $exp;
+        try {
+            $f = dirname(__DIR__, 2) . '/Expenses/Services/ExpenseSplitService.php';
+            if (!class_exists('ExpenseSplitService')) {
+                if (!is_file($f)) return $exp;
+                require_once $f;
+            }
+            $split = new ExpenseSplitService($this->db);
+            if (!$split->ready()) return $exp;
+            $args = $split->ledgerArgs((int)$exp['id'], $exp['vendor_name'] ?? null);
+            if ($args) return array_merge($exp, $args);   // a person's split wins
+        } catch (\Throwable $e) {
+            error_log('[LedgerService] split lookup for expense #' . (int)$exp['id'] . ': ' . $e->getMessage());
+            throw $e;
+        }
+        return $this->withCapitalItems($exp);
+    }
+
+    /**
+     * An equipment purchase: items of the capital threshold or more each to 1500 Equipment, the rest to the
+     * receipt's own account (CapitalItemRule — the standard capital / small-tools split, 2026-10-19).
+     * Only when the args carry 'capital_rule' (LedgerSyncService: Tools/Equipment receipts).
+     */
+    public function withCapitalItems(array $exp): array
+    {
+        if (empty($exp['capital_rule']) || empty($exp['id']) || array_key_exists('allocations', $exp)) return $exp;
+        try {
+            if (!class_exists('CapitalItemRule')) require_once __DIR__ . '/CapitalItemRule.php';
+            $s = $this->db->prepare("SELECT name, quantity, unit_price, line_total FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+            $s->execute([(int)$exp['id']]);
+            $r = CapitalItemRule::apply($exp, $s->fetchAll(\PDO::FETCH_ASSOC), (float)($exp['capital_rule']['threshold'] ?? CapitalItemRule::DEFAULT_THRESHOLD));
+            return $r ? array_merge($exp, $r) : $exp;
+        } catch (\Throwable $e) {
+            error_log('Capital item rule #' . $exp['id'] . ': ' . $e->getMessage());
+            return $exp;
+        }
+    }
+
+    /**
+     * Owner draw: DR Owner's Draw (or Due from Shareholder) / CR Bank.
+     * @param array $d date, amount, draw_account? (code, default 3300), bank_account? (code, default 1010), memo?
+     */
+    public function buildOwnerDrawEntry(array $d): array
+    {
+        $amount = round((float)$d['amount'], 2);
+        return [
+            'entry_date'  => $d['date'],
+            'memo'        => $d['memo'] ?? 'Owner draw',
+            'source_type' => $d['source_type'] ?? 'manual',
+            'source_id'   => $d['id'] ?? null,
+            'lines'       => [
+                ['account' => $d['draw_account'] ?? self::ACC_OWNER_DRAW, 'debit' => $amount, 'credit' => 0],
+                ['account' => $d['bank_account'] ?? self::ACC_BANK, 'debit' => 0, 'credit' => $amount],
+            ],
+        ];
+    }
+
+    /**
+     * Bank transfer: DR destination / CR source.
+     * @param array $t date, amount, from (code), to (code), memo?
+     */
+    public function buildTransferEntry(array $t): array
+    {
+        $amount = round((float)$t['amount'], 2);
+        return [
+            'entry_date'  => $t['date'],
+            'memo'        => $t['memo'] ?? 'Transfer',
+            'source_type' => 'manual',
+            'lines'       => [
+                ['account' => $t['to'],   'debit' => $amount, 'credit' => 0],
+                ['account' => $t['from'], 'debit' => 0, 'credit' => $amount],
+            ],
+        ];
+    }
+
+    /**
+     * Opening balances: caller supplies known asset/liability/equity opening
+     * lines (each ['account'=>code, 'debit'|'credit'=>x]); the difference is
+     * plugged to Opening Balance Equity (3900) so the entry balances.
+     * @param array $b date, lines[], memo?
+     */
+    public function buildOpeningBalanceEntry(array $b): array
+    {
+        $lines = $b['lines'];
+        $sumDebit = 0.0; $sumCredit = 0.0;
+        foreach ($lines as $l) {
+            $sumDebit  += round((float)($l['debit']  ?? 0), 2);
+            $sumCredit += round((float)($l['credit'] ?? 0), 2);
+        }
+        $diff = round($sumDebit - $sumCredit, 2);
+        if (abs($diff) >= 0.005) {
+            // plug to Opening Balance Equity to balance
+            $lines[] = $diff > 0
+                ? ['account' => self::ACC_OPENING_EQUITY, 'debit' => 0, 'credit' => $diff]
+                : ['account' => self::ACC_OPENING_EQUITY, 'debit' => -$diff, 'credit' => 0];
+        }
+        return [
+            'entry_date'  => $b['date'],
+            'memo'        => $b['memo'] ?? 'Opening balances',
+            'source_type' => 'opening',
+            'source_id'   => $b['id'] ?? null,
+            'is_adjusting'=> 1,
+            'lines'       => $lines,
+        ];
+    }
+
+    // ── post wrappers: resolve account codes -> ids, then postEntry ─────────────
+
+    public function postInvoice(array $inv): int      { return $this->postBuilt(self::withWho($this->buildInvoiceEntry($inv), $inv)); }
+    public function postPayment(array $pmt): int       { return $this->postBuilt($this->buildPaymentEntry($pmt)); }
+    public function postExpense(array $exp): int        { $exp = $this->withAllocations($exp); return $this->postBuilt(self::withWho($this->buildExpenseEntry($exp), $exp)); }
+
+    /** Carry who posted it (created_by) and who proposed it (proposed_by) onto the entry. */
+    private static function withWho(array $entry, array $args): array
+    {
+        foreach (['created_by', 'proposed_by'] as $k) {
+            if (isset($args[$k])) $entry[$k] = $args[$k];
+        }
+        return $entry;
+    }
+    public function postOwnerDraw(array $d): int        { return $this->postBuilt($this->buildOwnerDrawEntry($d)); }
+    public function postTransfer(array $t): int         { return $this->postBuilt($this->buildTransferEntry($t)); }
+    public function postOpeningBalances(array $b): int  { return $this->postBuilt($this->buildOpeningBalanceEntry($b)); }
+    public function postManual(array $entry): int       { return $this->postBuilt($entry); }
+
+    /** Resolve each line's 'account' code to account_id (if present) and post. */
+    private function postBuilt(array $entry): int
+    {
+        foreach ($entry['lines'] as &$line) {
+            if (!isset($line['account_id']) && isset($line['account'])) {
+                $line['account_id'] = $this->accountId((string)$line['account']);
+            }
+        }
+        unset($line);
+        return $this->postEntry($entry);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * A bank line linked to a receipt (matched_expense_id) is booked by the receipt's entry. When the line had
+     * already posted its own entry (imported before the receipt was linked or approved), that posting is
+     * reversed — otherwise the purchase counts twice (Home Depot #321, Flute & Fromage #349; 2026-10-15).
+     * Only when the receipt's entry pays from the line's own account for the line's amount: anything else is
+     * left for a person (the statement checker shows it). Joins the caller's transaction.
+     * @return int bank postings reversed
+     */
+    public function retireLinkedBankEntries(int $expenseId, ?int $userId = null): int
+    {
+        // One line paid by several receipts (BankLineReceipts, migration 1372): the line is matched to the group's
+        // main receipt, and retired only once EVERY receipt of the group is booked and together they paid it.
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $group = (new BankLineReceipts($this->db))->group($expenseId);
+        if ($group !== null) return $this->settleGroupLine($group['line'], $userId);
+        $main = $expenseId;
+        $members = [$expenseId];
+        $paid = [];
+        $c = $this->db->prepare("SELECT account_id, SUM(credit) - SUM(debit) AS paid FROM journal_lines WHERE entry_id = ? GROUP BY account_id");
+        foreach ($members as $m) {
+            $expEntry = $this->findEntryIdBySource('expense', (int)$m);
+            if ($expEntry === null) return 0;   // a receipt of the group isn't booked yet — the line still stands in for it
+            $c->execute([$expEntry]);
+            foreach ($c->fetchAll(PDO::FETCH_ASSOC) as $r) $paid[(int)$r['account_id']] = round(($paid[(int)$r['account_id']] ?? 0) + (float)$r['paid'], 2);
+        }
+        $who = count($members) > 1 ? 'receipts #' . implode(' + #', $members) : 'receipt #' . $expenseId;
+        try {
+            $t = $this->db->prepare("SELECT id, bank_account_id, amount FROM accounting_transactions
+                                     WHERE matched_expense_id = ? AND reference_type = 'bank_import' AND transaction_date >= ?");
+            $t->execute([$main, self::FY_START]);   // a filed, closed year is never touched
+        } catch (PDOException $e) {
+            // Only a schema without the receipt↔bank-line link columns is quiet; any other failure rolls the receipt back.
+            if ($e->getCode() === '42S22' || stripos($e->getMessage(), 'no such column') !== false) return 0;
+            throw $e;
+        }
+        $live = $this->db->prepare("SELECT je.id, SUM(jl.credit) - SUM(jl.debit) AS out_
+                                    FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id AND jl.account_id = ?
+                                    WHERE je.source_type = 'bank_import' AND je.source_id = ? AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+                                    GROUP BY je.id");
+        // Per paying account: the live postings of every linked line, all money OUT of that account. They are retired
+        // together only when they add up to what the receipt paid from it — a refund, a partial link or a second
+        // line of the same amount is left for a person (Codex review 2026-10-15).
+        $groups = [];
+        foreach ($t->fetchAll(PDO::FETCH_ASSOC) as $line) {
+            $acct = !empty($line['bank_account_id']) ? (int)$line['bank_account_id'] : $this->accountId(self::ACC_BANK);
+            $live->execute([$acct, (int)$line['id']]);
+            foreach ($live->fetchAll(PDO::FETCH_ASSOC) as $e) {
+                $out = round((float)$e['out_'], 2);
+                if ($out <= 0 || abs($out - abs((float)$line['amount'])) >= 0.01) { $groups[$acct] = false; continue 2; }
+                if (($groups[$acct] ?? null) === false) continue;
+                $groups[$acct]['ids'][] = (int)$e['id'];
+                $groups[$acct]['sum'] = round(($groups[$acct]['sum'] ?? 0) + $out, 2);
+            }
+        }
+        $n = 0;
+        foreach ($groups as $acct => $g) {
+            if ($g === false || empty($g['ids']) || abs(($paid[$acct] ?? 0) - $g['sum']) >= 0.01) continue;
+            foreach ($g['ids'] as $id) {
+                $this->reverseEntry($id, $userId, 'booked by ' . $who, 'system');
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /**
+     * A bank line paid by several receipts (BankLineReceipts): its own posting is always the part the BOOKED
+     * receipts don't cover — line − what they paid from the line's account. Both booked → nothing; one booked
+     * → the rest; one later rejected, re-opened or edited → the posting follows (Codex review 2026-10-16:
+     * a retired line never came back, leaving the books short). The live postings are made to equal that:
+     * reversed, and one remainder posted when there is one. A refund-shaped posting, or receipts paying more
+     * than the line, is left for a person (the statement check shows it). Joins the caller's transaction.
+     * @return int postings reversed + posted
+     */
+    public function settleGroupLine(int $lineId, ?int $userId = null): int
+    {
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $lock = $this->db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            // The line is locked first and everything after is read with locking reads: two settlements of one
+            // line (nightly sweep + an approval) run one after the other, never both posting a remainder.
+            $s = $this->db->prepare("SELECT id, transaction_date, amount, description, account_id, bank_account_id, matched_expense_id
+                                     FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import' AND transaction_date >= ?" . $lock);
+            $s->execute([$lineId, self::FY_START]);
+            $line = $s->fetch(PDO::FETCH_ASSOC);
+            $n = ($line && !empty($line['matched_expense_id'])) ? $this->settleLockedLine($line, $userId, $lock) : 0;
+            if ($own) $this->db->commit();
+            return $n;
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function settleLockedLine(array $line, ?int $userId, string $lock): int
+    {
+        $lineId = (int)$line['id'];
+        $acct = !empty($line['bank_account_id']) ? (int)$line['bank_account_id'] : $this->accountId(self::ACC_BANK);
+        $members = array_values(array_unique(array_merge([(int)$line['matched_expense_id']], (new BankLineReceipts($this->db))->extras($lineId))));
+
+        $entryOf = $this->db->prepare("SELECT id FROM journal_entries WHERE source_type = 'expense' AND source_id = ? AND reversed_by_entry_id IS NULL LIMIT 1" . $lock);
+        $paidFrom = $this->db->prepare("SELECT SUM(credit) - SUM(debit) FROM journal_lines WHERE entry_id = ? AND account_id = ?");
+        $covered = 0.0;
+        $booked = [];
+        foreach ($members as $m) {
+            $entryOf->execute([$m]);
+            $e = $entryOf->fetchColumn();
+            if ($e === false) continue;
+            $paidFrom->execute([(int)$e, $acct]);
+            $covered += (float)$paidFrom->fetchColumn();
+            $booked[] = $m;
+        }
+        $lineAmount = round(abs((float)$line['amount']), 2);
+        $want = round($lineAmount - $covered, 2);
+        if ($want < -0.005) return 0;                                   // receipts pay more than the line: a person looks
+        $want = max(0.0, $want);
+
+        $live = $this->db->prepare("SELECT je.id, (SELECT SUM(jl.credit) - SUM(jl.debit) FROM journal_lines jl WHERE jl.entry_id = je.id AND jl.account_id = ?) AS out_
+                                    FROM journal_entries je
+                                    WHERE je.source_type = 'bank_import' AND je.source_id = ? AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL" . $lock);
+        $live->execute([$acct, $lineId]);
+        $entries = $live->fetchAll(PDO::FETCH_ASSOC);
+        $have = 0.0;
+        foreach ($entries as $x) {
+            if ((float)$x['out_'] <= 0) return 0;                       // money back in, or another account: a person looks
+            $have += (float)$x['out_'];
+        }
+        if (abs(round($have, 2) - $want) < 0.01) return 0;
+
+        // The remainder keeps the line's own split (category, GST, job / vendor / cost type) in proportion —
+        // taken from its first posting (Codex re-review 2026-10-16: it all went to one account).
+        $first = $this->db->prepare("SELECT id FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ? ORDER BY id LIMIT 1");
+        $first->execute([$lineId]);
+        $firstId = (int)$first->fetchColumn();
+        $tpl = [];
+        if ($firstId) {
+            $l = $this->db->prepare("SELECT account_id, debit, credit, gst_amount, pst_amount, description, job_id, contact_id, vendor_id, crew_user_id, cost_type_id, service_type
+                                     FROM journal_lines WHERE entry_id = ? AND account_id <> ?");
+            $l->execute([$firstId, $acct]);
+            $tpl = $l->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $base = array_sum(array_map(fn($r) => (float)$r['debit'] - (float)$r['credit'], $tpl));
+        if (!$tpl || $base <= 0.005) $tpl = [['account_id' => (int)$line['account_id'], 'debit' => $lineAmount, 'credit' => 0]];
+        $base = $base > 0.005 ? $base : $lineAmount;
+        $who = $booked ? 'receipts #' . implode(' + #', $booked) : 'no receipt yet';
+
+        $n = 0;
+        foreach ($entries as $x) {
+            $this->reverseEntry((int)$x['id'], $userId, 'booked by ' . $who, 'system');
+            $n++;
+        }
+        if ($want >= 0.01) {
+            $lines = [];
+            $sum = 0.0;
+            foreach ($tpl as $r) {
+                $net = round(((float)$r['debit'] - (float)$r['credit']) * $want / $base, 2);
+                $lines[] = ['account_id' => (int)$r['account_id'], 'debit' => max(0, $net), 'credit' => max(0, -$net),
+                            'gst_amount' => round((float)($r['gst_amount'] ?? 0) * $want / $base, 2), 'pst_amount' => round((float)($r['pst_amount'] ?? 0) * $want / $base, 2),
+                            'description' => $r['description'] ?? 'Not yet covered by its receipts', 'job_id' => $r['job_id'] ?? null,
+                            'contact_id' => $r['contact_id'] ?? null, 'vendor_id' => $r['vendor_id'] ?? null, 'crew_user_id' => $r['crew_user_id'] ?? null,
+                            'cost_type_id' => $r['cost_type_id'] ?? null, 'service_type' => $r['service_type'] ?? null];
+                $sum += $net;
+            }
+            // Rounding goes on the largest line, so the entry pays out exactly the remainder.
+            $big = 0;
+            foreach ($lines as $i => $ln) if (abs($ln['debit'] - $ln['credit']) > abs($lines[$big]['debit'] - $lines[$big]['credit'])) $big = $i;
+            $fix = round($want - $sum, 2);
+            if (abs($fix) >= 0.005) {
+                $net = round($lines[$big]['debit'] - $lines[$big]['credit'] + $fix, 2);
+                $lines[$big]['debit'] = max(0, $net); $lines[$big]['credit'] = max(0, -$net);
+            }
+            $lines[] = ['account_id' => $acct, 'debit' => 0, 'credit' => $want];
+            $this->postEntry([
+                'entry_date' => (string)$line['transaction_date'],
+                'memo' => trim((string)$line['description']) . ' — the part not covered by ' . $who . ' ($' . number_format($want, 2) . ')',
+                'source_type' => 'bank_import', 'source_id' => $lineId,
+                'created_by' => $userId, 'proposed_by' => 'system', 'lines' => $lines,
+            ]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /**
+     * Lock the bank line a grouped receipt shares, BEFORE touching the receipt's entry: every path then locks
+     * line → entries in the same order as settleGroupLine(), so a delete/edit and the nightly settlement can't
+     * deadlock (Codex third pass 2026-10-16). No-op outside MySQL, outside a transaction, or for a receipt alone.
+     */
+    public function lockGroupLineFor(int $expenseId): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql' || !$this->db->inTransaction()) return;
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $g = (new BankLineReceipts($this->db))->group($expenseId);
+        if ($g !== null) $this->db->prepare("SELECT id FROM accounting_transactions WHERE id = ? FOR UPDATE")->execute([$g['line']]);
+    }
+
+    /** The line a receipt shares with others, settled (no-op for a receipt alone on its line, or none). */
+    public function settleGroupFor(int $expenseId, ?int $userId = null): int
+    {
+        require_once __DIR__ . '/BankLineReceipts.php';
+        $g = (new BankLineReceipts($this->db))->group($expenseId);
+        return $g === null ? 0 : $this->settleGroupLine($g['line'], $userId);
+    }
+
+    /** Existing (not reversed) entry id for a source, or null. */
+    public function findEntryIdBySource(string $sourceType, int $sourceId): ?int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT id FROM journal_entries WHERE source_type = ? AND source_id = ? AND reversed_by_entry_id IS NULL LIMIT 1"
+        );
+        $stmt->execute([$sourceType, $sourceId]);
+        $id = $stmt->fetchColumn();
+        return $id === false ? null : (int)$id;
+    }
+
+    /**
+     * Reverse a posted entry — the append-only way to correct the books: a new entry
+     * with every debit and credit swapped, linked both ways (the original's
+     * reversed_by_entry_id). Dated with the original unless that month is locked, in
+     * which case the reversal lands today (an adjustment in the current month).
+     * Idempotent: an entry already reversed returns its reversal.
+     * @return int the reversal entry id
+     */
+    public function reverseEntry(int $entryId, ?int $userId, string $why, string $proposedBy = 'owner'): int
+    {
+        // Same lock name as postEntry() for the entry's own source, so a repost and a reversal of that source can never interleave
+        // (Codex review 2026-11-04); the per-entry lock stays for manual entries, which have no source.
+        $locks = ['ledger_rev_' . $entryId];
+        try {
+            $src = $this->db->prepare("SELECT source_type, source_id FROM journal_entries WHERE id = ?");
+            $src->execute([$entryId]);
+            if ($r = $src->fetch(PDO::FETCH_ASSOC)) {
+                if (($r['source_type'] ?? 'manual') !== 'manual' && $r['source_id'] !== null) {
+                    array_unshift($locks, 'ledger_post_' . md5($r['source_type'] . ':' . $r['source_id']));
+                }
+            }
+        } catch (Throwable $e) { /* no source columns here: the entry lock alone */ }
+        $held = [];
+        try {
+            foreach ($locks as $lock) { $this->acquireNamedLock($lock); $held[] = $lock; }
+            return $this->reverseEntryUnlocked($entryId, $userId, $why, $proposedBy);
+        } finally {
+            foreach (array_reverse($held) as $lock) $this->releaseNamedLock($lock);
+        }
+    }
+
+    private function reverseEntryUnlocked(int $entryId, ?int $userId, string $why, string $proposedBy): int
+    {
+        $s = $this->db->prepare("SELECT id, entry_date, memo, reversed_by_entry_id FROM journal_entries WHERE id = ?");
+        $s->execute([$entryId]);
+        $orig = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$orig) throw new RuntimeException("Journal entry $entryId not found");
+        if (!empty($orig['reversed_by_entry_id'])) return (int)$orig['reversed_by_entry_id'];
+
+        $l = $this->db->prepare("SELECT account_id, debit, credit, gst_amount, pst_amount, description, job_id, contact_id,
+                                        vendor_id, crew_user_id, cost_type_id, service_type FROM journal_lines WHERE entry_id = ?");
+        $l->execute([$entryId]);
+        $lines = [];
+        foreach ($l->fetchAll(PDO::FETCH_ASSOC) as $ln) {
+            $lines[] = ['account_id' => (int)$ln['account_id'], 'debit' => (float)$ln['credit'], 'credit' => (float)$ln['debit'],
+                        'gst_amount' => -(float)$ln['gst_amount'], 'pst_amount' => -(float)$ln['pst_amount'],
+                        'description' => $ln['description'], 'job_id' => $ln['job_id'], 'contact_id' => $ln['contact_id'],
+                        'vendor_id' => $ln['vendor_id'], 'crew_user_id' => $ln['crew_user_id'], 'cost_type_id' => $ln['cost_type_id'],
+                        'service_type' => $ln['service_type']];
+        }
+        $date = $this->isLocked((string)$orig['entry_date']) ? date('Y-m-d') : (string)$orig['entry_date'];
+        // The reversal and its link to the original are one change (a crash between them left both
+        // "live" and a repost silently returned the old entry — review 2026-10-12).
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+        $revId = $this->postEntry([
+            'entry_date' => $date, 'memo' => 'Reversal of #' . $entryId . ' — ' . $why,
+            'source_type' => 'adjusting', 'source_id' => $entryId, 'is_adjusting' => 1,
+            'created_by' => $userId, 'proposed_by' => $proposedBy, 'lines' => $lines,
+        ]);
+        $this->db->prepare("UPDATE journal_entries SET reversed_by_entry_id = ? WHERE id = ? AND reversed_by_entry_id IS NULL")
+           ->execute([$revId, $entryId]);
+        if ($own) $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+        return $revId;
+    }
+
+    /** Entry kinds shown in the Ledger's journal (migration 1355). */
+    public const ENTRY_KINDS = ['system', 'manual', 'aje', 'rje', 'reversal'];
+
+    /**
+     * The kind of a new entry: an explicit kind when the caller gives a valid one, otherwise by source —
+     * manual / opening / fy_opening are a person's entries, 'adjusting' is a reversal, the rest system.
+     */
+    public static function entryKindFor(string $sourceType, ?string $explicit = null): string
+    {
+        if ($explicit !== null && in_array($explicit, self::ENTRY_KINDS, true)) return $explicit;
+        if (in_array($sourceType, ['manual', 'opening', 'fy_opening'], true)) return 'manual';
+        if ($sourceType === 'adjusting') return 'reversal';
+        return 'system';
+    }
+
+    /** Is the month containing $date locked? */
+    public function isLocked(string $date): bool
+    {
+        [$y, $m] = $this->yearMonth($date);
+        $stmt = $this->db->prepare("SELECT status FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+        $stmt->execute([$y, $m]);
+        return $stmt->fetchColumn() === 'locked';
+    }
+
+    /**
+     * Can a source be posted again after its entry is reversed? Only once migration
+     * 1131 has dropped the old one-entry-per-source UNIQUE key.
+     */
+    public function canRepostSource(): bool
+    {
+        try {
+            return $this->db->query("SHOW INDEX FROM journal_entries WHERE Key_name = 'uq_source'")->rowCount() === 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        static $seen = [];
+        $k = $table . '.' . $column;
+        if (!array_key_exists($k, $seen)) {
+            try {
+                $seen[$k] = $this->db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $this->db->quote($column))->rowCount() > 0;
+            } catch (Throwable $e) {
+                $seen[$k] = false;
+            }
+        }
+        return $seen[$k];
+    }
+
+    private function acquireNamedLock(string $name): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        $s = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $s->execute([$name]);
+        if ((int)$s->fetchColumn() !== 1) throw new RuntimeException('Could not obtain ledger posting lock.');
+    }
+
+    private function releaseNamedLock(string $name): void
+    {
+        if ($this->db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+        try {
+            $s = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            $s->execute([$name]);
+        } catch (Throwable $e) {
+            error_log('[LedgerService] release lock ' . $name . ': ' . $e->getMessage());
+        }
+    }
+
+    /** Resolve a chart_of_accounts.id from its code. Cached per-request. */
+    public function accountId(string $code): int
+    {
+        static $cache = [];
+        if (isset($cache[$code])) {
+            return $cache[$code];
+        }
+        $stmt = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE code = ? LIMIT 1");
+        $stmt->execute([$code]);
+        $id = $stmt->fetchColumn();
+        if ($id === false) {
+            throw new RuntimeException("Chart of accounts code not found: $code");
+        }
+        return $cache[$code] = (int)$id;
+    }
+
+    /** accounting_periods.id for the period containing $date, or null if none. */
+    private function findPeriodId(string $date): ?int
+    {
+        [$y, $m] = $this->yearMonth($date);
+        $stmt = $this->db->prepare("SELECT id FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+        $stmt->execute([$y, $m]);
+        $id = $stmt->fetchColumn();
+        return $id === false ? null : (int)$id;
+    }
+
+    /**
+     * Reject posting into a locked period.
+     * @throws RuntimeException
+     */
+    private function assertPeriodPostable(string $date): void
+    {
+        [$y, $m] = $this->yearMonth($date);
+        $stmt = $this->db->prepare("SELECT status FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+        $stmt->execute([$y, $m]);
+        $status = $stmt->fetchColumn();
+        if ($status === 'locked') {
+            throw new RuntimeException("Accounting period $y-" . str_pad((string)$m, 2, '0', STR_PAD_LEFT) . " is locked; cannot post.");
+        }
+    }
+
+    /** @return array{0:int,1:int} [year, month] */
+    private function yearMonth(string $date): array
+    {
+        $ts = strtotime($date);
+        if ($ts === false) {
+            throw new InvalidArgumentException("Invalid entry_date: $date");
+        }
+        return [(int)date('Y', $ts), (int)date('n', $ts)];
+    }
+}

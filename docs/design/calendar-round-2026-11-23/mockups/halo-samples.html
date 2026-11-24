@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job landed, motion samples</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text);font:14px/1.45 Inter,system-ui,sans-serif;padding:24px}
+h1{font-size:20px;margin:0 0 4px}
+p.lead{margin:0 0 20px;color:var(--meta);max-width:70ch}
+.bar{display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
+button{font:inherit;min-height:44px;padding:0 16px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer}
+button.fill{background:var(--brand);color:var(--surface);border-color:var(--brand)}
+label{color:var(--meta);display:flex;gap:8px;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px}
+.card h2{font-size:15px;margin:0 0 2px}
+.card .why{color:var(--meta);margin:0 0 12px;font-size:13px;min-height:2.9em}
+.stage{position:relative;height:150px;background:var(--sunk);border-radius:6px;overflow:hidden;padding:14px}
+.col{position:absolute;inset:14px;display:grid;grid-template-rows:1fr 1fr;gap:8px}
+/* a block like the real Timeline block */
+.blk{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;justify-content:center;will-change:transform}
+.blk b{font-weight:600}
+.blk span{color:var(--meta);font-size:12px}
+.target{z-index:2}
+.stage button{position:absolute;right:10px;bottom:10px;min-height:30px;padding:0 10px;font-size:12px;z-index:5}
+
+/* A: current, for comparison */
+.a .fx{position:absolute;left:50%;top:50%;width:72px;height:72px;margin:-36px 0 0 -36px;border:2px solid var(--brand);border-radius:50%;opacity:0;pointer-events:none}
+.a.go .fx{animation:a 700ms ease-out both}
+@keyframes a{from{opacity:.28;transform:scale(.6)}to{opacity:0;transform:scale(1.8)}}
+
+/* B: edge pulse, the block's own outline breathes out once */
+.b.go .target{animation:b 800ms ease-out both}
+@keyframes b{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--brand) 45%,transparent);border-color:var(--brand)}
+ 70%{box-shadow:0 0 0 7px color-mix(in srgb,var(--brand) 0%,transparent);border-color:var(--brand)}
+ 100%{box-shadow:0 0 0 7px transparent;border-color:var(--line)}}
+
+/* C: settle, lands with a small drop, shadow, then rests */
+.c.go .target{animation:c 520ms cubic-bezier(.2,.8,.2,1) both}
+@keyframes c{0%{transform:translateY(-10px) scale(1.02);box-shadow:0 8px 18px color-mix(in srgb,var(--text) 18%,transparent)}
+ 60%{transform:translateY(1px) scale(1);box-shadow:0 2px 6px color-mix(in srgb,var(--text) 10%,transparent)}
+ 100%{transform:none;box-shadow:none}}
+
+/* D: sweep, one soft brand wash passes left to right inside the block */
+.d .target{overflow:hidden}
+.d .target::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--brand) 16%,transparent),transparent);transform:translateX(-100%);pointer-events:none}
+.d.go .target::after{animation:d 800ms ease-in-out both}
+@keyframes d{to{transform:translateX(100%)}}
+
+/* E: slide in from where it was, then a brand edge on the left fades */
+.e .target::before{content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:6px 0 0 6px;background:var(--brand);opacity:0}
+.e.go .target{animation:e1 480ms cubic-bezier(.2,.8,.2,1) both}
+.e.go .target::before{animation:e2 1400ms ease-out both}
+@keyframes e1{from{transform:translateY(-34px)}to{transform:none}}
+@keyframes e2{0%{opacity:1}60%{opacity:1}100%{opacity:0}}
+
+/* F: tint, the quietest. Background warms to a brand tint and eases back */
+.f.go .target{animation:f 1400ms ease-out both}
+@keyframes f{0%{background:color-mix(in srgb,var(--brand) 14%,var(--surface))}100%{background:var(--surface)}}
+
+.note{margin-top:20px;color:var(--meta);max-width:70ch}
+@media (prefers-reduced-motion:reduce){
+ .a.go .fx,.b.go .target,.c.go .target,.d.go .target::after,.e.go .target,.e.go .target::before{animation:none}
+ .f.go .target{animation:f 1200ms linear both}
+}
+</style>
+</head>
+<body>
+<h1>When a job lands, what should it do?</h1>
+<p class="lead">Six ways to show that a job moved. Each box has the old and the new job beside it. Press the button on a box, or "Play all".</p>
+<div class="bar">
+  <button class="fill" id="all">Play all</button>
+  <label><input type="checkbox" id="slow"> Slow motion (3x)</label>
+  <label><input type="checkbox" id="dark"> Dark</label>
+</div>
+<div class="grid" id="grid"></div>
+<p class="note">With "reduce motion" on in your system, B to E do not move at all and F shows a plain highlight. In the real page the ring or edge sits on the job that moved, and the toast "Rescheduled visit" appears at the same time.</p>
+<script>
+var V=[
+ ['a','A. Circle (what is live now)','An expanding ring from the middle of the block. Unrelated to the block shape.'],
+ ['b','B. Edge pulse','The block’s own outline lights up and breathes out once, so the motion follows its shape.'],
+ ['c','C. Settle','The job drops in and settles with a small shadow, like a card put down on the table.'],
+ ['d','D. Sweep','One soft wash passes across the job once, like a highlighter.'],
+ ['e','E. Slide and edge','It slides in from where it came from, and a brand edge on the left fades.'],
+ ['f','F. Tint','The quietest. The job warms to a light tint and eases back. No movement.']
+];
+var g=document.getElementById('grid');
+V.forEach(function(v){
+ var c=document.createElement('div');c.className='card';
+ c.innerHTML='<h2>'+v[1]+'</h2><p class="why">'+v[2]+'</p><div class="stage '+v[0]+'"><div class="col">'+
+ '<div class="blk"><b>Joann Hamelin</b><span>10:00 AM – 11:00 AM</span></div>'+
+ '<div class="blk target"><b>Monica Nicule</b><span>3:00 PM – 4:00 PM · Scheduled</span>'+(v[0]==='a'?'<i class="fx"></i>':'')+'</div></div>'+
+ '<button>Play</button></div>';
+ var st=c.querySelector('.stage');
+ c.querySelector('button').onclick=function(){play(st)};
+ g.appendChild(c);
+});
+function play(st){
+ st.classList.remove('go');void st.offsetWidth;st.classList.add('go');
+}
+document.getElementById('all').onclick=function(){[].forEach.call(document.querySelectorAll('.stage'),play)};
+document.getElementById('slow').onchange=function(e){
+ var k=e.target.checked?3:1,s=document.getElementById('slowcss')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'slowcss'}));
+ s.textContent=k===1?'':'.go .target,.go .target::after,.go .target::before,.go .fx{animation-duration:'+(k*1)+'s !important}';
+};
+document.getElementById('dark').onchange=function(e){document.documentElement.setAttribute('data-theme',e.target.checked?'dark':'light')};
+</script>
+</body>
+</html>

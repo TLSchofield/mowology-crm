@@ -7,9 +7,11 @@ declare(strict_types=1);
  * Mobile Time Clock API — Clock In / Clock Out / Status
  * Authorization: Bearer <jwt>
  *
- * GET  ?action=status
+ * GET  ?mode=status
+ * GET  ?mode=week&start=YYYY-MM-DD   — caller's own timesheet for that week
  * POST {action: 'clock_in',  lat?, lng?}
  * POST {action: 'clock_out', lat?, lng?, notes?}
+ * POST {action: 'break_start' | 'break_end', client_time?, queued?}  — the caller's break (BreakService)
  */
 
 if (!defined('APP_ROOT')) {
@@ -29,15 +31,20 @@ header('X-Content-Type-Options: nosniff');
 
 try {
     require_once APP_ROOT . '/Core/config.php';
+    require_once APP_ROOT . '/Core/ApiResponse.php'; // generic errors to the user, details to the log
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Core/IdempotencyHelper.php';
+    require_once APP_ROOT . '/Modules/Team/Services/OfflineTime.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $action = trim($_GET['action'] ?? '');
+        // Prefer ?mode= — under /api/ the .htaccess QSA rewrite owns the `action`
+        // query param (it carries the route), so a caller's ?action= collides with it.
+        $action = trim($_GET['mode'] ?? $_GET['action'] ?? '');
     } else {
         $input  = json_decode(file_get_contents('php://input'), true) ?? [];
         $action = trim($input['action'] ?? '');
@@ -45,7 +52,32 @@ try {
 
     $db = getDB();
 
+    // A queued punch resent twice (two resends racing, a retry after a lost response) must
+    // record once: the phone sends the same Idempotency-Key every time (ClockQueue item id).
+    $idempKey = trim($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '');
+    if ($idempKey !== '' && in_array($action, ['clock_in', 'clock_out', 'break_start', 'break_end'], true)) {
+        $cached = idempotencyCheck($db, $idempKey, $userId);
+        if ($cached !== null) { echo $cached; exit; }
+    }
+    // A punch the phone queued offline carries client_time. It may have no location (no fix in
+    // a dead zone) — it is still recorded, noted, rather than refused and lost.
+    // `queued` is sent only on a replay from the phone's queue (a live tap sends client_time too).
+    $queued = !empty($input['queued']);
+    $clockReply = function (array $payload) use ($db, $idempKey, $userId, $action): void {
+        $json = json_encode($payload);
+        if ($idempKey !== '') idempotencyStore($db, $idempKey, $userId, 'clock', $action, $json);
+        echo $json;
+    };
+
     switch ($action) {
+
+        case 'week':
+            // The caller's own timesheet for the week containing ?start= (default: this week).
+            require_once APP_ROOT . '/Modules/Team/Services/TimesheetService.php';
+            echo json_encode(
+                ['success' => true] + TimesheetService::forUser($userId, (string)($_GET['start'] ?? ''))
+            );
+            break;
 
         case 'status':
             // Clear any stale entry from a prior day before reporting status.
@@ -54,8 +86,17 @@ try {
             $entry     = getActiveClockEntry($userId);
             $activeJob = getActiveVisitTimer($userId);
 
+            // The break button (BreakService): allowed for people, paid or not, the running break.
+            $breakInfo = ['breaks' => null, 'on_break' => null];
+            try {
+                require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+                $breakInfo = (new BreakService($db))->clientConfig($userId);
+            } catch (Throwable $e) {
+                error_log('[clock] break status: ' . $e->getMessage());
+            }
+
             if ($entry) {
-                echo json_encode([
+                echo json_encode($breakInfo + [
                     'success'         => true,
                     'clocked_in'      => true,
                     'entry_id'        => (int)$entry['id'],
@@ -71,12 +112,43 @@ try {
                     ] : null,
                 ]);
             } else {
-                echo json_encode([
+                echo json_encode($breakInfo + [
                     'success'    => true,
                     'clocked_in' => false,
                     'active_job' => null,
                 ]);
             }
+            break;
+
+        case 'break_start':
+        case 'break_end':
+            // Server first; a tap queued offline carries client_time (the tap) and `queued`.
+            require_once APP_ROOT . '/Modules/Operations/Services/BreakService.php';
+            $breaks = new BreakService($db);
+            if ($action === 'break_start' && !$breaks->buttonEnabled()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Breaks are not turned on.']);
+                break;
+            }
+            $ct = isset($input['client_time']) && is_string($input['client_time']) ? $input['client_time'] : null;
+            $r = $action === 'break_start' ? $breaks->start($userId, $ct) : $breaks->end($userId, $ct);
+            if (!$r['ok']) {
+                // A refusal (truck login, not clocked in) is a 4xx: the phone shows it, it never queues it.
+                http_response_code($r['status'] ?: 409);
+                echo json_encode(['success' => false, 'message' => $r['error']]);
+                break;
+            }
+            if (!$r['recorded'] && function_exists('logActivity')) logActivity($userId, null, $action . '_not_recorded', (string)$r['note']);
+            $open = $breaks->openBreak($userId);
+            $clockReply([
+                'success'    => true,
+                'clocked_in' => (bool)getActiveClockEntry($userId),
+                'recorded'   => $r['recorded'],
+                'on_break'   => $open ? BreakService::publicBreak($open) : null,
+                'minutes'    => $r['minutes'] ?? null,
+                'time_flag'  => $r['time_flag'],
+                'message'    => $r['recorded'] ? ($action === 'break_start' ? 'On break' : 'Break ended') : $r['note'],
+            ]);
             break;
 
         case 'clock_in':
@@ -99,20 +171,34 @@ try {
 
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
+            if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
+            if ($lng !== null && ($lng < -180 || $lng > 180)) $lng = null;
+            if ($lat === null || $lng === null) { $lat = null; $lng = null; }
 
-            $stmt = $db->prepare(
-                "INSERT INTO time_clock_entries
-                 (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
-                 VALUES (?, NOW(), ?, ?, 'active', NOW())"
-            );
-            $stmt->execute([$userId, $lat, $lng]);
-            $entryId = (int)$db->lastInsertId();
+            // Delegates to the shared Team clock-in path (TimeclockFunctions::clockIn)
+            // instead of reimplementing the INSERT — keeps the GPS-ping-to-crew-map
+            // side effect in sync with the desktop path too.
+            // Queued offline? Record when it was tapped, not when it arrived (OfflineTime).
+            $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'));
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($userId, null, 'clock_in_not_recorded', $when['note']);
+                $clockReply(['success' => true, 'recorded' => false, 'clocked_in' => false,
+                             'time_flag' => $when['flag'], 'message' => $when['note']]);
+                break;
+            }
+            $entryId = clockIn($userId, $lat, $lng, !$queued, $when['from_phone'] ? $when['at'] : null);
+            $note = trim(($when['note'] ?? '') . ($queued && ($lat === null || $lng === null) ? ' No location (offline).' : ''));
+            if ($note !== '') {
+                getDB()->prepare("UPDATE time_clock_entries SET notes = TRIM(CONCAT(COALESCE(notes, ''), ' ', ?)) WHERE id = ?")
+                       ->execute([$note, $entryId]);
+            }
 
-            echo json_encode([
+            $clockReply([
                 'success'    => true,
                 'clocked_in' => true,
                 'entry_id'   => $entryId,
-                'clock_in'   => date('Y-m-d H:i:s'),
+                'clock_in'   => $when['at'],
+                'time_flag'  => $when['flag'],
                 'message'    => 'Clocked in',
             ]);
             break;
@@ -130,23 +216,32 @@ try {
 
             $lat   = isset($input['lat'])   ? (float)$input['lat']  : null;
             $lng   = isset($input['lng'])   ? (float)$input['lng']  : null;
+            if ($lat !== null && ($lat < -90 || $lat > 90)) $lat = null;
+            if ($lng !== null && ($lng < -180 || $lng > 180)) $lng = null;
+            if ($lat === null || $lng === null) { $lat = null; $lng = null; }
             $notes = $input['notes'] ?? null;
 
-            $clockIn = strtotime($entry['clock_in']);
-            $total   = max(0, (int)round((time() - $clockIn) / 60));
+            // Delegates to the shared Team clock-out path (TimeclockFunctions::clockOut)
+            // instead of reimplementing the UPDATE. This was previously duplicated inline
+            // and skipped ensureTimesheetExists() — a mobile-only clock-out never created
+            // or updated the weekly timesheet row, so the shift could never surface for
+            // approval or payroll. Calling the shared function fixes that.
+            $when = OfflineTime::accept($input['client_time'] ?? null, date('Y-m-d H:i:s'), (string)$entry['clock_in']);
+            if ($when['reject']) {
+                if (function_exists('logActivity')) logActivity($userId, null, 'clock_out_not_recorded', $when['note']);
+                $clockReply(['success' => true, 'recorded' => false, 'clocked_in' => true,
+                             'time_flag' => $when['flag'], 'message' => $when['note']]);
+                break;
+            }
+            if ($when['note']) $notes = trim(((string)$notes) . ' ' . $when['note']);
+            $total = clockOut($userId, $lat, $lng, $notes, $when['from_phone'] ? $when['at'] : null);
 
-            $db->prepare(
-                "UPDATE time_clock_entries
-                 SET clock_out = NOW(), clock_out_lat = ?, clock_out_lng = ?,
-                     total_minutes = ?, notes = ?, status = 'completed'
-                 WHERE id = ?"
-            )->execute([$lat, $lng, $total, $notes, (int)$entry['id']]);
-
-            echo json_encode([
+            $clockReply([
                 'success'         => true,
                 'clocked_in'      => false,
                 'entry_id'        => (int)$entry['id'],
-                'clock_out'       => date('Y-m-d H:i:s'),
+                'clock_out'       => $when['at'],
+                'time_flag'       => $when['flag'],
                 'total_minutes'   => $total,
                 'message'         => 'Clocked out',
             ]);
@@ -159,5 +254,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => 'Server error: ' . ApiResponse::message($e, 'clock')]);
 }

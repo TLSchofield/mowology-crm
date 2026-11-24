@@ -186,7 +186,7 @@ var MwTeamLayer = (function() {
 
     function getMarkerColor(secondsAgo, isClocked) {
         if (!isClocked)         return '#9ca3af';   // gray — offline
-        if (secondsAgo > 300)   return '#f59e0b';   // amber — stale
+        if (secondsAgo > 300)   return '#C2551F';   // amber — stale
         return '#22c55e';                           // green — live
     }
 
@@ -209,7 +209,7 @@ var MwTeamLayer = (function() {
         var accuracy = m.accuracy_meters ? m.accuracy_meters + 'm' : 'unknown';
         var isClocked = parseInt(m.is_clocked_in, 10) === 1;
         var status = isClocked ? (secondsAgo > 300 ? 'Stale' : 'Active') : 'Offline';
-        var statusColor = isClocked ? (secondsAgo > 300 ? '#f59e0b' : '#22c55e') : '#9ca3af';
+        var statusColor = isClocked ? (secondsAgo > 300 ? '#C2551F' : '#22c55e') : '#9ca3af';
 
         return '<div style="padding:8px;min-width:180px;">' +
             '<h6 style="margin:0 0 6px 0;color:var(--mw-forest,#0D3B2E);">' + escapeHtml(m.full_name) + '</h6>' +

@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $user = getCurrentUser();
-if (!hasPermission($user, 'marketing.edit')) {
+if (!userHasPermission('marketing.edit')) {
     http_response_code(403);
     echo json_encode(['success' => false, 'error' => 'marketing.edit permission required']);
     exit;

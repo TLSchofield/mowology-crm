@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * Shim — routes to /app/Modules/Marketing/Cron/seasonal_triggers.php
  */

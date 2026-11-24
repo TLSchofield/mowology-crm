@@ -1,0 +1,254 @@
+{
+ "mowology": {
+  "name": "Mowology",
+  "brand": "#2D8659",
+  "light": {
+   "tenant": "#1A5A39",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#2D8659",
+   "tenant-soft": "#D4F9E2"
+  },
+  "dark": {
+   "tenant": "#72C897",
+   "on-tenant": "#0F1512",
+   "tenant-mark": "#2D8659",
+   "tenant-soft": "#0D2E1D"
+  },
+  "field": {
+   "tenant": "#1A5A39",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#2D8659",
+   "tenant-soft": "#D4F9E2"
+  },
+  "checks": [
+   {
+    "name": "light/field: white on primary",
+    "ratio": 8,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary vs page",
+    "ratio": 8,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary as text on sunk (AAA)",
+    "ratio": 7.03,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: ink on primary",
+    "ratio": 9.17,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: primary vs surface",
+    "ratio": 8.44,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: primary as text on sunk (AAA)",
+    "ratio": 7.08,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light: brand mark vs surface",
+    "ratio": 4.5,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: brand mark vs surface",
+    "ratio": 3.78,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: text on soft tint",
+    "ratio": 15.17,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: text on soft tint",
+    "ratio": 12.54,
+    "need": 7,
+    "ok": true
+   }
+  ]
+ },
+ "brightline": {
+  "name": "Brightline Electric",
+  "brand": "#F2C200",
+  "light": {
+   "tenant": "#634E01",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#B49001",
+   "tenant-soft": "#FBEEC9"
+  },
+  "dark": {
+   "tenant": "#F2C200",
+   "on-tenant": "#0F1512",
+   "tenant-mark": "#F2C200",
+   "tenant-soft": "#302504"
+  },
+  "field": {
+   "tenant": "#634E01",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#B49001",
+   "tenant-soft": "#FBEEC9"
+  },
+  "checks": [
+   {
+    "name": "light/field: white on primary",
+    "ratio": 8.01,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary vs page",
+    "ratio": 8.01,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary as text on sunk (AAA)",
+    "ratio": 7.04,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: ink on primary",
+    "ratio": 10.99,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: primary vs surface",
+    "ratio": 10.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: primary as text on sunk (AAA)",
+    "ratio": 8.48,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light: brand mark vs surface",
+    "ratio": 3.03,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: brand mark vs surface",
+    "ratio": 10.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: text on soft tint",
+    "ratio": 14.95,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: text on soft tint",
+    "ratio": 12.85,
+    "need": 7,
+    "ok": true
+   }
+  ]
+ },
+ "clearflow": {
+  "name": "Clearflow Plumbing",
+  "brand": "#7EC8E3",
+  "light": {
+   "tenant": "#03586F",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#539DB7",
+   "tenant-soft": "#D9F4FE"
+  },
+  "dark": {
+   "tenant": "#7EC8E3",
+   "on-tenant": "#0F1512",
+   "tenant-mark": "#7EC8E3",
+   "tenant-soft": "#002B38"
+  },
+  "field": {
+   "tenant": "#03586F",
+   "on-tenant": "#FFFFFF",
+   "tenant-mark": "#539DB7",
+   "tenant-soft": "#D9F4FE"
+  },
+  "checks": [
+   {
+    "name": "light/field: white on primary",
+    "ratio": 7.99,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary vs page",
+    "ratio": 7.99,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light/field: primary as text on sunk (AAA)",
+    "ratio": 7.02,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: ink on primary",
+    "ratio": 9.91,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: primary vs surface",
+    "ratio": 9.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: primary as text on sunk (AAA)",
+    "ratio": 7.64,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "light: brand mark vs surface",
+    "ratio": 3.05,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "dark: brand mark vs surface",
+    "ratio": 9.12,
+    "need": 3,
+    "ok": true
+   },
+   {
+    "name": "light: text on soft tint",
+    "ratio": 15.07,
+    "need": 7,
+    "ok": true
+   },
+   {
+    "name": "dark: text on soft tint",
+    "ratio": 12.75,
+    "need": 7,
+    "ok": true
+   }
+  ]
+ }
+}

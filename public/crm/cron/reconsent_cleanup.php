@@ -15,6 +15,7 @@
  */
 
 declare(strict_types=1);
+require_once __DIR__ . '/_guard.php'; // admin + POST + CSRF on the web; CLI untouched (Fable 2026-10-12)
 
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -33,6 +34,13 @@ if (!$isCli) {
     requireLogin();
     requirePermission('admin');
     header('Content-Type: application/json; charset=utf-8');
+    // A GET (a link, an <img>) must never run the job — the Run-now button POSTs
+    // (Fable review 2026-10-12; same rule as estimating_feedback.php).
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'POST required']);
+        exit;
+    }
     session_write_close();
 }
 

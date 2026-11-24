@@ -275,6 +275,7 @@ $serviceLabels = [
 
 $pageTitle = 'Job Plans';
 $activePage = 'jobs';
+$bodyClass  = 'it-list'; // Ittai list skin (css/ittai-lists.css) — applies only when the new design is on
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -696,7 +697,7 @@ $activePage = 'jobs';
 
                   fetch('api-jobs.php?action=bulk-delete-plans', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                       body: JSON.stringify({ ids: Array.from(mwPlansBulkSelected) })
                   })
                   .then(function(r) { return r.json(); })

@@ -89,6 +89,13 @@
             try { req = indexedDB.open(dbName); }
             catch (e) { return resolve(0); }
 
+            // Counting must never CREATE a database: a versionless open of a name that does not
+            // exist makes it at v1 with no stores, and the real owner (offline-queue.js,
+            // photo-queue.js, offline-receipts.js) then opens v1 without an upgrade and every
+            // transaction throws "One of the specified object stores was not found".
+            req.onupgradeneeded = function (e) {
+                try { e.target.transaction.abort(); } catch (_) {}
+            };
             req.onerror = function () { resolve(0); };
             req.onsuccess = function (e) {
                 var db = e.target.result;

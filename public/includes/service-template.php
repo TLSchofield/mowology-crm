@@ -64,7 +64,7 @@
  *   'cta' => [
  *     'headline'      => 'Ready for a Quote?',
  *     'subheadline'   => 'Free, no-obligation...',
- *     'primary_text'  => 'Request Free Quote',
+ *     'primary_text'  => 'Get My Free Quote',
  *     'primary_url'   => '/quote?service=hedge_trimming',
  *     'secondary_text' => 'Call 778-846-9273',
  *     'secondary_url' => 'tel:7788469273',
@@ -122,6 +122,7 @@ if ($schemaData) {
             'telephone' => SITE_PHONE_DISPLAY,
             'email'     => SITE_EMAIL,
             'url'       => SITE_URL,
+            'foundingDate' => defined('SITE_FOUNDED') ? (string)SITE_FOUNDED : '2012',
         ],
         'areaServed' => array_map(function ($area) {
             return ['@type' => 'City', 'name' => $area];
@@ -130,11 +131,45 @@ if ($schemaData) {
     $extraHead = '<script type="application/ld+json">' . json_encode($jsonLd, JSON_UNESCAPED_SLASHES) . '</script>';
 }
 
+// FAQPage schema for AI search citation and rich results
+if (!empty($service['faq'])) {
+    $faqSchema = [
+        '@context'   => 'https://schema.org',
+        '@type'      => 'FAQPage',
+        'mainEntity' => array_map(function ($faq) {
+            return [
+                '@type' => 'Question',
+                'name'  => $faq['q'],
+                'acceptedAnswer' => ['@type' => 'Answer', 'text' => $faq['a']],
+            ];
+        }, $service['faq']),
+    ];
+    $extraHead = ($extraHead ?? '') . '<script type="application/ld+json">' . json_encode($faqSchema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+}
+
+// The service-page stylesheet is linked directly: the live master.css is a flattened bundle
+// that does not pick up additions to pages/service-landing.css.
+$extraHead = ($extraHead ?? '') . '<link rel="stylesheet" href="/assets/css/pages/service-landing.css?v=20260923">';
 require __DIR__ . '/head.php';
 require __DIR__ . '/header.php';
 
 $hero = $service['hero'] ?? [];
 $ctaBlock = $service['cta'] ?? [];
+
+// CRM service package for this page (web_slug = page slug). Null until migration 1458 is run and
+// Tim switches the package on in the CRM; then the price and points come from the CRM, not this file.
+$webPkg = null;
+if (function_exists('getDB') && defined('APP_ROOT')) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/WebServiceCatalog.php';
+    try {
+        $webPkg = WebServiceCatalog::findByWebSlug(getDB(), (string)($service['slug'] ?? ''));
+    } catch (Throwable $e) {
+        $webPkg = null;
+    }
+}
+$webPrice  = $webPkg ? WebServiceCatalog::priceLabel($webPkg) : '';
+$webPoints = $webPkg['web_bullets'] ?? [];
+$subText   = $webPkg['web_headline'] ?? ($hero['subheadline'] ?? '');
 ?>
 
   <!-- Service Hero — Above the Fold -->
@@ -143,8 +178,18 @@ $ctaBlock = $service['cta'] ?? [];
       <div class="slh-grid">
         <div class="slh-content">
           <h1><?= allowFormatting($hero['headline'] ?? $service['title']) ?></h1>
-          <?php if (!empty($hero['subheadline'])): ?>
-            <p class="slh-sub"><?= h($hero['subheadline']) ?></p>
+          <?php if ($subText !== ''): ?>
+            <p class="slh-sub"><?= h($subText) ?></p>
+          <?php endif; ?>
+          <?php if ($webPrice !== ''): ?>
+            <p class="slh-price"><?= h($webPrice) ?></p>
+          <?php endif; ?>
+          <?php if (!empty($webPoints)): ?>
+            <ul class="slh-points">
+              <?php foreach ($webPoints as $point): ?>
+                <li><?= h($point) ?></li>
+              <?php endforeach; ?>
+            </ul>
           <?php endif; ?>
           <?php if (!empty($hero['cta_text'])): ?>
             <a href="<?= h($hero['cta_url'] ?? '/quote') ?>" class="btn btn-primary-large"><?= h($hero['cta_text']) ?></a>
@@ -210,6 +255,22 @@ $ctaBlock = $service['cta'] ?? [];
       </div>
     </section>
 
+    <?php elseif ($section['type'] === 'gallery'): ?>
+    <section class="slp-section<?= $altBg ?>">
+      <div class="container">
+        <h2 class="slp-heading"><?= h($section['heading'] ?? 'On the Job') ?></h2>
+        <?php if (!empty($section['intro'])): ?><p class="slp-intro"><?= h($section['intro']) ?></p><?php endif; ?>
+        <div class="slp-gallery-grid">
+          <?php foreach (($section['items'] ?? []) as $g): ?>
+            <figure class="slp-gallery-item">
+              <img src="<?= h($g['src']) ?>"<?= !empty($g['srcset']) ? ' srcset="' . h($g['srcset']) . '" sizes="(max-width: 700px) 100vw, 50vw"' : '' ?> alt="<?= h($g['alt'] ?? '') ?>" loading="lazy" decoding="async" width="800" height="600">
+              <?php if (!empty($g['caption'])): ?><figcaption><?= h($g['caption']) ?></figcaption><?php endif; ?>
+            </figure>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </section>
+
     <?php elseif ($section['type'] === 'before_after'): ?>
     <section class="slp-section<?= $altBg ?>">
       <div class="container">
@@ -253,6 +314,35 @@ $ctaBlock = $service['cta'] ?? [];
     </div>
   </section>
   <?php endif; ?>
+
+  <!-- Related services — every landing page links to its siblings and the hub.
+       These pages are the site's ranking targets; before this block they had no
+       internal links at all. Reads the sibling data files (small arrays). -->
+  <?php
+  require_once __DIR__ . '/service-links.php';
+  $__relatedServices = mw_serviceLinks($service['slug'] ?? null);
+  ?>
+  <?php if ($__relatedServices): ?>
+  <section class="slp-section slp-alt slp-related">
+    <div class="container">
+      <h2 class="slp-heading">Related Services in Vancouver, Burnaby &amp; Richmond</h2>
+      <div class="slp-benefits-grid">
+        <?php foreach ($__relatedServices as $__slug => $__rel): ?>
+          <div class="slp-benefit">
+            <strong><a href="<?= h($__rel['url']) ?>"><?= h($__rel['title']) ?></a></strong>
+            <?php if ($__rel['desc'] !== ''): ?>
+              <p><?= h($__rel['desc']) ?></p>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+        <div class="slp-benefit">
+          <strong><a href="/services">All Landscaping Services</a></strong>
+          <p>Weekly maintenance, seasonal cleanups, garden care and more for strata, commercial and residential properties.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  <?php endif; unset($__relatedServices, $__slug, $__rel); ?>
 
   <!-- Bottom CTA -->
   <?php if (!empty($ctaBlock)): ?>

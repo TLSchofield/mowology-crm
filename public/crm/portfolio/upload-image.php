@@ -12,6 +12,7 @@ $user = getCurrentUser();
 
 // Load media processor
 require_once dirname(__DIR__) . '/includes/media-processor.php';
+require_once APP_ROOT . '/Core/Uploads.php';
 
 // JSON response helper
 function json_response($success, $message = '', $data = []) {
@@ -21,6 +22,20 @@ function json_response($success, $message = '', $data = []) {
         $data
     ));
     exit;
+}
+
+// Changing the portfolio is a manager's call: portfolio.edit + POST + CSRF (Fable review 2026-10-12).
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    json_response(false, 'Method not allowed');
+}
+if (!userHasPermission('portfolio.edit')) {
+    http_response_code(403);
+    json_response(false, 'You do not have permission to change the portfolio');
+}
+if (!verifyCSRFToken((string)($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')))) {
+    http_response_code(403);
+    json_response(false, 'Invalid CSRF token');
 }
 
 // Verify required fields
@@ -44,18 +59,20 @@ if ($file['size'] > $maxSize) {
 }
 
 // Upload to centralized media directory
-$uploadDir = __DIR__ . '/../../uploads/cms/';
+$uploadDir = uploadsDir('cms') . '/';
 if (!is_dir($uploadDir)) {
     if (!mkdir($uploadDir, 0755, true)) {
         json_response(false, 'Failed to create upload directory');
     }
 }
 
-// Generate unique filename
-$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+// Generate unique filename — derive the extension from the validated MIME type,
+// never from the client-supplied filename (prevents extension-spoofing / polyglot uploads).
+$extByMime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+$ext = $extByMime[$mimeType];
 $storedName = 'portfolio-' . uniqid() . '.' . $ext;
 $filePath = $uploadDir . $storedName;
-$webPath = '/uploads/cms/' . $storedName;
+$webPath = uploadsUrl('cms') . '/' . $storedName;
 
 // Move uploaded file
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
@@ -113,7 +130,7 @@ if ($mediaId && function_exists('mp_processUploadedImage')) {
             foreach ($processingResult['variants'] as $variantKey => $variant) {
                 $variantFormat = (strpos($variantKey, 'webp') !== false) ? 'webp' : 'jpeg';
                 $variantType = str_replace('_webp', '', $variantKey);
-                $variantWebPath = '/uploads/cms/' . basename($variant['path']);
+                $variantWebPath = uploadsUrl('cms') . '/' . basename($variant['path']);
 
                 try {
                     $vstmt = $db->prepare('
