@@ -29,17 +29,16 @@ class ContactInvoiceService
     {
         $ids = $this->col('SELECT id FROM properties WHERE site_contact_id = ?', [$contactId]);
         $ids = array_merge($ids, $this->col('SELECT id FROM properties WHERE quote_contact_id = ?', [$contactId]));
-        $ids = array_merge($ids, $this->col('SELECT property_id FROM property_contacts WHERE contact_id = ? AND ended_on IS NULL', [$contactId]));
+        $ids = array_merge($ids, $this->col('SELECT property_id FROM property_contacts WHERE contact_id = ? AND (ended_on IS NULL OR ended_on >= CURDATE())', [$contactId]));
         $ids = array_merge($ids, $this->col(
             'SELECT p.id FROM properties p JOIN clients c ON c.id = p.client_id WHERE c.legacy_contact_id = ?', [$contactId]));
         return self::uniq($ids);
     }
 
-    /** The contact's own clients row (individual account), or 0. */
-    public function ownClientId(int $contactId): int
+    /** The contact's own clients rows (individual accounts; there can be several). */
+    public function ownClientIds(int $contactId): array
     {
-        $v = $this->col('SELECT id FROM clients WHERE legacy_contact_id = ? ORDER BY id LIMIT 1', [$contactId]);
-        return (int)($v[0] ?? 0);
+        return self::uniq($this->col('SELECT id FROM clients WHERE legacy_contact_id = ?', [$contactId]));
     }
 
     /**
@@ -48,13 +47,13 @@ class ContactInvoiceService
      */
     public function invoices(int $contactId, array $planIds = []): array
     {
-        $own = $this->ownClientId($contactId);
+        $own = $this->ownClientIds($contactId);
         $props = $this->propertyIds($contactId);
         $plans = self::uniq($planIds);
 
         $w = ['i.contact_id = ?'];
         $p = [$contactId];
-        if ($own > 0) { $w[] = 'i.client_id = ?'; $p[] = $own; }
+        if ($own) { $w[] = 'i.client_id IN (' . self::in($own) . ')'; }
         if ($props) { $w[] = 'i.property_id IN (' . self::in($props) . ')'; }
         if ($plans) { $w[] = 'i.plan_id IN (' . self::in($plans) . ')'; }
 
@@ -77,14 +76,14 @@ class ContactInvoiceService
     }
 
     /** Pure: add billed_to / billed_to_other. A company beats the client row; no account → unlabelled. */
-    public static function label(array $rows, int $ownClientId): array
+    public static function label(array $rows, array $ownClientIds): array
     {
         foreach ($rows as &$r) {
             $name = trim((string)($r['company_name'] ?? '')) ?: trim((string)($r['client_name'] ?? ''));
             $cid = (int)($r['client_id'] ?? 0);
             $r['billed_to'] = $name;
             $r['billed_to_other'] = $name !== '' && (
-                ((int)($r['company_id'] ?? 0) > 0) || ($cid > 0 && $ownClientId > 0 && $cid !== $ownClientId));
+                ((int)($r['company_id'] ?? 0) > 0) || ($cid > 0 && $ownClientIds && !in_array($cid, $ownClientIds, true)));
         }
         unset($r);
         return $rows;
@@ -95,6 +94,7 @@ class ContactInvoiceService
     {
         $invoiced = $paid = $out = 0.0;
         foreach ($rows as $r) {
+            if (in_array($r['status'] ?? '', ['cancelled', 'void'], true)) continue;   // not charges
             $invoiced += (float)($r['total'] ?? 0);
             $paid += (float)($r['amount_paid'] ?? 0);
             if (in_array($r['status'] ?? '', self::OPEN_STATUSES, true) && (float)($r['balance_due'] ?? 0) > 0.005) {

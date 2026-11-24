@@ -314,7 +314,7 @@ foreach ($invoices as $inv) {
         $actionItems[] = [
             'type'   => 'invoice',
             'label'  => $isPastDue ? 'Invoice overdue — payment needed' : 'Invoice awaiting payment',
-            'sub'    => htmlspecialchars($inv['invoice_number']) . ($inv['total_amount'] > 0 ? ' · $' . number_format($inv['total_amount'], 2) : ''),
+            'sub'    => htmlspecialchars($inv['invoice_number']) . (floatval($inv['balance_due'] ?? 0) > 0.005 ? ' · $' . number_format((float)$inv['balance_due'], 2) . ' due' : ($inv['total_amount'] > 0 ? ' · $' . number_format($inv['total_amount'], 2) : '')),
             'href'   => $baseUrl . '/customer/invoice.php?token=' . urlencode($inv['access_token']),
             'urgent' => $isPastDue,
         ];
