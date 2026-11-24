@@ -11,6 +11,65 @@ require_once dirname(__DIR__) . '/Core/paths.php';
 require_once __DIR__ . '/MeasurementService.php';
 
 /**
+ * Pure pricing maths shared by the rule functions below.
+ *
+ * JS/PHP PARITY: QuoteCalculator::yardsFromArea() is mirrored, line for line, by
+ * mwYardsFromArea() in public/crm/quotes/create.php and public/crm/quote-workflow.php.
+ * Change all three together; tests/Unit/Quotes/QuoteCalculatorYardsTest.php holds the
+ * worked examples all three must give.
+ */
+if (!class_exists('QuoteCalculator', false)) {
+final class QuoteCalculator
+{
+    public const DEFAULT_DEPTH_INCHES = 3.0;
+    public const DEFAULT_MIN_YARDS    = 2;
+
+    /** Square feet one cubic yard (27 cu ft) covers at $depthIn inches deep: 108 at 3 in. */
+    public static function sqftPerYard(float $depthIn): float
+    {
+        if ($depthIn <= 0) $depthIn = self::DEFAULT_DEPTH_INCHES;
+        return 27.0 / ($depthIn / 12.0);
+    }
+
+    /**
+     * Whole cubic yards to cover $sqft at $depthIn inches, never fewer than $minYards.
+     * yards = max(min, ceil(sqft / (27 / (depth / 12)))) = max(min, ceil(sqft * depth / 324)).
+     * Integer maths in hundredths (of a sq ft and of an inch), so 216 sq ft at 3 in is exactly
+     * 2 yards — never 3 from a float that lands at 2.0000000001.
+     */
+    public static function yardsFromArea(float $sqft, float $depthIn, int $minYards): int
+    {
+        if ($depthIn <= 0) $depthIn = self::DEFAULT_DEPTH_INCHES;
+        $minYards = max(0, $minYards);
+        $area  = (int)round(max(0.0, $sqft) * 100);   // hundredths of a sq ft
+        $depth = (int)round($depthIn * 100);          // hundredths of an inch
+        $num   = $area * $depth;                      // sq ft x in, x 10,000
+        $den   = 324 * 10000;                         // 1 cu yd = 324 sq ft x in
+        $yards = intdiv($num + $den - 1, $den);       // integer ceil
+        return max($minYards, $yards);
+    }
+
+    /** "4 yd · 432 sq ft at 3 in" — a per-yard line's area description. */
+    public static function yardsDescription(int $yards, float $sqft, float $depthIn): string
+    {
+        $depth = rtrim(rtrim(number_format($depthIn, 2, '.', ''), '0'), '.');
+        return $yards . ' yd · ' . number_format($sqft) . ' sq ft at ' . $depth . ' in';
+    }
+
+    /** Depth and minimum for a per_yard_area rule; NULL/blank columns fall back to 3 in / 2 yd. */
+    public static function yardRuleParams(array $rule): array
+    {
+        $depth = (float)($rule['depth_inches'] ?? 0);
+        $min   = $rule['min_units'] ?? null;
+        return [
+            'depth_inches' => $depth > 0 ? $depth : self::DEFAULT_DEPTH_INCHES,
+            'min_units'    => ($min === null || $min === '') ? self::DEFAULT_MIN_YARDS : max(0, (int)$min),
+        ];
+    }
+}
+}
+
+/**
  * Calculate a single quote line item from a pricing rule + measurement total.
  *
  * @param array $rule  Row from product_pricing_rules JOIN measurement_groups:
@@ -33,6 +92,9 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
 
     $lineTotal    = 0;
     $minApplied   = false;
+    $yards        = null;   // per_yard_area only
+    $depthIn      = null;
+    $minYards     = null;
 
     switch ($model) {
         case 'flat':
@@ -66,10 +128,20 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
             $lineTotal   = $minPrice + ($excessUnits * $perUnit);
             $minApplied  = true;
             break;
+
+        case 'per_yard_area':
+            // Sold only in whole yards; price_per_unit is the price per yard.
+            $p          = QuoteCalculator::yardRuleParams($rule);
+            $depthIn    = $p['depth_inches'];
+            $minYards   = $p['min_units'];
+            $yards      = QuoteCalculator::yardsFromArea($totalUnits, $depthIn, $minYards);
+            $lineTotal  = $yards * $perUnit;
+            $minApplied = QuoteCalculator::yardsFromArea($totalUnits, $depthIn, 0) < $minYards;
+            break;
     }
 
-    // Round to 2 decimals — line item always shows qty=1 at the calculated price.
-    // Actual per-unit rate and total units are preserved in snapshot columns.
+    // Round to 2 decimals — line item shows qty=1 at the calculated price, except per_yard_area,
+    // which shows the yards at the yard price. Rate and total units are kept in snapshot columns.
     $lineTotal = round($lineTotal, 2);
 
     // Build area description for snapshot only (not shown as line item description)
@@ -77,9 +149,14 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
         ? implode(', ', $measurementNames) . ' (' . number_format($totalUnits) . ' ' . $unitLabel . ')'
         : number_format($totalUnits) . ' ' . $unitLabel;
     $description = $product['description'] ?? '';
+    if ($yards !== null) {
+        // Per-yard lines say how the yards were reached: "4 yd · 432 sq ft at 3 in".
+        $areaDesc    = QuoteCalculator::yardsDescription($yards, $totalUnits, $depthIn);
+        $description = trim((string)$description) !== '' ? trim((string)$description) . ' — ' . $areaDesc : $areaDesc;
+    }
 
     // Build pricing snapshot (immutable record of how price was calculated)
-    $snapshot = json_encode([
+    $snap = [
         'rule_id'         => $rule['id'],
         'product_id'      => $product['id'],
         'product_name'    => $product['name'],
@@ -95,16 +172,23 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
         'frequency'       => $rule['default_frequency'] ?? 'one_off',
         'area_description'=> $areaDesc,
         'calculated_at'   => date('Y-m-d H:i:s'),
-    ]);
+    ];
+    if ($yards !== null) {
+        $snap['yards']         = $yards;
+        $snap['depth_inches']  = $depthIn;
+        $snap['min_units']     = $minYards;
+        $snap['sqft_per_yard'] = round(QuoteCalculator::sqftPerYard($depthIn), 2);
+    }
+    $snapshot = json_encode($snap);
 
     return [
         'product_id'            => (int)$product['id'],
         'pricing_rule_id'       => (int)$rule['id'],
         'service_type'          => $product['name'],
         'description'           => $description,
-        'quantity'              => 1,
-        'unit_type'             => 'each',
-        'unit_price'            => $lineTotal,
+        'quantity'              => $yards !== null ? $yards : 1,
+        'unit_type'             => $yards !== null ? 'yd' : 'each',
+        'unit_price'            => $yards !== null ? round($perUnit, 2) : $lineTotal,
         'line_total'            => $lineTotal,
         'measurement_group_key' => $groupKey,
         'units_used'            => $totalUnits,
