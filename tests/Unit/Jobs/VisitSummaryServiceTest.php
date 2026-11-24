@@ -60,4 +60,11 @@ final class VisitSummaryServiceTest extends TestCase
         $this->assertSame('Pressure washing', VisitSummaryService::serviceLabel('pressure_washing'));
         $this->assertSame('Visit', VisitSummaryService::serviceLabel(''));
     }
+
+    public function testWeekdaysComeFromTheListOrTheVisitDate(): void
+    {
+        $this->assertSame([1, 3, 5], VisitSummaryService::weekdays('weekly', '5,1,3,9', null));
+        $this->assertSame([1], VisitSummaryService::weekdays('weekly', '', '2026-11-23'));   // a Monday
+        $this->assertSame([], VisitSummaryService::weekdays('weekly', null, null));
+    }
 }
