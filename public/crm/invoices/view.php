@@ -395,7 +395,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // management company (e.g. BCS4428@opml.ca) rather than the on-site rep.
         $hasEmail = false;
         foreach ($recipients as $r) { if (!empty($r['email_address'])) { $hasEmail = true; break; } }
-        if (!$hasEmail && !empty($invoice['property_id'])) {
+        if (!$hasEmail && empty($recipients) && !empty($invoice['property_id'])) {
             // A PM-managed building bills the management firm's accounts, not the on-site contact —
             // the same rule as the recipient API, so a first send with no snapshot never reaches the
             // on-site manager (Dorset, 2026-11-23). Persisted like the fallback below.
