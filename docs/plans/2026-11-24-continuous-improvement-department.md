@@ -10,8 +10,22 @@ Guardian, Forge and Mercury. Same Claude Code install and subscription; no API k
 - Schedule: **once a day** (not every 30 min): one overnight cycle, dependency-driven inside it, one briefing at 07:00.
 - Mac wakes for it (Tim runs one `sudo pmset repeat` line; a LaunchAgent only runs while he is logged in).
 
+## Also decided
+- Mercury's place: Ada's call (4th, after Artisan). Mercury reads the existing Search Console data (snapshot only).
+
 ## Still open
-Mercury's place in the order and Search Console snapshot use; first CLI sign-in (`claude auth login`).
+First CLI sign-in (`claude auth login`).
+
+## Roster recommendation (2026-11-24, after Empath and Atlas were specified)
+Nine agents plus Ada is too many to build and run on one subscription, and Ada's own rule is to add an agent only for a
+demonstrated gap. Recommend: build Ada, Sentinel, Guardian, Artisan, Forge as agents; run **Mercury, Empath, Atlas** first as
+*lenses* (a skill + memory + a weekly task each in Ada's queue) and promote one to its own agent only when its output proves a gap.
+Reasons: Atlas's evaluation lab and knowledge records are mostly code that belongs in Ada's core; Empath has almost no customer data
+to work from (Mowology + one rehearsal business, no analytics); Mercury's first value is deterministic SEO checks plus Search Console.
+**Oracle** is named in Empath's and Atlas's specs but has no spec yet.
+
+## Progress
+- Ada core built and installed 2026-11-24 (`scripts/dept/`, 23 tests). First real cycle ran; Sentinel blocked at the sign-in step, named in the briefing.
 
 ## Build order
 1. Ada core: SQLite queue + validated state machine, permission register, lock, pause/resume/stop-all, briefing, `ada` CLI. Sentinel is worker one.
