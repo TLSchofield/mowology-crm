@@ -1844,6 +1844,19 @@ try {
     $standaloneContacts = [];
 }
 
+// Property names / billing entities per client row, so the search box finds
+// "laburnum" or "VR738" (ClientPropertySearchIndex follows every property link).
+$propertySearchIndex = ['company' => [], 'contact' => []];
+try {
+    require_once APP_ROOT . '/Modules/Clients/Services/ClientPropertySearchIndex.php';
+    $propertySearchIndex = (new ClientPropertySearchIndex($db))->build();
+} catch (Throwable $e) {
+    error_log('clients search property index: ' . $e->getMessage());
+}
+$mwPropAttr = function (string $kind, int $id) use ($propertySearchIndex): string {
+    return h(strtolower(implode('|', $propertySearchIndex[$kind][$id] ?? [])));
+};
+
 // Detect duplicate contacts
 $duplicateMap = [];
 try {
@@ -6030,7 +6043,7 @@ $unconvertedRequests = $db->query("
                     <?php endforeach; ?>
 
                     <?php foreach ($stagesData[$stage['stage_key']]['contacts'] ?? [] as $contact): ?>
-                      <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" style="border-left: 3px solid var(--mw-orange);">
+                      <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" data-props="<?php echo $mwPropAttr('contact', (int)$contact['id']); ?>" style="border-left: 3px solid var(--mw-orange);">
                         <a href="?action=view_contact&id=<?php echo (int)$contact['id']; ?>" class="mw-card-link">
                           <div class="mw-card-header">
                             <strong><?php echo h(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))); ?></strong>
@@ -6113,7 +6126,7 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($clients as $c): ?>
-                          <tr class="mw-client-row<?php echo $c['source_type'] === 'prospect' ? ' mw-row-prospect' : ''; ?>" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>">
+                          <tr class="mw-client-row<?php echo $c['source_type'] === 'prospect' ? ' mw-row-prospect' : ''; ?>" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-props="<?php echo $mwPropAttr('company', (int)$c['id']); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>">
                             <td class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
@@ -6125,6 +6138,7 @@ $unconvertedRequests = $db->query("
                                 <?php elseif ($c['source_type'] === 'prospect'): ?>
                                   <span class="mw-cell-secondary">Prospect</span>
                                 <?php endif; ?>
+                                <span class="mw-cell-secondary mw-prop-match d-none"></span>
                               </a>
                             </td>
                             <td>
@@ -6190,10 +6204,11 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($standaloneContacts as $ct): ?>
-                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>" data-href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>">
+                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>" data-props="<?php echo $mwPropAttr('contact', (int)$ct['id']); ?>" data-href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>">
                             <td>
                               <a href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
+                                <span class="mw-cell-secondary mw-prop-match d-none"></span>
                               </a>
                               <?php if (!empty($ct['stripe_card_last4'])): ?>
                                 <span class="mw-card-on-file-badge" title="Card on file: <?php echo h(ucfirst($ct['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo h($ct['stripe_card_last4']); ?>">
@@ -6736,8 +6751,20 @@ $unconvertedRequests = $db->query("
                 var visible = 0;
                 rows.forEach(function(row) {
                   var data = row.getAttribute('data-search') || '';
-                  var match = !query || data.indexOf(query) !== -1;
+                  var props = (row.getAttribute('data-props') || '').split('|').filter(Boolean);
+                  var propHit = '';
+                  if (query) {
+                    for (var i = 0; i < props.length; i++) {
+                      if (props[i].indexOf(query) !== -1) { propHit = props[i]; break; }
+                    }
+                  }
+                  var match = !query || data.indexOf(query) !== -1 || propHit !== '';
                   row.style.display = match ? '' : 'none';
+                  var note = row.querySelector('.mw-prop-match');
+                  if (note) {
+                    note.textContent = propHit ? 'Property: ' + propHit : '';
+                    note.classList.toggle('d-none', !propHit);
+                  }
                   if (match) visible++;
                 });
 
@@ -6746,7 +6773,8 @@ $unconvertedRequests = $db->query("
                 cards.forEach(function(card) {
                   var name = (card.getAttribute('data-company-name') || '').toLowerCase();
                   var text = (card.textContent || '').toLowerCase();
-                  var match = !query || name.indexOf(query) !== -1 || text.indexOf(query) !== -1;
+                  var match = !query || name.indexOf(query) !== -1 || text.indexOf(query) !== -1 ||
+                    (card.getAttribute('data-props') || '').indexOf(query) !== -1;
                   card.style.display = match ? '' : 'none';
                 });
 
