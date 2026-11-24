@@ -221,8 +221,10 @@ final class TenantProvisioner
         // 6. Owner login. Until a run has finished once (the business was not registered when this run began), a
         // retry gives the owner a fresh one-time password instead of keeping one that was never shown.
         $password = null;
-        $u = $this->db->prepare('SELECT id FROM ' . $q($dbName) . '.`users` WHERE email = ?');
-        $u->execute([$email]);
+        // Match the owner by email OR by the key's owner username: a business provisioned earlier with another email (the local test
+        // harness used to) must be found, not inserted again (that hit the unique username and stopped `local-android.sh up`, 2026-11-24).
+        $u = $this->db->prepare('SELECT id FROM ' . $q($dbName) . '.`users` WHERE email = ? OR username = ? ORDER BY (email = ?) DESC LIMIT 1');
+        $u->execute([$email, $key . '-owner', $email]);
         $ownerId = (int)$u->fetchColumn();
         if ($ownerId === 0 || !$wasRegistered) {
             $password = rtrim(strtr(base64_encode(random_bytes(12)), '+/', 'Kq'), '=');
