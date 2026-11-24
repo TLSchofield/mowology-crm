@@ -679,7 +679,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pmContactlessRecipient = null;
                 if (in_array(0, $selectedRecipients, true) && $propertyId) {
                     require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
-                    foreach (resolveManagementBillingRecipient($propertyId) as $r) {
+                    foreach (InvoiceRouting::managedFirmRecipients($propertyId) as $r) {
                         if ((int)$r['contact_id'] === 0) { $pmContactlessRecipient = $r; break; }
                     }
                 }
@@ -2010,18 +2010,11 @@ function escHtml(str) {
     const contactId  = <?php echo (int)($prefill['contact_id'] ?? 0); ?>;
     propertyIdInput.value = propertyId;
 
-    <?php /* A PM-managed building bills the management firm's accounts, so it must go through the
-             recipient API (PM precedence); the site-contact shortcut would email the on-site manager. */ ?>
-    <?php if (!empty($prefill['contact_id']) && empty($prefill['is_pm_managed'])): ?>
-    // Contact-linked visit — add contact directly as recipient
-    renderRecipientTable([{
-        contact_id:    <?php echo (int)$prefill['contact_id']; ?>,
-        contact_name:  <?php echo json_encode($prefill['contact_name'] ?? ''); ?>,
-        email_address: <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
-        receive_sms:   <?php echo !empty($prefill['contact_receive_sms']) ? 'true' : 'false'; ?>,
-    }]);
-    recipientSection.style.display = 'block';
-    <?php else: ?>
+    <?php /* Every visit invoice resolves its recipients through the one recipient API
+             (InvoiceRouting::resolveInvoiceRecipients: PM firm precedence, then the site contact).
+             The old "add the site contact directly" shortcut is gone — it is how Dorset's on-site
+             manager got the invoices (2026-11-23), and for a non-PM building the API returns that
+             same site contact. */ ?>
     fetch('/crm/invoices/api-get-recipients.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2040,7 +2033,6 @@ function escHtml(str) {
         recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">Error loading recipients.</td></tr>';
         recipientSection.style.display = 'block';
     });
-    <?php endif; ?>
 })();
 <?php endif; ?>
 
