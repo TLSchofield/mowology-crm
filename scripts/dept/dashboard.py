@@ -159,6 +159,28 @@ def _visuals(tid, res, interactive):
     return "".join(out)
 
 
+def _heads_section(ada, db):
+    """How the production heads are really doing (counts only, from the nightly one-way snapshot): what they showed and what happened to it."""
+    import heads as HD
+    day, snap = HD.latest()
+    if not snap:
+        return "<section><h2>Heads on production <span class='meta'>counts only</span></h2><p class='meta'>%s No snapshot yet. Run <code>ada heads pull</code> once; turn the nightly pull on with <code>ada heads on</code>.</p></section>" % ICON["wait"]
+    rates, gaps = HD.rates(snap), HD.gaps(snap)
+    main = {"kaname": "shown", "sam": "followups", "penny": "receipt_suggestions", "otto": "suggestions", "mia": "suggestions", "yui": "drafts", "ada": "cron_runs"}
+    cards = []
+    for h in HD.HEADS:
+        tr = HD.trend(h, main[h])
+        top = max(tr) if tr else 0
+        spark = "<span class='spark'>%s</span>" % "".join("<i style='height:%dpx'></i>" % max(2, round(26 * v / top)) for v in tr) if top else ""
+        rows = "".join("<li><span>%s</span> <b>%s</b></li>" % (E(a), E(b)) for a, b in rates[h]) or "<li class='meta'>no usable signal yet</li>"
+        gp = "".join("<li class='meta'>%s not recorded: %s</li>" % (ICON["wait"], E(g)) for g in gaps[h][:3])
+        cards.append("<div class='card'><h3><span class='name'>%s</span>%s</h3><ul class='hr'>%s%s</ul></div>" % (E(h), spark, rows, gp))
+    age = HD.age_days()
+    note = ada.get_ctl(db, "heads_note")
+    return ("<section><h2>Heads on production <span class='meta'>counts only · snapshot %s%s</span></h2>%s<div class='cards'>%s</div></section>"
+            % (E(day), "" if not age else " (%d days old)" % age, "<p class='meta'>%s %s</p>" % (ICON["P2"], E(note)) if note else "", "".join(cards)))
+
+
 def _controls(tid, actions, interactive, cmds):
     """Served mode: action buttons; pressing one opens a short pick-list of reasons (each teaches the agents something) + optional detail.
     Static mode: the terminal commands."""
@@ -223,6 +245,11 @@ def render(ada, db, interactive=False):
                                                                                        "rolled back" if res.get("rolled_back") else "live, confirmed" if ok else "live", _visuals(t["id"], res, interactive)))
     if shipped:
         S.append("<section><h2>Shipped <span class='meta'>live, with before and after</span></h2><ul class='need'>%s</ul></section>" % "".join(shipped))
+
+    try:
+        S.append(_heads_section(ada, db))
+    except Exception as e:  # noqa: BLE001  (a bad snapshot must never take the dashboard down)
+        S.append("<section><h2>Heads on production</h2><p class='meta'>unavailable: %s</p></section>" % E(str(e)[:120]))
 
     # ---- Guardian
     rows = q("SELECT * FROM findings WHERE status='open' ORDER BY severity, first_seen")
@@ -314,6 +341,7 @@ def _spark(vals):
 
 
 CSS = """
+.spark{display:inline-flex;align-items:flex-end;gap:2px;height:28px;margin-left:auto}.spark i{display:block;width:6px;background:var(--status-complete);border-radius:2px}.hr{list-style:none;padding:0;margin:0}.hr li{display:flex;justify-content:space-between;gap:8px;font-size:14px;padding:2px 0}
 .vis{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}.shots{display:flex;gap:12px;flex-wrap:wrap}.shots figure{margin:0;max-width:46%}.shots img{max-width:100%;border:1px solid var(--line);border-radius:8px}.shots figcaption{font-size:13px}
 .sw{display:inline-block;width:18px;height:18px;border:1px solid var(--line);border-radius:4px;vertical-align:middle;margin-right:2px}.cc{margin:4px 0}
 .bar{display:flex;gap:8px;align-items:center;margin:3px 0;font-size:13px}.bl{width:170px}.bt{flex:1;max-width:260px;display:flex;flex-direction:column;gap:2px}.bt i{display:block;height:6px;border-radius:3px}.bb{background:#9aa0a6}.ba.good{background:var(--status-complete)}.ba.bad{background:var(--status-blocked)}

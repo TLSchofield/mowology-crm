@@ -20,6 +20,7 @@ sys.path.insert(0, HERE)
 import commercial as C  # noqa: E402
 import agents as AG  # noqa: E402
 import oracle as ORC  # noqa: E402
+import heads as HD  # noqa: E402
 
 STATES = ["discovered", "investigating", "proposed", "awaiting_approval", "approved", "implementing", "awaiting_verification",
           "verification_failed", "verified", "awaiting_release_approval", "released", "measuring_outcomes", "completed",
@@ -537,6 +538,11 @@ def cycle(db, today=None):
     set_ctl(db, "cycle_started", now())
     seed_permissions(db)
     add_task(db, "guardian:verify:" + today, "Guardian nightly verification " + today, "audit", "guardian", payload={"audit": "nightly"})   # deterministic: needs no sign-in
+    if get_ctl(db, "heads_on"):                          # one-way, read-only, counts-only picture of the production heads; a failure is noted, never fatal
+        try:
+            HD.pull(); set_ctl(db, "heads_note", None)
+        except Exception as e:  # noqa: BLE001
+            set_ctl(db, "heads_note", "head snapshot failed: %s" % str(e)[:160])
     if AG.cli_ready():
         for t in db.execute("SELECT id FROM tasks WHERE state='blocked' AND blocked_reason LIKE '%not signed in%'").fetchall():
             unblock(db, t["id"], "ada", "the Claude CLI is signed in now")
@@ -699,6 +705,7 @@ def main(argv=None):
     p = sub.add_parser("forge-build"); p.add_argument("id", type=int)
     p = sub.add_parser("release"); p.add_argument("id", type=int)
     p = sub.add_parser("oracle"); p.add_argument("onoff", choices=["on", "off"])
+    p = sub.add_parser("heads"); p.add_argument("action", choices=["pull", "show", "on", "off"])
     p = sub.add_parser("approve-experiment"); p.add_argument("id", type=int)
     sub.add_parser("radar"); sub.add_parser("research"); sub.add_parser("oracle-briefing")
     sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
@@ -776,6 +783,16 @@ def main(argv=None):
             for line in forge.release(types.SimpleNamespace(**globals()), db, a.id, sys.stdin.isatty()):
                 print(line)
             refresh_dashboard(db)
+        elif a.cmd == "heads":
+            if a.action in ("on", "off"):
+                set_ctl(db, "heads_on", now() if a.action == "on" else None); print("nightly head snapshot", a.action)
+            elif a.action == "pull":
+                p, snap = HD.pull(); print("saved", p); refresh_dashboard(db)
+            else:
+                day, snap = HD.latest()
+                print("no snapshot yet (run: ada heads pull)" if not snap else "snapshot %s" % day)
+                for h, rows in (HD.rates(snap).items() if snap else []):
+                    print("\n%s" % h); [print("  %-58s %s" % r) for r in rows]; [print("  (not recorded) %s" % g) for g in HD.gaps(snap)[h]]
         elif a.cmd == "oracle":
             set_ctl(db, "oracle_on", now() if a.onoff == "on" else None); print("Oracle weekly research", a.onoff)
         elif a.cmd == "approve-experiment":
