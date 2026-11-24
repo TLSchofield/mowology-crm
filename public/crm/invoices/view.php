@@ -413,6 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     $newRid = (int)$db->lastInsertId();
                 } catch (Throwable $e) {
                     error_log("Invoice {$invoiceId} firm recipient insert failed: " . $e->getMessage());
+                    continue; // no durable snapshot, no send
                 }
                 $recipients[] = [
                     'id'            => $newRid ?: 0,

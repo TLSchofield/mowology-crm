@@ -127,7 +127,7 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
                     $db->prepare("INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address) VALUES (?, ?, ?, ?)")
                        ->execute([$invoiceId, !empty($fr['contact_id']) ? (int)$fr['contact_id'] : null, $fr['contact_role'] ?: 'billing_contact', $fr['email_address']]);
                     $frId = (int)$db->lastInsertId();
-                } catch (Throwable $e) { $frId = 0; }
+                } catch (Throwable $e) { error_log("bulk-resend {$invoiceId}: firm recipient insert failed: " . $e->getMessage()); continue; }   // no durable snapshot, no send
                 $recipients[] = [
                     'id'            => $frId,
                     'contact_id'    => !empty($fr['contact_id']) ? (int)$fr['contact_id'] : null,
