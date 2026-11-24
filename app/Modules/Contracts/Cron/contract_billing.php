@@ -73,6 +73,7 @@ require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
 require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractBillingCompany.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // InvoiceRouting::managedFirmRecipients()
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractInvoiceSender.php';
@@ -222,6 +223,7 @@ try {
                --   1. p.billing_company_id  — explicitly set on the property (most reliable)
                --   2. contact's company_id  — fallback via primary/billing contact join
                COALESCE(cb.id,  co.id)            AS company_id,
+               cb.id AS billing_company_id, p.property_manager_id AS pm_company_id, co.id AS contact_company_id,
                COALESCE(cb.company_name, co.company_name) AS company_name,
                COALESCE(NULLIF(cb.billing_email,''), NULLIF(co.billing_email,'')) AS company_billing_email,
                NULLIF(bc.email, '')                AS billing_contact_email,
@@ -274,6 +276,8 @@ try {
 foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothing new
     $contractId = (int)$ctr['contract_id'];
     $contactId  = (int)$ctr['contact_id'];
+    // Billing company: property billing company, else the managing firm, else the signatory's company.
+    $ctr['company_id'] = ContractBillingCompany::resolve($ctr['billing_company_id'] ?? null, $ctr['pm_company_id'] ?? null, $ctr['contact_company_id'] ?? null);
 
     try {
         // ── 3a. Idempotency: skip if already invoiced this month ──────────────
