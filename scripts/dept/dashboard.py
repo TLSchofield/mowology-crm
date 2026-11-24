@@ -72,7 +72,7 @@ def _cards(ada, db, signed):
             how = "<p class='meta'><b>Build it when:</b> %s</p>" % E(a["build_trigger"])
         elif a.get("wake"):
             how = "<p class='meta'><b>How:</b> %s</p>" % E(a["wake"])
-        out.append("<article class='card'><h3>%s <span class='pill %s'>%s %s</span></h3><p>%s</p><p class='meta'><b>Limits:</b> %s</p>%s<p class='meta'>%s · %s</p></article>" % (
+        out.append("<article class='card'><h3><span class='name'>%s</span> <span class='pill %s'>%s %s</span></h3><p>%s</p><p class='meta'><b>Limits:</b> %s</p>%s<p class='meta'>%s · %s</p></article>" % (
             E(n), cls, icon, E(word), E(a.get("does", a["role"])), E(a.get("limits", "")), how, E(LV.get(perms.get(n), "No permission level set yet")) if n in perms else E("Department: " + a["department"]), E(activity)))
     return "<div class='cards'>%s</div>" % "".join(out)
 
@@ -231,7 +231,7 @@ form.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:
 button.copy:focus-visible,button.act:focus-visible,input:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 details{border-top:1px solid var(--line);padding:10px 0}summary{cursor:pointer;min-height:44px}a{color:var(--brand)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
-.card{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--page)}.card h3{margin:0 0 8px;font-size:17px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;text-transform:capitalize}
+.card{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--page)}.card h3{margin:0 0 8px;font-size:17px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.card h3 .name{text-transform:capitalize}.card h3 .pill{font-weight:400}
 .card p{margin:6px 0}
 @media (max-width:600px){main{padding:16px 12px}section{padding:16px}}
 @media (prefers-reduced-motion:no-preference){section{transition:none}}
