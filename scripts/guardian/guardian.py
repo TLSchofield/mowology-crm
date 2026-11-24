@@ -84,6 +84,9 @@ def findings_from(metrics, rules_out="", previous=None):
             add("sitemap|" + host, "P2", "%s has no sitemap.xml" % host, ["GET /sitemap.xml -> %s" % s["sitemapStatus"]], "seo", "Publish a sitemap and reference it in robots.txt.")
         elif not s["robotsHasSitemap"]:
             add("sitemap-ref|" + host, "P3", "%s robots.txt does not point to its sitemap" % host, [], "seo", "")
+    ios = metrics.get("ios")
+    if ios and not ios["ok"]:
+        add("ios-compile|MowologyCRM", "P1", "The iPhone app does not compile (%d error(s))" % ios["errors"], [ios["first_error"] or "swiftc reported errors"], "ios", "Fix the compile error before the next TestFlight build.")
     for line in (rules_out or "").splitlines():
         if line.startswith("RULE "):
             rid = line.split()[1]
@@ -100,6 +103,22 @@ def findings_from(metrics, rules_out="", previous=None):
                 m["severity"] = f["severity"]
             m["evidence"] = (m["evidence"] + [e for e in f["evidence"] if e not in m["evidence"]])[:5]
     return sorted(merged.values(), key=lambda f: (order[f["severity"]], f["key"]))
+
+
+def ios_typecheck(root, timeout=1500):
+    """Whole-app Swift type-check against the iPhone SDK (needs no simulator runtime). -> {"ok", "files", "errors", "warnings", "first_error"} or None when there is no iOS code / no toolchain."""
+    app = os.path.join(root or "", "ios", "MowologyCRM")
+    if not root or not os.path.isdir(app):
+        return None
+    files = [os.path.join(d, f) for d, _, fs in os.walk(app) for f in fs if f.endswith(".swift")]
+    sdk = subprocess.run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], capture_output=True, text=True).stdout.strip()
+    if not files or not sdk:
+        return None
+    p = subprocess.run(["swiftc", "-typecheck", "-sdk", sdk, "-target", "arm64-apple-ios17.0-simulator"] + files, capture_output=True, text=True, timeout=timeout)
+    out = (p.stdout or "") + (p.stderr or "")
+    errs = [l for l in out.splitlines() if ": error:" in l]
+    return {"ok": p.returncode == 0, "files": len(files), "errors": len(errs), "warnings": sum(1 for l in out.splitlines() if ": warning:" in l),
+            "first_error": (errs[0].replace(root, "")[:240] if errs else "")}
 
 
 def page_summary(metrics):
@@ -130,6 +149,13 @@ def collect(run_dir, root=None):
             metrics = json.load(open(os.path.join(run_dir, "metrics.json")))
         else:
             notes.append("page audit failed: " + (p.stderr or p.stdout)[-300:])
+    if metrics is not None and root and not os.environ.get("GUARDIAN_STANDIN_METRICS"):
+        try:
+            ios = ios_typecheck(root)
+        except subprocess.TimeoutExpired:
+            ios, notes = None, notes + ["iOS type-check timed out"]
+        if ios is not None:
+            metrics["ios"] = ios
     return metrics, rules_out, notes
 
 
