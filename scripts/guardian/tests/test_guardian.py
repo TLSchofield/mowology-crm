@@ -31,6 +31,15 @@ class Findings(unittest.TestCase):
     def f(self, results, site=SITE, rules="", prev=None):
         return self.G.findings_from({"results": results, "site": site}, rules, prev)
 
+    def test_sibling_entries_missing_a_description_are_reported_with_their_titles(self):
+        gap = {"siblingGaps": [{"group": "portfolio-item", "total": 5, "missing": 2, "titles": ["Lawn Cutting", "Hedge Trimming"]}]}
+        out = self.run_findings([page("portfolio", measure=gap)]) if hasattr(self, "run_findings") else self.G.findings_from({"results": [page("portfolio", measure=gap)], "site": SITE}, "")
+        f = [x for x in out if x["key"].startswith("sibling-gap|portfolio")]
+        self.assertEqual(len(f), 1); self.assertEqual(f[0]["severity"], "P2")
+        self.assertIn("2 of 5", f[0]["title"]); self.assertIn("Lawn Cutting", f[0]["title"])
+        none = self.G.findings_from({"results": [page("portfolio", measure={"siblingGaps": []})], "site": SITE}, "")
+        self.assertFalse([x for x in none if x["key"].startswith("sibling-gap")])
+
     def test_healthy_pages_produce_no_findings(self):
         self.assertEqual(self.f([page(width=w) for w in (375, 768, 1440)]), [])
 

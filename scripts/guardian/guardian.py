@@ -54,6 +54,10 @@ def findings_from(metrics, rules_out="", previous=None):
                 add("failed-requests|" + name, "P2", "%s has failing requests" % name, r["failedRequests"][:3], "web", "Fix or remove the broken resources.")
             if r.get("brokenLinks"):
                 add("broken-links|" + name, "P2", "%s links to broken pages" % name, r["brokenLinks"][:4], "web", "Fix or remove the links.")
+        for sg in m375.get("siblingGaps") or []:
+            add("sibling-gap|%s|%s" % (name, sg["group"]), "P2", "%s: %d of %d '%s' entries have no description (%s)" % (name, sg["missing"], sg["total"], sg["group"], ", ".join(sg["titles"][:3])),
+                ["the other %d entries have a description paragraph; these do not: %s" % (sg["total"] - sg["missing"], ", ".join(sg["titles"]))], "content",
+                "Fill in the missing description in the CRM record (the page only prints a description when the record has one).")
         if m375["smallTargets"]:
             add("tap-targets|" + name, "P3", "%s has %d tap targets under 44 px on a phone" % (name, m375["smallTargets"]), ["%(what)s %(w)dx%(h)d" % s for s in m375["smallTargetSamples"][:4]], "ux", "House rule: 44 pt minimum (48 on phones).")
         if m375["tinyText"]:

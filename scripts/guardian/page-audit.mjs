@@ -42,6 +42,28 @@ function measure() {
   const unlabeled = [...document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea')].filter((e) => vis(e) && !e.labels?.length && !e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby') && !e.getAttribute('title')).map((e) => e.name || e.id || e.type);
   const imgsNoAlt = [...document.images].filter((i) => vis(i) && !i.hasAttribute('alt')).map((i) => (i.currentSrc || i.src).slice(-60));
   const emptyLinks = [...document.querySelectorAll('a[href]')].filter((a) => vis(a) && !a.textContent.trim() && !a.getAttribute('aria-label') && !a.querySelector('img[alt]:not([alt=""])')).length;
+  // Repeated cards (portfolio, services, team): when most have a descriptive paragraph and a few do not, those few are probably missing content.
+  const siblingGaps = [];
+  try {
+    const seen = new Set();
+    for (const parent of document.querySelectorAll('main *, section *, body > div *')) {
+      if (seen.size > 40) break;
+      const kids = [...parent.children].filter((c) => c.className && typeof c.className === 'string' && vis(c));
+      const byClass = {};
+      for (const k of kids) { const cls = k.className.trim().split(/\s+/)[0]; (byClass[cls] = byClass[cls] || []).push(k); }
+      for (const [cls, list] of Object.entries(byClass)) {
+        if (list.length < 3 || seen.has(cls)) continue;
+        const cards = list.filter((c) => c.querySelector('h2, h3, h4') && c.textContent.trim().length > 15);
+        if (cards.length < 3) continue;
+        const has = (c) => [...c.querySelectorAll('p')].some((p) => p.textContent.trim().length >= 40);
+        const missing = cards.filter((c) => !has(c));
+        seen.add(cls);
+        if (missing.length && missing.length / cards.length <= 0.5) {
+          siblingGaps.push({ group: cls, total: cards.length, missing: missing.length, titles: missing.slice(0, 4).map((c) => c.querySelector('h2, h3, h4').textContent.trim().replace(/\s+/g, ' ').slice(0, 50)) });
+        }
+      }
+    }
+  } catch (e) { /* a page we cannot read this way just reports no gaps */ }
   const nav = performance.getEntriesByType('navigation')[0];
   const bytes = performance.getEntriesByType('resource').reduce((s, r) => s + (r.transferSize || 0), 0) + (nav?.transferSize || 0);
   const meta = (n) => document.querySelector(`meta[name="${n}"]`)?.content || '';
@@ -53,7 +75,7 @@ function measure() {
     overflowX: document.documentElement.scrollWidth > window.innerWidth + 1, scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth,
     smallTargets: small.length, smallTargetSamples: small.slice(0, 6), tinyText: tiny.length, tinyTextSamples: tiny.slice(0, 4),
     unlabeledInputs: unlabeled.length, imagesNoAlt: imgsNoAlt.length, imagesNoAltSamples: imgsNoAlt.slice(0, 3), emptyLinks,
-    transferKB: Math.round(bytes / 1024), domNodes: document.getElementsByTagName('*').length,
+    siblingGaps, transferKB: Math.round(bytes / 1024), domNodes: document.getElementsByTagName('*').length,
     ttfbMs: nav ? Math.round(nav.responseStart) : null, domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : null, loadMs: nav ? Math.round(nav.loadEventEnd) : null,
   };
 }
