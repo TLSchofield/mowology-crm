@@ -286,6 +286,15 @@ final class APIClient: ObservableObject {
             throw APIError.decodingError(error) }
     }
 
+    // MARK: - Product from a label photo
+
+    /// "Add it" on a product label photo: creates the product (or adds the photo to the one it matched).
+    func acceptLabelProduct(proposalId: Int, name: String, unitCost: Double?) async throws -> LabelAcceptResponse {
+        var body: [String: Any] = ["proposal_id": proposalId, "name": name]
+        if let unitCost { body["unit_cost"] = unitCost }
+        return try await request(.labelAccept, body: body)
+    }
+
     // MARK: - Equipment plate (Otto → Add equipment)
 
     /// Uploads a photo of a machine's model/serial plate (+ optionally the machine) to
