@@ -94,6 +94,9 @@ def connect():
       id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, agent TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT,
       status TEXT NOT NULL, exit_code INTEGER, seconds REAL, cost_usd REAL, note TEXT);
     CREATE TABLE IF NOT EXISTS controls(key TEXT PRIMARY KEY, value TEXT, at TEXT);
+    CREATE TABLE IF NOT EXISTS findings(
+      key TEXT PRIMARY KEY, severity TEXT NOT NULL, title TEXT NOT NULL, evidence TEXT, area TEXT, fix_hint TEXT,
+      first_seen TEXT, last_seen TEXT, status TEXT NOT NULL DEFAULT 'open', task_id INTEGER, resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS disagreements(
       id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, parties TEXT, issue TEXT, resolution TEXT, at TEXT);
     """)
@@ -142,6 +145,7 @@ PERMS = [  # agent, category, level, tools-note, environments, limits-note
     ("apollo", "evaluate-opportunities", 2, "no tools", "pipeline records", "recommend; the owner approves"),
     ("closer", "prepare-sales-plan", 3, "no tools", "pipeline records", "verified capabilities only"),
     ("atlas", "capture-lessons", 2, "deterministic script", "pipeline history", "lessons stay draft until verified"),
+    ("guardian", "verify-readonly", 1, "deterministic scripts + headless Chrome, read-only", "public websites; code snapshot of origin/feature/language", "no model, no writes, no customer data"),
 ]
 
 
@@ -322,7 +326,66 @@ def sentinel_worker(task, db):
     return False, "exit %s: %s" % (p.returncode, last[0])
 
 
-WORKERS = {"sentinel": ("audit-public-web", sentinel_worker)}
+SEV_SCORE = {"P0": 100, "P1": 50, "P2": 10, "P3": 2}
+SEV_CATEGORY = {"P0": "security", "P1": "reliability", "P2": "ordinary", "P3": "ordinary"}
+
+
+def guardian_worker(task, db):
+    """Guardian's nightly deterministic verification: rules ratchet + rendered public pages. Persists findings, queues new ones, closes resolved ones."""
+    gdir = os.environ.get("GUARDIAN_DIR") or next(p for p in (os.path.join(HERE, "..", "guardian"), os.path.join(HERE, "..", "guardian-tools")) if os.path.exists(p))
+    sys.path.insert(0, gdir)
+    import guardian as G
+    day = datetime.date.today().isoformat()
+    run_dir = os.path.join(G.HOME, "runs", day)
+    root = None
+    repo = os.environ.get("SENTINEL_REPO", os.path.join(HOME, "Projects", "mowology-crm"))
+    tmp = None
+    if os.path.isdir(os.path.join(repo, ".git")) and not os.environ.get("GUARDIAN_STANDIN_METRICS"):
+        import tempfile
+        tmp = tempfile.mkdtemp(prefix="guardian-src-")
+        subprocess.run("git -C '%s' archive origin/feature/language -- public app database 2>/dev/null | tar -x -C '%s'" % (repo, tmp), shell=True)
+        root = tmp
+    try:
+        metrics, rules_out, notes = G.collect(run_dir, root)
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+    if metrics is None and not rules_out and notes:
+        return False, "; ".join(notes)
+    found = G.findings_from(metrics or {}, rules_out, G.latest_previous())
+    t = now()
+    seen = set()
+    new = 0
+    for f in found:
+        seen.add(f["key"])
+        row = db.execute("SELECT * FROM findings WHERE key=?", (f["key"],)).fetchone()
+        ev = json.dumps(f["evidence"])
+        if row:
+            db.execute("UPDATE findings SET severity=?, title=?, evidence=?, last_seen=?, status='open', resolved_at=NULL WHERE key=?", (f["severity"], f["title"], ev, t, f["key"]))
+            continue
+        tid, _ = add_task(db, "guardian:" + f["key"], f["title"], "improvement", "guardian", state="proposed", risk="low", category=SEV_CATEGORY[f["severity"]],
+                          payload={"problem": f["title"], "evidence": [{"text": e} for e in f["evidence"]], "proposal": f.get("fix_hint") or "", "benefit": "Measured defect on the rendered product", "effort": {"size": "?"}, "severity": f["severity"], "area": f["area"]},
+                          source_ref=f["key"], score=SEV_SCORE[f["severity"]], rationale="Guardian measurement, severity %s (rule-based, not an estimate): %s" % (f["severity"], "; ".join(f["evidence"])[:200]), actor="guardian")
+        db.execute("INSERT INTO findings(key,severity,title,evidence,area,fix_hint,first_seen,last_seen,status,task_id) VALUES(?,?,?,?,?,?,?,?,?,?)", (f["key"], f["severity"], f["title"], ev, f["area"], f.get("fix_hint"), t, t, "open", tid))
+        new += 1
+    resolved = 0
+    for row in db.execute("SELECT * FROM findings WHERE status='open'").fetchall():
+        if row["key"] not in seen and metrics is not None:                 # only close when the page audit actually ran
+            db.execute("UPDATE findings SET status='resolved', resolved_at=? WHERE key=?", (t, row["key"]))
+            tk = db.execute("SELECT id, state FROM tasks WHERE id=?", (row["task_id"],)).fetchone()
+            if tk and tk["state"] == "proposed":
+                transition(db, tk["id"], "rejected", "ada", "resolved: no longer observed by Guardian")
+            resolved += 1
+    db.commit()
+    if metrics is not None:
+        G.record_history(metrics)
+        os.makedirs(G.HOME, exist_ok=True)
+        json.dump({"at": t, "findings": found, "run_dir": run_dir, "pages": G.page_summary(metrics)}, open(os.path.join(G.HOME, "latest.json"), "w"), indent=1)
+    sev = {s: sum(1 for f in found if f["severity"] == s) for s in ("P0", "P1", "P2", "P3")}
+    return True, "%d open finding(s) %s, %d new, %d resolved%s" % (len(found), sev, new, resolved, ("; " + "; ".join(notes)) if notes else "")
+
+
+WORKERS = {"sentinel": ("audit-public-web", sentinel_worker), "guardian": ("verify-readonly", guardian_worker)}
 for _a, (_cat) in (("mercury", "audit-public-web"), ("compass", "research-public-web"), ("hunter", "research-public-web"), ("scribe", "draft-commercial"),
                    ("apollo", "evaluate-opportunities"), ("closer", "prepare-sales-plan"), ("atlas", "capture-lessons")):
     WORKERS[_a] = (_cat, AG.worker)
@@ -349,7 +412,7 @@ def recover(db):
     return n
 
 
-def tick(db, max_runs=1, department=None):
+def tick(db, max_runs=1, department=None, only=None, exclude=()):
     """Run up to max_runs runnable tasks. Returns a list of (task_id, outcome)."""
     why = halted(db)
     if why:
@@ -364,6 +427,8 @@ def tick(db, max_runs=1, department=None):
             if t["agent"] not in WORKERS or t["attempts"] >= t["max_attempts"]:
                 continue
             if department and t["department"] not in (department, "shared"):
+                continue
+            if (only and t["agent"] not in only) or t["agent"] in exclude:
                 continue
             if t["agent"] in ("beacon", "ambassador"):
                 continue                                   # dormant until the owner activates them
@@ -433,6 +498,7 @@ def cycle(db, today=None):
     d = datetime.date.fromisoformat(today)
     set_ctl(db, "cycle_started", now())
     seed_permissions(db)
+    add_task(db, "guardian:verify:" + today, "Guardian nightly verification " + today, "audit", "guardian", payload={"audit": "nightly"})   # deterministic: needs no sign-in
     if signin_blocked(db):
         set_ctl(db, "cli_note", "Claude CLI is not signed in: no model-driven work was queued (sign in once; the cycle resumes by itself)")
     else:
@@ -445,7 +511,8 @@ def cycle(db, today=None):
                 add_task(db, "compass:market:" + today, "Compass weekly market review " + today, "commercial", "compass", payload={"input": {"focus": "see memory/compass/brief.md; evidence with sources only"}})
             if d.weekday() in (1, 3):
                 add_task(db, "mercury:review:" + today, "Mercury acquisition review " + today, "commercial", "mercury", payload={"input": {"targets": "public pages in scripts/sentinel/targets.json"}})
-    results = tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada") + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo")
+    # Guardian and Atlas are deterministic (no model): they do not use the model-run budget that is split between the departments
+    results = tick(db, max_runs=2, only=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada", exclude=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo", exclude=("guardian",))
     imported = import_sentinel(db)
     moved = prioritise(db)
     path = write_briefing(db, today, results, imported, moved)
@@ -501,6 +568,7 @@ def write_briefing(db, today, results=(), imported=0, moved=()):
           "- Disk free: %.0f GB (runs stop below %d GB)." % (free_gb(), MIN_FREE_GB), ""]
     nxt = q("SELECT * FROM tasks WHERE state IN ('discovered','approved') ORDER BY id")
     L += ["## Next actions"] + (["- #%d %s (%s, waiting on: %s)" % (t["id"], t["title"], t["state"], "an implementation agent that is not built yet" if t["state"] == "approved" else "next cycle") for t in nxt] or ["_nothing queued_"]) + [""]
+    L += guardian_section(db)
     L += commercial_section(db)
     note = get_ctl(db, "cli_note")
     if note:
@@ -508,6 +576,23 @@ def write_briefing(db, today, results=(), imported=0, moved=()):
     path = os.path.join(out, today + ".md")
     open(path, "w").write("\n".join(L))
     return path
+
+
+def guardian_section(db):
+    """What Guardian MEASURED (no model): open findings by severity, what is new, what was fixed."""
+    L = ["", "## Guardian (measured, rule-based)", ""]
+    rows = db.execute("SELECT severity, COUNT(*) c FROM findings WHERE status='open' GROUP BY severity ORDER BY severity").fetchall()
+    if not db.execute("SELECT 1 FROM findings LIMIT 1").fetchone() and not db.execute("SELECT 1 FROM tasks WHERE agent='guardian' AND state='completed'").fetchone():
+        return L + ["_Guardian has not completed a run yet._"]
+    L.append("- Open findings: " + (", ".join("%s %d" % (r["severity"], r["c"]) for r in rows) or "none"))
+    today = datetime.date.today().isoformat()
+    for r in db.execute("SELECT severity, title FROM findings WHERE status='open' AND first_seen >= ? ORDER BY severity LIMIT 5", (today,)).fetchall():
+        L.append("- NEW %s: %s" % (r["severity"], r["title"]))
+    fixed = db.execute("SELECT COUNT(*) c FROM findings WHERE status='resolved' AND resolved_at >= ?", (today,)).fetchone()["c"]
+    if fixed:
+        L.append("- Resolved since last run: %d" % fixed)
+    L.append("- Rules ratchet (project rules from CLAUDE.md) also runs on every merge; page measurements: ~/.mowology-guardian/latest.json")
+    return L
 
 
 def commercial_section(db):

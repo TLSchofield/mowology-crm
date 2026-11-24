@@ -27,12 +27,15 @@ class Base(unittest.TestCase):
         t = self.tmp.name
         os.environ["DEPT_HOME"] = os.path.join(t, "dept"); os.environ["SENTINEL_HOME"] = os.path.join(t, "sen")
         self.ada = load(); self.db = self.ada.connect(); self.ada.seed_permissions(self.db)
+        fx = os.path.join(t, "empty-metrics.json"); json.dump({"results": [], "site": {}}, open(fx, "w"))
+        os.environ["GUARDIAN_STANDIN_METRICS"] = fx; os.environ["GUARDIAN_HOME"] = os.path.join(t, "g")   # never launch a browser or touch the network in tests
         self.runner = os.path.join(t, "runner.sh")
         os.environ["ADA_SENTINEL_RUNNER"] = self.runner
         self.calls = os.path.join(t, "calls.log")
 
     def tearDown(self):
         self.tmp.cleanup()
+        os.environ.pop("GUARDIAN_STANDIN_METRICS", None); os.environ.pop("GUARDIAN_HOME", None)
 
     def runner_ok(self):
         fake_runner(self.runner, 'echo "$1" >> %s; echo "done: 0 recommendation(s)"; exit 0' % self.calls)
@@ -121,7 +124,7 @@ class Orchestration(Base):
         self.runner_ok()
         self.ada.cycle(self.db, "2026-11-25"); self.ada.cycle(self.db, "2026-11-25")
         self.assertEqual(open(self.calls).read().split(), ["daily"])      # the second cycle found the work already done
-        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE kind='audit'").fetchone()["c"], 1)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE kind='audit' AND agent='sentinel'").fetchone()["c"], 1)
 
     def test_sunday_adds_the_weekly_audit(self):
         self.runner_ok()

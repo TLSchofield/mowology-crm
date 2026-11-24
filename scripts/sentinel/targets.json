@@ -1,12 +1,57 @@
 {
   "_about": "What Sentinel may look at. Public pages only (Tim, 2026-11-24). No signed-in pages, no customer data. Add a URL here to widen the audit.",
   "web": [
-    {"name": "Ittai home", "url": "https://ittai.ca/"},
-    {"name": "Mowology home", "url": "https://mowology.ca/"},
-    {"name": "Mowology services", "url": "https://mowology.ca/services.php"},
-    {"name": "Mowology contact", "url": "https://mowology.ca/contact.php"}
+    {
+      "name": "Ittai home",
+      "url": "https://ittai.ca/"
+    },
+    {
+      "name": "Mowology home",
+      "url": "https://mowology.ca/"
+    },
+    {
+      "name": "Mowology services",
+      "url": "https://mowology.ca/services"
+    },
+    {
+      "name": "Mowology strata service",
+      "url": "https://mowology.ca/services/strata-landscaping-maintenance"
+    },
+    {
+      "name": "Mowology about",
+      "url": "https://mowology.ca/about"
+    },
+    {
+      "name": "Mowology contact",
+      "url": "https://mowology.ca/contact"
+    },
+    {
+      "name": "Mowology portfolio",
+      "url": "https://mowology.ca/portfolio"
+    }
   ],
-  "viewports": [[375, 812], [768, 1024], [1440, 900]],
-  "native": {"ios_bundle": "ca.mowology.crm", "note": "iOS via a booted simulator, Android via adb; skipped with a note when neither is running"},
-  "code_snapshot_paths": ["public", "app", "ios/MowologyCRM", "docs/design/ittai-v1.2"]
+  "viewports": [
+    [
+      375,
+      812
+    ],
+    [
+      768,
+      1024
+    ],
+    [
+      1440,
+      900
+    ]
+  ],
+  "native": {
+    "ios_bundle": "ca.mowology.crm",
+    "note": "iOS via a booted simulator, Android via adb; skipped with a note when neither is running"
+  },
+  "code_snapshot_paths": [
+    "public",
+    "app",
+    "ios/MowologyCRM",
+    "docs/design/ittai-v1.2"
+  ]
 }

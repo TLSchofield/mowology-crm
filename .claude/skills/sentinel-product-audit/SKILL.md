@@ -27,6 +27,9 @@ Code: `scripts/sentinel/`. Design source: `docs/design/ittai-v1.2/` (tokens.json
    requests per page, mobile first.
 9. **SEO:** title/description/canonical/H1, structured data, internal links, indexability, local-business signals, image alt, speed.
 
+## Guardian's measurements come first
+If `guardian-latest.json` exists, read it before browsing: it holds measured page weight, LCP/CLS, axe accessibility results, tap-target and text-size counts, SEO basics and new rule violations. Do not re-report those findings as your own discoveries; build on them (why it matters, what the better design or flow is). Your value is judgement: information hierarchy, clarity of the next action, flow, copy, consistency, and what a customer feels. Never propose something Guardian already reports as an open finding unless you add a different, larger insight.
+
 ## Evidence rules
 - A claim needs a measurement, a screenshot (`browser_take_screenshot` with filename `NAME-WIDTH.png`; cite just that filename) or file:line.
 - Check at 375, 768 and 1440 px. Look at the real page, not memory of it.
