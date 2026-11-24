@@ -41,7 +41,7 @@ TRANSITIONS = {
     ("proposed", "awaiting_approval"): {"ada"},
     ("proposed", "investigating"): {"ada"},
     ("awaiting_approval", "approved"): {"tim"},
-    ("awaiting_approval", "proposed"): {"tim"},           # request revision
+    ("awaiting_approval", "proposed"): {"tim", "ada"},     # revision request, or Ada re-ranking a lower-scored item out of the three slots
     ("approved", "implementing"): {"forge"},
     ("implementing", "awaiting_verification"): {"forge"},
     ("implementing", "approved"): {"system"},             # recovery
@@ -266,18 +266,18 @@ def human_decision(db, tid, decision, reason, tty):
 
 # ------------------------------------------------------------- prioritising
 def prioritise(db):
-    """Proposed -> Awaiting approval. Critical categories first and unlimited; ordinary work capped at three waiting for Tim."""
+    """Critical work (security, data, financial, reliability) goes to the owner at once, unlimited. Ordinary work competes for THREE slots by score,
+    whenever it arrived: a better proposal displaces a weaker one back to Proposed (the owner is never shown the weaker item just because it came first)."""
     moved = []
-    waiting = db.execute("SELECT COUNT(*) c FROM tasks WHERE state='awaiting_approval' AND category NOT IN ('security','data-integrity','financial','reliability')").fetchone()["c"]
-    rows = db.execute("SELECT * FROM tasks WHERE state='proposed' ORDER BY (category IN ('security','data-integrity','financial','reliability')) DESC, priority_score DESC, id").fetchall()
-    for r in rows:
-        crit = r["category"] in CRITICAL_CATEGORIES
-        if not crit and waiting >= 3:
-            continue
-        transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised")
-        moved.append(r["id"])
-        if not crit:
-            waiting += 1
+    crit = "category IN ('security','data-integrity','financial','reliability')"
+    for r in db.execute("SELECT id, rationale FROM tasks WHERE state='proposed' AND %s ORDER BY priority_score DESC, id" % crit).fetchall():
+        transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised"); moved.append(r["id"])
+    pool = db.execute("SELECT * FROM tasks WHERE state IN ('proposed','awaiting_approval') AND NOT %s ORDER BY priority_score DESC, id" % crit).fetchall()
+    for i, r in enumerate(pool):
+        if i < 3 and r["state"] == "proposed":
+            transition(db, r["id"], "awaiting_approval", "ada", r["rationale"] or "prioritised"); moved.append(r["id"])
+        elif i >= 3 and r["state"] == "awaiting_approval":
+            transition(db, r["id"], "proposed", "ada", "outranked by higher-scored work; kept in the backlog")
     return moved
 
 
@@ -323,6 +323,9 @@ def import_sentinel(db):
 def sentinel_worker(task, db):
     """Run Sentinel's audit through its own runner. Returns (ok, note). Exit 75 = not signed in / limit: named, not retried."""
     kind = json.loads(task["payload"]).get("audit", "daily")
+    done_today = os.path.join(os.environ.get("SENTINEL_HOME", os.path.join(HOME, ".mowology-sentinel")), "reports", datetime.date.today().isoformat(), kind + ".json")
+    if os.path.exists(done_today) and not os.environ.get("ADA_SENTINEL_RUNNER"):
+        return True, "already ran today (%s report exists); not repeated" % kind
     script = os.environ.get("ADA_SENTINEL_RUNNER", os.path.join(HERE, "..", "sentinel", "run-audit.sh"))
     p = subprocess.run(["bash", script, kind], capture_output=True, text=True, timeout=int(os.environ.get("ADA_TASK_TIMEOUT", "2400")))
     out = (p.stdout or "") + (p.stderr or "")
@@ -501,6 +504,16 @@ def signin_blocked(db):
     return bool(r) and not AG.cli_ready()
 
 
+def refresh_dashboard(db):
+    """Regenerate the local dashboard; it must never break a cycle or a decision."""
+    try:
+        import dashboard
+        import types
+        return dashboard.write(types.SimpleNamespace(**globals()), db)
+    except Exception as e:  # noqa: BLE001
+        print("dashboard not refreshed: %s" % e, file=sys.stderr)
+
+
 def cycle(db, today=None):
     """The once-a-day overnight cycle: queue the day's work, run what is runnable (equal run budget per department),
     import proposals, prioritise, write ONE briefing."""
@@ -509,6 +522,9 @@ def cycle(db, today=None):
     set_ctl(db, "cycle_started", now())
     seed_permissions(db)
     add_task(db, "guardian:verify:" + today, "Guardian nightly verification " + today, "audit", "guardian", payload={"audit": "nightly"})   # deterministic: needs no sign-in
+    if AG.cli_ready():
+        for t in db.execute("SELECT id FROM tasks WHERE state='blocked' AND blocked_reason LIKE '%not signed in%'").fetchall():
+            unblock(db, t["id"], "ada", "the Claude CLI is signed in now")
     if signin_blocked(db):
         set_ctl(db, "cli_note", "Claude CLI is not signed in: no model-driven work was queued (sign in once; the cycle resumes by itself)")
     else:
@@ -527,6 +543,7 @@ def cycle(db, today=None):
     moved = prioritise(db)
     path = write_briefing(db, today, results, imported, moved)
     set_ctl(db, "cycle_finished", now())
+    refresh_dashboard(db)
     return results, path
 
 
@@ -658,6 +675,7 @@ def main(argv=None):
     p = sub.add_parser("activate"); p.add_argument("agent", choices=["beacon", "ambassador"])
     p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
     sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
+    p = sub.add_parser("dashboard"); p.add_argument("--open", action="store_true")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
     a = ap.parse_args(argv)
     db = connect(); seed_permissions(db)
@@ -677,7 +695,11 @@ def main(argv=None):
         elif a.cmd == "tick":
             [print(r) for r in tick(db)]
         elif a.cmd == "briefing":
-            print(write_briefing(db, datetime.date.today().isoformat()))
+            print(write_briefing(db, datetime.date.today().isoformat())); refresh_dashboard(db)
+        elif a.cmd == "dashboard":
+            path = refresh_dashboard(db); print(path)
+            if a.open and path:
+                subprocess.run(["open", path])
         elif a.cmd == "pause":
             set_ctl(db, "paused:" + a.agent if a.agent else "paused", now()); print("paused", a.agent or "department")
         elif a.cmd == "resume":
@@ -693,7 +715,7 @@ def main(argv=None):
             for r in db.execute("SELECT * FROM permissions").fetchall():
                 print("%s / %s level %d max_risk %s since %s%s" % (r["agent"], r["category"], r["level"], r["max_risk"], r["authorised_at"], (" REVOKED " + r["revoked_at"]) if r["revoked_at"] else ""))
         elif a.cmd in ("approve", "reject", "revise"):
-            human_decision(db, a.id, a.cmd, a.reason, sys.stdin.isatty()); print("recorded", a.cmd, a.id)
+            human_decision(db, a.id, a.cmd, a.reason, sys.stdin.isatty()); print("recorded", a.cmd, a.id); refresh_dashboard(db)
         elif a.cmd == "unblock":
             if not sys.stdin.isatty():
                 raise Refused("needs an interactive terminal")

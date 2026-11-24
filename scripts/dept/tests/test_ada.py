@@ -165,6 +165,17 @@ class Orchestration(Base):
         self.assertEqual(self.db.execute("SELECT status FROM runs").fetchone()["status"], "interrupted")
         self.assertEqual(self.db.execute("SELECT attempts FROM tasks WHERE id=?", (tid,)).fetchone()["attempts"], 2)
 
+    def test_a_sign_in_block_clears_itself_once_signed_in_and_a_finished_audit_is_not_repeated(self):
+        fake_runner(self.runner, 'echo "$1" >> %s; exit 0' % self.calls)
+        tid = self.ada.add_task(self.db, "x", "t", "audit", "sentinel")[0]
+        self.ada.transition(self.db, tid, "investigating", "sentinel"); self.ada.transition(self.db, tid, "blocked", "system", "needs you: Claude CLI is not signed in")
+        os.environ["ADA_CLAUDE_BIN"] = "/usr/bin/true"            # a stand-in counts as signed in
+        try:
+            self.ada.cycle(self.db, "2026-11-25")
+        finally:
+            os.environ.pop("ADA_CLAUDE_BIN")
+        self.assertEqual(self.state(tid), "completed")
+
     def test_pause_resume_and_emergency_stop(self):
         self.runner_ok()
         tid = self.ada.add_task(self.db, "x", "t", "audit", "sentinel")[0]
@@ -207,6 +218,17 @@ class SharedKnowledge(Base):
         self.assertEqual(self.ada.import_sentinel(self.db), 5); self.assertEqual(self.ada.import_sentinel(self.db), 0)
         self.assertEqual(len(self.ada.prioritise(self.db)), 3)
         self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE state='proposed'").fetchone()["c"], 2)
+
+    def test_a_better_later_proposal_displaces_a_weaker_earlier_one(self):
+        for i in range(3):
+            self.ada.add_task(self.db, "low%d" % i, "low", "improvement", "guardian", state="proposed", score=2)
+        self.ada.prioritise(self.db)
+        best = self.ada.add_task(self.db, "best", "best", "improvement", "sentinel", state="proposed", score=20, actor="sentinel")[0]
+        self.ada.prioritise(self.db)
+        st = {r["title"]: r["state"] for r in self.db.execute("SELECT title, state FROM tasks")}
+        self.assertEqual(self.ada.get_task(self.db, best)["state"], "awaiting_approval")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE state='awaiting_approval'").fetchone()["c"], 3)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) c FROM tasks WHERE state='proposed'").fetchone()["c"], 1)
 
     def test_critical_work_jumps_the_queue_and_is_not_capped(self):
         for i in range(5):
