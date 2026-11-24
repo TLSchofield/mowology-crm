@@ -145,6 +145,7 @@ PERMS = [  # agent, category, level, tools-note, environments, limits-note
     ("apollo", "evaluate-opportunities", 2, "no tools", "pipeline records", "recommend; the owner approves"),
     ("closer", "prepare-sales-plan", 3, "no tools", "pipeline records", "verified capabilities only"),
     ("atlas", "capture-lessons", 2, "deterministic script", "pipeline history", "lessons stay draft until verified"),
+    ("forge", "build-in-worktree", 3, "scripts/codex-web-build.sh (Codex, redacted copy) + isolated git worktree; no merge, no deploy without the owner", "build worktrees under ~/.mowology-dept/builds; public site and app/ code only", "max 8 files / 400 lines; money, auth, tenant, migrations, secrets refused"),
     ("guardian", "verify-readonly", 1, "deterministic scripts + headless Chrome, read-only", "public websites; code snapshot of origin/feature/language", "no model, no writes, no customer data"),
 ]
 
@@ -265,6 +266,12 @@ def human_decision(db, tid, decision, reason, tty):
     if t["source_ref"] and t["agent"] == "sentinel" and os.path.exists(sen):  # one shared decision history
         verb = {"approve": "accept", "reject": "reject", "revise": "modify"}[decision]
         subprocess.run([sys.executable, sen, "decide", t["source_ref"], verb, reason], env=dict(os.environ), capture_output=True)
+    if decision == "approve" and t["kind"] == "improvement":      # accepting IS the instruction to build (never to deploy)
+        try:
+            import forge
+            forge.start_in_background(tid)
+        except Exception as e:  # noqa: BLE001
+            print("could not start the build: %s" % e, file=sys.stderr)
 
 
 # ------------------------------------------------------------- prioritising
@@ -541,6 +548,11 @@ def cycle(db, today=None):
             if d.weekday() in (1, 3):
                 add_task(db, "mercury:review:" + today, "Mercury acquisition review " + today, "commercial", "mercury", payload={"input": {"targets": "public pages in scripts/sentinel/targets.json"}})
     # Guardian and Atlas are deterministic (no model): they do not use the model-run budget that is split between the departments
+    try:
+        import forge
+        sweep_note = forge.sweep(__import__("types").SimpleNamespace(**globals()), db)
+    except Exception as e:  # noqa: BLE001
+        sweep_note = "forge sweep failed: %s" % e
     results = tick(db, max_runs=2, only=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="ada", exclude=("guardian",)) + tick(db, max_runs=RUNS_PER_DEPARTMENT, department="apollo", exclude=("guardian",))
     imported = import_sentinel(db)
     moved = prioritise(db)
@@ -677,6 +689,8 @@ def main(argv=None):
     p = sub.add_parser("verify-capability"); p.add_argument("name"); p.add_argument("--note", default="")
     p = sub.add_parser("activate"); p.add_argument("agent", choices=["beacon", "ambassador"])
     p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
+    p = sub.add_parser("forge-build"); p.add_argument("id", type=int)
+    p = sub.add_parser("release"); p.add_argument("id", type=int)
     sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
     p = sub.add_parser("dashboard"); p.add_argument("--open", action="store_true"); p.add_argument("--serve", action="store_true")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
@@ -744,6 +758,14 @@ def main(argv=None):
         elif a.cmd == "demo-commercial":
             import tempfile, importlib
             os.execve(sys.executable, [sys.executable, os.path.join(HERE, "demo.py"), "--cli"], dict(os.environ, DEPT_HOME=os.path.join(HOME, ".mowology-dept-demo")))
+        elif a.cmd == "forge-build":
+            import types, forge
+            print(forge.build(types.SimpleNamespace(**globals()), db, a.id)); refresh_dashboard(db)
+        elif a.cmd == "release":
+            import types, forge
+            for line in forge.release(types.SimpleNamespace(**globals()), db, a.id, sys.stdin.isatty()):
+                print(line)
+            refresh_dashboard(db)
         elif a.cmd == "roster":
             for n, r in roster().items():
                 print("%-14s %-10s %-18s %s%s" % (n, r["department"], r["status"], r["role"], ("\n%14s build when: %s" % ("", r["build_trigger"])) if r["status"] == "planned" and r.get("build_trigger") else ""))

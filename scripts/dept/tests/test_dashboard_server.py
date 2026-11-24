@@ -1,5 +1,6 @@
 import http.client, importlib.util, json, os, sys, tempfile, threading, types, unittest, urllib.parse
 
+os.environ["FORGE_AUTOSTART"] = "0"   # tests must never start a real build
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEPT = os.path.join(HERE, "..")
 
@@ -115,3 +116,20 @@ class Server(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReleaseFromThePage(Server):
+    def test_release_is_started_in_the_background_only_for_built_work(self):
+        c = self.login()
+        self.assertEqual(self.post(c, {"id": self.tid, "decision": "release", "reason": "go"})[0], 409)       # not awaiting release
+        called = []
+        import forge
+        orig = forge.release
+        forge.release = lambda ada, db, tid, tty, runner=None: called.append((tid, tty)) or []
+        try:
+            t2 = self.ada.add_task(self.db, "r", "Built", "improvement", "sentinel", state="awaiting_release_approval", actor="sentinel")[0]
+            st, body, _ = self.post(c, {"id": t2, "decision": "release", "reason": "ship it"})
+            import time; time.sleep(0.5)
+        finally:
+            forge.release = orig
+        self.assertEqual((st, json.loads(body)["started"]), (200, True)); self.assertEqual(called, [(t2, True)])

@@ -1,5 +1,6 @@
 import importlib.util, json, os, tempfile, unittest
 
+os.environ["FORGE_AUTOSTART"] = "0"   # tests must never start a real build
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEPT = os.path.join(HERE, "..")
 

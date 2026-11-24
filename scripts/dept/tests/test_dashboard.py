@@ -1,5 +1,6 @@
 import importlib.util, json, os, re, sys, tempfile, unittest
 
+os.environ["FORGE_AUTOSTART"] = "0"   # tests must never start a real build
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEPT = os.path.join(HERE, "..")
 
@@ -67,3 +68,29 @@ class Dashboard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Cards(Dashboard):
+    def test_every_agent_has_a_card_that_says_what_it_does_and_whether_it_is_built(self):
+        h = self.dash.render(self.ada, self.db)
+        for name, a in self.ada.roster().items():
+            self.assertTrue(a.get("does") and a.get("limits"), name + " needs plain-language does/limits in roster.json")
+            self.assertIn(">%s " % name, h.replace("<h3>", ">"))
+        for words in ("Not built yet", "Built · running nightly", "Built · switched off", "Built · asleep", "Build it when:"):
+            self.assertIn(words, h)
+
+    def test_a_built_task_offers_release_only_in_the_authenticated_page(self):
+        tid = self.ada.add_task(self.db, "k", "Header button", "improvement", "sentinel", state="awaiting_release_approval", actor="sentinel")[0]
+        self.db.execute("UPDATE tasks SET result=? WHERE id=?", (json.dumps({"branch": "forge/1-header", "files": ["public/includes/header.php"], "lines": 6, "verification": ["full test suite: ok"], "review_verdict": "PASS"}), tid)); self.db.commit()
+        static, live = self.dash.render(self.ada, self.db), self.dash.render(self.ada, self.db, interactive=True)
+        self.assertIn("Built and checked", static); self.assertIn("ada release %d" % tid, static); self.assertNotIn("data-decision='release'", static)
+        self.assertIn("data-decision='release'", live); self.assertIn("not deployed", live)
+
+    def test_the_inline_script_is_valid_javascript(self):
+        import subprocess, shutil
+        node = shutil.which("node") or "/usr/local/bin/node"
+        if not os.path.exists(node):
+            self.skipTest("node not available")
+        js = self.dash.JS + self.dash.ACT_JS
+        p = subprocess.run([node, "--check", "-"], input=js, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)

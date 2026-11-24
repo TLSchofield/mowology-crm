@@ -76,12 +76,28 @@ def make_server(ada, dashboard, idle_minutes=30, port=0):
                 tid, decision, reason = int(body["id"]), str(body["decision"]), str(body["reason"]).strip()
             except (ValueError, KeyError, TypeError):
                 return self._send(400, json.dumps({"error": "bad request"}), "application/json")
-            if decision not in ("approve", "reject", "revise", "unblock"):
+            if decision not in ("approve", "reject", "revise", "unblock", "release"):
                 return self._send(400, json.dumps({"error": "unknown decision"}), "application/json")
             if not reason:
                 return self._send(400, json.dumps({"error": "a reason is required"}), "application/json")
             db = ada.connect()
             try:
+                if decision == "release":
+                    t = ada.get_task(db, tid)
+                    if t["state"] != "awaiting_release_approval":
+                        raise ada.Refused("task %d is not awaiting release" % tid)
+                    import forge
+
+                    def go():
+                        d2 = ada.connect()
+                        try:
+                            forge.release(ada, d2, tid, tty=True)
+                        except Exception as e:  # noqa: BLE001  (the page shows the task as blocked/failed on the next refresh)
+                            print("release failed: %s" % e, file=sys.stderr)
+                        finally:
+                            ada.refresh_dashboard(d2); d2.close()
+                    threading.Thread(target=go, daemon=True).start()
+                    return self._send(200, json.dumps({"ok": True, "started": True}), "application/json")
                 if decision == "unblock":
                     ada.unblock(db, tid, "tim", reason + " (via dashboard)")
                 else:
