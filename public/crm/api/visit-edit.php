@@ -7,6 +7,9 @@
  *   note_edit    note_id, text                    → the author, or anyone with jobs.edit; system notes are refused
  *   note_delete  note_id
  *   plan_update  visit_id, title?, description?, price_per_visit? + confirm_price   → the job this visit belongs to
+ *   recur_preview / recur_apply   visit_id + time_start/time_end?, crew_ids?, repeat{every,unit,days}?, stop_after?, include_moved?
+ *                 → "this and all future visits" of a repeating job, from this visit's date (preview changes nothing)
+ *   plan_pause (reason?) / plan_resume   visit_id → pause or resume the whole repeating job
  *
  * Time, date, crew, adding a note, start, complete and skip use their existing endpoints
  * (calendar-edit.php, reschedule-visit.php, assign-crew.php, pow-actions.php). Needs jobs.edit.
@@ -33,6 +36,9 @@ try {
     require_once CRM_INCLUDES . '/plan-functions.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
     require_once APP_ROOT . '/Modules/Jobs/Services/VisitEditService.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitResizeService.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitGenerationService.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/RecurringScheduleService.php';
 
     requireLogin();
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -73,6 +79,25 @@ try {
             break;
         case 'plan_update':
             $res = $visitId > 0 ? $svc->updatePlan($visitId, $uid, $input, $ip) : ['success' => false, 'error' => 'visit_id is required'];
+            break;
+        case 'recur_preview':
+        case 'recur_apply':
+            if ($visitId < 1) { $res = ['success' => false, 'error' => 'visit_id is required']; break; }
+            $norm = RecurringScheduleService::normaliseChange($input);
+            if ($norm['errors']) { $res = ['success' => false, 'error' => $norm['errors'][0]]; break; }
+            $rs = new RecurringScheduleService(getDB());
+            if ($action === 'recur_preview') {
+                $pv = $rs->preview($visitId, $norm['change']);
+                $res = $pv === null ? ['success' => false, 'error' => 'This visit no longer exists. Refresh the schedule.'] : ['success' => true, 'preview' => $pv];
+            } else {
+                $res = $rs->apply($visitId, $uid, $norm['change'], $ip);
+            }
+            break;
+        case 'plan_pause':
+            $res = $visitId > 0 ? (new RecurringScheduleService(getDB()))->pause($visitId, $uid, is_string($input['reason'] ?? null) ? mb_substr(trim($input['reason']), 0, 200) : '', $ip) : ['success' => false, 'error' => 'visit_id is required'];
+            break;
+        case 'plan_resume':
+            $res = $visitId > 0 ? (new RecurringScheduleService(getDB()))->resume($visitId, $uid, $ip) : ['success' => false, 'error' => 'visit_id is required'];
             break;
         default:
             http_response_code(400);

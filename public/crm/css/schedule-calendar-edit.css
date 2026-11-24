@@ -157,7 +157,7 @@
 textarea.mw-vm-in { padding-top: var(--it-space-2, 8px); resize: vertical; }
 .mw-vm-in:focus-visible { outline: var(--it-stroke-focus, 2px) solid var(--it-focus, var(--mw-green)); outline-offset: 1px; }
 .mw-vm-crewpick { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--it-space-2, 8px) var(--it-space-4, 16px); }
-.mw-vm-legend { padding: 0; margin-bottom: var(--it-space-1, 4px); color: var(--it-meta, inherit); }
+.mw-vm-legend { display: block; float: none; width: auto; padding: 0; margin: 0 0 var(--it-space-1, 4px); font-size: var(--it-body-14-size, 14px); line-height: var(--it-body-14-line, 20px); font-weight: 400; color: var(--it-meta, inherit); }
 .mw-vm-check { display: inline-flex; align-items: center; gap: var(--it-space-2, 8px); cursor: pointer; }
 .mw-vm-pricecheck { align-items: flex-start; }
 .mw-vm-hint { margin: 0; font-size: var(--it-caption-12-size, 12px); line-height: var(--it-caption-12-line, 16px); }
@@ -171,3 +171,10 @@ textarea.mw-vm-in { padding-top: var(--it-space-2, 8px); resize: vertical; }
   .mw-vm-fields .mw-vm-field { flex: 1 1 100%; }
   .mw-vm-formbtns .mw-vm-btn { flex: 1 1 calc(50% - var(--it-space-2, 8px)); min-height: var(--it-target-phone, 44px); }
 }
+
+/* Visit modal: repeating jobs */
+.mw-vm-scope, .mw-vm-repeat { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--it-space-2, 8px) var(--it-space-4, 16px); }
+.mw-vm-scope .mw-vm-legend, .mw-vm-repeat .mw-vm-legend { width: 100%; }
+.mw-vm-repeat { flex-direction: column; flex-wrap: nowrap; }
+.mw-vm-field-label { color: var(--it-meta, inherit); }
+.mw-vm-field .mw-datepicker-trigger { min-height: var(--it-target-desktop, 36px); width: 100%; }

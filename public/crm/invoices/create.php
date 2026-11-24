@@ -50,7 +50,7 @@ if ($visitId) {
                jp.property_id, jp.company_id,
                c.company_name,
                p.address, p.city, p.province, p.postal_code,
-               p.site_contact_id,
+               p.site_contact_id, p.property_manager_id,
                COALESCE(con.first_name, '') as contact_first,
                COALESCE(con.last_name, '') as contact_last,
                con.email as contact_email,
@@ -119,6 +119,7 @@ if ($visitId) {
             'company_id'        => $visit['company_id'],
             'property_id'       => $visit['property_id'],
             'contact_id'        => $visit['site_contact_id'],
+            'is_pm_managed'     => !empty($visit['property_manager_id']),
             'visit_id'          => $visitId,
             'plan_id'           => $visit['plan_id'],
             'scheduled_date'    => $visit['scheduled_date'],
@@ -2009,7 +2010,9 @@ function escHtml(str) {
     const contactId  = <?php echo (int)($prefill['contact_id'] ?? 0); ?>;
     propertyIdInput.value = propertyId;
 
-    <?php if (!empty($prefill['contact_id'])): ?>
+    <?php /* A PM-managed building bills the management firm's accounts, so it must go through the
+             recipient API (PM precedence); the site-contact shortcut would email the on-site manager. */ ?>
+    <?php if (!empty($prefill['contact_id']) && empty($prefill['is_pm_managed'])): ?>
     // Contact-linked visit — add contact directly as recipient
     renderRecipientTable([{
         contact_id:    <?php echo (int)$prefill['contact_id']; ?>,
