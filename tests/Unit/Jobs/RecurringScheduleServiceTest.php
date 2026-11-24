@@ -76,11 +76,21 @@ final class RecurringScheduleServiceTest extends TestCase
         $this->assertSame([2], $p['update_time']);
     }
 
-    public function testCrewChangeSkipsLockedOnly(): void
+    public function testCrewChangeSkipsLockedInvoicedRunningAndHandMovedVisits(): void
     {
-        $p = RecurringScheduleService::planChange([$this->v(1, '2026-12-07'), $this->v(2, '2026-12-14', ['locked' => true])], $this->change(['crew_ids' => [5]]), '2026-12-07', []);
+        $visits = [$this->v(1, '2026-12-07'), $this->v(2, '2026-12-14', ['locked' => true]), $this->v(3, '2026-12-21', ['invoiced' => true]),
+            $this->v(4, '2026-12-28', ['timer' => true]), $this->v(5, '2027-01-04', ['moved' => true])];
+        $p = RecurringScheduleService::planChange($visits, $this->change(['crew_ids' => [5]]), '2026-12-07', []);
         $this->assertSame([1], $p['update_crew']);
-        $this->assertSame('it is locked', $p['keep'][0]['why']);
+        $this->assertSame([2, 3, 4, 5], array_column($p['keep'], 'id'));
+        $this->assertSame([], $p['update_time']);
+    }
+
+    public function testEditWhy(): void
+    {
+        $this->assertNull(RecurringScheduleService::editWhy($this->v(1, '2026-12-07', ['moved' => true]), true));
+        $this->assertSame('you moved it by hand', RecurringScheduleService::editWhy($this->v(1, '2026-12-07', ['moved' => true]), false));
+        $this->assertSame('someone is working on it', RecurringScheduleService::editWhy($this->v(1, '2026-12-07', ['timer' => true]), true));
     }
 
     public function testNewRepeatKeepsMatchingVisitsCancelsTheRestAndAddsMissingDates(): void

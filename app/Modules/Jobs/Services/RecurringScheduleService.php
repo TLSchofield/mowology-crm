@@ -129,19 +129,13 @@ final class RecurringScheduleService
                     continue;
                 }
             }
-            if ($change['time']) {
-                $why = !empty($v['locked']) ? 'it is locked' : (!empty($v['moved']) && empty($change['include_moved']) ? 'you moved it by hand' : null);
-                if ($why === null) {
-                    $out['update_time'][] = $id;
-                } else {
+            if ($change['time'] || $change['crew_ids']) {
+                $why = self::editWhy($v, !empty($change['include_moved']));
+                if ($why !== null) {
                     $keep[$id] = ['id' => $id, 'date' => $date, 'why' => $why];
-                }
-            }
-            if ($change['crew_ids']) {
-                if (!empty($v['locked'])) {
-                    $keep[$id] = $keep[$id] ?? ['id' => $id, 'date' => $date, 'why' => 'it is locked'];
                 } else {
-                    $out['update_crew'][] = $id;
+                    if ($change['time']) $out['update_time'][] = $id;
+                    if ($change['crew_ids']) $out['update_crew'][] = $id;
                 }
             }
         }
@@ -157,6 +151,16 @@ final class RecurringScheduleService
         $out['keep'] = array_values($keep);
         usort($out['keep'], function ($a, $b) { return strcmp($a['date'], $b['date']); });
         return $out;
+    }
+
+    /** Why a visit's time or crew must not be rewritten, or null. */
+    public static function editWhy(array $v, bool $includeMoved): ?string
+    {
+        if (!empty($v['locked'])) return 'it is locked';
+        if (!empty($v['invoiced'])) return 'it has an invoice';
+        if (!empty($v['timer'])) return 'someone is working on it';
+        if (!empty($v['moved']) && !$includeMoved) return 'you moved it by hand';
+        return null;
     }
 
     /** Why a visit must not be cancelled by a repeat change, or null. */
@@ -205,11 +209,17 @@ final class RecurringScheduleService
         if ($ctx['plan']['status'] !== 'active') {
             return ['success' => false, 'error' => 'This job is paused. Resume it first.'];
         }
-        $p = $this->planChangeFor($ctx, $change);
         $planId = (int)$ctx['plan']['id'];
 
         $own = $this->db->inTransaction() ? false : $this->db->beginTransaction();
         try {
+            // Read again with the rows locked: a visit that was invoiced, photographed, started or
+            // moved since the preview is judged on what it is now, not on what it was.
+            $ctx = $this->context($visitId, true);
+            if ($ctx === null) {
+                throw new RuntimeException('visit gone');
+            }
+            $p = $this->planChangeFor($ctx, $change);
             // Plan defaults first, so visits created below get the new time and crew.
             $set = [];
             $par = [];
@@ -308,7 +318,7 @@ final class RecurringScheduleService
     }
 
     /** @return array<string,mixed>|null */
-    private function context(int $visitId): ?array
+    private function context(int $visitId, bool $lock = false): ?array
     {
         $st = $this->db->prepare('SELECT id, plan_id, scheduled_date FROM job_visits WHERE id = ?');
         $st->execute([$visitId]);
@@ -329,7 +339,7 @@ final class RecurringScheduleService
                    (SELECT COUNT(*) FROM job_time_entries jt WHERE jt.visit_id = jv.id AND jt.status = 'active' AND jt.end_time IS NULL) AS timers
             FROM job_visits jv
             WHERE jv.plan_id = ? AND jv.scheduled_date >= ? AND jv.status <> 'cancelled'
-            ORDER BY jv.scheduled_date, jv.id
+            ORDER BY jv.scheduled_date, jv.id" . ($lock ? ' FOR UPDATE' : '') . "
         ");
         $q->execute([(int)$v['plan_id'], $anchor]);
         $visits = [];
@@ -366,7 +376,11 @@ final class RecurringScheduleService
                 } catch (Throwable $e) {
                     error_log('RecurringScheduleService holidays ' . $e->getMessage());
                 }
-                $new = VisitGenerationService::calculateRecurrenceDates($plan, $from, $to, $holidays);
+                // A holiday bumps a date up to a week BACK; never into the past or before the clicked visit.
+                $new = array_values(array_filter(
+                    VisitGenerationService::calculateRecurrenceDates($plan, $from, $to, $holidays),
+                    function ($d) use ($from) { return $d >= $from; }
+                ));
             }
             // Dates before today are history: a visit there is never created or cancelled by this change.
             $ctx['visits'] = array_values(array_filter($ctx['visits'], function ($v) { return $v['scheduled_date'] >= date('Y-m-d') || $v['status'] !== 'scheduled'; }));
@@ -406,7 +420,14 @@ final class RecurringScheduleService
         $st = $this->db->prepare("SELECT id, stop_id FROM job_visits WHERE id IN ($ph)");
         $st->execute($ids);
         $rows = $st->fetchAll(PDO::FETCH_ASSOC);
-        $this->db->prepare("UPDATE job_visits SET status = 'cancelled', status_changed_at = NOW() WHERE id IN ($ph) AND status = 'scheduled'")->execute($ids);
+        $this->db->prepare("
+            UPDATE job_visits SET status = 'cancelled', status_changed_at = NOW()
+            WHERE id IN ($ph) AND status = 'scheduled' AND locked_at IS NULL AND invoice_id IS NULL AND COALESCE(is_invoiced, 0) = 0
+              AND original_scheduled_date IS NULL
+              AND NOT EXISTS (SELECT 1 FROM visit_photos vp WHERE vp.visit_id = job_visits.id AND vp.deleted_at IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM visit_notes vn WHERE vn.visit_id = job_visits.id)
+              AND NOT EXISTS (SELECT 1 FROM job_time_entries jt WHERE jt.visit_id = job_visits.id AND jt.status = 'active' AND jt.end_time IS NULL)
+        ")->execute($ids);
         foreach ($rows as $r) {
             $this->audit((int)$r['id'], $userId, 'cancelled', ['by' => 'recurring_edit', 'from' => $anchor], $ip);
             if ($r['stop_id']) {

@@ -260,7 +260,7 @@
           '<p class="mw-vm-muted mw-vm-hint">Weekdays only apply to weekly repeats. A monthly repeat keeps the job’s day of the month. Repeats count from the job’s first visit, so the preview shows the real dates.</p>' +
         '</fieldset>' +
         '<label class="mw-vm-check"><input type="checkbox" data-vm-f="stop_after"> Stop repeating after this visit</label>' +
-        '<label class="mw-vm-check"><input type="checkbox" data-vm-f="include_moved"> Also change visits I moved by hand (time only)</label>' +
+        '<label class="mw-vm-check"><input type="checkbox" data-vm-f="include_moved"> Also change visits I moved by hand</label>' +
         (pv ? previewHtml(pv) : '') + errorLine() +
         '<div class="mw-vm-formbtns">' +
           (pv ? '<button type="button" class="mw-vm-btn mw-vm-btn--main" data-vm-act="recur-apply"' + (ui.busy ? ' disabled' : '') + '>' + esc(ui.busy ? 'Saving…' : 'Apply to this and future visits') + '</button>' : '') +
