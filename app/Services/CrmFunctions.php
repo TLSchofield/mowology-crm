@@ -2281,10 +2281,9 @@ function mergeContacts($keepId, $mergeId, $fieldChoices, $userId) {
         } catch (Exception $e) {}
 
         // Client roster (account recipients + identity row) — mergeContacts used to leave these on the dead contact.
-        try {
-            require_once APP_ROOT . '/Modules/Contacts/Services/ContactMergeLinks.php';
-            ContactMergeLinks::repoint($db, (int)$keepId, (int)$mergeId);
-        } catch (Exception $e) { error_log('mergeContacts roster repoint: ' . $e->getMessage()); }
+        // A failure here propagates: the whole merge rolls back rather than leaving an account on a dead contact.
+        require_once APP_ROOT . '/Modules/Contacts/Services/ContactMergeLinks.php';
+        ContactMergeLinks::repoint($db, (int)$keepId, (int)$mergeId);
 
         // 4. Soft-delete the merged contact
         $hasMergedCol = false;
