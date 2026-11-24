@@ -83,6 +83,11 @@ def _table(headers, rows, empty="Nothing."):
     return "<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % ("".join("<th>%s</th>" % E(h) for h in headers), "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % c for c in r) for r in rows))
 
 
+def _reasons_json():
+    import reasons
+    return "<script type='application/json' id='reasons'>%s</script>" % json.dumps({"reasons": {d: [list(x) for x in v] for d, v in reasons.REASONS.items()}, "teaches": reasons.TEACHES}).replace("</", "<\\/")
+
+
 def _clip(text, n=360):
     text = " ".join((text or "").split())
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
@@ -103,11 +108,15 @@ def _buildable(ada, t, payload):
 
 
 def _controls(tid, actions, interactive, cmds):
-    """Served mode: a reason box + buttons (reason is required: the department learns from it). Static mode: the terminal commands."""
+    """Served mode: action buttons; pressing one opens a short pick-list of reasons (each teaches the agents something) + optional detail.
+    Static mode: the terminal commands."""
     if not interactive:
         return " ".join(_cmd(c) for c in cmds)
     label = {"release": "Release to production", "approve": "Accept", "reject": "Reject", "revise": "Revise", "unblock": "Unblock"}
-    return ("<form class='decide' data-id='%d' onsubmit='return false'><label class='meta'>Why? (required)<br><input type='text' name='reason' maxlength='300' required placeholder='one line, e.g. "quotes are our main revenue" / "the phone number is deliberate" / "only on the contact page"'></label> %s <span class='result meta' role='status'></span></form>"
+    return ("<form class='decide' data-id='%d' onsubmit='return false'><span class='btns'>%s</span>"
+            "<div class='picker' hidden><label>Why? <select name='code'></select></label> <label>Detail (optional) <input type='text' name='note' maxlength='300'></label> "
+            "<button type='button' class='confirm'>Confirm</button> <button type='button' class='cancel'>Cancel</button><p class='teach meta'></p></div>"
+            "<span class='result meta' role='status'></span></form>"
             % (tid, " ".join("<button type='button' class='act %s' data-decision='%s'>%s</button>" % (a, a, label[a]) for a in actions)))
 
 
@@ -220,7 +229,7 @@ def render(ada, db, interactive=False):
     S.append("<section><h2>Briefings</h2><ul>%s</ul><p class='meta'>Subscription usage is not measurable from here; the run table shows runs and seconds only.</p></section>" % "".join("<li><a href='%s'>%s</a></li>" % (E(_file_url(os.path.join(bdir, f))), E(f)) for f in files))
 
     css = _tokens_css() + CSS
-    return "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>%s<title>Ittai department</title><style>%s</style></head><body><main>%s</main><script>%s</script></body></html>" % ("" if interactive else "<meta http-equiv='refresh' content='300'>", css, "".join(S), JS + (ACT_JS if interactive else ""))
+    return "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>%s<title>Ittai department</title><style>%s</style></head><body><main>%s</main>%s<script>%s</script></body></html>" % ("" if interactive else "<meta http-equiv='refresh' content='300'>", css, "".join(S), _reasons_json() if interactive else "", JS + (ACT_JS if interactive else ""))
 
 
 def _spark(vals):
@@ -245,8 +254,9 @@ ul.need{list-style:none;padding:0;margin:0}ul.need li{padding:12px 0;border-bott
 code{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font:13px ui-monospace,Menlo,monospace;word-break:break-all}
 button.copy{min-height:44px;min-width:64px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;font:inherit;font-size:14px;cursor:pointer}
 button.act{min-height:44px;min-width:88px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:15px;cursor:pointer;background:var(--surface);color:var(--text)}
+button.confirm,button.cancel{min-height:44px;min-width:88px;border:1px solid var(--line);border-radius:8px;font:inherit;cursor:pointer;background:var(--surface);color:var(--text)}button.confirm{background:var(--tenant);color:var(--on-tenant);border-color:var(--tenant);font-weight:600}form.decide .picker{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}form.decide .picker[hidden]{display:none}form.decide .teach{flex-basis:100%;margin:0}form.decide label{font-size:14px;color:var(--meta)}
 button.act.approve{background:var(--tenant);color:var(--on-tenant);border-color:var(--tenant);font-weight:600}
-form.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}form.decide input{min-height:44px;min-width:min(100%,420px);border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
+form.decide{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}form.decide select,form.decide input{min-height:44px;min-width:min(100%,320px);border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;background:var(--surface);color:var(--text)}
 button.copy:focus-visible,button.act:focus-visible,input:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 details{border-top:1px solid var(--line);padding:10px 0}summary{cursor:pointer;min-height:44px}a{color:var(--brand)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
@@ -255,13 +265,21 @@ details{border-top:1px solid var(--line);padding:10px 0}summary{cursor:pointer;m
 @media (max-width:600px){main{padding:16px 12px}section{padding:16px}}
 @media (prefers-reduced-motion:no-preference){section{transition:none}}
 """
-ACT_JS = """document.addEventListener('click',function(e){var b=e.target.closest('button.act');if(!b)return;var f=b.closest('form.decide');var r=f.querySelector('input[name=reason]');var out=f.querySelector('.result');
-if(!r.value.trim()){out.textContent='Please add a reason.';r.focus();return;}
-var d=b.getAttribute('data-decision');if(!confirm((d==='release'?'Release to production':d==='approve'?'Accept (this also starts the build)':d==='reject'?'Reject':d==='revise'?'Send back for revision':'Unblock')+' item #'+f.getAttribute('data-id')+'?'))return;
-f.querySelectorAll('button').forEach(function(x){x.disabled=true});out.textContent='Saving…';
-fetch('/api/decide',{method:'POST',headers:{'Content-Type':'application/json','X-Dept':'1'},credentials:'same-origin',body:JSON.stringify({id:+f.getAttribute('data-id'),decision:d,reason:r.value})})
-.then(function(x){return x.json().then(function(j){return [x.ok,j]})}).then(function(a){if(a[0]){out.textContent='Done — refreshing';setTimeout(function(){location.reload()},600)}else{out.textContent=a[1].error||'Failed';f.querySelectorAll('button').forEach(function(x){x.disabled=false})}})
-.catch(function(){out.textContent='Server stopped. Run: ada dashboard --serve';});});"""
+ACT_JS = """var R=JSON.parse(document.getElementById('reasons').textContent);
+document.addEventListener('click',function(e){var f,pk,res;
+var b=e.target.closest('button.act');
+if(b){f=b.closest('form.decide');pk=f.querySelector('.picker');var d=b.getAttribute('data-decision');f.setAttribute('data-pending',d);
+ var sel=pk.querySelector('select');sel.innerHTML='<option value="">Choose a reason…</option>'+R.reasons[d].map(function(r){return '<option value="'+r[0]+'">'+r[1]+'</option>'}).join('');
+ pk.hidden=false;f.querySelector('.btns').hidden=true;pk.querySelector('.teach').textContent='';f.querySelector('.result').textContent='';sel.focus();
+ sel.onchange=function(){pk.querySelector('.teach').textContent=(R.teaches[d]&&R.teaches[d][sel.value])?'Teaches the team: '+R.teaches[d][sel.value]:''};return;}
+if(e.target.closest('button.cancel')){f=e.target.closest('form.decide');f.querySelector('.picker').hidden=true;f.querySelector('.btns').hidden=false;return;}
+var c=e.target.closest('button.confirm');if(!c)return;f=c.closest('form.decide');pk=f.querySelector('.picker');res=f.querySelector('.result');
+var dd=f.getAttribute('data-pending'),code=pk.querySelector('select').value,note=pk.querySelector('input[name=note]').value;
+if(!code){res.textContent='Please choose a reason.';return;}if(code==='other'&&!note.trim()){res.textContent='Please add a short note for Other.';return;}
+pk.querySelectorAll('button').forEach(function(x){x.disabled=true});res.textContent='Saving…';
+fetch('/api/decide',{method:'POST',headers:{'Content-Type':'application/json','X-Dept':'1'},credentials:'same-origin',body:JSON.stringify({id:+f.getAttribute('data-id'),decision:dd,code:code,note:note})})
+.then(function(x){return x.json().then(function(j){return [x.ok,j]})}).then(function(a){if(a[0]){res.textContent=dd==='release'?'Release started — refresh in a few minutes':dd==='approve'?'Accepted — build starting':'Done';setTimeout(function(){location.reload()},900)}else{res.textContent=a[1].error||'Failed';pk.querySelectorAll('button').forEach(function(x){x.disabled=false})}})
+.catch(function(){res.textContent='Server stopped. Run: ada dashboard --serve';});});"""
 JS = "document.addEventListener('click',function(e){var b=e.target.closest('button.copy');if(!b)return;var t=b.getAttribute('data-cmd');(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied'},function(){b.textContent='Select + copy';});setTimeout(function(){b.textContent='Copy'},1500)});"
 
 

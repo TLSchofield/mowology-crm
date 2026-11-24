@@ -73,13 +73,18 @@ def make_server(ada, dashboard, idle_minutes=30, port=0):
                 return self._send(400, json.dumps({"error": "bad size"}), "application/json")
             try:
                 body = json.loads(self.rfile.read(n))
-                tid, decision, reason = int(body["id"]), str(body["decision"]), str(body["reason"]).strip()
+                tid, decision, code, note = int(body["id"]), str(body["decision"]), str(body["code"]), str(body.get("note", ""))
             except (ValueError, KeyError, TypeError):
                 return self._send(400, json.dumps({"error": "bad request"}), "application/json")
             if decision not in ("approve", "reject", "revise", "unblock", "release"):
                 return self._send(400, json.dumps({"error": "unknown decision"}), "application/json")
-            if not reason:
-                return self._send(400, json.dumps({"error": "a reason is required"}), "application/json")
+            import reasons
+            if not reasons.valid(decision, code):
+                return self._send(400, json.dumps({"error": "choose one of the listed reasons"}), "application/json")
+            try:
+                reason = reasons.compose(decision, code, note)
+            except ValueError as e:
+                return self._send(400, json.dumps({"error": str(e)}), "application/json")
             db = ada.connect()
             try:
                 if decision == "release":
@@ -99,9 +104,9 @@ def make_server(ada, dashboard, idle_minutes=30, port=0):
                     threading.Thread(target=go, daemon=True).start()
                     return self._send(200, json.dumps({"ok": True, "started": True}), "application/json")
                 if decision == "unblock":
-                    ada.unblock(db, tid, "tim", reason + " (via dashboard)")
+                    ada.unblock(db, tid, "tim", "[%s] %s (via dashboard)" % (code, reason))
                 else:
-                    ada.human_decision(db, tid, decision, reason + " (via dashboard)", tty=True)    # tty=True: the authenticated browser is the human channel
+                    ada.human_decision(db, tid, decision, reason + " (via dashboard)", tty=True, code=code)    # tty=True: the authenticated browser is the human channel
                 ada.refresh_dashboard(db)
                 return self._send(200, json.dumps({"ok": True}), "application/json")
             except (ada.Refused, ada.C.Refused) as e:

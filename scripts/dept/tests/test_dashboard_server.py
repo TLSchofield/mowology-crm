@@ -69,20 +69,21 @@ class Server(unittest.TestCase):
 
     def test_accept_works_records_the_reason_and_syncs_state(self):
         c = self.login()
-        st, body, _ = self.post(c, {"id": self.tid, "decision": "approve", "reason": "yes, build it"})
+        st, body, _ = self.post(c, {"id": self.tid, "decision": "approve", "code": "revenue", "note": "yes, build it"})
         self.assertEqual((st, json.loads(body)["ok"]), (200, True))
         self.assertEqual(self.state(), "approved")
         r = self.db.execute("SELECT actor, reason FROM transitions WHERE task_id=? ORDER BY id DESC", (self.tid,)).fetchone()
-        self.assertEqual(r["actor"], "tim"); self.assertIn("via dashboard", r["reason"])
+        self.assertEqual(r["actor"], "tim"); self.assertIn("via dashboard", r["reason"]); self.assertIn("[revenue]", r["reason"]); self.assertIn("It helps us win or keep customers", r["reason"])
 
     def test_a_reason_is_mandatory_and_bad_requests_change_nothing(self):
         c = self.login()
-        for payload in ({"id": self.tid, "decision": "approve", "reason": "  "}, {"id": self.tid, "decision": "delete", "reason": "x"}, {"decision": "approve", "reason": "x"}):
+        for payload in ({"id": self.tid, "decision": "approve", "code": "other", "note": "  "}, {"id": self.tid, "decision": "approve", "code": ""}, {"id": self.tid, "decision": "approve", "code": "not_now"},   # a reject-reason on an accept
+                        {"id": self.tid, "decision": "approve"}, {"id": self.tid, "decision": "delete", "code": "revenue"}, {"decision": "approve", "code": "revenue"}):
             self.assertEqual(self.post(c, payload)[0], 400)
         self.assertEqual(self.state(), "awaiting_approval")
 
     def test_cross_site_and_headerless_posts_are_refused(self):
-        c = self.login(); good = {"id": self.tid, "decision": "approve", "reason": "x"}
+        c = self.login(); good = {"id": self.tid, "decision": "approve", "code": "revenue"}
         self.assertEqual(self.post(c, good, Origin="https://evil.example")[0], 403)
         self.assertEqual(self.post(c, good, Origin="null")[0], 403)
         self.assertEqual(self.post(c, good, **{"X-Dept": "0"})[0], 400)
@@ -92,13 +93,13 @@ class Server(unittest.TestCase):
 
     def test_illegal_moves_are_still_refused_by_the_engine(self):
         c = self.login()
-        self.post(c, {"id": self.tid, "decision": "reject", "reason": "no"})
-        st, body, _ = self.post(c, {"id": self.tid, "decision": "approve", "reason": "changed my mind"})
+        self.post(c, {"id": self.tid, "decision": "reject", "code": "deliberate"})
+        st, body, _ = self.post(c, {"id": self.tid, "decision": "approve", "code": "revenue", "note": "changed my mind"})
         self.assertEqual(st, 409); self.assertEqual(self.state(), "rejected")
 
     def test_revise_parks_the_item_so_it_does_not_bounce_back(self):
         c = self.login()
-        self.post(c, {"id": self.tid, "decision": "revise", "reason": "smaller scope"})
+        self.post(c, {"id": self.tid, "decision": "revise", "code": "smaller", "note": "smaller scope"})
         self.assertEqual(self.state(), "proposed"); self.ada.prioritise(self.db)
         self.assertEqual(self.state(), "proposed")
 
@@ -106,7 +107,7 @@ class Server(unittest.TestCase):
         c = self.login()
         t2 = self.ada.add_task(self.db, "b", "Stuck", "audit", "guardian")[0]
         self.ada.transition(self.db, t2, "blocked", "system", "needs a human")
-        self.assertEqual(self.post(c, {"id": t2, "decision": "unblock", "reason": "fixed"})[0], 200)
+        self.assertEqual(self.post(c, {"id": t2, "decision": "unblock", "code": "fixed"})[0], 200)
         self.assertEqual(self.db.execute("SELECT state FROM tasks WHERE id=?", (t2,)).fetchone()["state"], "discovered")
 
     def test_the_static_file_still_has_no_buttons_and_binds_to_localhost_only(self):
@@ -121,14 +122,14 @@ if __name__ == "__main__":
 class ReleaseFromThePage(Server):
     def test_release_is_started_in_the_background_only_for_built_work(self):
         c = self.login()
-        self.assertEqual(self.post(c, {"id": self.tid, "decision": "release", "reason": "go"})[0], 409)       # not awaiting release
+        self.assertEqual(self.post(c, {"id": self.tid, "decision": "release", "code": "checked"})[0], 409)       # not awaiting release
         called = []
         import forge
         orig = forge.release
         forge.release = lambda ada, db, tid, tty, runner=None: called.append((tid, tty)) or []
         try:
             t2 = self.ada.add_task(self.db, "r", "Built", "improvement", "sentinel", state="awaiting_release_approval", actor="sentinel")[0]
-            st, body, _ = self.post(c, {"id": t2, "decision": "release", "reason": "ship it"})
+            st, body, _ = self.post(c, {"id": t2, "decision": "release", "code": "urgent", "note": "ship it"})
             import time; time.sleep(0.5)
         finally:
             forge.release = orig

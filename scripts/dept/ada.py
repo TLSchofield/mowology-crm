@@ -250,14 +250,14 @@ def unblock(db, tid, actor, reason):
     db.commit()
 
 
-def human_decision(db, tid, decision, reason, tty):
+def human_decision(db, tid, decision, reason, tty, code=None):
     """approve | reject | revise — the only way work becomes Approved. Needs a real terminal (agents have none)."""
     if not tty:
         raise Refused("approvals need an interactive terminal; an agent or script cannot approve")
     if not reason.strip():
         raise Refused("a reason is required — the department learns from it")
     to = {"approve": "approved", "reject": "rejected", "revise": "proposed"}[decision]
-    transition(db, tid, to, "tim", reason)
+    transition(db, tid, to, "tim", ("[%s] " % code if code else "") + reason)
     if decision == "revise":      # park it: prioritise() skips tasks waiting for a revision so it does not bounce straight back
         p = json.loads(get_task(db, tid)["payload"] or "{}"); p["revision_requested"] = reason
         db.execute("UPDATE tasks SET payload=? WHERE id=?", (json.dumps(p), tid)); db.commit()
@@ -265,7 +265,7 @@ def human_decision(db, tid, decision, reason, tty):
     sen = os.path.join(HERE, "..", "sentinel", "sentinel.py")
     if t["source_ref"] and t["agent"] == "sentinel" and os.path.exists(sen):  # one shared decision history
         verb = {"approve": "accept", "reject": "reject", "revise": "modify"}[decision]
-        subprocess.run([sys.executable, sen, "decide", t["source_ref"], verb, reason], env=dict(os.environ), capture_output=True)
+        subprocess.run([sys.executable, sen, "decide", t["source_ref"], verb, reason] + (["--code", code] if code else []), env=dict(os.environ), capture_output=True)
     if decision == "approve" and t["kind"] == "improvement":      # accepting IS the instruction to build (never to deploy)
         try:
             import forge
