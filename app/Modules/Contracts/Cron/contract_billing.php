@@ -346,7 +346,7 @@ foreach (($retryOnly ? [] : $contracts) as $ctr) {   // retry-only creates nothi
              : ($fresh['billing_cycle'] !== 'monthly' ? 'no longer billed monthly'
              : (!$plan->fetchColumn() ? 'no active plan'
              : (!ContractService::inForceForMonth($fresh['start_date'], $fresh['end_date'], date('Y-m-01'), date('Y-m-t')) ? 'not in force this month (start ' . ($fresh['start_date'] ?: '—') . ', end ' . ($fresh['end_date'] ?: '—') . ')'
-             : ($recurring ? $recurring->holdReason(['contact_id' => $contactId, 'property_id' => (int)$ctr['property_id'], 'company_id' => $ctr['company_id'] !== null ? (int)$ctr['company_id'] : null, 'billing_amount' => $fresh['billing_amount']]) : null))));
+             : ($recurring ? $recurring->holdReason(['contact_id' => $contactId, 'property_id' => (int)$ctr['property_id'], 'company_id' => ($ctr['billing_company_id'] ?? $ctr['contact_company_id'] ?? null) !== null ? (int)($ctr['billing_company_id'] ?? $ctr['contact_company_id']) : null, 'billing_amount' => $fresh['billing_amount']]) : null))));
         if ($why !== null) {
             $db->rollBack();
             $skipped[] = $ctr['contract_number'] . " ({$why})";
