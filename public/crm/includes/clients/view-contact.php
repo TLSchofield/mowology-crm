@@ -832,6 +832,9 @@
                                   <?php if (!empty($inv['issue_date'])): ?>
                                     <br><small class="text-muted"><?php echo formatDate($inv['issue_date']); ?></small>
                                   <?php endif; ?>
+                                  <?php if (!empty($inv['billed_to_other'])): ?>
+                                    <br><small class="text-muted">billed to <?php echo h($inv['billed_to']); ?></small>
+                                  <?php endif; ?>
                                 </td>
                                 <td>
                                   <?php echo getStatusBadge($inv['status'], 'invoice'); ?>

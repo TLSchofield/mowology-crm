@@ -196,6 +196,8 @@ try {
         $user['id'],
     ]);
     $invoiceId = (int)$db->lastInsertId();
+    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+    InvoiceRouting::stampClientId($db, $invoiceId);
 
     // Insert line items
     $insLi = $db->prepare("

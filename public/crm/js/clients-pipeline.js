@@ -314,8 +314,20 @@
                 var visible = 0;
                 rows.forEach(function(row) {
                   var data = row.getAttribute('data-search') || '';
-                  var match = !query || data.indexOf(query) !== -1;
+                  var props = (row.getAttribute('data-props') || '').split('|').filter(Boolean);
+                  var propHit = '';
+                  if (query) {
+                    for (var i = 0; i < props.length; i++) {
+                      if (props[i].indexOf(query) !== -1) { propHit = props[i]; break; }
+                    }
+                  }
+                  var match = !query || data.indexOf(query) !== -1 || propHit !== '';
                   row.style.display = match ? '' : 'none';
+                  var note = row.querySelector('.mw-prop-match');
+                  if (note) {
+                    note.textContent = propHit ? 'Property: ' + propHit : '';
+                    note.classList.toggle('d-none', !propHit);
+                  }
                   if (match) visible++;
                 });
 
@@ -324,7 +336,8 @@
                 cards.forEach(function(card) {
                   var name = (card.getAttribute('data-company-name') || '').toLowerCase();
                   var text = (card.textContent || '').toLowerCase();
-                  var match = !query || name.indexOf(query) !== -1 || text.indexOf(query) !== -1;
+                  var match = !query || name.indexOf(query) !== -1 || text.indexOf(query) !== -1 ||
+                    (card.getAttribute('data-props') || '').indexOf(query) !== -1;
                   card.style.display = match ? '' : 'none';
                 });
 

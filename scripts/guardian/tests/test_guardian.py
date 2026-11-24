@@ -79,6 +79,17 @@ class Findings(unittest.TestCase):
         out = self.f([], rules="RULE secret           app/x.php: 1 (baseline 0) — msg\nRULE inline-style     public/crm/a.php: 2 (baseline 1) — msg\n")
         self.assertEqual({x["key"]: x["severity"] for x in out}, {"rule|app/x.php": "P0", "rule|public/crm/a.php": "P2"})
 
+    def test_a_failing_iphone_compile_is_p1_and_a_clean_one_is_silent(self):
+        bad = {"results": [], "site": {}, "ios": {"ok": False, "files": 214, "errors": 2, "warnings": 9, "first_error": "Foo.swift:3:1: error: cannot find 'x' in scope"}}
+        out = self.G.findings_from(bad, "")
+        self.assertEqual([(f["key"], f["severity"], f["area"]) for f in out], [("ios-compile|MowologyCRM", "P1", "ios")])
+        self.assertIn("cannot find", out[0]["evidence"][0])
+        self.assertEqual(self.G.findings_from({"results": [], "site": {}, "ios": {"ok": True, "files": 214, "errors": 0, "warnings": 9, "first_error": ""}}, ""), [])
+
+    def test_ios_typecheck_is_skipped_without_ios_code(self):
+        with tempfile.TemporaryDirectory() as t:
+            self.assertIsNone(self.G.ios_typecheck(t)); self.assertIsNone(self.G.ios_typecheck(None))
+
     def test_missing_basics_are_reported(self):
         keys = {x["key"] for x in self.f([page(measure={"h1": 0, "description": "", "lang": "", "imagesNoAlt": 2, "viewportMeta": False})])}
         self.assertEqual(keys, {"h1|P", "description|P", "lang|P", "alt|P", "viewport|P"})

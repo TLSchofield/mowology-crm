@@ -69,6 +69,14 @@ struct ReceiptsView: View {
     // Same upload + OCR, never an expense; Penny or Otto proposes it on the web.
     @State private var labelMode = false
     @State private var showLabelResult = false
+    // Add dial → Product: camera or library, then "Add it" (name + cost) on the phone.
+    @State private var showAddProductChoice = false
+    @State private var libraryForProduct = false
+    @State private var showProductAdd = false
+    @State private var productName = ""
+    @State private var productCost = ""
+    @State private var productNote: String?
+    @State private var productAddError: String?
 
     // Observed so the "N pending" badge re-renders when a queue drains, instead of
     // only on unrelated redraws.
@@ -129,6 +137,16 @@ struct ReceiptsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .mwSnapReceipt)) { _ in snap(label: false) }
         // Otto's "Snap a product label" (MainTabView brings Receipts forward first): the same label capture as the ⋯ menu.
         .onReceive(NotificationCenter.default.publisher(for: .mwSnapLabelOnReceipts)) { _ in snap(label: true) }
+        // Add dial → Product (MainTabView brings Receipts forward first): photo or library, then Add it.
+        .onReceive(NotificationCenter.default.publisher(for: .mwAddProductOnReceipts)) { _ in
+            guard !isPreparingCapture, !viewModel.isUploading, nextPages.isEmpty, weakCapture == nil else { return }
+            showAddProductChoice = true
+        }
+        .modifier(AddProductFlow(
+            viewModel: viewModel, showChoice: $showAddProductChoice, showAdd: $showProductAdd,
+            name: $productName, cost: $productCost, note: $productNote, addError: $productAddError,
+            onCamera: { snap(label: true) },
+            onLibrary: { labelMode = false; libraryForProduct = true; pickerItem = nil; showLibrary = true }))
         .task {
 #if DEBUG
             if Self.receiptsListDemoEnabled {
@@ -178,7 +196,7 @@ struct ReceiptsView: View {
             }
         }
         // Library fallback (PhotosPicker sheet)
-        .sheet(isPresented: $showLibrary) {
+        .sheet(isPresented: $showLibrary, onDismiss: { libraryForProduct = false }) {
             librarySheet
         }
         // Review sheet shown after successful OCR upload. "Snap Another" reopens the
@@ -319,6 +337,7 @@ struct ReceiptsView: View {
         }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
+            let pickedForProduct = libraryForProduct   // read now: the sheet's dismissal resets it
             showLibrary = false
             isPreparingCapture = true
             Task {
@@ -336,7 +355,7 @@ struct ReceiptsView: View {
                     viewModel.uploadError = "Couldn't read that photo — try another, or take a picture of the receipt."
                     return
                 }
-                await handleCapture(compressed, asLabel: false)   // the library is for receipts
+                await handleCapture(compressed, asLabel: pickedForProduct)   // the library is for receipts, unless Add → Product sent it
             }
         }
     }
@@ -496,7 +515,15 @@ struct ReceiptsView: View {
         let loc = fix ?? locationManager.location
         if asLabel {
             await viewModel.uploadLabel(compressed, lat: loc?.coordinate.latitude, lng: loc?.coordinate.longitude)
-            if viewModel.labelResult != nil { showLabelResult = true }
+            if let r = viewModel.labelResult {
+                if let proposal = r.proposal {
+                    productName = proposal.name
+                    productCost = proposal.unitCost.map { String(format: "%.2f", $0) } ?? ""
+                    showProductAdd = true
+                } else {
+                    showLabelResult = true
+                }
+            }
             return
         }
         await viewModel.uploadImage(
@@ -1148,5 +1175,74 @@ struct ReceiptsEmptyStateView: View {
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(appStyle.page)
+    }
+}
+
+
+/// Add dial → Product: camera or library, then "Add it" with the name and cost the label gave.
+/// Its own modifier so ReceiptsView's body stays quick for the compiler.
+private struct AddProductFlow: ViewModifier {
+    @ObservedObject var viewModel: ReceiptsViewModel
+    @Binding var showChoice: Bool
+    @Binding var showAdd: Bool
+    @Binding var name: String
+    @Binding var cost: String
+    @Binding var note: String?
+    @Binding var addError: String?
+    let onCamera: () -> Void
+    let onLibrary: () -> Void
+
+    private var proposal: LabelCaptureResponse.Proposal? { viewModel.labelResult?.proposal }
+    private var noteShown: Binding<Bool> {
+        Binding(get: { note != nil }, set: { if !$0 { note = nil } })
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Add a product", isPresented: $showChoice, titleVisibility: .visible) {
+                Button("Take a photo of the label", action: onCamera)
+                Button("Choose from photo library", action: onLibrary)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Photograph the product's label or bag. The name and details are read from it.")
+            }
+            .alert(proposal?.isNew == false ? "Add the photo" : "Add this product?", isPresented: $showAdd) {
+                if proposal?.isNew != false {
+                    TextField("Name", text: $name)
+                    TextField("Cost (optional)", text: $cost).keyboardType(.decimalPad)
+                }
+                Button("Add") { addTapped() }
+                Button("Not now", role: .cancel) { addError = nil; viewModel.labelResult = nil }
+            } message: {
+                Text(addMessage)
+            }
+            .alert("Product", isPresented: noteShown) {
+                Button("OK") { note = nil }
+            } message: {
+                Text(note ?? "")
+            }
+    }
+
+    private var addMessage: String {
+        guard let r = viewModel.labelResult, let p = r.proposal else { return "" }
+        if let addError { return "Couldn't add it: \(addError)" }
+        return p.isNew ? "\(r.message)\n\n\"Not now\" leaves it on Penny's card on the dashboard."
+                       : "That's \(p.name). Add this photo to it?"
+    }
+
+    private func addTapped() {
+        guard let p = proposal else { return }
+        let n = name, c = cost
+        Task {
+            let r = await viewModel.addLabelProduct(p, name: n, cost: c)
+            if r.ok {
+                addError = nil
+                note = r.text
+                viewModel.labelResult = nil
+            } else {
+                addError = r.text      // keep the reading and the fields; ask again with the reason
+                showAdd = true
+            }
+        }
     }
 }

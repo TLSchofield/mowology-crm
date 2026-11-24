@@ -216,6 +216,16 @@ def render(ada, db, interactive=False):
         E(", ".join("%s %d" % (r["stage"], r["c"]) for r in real) or "empty — no real prospect researched"), cap.get("verified", 0), cap.get("evidence_found", 0), cap.get("unverified", 0),
         q("SELECT COUNT(*) c FROM suppressions")[0]["c"], "<p>" + _cmd('ada verify-capability "<name>" --note "checked how"') + "</p>"))
 
+    # ---- Oracle
+    rings = {r["ring"]: r["c"] for r in q("SELECT ring, COUNT(*) c FROM radar GROUP BY ring")}
+    opps = q("SELECT * FROM research_opps WHERE state NOT IN ('rejected','completed') ORDER BY horizon, id")
+    bdir_o = os.path.join(ada.DEPT, "briefings")
+    ob = sorted(f for f in os.listdir(bdir_o) if f.startswith("oracle-"))[-1:] if os.path.isdir(bdir_o) else []
+    S.append("<section><h2>Oracle <span class='meta'>research and foresight, recommend-only</span></h2><p>Radar: %s.</p>%s<p class='meta'>%s</p></section>" % (
+        E(", ".join("%s %d" % (r, rings.get(r, 0)) for r in ("adopt", "trial", "assess", "watch", "avoid")) if rings else "empty: Oracle has not researched yet (`ada oracle on` for the weekly run)"),
+        _table(["#", "Horizon", "Opportunity", "State", "For"], [[str(o["id"]), "H%d" % o["horizon"], E(o["title"]), E(o["state"].replace("_", " ")), E(o["target"])] for o in opps[:8]], "No open research opportunities."),
+        ("<a href='%s'>Latest briefing: %s</a>" % (E(_file_url(os.path.join(bdir_o, ob[0]))), E(ob[0]))) if ob else "No Oracle briefing yet."))
+
     # ---- Team cards
     S.append("<section><h2>The team <span class='meta'>what each agent does, and whether it is built</span></h2>%s</section>" % _cards(ada, db, signed))
     S.append("<section><h2>Permissions <span class='meta'>autonomy level per task category</span></h2>%s</section>" % _table(["Agent", "Category", "Level", "Max risk", "Since", "Status"], [

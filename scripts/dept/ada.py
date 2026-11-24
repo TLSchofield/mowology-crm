@@ -19,6 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import commercial as C  # noqa: E402
 import agents as AG  # noqa: E402
+import oracle as ORC  # noqa: E402
 
 STATES = ["discovered", "investigating", "proposed", "awaiting_approval", "approved", "implementing", "awaiting_verification",
           "verification_failed", "verified", "awaiting_release_approval", "released", "measuring_outcomes", "completed",
@@ -29,7 +30,7 @@ COMMERCIAL = {"apollo", "mercury", "hunter", "scribe", "beacon", "closer", "amba
 
 
 def dept_of(agent):
-    return "apollo" if agent in COMMERCIAL else ("shared" if agent == "atlas" else "ada")
+    return "apollo" if agent in COMMERCIAL else ("shared" if agent in ("atlas", "oracle") else "ada")
 
 PROPOSERS = AGENTS | {"ada"}
 # (from_state, to_state) -> actors allowed. 'system' = recovery inside tick. Anything not listed is refused.
@@ -104,6 +105,7 @@ def connect():
         if col not in [r["name"] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]:
             db.execute("ALTER TABLE tasks ADD COLUMN %s %s" % (col, ddl))
     C.ensure_schema(db)
+    ORC.ensure_schema(db)
     return db
 
 
@@ -144,6 +146,7 @@ PERMS = [  # agent, category, level, tools-note, environments, limits-note
     ("scribe", "draft-commercial", 3, "no tools", "drafts inside the pipeline", "verified claims only; drafts are never sent"),
     ("apollo", "evaluate-opportunities", 2, "no tools", "pipeline records", "recommend; the owner approves"),
     ("closer", "prepare-sales-plan", 3, "no tools", "pipeline records", "verified capabilities only"),
+    ("oracle", "research-public-web", 2, "WebSearch/WebFetch read-only", "public web, primary sources; synthetic data and isolated worktrees for any experiment design", "recommend only; experiments are designed, never executed; never deploys, buys or contacts anyone"),
     ("atlas", "capture-lessons", 2, "deterministic script", "pipeline history", "lessons stay draft until verified"),
     ("forge", "build-in-worktree", 3, "scripts/codex-web-build.sh (Codex, redacted copy) + isolated git worktree; no merge, no deploy without the owner", "build worktrees under ~/.mowology-dept/builds; public site and app/ code only", "max 8 files / 400 lines; money, auth, tenant, migrations, secrets refused"),
     ("guardian", "verify-readonly", 1, "deterministic scripts + headless Chrome, read-only", "public websites; code snapshot of origin/feature/language", "no model, no writes, no customer data"),
@@ -217,7 +220,7 @@ def transition(db, tid, to_state, actor, reason=""):
         raise Refused("%s may not move task %s from %s to %s" % (actor, tid, frm, to_state))
     if to_state in TIM_ONLY and actor != "tim":
         raise Refused("only the product owner can move work to " + to_state)
-    if (frm, to_state) == ("investigating", "completed") and t["kind"] not in ("audit", "commercial"):
+    if (frm, to_state) == ("investigating", "completed") and t["kind"] not in ("audit", "commercial", "research"):
         raise Refused("only audit and commercial work tasks may complete straight from investigating")
     if to_state == "verified" and t["implementer"] == actor:
         raise Refused("an agent cannot verify its own implementation")
@@ -366,7 +369,7 @@ def guardian_worker(task, db):
     if os.path.isdir(os.path.join(repo, ".git")) and not os.environ.get("GUARDIAN_STANDIN_METRICS"):
         import tempfile
         tmp = tempfile.mkdtemp(prefix="guardian-src-")
-        subprocess.run("git -C '%s' archive origin/feature/language -- public app database 2>/dev/null | tar -x -C '%s'" % (repo, tmp), shell=True)
+        subprocess.run("git -C '%s' archive origin/feature/language -- public app database ios/MowologyCRM 2>/dev/null | tar -x -C '%s'" % (repo, tmp), shell=True)
         root = tmp
     try:
         metrics, rules_out, notes = G.collect(run_dir, root)
@@ -410,7 +413,7 @@ def guardian_worker(task, db):
 
 WORKERS = {"sentinel": ("audit-public-web", sentinel_worker), "guardian": ("verify-readonly", guardian_worker)}
 for _a, (_cat) in (("mercury", "audit-public-web"), ("compass", "research-public-web"), ("hunter", "research-public-web"), ("scribe", "draft-commercial"),
-                   ("apollo", "evaluate-opportunities"), ("closer", "prepare-sales-plan"), ("atlas", "capture-lessons")):
+                   ("apollo", "evaluate-opportunities"), ("closer", "prepare-sales-plan"), ("atlas", "capture-lessons"), ("oracle", "research-public-web")):
     WORKERS[_a] = (_cat, AG.worker)
 for _a in ("beacon", "ambassador"):
     WORKERS[_a] = ("dormant", AG.worker)
@@ -542,6 +545,8 @@ def cycle(db, today=None):
         add_task(db, "sentinel:audit:daily:" + today, "Sentinel daily audit " + today, "audit", "sentinel", payload={"audit": "daily"})
         if d.weekday() == 6:
             add_task(db, "sentinel:audit:weekly:" + today, "Sentinel weekly audit " + today, "audit", "sentinel", payload={"audit": "weekly"})
+        if get_ctl(db, "oracle_on") and AG.cli_ready() and d.weekday() == 2:
+            add_task(db, "oracle:weekly:" + today, "Oracle weekly research " + today, "research", "oracle", payload={"input": {"focus": "weekly radar review: entries due for review, then at most 3 new findings; then the current-service review below", "service_focus": ORC.next_service(db)}})
         if get_ctl(db, "commercial_on") and AG.cli_ready():
             if d.weekday() == 0:
                 add_task(db, "compass:market:" + today, "Compass weekly market review " + today, "commercial", "compass", payload={"input": {"focus": "see memory/compass/brief.md; evidence with sources only"}})
@@ -691,6 +696,9 @@ def main(argv=None):
     p = sub.add_parser("commercial"); p.add_argument("onoff", choices=["on", "off"])
     p = sub.add_parser("forge-build"); p.add_argument("id", type=int)
     p = sub.add_parser("release"); p.add_argument("id", type=int)
+    p = sub.add_parser("oracle"); p.add_argument("onoff", choices=["on", "off"])
+    p = sub.add_parser("approve-experiment"); p.add_argument("id", type=int)
+    sub.add_parser("radar"); sub.add_parser("research"); sub.add_parser("oracle-briefing")
     sub.add_parser("pipeline"); sub.add_parser("capabilities"); sub.add_parser("demo-commercial"); sub.add_parser("roster")
     p = sub.add_parser("dashboard"); p.add_argument("--open", action="store_true"); p.add_argument("--serve", action="store_true")
     p = sub.add_parser("revoke"); p.add_argument("agent"); p.add_argument("category"); p.add_argument("--reason", required=True)
@@ -766,6 +774,19 @@ def main(argv=None):
             for line in forge.release(types.SimpleNamespace(**globals()), db, a.id, sys.stdin.isatty()):
                 print(line)
             refresh_dashboard(db)
+        elif a.cmd == "oracle":
+            set_ctl(db, "oracle_on", now() if a.onoff == "on" else None); print("Oracle weekly research", a.onoff)
+        elif a.cmd == "approve-experiment":
+            ORC.approve_experiment(db, a.id, "tim", sys.stdin.isatty()); print("experiment approved (it is designed, not run: execution is not enabled)")
+        elif a.cmd == "radar":
+            for r in db.execute("SELECT ring, tech, evidence_rank, next_review FROM radar ORDER BY CASE ring WHEN 'adopt' THEN 1 WHEN 'trial' THEN 2 WHEN 'assess' THEN 3 WHEN 'watch' THEN 4 ELSE 5 END, tech").fetchall():
+                print("%-7s %-40s evidence %d/3  review %s" % (r["ring"], r["tech"], r["evidence_rank"], r["next_review"]))
+        elif a.cmd == "research":
+            for r in db.execute("SELECT id, horizon, state, target, title FROM research_opps ORDER BY id").fetchall():
+                print("#%-3d H%d %-26s -> %-6s %s" % (r["id"], r["horizon"], r["state"], r["target"], r["title"]))
+        elif a.cmd == "oracle-briefing":
+            text = ORC.weekly_briefing(db); out = os.path.join(DEPT, "briefings"); os.makedirs(out, exist_ok=True)
+            path = os.path.join(out, "oracle-%s.md" % datetime.date.today().isoformat()); open(path, "w").write(text); print(path)
         elif a.cmd == "roster":
             for n, r in roster().items():
                 print("%-14s %-10s %-18s %s%s" % (n, r["department"], r["status"], r["role"], ("\n%14s build when: %s" % ("", r["build_trigger"])) if r["status"] == "planned" and r.get("build_trigger") else ""))
@@ -777,7 +798,7 @@ def main(argv=None):
                 print("%-14s %s%s" % (r["status"], r["name"], (" — " + r["limitations"]) if r["limitations"] else ""))
         elif a.cmd == "revoke":
             print("revoked", revoke(db, a.agent, a.category, a.reason))
-    except (Refused, C.Refused) as e:
+    except (Refused, C.Refused, ORC.Refused) as e:
         print("ada:", e, file=sys.stderr)
         return 3
     return 0

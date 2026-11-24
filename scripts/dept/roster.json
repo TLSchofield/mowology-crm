@@ -26,8 +26,8 @@
       "role": "Deterministic verification: rules ratchet, page audit, findings",
       "spec": "scripts/guardian/README.md",
       "next": "docs/department/specs/guardian-roadmap.md",
-      "does": "Measures the real pages every night (speed, weight, accessibility, small tap targets, broken links, SEO basics) and checks every merge against your CLAUDE.md rules. No AI involved, so it is cheap and repeatable.",
-      "limits": "Public pages only so far. Does not test signed-in screens, native apps or security yet."
+      "does": "Measures the real pages every night (speed, weight, accessibility, small tap targets, broken links, SEO basics), compiles the whole iPhone app, and checks every merge against your CLAUDE.md rules. No AI involved, so it is cheap and repeatable.",
+      "limits": "Public pages and the iPhone compile only so far. No simulator screenshots until the iOS runtime is reinstalled; no signed-in screens, Android or security tests yet."
     },
     "atlas": {
       "department": "shared",
@@ -82,13 +82,13 @@
     },
     "oracle": {
       "department": "ada",
-      "status": "planned",
-      "kind": "unspecified",
-      "role": "Future possibilities (named in two specs, never specified)",
+      "status": "built-off",
+      "kind": "model",
+      "role": "Strategic foresight and research for Ada and Apollo (lean): technology radar, opportunity register, experiment designs, weekly briefing",
       "spec": "docs/department/specs/oracle.md",
-      "build_trigger": "You write its brief",
-      "does": "Named in two specs but never defined.",
-      "limits": "Not built: needs a written brief from you."
+      "does": "Researches emerging technology and strategy for both departments from primary sources: a technology radar (Adopt/Trial/Assess/Watch/Avoid), a register of opportunities with 17 states, experiment designs and one weekly briefing. Each week it also studies ONE current service (Charlie, Sam, Penny, Otto, Mia, Ada, Yui, the crew apps or the platform) and proposes research-backed improvements to it. Recommend-only; hands ideas to Ada or Apollo as ordinary proposals for your approval.",
+      "limits": "Switched off until you run: ada oracle on (Wednesdays). Designs experiments but cannot run them. A vendor claim alone can never lift a technology above Assess.",
+      "wake": "ada oracle on"
     },
     "apollo": {
       "department": "apollo",

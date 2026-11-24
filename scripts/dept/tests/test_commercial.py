@@ -336,7 +336,7 @@ class Departments(Base):
 
     def test_agent_definitions_and_registry_agree_and_none_can_write(self):
         reg = json.load(open(os.path.join(DEPT, "registry.json")))["agents"]
-        self.assertEqual(set(reg), {"apollo", "mercury", "hunter", "scribe", "beacon", "closer", "ambassador", "compass"})
+        self.assertEqual(set(reg), {"apollo", "mercury", "hunter", "scribe", "beacon", "closer", "ambassador", "compass", "oracle"})
         agents_dir = os.path.abspath(os.path.join(DEPT, "..", "..", ".claude", "agents"))
         for name, r in reg.items():
             self.assertTrue(os.path.exists(os.path.join(agents_dir, name + ".md")), name)

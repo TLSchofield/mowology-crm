@@ -229,7 +229,7 @@
                   </div>
                   <div class="mw-kanban-cards" data-stage="<?php echo h($stage['stage_key']); ?>">
                     <?php foreach ($stagesData[$stage['stage_key']]['companies'] ?? [] as $company): ?>
-                      <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>">
+                      <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>" data-props="<?php echo $mwPropAttr('company', (int)$company['id']); ?>">
                         <a href="?action=view_company&id=<?php echo (int)$company['id']; ?>" class="mw-card-link">
                           <div class="mw-card-header">
                             <?php if (!empty($company['primary_contact_name'])): ?>
@@ -263,7 +263,7 @@
                     <?php endforeach; ?>
 
                     <?php foreach ($stagesData[$stage['stage_key']]['contacts'] ?? [] as $contact): ?>
-                      <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" style="border-left: 3px solid var(--mw-orange);">
+                      <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" data-props="<?php echo $mwPropAttr('contact', (int)$contact['id']); ?>" style="border-left: 3px solid var(--mw-orange);">
                         <a href="?action=view_contact&id=<?php echo (int)$contact['id']; ?>" class="mw-card-link">
                           <div class="mw-card-header">
                             <strong><?php echo h(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))); ?></strong>
@@ -346,7 +346,7 @@
                         </thead>
                         <tbody>
                           <?php foreach ($clients as $c): ?>
-                          <tr class="mw-client-row<?php echo $c['source_type'] === 'prospect' ? ' mw-row-prospect' : ''; ?>" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>">
+                          <tr class="mw-client-row<?php echo $c['source_type'] === 'prospect' ? ' mw-row-prospect' : ''; ?>" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-props="<?php echo $mwPropAttr('company', (int)$c['id']); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>">
                             <td class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
@@ -358,6 +358,7 @@
                                 <?php elseif ($c['source_type'] === 'prospect'): ?>
                                   <span class="mw-cell-secondary">Prospect</span>
                                 <?php endif; ?>
+                                <span class="mw-cell-secondary mw-prop-match d-none"></span>
                               </a>
                             </td>
                             <td>
@@ -423,10 +424,11 @@
                         </thead>
                         <tbody>
                           <?php foreach ($standaloneContacts as $ct): ?>
-                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>" data-href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>">
+                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>" data-props="<?php echo $mwPropAttr('contact', (int)$ct['id']); ?>" data-href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>">
                             <td>
                               <a href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
+                                <span class="mw-cell-secondary mw-prop-match d-none"></span>
                               </a>
                               <?php if (!empty($ct['stripe_card_last4'])): ?>
                                 <span class="mw-card-on-file-badge" title="Card on file: <?php echo h(ucfirst($ct['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo h($ct['stripe_card_last4']); ?>">

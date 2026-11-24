@@ -53,6 +53,32 @@ class InvoiceRouting
     }
 
     /**
+     * Give a freshly created invoice its client (same rule and order as ContactRosterSync, so the nightly
+     * sync never disagrees): the company's client, else the contact's, else the property's, else the plan's.
+     * Fills only a NULL client_id; never throws (creation must not fail over bookkeeping). Returns rows set.
+     */
+    public static function stampClientId(PDO $db, int $invoiceId): int
+    {
+        if ($invoiceId <= 0) {
+            return 0;
+        }
+        try {
+            $st = $db->prepare("
+                UPDATE invoices SET client_id = COALESCE(
+                    (SELECT id FROM clients WHERE legacy_company_id = invoices.company_id),
+                    (SELECT id FROM clients WHERE legacy_contact_id = invoices.contact_id),
+                    (SELECT client_id FROM properties WHERE id = invoices.property_id),
+                    (SELECT client_id FROM job_plans WHERE id = invoices.plan_id))
+                WHERE id = ? AND client_id IS NULL");
+            $st->execute([$invoiceId]);
+            return $st->rowCount();
+        } catch (Throwable $e) {
+            error_log('[InvoiceRouting] stampClientId failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
      * Cascade: the account's client_contacts (+ its manager's) -> the company's live routing ->
      * determineInvoiceRecipients() -> the property's site contact -> PM-managed firm precedence.
      *
