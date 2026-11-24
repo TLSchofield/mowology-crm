@@ -1038,7 +1038,10 @@ $extraHead = $isPayable
                               //   manual bill_to_name override
                               //   → "{billing_entity} C/O {company}" (PM-managed strata)
                               //   → company_name → contact full name.
-                              if (!empty($invoice['bill_to_name'])) {
+                              // A bill_to_name that is only the contact's own name never beats their company.
+                              $billToIsContactOnly = $contactFullName !== '' && $displayCompany !== ''
+                                  && strcasecmp(trim((string)($invoice['bill_to_name'] ?? '')), $contactFullName) === 0;
+                              if (!empty($invoice['bill_to_name']) && !$billToIsContactOnly) {
                                   $billToHeading = $invoice['bill_to_name'];
                               } elseif ($billingEntity !== '' && $displayCompany !== '') {
                                   $billToHeading = $billingEntity . ' C/O ' . $displayCompany;

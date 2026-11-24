@@ -316,6 +316,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $clientId         = intval($_POST['client_id'] ?? 0);
         $linkedVisitId    = intval($_POST['visit_id'] ?? 0);
 
+        // A property manager's invoice is billed to their COMPANY, with the person as the
+        // attention line. When the form carries only the contact (e.g. a plan with no
+        // company_id), use the contact's employer company so the contact's own account name
+        // is never stored as the payer (INV-2026-0527: "RON HARVIE" instead of
+        // "VANCOUVER MANAGEMENT LTD"; same pattern on 0496, 0164, 0138).
+        if (!$companyId && $contactId) {
+            try {
+                $empStmt = $db->prepare("
+                    SELECT co.id
+                    FROM contacts ct
+                    JOIN companies co ON co.id = COALESCE(ct.employer_company_id, ct.company_id)
+                    WHERE ct.id = ?
+                ");
+                $empStmt->execute([$contactId]);
+                $companyId = (int)($empStmt->fetchColumn() ?: 0);
+            } catch (PDOException $e) {
+                // column missing on an older schema — leave the company unset
+            }
+        }
+
         // Client/Account model: resolve the unified account id when the form
         // didn't carry one (e.g. prefilled-from-visit invoices). Maps the
         // legacy company/contact to its backfilled client. Best-effort: if the
