@@ -7,8 +7,7 @@ declare(strict_types=1);
  * Two contacts are potential duplicates when they share any of:
  *   1. a non-empty email (case-insensitive, trimmed),
  *   2. a phone or mobile number (digits only),
- *   3. a property address (site_contact_id link),
- *   4. first + last name (case-insensitive, trimmed; the last name must be present).
+ *   3. first + last name (case-insensitive, trimmed; the last name must be present).
  *
  * This replaces an all-pairs loop (about 1.2 million comparisons for 1,500 contacts, 5.9 s on
  * production, run on every clients page load). Contacts are grouped by each key instead, so the cost
@@ -18,8 +17,9 @@ declare(strict_types=1);
  * (first appearance in id order) and the same id order inside each list. ContactDuplicateFinderTest
  * keeps a copy of the old loop and compares the two on randomised data.
  *
- * One deliberate difference: addresses are compared as exact strings. The old loop used loose in_array(), so two
- * purely numeric addresses such as "0" and "00" counted as the same place; real street addresses never do.
+ * A shared property address is NOT a duplicate signal (2026-11-24): a building has many people (a property manager,
+ * a strata representative, a signatory, tenants), and offering to merge them was wrong. $addressMap is still accepted
+ * so callers need no change, but it is ignored.
  */
 final class ContactDuplicateFinder
 {
@@ -49,10 +49,6 @@ final class ContactDuplicateFinder
                 if ($digits !== '') {
                     $keys['p' . $digits] = true;
                 }
-            }
-
-            foreach ($addressMap[(int)$c['id']] ?? [] as $addr) {
-                $keys['a' . $addr] = true;
             }
 
             $last = strtolower(trim((string)($c['last_name'] ?? '')));

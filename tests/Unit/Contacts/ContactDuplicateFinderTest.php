@@ -78,8 +78,9 @@ class ContactDuplicateFinderTest extends TestCase
         $byPhone = [$c(1, ['phone' => '(778) 846-9273']), $c(2, ['mobile' => '778.846.9273'])];
         $this->assertSame([1 => [2], 2 => [1]], ContactDuplicateFinder::buildMap($byPhone, []));
 
+        // Sharing a property address alone is not a duplicate (a building has many people: manager, strata rep, owner).
         $byAddr = [$c(1), $c(2)];
-        $this->assertSame([1 => [2], 2 => [1]], ContactDuplicateFinder::buildMap($byAddr, [1 => ['5 oak st'], 2 => ['5 oak st']]));
+        $this->assertSame([], ContactDuplicateFinder::buildMap($byAddr, [1 => ['5 oak st'], 2 => ['5 oak st']]));
 
         $byName = [$c(1, ['first_name' => 'Ann', 'last_name' => 'Lee']), $c(2, ['first_name' => ' ann', 'last_name' => 'LEE '])];
         $this->assertSame([1 => [2], 2 => [1]], ContactDuplicateFinder::buildMap($byName, []));
@@ -120,7 +121,8 @@ class ContactDuplicateFinderTest extends TestCase
                     }
                 }
             }
-            $this->assertSame($this->oldLoop($contacts, $addressMap), ContactDuplicateFinder::buildMap($contacts, $addressMap), "round $round");
+            // the old loop without addresses: the address rule was retired, so the map must ignore addresses entirely
+            $this->assertSame($this->oldLoop($contacts, []), ContactDuplicateFinder::buildMap($contacts, $addressMap), "round $round");
         }
     }
 

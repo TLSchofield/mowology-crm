@@ -108,6 +108,8 @@ unset($__abRow, $__ab, $__style, $__abEx);
               <a href="tel:<?= h(SITE_PHONE_TEL) ?>" class="nav-phone">📞 <?= h(SITE_PHONE_DISPLAY) ?></a>
             </li>
           </ul>
+
+          <a href="/quote?src=header" class="btn btn-primary header-quote-btn">Get a Quote</a>
         </div>
       </div>
     </nav>

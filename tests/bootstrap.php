@@ -473,6 +473,8 @@ require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactMergeLinks.php'
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ClientActionsService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/OnsiteContactService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTeamService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactInvoiceService.php';
+require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractBillingCompany.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTimelineService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/CompanyDeleteGuard.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactDuplicateFinder.php';
@@ -483,6 +485,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceInsightsService
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/ClientPropertySearchIndex.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/RecipientDriftReport.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRosterSync.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRoster.php';

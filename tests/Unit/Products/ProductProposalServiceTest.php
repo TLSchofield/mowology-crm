@@ -101,6 +101,27 @@ class ProductProposalServiceTest extends TestCase
         $this->assertSame(900, (int)$p['label_media_id']);
     }
 
+    public function test_phone_finds_the_proposal_its_photo_made_and_accept_creates_the_product(): void
+    {
+        $db = ProductsTestDb::make();
+        $id = $this->capture($db, LabelReaderServiceTest::SEED);
+        $svc = $this->svc($db);
+        $this->assertNull($svc->forCapture($id), 'no proposal before the label is read');
+        $svc->proposeFromLabel($id);
+        $p = $svc->forCapture($id);
+        $this->assertNotNull($p);
+        $this->assertSame('pending', $p['status']);
+        $before = (int)$db->query("SELECT COUNT(*) FROM products")->fetchColumn();
+        $r = $svc->accept($p['id'], 1, ['name' => 'Sun & Shade Seed 5 kg', 'unit_cost' => '61.50']);
+        $this->assertTrue($r['ok']);
+        $this->assertSame($before + 1, (int)$db->query("SELECT COUNT(*) FROM products")->fetchColumn());
+        $row = $db->query("SELECT name, base_cost FROM products WHERE id = " . (int)$r['id'])->fetch();
+        $this->assertSame('Sun & Shade Seed 5 kg', $row['name']);
+        $this->assertSame(61.5, (float)$row['base_cost']);
+        $this->assertSame('accepted', $svc->forCapture($id)['status']);
+        $this->assertFalse($svc->accept($p['id'], 1)['ok'], 'a second tap adds nothing');
+    }
+
     public function test_cost_change_is_offered_and_applied_on_accept(): void
     {
         $db = ProductsTestDb::make();
