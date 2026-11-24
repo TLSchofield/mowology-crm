@@ -483,6 +483,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceInsightsService
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+require_once __DIR__ . '/../app/Modules/Clients/Services/ClientPropertySearchIndex.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/RecipientDriftReport.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRosterSync.php';
 require_once __DIR__ . '/../app/Modules/Clients/Services/ContactRoster.php';

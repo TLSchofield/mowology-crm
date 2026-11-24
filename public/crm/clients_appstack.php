@@ -7,6 +7,7 @@ require_once 'includes/functions.php';
 require_once 'includes/error-handler.php';
 require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
 require_once APP_ROOT . '/Modules/Contacts/Services/ClientActionsService.php';
+require_once APP_ROOT . '/Modules/Clients/Services/ClientPropertySearchIndex.php';
 require_once APP_ROOT . '/Core/Uploads.php';
 
 requireLogin();
@@ -1688,6 +1689,18 @@ try {
 } catch (Exception $e) {
     $standaloneContacts = [];
 }
+
+// Property names / billing entities per client row, so the search box finds
+// "laburnum" or "VR738" (ClientPropertySearchIndex follows every property link).
+$propertySearchIndex = ['company' => [], 'contact' => []];
+try {
+    $propertySearchIndex = (new ClientPropertySearchIndex($db))->build();
+} catch (Throwable $e) {
+    error_log('clients search property index: ' . $e->getMessage());
+}
+$mwPropAttr = function (string $kind, int $id) use ($propertySearchIndex): string {
+    return h(strtolower(implode('|', $propertySearchIndex[$kind][$id] ?? [])));
+};
 
 // Detect duplicate contacts
 $duplicateMap = [];
