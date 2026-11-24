@@ -33,6 +33,9 @@ TRANSITIONS = {
 for _s in STATES:
     if _s not in TERMINAL:
         TRANSITIONS[(_s, "rejected")] = {"tim"} if _s not in ("discovered", "initial_assessment", "investigating", "evidence_gathering", "awaiting_review") else {"tim", "oracle"}
+# Current services Oracle also studies (owner, 2026-11-24: "it could also prove useful in improving current services"). service -> the head skill that describes it today.
+SERVICES = {"charlie": "kaname-chief-of-staff", "sam": "sam-sales", "penny": "penny-bc-bookkeeping", "otto": "otto-operations", "mia": "mia-marketing",
+            "ada": "ada-technology", "yui": "yui-comms", "crew-apps": "", "platform": ""}
 EXPERIMENT_EXECUTION_ENABLED = False      # levels 4-5 are not granted; experiments are DESIGNED here, never run by Oracle
 EXPERIMENT_FIELDS = ["research_question", "problem", "evidence", "hypothesis", "technology", "expected_benefit", "baseline", "resources",
                      "security", "privacy", "success_criteria", "failure_criteria", "time_box_days"]
@@ -65,12 +68,15 @@ def ensure_schema(db):
     CREATE TABLE IF NOT EXISTS research_opps(
       id INTEGER PRIMARY KEY AUTOINCREMENT, title_norm TEXT NOT NULL, title TEXT NOT NULL, horizon INTEGER NOT NULL, lab TEXT, summary TEXT NOT NULL,
       target TEXT NOT NULL, state TEXT NOT NULL, owner TEXT NOT NULL, evidence TEXT NOT NULL, uncertainty TEXT, cost_to_investigate TEXT, success_looks_like TEXT,
-      next_action TEXT, rejected_reason TEXT, task_id INTEGER, created_at TEXT, updated_at TEXT);
+      next_action TEXT, rejected_reason TEXT, task_id INTEGER, service TEXT NOT NULL DEFAULT '', created_at TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS service_reviews(service TEXT PRIMARY KEY, reviewed_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS research_history(id INTEGER PRIMARY KEY AUTOINCREMENT, opp_id INTEGER, from_state TEXT, to_state TEXT, actor TEXT, note TEXT, at TEXT);
     CREATE TABLE IF NOT EXISTS research_experiments(
       id INTEGER PRIMARY KEY AUTOINCREMENT, opp_id INTEGER NOT NULL, fields TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'proposed', approved_by TEXT, approved_at TEXT,
       results TEXT, limitations TEXT, verified_by TEXT, created_at TEXT);
     """)
+    if "service" not in [r["name"] for r in db.execute("PRAGMA table_info(research_opps)").fetchall()]:
+        db.execute("ALTER TABLE research_opps ADD COLUMN service TEXT NOT NULL DEFAULT ''")
     db.commit()
 
 
@@ -124,13 +130,15 @@ def upsert_radar(db, tech, ring, sources, fields, new_evidence="", rejection_rea
 
 
 # ---------------------------------------------------------- opportunities
-def add_opportunity(db, title, horizon, summary, target, evidence, lab="", uncertainty="", cost="", success="", next_action="", new_evidence="", actor="oracle"):
+def add_opportunity(db, title, horizon, summary, target, evidence, lab="", uncertainty="", cost="", success="", next_action="", new_evidence="", actor="oracle", service=""):
     if horizon not in (1, 2, 3):
         raise Refused("horizon must be 1, 2 or 3")
     if target not in ("ada", "apollo"):
         raise Refused("target must be ada or apollo")
     if not (title.strip() and summary.strip()):
         raise Refused("title and summary required")
+    if service and service not in SERVICES:
+        raise Refused("service must be one of %s" % sorted(SERVICES))
     if not evidence or not all(e.get("fact") and e.get("source") and e.get("accessed") for e in evidence):
         raise Refused("every evidence item needs fact, source and accessed date; opportunities without evidence are not recorded")
     key = norm(title)
@@ -141,8 +149,8 @@ def add_opportunity(db, title, horizon, summary, target, evidence, lab="", uncer
                 raise Refused("already tracked as #%d (%s)" % (o["id"], o["state"]))
             if len(new_evidence.strip()) < 40:
                 raise Refused("already rejected (#%d: %s); it returns only with significant new evidence" % (o["id"], o["rejected_reason"] or "no reason recorded"))
-    cur = db.execute("INSERT INTO research_opps(title_norm,title,horizon,lab,summary,target,state,owner,evidence,uncertainty,cost_to_investigate,success_looks_like,next_action,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                     (key, title, horizon, lab, summary, target, "discovered", "oracle", json.dumps(evidence), uncertainty, cost, success, next_action, now(), now()))
+    cur = db.execute("INSERT INTO research_opps(title_norm,title,horizon,lab,summary,target,state,owner,evidence,uncertainty,cost_to_investigate,success_looks_like,next_action,service,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (key, title, horizon, lab, summary, target, "discovered", "oracle", json.dumps(evidence), uncertainty, cost, success, next_action, service, now(), now()))
     db.execute("INSERT INTO research_history(opp_id,from_state,to_state,actor,note,at) VALUES(?,?,?,?,?,?)", (cur.lastrowid, None, "discovered", actor, "created", now()))
     db.commit()
     return cur.lastrowid
@@ -216,6 +224,29 @@ def transfer(db, ada, oid):
     return tid
 
 
+# ------------------------------------------------- current services
+def next_service(db):
+    """The service reviewed longest ago (never-reviewed first, in the order above): one per weekly run, so every current service gets a turn."""
+    seen = {r["service"]: r["reviewed_at"] for r in db.execute("SELECT * FROM service_reviews").fetchall()}
+    return sorted(SERVICES, key=lambda k: (seen.get(k, ""), list(SERVICES).index(k)))[0]
+
+
+def mark_reviewed(db, service):
+    db.execute("INSERT INTO service_reviews(service, reviewed_at) VALUES(?,?) ON CONFLICT(service) DO UPDATE SET reviewed_at=excluded.reviewed_at", (service, now()))
+    db.commit()
+
+
+def service_summary(service, skills_dir):
+    """What the service does TODAY, from its head skill (description + the first lines), bounded. Empty when there is no skill to read."""
+    import os
+    name = SERVICES.get(service, "")
+    p = os.path.join(skills_dir or "", name, "SKILL.md") if name else ""
+    if not name or not os.path.exists(p):
+        return ""
+    text = open(p, encoding="utf-8", errors="ignore").read()
+    return text[:3500]
+
+
 # ------------------------------------------------------------- context
 def context(db):
     """What Oracle is told before researching: the radar with review dates (do not redo), the rejected list, open opportunities."""
@@ -259,4 +290,6 @@ def weekly_briefing(db, date=None):
     risks = ["- %s: only vendor claims so far (evidence rank 0)" % r["tech"] for r in db.execute("SELECT tech FROM radar WHERE evidence_rank=0").fetchall()]
     risks += ["- Overdue review: %s (was due %s)" % (r["tech"], r["next_review"]) for r in db.execute("SELECT tech, next_review FROM radar WHERE next_review < ?", (date,)).fetchall()]
     sec("Risks and limitations", "\n".join(risks))
+    cur = db.execute("SELECT * FROM research_opps WHERE service != '' AND state NOT IN ('rejected','completed') ORDER BY id DESC LIMIT 3").fetchall()
+    sec("Improving what already exists", "\n".join("- **%s** (%s, H%d, for %s): %s" % (o["title"], o["service"], o["horizon"], o["target"], o["summary"][:200]) for o in cur))
     return "\n".join(L)

@@ -86,7 +86,7 @@
       "kind": "model",
       "role": "Strategic foresight and research for Ada and Apollo (lean): technology radar, opportunity register, experiment designs, weekly briefing",
       "spec": "docs/department/specs/oracle.md",
-      "does": "Researches emerging technology and strategy for both departments from primary sources: a technology radar (Adopt/Trial/Assess/Watch/Avoid), a register of opportunities with 17 states, experiment designs and one weekly briefing. Recommend-only; hands ideas to Ada or Apollo as ordinary proposals for your approval.",
+      "does": "Researches emerging technology and strategy for both departments from primary sources: a technology radar (Adopt/Trial/Assess/Watch/Avoid), a register of opportunities with 17 states, experiment designs and one weekly briefing. Each week it also studies ONE current service (Charlie, Sam, Penny, Otto, Mia, Ada, Yui, the crew apps or the platform) and proposes research-backed improvements to it. Recommend-only; hands ideas to Ada or Apollo as ordinary proposals for your approval.",
       "limits": "Switched off until you run: ada oracle on (Wednesdays). Designs experiments but cannot run them. A vendor claim alone can never lift a technology above Assess.",
       "wake": "ada oracle on"
     },

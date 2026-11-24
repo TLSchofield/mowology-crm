@@ -546,7 +546,7 @@ def cycle(db, today=None):
         if d.weekday() == 6:
             add_task(db, "sentinel:audit:weekly:" + today, "Sentinel weekly audit " + today, "audit", "sentinel", payload={"audit": "weekly"})
         if get_ctl(db, "oracle_on") and AG.cli_ready() and d.weekday() == 2:
-            add_task(db, "oracle:weekly:" + today, "Oracle weekly research " + today, "research", "oracle", payload={"input": {"focus": "weekly radar review: entries due for review, then at most 3 new findings"}})
+            add_task(db, "oracle:weekly:" + today, "Oracle weekly research " + today, "research", "oracle", payload={"input": {"focus": "weekly radar review: entries due for review, then at most 3 new findings; then the current-service review below", "service_focus": ORC.next_service(db)}})
         if get_ctl(db, "commercial_on") and AG.cli_ready():
             if d.weekday() == 0:
                 add_task(db, "compass:market:" + today, "Compass weekly market review " + today, "commercial", "compass", payload={"input": {"focus": "see memory/compass/brief.md; evidence with sources only"}})
