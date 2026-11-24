@@ -54,7 +54,11 @@ final class BatchFSmallFixesTest extends TestCase
     public function testRecipientLookupDatabaseFailureReturnsJsonError(): void
     {
         $source = $this->source('app/Modules/Invoices/Api/api-get-recipients.php');
-        self::assertMatchesRegularExpression('/catch \(PDOException \$e\).*?error_log\(get_class\(\$e\).*?http_response_code\(500\).*?exit;/s', $source);
+        // The lookup moved into InvoiceRouting::resolveInvoiceRecipients() (2026-11-24): the service logs and throws,
+        // the API answers 500 JSON.
+        self::assertMatchesRegularExpression('/catch \(InvoiceRecipientsLoadException \$e\).*?http_response_code\(500\).*?exit;/s', $source);
+        $service = $this->source('app/Modules/Invoices/Services/InvoiceRouting.php');
+        self::assertMatchesRegularExpression('/catch \(PDOException \$e\).*?error_log\(get_class\(\$e\).*?throw new InvoiceRecipientsLoadException/s', $service);
     }
 
     public function testPasswordResetRequiresUpdatedUserRow(): void
